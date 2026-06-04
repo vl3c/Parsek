@@ -332,5 +332,28 @@ namespace Parsek.Tests
             Assert.Equal("[Parsek][VERBOSE][UnitTest] rp2 first", lines[1]);
             Assert.Equal("[Parsek][VERBOSE][UnitTest] rp1 after clear", lines[2]);
         }
+
+        [Fact]
+        public void VerboseOnChange_MessageFactoryRunsOnlyOnChange()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            int factoryCalls = 0;
+            System.Func<string> factory = () => { factoryCalls++; return "decision"; };
+
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "K1", factory); // first -> emits + builds
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "K1", factory); // stable -> suppressed, NO build
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "K1", factory); // stable -> suppressed, NO build
+            ParsekLog.VerboseOnChange("UnitTest", "rec-A", "K2", factory); // change -> emits + builds
+
+            Assert.Equal(2, lines.Count);
+            // The factory must run ONLY on the two emissions, never on the two suppressed stable repeats.
+            Assert.Equal(2, factoryCalls);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] decision", lines[0]);
+            Assert.Equal("[Parsek][VERBOSE][UnitTest] decision | suppressed=2", lines[1]);
+        }
     }
 }

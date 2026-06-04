@@ -12,6 +12,37 @@ own PR, built in the phases in `docs/dev/plans/mission-periodicity-phases.md`.*
 
 ---
 
+## ⚠️ Superseded: transfer re-aim is the live approach (2026-06-02)
+
+> **This document's "replay the recorded transfer as-is; never re-aim" decision is
+> OBSOLETE for the interplanetary transfer leg.** The current, implemented approach
+> generates the heliocentric transfer per launch window with a Lambert solve so it
+> always intercepts the target — see
+> `docs/dev/done/plans/reaim-interplanetary-transfers.md`.
+>
+> **Why it changed:** the recorded celestial configuration (the launch body's rotation
+> AND every transited body's orbital phase) is set by periods that are mutually
+> incommensurate, so the exact recorded configuration only recurs on their joint
+> resonance — for an interplanetary target that best-fit window is effectively
+> centuries away. A pure replay-as-is loop would almost never get to launch. Re-aim
+> removes that wall: the transfer is recomputed for whatever window we choose, so a
+> usable cadence AND good transfer geometry are always available.
+>
+> **How the two layers now compose (the reconciliation):** the window scheduling in
+> this doc still owns the parts that timing alone *can* make faithful — the
+> launch-site rotation lock, and reusing the recorded SOI-local arcs (ascent/parking,
+> arrival/landing) at a favorable body configuration. Re-aim owns the one part timing
+> alone cannot fix: the heliocentric bridge between SOIs. So everything below about
+> `P`, the constraint extractor, the next-window countdown, and loiter trimming stays
+> valid for the *recorded, replayed* segments; only the premise "the recorded transfer
+> is replayed unchanged" is replaced by "the transfer is regenerated deterministically
+> per window." Correspondingly, the "cross-parent / interplanetary is not yet
+> supported — detect and report" caveats below (the `UnsupportedCrossParent` Support
+> flag, the Phase-4 deferral) are superseded where re-aim now covers a single
+> launch-SOI → other-SOI hop.
+
+---
+
 ## Why this exists
 
 Looping a mission as a unit (#958) replays the recorded trajectory faithfully
@@ -100,6 +131,833 @@ where:
 
 The loop should relaunch on a cadence that is a multiple of `P`, with the span
 clock's `phaseAnchor` aligned so cycle 0 lands on a faithful `UT0 + k*P`.
+
+---
+
+## Degrees of freedom: looped re-aimed interplanetary missions
+
+Everything above describes the SAME-PARENT model: pick ONE launch UT (`UT0 + k*P`)
+where every dependent body recurs to its recorded phase. For a CROSS-PARENT
+(interplanetary) mission the transfer is no longer replayed as-is; it is regenerated
+per window by re-aim (`docs/dev/done/plans/reaim-interplanetary-transfers.md`, see the
+Superseded banner). That regeneration changes the problem: the launch and the arrival
+are no longer locked to one instant, so the question becomes WHICH degrees of freedom
+are free and which are recorded, and how the free ones are spent JOINTLY per window to
+align the arrival without degrading the launch cadence.
+
+This section pins that for a looped re-aimed interplanetary mission that LANDS (the
+flagship case is save `s15` "Duna One", Kerbin -> Duna). The next section is the
+design that consumes it.
+
+### The flexibility chain (deterministic vs flexible)
+
+Each link is DETERMINISTIC (a hard constraint that replays exactly relative to its OWN
+recorded clock) or FLEXIBLE (slack the scheduler may spend). DETERMINISTIC here does
+NOT mean "absolute-UT fixed"; it means "exact relative to its own recorded clock once
+we choose when that clock starts."
+
+```
+L0  moment of launch          FLEXIBLE        delay until the schedule says "go"
+L1  launch -> loiter orbit     DETERMINISTIC   recorded ascent (mesh + animation exact)
+L2  launch loiter orbit count  FLEXIBLE        trim recorded N orbits down (launch side)
+L3  orbit -> SOI exit          DETERMINISTIC   recorded escape burn
+L4  departure SOI exit          FLEXIBLE        angle AND timing free (high-warp coast)
+L5  heliocentric transfer      DETERMINISTIC*  solver-REGENERATED per window, then exact
+L6  destination SOI entry       FLEXIBLE        angle AND timing free (favorable config)
+L7  in-SOI recorded arcs       DETERMINISTIC   recorded RELATIVE to SOI entry
+L8  destination loiter count    FLEXIBLE        trim to align with recorded descent
+L9  descent / landing          DETERMINISTIC   recorded body-fixed, plays exactly
+```
+
+`L5` is "deterministic after regeneration": its SHAPE (recorded time-of-flight,
+handedness) is fixed, but it is recomputed each window so it points where the bodies
+actually are. This is the shipped re-aim contract
+(`ReaimPlaybackResolver.BuildWindowSegments`). It is what makes the chain solvable: a
+fixed-shape transfer recomputed per window lets a launch-aligned departure and a
+destination-aligned arrival both be hit, because the transfer's inertial orientation
+is a free OUTPUT, not a recorded input.
+
+The SOI entry/exit DIRECTION and ANGLE (`L4`, `L6`) never appear as constraints. The
+recorded in-SOI arcs are anchored to entry, so WHERE the ghost crosses the SOI edge is
+irrelevant; only WHEN it crosses (which destination configuration is live then)
+matters. One honesty note on the table's `L4` / `L6` "timing free": the DIRECTION/angle
+is genuinely free, and WHEN is flexible in the user's sense (wait as long as needed for a
+favorable configuration). That WHEN is spent as a per-window knob: within each synodic
+window the departure / SOI-entry timing slack (realized in the shipped code through the
+thin tof band around the recorded departure) shifts the arrival instant onto a favorable
+destination configuration. It is one of several knobs spent JOINTLY per window, NOT a
+selection of a rare naturally-aligned window. See the cadence-preserving multi-knob model
+below.
+
+### What is actually misaligned across the loop shift
+
+Replayed at an arbitrary loop-shifted time, only two live-sky quantities inside the
+destination SOI can be wrong, and both are pure periodic functions of absolute UT:
+
+1. The destination body's **rotation phase**, period `T_rot(dest)`
+   (`IBodyInfo.RotationPeriod`). This is the Bug-2 symptom: across the `s15` loop shift
+   (~`1.572e9` s) the destination rotates an arbitrary fraction of a turn, so the
+   inertial capture orbit and the body-fixed landing site diverge (~131 degrees on the
+   map; the icon overshoots the landing, then snaps onto the body-fixed descent
+   polyline).
+2. Each inner moon's **orbital phase**, period `T_orb(moon)`
+   (`IBodyInfo.OrbitPeriod`).
+
+The recorded ascent, escape, in-SOI arcs, and descent are all recorded relative to
+their own clock or body-fixed, so they replay faithfully the moment we fix WHEN that
+clock starts.
+
+### HARD REQUIREMENT: preserve the synodic launch cadence
+
+> **The looped launch cadence MUST stay at the synodic period (about every 2 Kerbin
+> years for Kerbin -> Duna). The feature does NOT relaunch only at rare naturally
+> aligned windows.** Every synodic window is a valid launch opportunity. Arrival
+> alignment is achieved by spending the FLEXIBLE knobs WITHIN each window (the
+> destination loiter trim when one was recorded, the departure / SOI-entry timing slack,
+> the launch-side loiter trim, and the thin tof band), NEVER by skipping ahead to a rare
+> window where the bodies happen to be naturally aligned.
+>
+> The knobs work JOINTLY per window: for a given synodic window the resolver spends them
+> together to land the arrival on the recorded destination configuration. If a given
+> window genuinely cannot be aligned by any available knob, the feature FAILS CLOSED to
+> faithful for THAT window (it shows the un-aligned arrival as a visible state) and moves
+> on to the next synodic window; it does NOT skip the window or stretch the cadence. So
+> the synodic launch cadence is preserved either way: aligned-within-window when the
+> knobs reach, visibly-un-aligned when they do not.
+>
+> This is the load-bearing requirement of the whole feature. Earlier drafts mis-modelled
+> it as collapsing to "select a naturally aligned window index on a ~2-Kerbin-year grid,"
+> which would degrade launch opportunities from every ~2 years to (for a Loose tolerance,
+> see the feasibility envelope) roughly every ~140 years. That single-grid-scalar
+> conclusion is WRONG and is replaced by the multi-knob model below.
+
+### The two arrival flex points (call them out separately)
+
+Inside the destination SOI there are exactly TWO distinct alignment knobs. They are
+separate controls and must be reasoned about separately:
+
+- **Arrival flex point #1: destination SOI-ENTRY timing.** Choose WHEN the ghost enters
+  the destination SOI (and thus switches from the heliocentric orbit to the recorded
+  in-SOI arcs) so the internal system configuration (the destination's rotation phase and
+  any inner moon's orbital phase) is similar to what was recorded. This makes moon
+  approaches render like the original, exactly the same flexibility the existing
+  Kerbin -> Mun alignment uses. Easy for a 0- or 1-moon body; harder for a Jool-class
+  "mini star system" (deferred). Realized through `L4` / `L6` timing slack, spent within
+  the window via the tof band around the recorded departure.
+- **Arrival flex point #2: destination LOITER-orbit count.** When a destination loiter
+  was recorded and the mission is not going directly to landing / atmospheric entry,
+  choose the number of destination loiter orbits to align EXACTLY with the recorded
+  landing-trajectory end. This is `L8`, the integer-period re-timer.
+
+**They are not fully independent.** When a mission records NO destination loiter (see the
+Duna One worked example below), the in-SOI sequence is rigid: capture-then-land within a
+single destination day, with nothing for knob #2 to trim. In that case the SOI-entry
+timing (#1) ALONE also aligns the landing, because once entry is on the recorded rotation
+phase the rigid in-SOI sequence reproduces the recorded touchdown. When a long destination
+loiter WAS recorded, the two knobs combine: #1 sets the entry configuration and #2 picks
+which recorded loiter revolution becomes the effective deorbit so the landing lines up.
+
+### The cadence-preserving multi-knob model
+
+The arrival is aligned by a SET of jointly-spent per-window knobs, NOT by collapsing to a
+single grid-selected scalar. Per synodic window `k` (the coarse cadence knob, fixed at the
+synodic period and never lengthened) the resolver spends, jointly:
+
+- **Coarse (selects the window, preserves cadence):** the synodic window index `k`. Window
+  `k` has departure `D_k = RecordedDepartureUT + k*synodic` and arrival near `D_k + tof`.
+  Every `k` is a valid launch opportunity; we do not skip `k` values to find a naturally
+  aligned one.
+- **Fine arrival lever (within the window, arrival flex point #1):** the time-of-flight
+  band around the recorded departure (the shipped `ReaimPlaybackResolver` tof search,
+  `TofSearchStepFraction = 0.005`, `SearchMaxSteps = 12`, about +-6 percent of the recorded
+  tof). The departure stays pinned at `D_k`; only the TARGET end moves, sliding the arrival
+  instant and thus the destination rotation phase. A TINY nudge (a fraction of a percent of
+  tof, far inside the band) sweeps a full destination rotation, so for many windows the tof
+  lever alone reaches the recorded entry phase. See the tof-as-phase-lever nuance below.
+- **Launch-side trim:** the `L2` launch-parking compression (already ships).
+- **Destination-side trim (within the window, arrival flex point #2):** the `L8`
+  destination loiter count, a COARSE integer re-timer that steps the surface-arrival phase
+  by whole loiter revolutions, used only when a loiter was recorded.
+
+Given the chosen window `k` and these knobs, `L0` / `L4` / `L6` (launch moment,
+departure-wait, SOI-entry timing) follow: the regenerated transfer (recorded tof) sets the
+departure near `arrival - tof`, and the launch back-snaps to a whole launch-body sidereal
+day via the EXISTING `PadAlignLaunch`. `L5` is regenerated, not chosen. The point is that
+the arrival is aligned WITHIN each synodic window by spending these knobs jointly, never by
+hunting across windows for a rare natural alignment.
+
+### The honest qualifier (the arrival is window-quantized + tof band + integer loiter)
+
+The arrival instant is not a freely-dialed continuous scalar; it is QUANTIZED. As shipped,
+`ReaimPlaybackResolver.BuildWindowSegments` pins the heliocentric departure at the nominal
+`D_k = RecordedDepartureUT + k*synodic` and searches ONLY the time-of-flight within about
++-6 percent (`TofSearchStepFraction = 0.005`, `SearchMaxSteps = 12`,
+`ReaimPlaybackResolver.cs:179-204`). The tof search exists primarily as a 180-degree
+single-rev Lambert degeneracy DODGE (step 0 = recorded tof converges for almost every
+window), and the code carries an explicit comment that searching the DEPARTURE to move the
+arrival was tried and reverted ("transfer hung in front of Kerbin",
+`ReaimPlaybackResolver.cs:165-178`). The loiter trim is likewise integer (whole loiter
+revolutions), not a continuous vernier.
+
+These honest facts are real and the alignment design respects them. What they do NOT imply
+is the cadence-degrading conclusion of earlier drafts ("therefore the feature can only
+relaunch at a rare grid-selected window `k`"). The correct reading: the arrival is
+quantized, but the knobs are spent JOINTLY WITHIN each synodic window to align that
+window's arrival. The cadence stays synodic. The crucial nuance, distinct from the reverted
+DEPARTURE search: a TINY tof nudge (far inside the +-6 percent conditioning bound, a
+fraction of a percent of tof) is a safe arrival PHASE LEVER, because it moves only the
+target end while the launch endpoint stays glued to `D_k`. This is NOT the reverted wide
+departure search, and it is what lets a no-loiter mission align every window from the tof
+band alone (worked through next). The feasibility envelope below quantifies when the tof
+lever and the loiter trim suffice; when they do not for a given window, the feature fails
+closed to faithful for that window and the next synodic window is still on cadence.
+
+### Worked example: Duna One (s15), the tof band is the active arrival knob
+
+The flagship case (save `s15` "Duna One", Kerbin -> Duna, verified from the
+`logs/2026-06-03_1951_duna-arrival/KSP.log` ReaimDiag dump and the recording
+`61e9177...prec`) shows the multi-knob model in action with the simplest possible arrival
+side: no destination loiter and no constrained moon, so only knob #1 (SOI-entry timing via
+the tof band) is in play.
+
+The recorded numbers:
+
+- LAUNCH side: a Kerbin parking loiter of ~132 days, already compressed by the shipped
+  single launch-side loiter cut (`cut#0 start=52570174 len=11393869`, the `L2` trim).
+- Heliocentric transfer: `tof = 6,854,613 s` (about 79.3 days). The Kerbin -> Duna synodic
+  period is `19,653,076 s` (about 2.1 Kerbin years): the on-cadence launch interval.
+- INSIDE the Duna SOI: arrival at `70,898,646` through the last orbit segment end at
+  `70,963,653` is about `65,007 s` (~18.1 hours, about 0.99 of one Duna rotation). It is an
+  arrival hyperbola (negative-sma capture), then a few SUB-1-revolution low orbits
+  (revs 0.45 / 0.32 / 0.02 / 0.09, about 0.88 rev total), then the descent. So Duna One
+  records NO destination parking loiter (it captures and lands within ~1 Duna day). It DOES
+  record a brief Ike SOI transit (two short hyperbolic Ike orbit segments, ~37 minutes
+  total, about 16 hours after Duna arrival), but that transit imposes NO INDEPENDENT
+  constraint: Ike is tidally locked to Duna, so its orbital phase collapses onto Duna's
+  rotation phase (the Ike tidal-collapse note below). Aligning Duna's rotation auto-aligns
+  Ike, so there is one effective destination constraint, not two.
+
+The implication, which is the whole point:
+
+- Knob #2 (destination loiter count) has NOTHING to trim, and there is no moon to align, so
+  the ONLY within-window alignment knob is the thin tof band used as a small phase lever on
+  the SOI-entry timing (#1).
+- The arithmetic for that lever is favorable: tof is ~79.3 days; the +-6 percent band is
+  +-4.76 days. One Duna rotation is `65,518 s` = 0.758 days. So a tof nudge of less than 0.5
+  percent of tof (about +-0.38 days, well inside the +-6 percent band, which has roughly 12x
+  that range) would sweep a FULL Duna rotation phase. Because the in-SOI sequence is rigid
+  (no loiter), aligning the entry rotation phase would ALSO align the landing (knobs #1 and
+  #2 collapse to #1 here, per the non-independence note above).
+- But this tof-as-phase-lever is NOT yet validated. It is the open feasibility crux (the
+  destination-side equivalent of Appendix A.2 in the companion plan): whether the band is
+  wide enough and well-conditioned enough at its edges to serve as a deliberate phase lever,
+  not merely a 180-degree single-rev Lambert degeneracy dodge. v1 keeps step 0 (the recorded
+  tof) primary and uses the band ONLY as that degeneracy dodge, NOT as a deliberate phase
+  lever.
+
+The honest consequence: for Duna One the Bug-2 fix HINGES on validating the
+tof-as-phase-lever. IF it validates (a sub-half-percent nudge, far inside the +-6 percent
+band, kept geometrically faithful), it would align every synodic window and preserve the
+~2.1 Kerbin-year cadence. Until and unless it validates, Duna One reaches alignment only on
+naturally favorable windows or the amber bounded-best, and otherwise FAILS CLOSED to
+faithful (the un-aligned arrival shown above). The synodic launch cadence is preserved
+EITHER WAY: the cadence guarantee never depends on the tof lever, only the ALIGNMENT of
+Duna One does. This is distinct from the reverted DEPARTURE search (which moved the launch
+endpoint and broke the transfer); the tof lever moves only the arrival end while the launch
+stays pinned at `D_k`.
+
+---
+
+## Cross-parent destination-SOI arrival-UT alignment (Phase 4)
+
+*Status: design note for the deferred Phase 4 (the `UnsupportedCrossParent` Support
+flag, the "synodic, Phase 4" deferral). It proposes NO production code. It is a NEW
+temporal scheduling layer that sits ON TOP of the shipped per-window transfer synthesis
+and feeds it an arrival UT; it does not touch the launch pad lock (already correct) or
+the geometric Lambert capture seam (already shipped + guarded). The companion
+implementation plan lives at
+`docs/dev/plans/reaim-destination-arrival-alignment.md`.
+
+### Shipped and confirmed-good: the launch -> destination-SOI-entry pipeline (do NOT regress)
+
+> **This is a regression fence, not a description of new work.** The user confirmed in
+> playtest that the ENTIRE pipeline from launch up to the moment the ghost ENTERS the
+> destination SOI renders correctly. That stretch is SHIPPED and confirmed-good and MUST
+> NOT be regressed by this feature. The only thing broken (and the only thing this feature
+> fixes) is the in-SOI arrival AFTER SOI entry: the ~131-degree rotation / landing
+> misalignment once the ghost is inside the destination SOI.
+
+The following are SHIPPED and confirmed-good in playtest. They MUST stay byte-identical
+when destination alignment is OFF, and their generation machinery is NEVER modified by this
+feature:
+
+- recorded ascent and body-fixed landing playback (`L1` / `L9`: meshes + animations exact);
+- launch-side loiter playback and its compression (`ReaimLoiterCompressor`, `L2`);
+- the launch-pad rotation lock (`ReaimWindowPlanner.PadAlignLaunch`);
+- the escape burn / departure SOI exit (`L3`);
+- the per-window HELIOCENTRIC TRANSFER regeneration
+  (`ReaimPlaybackResolver.BuildWindowSegments` /
+  `ReaimSegmentAssembler.ReplaceHeliocentricLeg`) and the accepted SOI-edge geometric seam;
+- everything up to and INCLUDING destination-SOI ENTRY.
+
+**This feature is CONFINED to the destination-side in-SOI arrival temporal / rotation
+alignment (what happens AFTER SOI entry).** With alignment OFF (or unsupported, or no
+aligned window found), the entire launch -> SOI-entry pipeline is byte-identical to today.
+That is the fail-closed contract: the feature either aligns the in-SOI arrival or visibly
+does nothing, and either way the upstream pipeline is untouched.
+
+**The one honest exception (state it explicitly).** The ONLY upstream parameter this
+feature can affect is the heliocentric transfer's TIME OF FLIGHT, and only via the tof
+SELECTION inside `ReaimPlaybackResolver`'s EXISTING +-6 percent search band (the
+tof-as-phase-lever), and only when alignment is engaged. It does NOT modify the
+transfer-generation machinery. When alignment is off it selects the recorded tof (today's
+exact behavior). When alignment is engaged the nudge is sub-0.5 percent of tof (visually
+faithful: the transfer still renders as the same clean regenerated arc), and it FAILS
+CLOSED to the recorded tof if it cannot stay geometrically faithful. So the working
+heliocentric transfer is preserved: same machinery, recorded tof by default, at most a
+sub-0.5 percent in-band tof selection when alignment is on, fail-closed otherwise. This
+tof-as-phase-lever is the open feasibility crux carried in the Duna One worked example and
+the companion plan's Appendix A.2; it is the only sanctioned upstream touch point and it
+remains gated behind alignment-engaged + fail-closed.
+
+**Implementation guardrail.** Any P3+ code change is additive and gated such that the
+launch -> SOI-entry pipeline code paths are unchanged when alignment is off. A reviewer
+must verify this directly: it is the same "null / off => byte-identical" invariant the
+earlier phases already hold to.
+
+### Why this exists
+
+Re-aim aligns ONLY the LAUNCH side. `ReaimWindowPlanner.PadAlignLaunch`
+(`MissionLoopUnitBuilder.cs:468-502`) snaps the relaunch so
+`(livePhaseAnchorUT - recordedLaunchUT)` is a whole number of the LAUNCH body's
+sidereal days and quantizes the cadence to that sidereal day, so the body-fixed ascent
+feeds the recorded inertial parking orbit with no seam. There is NO equivalent on the
+DESTINATION side: nothing forces the live arrival UT onto an instant where the
+destination's rotation phase (and any inner moon's orbital phase) match the recorded
+entry. So everything inside the destination SOI replays at the recorded epoch under the
+loop shift while the destination keeps rotating, and the inertial capture orbit lands
+~131 degrees off the body-fixed landing site. That un-chosen arrival UT is exactly the
+Bug-2 offset.
+
+This is the deferred cross-parent twin of the same-parent "Landing-body alignment"
+control (Off/Loose/Precise) that already ships for Mun/Minmus missions. The cross-parent
+version was flagged `UnsupportedCrossParent` and deferred to "Phase 4." This is that
+phase, reframed: the controlling variable is the destination-SOI arrival UT (decoupled
+from the launch UT by re-aim's per-window regeneration), not a synodic-period launch-UT
+lock.
+
+This layer is complementary to, and distinct from, the prior re-aim "arrival fix" work.
+That work solved the GEOMETRIC seam (connecting the heliocentric transfer to the
+recorded in-SOI arcs in POSITION space via a Lambert capture). This is the
+TEMPORAL / ROTATION-PHASE layer: choosing the arrival UT so the destination
+CONFIGURATION at arrival matches the recorded entry. Do not conflate the two.
+
+### What three earlier drafts got wrong (corrected against source)
+
+These corrections are load-bearing; the design below reflects them, not the original
+assertions.
+
+1. **"Arrival UT is a freely selectable continuous variable."** FALSE as shipped, and
+   ALSO false to over-correct into "therefore the feature selects a rare naturally aligned
+   window on the synodic grid." The arrival is QUANTIZED (synodic window `k` + the thin tof
+   band + the integer loiter trim, per the honest qualifier above), but it is aligned by
+   spending those knobs JOINTLY WITHIN each synodic window, NOT by hunting across windows
+   for a natural alignment. The launch cadence stays synodic (the HARD REQUIREMENT block);
+   alignment happens within a window, with fail-closed-to-faithful for any window the knobs
+   cannot reach. A TINY tof nudge (a fraction of a percent of tof, far inside the +-6
+   percent band) is a safe arrival phase lever because it moves only the target end while
+   the launch stays pinned at `D_k`; this is distinct from the reverted DEPARTURE search.
+   The cadence-degrading single-grid-scalar conclusion of those earlier drafts is the
+   specific error this section retires.
+
+2. **"The loiter trim is a continuous fractional residual absorber."** FALSE.
+   `ReaimLoiterCompressor.ComputeCuts` excises WHOLE periods from the run START and
+   keeps the tail "ending at the recorded run end so the exit phase is preserved"
+   (`ReaimLoiterCompressor.cs:54-56,131`). Cuts are integer multiples of the loiter
+   period; the recorded EXIT phase relative to the run end is invariant. The compressor
+   detects ALL same-body loiter runs and is called with the fixed default
+   `keepRevs = 1` (`DefaultKeepRevs`, line 22). So the loiter trim is a COARSE
+   integer re-timer, not a fine vernier (see the loiter-trim subsection).
+
+3. **"Aligning the arrival UT makes the body-fixed descent and the inertial orbit
+   coincide automatically."** UNVERIFIED, and the render path makes it non-trivial.
+   `ReaimedTrajectory` renders the re-aim ghost trajectory ONLY from `OrbitSegments`;
+   its `Points` and `TrackSections` return EMPTY
+   (`ReaimedTrajectory.cs:15-19,63-64`). The body-fixed descent polyline is drawn by a
+   SEPARATE autonomous renderer (`Display/GhostTrajectoryPolylineRenderer.Driver`,
+   walking `RecordingStore.CommittedRecordings` at the LIVE clock). The arrival-UT
+   decision threads into the OrbitSegment path automatically (via the schedule) but does
+   NOT thread into the autonomous surface-polyline path today. Closing that thread is a
+   verification gate of this design, not an assumed side effect.
+
+### The destination-side constraint set
+
+Mirror the existing two-kind constraint model (`ConstraintKind` Rotation / Orbital),
+but anchored to the recorded DESTINATION configuration rather than to the launch `UT0`:
+
+- **`DestRotation(dest)`**, emitted only when the recorded in-SOI arcs include BOTH a
+  destination surface/atmospheric segment AND a destination inertial-orbit segment (the
+  arrival-orbit-to-descent hand-off). This is the exact pair rule the launch side uses
+  (rules 1 + 2 above). A LANDING fires it; an orbit-only flyby does NOT (orbit-only
+  arrivals render correctly at any rotation phase). Period `T_rot(dest)`.
+- **`MoonConfig(m)`**, one per inner moon `m` whose phase is visible in the recorded
+  in-SOI window. Kind Orbital, period `T_orb(m about dest)`.
+
+The recorded reference UTs are extractable from existing data, with no new persisted
+field and no recording-format change:
+
+- The destination surface-start UT (the `DestRotation` reference) is NOT on the re-aim
+  plan (an earlier draft referenced a non-existent `ReaimMissionPlan.RecordedDescentUT`;
+  no such field exists). It IS recoverable from the recording's surface TrackSections
+  via the existing `MissionPeriodicity.ScanSurfaceSegmentsWithinWindow`
+  (`MissionPeriodicity.cs:1218-1245`), which already scans rotation-constraining
+  surface/atmospheric sections and records the earliest start UT per body. Call the
+  earliest destination-body surface-start UT `RecordedDestSurfaceUT`. The deorbit /
+  descent is the deterministic body-fixed arc that must coincide with the inertial orbit
+  projection, so aligning the destination rotation phase at `RecordedDestSurfaceUT` (not
+  merely at SOI entry) is what closes the touchdown overshoot.
+- The SOI-entry UT (the `MoonConfig` reference) is `ReaimMissionPlan.RecordedArrivalUT`
+  (`ReaimClassifier.cs:32`), the S2 end / target SOI entry. Today it is consumed only
+  for GEOMETRIC transfer placement, never to schedule the arrival instant; this design
+  adds the scheduling use.
+
+### The arrival-UT solve (reusing the proven scheduler)
+
+This is the SAME zero-drift primitive the launch side uses, with the variable relabeled
+from "launch UT" to "arrival window index `k`." Candidate arrival UTs are the synodic
+windows reachable by the shipped schedule: window `k` has departure `D_k`, arrival near
+`D_k + tof`, with the bounded tof search refining within +-6 percent. For each candidate
+define the phase residuals against the recorded references:
+
+- `DestRotation` residual =
+  `CircularPhaseError(A_surface_k - RecordedDestSurfaceUT, T_rot(dest))`, where
+  `A_surface_k` is the effective destination surface-arrival UT for window `k` after the
+  loiter re-timing.
+- `MoonConfig(m)` residual =
+  `CircularPhaseError(A_entry_k - RecordedArrivalUT, T_orb(m))`, where `A_entry_k` is the
+  SOI-entry UT for window `k`.
+
+Use `TryFindNextScheduleK` (`MissionPeriodicity.cs:901-954`) verbatim: scan `k`, accept
+the first window where every residual is within its tolerance, else the bounded-best
+(minimum worst residual) window, never accumulating drift. The objective is
+`worst(k) = max(DestRotation residual, max_m MoonConfig residual)`, per-constraint
+acceptance against per-constraint tolerances. Report `ResidualSeconds` and
+`WithinTolerance` exactly as the same-parent path does (the green / amber readout in the
+Missions tab).
+
+To be clear about what this scan selects: the scan-`k` is the v1 selection WITHIN the
+on-cadence synodic grid (it chooses among the pad-aligned windows that are launched every
+synodic period, plus the integer loiter re-timer); it NEVER skips a launch. A window it
+cannot bring in-tolerance fails closed to faithful (still launched on cadence), and the
+tof-as-phase-lever (the open crux above) is the deferred extension that would let MORE
+windows align within cadence. So "scan `k`" selects the RENDER alignment per on-cadence
+window, not the launch cadence.
+
+**Read the live joint resonance; never assume independence.** An earlier draft treated
+`T_rot(dest)` and `T_orb(moon)` as independent and multiplied duty cycles. That is wrong
+for the actual Bug-2 case: Ike is tidally locked, so `T_orb(Ike)` equals `T_rot(Ike)`
+and both equal Duna's rotation period to about 6 significant figures (around 65,517 s).
+They are NOT independent; an arrival matching Duna's rotation phase auto-matches Ike's
+orbital phase. The solver must therefore evaluate the ACTUAL live periods from
+`IBodyInfo` and compute the joint resonance from them. For the real Bug-2 case this
+makes the problem EASIER (one effective constraint, not two). The general
+independent-moon case (a fast body with a slow moon) is what the math must handle
+correctly: it reads the live periods and lets the EXISTING tidal-collapse path handle
+coincident periods for free. `MissionPeriodicity` already treats two periods within a
+relative tolerance as one (the `tidal-collapse` method; `MissionPeriodicity.cs` around
+535 and 651-655, with the no-distinct-period branch at 1102-1127), the same mechanism
+that collapses a tidally-locked `Mun.rotationPeriod == Mun.orbit.period` pair to a single
+constraint in the same-parent path. No special-case merge is added here. None of this is
+window-skipping: the scan stays on the on-cadence synodic grid and the integer loiter
+re-timer, selecting the RENDER alignment per on-cadence window; a window it cannot bring
+in-tolerance fails closed to faithful (still launched on cadence), so the scan never chases
+a global resonance and never relaxes the HARD synodic-cadence requirement.
+
+### Tolerance modes (reuse the existing Off/Loose/Precise ladder)
+
+The destination is, by construction, a TRANSITED (non-launch) body, so it slots into the
+existing `TransitedBodyRotationMode { Drop, Loose, Tight }` enum and the
+`ScheduleToleranceSecondsFor` dispatch with zero new tolerance vocabulary (the UI labels
+Off, Loose, Precise map to enum `Drop`, `Loose`, `Tight` respectively). The existing
+"Landing-body alignment" cycle button governs it; only the tooltip widens to name an
+interplanetary destination as well as the Mun.
+
+- **`DestRotation` tolerance:**
+  - Precise (Tight): `T_rot(dest) * (0.25/360)` (`RotationToleranceFraction`, line 480).
+    For Duna about 45.5 s.
+  - Loose: `T_rot(dest) * (5.0/360)` (`TransitedBodyLooseRotationDegrees`, line 490).
+    For Duna about 910 s.
+  - Off (Drop): the `DestRotation` constraint is removed (pre-filtered, as the schedule
+    builder already does for transited-body rotation).
+- **`MoonConfig` tolerance** (Orbital kind, never dropped by Off):
+  `SoiRadius(m) / OrbitalVelocity(m)`, the time the moon crosses its own SOI
+  (`ToleranceSecondsFor`, `MissionPeriodicity.cs:1164-1170`). For Ike about 3,400 s.
+
+Off drops only the destination ROTATION term, matching the existing semantics. The
+launch pad always stays exact (the launch side is untouched).
+
+**Decision: the default destination tolerance mode is Loose.** Loose is the realistic
+default for a mission with a substantial destination loiter. Precise is offered as an
+explicit rare-window mode that honestly reports amber when the best achievable window
+still misses tolerance. The thresholds were tuned for Mun-class same-parent periods and
+do NOT transfer to interplanetary cadence (see the feasibility envelope), so Precise is
+deliberately a rare opt-in, not the default.
+
+### The loiter-trim role (a coarse re-timer, not a fine absorber)
+
+Given correction 2 above, the destination loiter trim does ONE useful thing for arrival
+alignment: it shifts the post-arrival timeline by WHOLE loiter periods, selecting WHICH
+recorded loiter revolution becomes the effective deorbit. The deorbit instant moves by
+integer multiples of `T_loiter = 2*pi*sqrt(a^3/mu)`, with
+`mu = IBodyInfo.GravParameter(dest)` (already on `IBodyInfo` for the launch-side loiter
+compression). Each excised revolution steps the surface-arrival phase by
+`frac(T_loiter / T_rot(dest))` of a destination turn (fine for a low loiter orbit, coarse
+for a high one).
+
+What it does NOT do: it cannot manufacture a sub-`T_loiter` residual absorber, and it
+preserves the recorded exit phase relative to the run end, so it does not continuously
+slide the deorbit onto an arbitrary phase. It is a discrete second knob alongside `k`.
+The honest consequence:
+
+- When a recorded mission HAS a long, low destination loiter (many revolutions), the
+  integer steps materially widen the achievable windows (and can make Precise reachable).
+- When a recorded mission has a short loiter (1 to 3 revs) or NO destination loiter
+  (direct atmospheric entry), the loiter trim contributes little or nothing, and the
+  alignment must be hit on the coarse window grid + tof band alone.
+
+Target trim range (user requirement): a typical recorded mission may loiter ~100
+revolutions; the player trims that down to ~1-2 by default, with slack up to about 5-10
+revolutions to buy alignment. The same intended band applies to BOTH the launch-side
+loiter (`L2`, the shipped launch-parking compression) and the destination-side loiter
+(`L8`). The arrival solver searches `keepRevs` only within that ~1-10 band; it never
+keeps dozens of recorded revolutions just to chase a destination phase.
+
+Implementation note for the eventual plan (read-only here): `keepRevs` is currently a
+fixed default and the compressor detects all runs; using it as an alignment knob requires
+(a) a per-run "this is the destination loiter" selector and (b) plumbing a chosen
+`keepRevs` through the destination-loiter cut. Both are additive to the existing pure
+compressor, not a rewrite.
+
+### Composition with PadAlignLaunch and the injection seam
+
+The new step, `DestinationArrivalAlign`, is a pure planner step mirroring
+`PadAlignLaunch` (same struct / contract style), wired in `MissionLoopUnitBuilder`
+immediately after the `PadAlignLaunch` block. It consumes the recording's destination
+surface UT (via `ScanSurfaceSegmentsWithinWindow`), the re-aim plan (`TargetBody`,
+`RecordedArrivalUT`, `CommonAncestor`), `IBodyInfo` periods / tolerances for the
+destination and its single moon, and the player's `TransitedBodyRotationMode`. It
+produces a derived, value-only result (nothing persisted): the chosen window index `k`,
+the chosen destination `keepRevs`, `ResidualSeconds`, `WithinTolerance`, `Applied`.
+
+**The composition ordering matters (a real bug if got wrong).** An earlier draft placed
+the new step "after `PadAlignLaunch`" and assumed the two ends do not fight. They can:
+`PadAlignLaunch` re-snaps the departure by up to half a launch-body sidereal day, which
+propagates through the recorded tof to a roughly half-day ARRIVAL shift, which against
+`T_rot(dest)` (about 65,517 s for Duna) is hundreds of degrees of destination rotation,
+destroying the alignment. Resolution: `DestinationArrivalAlign` must run OVER THE SAME
+quantized schedule `PadAlignLaunch` produces, scanning the window index `k` of the
+ALREADY-pad-aligned cadence, and NOT propose a free departure shift that pad-align then
+re-snaps. Concretely: `PadAlignLaunch` fixes the cadence (= synodic) and the per-window
+departure map FIRST; `DestinationArrivalAlign` then chooses which of those fixed,
+pad-aligned windows (plus the integer loiter re-timer) best matches the destination
+configuration. The new step never moves the departure off the pad-aligned grid; it only
+selects `k` and `keepRevs`. This preserves the resolver's window-index-to-departure 1:1
+invariant (cadence == synodic) and makes the half-day re-snap a non-issue (there is no
+re-snap; the grid is already final when the destination solve runs).
+
+**Why this does not re-enter the all-bodies-resonance dead end.** The launch
+(pad-aligned, exact) and the destination (config-aligned, within tolerance) are NOT
+required to coincide at one instant. The regenerated transfer absorbs the difference: for
+each candidate window the launch is already pixel-perfect on its pad, and the within-window
+knobs (the tof lever for the SOI-entry phase, the integer loiter trim when a loiter exists)
+bring that window's ARRIVAL onto the recorded destination configuration. We are NOT waiting
+for a universal alignment of launch pad and destination config (centuries away for
+interplanetary), and we are NOT skipping ahead to a rare naturally aligned window: every
+pad-aligned synodic window is a launch opportunity, and we align the arrival WITHIN the
+window by spending the knobs. That is the decoupling, and it keeps this clear of the
+joint-resonance wall. If a given window's knobs cannot bring the arrival in-band, that
+window fails closed to faithful (below) and the next synodic window is still on cadence; we
+do not chase a global resonance and we do not stretch the cadence.
+
+### Integration with the shipped geometric (Lambert capture) seam fix
+
+This layer is strictly ON TOP of and orthogonal to the shipped geometric seam
+machinery (`ReaimSegmentAssembler.ReplaceHeliocentricLeg` + the full-recorded-span
+render window + the per-window Lambert synthesis in
+`ReaimPlaybackResolver.BuildWindowSegments`). That machinery connects POSITIONS in
+recorded-span time and is invariant to which absolute window `k` is chosen; this layer
+only changes WHICH window `k` is synthesized for. It does not modify
+`ReplaceHeliocentricLeg`, the render window, or the SOI handoff.
+
+How the transfer leg fails closed (corrected): it fails closed via SYNTHESIS
+CONVERGENCE, not a geometric-residual reject. When the per-window Lambert solve does not
+converge to a sane transfer conic across the +-6 percent tof search,
+`BuildWindowSegments` returns null and that window degrades to faithful replay
+(`ReaimPlaybackResolver.cs:205-211`). There is NO 50 km / 5 percent geometric-position
+reject on the heliocentric transfer leg today. So an arrival-aligned `k` that cannot be
+synthesized cannot produce garbage: it produces the un-aligned (Bug-2) faithful render
+for that window, which MUST surface as a distinct state (see the fail-closed contract).
+
+Note on `IsSeamResidualTooLarge` (do not conflate): that guard (> 50 km / 5 percent
+radial) lives in `Display/GhostTrajectoryPolylineRenderer.cs` and bounds the
+conic-anchor of the body-fixed escape / arrival BURN polylines, NOT the heliocentric
+capture. `ReplaceHeliocentricLeg` does not call it. It is a separate, orthogonal guard
+and is unaffected by the window choice `k`.
+
+Open interaction (carried to residual risks): the geometric SOI-entry instant from
+`CalculatePatch` is not identical to the rotation-aligned arrival; whether a single
+chosen window simultaneously yields a convergent, sane capture geometry AND the
+rotation-phase match, or whether they trade off, must be validated on the real `s15`
+case.
+
+### Threading the decision into both render paths (the actual Bug-2 surface)
+
+Because `ReaimedTrajectory` renders only from `OrbitSegments` and the body-fixed descent
+polyline is drawn by the separate autonomous `GhostTrajectoryPolylineRenderer.Driver` at
+the live clock, choosing `A` must reach BOTH paths or the two desync exactly as the
+playtest showed:
+
+- **OrbitSegment director path:** receives the arrival-aligned schedule (the chosen
+  window `k` and the loiter re-timing) through the existing per-window resolver
+  substitution; automatic once the schedule is rewritten.
+- **Autonomous body-fixed surface polyline path:** renders the recorded surface track at
+  the live clock from the committed recording. The chosen window `k` determines the loop
+  shift the polyline renderer reads. For the descent to land where the inertial orbit
+  projects, the surface polyline and the director orbit must be evaluated at the SAME
+  effective UT for the destination. The design requirement: the arrival-aligned window's
+  loop shift must be the SAME shift the autonomous polyline uses (it already reads the
+  recording's loop / shift via the shared span clock), AND the alignment must be validated
+  so the body-fixed descent and the inertial capture orbit coincide at the chosen window.
+  This is a verification gate, not an assumed outcome. The body-fixed descent coincidence
+  is NEVER assumed; it is a gate that must thread into BOTH render paths and be confirmed.
+
+### Feasibility envelope (honest bounds, not an assertion)
+
+The decoupling works because the per-window resolver REGENERATES the transfer for the
+target's live position every window, so the transfer's inertial orientation is a free
+output. But the slack is bounded:
+
+- The launch pad is pinned exactly every window (`PadAlignLaunch`, whole sidereal-day
+  snap, sub-day nudge). UNTOUCHED.
+- The arrival is selectable only on the synodic window grid (about 2 Kerbin years) plus
+  the bounded tof band (about +-6 percent of recorded tof, a few days for Kerbin -> Duna)
+  plus the integer loiter re-timer.
+
+**These are NAKED (no-knob) bounds, NOT the operative cadence.** The numbers below are the
+recurrence of a naturally aligned window with NO tof lever and NO loiter trim spent. They
+are stated to show why the bare synodic grid alone does not solve the problem, which is
+exactly why the multi-knob model spends the tof band and the loiter trim WITHIN each window
+instead. Do NOT read these as the launch cadence: the launch cadence stays synodic (the
+HARD REQUIREMENT); these duty cycles only describe how often a window would align if no
+knob were spent.
+
+Because the synodic period and `T_rot(dest)` are incommensurate, the arrival's rotation
+phase samples effectively uniformly across windows. So a NAKED in-band window (no knob
+spent) recurs with probability roughly equal to the rotation duty cycle per synodic window:
+
+- Loose (about 910 s / 65,517 s = duty about 0.0139): roughly 1 in 72 synodic windows
+  (about 140 Kerbin years) WITHOUT any tof or loiter help. This is the naked bound only.
+  With the tof lever spent (a sub-percent nudge sweeps a full destination rotation, see the
+  Duna One worked example) Loose is reachable EVERY window for a no-loiter mission; a long
+  low destination loiter raises it the same way via integer phase steps.
+- Precise (about 45.5 s / 65,517 s = duty about 0.00069): roughly 1 in 1,440 synodic
+  windows naked. With the tof lever, Precise is also reachable per-window for a no-loiter
+  mission (the lever sweeps the whole phase circle); with a long low destination loiter the
+  integer steps supply the fine granularity. Without ANY usable knob (the tof lever judged
+  too risky AND no loiter), Precise falls to amber bounded-best.
+
+The order-of-magnitude takeaway: tolerances tuned for Mun-class same-parent periods do
+NOT transfer to interplanetary, and the bare synodic grid alone (no knob) does not solve
+alignment. But the knobs make the per-window cadence work: the tof lever (within the +-6
+percent band, dominant for no-loiter missions like Duna One) and the loiter trim (for
+loitered missions) bring the arrival in-band within each synodic window, so the launch
+stays on cadence. Loose is the realistic default; Precise is offered as a stricter mode
+that honestly reports amber for any window the spent knobs cannot bring in-band. The exact
+crossover (minimum recorded-loiter revolution count for a per-window hit when the tof lever
+is not used) is a per-mission, per-planet-pack quantity computed and logged from the live
+periods, never assumed.
+
+Fail-closed contract (inherited): when no aligned-AND-feasible window exists within the
+search horizon (the Lambert solve declines, the tof band cannot reach the phase, or there
+is no loiter to re-time), the window degrades to faithful replay (the shipped
+return-null-to-faithful path), which is the un-aligned Bug-2 render for that window. So
+the feature never produces garbage; it either aligns or visibly does nothing. This MUST be
+surfaced to the player as a distinct, user-visible state (a "no aligned window within
+horizon" readout alongside the green / amber residual), never a silent fall-through.
+
+### Scope and the explicit deferral boundary
+
+The user asked for "Kerbin SOI to any other SOI in the star system" (with more complex
+transfers handled later). That resolves into three tiers: (a) a direct child of the Sun
+with at most one constrained moon, captured-then-deorbit (THIS phase); (b) 2+-moon
+planets (the "mini star system", e.g. Jool), which the user explicitly defers; (c)
+moons-of-planets and deep / multi-hop chains (e.g. Ike via Duna), excluded upstream by
+`ReaimClassifier`. This phase delivers tier (a); tiers (b) and (c) are the named
+deferrals below.
+
+**In scope this phase:** a SINGLE cross-parent destination SOI, Kerbin -> X, where X is a
+DIRECT child of the common ancestor (the Sun) and has AT MOST ONE constrained moon, and a
+CAPTURED-then-deorbit landing (a recorded target-body OrbitSegment arrival leg exists).
+This matches the existing `ReaimClassifier` single-hop direct-child scope exactly, so no
+classifier extension is needed for the captured-orbit Duna case (Duna is a direct child
+of the Sun). The `DestRotation` constraint fires for landings; the single moon adds one
+`MoonConfig` constraint when its phase is visible in the recorded arc.
+
+**Decision: atmo-direct landings are OUT OF SCOPE this phase.** An interplanetary landing
+that aerocaptures or plows straight into the atmosphere with NO captured destination orbit
+segment is scoped OUT. Scope is captured-then-deorbit interplanetary landings only.
+`ReaimClassifier` requires an `ArrivalLeg` (the first target-body OrbitSegment after the
+heliocentric coast, `ReaimClassifier.cs:106-120`), so an aerocapture / direct plunge that
+records no stable target-body OrbitSegment classifies Unsupported and never reaches re-aim
+at all; it also lacks the destination loiter the re-timer needs. Admitting it is a
+separate, larger classifier change deferred past this phase.
+
+**Decision: validate orbit-only / orbital-arrival FIRST** (risk reducer). Prove the
+arrival-UT control on ORBIT-ONLY cross-parent arrival (where the SOI seam is far from
+camera and the upstream geometric plan already accepts a small SOI-edge seam) BEFORE
+depending on the deterministic landing replay. The on-camera rigid descent (`L9`) depends on the
+separately deferred S4 descent re-stitch (the upstream re-aim plan defers S4 entirely; the
+render-rewrite plan gates the descent re-stitch behind its seam-tolerance decision). This
+layer can be DESIGNED and validated against the orbital-arrival state now; the on-camera
+body-fixed descent coincidence lands when the separately deferred S4 descent re-stitch
+ships. The arrival-UT layer does not REQUIRE S4 to be correct; it makes S4's job trivial
+(the destination is already in the recorded configuration) when S4 ships.
+
+**Decision: destination moon count cutoff is 0 or 1 constrained moon.** A 0-moon
+destination (Eve, Moho, Dres) imposes a single `DestRotation` constraint and no
+`MoonConfig`; a 1-moon destination adds exactly one `MoonConfig`. Both are IN scope.
+
+**Deferred (carry forward, do not attempt this phase):**
+
+- **Jool-class many-moon "mini star system" destinations** (2+ constrained moons). The
+  joint duty product collapses the aligned-window frequency toward the centuries-away
+  regime; detect (destination has more than one constrained moon) and report "many-moon
+  destination not yet supported," falling to destination-rotation-only or faithful. The
+  cutoff is the COUNT of constrained moons: 0 or 1 in scope, 2+ detected-and-reported as
+  not-supported.
+- **Multi-hop / gravity assist and deep chains** (Ike via Duna). Already excluded upstream
+  by `ReaimClassifier` (single-hop direct-child guard), so such a mission never reaches
+  `DestinationArrivalAlign`. A recorded landing ON Ike (Ike as the destination) is
+  currently classifier-Unsupported (deep chain) and is deferred with the multi-hop case.
+  Ike appears in this phase only as a `MoonConfig` of a Duna-destination mission, never as
+  the destination.
+- **Direct atmospheric entry with no captured destination orbit segment** (the atmo-direct
+  decision above). Scoped OUT this phase; admitting it is a separate, larger classifier
+  change.
+
+### Dead-end compliance
+
+All five hard dead-ends are honored, including under composition:
+
+1. **No per-element LAN / Kepler-node rotation:** the design chooses a window index (a
+   scheduling scalar) and replays the recorded conic verbatim; no orbit element is rotated.
+2. **Descent stays body-fixed:** `L9` is hard; the design aligns the inertial orbit
+   projection TO the body-fixed descent by choosing WHEN to arrive, never makes the descent
+   inertial.
+3. **No body-fixed-to-inertial longitude LIFT:** positions come from the recorded arcs
+   replayed at the chosen window; only time phases are computed (`CircularPhaseError`).
+4. **The heliocentric transfer draw window is not extended into the SOI:** handoff is at
+   the recorded boundary (full-recorded-span render, unchanged).
+5. **No single joint resonance of all bodies in one launch instant:** the launch
+   (pad-aligned) and destination (config-aligned) are decoupled; we choose among
+   pad-aligned windows the one whose arrival matches the destination, and fail closed if
+   none exists in horizon. The 2+ moon case that would approach a universal resonance is
+   the explicit deferral boundary.
+
+### Hard vs soft
+
+HARD (defect if violated): recorded ascent `L1`, recorded escape `L3`, recorded in-SOI
+arcs `L7`, recorded descent `L9` all replay exactly relative to their recorded clocks; the
+descent stays body-fixed (never inertial); the launch stays pad-aligned (untouched); the
+regenerated transfer is a physical Lambert solution at the recorded tof.
+
+SOFT (best-fit within a physics-derived tolerance band, the quality readout):
+`DestRotation` within rotation tolerance at the chosen window; each `MoonConfig` within its
+orbital tolerance. The soft set is what the window-index solve optimizes; the residual is
+reported green / amber.
+
+### Tolerance / mode summary
+
+```
+mode        DestRotation tol             MoonConfig tol         window cadence (intuition)
+----------- ---------------------------- ---------------------- --------------------------
+Off (Drop)  constraint removed           SoiRadius/OrbitVel     shortest; rotation ignored
+Loose       T_rot*(5/360)  (~910 s Duna) SoiRadius/OrbitVel     medium; default for loitered
+Precise     T_rot*(0.25/360)(~45 s Duna) SoiRadius/OrbitVel     rare; amber unless long loiter
+```
+
+Launch pad: always exact, never affected by this control. Loose is the default; Precise is
+the explicit rare-window opt-in.
+
+### Residual risks (validate before declaring Bug 2 fixed)
+
+- The geometric SOI-entry instant from `CalculatePatch` is not identical to the
+  rotation-aligned arrival; whether a single chosen window simultaneously yields BOTH a
+  convergent, sane synthesized capture geometry (the per-window Lambert solve in
+  `ReaimPlaybackResolver.BuildWindowSegments`) AND the rotation-phase match, or whether they
+  trade off, is unproven and must be validated on the real `s15` case. If they fight, the
+  loiter re-timer + tof band must jointly absorb both, which may not be possible for every
+  window.
+- The arrival-UT decision threading into the autonomous body-fixed
+  `GhostTrajectoryPolylineRenderer.Driver` surface path is a design REQUIREMENT, not an
+  automatic outcome (`ReaimedTrajectory` renders only from `OrbitSegments`, empty
+  Points / TrackSections). The central claim that the body-fixed descent coincides with the
+  inertial orbit at the aligned window is UNVERIFIED until the polyline path is confirmed to
+  read the same loop shift the director uses. This is the literal Bug-2 surface.
+- Window frequency vs tolerance is a genuine usability risk: a mission with a short or no
+  destination loiter may have NO realistically-soon Precise window, and even Loose can be
+  sparse without a loiter. The fail-closed path is the un-aligned Bug-2 render, which is why
+  the no-aligned-window state MUST be a distinct, user-visible message, never a silent
+  fall-through.
+- Using `keepRevs` as an alignment knob is a real API change to `ReaimLoiterCompressor`
+  (today `keepRevs` is the fixed default 1, and the compressor detects ALL same-body loiter
+  runs with no notion of "the destination loiter"); it needs a per-run destination selector
+  and a chosen-`keepRevs` plumb-through. Additive, but not a free reuse.
+- Eccentric destination heliocentric orbit (Moho-like or modded planets): the synodic
+  congruent-window premise and the "arrival rotation phase samples uniformly" assumption
+  weaken; the recorded tof at one window may not reproduce the recording-time relative
+  geometry, pushing the required tof outside the +-6 percent band and declining the window.
+  Not modeled this phase; flag and likely fail closed.
+- Polar / retrograde landing sites: the design aligns a single scalar rotation phase, which
+  barely affects a polar landing site's inertial position (near the spin axis) and is
+  rotation-critical at the equator. A polar landing may align trivially while an equatorial
+  one is rare under the same tolerance; the design does not surface this latitude
+  dependence. For an off-equatorial site, rotation-phase alignment is necessary but may not
+  fully capture the landing-site plane geometry.
+
+### Open questions
+
+- **Default tolerance mode for the destination.** DECIDED: Loose is the default; Precise is
+  the explicit rare-window opt-in (Mun-tuned thresholds do not transfer to interplanetary
+  cadence, see the feasibility envelope). Retained here only as a tuning note for the
+  starting Loose/Precise degree values, not an open scope question.
+- **The order in which `DestinationArrivalAlign` and the geometric seam guard are evaluated
+  per candidate window.** Whether to reject a geometry-failing window before or after the
+  rotation-phase score must be settled in the plan; it affects which window the bounded-best
+  search returns when geometry and rotation phase trade off.
+- **Where the "no aligned window within horizon" readout lives in the Missions tab** (a new
+  distinct state vs an extension of the amber residual cell). The contract is that it is
+  distinct and user-visible; the exact surface is a UI detail for the plan.
+
+### Where it plugs into existing code (read-only here)
+
+- A new pure `MissionPeriodicity.DestinationArrivalAlign` (or sibling planner) consuming
+  `ScanSurfaceSegmentsWithinWindow`, the `ReaimMissionPlan`, and `IBodyInfo`; reuses
+  `CircularPhaseError` + `TryFindNextScheduleK` verbatim. Pure + unit-testable via the
+  `IBodyInfo` seam.
+- `MissionLoopUnitBuilder` wires `DestinationArrivalAlign` immediately after the
+  `PadAlignLaunch` block, OVER the already-pad-aligned synodic schedule (it selects `k` +
+  `keepRevs`, never re-snaps the departure).
+- `ReaimLoiterCompressor` gains a per-run destination-loiter selector and a chosen-`keepRevs`
+  plumb-through (additive to the pure compressor).
+- The chosen window's loop shift must reach BOTH the OrbitSegment director path (automatic)
+  and the autonomous `GhostTrajectoryPolylineRenderer.Driver` surface path (the verification
+  gate).
+- No recording-format change; nothing new persisted (`A` = window index `k` is derived; the
+  result is value-only).
+
+See `docs/dev/plans/reaim-destination-arrival-alignment.md` for the phased
+implementation plan that consumes this design.
 
 ---
 
@@ -297,7 +1155,9 @@ struct PhaseConstraint            // one per constraining included segment
 
 enum Support                      // Supported, or a reason it is not yet solvable:
     Supported
-    UnsupportedCrossParent        //   sibling/interplanetary target (until Phase 4)
+    UnsupportedCrossParent        //   sibling/interplanetary target (until Phase 4;
+                                  //   now designed, see Cross-parent destination-SOI
+                                  //   arrival-UT alignment)
     UnsupportedRendezvous         //   aligns to another vessel, not a body (out of scope)
     UnsupportedMultiConstraintPreP2  // >1 independent constraint before Phase 2
 
@@ -406,10 +1266,16 @@ checks IS the contract, and the loop launches only at faithful windows.
 
 ## Key decisions (locked unless re-opened)
 
-- **Replay as-is; do not re-aim the trajectory.** We choose WHEN to launch the
-  recorded mission; we do NOT transform / re-plan the recorded inertial trajectory
-  to intercept the target's *current* position. Re-aiming would mean re-solving the
-  transfer per launch (a different mission each time) and is explicitly out of scope.
+- **~~Replay as-is; do not re-aim the trajectory.~~ OBSOLETE (2026-06-02) — see the
+  Superseded banner at the top of this doc.** This originally locked replaying the
+  recorded transfer unchanged and choosing only WHEN to launch. The interplanetary
+  transfer leg is now **re-aimed**: regenerated per launch window via a Lambert solve
+  so it always intercepts (`docs/dev/done/plans/reaim-interplanetary-transfers.md`),
+  because the exact recorded configuration recurs too rarely (joint resonance of
+  incommensurate periods ≈ centuries) for a replay-as-is interplanetary loop to be
+  usable. What remains true: the recorded SOI-local segments (ascent, parking,
+  arrival, landing) are still replayed as-is and only re-timed; we re-aim the
+  heliocentric bridge between SOIs, not those.
 - **Faithful-only; no free / decorative mode.** Looping always phase-locks to the
   included config's constraints. The checked configuration is the contract.
 - **Over-constrained configs are never refused.** When no exact joint window exists
@@ -430,7 +1296,10 @@ checks IS the contract, and the loop launches only at faithful windows.
   Kerbin), where the constraint is exactly `C.orbit.period`. Sun-orbiting targets
   (the synodic model) and multi-hop / gravity-assist chains come in a later phase;
   until then a cross-parent target is detected and reported as "not yet supported"
-  rather than silently mis-scheduled.
+  rather than silently mis-scheduled. The cross-parent arrival-UT alignment is now
+  designed (see the Cross-parent destination-SOI arrival-UT alignment section); it
+  reframes the deferral around the destination-SOI ARRIVAL UT rather than a synodic
+  launch-UT lock.
 - **Build on #958** (now merged to `main`): depends on `MissionLoopUnitBuilder`,
   `ComputeTrimmedMemberWindows`, the span clock, and the shipped map epoch-shift.
 - **No recording-format change.** The body sequence + `UT0` are already derivable
@@ -480,7 +1349,8 @@ Each is scenario -> expected behavior -> [v1 phase / deferred]. v1 = Phases 0-3
   period; using `C.orbit.period` would mis-schedule. Same-parent targets (Mun /
   Minmus) are unaffected. Cross-parent is a later phase; until then, detect it and
   report "not yet supported" rather than produce a wrong window. **[Deferred: Phase 4;
-  same-parent intercepts are v1.]**
+  same-parent intercepts are v1.]** (now designed: see Cross-parent destination-SOI
+  arrival-UT alignment)
 - **Transient SOI passes / gravity assists are binding.** A flyby that does not
   capture, and a free-return, still require the assist body's phase (the recorded arc
   only reaches it where it will be). The SOI-change rule already registers them via

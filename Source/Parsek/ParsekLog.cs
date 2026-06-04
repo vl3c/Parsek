@@ -313,6 +313,61 @@ namespace Parsek
             onChangeStateByIdentity[compositeIdentity] = state;
         }
 
+        /// <summary>
+        /// Lazy <see cref="VerboseOnChange(string,string,string,string)"/>: the message is built only when
+        /// the state actually changes (or first-seen), so a per-frame caller pays only the cheap
+        /// <paramref name="stateKey"/> on stable frames - no per-frame string/collection allocation for a
+        /// line that almost never emits. Use when the message is expensive to format but the change key is
+        /// cheap.
+        /// </summary>
+        public static void VerboseOnChange(
+            string subsystem,
+            string identity,
+            string stateKey,
+            Func<string> messageFactory)
+        {
+            if (!IsVerboseEnabled)
+                return;
+
+            if (messageFactory == null)
+                return;
+
+            if (string.IsNullOrEmpty(identity))
+            {
+                Verbose(subsystem, messageFactory());
+                return;
+            }
+
+            string compositeIdentity = $"{subsystem}|{identity}";
+            string normalizedKey = stateKey ?? string.Empty;
+            if (!onChangeStateByIdentity.TryGetValue(compositeIdentity, out var state))
+            {
+                onChangeStateByIdentity[compositeIdentity] = new OnChangeState
+                {
+                    lastKey = normalizedKey,
+                    suppressedCount = 0
+                };
+                Verbose(subsystem, messageFactory());
+                return;
+            }
+
+            if (state.lastKey != normalizedKey)
+            {
+                string suffix = state.suppressedCount > 0
+                    ? $" | suppressed={state.suppressedCount}"
+                    : string.Empty;
+                Verbose(subsystem, $"{messageFactory()}{suffix}");
+                state.lastKey = normalizedKey;
+                state.suppressedCount = 0;
+            }
+            else
+            {
+                state.suppressedCount++;
+            }
+
+            onChangeStateByIdentity[compositeIdentity] = state;
+        }
+
         internal static int ClearVerboseOnChangeIdentitiesWithPrefix(
             string subsystem,
             string identityPrefix)

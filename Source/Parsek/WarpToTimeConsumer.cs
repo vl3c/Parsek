@@ -37,7 +37,7 @@ namespace Parsek
             }
             instance = this;
             DontDestroyOnLoad(gameObject);
-            GameEvents.onLevelWasLoaded.Add(OnLevelWasLoaded);
+            GameEvents.onLevelWasLoaded.Add(HandleLevelWasLoaded);
             ParsekLog.Verbose(Tag, "WarpToTimeConsumer initialized");
         }
 
@@ -46,11 +46,18 @@ namespace Parsek
             if (instance == this)
             {
                 instance = null;
-                GameEvents.onLevelWasLoaded.Remove(OnLevelWasLoaded);
+                GameEvents.onLevelWasLoaded.Remove(HandleLevelWasLoaded);
             }
         }
 
-        private void OnLevelWasLoaded(GameScenes scene)
+        // Renamed off the Unity magic-method name "OnLevelWasLoaded": a MonoBehaviour
+        // method called OnLevelWasLoaded collides with Unity's deprecated magic
+        // message of the same name, which Unity scans for by name. Our handler takes
+        // GameScenes (not the magic int), so Unity logs a spurious
+        // "[ERR] Script error: OnLevelWasLoaded ... has to be of type: int" on every
+        // scene load and ignores it. The real subscription is the KSP GameEvent
+        // GameEvents.onLevelWasLoaded above; renaming the handler removes the bogus ERR.
+        private void HandleLevelWasLoaded(GameScenes scene)
         {
             if (scene != GameScenes.SPACECENTER)
                 return;

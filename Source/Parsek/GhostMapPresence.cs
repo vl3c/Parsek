@@ -8846,6 +8846,29 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Physical-identity correlation for the map-render shadow (Phase 4): resolve a live ghost
+        /// vessel PID to its SOURCE committed trajectory + index (the recording the ghost was created
+        /// from and is rendering). This is NOT an ERS visibility query — it is the same raw committed
+        /// read the existing map-presence path makes for this pid, kept inside this already-allowlisted
+        /// file so the shadow assembles the chain from exactly the trajectory the old path renders. The
+        /// pid is already a live, visible map ghost, so no ComputeERS gate applies. Returns false when
+        /// the pid is not a tracked ghost or its recording is gone.
+        /// </summary>
+        internal static bool TryGetCommittedTrajectoryForPid(
+            uint vesselPid, out IPlaybackTrajectory trajectory, out int index)
+        {
+            trajectory = null;
+            index = FindRecordingIndexByVesselPid(vesselPid);
+            if (index < 0)
+                return false;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || index >= committed.Count)
+                return false;
+            trajectory = committed[index];
+            return trajectory != null;
+        }
+
+        /// <summary>
         /// Find the stable recording ID captured when a recording-index ghost was created.
         /// Returns null if the vessel is not a recording-index ghost or the source
         /// trajectory did not expose a recording ID.

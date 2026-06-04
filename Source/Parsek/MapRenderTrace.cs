@@ -171,6 +171,7 @@ namespace Parsek
         {
             detailedUntilByKey.Clear();
             lineIntentByPid.Clear();
+            renderIntentByPid.Clear();
         }
 
         private static int CurrentFrameCount()
@@ -673,6 +674,59 @@ namespace Parsek
                 && Math.Abs(currentFrame - intent.Frame) <= IntentFreshnessFrames)
                 return true;
             intent = default(LineRenderIntent);
+            return false;
+        }
+
+        // ---- New-pipeline render-intent store (Phase 6 reconciler) ----
+        //
+        // The NEW map/TS render pipeline (Parsek.MapRender) emits one first-class GhostRenderIntent
+        // per ghost instance per frame, BEFORE the surfaces draw. In decision-only shadow (Phase 4)
+        // the scene writes nothing to the stock surfaces; instead it records the intent's primitives
+        // here (frame-stamped) and the end-of-frame MapRenderProbe reconciles the recorded intent
+        // against the OLD path's rendered truth (Parsek.MapRender.GhostRenderReconciler). This store
+        // holds only PRIMITIVES (no MapRender-namespace dependency in this file), mirroring
+        // lineIntentByPid above; the Treatment is carried as a token string ("StockConic" /
+        // "TracedPath" / "None"). Freshness reuses IntentFreshnessFrames (same-frame only).
+
+        /// <summary>The new pipeline's intended render decision for a ghost this frame, stamped with
+        /// the Unity frame it was decided on. Primitives only.</summary>
+        internal struct RenderIntentRecord
+        {
+            public int Frame;
+            public bool Visible;
+            public string TreatmentToken;
+            public double DriveUT;
+        }
+
+        private static readonly Dictionary<string, RenderIntentRecord> renderIntentByPid =
+            new Dictionary<string, RenderIntentRecord>(StringComparer.Ordinal);
+
+        /// <summary>Record the new pipeline's render intent for a pid this frame (called from the
+        /// shadow scene wiring via GhostRenderReconciler.NoteIntent). Keyed by pid; stamped with the
+        /// current Unity frame. No-op when disabled.</summary>
+        internal static void RecordRenderIntent(uint pid, bool visible, string treatmentToken, double driveUT)
+        {
+            if (!IsEnabled)
+                return;
+            renderIntentByPid[pid.ToString(CultureInfo.InvariantCulture)] = new RenderIntentRecord
+            {
+                Frame = CurrentFrameCount(),
+                Visible = visible,
+                TreatmentToken = treatmentToken,
+                DriveUT = driveUT
+            };
+        }
+
+        /// <summary>True when a render intent for <paramref name="pidKey"/> was stamped within
+        /// <see cref="IntentFreshnessFrames"/> of <paramref name="currentFrame"/> (safe to reconcile
+        /// against this frame's old-path truth). Stale intent is dropped.</summary>
+        internal static bool TryGetFreshRenderIntent(
+            string pidKey, int currentFrame, out RenderIntentRecord intent)
+        {
+            if (renderIntentByPid.TryGetValue(pidKey, out intent)
+                && Math.Abs(currentFrame - intent.Frame) <= IntentFreshnessFrames)
+                return true;
+            intent = default(RenderIntentRecord);
             return false;
         }
 

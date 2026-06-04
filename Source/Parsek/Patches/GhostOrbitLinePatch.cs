@@ -117,6 +117,27 @@ namespace Parsek.Patches
             // branch is already deferred by the null-vessel guard above).
             if (__instance.reverse) return true;
 
+            // Director TracedPath suppression (gated by mapRenderDirectorDrive): when the new pipeline's
+            // active segment for this ghost is a non-orbital leg (ascent / burn / descent), the autonomous
+            // polyline owns it and the stock proto icon must be HIDDEN. Assert it HERE, before the
+            // no-bounds early-return below: during an escape-burn gap there are no segment bounds, so the
+            // legacy path falls through to stock, which propagates the gap-glide's per-frame synthesized
+            // eccentric orbit at the live clock and teleports the icon across it (the s15 burn-seam
+            // teleport). Adding the pid to ghostsWithSuppressedIcon makes the marker pass draw the
+            // non-proto polyline indicator instead; the line Postfix kills drawIcons/line.active. Return
+            // true so stock keeps the driver's position (harmless - the icon is not drawn). Recomputed per
+            // frame, so the icon re-shows cleanly when the next StockConic segment (the hyperbolic) starts.
+            if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(pid, Time.frameCount))
+            {
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                ParsekLog.VerboseRateLimited("GhostOrbitIcon", "traced-suppress-" + pid,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Director TracedPath suppress pid={0} frame={1} (polyline owns the leg, proto icon hidden)",
+                        pid, Time.frameCount),
+                    1.0);
+                return true;
+            }
+
             Orbit orbit = __instance.orbit;
             // Missing / degenerate orbit → let stock handle it unchanged. Hyperbolic is NOT deferred:
             // the ghost orbit is seeded at the RAW recorded epoch (no shift baked in), so deferring a
@@ -135,7 +156,18 @@ namespace Parsek.Patches
             // ghosts have shift 0 and a full ellipse, so live == effUT and the icon already glides.
             if (!GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
                     pid, currentUT, out double startUT, out double endUT))
+            {
+                // No-bounds leak (gated): at a loiter->burn transition the legacy gap-glide reseeds the
+                // orbit to a per-frame synthesized eccentric orbit AND clears the segment bounds before
+                // the chain switches to TracedPath. Without bounds, stock would propagate that phantom
+                // orbit at the live clock and the line Postfix's terminal-visible branch would show the
+                // icon on it (the residual teleport). If the Director is tracking this ghost at all,
+                // suppress the proto icon so the marker pass draws the polyline instead; the icon re-shows
+                // once the Director re-establishes a StockConic drive (the hyperbolic).
+                if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(pid, Time.frameCount))
+                    GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                 return true;
+            }
 
             double shift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
             // A hyperbolic escape segment covers a single OUTWARD pass with no below-ground arc, so the
@@ -147,6 +179,18 @@ namespace Parsek.Patches
             var decision = ResolveIconDriveDecision(currentUT, startUT, endUT, shift, onArc);
 
             double driveUT = decision.DriveUT;
+            // The LIVE-frame UT the icon should be placed at this frame (currentUT on-arc; the live
+            // window/arc bound when clamped). The director-drive path below bakes the loop shift into
+            // the orbit epoch and propagates at THIS live UT (KSP re-derives a packed ghost's icon
+            // world position at the live clock, so the legacy effUT propagation never reaches the icon);
+            // the legacy path keeps using the effUT driveUT above.
+            double liveDriveUT;
+            switch (decision.Reason)
+            {
+                case "past-window": liveDriveUT = endUT; break;
+                case "before-window": liveDriveUT = startUT; break;
+                default: liveDriveUT = currentUT; break; // on-arc-drive (off-arc overwrites below)
+            }
             if (decision.Reason == "off-arc")
             {
                 // Off the visible (above-ground) arc — clamp to the nearest arc endpoint in
@@ -168,6 +212,7 @@ namespace Parsek.Patches
                 }
                 double clampUTShifted = (distToEnd <= distToStart) ? endUT : startUT;
                 driveUT = GhostMapPresence.MapLiveUTToEffUT(clampUTShifted, shift);
+                liveDriveUT = clampUTShifted;
             }
 
             if (decision.Suppressed)
@@ -183,11 +228,57 @@ namespace Parsek.Patches
                     startUT, endUT, decision.Suppressed, HighLogic.LoadedScene),
                 1.0);
 
+            // Phase 8a director-drive (EXPERIMENTAL, gated by mapRenderDirectorDrive, default off): the
+            // NEW render pipeline owns this StockConic icon by baking the loop shift into the orbit
+            // EPOCH and propagating at the LIVE clock - the only place a packed ghost's icon world
+            // position actually resolves (KSP rebuilds CoMD = referenceBody.position + orbitDriver.pos
+            // by re-propagating the orbit at the live Planetarium clock every FixedUpdate, discarding the
+            // legacy effUT drive). With the shift in the epoch, that live re-propagation lands on the
+            // recorded phase, so the icon rides the SAME orbit the line is drawn from - the looped
+            // re-aim icon-rotated-off-its-line fix. Re-seeded every frame (this Prefix fires per
+            // FixedUpdate), so there is no rate-limited-reseed stall. No fresh seed (gate off, shadow not
+            // producing one, or a non-StockConic segment) -> the legacy effUT drive runs unchanged.
+            // Bodies match for the v1 same-body case; an SOI-mismatched seed body falls back to the
+            // driver's reference body.
+            double propagateUT = driveUT;
+            bool directorDriveActive = false;
+            if (ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive)
+            {
+                bool fresh = Parsek.MapRender.ShadowRenderDriver.TryGetFreshStockConicSeed(
+                    pid, Time.frameCount, out OrbitSegment dirSeg, out string dirBody);
+                if (fresh)
+                {
+                    // Resolve the seed's own frame body. Gate director-drive on it resolving (no
+                    // referenceBody fallback) so this matches ShadowRenderDriver.IsDirectorDriveActive
+                    // EXACTLY - the arc-clip + probe read that predicate, so sharing the condition prevents
+                    // a one-frame icon(effUT)/line(live-bounds) split on a degenerate unresolvable body. A
+                    // real recorded body name always resolves, so normal play is unchanged.
+                    CelestialBody seedBody = FlightGlobals.GetBodyByName(dirBody);
+                    if (seedBody != null)
+                    {
+                        // Bake epoch += shift, propagate at the live drive UT. This IS the icon's final
+                        // resolved phase (the live re-propagation reuses these elements + the live clock).
+                        Parsek.MapRender.StockConicTreatment.SeedAndDriveLive(
+                            orbit, dirSeg, seedBody, shift, liveDriveUT);
+                        propagateUT = liveDriveUT;
+                        directorDriveActive = true;
+                    }
+                }
+                ParsekLog.VerboseRateLimited("MapRender", "8a-drive-" + pid,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "8a director-drive pid={0} fresh={1} active={2} curFrame={3} liveDriveUT={4:F1} " +
+                        "effDriveUT={5:F1} shift={6:F1} epoch+shift={7:F1} seedBody={8}",
+                        pid, fresh, directorDriveActive, Time.frameCount, liveDriveUT, driveUT, shift,
+                        directorDriveActive ? dirSeg.epoch + shift : double.NaN, dirBody ?? "-"),
+                    1.0);
+            }
+
             // Replicate stock OrbitDriver.updateFromParameters(bool) verbatim, but propagate at the
-            // recorded-clock driveUT instead of the live clock. Stock does updateUT = now then
-            // UpdateFromUT(updateUT); we mirror that below by recording driveUT (the UT we actually
+            // recorded-clock driveUT (legacy) or the live-clock liveDriveUT (director-drive: the epoch
+            // already carries the shift) instead of the raw live clock. Stock does updateUT = now then
+            // UpdateFromUT(updateUT); we mirror that below by recording propagateUT (the UT we actually
             // propagate at) into the private updateUT field. (orbitdriver_decomp.cs:607-726.)
-            orbit.UpdateFromUT(driveUT);
+            orbit.UpdateFromUT(propagateUT);
             Vector3d pos = orbit.pos;
             Vector3d vel = orbit.vel;
             pos.Swizzle();
@@ -202,8 +293,9 @@ namespace Parsek.Patches
             if (double.IsNaN(pos.x))
                 return true;
             // Keep the driver's recorded propagation time faithful to the position we set: stock sets
-            // updateUT = now, we propagated at driveUT. updateUT is private, injected here via ___updateUT.
-            ___updateUT = driveUT;
+            // updateUT = now, we propagated at propagateUT (effUT legacy, or liveDriveUT under the
+            // director-drive epoch-bake). updateUT is private, injected here via ___updateUT.
+            ___updateUT = propagateUT;
             __instance.pos = pos;
             __instance.vel = vel;
 
@@ -441,6 +533,34 @@ namespace Parsek.Patches
                         pid,
                         HighLogic.LoadedScene),
                     5.0);
+                return;
+            }
+
+            // Director TracedPath suppression (gated by mapRenderDirectorDrive), checked FIRST so it
+            // pre-empts the polyline-owns / visible-body-frame / grace branches deterministically. When
+            // the new pipeline's active segment for this ghost is a non-orbital leg, the autonomous
+            // polyline owns it: kill the stock orbit line + proto icon so the legacy visible-body-frame
+            // branch can't re-show them on the per-frame gap-glide reseed orbit (the burn-seam icon
+            // teleport + the orbit-line-active-while-polyline-owns flicker). Recomputed per frame, so the
+            // line/icon re-show via visible-body-frame the moment the next StockConic segment starts. Do
+            // NOT stamp the grace deadline here - leave it frozen so the StockConic transition re-stamps
+            // it cleanly.
+            if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(pid, Time.frameCount))
+            {
+                line.active = false;
+                __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                LogOrbitLineDecision(
+                    pid,
+                    "director-traced-path-suppress",
+                    line.active,
+                    __instance.drawIcons,
+                    GhostMapPresence.IsIconSuppressed(pid),
+                    belowAtmosphere: false,
+                    hasBounds: false,
+                    Planetarium.GetUniversalTime(),
+                    double.NaN,
+                    double.NaN);
                 return;
             }
 
@@ -746,6 +866,30 @@ namespace Parsek.Patches
                     return;
                 }
 
+                // Director no-bounds suppression (gated): a director-tracked ghost only reaches this
+                // terminal (no-bounds) branch transiently, when the legacy gap-glide cleared its segment
+                // bounds at a loiter->burn transition and reseeded a phantom eccentric orbit. Showing it
+                // here (ALL) is the residual icon teleport. Suppress instead - the Director re-shows the
+                // icon via the StockConic / visible-body-frame path once bounds return (the hyperbolic).
+                if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(pid, Time.frameCount))
+                {
+                    line.active = false;
+                    __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                    GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                    LogOrbitLineDecision(
+                        pid,
+                        "director-terminal-suppress",
+                        line.active,
+                        __instance.drawIcons,
+                        GhostMapPresence.IsIconSuppressed(pid),
+                        belowAtmosphere,
+                        hasBounds: false,
+                        currentUT,
+                        double.NaN,
+                        double.NaN);
+                    return;
+                }
+
                 line.active = true;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.ALL;
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
@@ -837,14 +981,21 @@ namespace Parsek.Patches
             // shift-invariant, so the stored live-frame bounds give the correct test.
             if (endUT - startUT >= orbit.period) return true;
 
-            // The OrbitDriver is now seeded with the RAW recorded epoch (GhostOrbitIconDrivePatch
+            // The OrbitDriver is normally seeded with the RAW recorded epoch (GhostOrbitIconDrivePatch
             // drives it at effUT = liveUT - shift), but the stored arc bounds are in the LIVE frame.
             // Map them back to the recorded clock so the eccentric-anomaly arc shape is computed in
             // the SAME frame the icon is driven in — keeping the line and the marker in exact
             // lockstep on arbitrarily short arcs. shift is 0 (identity) off the loop path.
+            //
+            // Director-drive (mapRenderDirectorDrive gate): GhostOrbitIconDrivePatch instead bakes the
+            // loop shift INTO the epoch (SeedAndDriveLive) so the orbit evaluates the recorded phase at
+            // the LIVE clock. In that mode the eccentric-anomaly bounds must use the LIVE UTs directly
+            // (no effUT remap), so the clipped arc matches the icon's live-clock phase. Mirror the same
+            // gate + fresh-seed test the icon-drive patch used so the two stay consistent this frame.
             double arcShift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
-            double startUTRaw = GhostMapPresence.MapLiveUTToEffUT(startUT, arcShift);
-            double endUTRaw = GhostMapPresence.MapLiveUTToEffUT(endUT, arcShift);
+            bool arcDirectorDrive = Parsek.MapRender.ShadowRenderDriver.IsDirectorDriveActive(pid, Time.frameCount);
+            double startUTRaw = arcDirectorDrive ? startUT : GhostMapPresence.MapLiveUTToEffUT(startUT, arcShift);
+            double endUTRaw = arcDirectorDrive ? endUT : GhostMapPresence.MapLiveUTToEffUT(endUT, arcShift);
 
             // Convert UT bounds to eccentric anomaly (same as PatchRendering/Trajectory)
             double fromE = orbit.EccentricAnomalyAtUT(startUTRaw);
