@@ -53,6 +53,9 @@ All notable changes to Parsek are documented here.
 - A route blocked because the destination is full now shows how much free capacity the destination actually has (for example "Munar Station tanks full: 0.0 of 150.0 LiquidFuel free"), so a full depot is distinguishable from a misrouted delivery.
 - A route whose surface destination vessel was lost now has a "Re-scan for endpoint" button that searches the body for a nearby vessel and retries delivery right away if one is found; an orbital lost endpoint instead shows a note that it can only be recovered by recreating the route.
 - The route detail panel now states that the route owns its source tree and that manual looping is disabled while it exists, and a toast confirms when creating a route turns off an existing manual loop.
+- In the Paused Routes section, a route that has never run reads "New (not yet run)" in cyan with a "use Send Once to test" hint, so it stands apart from a route you deliberately paused (which reads grey "Paused").
+- The Active and Paused Routes tables now have clickable column headers (Name, Origin, Destination, Interval, Cyc, Next, Status, Delivery): click to sort, click again to reverse. The window also dropped its standalone Transit column to read narrower (transit time moved to the Interval cell tooltip and the detail panel).
+- The Candidates section now has its own header (Name, Origin, Destination, Would deliver, Transit) instead of borrowing the route table's columns, so a candidate no longer shows blank "-" cells for Interval, Cycles, Next, and Delivery or a placeholder "eligible" Status. The per-cycle delivery manifest is now visible directly in the table.
 
 ### Bug Fixes
 

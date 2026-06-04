@@ -71,6 +71,34 @@ namespace Parsek
         private float lastLegibilityComputeRealtime = -1f;
         private const float LegibilityRecomputeIntervalSeconds = 1.0f;
 
+        // L2 route-table sort state. Shared by both the Active and the Paused section
+        // (the column the player clicks sorts both tables the same way). Default is
+        // Name ascending so the table reads alphabetically until the player sorts.
+        private LogisticsRouteSortColumn routeSortColumn = LogisticsRouteSortColumn.Name;
+        private bool routeSortAscending = true;
+
+        // L2 cached-sorted route lists, one independent cache PER section (Active and
+        // Paused are two disjoint row sets), mirroring the SpawnControlUI cached-sorted
+        // idiom (cachedSortedCandidates + invalidation tuple). A section re-sorts ONLY
+        // when its row count changes, the sort key/direction changes, OR the throttled
+        // legibility cache was refreshed this tick (so the NextDelivery / Destination
+        // sort keys, which live in that cache, do not go stale). NEVER per IMGUI frame.
+        // The legibility-refresh token is lastLegibilityComputeRealtime, bumped once per
+        // ~1 Hz refresh (and reset to -1 on any dirtying mutation), so comparing it to a
+        // cached copy detects exactly the refreshes that could move a sort key.
+        private List<Route> cachedSortedActive = new List<Route>();
+        private int cachedActiveCount = -1;
+        private List<Route> cachedSortedPaused = new List<Route>();
+        private int cachedPausedCount = -1;
+        private LogisticsRouteSortColumn cachedRouteSortColumn = LogisticsRouteSortColumn.Name;
+        private bool cachedRouteSortAscending = true;
+        // Per-section legibility stamps: the Active and Paused tables are drawn in the
+        // same IMGUI pass (Active first), so a SHARED stamp would be consumed by Active
+        // and leave Paused sorting on stale dynamic keys after a ~1 Hz refresh. Keep one
+        // stamp per section (mirroring cachedActiveCount / cachedPausedCount).
+        private float cachedActiveLegibilityStamp = -2f;
+        private float cachedPausedLegibilityStamp = -2f;
+
         /// <summary>
         /// One route's recomputed-on-timer legibility values: the H1 next-delivery
         /// countdown (seconds + which branch), the H2 last-cycle realized line + its
@@ -105,6 +133,15 @@ namespace Parsek
             // IMGUI frame). Null for any other status; the detail draw path reads
             // this cached string.
             public string CapacityContext;
+
+            // L1: Paused-section "never run yet" vs "deliberately paused" Status-cell
+            // distinction. Computed only for Paused routes (CompletedCycles == 0 reads
+            // cyan "New (not yet run)" plus the "Send Once to test" guidance; cycles > 0
+            // reads grey "Paused"). The draw path reads these cached values so the
+            // classifier decision is logged once on the ~1 Hz refresh, not per frame.
+            public LogisticsDeliveryPresentation.PausedRouteLabel PausedLabel;
+            public string PausedLabelText;        // resolved cell text for the New / Paused label
+            public bool ShowSendOnceGuidance;     // true only on a never-run paused row
         }
 
         // Deferred mutations: collected during the draw loop and applied after the
@@ -161,7 +198,7 @@ namespace Parsek
         private GUIStyle statusStyleYellow;  // WaitingForResources / WaitingForFunds / DestinationFull
         private GUIStyle statusStyleRed;     // EndpointLost / MissingSourceRecording / SourceChanged
         private GUIStyle statusStyleGrey;    // Paused
-        private GUIStyle statusStyleCyan;    // Candidate "eligible"
+        private GUIStyle statusStyleCyan;    // L1 paused-route "New (not yet run)" label
         private GUIStyle detailStyle;
 
         // Column widths. Header and rows use the same constants and live in the
@@ -174,21 +211,37 @@ namespace Parsek
         // plus a small "Nx" multiplier label needs the extra width; the read-only
         // "Nx (~human)" label no longer lives here.
         private const float ColW_Interval = 150f;
-        private const float ColW_Transit = 70f;
+        // L2: the standalone Transit column (ColW_Transit, 70px) was removed to narrow
+        // the window; the transit value now rides in the Interval cell's "Nx" tooltip
+        // and the expand-panel detail line.
         private const float ColW_Cycles = 80f;     // "3 / 1 skipped" fits without clipping (QW5)
         private const float ColW_NextDelivery = 90f; // H1 "Next delivery" countdown ("T-12m 5s")
         private const float ColW_Status = 240f;     // plain-English reason text; H3 badge now carries the at-a-glance verdict so the reason can wrap
         private const float ColW_Badge = 120f;      // H3 "Flying, not delivering" / "Delivering" badge
         private const float ColW_Actions = 190f;   // fixed action cell so Name-expand is identical every row
+        // L3: the Candidates section has its own purpose-built header (Name / Origin /
+        // Destination / Would deliver / Transit / Actions); the route-only columns
+        // (Interval / Cyc / Next / Status / Delivery) do not apply to a candidate, so
+        // they were dropped. The Would-deliver cell holds the per-cycle delivery
+        // manifest text ("LiquidFuel 150.0, 2 inventory item(s)"), which can be long, so
+        // it gets a wide cell. The candidates bubble is a separate box and does not have
+        // to match the route bubble width, so this column does not push MinWindowWidth.
+        private const float ColW_WouldDeliver = 260f;
+        // L3: the Candidates Transit cell shows the candidate's natural run duration in
+        // its own column (the route tables fold transit into the Interval tooltip; a
+        // candidate has no Interval, so transit gets a real cell here).
+        private const float ColW_CandidateTransit = 80f;
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 8f;
-        // Fixed columns now total ~1245px (Status/Origin compacted to claw back
-        // ~105px, plus the two new H1 Next-delivery + H3 badge columns and the M1
-        // wider Interval column for the inline cadence stepper), so the window floor
-        // is raised in step with them to keep the expanding Name column a usable
-        // share instead of crushing it.
-        private const float MinWindowWidth = 1380f;
+        // L2: fixed columns now total ~1175px after dropping the 70px Transit column
+        // (Num 30 + Origin 95 + Destination 180 + Interval 150 + Cyc 80 + Next 90 +
+        // Status 240 + Delivery 120 + Actions 190), so the window floor drops in step to
+        // keep the expanding Name column a usable share without leaving the window wider
+        // than its content. The remaining columns (Status / Destination) are candidates
+        // for a further fold in a later pass; this L2 step does a conservative one-column
+        // compression that is safe without in-game validation.
+        private const float MinWindowWidth = 1310f;
         private const float MinWindowHeight = 220f;
 
         public bool IsOpen
@@ -213,7 +266,7 @@ namespace Parsek
             if (windowRect.width < 1f)
             {
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, 1380, 340);
+                windowRect = new Rect(x, mainWindowRect.y, 1310, 340);
                 ParsekLog.Verbose("UI",
                     $"Logistics window initial position: x={windowRect.x.ToString("F0", CultureInfo.InvariantCulture)} y={windowRect.y.ToString("F0", CultureInfo.InvariantCulture)}");
             }
@@ -402,11 +455,20 @@ namespace Parsek
         {
             DrawSectionHeader(title);
             GUILayout.BeginVertical(GUI.skin.box);
-            DrawColumnHeader();
+            // L2: clickable sort headers (cached re-sort). The Active and Paused tables
+            // share the sort column / direction; clicking a header re-sorts both.
+            DrawRouteSortableHeader();
             if (rows.Count == 0)
                 GUILayout.Label("  (none)", detailStyle);
-            for (int i = 0; i < rows.Count; i++)
-                DrawRouteRow(rows[i], section, i + 1, currentUT);
+            else
+            {
+                // Draw the cached-sorted rows (re-sorted only on count / sort-state /
+                // legibility-stamp change, never per frame). Row index is the display
+                // position in the sorted list.
+                List<Route> sorted = GetSortedRoutesForSection(rows, section);
+                for (int i = 0; i < sorted.Count; i++)
+                    DrawRouteRow(sorted[i], section, i + 1, currentUT);
+            }
             GUILayout.EndVertical();
             GUILayout.Space(SpacingSmall);
         }
@@ -415,7 +477,7 @@ namespace Parsek
         {
             DrawSectionHeader(title);
             GUILayout.BeginVertical(GUI.skin.box);
-            DrawColumnHeader();
+            DrawCandidateColumnHeader();
             if (rows.Count == 0)
                 GUILayout.Label("  No eligible Supply Runs. Fly a one-way transport that docks, transfers cargo to the destination, and undocks, then commit and seal the recording.", detailStyle);
             for (int i = 0; i < rows.Count; i++)
@@ -491,7 +553,17 @@ namespace Parsek
             return "<unnamed>";
         }
 
-        private void DrawColumnHeader()
+        // L3: purpose-built static header for the Candidates section. A candidate is a
+        // sealed-but-not-yet-promoted Supply Run, so the route-only columns (Interval /
+        // Cyc / Next / Status / Delivery) do not apply and used to render literal "-" /
+        // "eligible" placeholders. This header carries only the columns that mean
+        // something for a candidate: # / Name / Origin / Destination / Would deliver /
+        // Transit / Actions. The "eligible" / sealed explanation that used to live in
+        // the dropped Status cell is relocated to the section-header "Would deliver"
+        // tooltip so the copy is not lost. The Candidates section is now INDEPENDENT of
+        // the route DrawRouteSortableHeader / DrawRouteRow pair; DrawCandidateRow must add /
+        // drop the SAME cells in the SAME order as this header to stay column-aligned.
+        private void DrawCandidateColumnHeader()
         {
             GUIStyle h = parentUI.GetColumnHeaderStyle();
             GUILayout.BeginHorizontal();
@@ -499,14 +571,57 @@ namespace Parsek
             GUILayout.Label("Name", h, GUILayout.ExpandWidth(true));
             GUILayout.Label("Origin", h, GUILayout.Width(ColW_Origin));
             GUILayout.Label("Destination", h, GUILayout.Width(ColW_Destination));
-            GUILayout.Label("Interval", h, GUILayout.Width(ColW_Interval));
-            GUILayout.Label("Transit", h, GUILayout.Width(ColW_Transit));
-            GUILayout.Label("Cyc", h, GUILayout.Width(ColW_Cycles));
-            GUILayout.Label("Next", h, GUILayout.Width(ColW_NextDelivery));
-            GUILayout.Label("Status", h, GUILayout.Width(ColW_Status));
-            GUILayout.Label("Delivery", h, GUILayout.Width(ColW_Badge));
+            GUILayout.Label(
+                new GUIContent("Would deliver",
+                    "Each candidate is a sealed, valid Supply Run: resources / inventory it would deliver to the destination per cycle. Create Route promotes it to a Paused route you can Send Once / Activate."),
+                h, GUILayout.Width(ColW_WouldDeliver));
+            GUILayout.Label("Transit", h, GUILayout.Width(ColW_CandidateTransit));
             GUILayout.Label("Actions", h, GUILayout.Width(ColW_Actions));
             GUILayout.EndHorizontal();
+        }
+
+        // L2: the clickable sort header for the Active / Paused route tables. Each
+        // sortable column routes through parentUI.DrawSortableHeaderCore (the shared
+        // generic header used by SpawnControlUI / RecordingsTableUI), toggling the shared
+        // routeSortColumn / routeSortAscending and invalidating the cached-sorted lists
+        // on change. The "#" index, the (non-data) Transit-less layout, and the Actions
+        // cell are NOT sortable, so they draw as plain header labels; the cell order
+        // matches DrawRouteRow exactly.
+        private void DrawRouteSortableHeader()
+        {
+            GUIStyle h = parentUI.GetColumnHeaderStyle();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("#", h, GUILayout.Width(ColW_Num));
+            DrawRouteSortColumn("Name", LogisticsRouteSortColumn.Name, 0f, true);
+            DrawRouteSortColumn("Origin", LogisticsRouteSortColumn.Origin, ColW_Origin, false);
+            DrawRouteSortColumn("Destination", LogisticsRouteSortColumn.Destination, ColW_Destination, false);
+            DrawRouteSortColumn("Interval", LogisticsRouteSortColumn.Interval, ColW_Interval, false);
+            DrawRouteSortColumn("Cyc", LogisticsRouteSortColumn.Cycles, ColW_Cycles, false);
+            DrawRouteSortColumn("Next", LogisticsRouteSortColumn.NextDelivery, ColW_NextDelivery, false);
+            DrawRouteSortColumn("Status", LogisticsRouteSortColumn.Status, ColW_Status, false);
+            DrawRouteSortColumn("Delivery", LogisticsRouteSortColumn.Delivery, ColW_Badge, false);
+            GUILayout.Label("Actions", h, GUILayout.Width(ColW_Actions));
+            GUILayout.EndHorizontal();
+        }
+
+        // Thin per-window wrapper around the shared sortable-header helper (mirrors
+        // SpawnControlUI.DrawSpawnSortableHeader). On a click that changes the sort, the
+        // helper flips routeSortColumn / routeSortAscending and the onChanged callback
+        // logs the decision (once, on the click, not per frame) and dirties the cached
+        // sort tuple so both sections re-sort on the next draw.
+        private void DrawRouteSortColumn(string label, LogisticsRouteSortColumn col, float width, bool expand)
+        {
+            parentUI.DrawSortableHeaderCore(
+                label, col, ref routeSortColumn, ref routeSortAscending, width, expand,
+                () =>
+                {
+                    // Force a re-sort next draw: clearing the cached counts guarantees
+                    // both section caches miss even if the row count is unchanged.
+                    cachedActiveCount = -1;
+                    cachedPausedCount = -1;
+                    ParsekLog.Verbose("UI",
+                        $"Logistics route sort changed column={routeSortColumn} ascending={routeSortAscending}");
+                });
         }
 
         private enum RouteSection { Active, Paused }
@@ -544,7 +659,9 @@ namespace Parsek
             // interval in seconds and commits on Enter / click-outside through
             // ParseAndSnapInterval -> ApplyMultiplier (run directly in the commit).
             DrawIntervalCell(route);
-            GUILayout.Label(FormatDuration(route.TransitDuration), GUILayout.Width(ColW_Transit));
+            // L2: the standalone Transit column was dropped to narrow the window; the
+            // transit value now rides in the Interval cell's "Nx" tooltip (DrawIntervalCell)
+            // and the expand-panel detail line, so no Transit cell is drawn here.
             // Completed deliveries, plus "/ N skipped" when cycles were blocked
             // (ghost flew but delivered nothing). Tooltip spells out the semantics.
             GUILayout.Label(
@@ -562,9 +679,25 @@ namespace Parsek
                 GUILayout.Width(ColW_NextDelivery));
 
             // Show the plain-English reason IN the cell; keep the raw enum name in
-            // the hover tooltip (a one-word state token for players who want it).
-            GUILayout.Label(new GUIContent(StatusReason(route.Status), route.Status.ToString()),
-                StatusStyleFor(route.Status), GUILayout.Width(ColW_Status));
+            // the hover tooltip (a one-word state token for players who want it). L1:
+            // in the Paused section the cell instead distinguishes a never-run route
+            // (cyan "New (not yet run)") from a deliberately-paused one (grey "Paused"),
+            // reading the classification cached in the ~1 Hz legibility pass; the H3
+            // Delivery badge column stays grey "Paused" for both.
+            if (section == RouteSection.Paused)
+            {
+                GUIStyle pausedStyle = leg.PausedLabel == LogisticsDeliveryPresentation.PausedRouteLabel.New
+                    ? statusStyleCyan
+                    : statusStyleGrey;
+                GUILayout.Label(
+                    new GUIContent(leg.PausedLabelText ?? StatusReason(route.Status), route.Status.ToString()),
+                    pausedStyle, GUILayout.Width(ColW_Status));
+            }
+            else
+            {
+                GUILayout.Label(new GUIContent(StatusReason(route.Status), route.Status.ToString()),
+                    StatusStyleFor(route.Status), GUILayout.Width(ColW_Status));
+            }
 
             // H3 "Delivery" badge: the at-a-glance verdict (green Delivering /
             // yellow Flying-not-delivering / grey Paused / cyan New).
@@ -621,6 +754,17 @@ namespace Parsek
             GUILayout.EndHorizontal();
 
             GUILayout.EndHorizontal();
+
+            // L1: a one-line "Send Once to test" guidance under a never-run paused row
+            // only. Rendered as a full-width line inside this section box (NOT a column
+            // cell), so the header / route-row / candidate-row column counts stay
+            // aligned. Drawn for every never-run paused row whether or not it is
+            // expanded, since the cue is most useful before the player opens the detail.
+            if (section == RouteSection.Paused && leg.ShowSendOnceGuidance)
+                GUILayout.Label(
+                    new GUIContent(LogisticsDeliveryPresentation.SendOnceGuidanceText,
+                        "This route has never run. Use Send Once to fire one test cycle without activating periodic dispatch."),
+                    detailStyle);
 
             if (expanded)
                 DrawRouteDetail(route, currentUT);
@@ -721,11 +865,14 @@ namespace Parsek
             }
 
             // Compact "Nx" multiplier readout (the human duration moves to the tooltip
-            // so the cell stays narrow); hovering shows "Nx (~human)".
+            // so the cell stays narrow); hovering shows the cadence + the transit time
+            // (which no longer has its own column after the L2 narrowing).
             GUILayout.Label(
                 new GUIContent(
                     string.Format(CultureInfo.InvariantCulture, "{0}x", n),
-                    "Dispatch cadence = N x run duration. Type a target interval (seconds) in the field, or use -/+; the value snaps up to the next whole run-multiple (1x is the floor, the fastest the run allows)."),
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Dispatch cadence = N x run duration (transit {0}). Type a target interval (seconds) in the field, or use -/+; the value snaps up to the next whole run-multiple (1x is the floor, the fastest the run allows).",
+                        FormatDuration(route.TransitDuration))),
                 GUILayout.Width(28f));
 
             GUILayout.EndHorizontal();
@@ -925,16 +1072,22 @@ namespace Parsek
 
             GUILayout.Label(FormatCandidateOrigin(candidate.Analysis), GUILayout.Width(ColW_Origin));
             GUILayout.Label(FormatEndpointShort(candidate.Analysis.ConnectionWindow?.EndpointAtDock), GUILayout.Width(ColW_Destination));
-            GUILayout.Label("-", GUILayout.Width(ColW_Interval));
-            GUILayout.Label(FormatDuration(CandidateTransit(candidate)), GUILayout.Width(ColW_Transit));
-            GUILayout.Label("-", GUILayout.Width(ColW_Cycles));
-            // Next-delivery placeholder: candidates have not been promoted to a route
-            // yet, so there is no dispatch schedule (keeps the cell count == header).
-            GUILayout.Label("-", GUILayout.Width(ColW_NextDelivery));
-            GUILayout.Label(new GUIContent("eligible", "A sealed, valid Supply Run. Create Route promotes it to a Paused route you can Send Once / Activate."),
-                statusStyleCyan, GUILayout.Width(ColW_Status));
-            // Delivery-badge placeholder for the same reason.
-            GUILayout.Label("-", GUILayout.Width(ColW_Badge));
+            // L3: Would-deliver cell. The per-cycle manifest text comes from the shared
+            // pure LogisticsDeliveryPresentation.FormatWouldDeliver, the same formatter
+            // the candidate detail line uses, so the cell and the detail never diverge.
+            // The "eligible" / sealed copy that used to ride the dropped Status cell now
+            // lives in this cell's tooltip plus the section-header tooltip.
+            GUILayout.Label(
+                new GUIContent(
+                    LogisticsDeliveryPresentation.FormatWouldDeliver(
+                        candidate.Analysis.ResourceDeliveryManifest,
+                        candidate.Analysis.InventoryDeliveryManifest),
+                    "A sealed, valid Supply Run: what it would deliver to the destination per cycle. Create Route promotes it to a Paused route you can Send Once / Activate."),
+                GUILayout.Width(ColW_WouldDeliver));
+            // L3: Transit cell (the candidate's natural run duration) now has its own
+            // column in the candidate header, so it draws a real value instead of riding
+            // a placeholder tooltip.
+            GUILayout.Label(FormatDuration(CandidateTransit(candidate)), GUILayout.Width(ColW_CandidateTransit));
 
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Actions));
             if (GUILayout.Button(new GUIContent("Create Route",
@@ -1927,6 +2080,23 @@ namespace Parsek
             if (route.Status == RouteStatus.DestinationFull)
                 leg.CapacityContext = ResolveCapacityContext(route, destVessel, destText);
 
+            // L1: for a Paused route, classify the Status cell as never-run "New" vs
+            // deliberately-paused "Paused" from the completed-cycle count, and decide
+            // whether the "Send Once to test" guidance shows. Computed only here (the
+            // ~1 Hz refresh) so the decision logs once, not per IMGUI frame. Non-Paused
+            // routes keep the StatusReason cell and never read these fields.
+            if (route.Status == RouteStatus.Paused)
+            {
+                leg.PausedLabel = LogisticsDeliveryPresentation.ClassifyPausedRoute(route.CompletedCycles);
+                leg.PausedLabelText = LogisticsDeliveryPresentation.PausedRouteLabelText(leg.PausedLabel);
+                leg.ShowSendOnceGuidance =
+                    LogisticsDeliveryPresentation.ShouldShowSendOnceGuidance(route.CompletedCycles);
+                ParsekLog.Verbose("UI",
+                    $"Logistics paused-route label route={ShortId(route.Id)} " +
+                    $"completedCycles={route.CompletedCycles.ToString(CultureInfo.InvariantCulture)} " +
+                    $"label={leg.PausedLabel}");
+            }
+
             return leg;
         }
 
@@ -2057,12 +2227,116 @@ namespace Parsek
             // set to Paused, NOT left at the struct default, because DeliveryBadge
             // default is Delivering (= 0) and an unknown route must never flash the
             // green "Delivering" verdict (wrong-direction failure). DestinationText "-"
-            // matches the empty-cell convention.
+            // matches the empty-cell convention. L1: PausedLabel MUST be Paused (grey),
+            // NOT the struct default New (= 0, cyan), so an unknown paused route never
+            // flashes the cyan "New" treatment or the Send Once guidance until the cache
+            // fills; PausedLabelText null falls back to StatusReason in the cell.
             return new RouteLegibility
             {
                 Badge = LogisticsDeliveryPresentation.DeliveryBadge.Paused,
-                DestinationText = "-"
+                DestinationText = "-",
+                PausedLabel = LogisticsDeliveryPresentation.PausedRouteLabel.Paused,
+                ShowSendOnceGuidance = false
             };
+        }
+
+        // ------------------------------------------------------------------
+        // L2: cached-sorted route tables. Re-sort a section only when its row
+        // count changes, the sort key/direction changes, or the throttled
+        // legibility cache was refreshed (the NextDelivery / Destination sort
+        // keys live in that cache). Never per IMGUI frame.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Returns the cached, sorted list for one route section, re-sorting only when
+        /// the section's row count, the shared sort column/direction, or the legibility
+        /// stamp changed since the last sort (the SpawnControlUI cached-sorted idiom,
+        /// one cache per section). The sort keys for Origin / Destination / NextDelivery
+        /// / Status / Delivery are projected from the throttled legibility cache through
+        /// <see cref="BuildRouteSortKeys"/>, so the pure comparer never recomputes them.
+        /// Logs the decision (the column / direction) once per actual re-sort, NOT per
+        /// frame, via a Verbose line.
+        /// </summary>
+        private List<Route> GetSortedRoutesForSection(List<Route> rows, RouteSection section)
+        {
+            bool active = section == RouteSection.Active;
+            int rowCount = rows?.Count ?? 0;
+            int cachedCount = active ? cachedActiveCount : cachedPausedCount;
+            float cachedStamp = active ? cachedActiveLegibilityStamp : cachedPausedLegibilityStamp;
+
+            bool sortStateChanged = routeSortColumn != cachedRouteSortColumn
+                || routeSortAscending != cachedRouteSortAscending
+                || cachedStamp != lastLegibilityComputeRealtime;
+
+            if (rowCount != cachedCount || sortStateChanged)
+            {
+                Dictionary<string, RouteSortKeys> keys = BuildRouteSortKeys(rows);
+                List<Route> sorted = LogisticsSortPresentation.SortRoutes(
+                    rows, routeSortColumn, routeSortAscending, keys);
+
+                if (active)
+                {
+                    cachedSortedActive = sorted;
+                    cachedActiveCount = rowCount;
+                    cachedActiveLegibilityStamp = lastLegibilityComputeRealtime;
+                }
+                else
+                {
+                    cachedSortedPaused = sorted;
+                    cachedPausedCount = rowCount;
+                    cachedPausedLegibilityStamp = lastLegibilityComputeRealtime;
+                }
+                // The sort column/direction is genuinely shared (both sections sort the
+                // same way); a header click resets BOTH counts so both re-sort. The
+                // legibility freshness is per-section (stamped above) so a ~1 Hz refresh
+                // re-sorts each section independently.
+                cachedRouteSortColumn = routeSortColumn;
+                cachedRouteSortAscending = routeSortAscending;
+
+                ParsekLog.Verbose("UI",
+                    $"Logistics route sort applied section={section} " +
+                    $"column={routeSortColumn} ascending={routeSortAscending} " +
+                    $"rows={rowCount.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+            return active ? cachedSortedActive : cachedSortedPaused;
+        }
+
+        /// <summary>
+        /// Projects the per-route sort keys (Origin / Destination / NextDelivery /
+        /// Status / Delivery display values) from the throttled legibility cache into a
+        /// plain dictionary the pure <see cref="LogisticsSortPresentation.SortRoutes"/>
+        /// comparer reads. Built only when a section actually re-sorts (throttled), not
+        /// per frame. Origin and Status come from the same pure formatters the cells
+        /// render, so a column sorts by exactly what the player sees.
+        /// </summary>
+        private Dictionary<string, RouteSortKeys> BuildRouteSortKeys(List<Route> rows)
+        {
+            var keys = new Dictionary<string, RouteSortKeys>();
+            if (rows == null) return keys;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                Route route = rows[i];
+                if (route == null || string.IsNullOrEmpty(route.Id)) continue;
+
+                RouteLegibility leg = GetLegibility(route);
+                bool hasNext = leg.CountdownBranch
+                    != LogisticsCountdownPresentation.CountdownBranch.None;
+                string statusText = route.Status == RouteStatus.Paused && leg.PausedLabelText != null
+                    ? leg.PausedLabelText
+                    : StatusReason(route.Status);
+
+                keys[route.Id] = new RouteSortKeys
+                {
+                    OriginText = FormatOrigin(route),
+                    DestinationText = leg.DestinationText ?? string.Empty,
+                    NextDeliverySeconds = leg.CountdownSeconds,
+                    HasNextDelivery = hasNext,
+                    StatusText = statusText,
+                    DeliveryText = LogisticsDeliveryPresentation.DeliveryBadgeLabel(leg.Badge)
+                };
+            }
+            return keys;
         }
 
         // The H1 "Next" cell text for a cached countdown: the bare formatted countdown
@@ -2225,27 +2499,16 @@ namespace Parsek
             return FormatManifest(stop.DeliveryManifest, stop.InventoryDeliveryManifest);
         }
 
+        // L3: the manifest formatting moved to the pure
+        // LogisticsDeliveryPresentation.FormatWouldDeliver so the Candidates section
+        // "Would deliver" cell and the route / candidate detail lines share one
+        // unit-tested formatter. This thin window-side forwarder keeps the existing
+        // callers (route delivery, candidate detail) on the same text.
         private static string FormatManifest(
             Dictionary<string, double> resources,
             List<InventoryPayloadItem> inventory)
         {
-            var sb = new StringBuilder();
-            if (resources != null)
-            {
-                foreach (KeyValuePair<string, double> kv in resources)
-                {
-                    if (sb.Length > 0) sb.Append(", ");
-                    sb.Append(kv.Key).Append(' ')
-                      .Append(kv.Value.ToString("F1", CultureInfo.InvariantCulture));
-                }
-            }
-            int invCount = inventory?.Count ?? 0;
-            if (invCount > 0)
-            {
-                if (sb.Length > 0) sb.Append(", ");
-                sb.Append(invCount.ToString(CultureInfo.InvariantCulture)).Append(" inventory item(s)");
-            }
-            return sb.Length > 0 ? sb.ToString() : "(nothing)";
+            return LogisticsDeliveryPresentation.FormatWouldDeliver(resources, inventory);
         }
 
         private static string ShortId(string id)
@@ -2335,19 +2598,26 @@ namespace Parsek
         {
             if (statusStyleGreen != null) return;
 
+            // L4: the five status-text colors come from the one shared ParsekUI
+            // palette (the house source) so the literals live in a single place; this
+            // window keeps its own GUIStyle objects (no padding here, unlike the
+            // Recordings table) and only the text color is centralized. detailStyle's
+            // (0.8, 0.8, 0.8) is Logistics-only and stays a local literal.
             statusStyleGreen = new GUIStyle(GUI.skin.label);
-            statusStyleGreen.normal.textColor = new Color(0.55f, 1f, 0.55f);
+            statusStyleGreen.normal.textColor = parentUI.GetStatusColor(ParsekUI.StatusColorKind.Green);
             statusStyleYellow = new GUIStyle(GUI.skin.label);
-            statusStyleYellow.normal.textColor = new Color(1f, 1f, 0.4f);
+            statusStyleYellow.normal.textColor = parentUI.GetStatusColor(ParsekUI.StatusColorKind.Yellow);
             statusStyleRed = new GUIStyle(GUI.skin.label);
-            statusStyleRed.normal.textColor = new Color(1f, 0.4f, 0.4f);
+            statusStyleRed.normal.textColor = parentUI.GetStatusColor(ParsekUI.StatusColorKind.Red);
             statusStyleGrey = new GUIStyle(GUI.skin.label);
-            statusStyleGrey.normal.textColor = new Color(0.7f, 0.7f, 0.7f);
+            statusStyleGrey.normal.textColor = parentUI.GetStatusColor(ParsekUI.StatusColorKind.Grey);
             statusStyleCyan = new GUIStyle(GUI.skin.label);
-            statusStyleCyan.normal.textColor = new Color(0.65f, 0.85f, 1f);
+            statusStyleCyan.normal.textColor = parentUI.GetStatusColor(ParsekUI.StatusColorKind.Cyan);
 
             detailStyle = new GUIStyle(GUI.skin.label) { wordWrap = true };
             detailStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f);
+
+            ParsekLog.Verbose("UI", "Logistics status styles built from shared ParsekUI palette");
         }
     }
 }

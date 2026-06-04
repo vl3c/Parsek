@@ -767,6 +767,67 @@ namespace Parsek
             return sharedColumnHeaderStyle;
         }
 
+        // ============================================================
+        //  Shared status-text color palette (L4)
+        // ============================================================
+
+        /// <summary>
+        /// The canonical status-text color slots shared across windows that color
+        /// status labels (the house palette). Windows keep their own GUIStyle objects
+        /// (padding / wordWrap differ) but pull the text color from one source so the
+        /// literals live in a single place.
+        /// </summary>
+        public enum StatusColorKind
+        {
+            /// <summary>Good / delivering / active (0.55, 1, 0.55).</summary>
+            Green = 0,
+
+            /// <summary>Caution / flying-but-not-delivering (1, 1, 0.4).</summary>
+            Yellow = 1,
+
+            /// <summary>Broken / hard error (1, 0.4, 0.4).</summary>
+            Red = 2,
+
+            /// <summary>Inert / paused (0.7, 0.7, 0.7).</summary>
+            Grey = 3,
+
+            /// <summary>New / informational / eligible (0.65, 0.85, 1).</summary>
+            Cyan = 4,
+        }
+
+        /// <summary>
+        /// The single source of truth for the house status-text palette. Pure (no GUI
+        /// side effects), so it is unit-testable directly and both windows resolve the
+        /// same RGBA. Values are taken verbatim from the prior Logistics palette so no
+        /// rendered color changes when the windows route through here.
+        /// </summary>
+        internal static Color StatusColor(StatusColorKind kind)
+        {
+            switch (kind)
+            {
+                case StatusColorKind.Green:
+                    return new Color(0.55f, 1f, 0.55f);
+                case StatusColorKind.Yellow:
+                    return new Color(1f, 1f, 0.4f);
+                case StatusColorKind.Red:
+                    return new Color(1f, 0.4f, 0.4f);
+                case StatusColorKind.Cyan:
+                    return new Color(0.65f, 0.85f, 1f);
+                case StatusColorKind.Grey:
+                default:
+                    return new Color(0.7f, 0.7f, 0.7f);
+            }
+        }
+
+        /// <summary>
+        /// Public accessor for the shared status-text palette. Windows assign the
+        /// returned color to their own GUIStyle's <c>normal.textColor</c> during draw.
+        /// </summary>
+        public Color GetStatusColor(StatusColorKind kind)
+        {
+            return StatusColor(kind);
+        }
+
         // ════════════════════════════════════════════════════════════════
         //  Wipe confirmations (kept on ParsekUI — called by SettingsWindowUI)
         // ════════════════════════════════════════════════════════════════
