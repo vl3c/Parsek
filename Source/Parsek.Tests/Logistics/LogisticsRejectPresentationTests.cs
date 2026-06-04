@@ -175,6 +175,20 @@ namespace Parsek.Tests.Logistics
                 new List<RecordingTree>()));
         }
 
+        // catches: an empty committed tree (no recordings) being reported as a near-miss
+        // with the self-contradictory "not fully sealed (0 recordings still re-flyable)".
+        // An empty tree is not a meaningful near-miss and is skipped entirely.
+        [Fact]
+        public void DeriveNearMisses_EmptyTree_NotANearMiss()
+        {
+            var emptyTree = new RecordingTree { Id = "t-empty", RootRecordingId = "root" };
+
+            var nearMisses = RouteCandidateFinder.DeriveNearMisses(
+                new List<RecordingTree> { emptyTree });
+
+            Assert.Empty(nearMisses);
+        }
+
         // catches: end-to-end consistency of the collector + the pure describe. The
         // unsealed near-miss's count drives the rendered string.
         [Fact]

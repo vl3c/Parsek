@@ -209,7 +209,10 @@ namespace Parsek.Logistics
             for (int i = 0; i < committedTrees.Count; i++)
             {
                 RecordingTree tree = committedTrees[i];
-                if (tree == null)
+                // Skip null and empty trees: an empty tree (no recordings) is not a
+                // meaningful near-miss, and reporting it as "not fully sealed
+                // (0 recordings still re-flyable)" is self-contradictory.
+                if (tree?.Recordings == null || tree.Recordings.Count == 0)
                     continue;
 
                 if (!IsTreeFullySealed(tree))

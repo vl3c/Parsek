@@ -669,7 +669,14 @@ namespace Parsek
             // ParseAndSnapInterval -> ApplyMultiplier (run directly in the commit).
             // Hidden (empty cell, same width to keep columns aligned) while sending once.
             if (sendingOnce)
+            {
+                // If an interval edit was in progress for this route, clear it: the cell
+                // (and its Enter-commit path) is now gone, so the edit state would
+                // otherwise linger with a stale rect until the next click-outside.
+                if (string.Equals(intervalEditRouteId, route.Id, System.StringComparison.Ordinal))
+                    ClearIntervalEdit();
                 GUILayout.Label(GUIContent.none, GUILayout.Width(ColW_Interval));
+            }
             else
                 DrawIntervalCell(route);
             // L2: the standalone Transit column was dropped to narrow the window; the
