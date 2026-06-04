@@ -100,6 +100,49 @@ functions of absolute UT:
   This is the 131-degree offset.
 - Each inner moon ORBITAL phase, period `T_orb(moon)` (`IBodyInfo.OrbitPeriod`).
 
+### Anchor at the LANDING; the SOI entry is a DERIVED variable (the controlling-variable model, 2026-06-04)
+
+The binding constraint is the LANDING (L9), not the SOI entry (L7). So anchor the whole
+in-SOI chain at the landing and let the SOI entry fall out as a CALCULATED, VARIABLE point:
+
+1. Choose the arrival hold so the destination's rotation phase at the DEORBIT / landing
+   recurs to its recorded value (align L9, the thing the user actually sees). For a mission
+   with no in-SOI (destination-side) loiter cut this is identical to aligning the SOI entry
+   (the entry-anchored hold already shipped in PR #1030), because the entry-to-landing span
+   replays at recorded rate, so the two holds are equal mod `T_rot`. Anchoring at the landing
+   is the more robust statement: it stays correct even if an in-SOI rate change or loiter is
+   introduced, and it ties the alignment directly to the only frame that must be exact.
+2. Render the recorded in-SOI tail (capture hyperbola -> parking -> descent -> landing) as
+   ONE connected chain, working BACKWARD from the landing. The recorded chain IS connected,
+   and the hold PRESERVES that connection: at the deorbit instant the inertial orbit point is
+   `R_recorded x bodyfixed` and the body-fixed descent renders at `R_now x bodyfixed`, and the
+   hold forces `R_now = R_recorded`, so the two coincide. Render it exactly as the recording.
+3. The SOI ENTRY POINT is NOT controlled or aligned. It is wherever the connected recorded
+   chain, anchored at the landing, places it on the destination SOI sphere. We just CALCULATE
+   it and connect the regenerated heliocentric transfer (L5) to that point. Because the entry
+   is a free derived variable (its angle is irrelevant, per the paragraph above), everything
+   downstream of it (L7/L8/L9) falls into place automatically. This is the "variable SOI
+   entry makes it all fall into place" result: by NOT constraining the entry, the recorded
+   chain stays connected end to end and lands on-site.
+
+The only residual is the transfer-to-SOI-entry seam: the recorded capture hyperbola carries
+the recorded window's approach direction while the regenerated transfer arrives from the new
+window's direction, so a small kink can remain right at the SOI edge. This is cosmetically
+irrelevant (deep space, far from the landing) and is exactly the "SOI entry DIRECTION is
+irrelevant" point above. Ike's orbital phase is the one alignment lever still open.
+
+STATUS CORRECTION (supersedes the "NOT a render bug" line in the Problem statement, for the
+REMAINING work only): the TEMPORAL alignment is now DONE and CORRECT. PR #1030's hold renders
+the landing SITE on the recorded site (playtest-confirmed), and the in-SOI proto orbit lines
+connect. With the alignment correct, the remaining defects are RENDER bugs: the body-fixed
+descent polyline is drawn (reaches `Draw3D` with all points) but invisible on screen; the
+proto-vessel icon overshoots its inertial orbit past the deorbit point and then the descent
+marker teleports back to the descent start; and the proto orbit does not visually hand off to
+the descent. These are failures of the renderer to honor a connection that EXISTS in the data,
+not alignment failures. The fix is to make the renderer draw the recorded in-SOI tail as the
+single connected chain this section describes (visible descent line + clean orbit->descent
+marker handoff + the deorbit point shared by both), anchored at the landing.
+
 ### HARD REQUIREMENT: the synodic launch cadence is preserved
 
 The looped launch cadence MUST stay at the synodic period (about 2 Kerbin years for
