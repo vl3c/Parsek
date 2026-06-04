@@ -1464,6 +1464,11 @@ namespace Parsek
             if (pendingPause != null)
             {
                 bool ok = RouteOrchestrator.TryPause(pendingPause);
+                // An explicit Pause overrides any prior Send-Once provenance (both leave
+                // PauseAfterCurrentCycle set): drop the id so a Send-Once-then-Pause
+                // armed cycle reads "Pausing after this cycle..." not "Sending one cycle...".
+                if (ok && !string.IsNullOrEmpty(pendingPause.Id))
+                    sendOnceArmedRouteIds.Remove(pendingPause.Id);
                 ParsekLog.Info("UI", $"Logistics: Pause route={ShortId(pendingPause.Id)} result={(ok ? "paused" : "rejected")}");
             }
             if (pendingActivate != null)
