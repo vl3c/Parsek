@@ -6666,7 +6666,9 @@ namespace Parsek
                 MissionRelaunchSchedule relaunchSchedule,
                 Parsek.Reaim.ReaimMissionPlan? reaimPlan,
                 Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule? reaimSchedule,
-                IReadOnlyList<LoopCut> loiterCuts = null)
+                IReadOnlyList<LoopCut> loiterCuts = null,
+                double arrivalHoldSeconds = 0.0,
+                double arrivalHoldAtUT = double.NaN)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6680,6 +6682,8 @@ namespace Parsek
                 ReaimPlan = reaimPlan;
                 ReaimSchedule = reaimSchedule;
                 LoiterCuts = loiterCuts;
+                ArrivalHoldSeconds = arrivalHoldSeconds;
+                ArrivalHoldAtUT = arrivalHoldAtUT;
             }
 
             /// <summary>
@@ -6781,6 +6785,19 @@ namespace Parsek
             /// unit and on a re-aim loop with no compressible loiter.
             /// </summary>
             internal IReadOnlyList<LoopCut> LoiterCuts { get; }
+
+            /// <summary>
+            /// Arrival HOLD (seconds) inserted at the heliocentric->capture boundary so the in-SOI replay
+            /// defers and the destination's rotation phase at the deorbit recurs to recorded (re-aim
+            /// cross-parent landing alignment). The INVERSE of a loiter cut. 0 on every non-re-aim unit and
+            /// on a re-aim landing with alignment off / no rotation constraint, in which case the span clock
+            /// is byte-identical to the pre-hold behavior.
+            /// </summary>
+            internal double ArrivalHoldSeconds { get; }
+
+            /// <summary>The recorded-span UT the arrival hold is inserted at (the heliocentric->capture
+            /// boundary, = the re-aim plan's RecordedArrivalUT). NaN when there is no hold.</summary>
+            internal double ArrivalHoldAtUT { get; }
         }
 
         /// <summary>
@@ -7219,7 +7236,9 @@ namespace Parsek
             out long unitCycle,
             out bool isInInterCycleTail,
             MissionRelaunchSchedule schedule = null,
-            IReadOnlyList<LoopCut> loiterCuts = null)
+            IReadOnlyList<LoopCut> loiterCuts = null,
+            double arrivalHoldSeconds = 0.0,
+            double arrivalHoldAtUT = double.NaN)
         {
             spanLoopUT = spanStartUT;
             unitCycle = 0;
@@ -7227,7 +7246,8 @@ namespace Parsek
 
             if (!TryComputeSpanLoopUT(
                     currentUT, phaseAnchorUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT,
-                    out unitCycle, out isInInterCycleTail, schedule, loiterCuts))
+                    out unitCycle, out isInInterCycleTail, schedule, loiterCuts,
+                    arrivalHoldSeconds, arrivalHoldAtUT))
                 return UnitMemberRenderDecision.SpanClockUnresolved;
 
             // Inter-cycle tail (the "wait" between cycles when cadence > span): render nothing.
@@ -7285,7 +7305,9 @@ namespace Parsek
                 out _,
                 out _,
                 unit.RelaunchSchedule,
-                unit.LoiterCuts);
+                unit.LoiterCuts,
+                unit.ArrivalHoldSeconds,
+                unit.ArrivalHoldAtUT);
 
             if (decision == UnitMemberRenderDecision.Render)
                 return loopUT;
