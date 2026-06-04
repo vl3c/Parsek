@@ -348,21 +348,37 @@ riskiest.
     within-tolerance, mode, effective-constraint count) per the batch-counting convention.
 - Done: tests pass; callable but unwired. Deps: Phase 0. Review: full (math).
 
-### Phase 2 - Cross-parent destination constraint extraction (pure)
-- Extend the constraint extraction so a cross-parent LANDING mission emits DestRotation (the
-  destination surface-orbit hand-off pair rule) + one MoonConfig per visible inner moon,
-  keyed to `RecordedDestSurfaceUT` / `RecordedArrivalUT` respectively, instead of
-  short-circuiting to `Support.UnsupportedCrossParent`. Keep the `UnsupportedCrossParent`
-  outcome for the cases this phase does NOT cover (section 8).
-- Tests (xUnit pure):
-  - Cross-parent LANDING (Duna, captured-then-deorbit) emits DestRotation + MoonConfig (Ike),
-    no longer UnsupportedCrossParent.
-  - Cross-parent ORBIT-ONLY flyby emits MoonConfig only (no DestRotation: no surface + orbit
-    pair).
-  - 0-moon destination (Eve / Moho / Dres) emits DestRotation only.
-  - 2+ constrained-moon destination still reports not-supported (section 8 cutoff).
-  - Same-parent missions UNCHANGED (regression guard: byte-identical extraction).
-- Done: tests pass. Deps: Phase 1. Review: full (the deferral-seam change).
+### Phase 2 - Cross-parent destination constraint SELECTION (pure, additive)
+
+CORRECTED from the original framing during implementation (do NOT regress to it): do NOT modify
+`ExtractConstraints` and do NOT flip `Support.UnsupportedCrossParent` to `Supported`. The cross-parent
+re-aim path in `MissionLoopUnitBuilder` is entered precisely BECAUSE `phaseLocked == false`, and that
+flag is false BECAUSE the extraction reports `UnsupportedCrossParent` (the `if (!phaseLocked)` re-aim
+block in `MissionLoopUnitBuilder.cs`; `MissionPeriodicity.Solve` returns the no-lock sentinel only when
+`Support != Supported`, and sets `ShouldPhaseLock == true` for ANY `Supported` config). Flipping
+`Support` would make the periodicity scheduler phase-lock the mission and SKIP the re-aim transfer
+rendering entirely - a regression of a working system. So `Support` stays `UnsupportedCrossParent`.
+
+Instead, a pure ADDITIVE downstream selector (`DestinationConstraintExtractor.ExtractDestinationConstraints`)
+picks the arrival-solve constraint set out of the constraints the existing extraction ALREADY emits
+(`Rotation(target)` for the landing surface + arrival-orbit hand-off, `MissionPeriodicity.cs:391-414`;
+`Orbital(body)` for each SOI entry, `:416-458`):
+- DestRotation = the Rotation constraint on the TARGET body.
+- MoonConfig = each Orbital constraint on a MOON of the target (a body whose `ReferenceBodyName` is the
+  target) the recorded arc enters the SOI of.
+- The target's OWN Orbital (its heliocentric SOI-entry) is EXCLUDED: arrival alignment is invariant to
+  where the ghost crosses the destination SOI edge, only the destination configuration at entry/landing.
+- 2+ constrained moons (Jool-class) fail closed to faithful (the section 8b deferral).
+The selector does not mutate the extraction output and never touches `Support` or the periodicity solve.
+
+- Tests (xUnit pure): cross-parent Duna landing -> DestRotation only (target's own orbital excluded);
+  + one moon -> DestRotation + MoonConfig(Ike); orbit-only arrival -> no DestRotation (empty unless a
+  moon SOI is entered); 0-moon destination (Moho) -> DestRotation only; 2+ moons -> fail closed; a moon
+  of a different body (parent != target) is not counted; a duplicate moon SOI is counted once;
+  does-not-mutate-input; one summary log line.
+- Done: tests pass; selector is additive and unwired (P3 calls it inside the re-aim path). Same-parent
+  missions and the existing extraction / `Solve` are untouched by construction. Deps: Phase 1.
+  Review: full (regression-focused: confirm no existing path changes).
 
 ### Phase 3 - Re-aim injection seam (`DestinationArrivalAlign` planner step)
 - New pure `DestinationArrivalAlign` step mirroring `PadAlignLaunch`, wired in
