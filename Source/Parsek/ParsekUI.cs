@@ -1156,18 +1156,18 @@ namespace Parsek
                 {
                     uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(kvp.Key);
                     // Skip our marker only when the native proto icon is actually
-                    // visible. It is NOT visible when the icon is suppressed
-                    // (below-atmosphere clamp) OR when the trajectory polyline owns
-                    // this recording's current non-orbital phase (GhostOrbitLinePatch
-                    // hides the proto icon then). In the polyline case our marker is
-                    // the sole position indicator, so it must draw — otherwise an
-                    // airless descent (e.g. the Mun) shows the polyline with no ghost
-                    // icon. (IsPolylineOwningGhostPhase is checked directly, not via
-                    // the icon-suppressed flag, which GhostOrbitIconDrivePatch can
-                    // clear on-arc.)
+                    // visible. The marker-draw decision (proto hidden -> draw our
+                    // marker) is owned by GhostMapPresence.ShouldDrawNonProtoMarkerForGhost
+                    // (Phase 8c): gate ON the Director's TracedPath decision +
+                    // polyline-owns (8b.2 actual-draw) are authoritative, with the legacy
+                    // icon-suppressed flag (below-atmosphere clamp / off-arc / Director
+                    // no-bounds transient) kept as the fallback; gate OFF it is the
+                    // legacy IsIconSuppressed || IsPolylineOwningGhostPhase predicate,
+                    // byte-identical. In the polyline / suppressed case our marker is the
+                    // sole position indicator, so it must draw - otherwise an airless
+                    // descent (e.g. the Mun) shows the polyline with no ghost icon.
                     if (ghostPid == 0
-                        || (!GhostMapPresence.IsIconSuppressed(ghostPid)
-                            && !GhostMapPresence.IsPolylineOwningGhostPhase(ghostPid)))
+                        || !GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(ghostPid))
                     {
                         summary.NativeIcon++;
                         continue; // native icon is active — skip our marker
