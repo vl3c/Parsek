@@ -7144,17 +7144,20 @@ namespace Parsek
             {
                 double w0 = hold;
                 hold = ComputePerLoopArrivalHoldSeconds(w0, cycleIndex, cycleDuration, arrivalHoldRotationPeriod);
-                // Per-frame hot path: emit only on cycleIndex change (one line per replayed loop) so a
-                // playtest can confirm W_N steps per loop without per-frame spam.
+                // Per-frame hot path: rate-limited per mission (keyed on phaseAnchorUT + spanStartUT, NOT
+                // cycleIndex, so the key set stays bounded by mission count rather than growing one entry per
+                // replayed loop). The message carries cycleIndex and W_N, so a playtest sees W_N step as the
+                // loop advances across the periodic lines, without per-frame spam.
                 if (!double.IsNaN(arrivalHoldRotationPeriod) && !double.IsInfinity(arrivalHoldRotationPeriod)
                     && arrivalHoldRotationPeriod > 0.0)
                 {
                     var hic = CultureInfo.InvariantCulture;
                     ParsekLog.VerboseRateLimited(
                         "Reaim",
-                        // Key includes cycleIndex so the rate-limiter emits the first frame of each new loop
-                        // (one line per replayed loop) and suppresses the rest of that loop's frames.
-                        $"perloop-hold.{phaseAnchorUT.ToString("R", hic)}.{cycleIndex.ToString(hic)}",
+                        // Key is the mission identity (phaseAnchorUT + spanStartUT): distinct re-aim missions
+                        // get distinct keys (no collision), and a single mission keeps ONE key across all its
+                        // loops, so the rate-limiter key set is bounded by mission count, not loop count.
+                        $"perloop-hold.{phaseAnchorUT.ToString("R", hic)}.{spanStartUT.ToString("R", hic)}",
                         $"per-loop arrival hold: cycleIndex={cycleIndex.ToString(hic)} " +
                         $"W0={w0.ToString("R", hic)}s cadence={cycleDuration.ToString("R", hic)}s " +
                         $"Trot={arrivalHoldRotationPeriod.ToString("R", hic)}s WN={hold.ToString("R", hic)}s");
