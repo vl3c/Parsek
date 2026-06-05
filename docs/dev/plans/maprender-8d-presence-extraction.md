@@ -98,9 +98,28 @@ tests. No in-game A/B gate is needed (behavior is unchanged by construction), th
 still playtests the merged build (Duna One looped re-aim + a non-looped Mun mission through landing)
 as the standard post-merge check, watching for any presence regression.
 
-### 8d.2 - enqueue + teardown ownership
-Move the presence enqueue tail and the scene-change teardown into the same migrated owner, behind the
-same gate, legacy as the gate-off fallback.
+### 8d.2 - enqueue + teardown ownership (DONE - PURE MOVE, no gate)
+Extract the PRESENCE portions of the two mixed-concern engine-event handlers out of the policy into
+`GhostMapPresence` static methods. Both handlers do presence work AND a non-presence concern, so only
+the presence half moves; the policy stays the engine-event subscriber (its documented role) and keeps
+the subscription wiring + the non-presence concerns.
+
+- `HandleGhostCreated` = camera auto-follow (`TryAutoFollowChainSeamSpawn`, STAYS) + the map-presence
+  enqueue (MOVED). New `GhostMapPresence.HandleFlightGhostCreatedMapPresence(GhostLifecycleEvent evt,
+  GhostPlaybackLogic.LoopUnitSet loopUnits)`; `engine.CurrentLoopUnits` becomes the `loopUnits` param.
+  The policy handler becomes `TryAutoFollowChainSeamSpawn(evt);
+  GhostMapPresence.HandleFlightGhostCreatedMapPresence(evt, engine.CurrentLoopUnits);`.
+- `HandleGhostDestroyed` = the Verbose log + `heldGhosts.Remove` (policy soft-cap state, STAYS) + the
+  map-presence teardown (MOVED). New `GhostMapPresence.HandleFlightGhostDestroyedMapPresence(int index)`.
+- `HandleAllGhostsDestroying` + `Dispose` already delegate via `ClearFlightMapPresenceState()` (8d.1), so
+  they are unchanged. The engine-event subscription/unsubscription wiring stays in the policy.
+- `ShouldDeferLoopShiftedMapPresence` stays `internal static` in the policy (it has `RuntimePolicyTests`
+  callers); the moved create method calls it cross-class.
+
+Faithful copy (empty code-only diff on both moved blocks under the permitted edits: `engine.CurrentLoopUnits`
+-> param, `evt.Index` -> `index`, stripped redundant `GhostMapPresence.` self-qualifiers, cross-class
+`ShouldDeferLoopShiftedMapPresence` qualification). No behavior change, no gate. Source-gate tests added.
+Build clean; full suite green (13418).
 
 ### 8d.3 - decompose + pure-extract
 Once the body lives in the render layer, split it into named sub-passes and extract the pure decision

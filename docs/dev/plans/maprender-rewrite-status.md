@@ -301,7 +301,16 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     enqueue tail + teardowns reach them directly until 8d.2 moves them). Riskiest slice (655-line cut),
     so it ships on a HARD clean-context review + green tests; maintainer playtests the merged build
     (Duna One looped re-aim + a non-looped Mun mission through landing) as the standard post-merge check.
-  - **8d.2** - enqueue + scene-change teardown ownership (gated, legacy fallback).
+  - **8d.2 - DONE (PURE MOVE, no gate).** Extracted the PRESENCE portions of the two mixed-concern
+    engine-event handlers out of the policy into `GhostMapPresence`: `HandleGhostCreated`'s enqueue ->
+    `GhostMapPresence.HandleFlightGhostCreatedMapPresence(evt, loopUnits)` (the policy handler keeps the
+    camera `TryAutoFollowChainSeamSpawn`), `HandleGhostDestroyed`'s teardown ->
+    `GhostMapPresence.HandleFlightGhostDestroyedMapPresence(index)` (the policy handler keeps the log +
+    `heldGhosts.Remove`). The policy stays the engine-event subscriber (subscription wiring + non-presence
+    concerns stay); `HandleAllGhostsDestroying` / `Dispose` already delegated via
+    `ClearFlightMapPresenceState()` (8d.1). `ShouldDeferLoopShiftedMapPresence` stays in the policy
+    (`RuntimePolicyTests` callers), called cross-class. Faithful copy (empty code-only diff on both moved
+    blocks), no behavior change. Source-gate tests added; build clean; full suite green (13418).
   - **8d.3** - decompose into named sub-passes + pure-extract predicates with unit tests.
 - **Phase 8** per-surface cutover (8a-8e) - deletes the scattered gates; in-game per sub-phase.
 - **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3
