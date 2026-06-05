@@ -878,8 +878,8 @@ Bug 2 fixed.
 ## 13b. Discovered defect: the arrival hold is loop-independent (per-loop rotation drift)
 
 Status: ROOT CAUSE CONFIRMED (code + math + log), FIX VERIFIED against the live clock code (a
-rigorous read-only derivation, below), NOT IMPLEMENTED. The dynamic per-loop hold is the next
-implementation step for Bug 2; its implementation plan is section 13c. This documents a
+rigorous read-only derivation, below), and SHIPPED in PR #1030 (implemented, clean-context Opus
+review SHIP, and s15 Duna One playtest-validated 2026-06-05). The implementation is section 13c. This documents a
 confirmed defect in the arrival hold this plan already describes (sections 1, 13,
 Appendix A.1 / A.2): the hold correctly aligns ONE reference loop but is constant across every
 replayed loop, so a per-loop rotation offset accumulates. It does not change the hold-vs-tof
@@ -1000,6 +1000,9 @@ Ike orbital-phase alignment lever, both stay deferred.
 ---
 
 ## 13c. Implementation plan for the dynamic per-loop hold
+
+Status: SHIPPED in PR #1030 (implemented as the steps below, clean-context Opus review SHIP, s15
+playtest-validated 2026-06-05). The steps below are as built.
 
 The verified fix (13b) is confined to the loop clock and `LoopUnit`. The plumbing is small and
 additive; non-re-aim callers stay byte-identical. Steps:
