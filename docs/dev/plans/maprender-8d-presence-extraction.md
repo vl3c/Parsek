@@ -50,15 +50,53 @@ Byte-identical: same method, same argument, same execution slot. `policy?.` cann
 unconditional `policy.` because `SetPresenceDriver` runs unconditionally at init before any frame. No
 director gate added. Source-gate test `MapPresenceSeamTests` locks the host off the direct call.
 
-### 8d.1 - relocate the body (gated, legacy as gate-off fallback)
-Move the ~660-line `CheckPendingMapVessels` body and the six presence dictionaries into
-`GhostMapPresence.UpdateFlightMapGhostLifecycle`. Under `mapRenderDirectorDrive` the seam dispatches to
-the migrated body; with the gate off it dispatches to the legacy in-policy body (kept verbatim as the
-fallback, deleted in 8e). This is the riskiest slice: the body owns proto creation/destruction,
-state-vector orbit caching, SOI-gap handling, and chain map ownership. Expect multiple in-game
-validation cycles (looped re-aim "Duna One" + a non-looped Mun mission through landing), watching for
-any presence regression: a ghost that should be on the map vanishing, a stale ghost that should be torn
-down lingering, or a state-vector / SOI-gap glitch. Gate OFF must stay byte-identical.
+### 8d.1 - relocate the body (PURE MOVE, no gate)
+Move the ~660-line `CheckPendingMapVessels` body and the six presence dictionaries
+(`pendingMapVessels`, `lastMapOrbitByIndex`, `stateVectorOrbitTrajectories`, `stateVectorCachedIndices`,
+`soiGapStateVectorExpectedBodies`, `chainMapOwner`) + `terminalMapRetentionLoggedIds` +
+`nextMapOrbitUpdateTime` into `GhostMapPresence.UpdateFlightMapGhostLifecycle(double currentUT,
+LoopUnitSet loopUnits)`.
+
+**Decision (2026-06-05): pure move, NOT a gated dispatch.** The original sketch kept the legacy body as
+a `mapRenderDirectorDrive` gate-off fallback, but the plan analysis showed the body is already a thin
+orchestrator over `GhostMapPresence.*` statics (every proto/KSP mutation already routes through them; the
+only engine read is `CurrentLoopUnits`; the six dicts are touched ONLY inside `ParsekPlaybackPolicy.cs`,
+zero external sites). So the relocation is a FAITHFUL COPY with no logic change. A gate would toggle
+between two behaviorally identical paths (validating nothing) at the cost of ~655 lines of duplication
+held in sync until 8e, and gate-off could not stay literally untouched anyway (the dicts move, so the
+legacy body's dict accesses would be redirected regardless). Therefore 8d.1 is a no-behavior-change
+relocation (like 8d.0 / 8b.0): cut the body to `GhostMapPresence`, the seam ALWAYS calls it, no gate
+branch, `CheckPendingMapVessels` deleted from the policy.
+
+Mechanics:
+- The six dicts + 2 scalars + the `PendingMapVessel` struct move to `GhostMapPresence` as `internal
+  static` members (`flight*`-prefixed, matching the existing `trackingStation*` TS twins). They become
+  `internal` (not `private`) so the still-in-policy enqueue tail + teardowns (8d.2) reach them directly
+  during the 8d.1->8d.2 window.
+- The helpers that touch only these dicts move with the body and become static:
+  `RemovePreviousChainMapVessel`, `PruneTerminalMapRetentionLogKeys`, `ResolveMapPresenceSampleUT`,
+  `TryGetMapOrbitKey`, `IsMaterializedForMapPresence`. Already-static helpers
+  (`ShouldRunMapOrbitReseed`, `TryResolveTerminalFallbackMapOrbitUpdate`,
+  `ShouldRetainMapPresenceForTerminalRealSpawn`) co-locate.
+- `loopUnits` is supplied as `engine.CurrentLoopUnits` (the EXACT source the body used). The dispatcher
+  must NOT substitute the scene's cached `LoopUnits` (the `MissionLoopUnitBuilder.Build` output pushed
+  via `SetFrameInputs`), which is a different source per the integration contract. Add a policy
+  pass-through (e.g. `ParsekPlaybackPolicy.CurrentLoopUnitsForPresence => engine.CurrentLoopUnits`) and
+  have `MapViewScene.DriveMapPresence` call `GhostMapPresence.UpdateFlightMapGhostLifecycle(currentUT,
+  policy.CurrentLoopUnitsForPresence)`.
+- The enqueue tail (`HandleGhostCreated`) and teardowns (`HandleGhostDestroyed`,
+  `HandleAllGhostsDestroying`, `Dispose`) STAY in the policy (that is 8d.2); they redirect their dict
+  references to the moved `GhostMapPresence.flight*` fields. Add a `ClearFlightMapPresenceState()` for
+  the bulk-clear teardowns.
+- ERS/ELS: the body reads `RecordingStore.CommittedRecordings`; confirm `GhostMapPresence` is in
+  `scripts/ers-els-audit-allowlist.txt` (it almost certainly already is, since the resolver statics it
+  already hosts read that collection). `GrepAuditTests` is the backstop.
+
+This is still the riskiest slice (a 655-line faithful cut-paste touching proto create/destroy,
+state-vector caching, SOI-gap, chain ownership), so it ships on a HARD clean-context review + green
+tests. No in-game A/B gate is needed (behavior is unchanged by construction), though the maintainer
+still playtests the merged build (Duna One looped re-aim + a non-looped Mun mission through landing)
+as the standard post-merge check, watching for any presence regression.
 
 ### 8d.2 - enqueue + teardown ownership
 Move the presence enqueue tail and the scene-change teardown into the same migrated owner, behind the
