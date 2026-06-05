@@ -87,9 +87,9 @@ namespace Parsek.MapRender
             tracedPathByPid.Clear();
         }
 
-        /// <summary>The shadow runs when render tracing is on (for the reconciler) OR the experimental
-        /// Phase-8a director-drive gate is on (so the StockConic seed is populated for the patch even
-        /// with tracing off). Off by default - zero cost in normal play.</summary>
+        /// <summary>The shadow runs when render tracing is on (for the reconciler) OR the director-drive
+        /// gate (mapRenderDirectorDrive, default on) is on, so the StockConic seed is populated for the
+        /// patch even with tracing off.</summary>
         internal static bool Enabled =>
             MapRenderTrace.IsEnabled
             || (ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive);
