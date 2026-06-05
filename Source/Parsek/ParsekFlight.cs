@@ -19299,10 +19299,10 @@ namespace Parsek
 
             // Phase 4 decision-only shadow: run the new map-render pipeline (chain -> sample -> intent)
             // over the live map ghosts and reconcile each intent against the OLD path's rendered truth
-            // via MapRenderProbe. Writes NOTHING to the stock surfaces. Wholly gated on the
-            // off-by-default mapRenderTracing setting so normal play pays nothing. Runs after
-            // CheckPendingMapVessels (map presence is current) and well before the end-of-frame probe.
-            // Also runs when the experimental director-drive gate is on (it needs the StockConic seed).
+            // via MapRenderProbe. Writes NOTHING to the stock surfaces. Gated on ShadowRenderDriver.Enabled
+            // (mapRenderTracing OR the director-drive gate, which is default on since it needs the
+            // StockConic seed). Runs after CheckPendingMapVessels (map presence is current) and well
+            // before the end-of-frame probe.
             if (MapRender.ShadowRenderDriver.Enabled)
             {
                 try

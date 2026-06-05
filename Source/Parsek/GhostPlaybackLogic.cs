@@ -6666,7 +6666,10 @@ namespace Parsek
                 MissionRelaunchSchedule relaunchSchedule,
                 Parsek.Reaim.ReaimMissionPlan? reaimPlan,
                 Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule? reaimSchedule,
-                IReadOnlyList<LoopCut> loiterCuts = null)
+                IReadOnlyList<LoopCut> loiterCuts = null,
+                double arrivalHoldSeconds = 0.0,
+                double arrivalHoldAtUT = double.NaN,
+                double destRotationPeriodSeconds = double.NaN)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6680,6 +6683,9 @@ namespace Parsek
                 ReaimPlan = reaimPlan;
                 ReaimSchedule = reaimSchedule;
                 LoiterCuts = loiterCuts;
+                ArrivalHoldSeconds = arrivalHoldSeconds;
+                ArrivalHoldAtUT = arrivalHoldAtUT;
+                DestRotationPeriodSeconds = destRotationPeriodSeconds;
             }
 
             /// <summary>
@@ -6781,6 +6787,32 @@ namespace Parsek
             /// unit and on a re-aim loop with no compressible loiter.
             /// </summary>
             internal IReadOnlyList<LoopCut> LoiterCuts { get; }
+
+            /// <summary>
+            /// Arrival HOLD (seconds) inserted at the heliocentric->capture boundary so the in-SOI replay
+            /// defers and the destination's rotation phase at the deorbit recurs to recorded (re-aim
+            /// cross-parent landing alignment). The INVERSE of a loiter cut. 0 on every non-re-aim unit and
+            /// on a re-aim landing with alignment off / no rotation constraint, in which case the span clock
+            /// is byte-identical to the pre-hold behavior.
+            /// </summary>
+            internal double ArrivalHoldSeconds { get; }
+
+            /// <summary>The recorded-span UT the arrival hold is inserted at (the heliocentric->capture
+            /// boundary, = the re-aim plan's RecordedArrivalUT). NaN when there is no hold.</summary>
+            internal double ArrivalHoldAtUT { get; }
+
+            /// <summary>
+            /// The destination body's rotation period T_rot (seconds) used to align the arrival hold, carried
+            /// so the loop clock can re-align the hold per replayed loop. The reference hold
+            /// (<see cref="ArrivalHoldSeconds"/>, W_0) aligns ONE loop; the synodic launch cadence is not a
+            /// whole number of destination rotations, so the deorbit rotation phase drifts a fraction of a turn
+            /// each loop. The loop clock subtracts the per-loop drift (cycleIndex * (cadence mod T_rot))
+            /// mod-wrapped into [0, T_rot) so every loop re-aligns. NaN (the "no period" sentinel, matching the
+            /// <see cref="ArrivalHoldAtUT"/> NaN convention) on every non-re-aim unit and on a re-aim landing
+            /// with alignment off / no rotation constraint, in which case the per-loop adjustment is skipped and
+            /// the span clock stays byte-identical to the constant-hold behavior.
+            /// </summary>
+            internal double DestRotationPeriodSeconds { get; }
         }
 
         /// <summary>
@@ -6905,6 +6937,89 @@ namespace Parsek
             return t;
         }
 
+        // === Destination-SOI arrival HOLD (re-aim cross-parent landing alignment) =================
+        // The INVERSE of a loiter cut. A loiter cut REMOVES recorded-span time (the loop plays faster,
+        // skipping the excised parking). An arrival hold INSERTS dead time at the heliocentric->capture
+        // boundary: the in-SOI replay starts LATER in live time so the destination's rotation phase at
+        // the in-SOI entry recurs to its recorded value (the fix for the looped re-aimed landing's
+        // ~131-degree rotation offset). It does not touch the launch pad or the transfer (both upstream
+        // of the boundary), and a zero hold is the identity (byte-identical to today). See
+        // docs/dev/design-mission-periodicity.md and docs/dev/plans/reaim-destination-arrival-alignment.md.
+        // These two helpers are PURE and (this phase) UNWIRED; the loop clock wiring is the next phase.
+
+        /// <summary>
+        /// The minimal forward HOLD (seconds, in [0, T_rot)) that defers the in-SOI replay so the
+        /// destination's rotation phase at the in-SOI entry matches its recorded value. The recorded entry
+        /// sits at rotation phase <c>recordedArrivalUT mod T_rot</c>; the unshifted live entry sits at
+        /// <c>entryLiveUT mod T_rot</c>. The hold that aligns them is
+        /// <c>(recordedArrivalUT - entryLiveUT) mod T_rot</c>, normalized to [0, T_rot). Returns 0 for a
+        /// degenerate rotation period (no rotation constraint =&gt; no hold) or a NaN input. Pure.
+        /// </summary>
+        internal static double ComputeArrivalAlignHoldSeconds(
+            double recordedArrivalUT, double entryLiveUT, double rotationPeriod)
+        {
+            if (double.IsNaN(rotationPeriod) || double.IsInfinity(rotationPeriod) || rotationPeriod <= 0.0)
+                return 0.0;
+            if (double.IsNaN(recordedArrivalUT) || double.IsNaN(entryLiveUT))
+                return 0.0;
+            double m = (recordedArrivalUT - entryLiveUT) % rotationPeriod;
+            if (m < 0.0)
+                m += rotationPeriod;
+            return m;
+        }
+
+        /// <summary>
+        /// The PER-LOOP arrival hold W_N for replayed loop <paramref name="cycleIndex"/> (N). The reference
+        /// hold <paramref name="w0"/> (W_0, from <see cref="ComputeArrivalAlignHoldSeconds"/>) aligns the
+        /// destination rotation phase at the deorbit for ONE loop, but the synodic launch
+        /// <paramref name="cadence"/> is not a whole number of destination rotations, so the unshifted live
+        /// entry drifts <c>cadence mod T_rot</c> further around the spin each loop. Subtracting that per-loop
+        /// drift re-aligns every loop:
+        /// <c>W_N = ((W_0 - N * (cadence mod T_rot)) mod T_rot + T_rot) mod T_rot</c>. The double-mod-plus-T_rot
+        /// form keeps W_N in [0, T_rot) for any sign of the inner term.
+        ///
+        /// GATED (the 13b regression fence): returns <paramref name="w0"/> unchanged when
+        /// <paramref name="w0"/> &lt;= 0 (alignment Off / Drop, W_0 = 0), so the bare per-loop sawtooth never
+        /// turns a zero hold nonzero and Off stays byte-identical. Also returns <paramref name="w0"/> unchanged
+        /// for a degenerate <paramref name="rotationPeriod"/> (NaN / Infinity / &lt;= 0, the "no period"
+        /// sentinel), so a re-aim unit with no destination rotation constraint keeps its constant hold. Pure;
+        /// no Unity (xUnit-testable).
+        /// </summary>
+        internal static double ComputePerLoopArrivalHoldSeconds(
+            double w0, long cycleIndex, double cadence, double rotationPeriod)
+        {
+            if (!(w0 > 0.0))
+                return w0;
+            if (double.IsNaN(rotationPeriod) || double.IsInfinity(rotationPeriod) || rotationPeriod <= 0.0)
+                return w0;
+            double inner = (w0 - cycleIndex * (cadence % rotationPeriod)) % rotationPeriod;
+            return (inner + rotationPeriod) % rotationPeriod;
+        }
+
+        /// <summary>
+        /// Effective-span phase -&gt; compressed-span phase under an arrival HOLD of
+        /// <paramref name="holdSeconds"/> inserted at compressed-span phase position
+        /// <paramref name="holdPhasePos"/> (the heliocentric-&gt;capture boundary, in compressed-span phase
+        /// from spanStart). Before the boundary the mapping is identity; ACROSS the hold window the phase
+        /// is HELD at the boundary (the ghost waits at SOI arrival); AFTER it, the phase resumes shifted
+        /// EARLIER by the hold (the recorded in-SOI sequence, just deferred in live time). The inverse of
+        /// the removal <see cref="CompressSpanUT"/> performs: this INSERTS dead time. Identity for
+        /// <paramref name="holdSeconds"/> &lt;= 0. The caller then maps the returned compressed-span phase
+        /// through <see cref="DecompressSpanUT"/> (loiter cuts) to the recorded loopUT, so holds and cuts
+        /// compose. Pure.
+        /// </summary>
+        internal static double ApplyArrivalHoldToPhase(
+            double effectivePhase, double holdPhasePos, double holdSeconds)
+        {
+            if (double.IsNaN(holdSeconds) || holdSeconds <= 0.0)
+                return effectivePhase;
+            if (effectivePhase <= holdPhasePos)
+                return effectivePhase;                  // before the boundary: identity
+            if (effectivePhase <= holdPhasePos + holdSeconds)
+                return holdPhasePos;                    // within the hold: held at the boundary (waiting)
+            return effectivePhase - holdSeconds;        // after the hold: recorded sequence, deferred
+        }
+
         /// <summary>
         /// Span loop clock for a chain-loop unit. Walks a single loop phase over the whole
         /// unit span [<paramref name="spanStartUT"/>, <paramref name="spanEndUT"/>] and
@@ -6926,7 +7041,10 @@ namespace Parsek
         ///
         /// Returns false (loopUT = spanStartUT, cycleIndex = 0) when currentUT is before the
         /// span start or the span has zero/negative duration, so callers never see a negative
-        /// phase. Pure: no logging (per-frame callers own rate-limiting).
+        /// phase. Pure except a single rate-limited Verbose line emitted once per replayed loop
+        /// ONLY on the re-aim per-loop-hold branch (<paramref name="arrivalHoldSeconds"/> &gt; 0 with a
+        /// valid <paramref name="arrivalHoldRotationPeriod"/>); the common path stays silent and
+        /// per-frame callers still own their own rate-limiting.
         ///
         /// <paramref name="isInInterCycleTail"/> (mirrors <see cref="ComputeLoopPhaseFromUT"/>'s
         /// isInPause) is true exactly when the phase has run past the span and the clock is parked
@@ -6949,7 +7067,10 @@ namespace Parsek
             out long cycleIndex,
             out bool isInInterCycleTail,
             MissionRelaunchSchedule schedule = null,
-            IReadOnlyList<LoopCut> loiterCuts = null)
+            IReadOnlyList<LoopCut> loiterCuts = null,
+            double arrivalHoldSeconds = 0.0,
+            double arrivalHoldAtUT = double.NaN,
+            double arrivalHoldRotationPeriod = double.NaN)
         {
             loopUT = spanStartUT;
             cycleIndex = 0;
@@ -7001,7 +7122,55 @@ namespace Parsek
             // the boundary-rollback below are unchanged. Empty/null cuts => effectiveSpan == span and the
             // remap is the identity, so every non-re-aim caller is byte-identical.
             double totalCut = TotalCutLength(loiterCuts);
-            double effectiveSpan = (totalCut > 0.0 && totalCut < span) ? span - totalCut : span;
+            double compressedSpan = (totalCut > 0.0 && totalCut < span) ? span - totalCut : span;
+            // Arrival HOLD (re-aim cross-parent landing alignment): the INVERSE of a loiter cut. A cut
+            // REMOVES recorded-span time (compressedSpan); the hold INSERTS it at the heliocentric->capture
+            // boundary, so the in-SOI replay defers and the destination rotation phase at the deorbit recurs
+            // to recorded. holdPhasePos is that boundary in compressed-span phase. A zero/degenerate hold
+            // leaves effectiveSpan == compressedSpan and the remap below the identity, so every existing
+            // caller (passing the default 0 hold) stays byte-identical. The re-aim cadence is the synodic
+            // period, far larger than span + hold, so the hold never pushes effectiveSpan past the cadence.
+            double hold = (arrivalHoldSeconds > 0.0 && !double.IsInfinity(arrivalHoldSeconds)) ? arrivalHoldSeconds : 0.0;
+            // Per-loop arrival hold (docs/dev/plans/reaim-destination-arrival-alignment.md sections 13b/13c):
+            // the constant base hold (W_0) aligns the destination rotation phase at the deorbit for ONE loop,
+            // but the synodic cadence is not a whole number of destination rotations, so the deorbit drifts a
+            // fraction of a turn each loop. Override the constant hold with the per-loop W_N for the current
+            // cycleIndex (cadence == cycleDuration, the live per-loop advance). Strictly gated on hold > 0
+            // (W_0 > 0): when the base hold is 0 (alignment Off / Drop) the helper returns 0 unchanged, so Off
+            // stays byte-identical (the 13b regression fence); a degenerate rotation period also returns the
+            // base hold unchanged, keeping the constant-hold behavior. cycleIndex / phaseInCycle are computed
+            // above (BEFORE the base hold read), so the per-loop recurrence is open-loop in N (no feedback).
+            if (hold > 0.0)
+            {
+                double w0 = hold;
+                hold = ComputePerLoopArrivalHoldSeconds(w0, cycleIndex, cycleDuration, arrivalHoldRotationPeriod);
+                // Per-frame hot path: rate-limited per mission (keyed on phaseAnchorUT + spanStartUT, NOT
+                // cycleIndex, so the key set stays bounded by mission count rather than growing one entry per
+                // replayed loop). The message carries cycleIndex and W_N, so a playtest sees W_N step as the
+                // loop advances across the periodic lines, without per-frame spam.
+                if (!double.IsNaN(arrivalHoldRotationPeriod) && !double.IsInfinity(arrivalHoldRotationPeriod)
+                    && arrivalHoldRotationPeriod > 0.0)
+                {
+                    var hic = CultureInfo.InvariantCulture;
+                    ParsekLog.VerboseRateLimited(
+                        "Reaim",
+                        // Key is the mission identity (phaseAnchorUT + spanStartUT): distinct re-aim missions
+                        // get distinct keys (no collision), and a single mission keeps ONE key across all its
+                        // loops, so the rate-limiter key set is bounded by mission count, not loop count.
+                        $"perloop-hold.{phaseAnchorUT.ToString("R", hic)}.{spanStartUT.ToString("R", hic)}",
+                        $"per-loop arrival hold: cycleIndex={cycleIndex.ToString(hic)} " +
+                        $"W0={w0.ToString("R", hic)}s cadence={cycleDuration.ToString("R", hic)}s " +
+                        $"Trot={arrivalHoldRotationPeriod.ToString("R", hic)}s WN={hold.ToString("R", hic)}s");
+                }
+            }
+            // Defense-in-depth: never let the hold push the active span past the cadence (a mid-span cycle
+            // wrap would silently truncate the in-SOI replay). No current caller can trip this (the re-aim
+            // cadence is the synodic period, far larger than span + hold), but this clock is shared by ALL
+            // ghost playback, so the bound is enforced rather than merely assumed.
+            if (hold > 0.0 && compressedSpan + hold > cycleDuration)
+                hold = Math.Max(0.0, cycleDuration - compressedSpan);
+            double holdPhasePos = hold > 0.0 ? CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT : double.NaN;
+            double effectiveSpan = compressedSpan + hold;
 
             // Epsilon-tolerant boundary, matching ComputeLoopPhaseFromUT: at exactly a cycle
             // boundary (phaseInCycle ~ 0 with cycleIndex > 0) the clock shows the PRIOR cycle's
@@ -7025,9 +7194,12 @@ namespace Parsek
             // boundary handled above). isInInterCycleTail is true exactly in that parked tail —
             // the phase ran past the span and we are idling at spanEnd until the next cycle.
             double clampedPhase = phaseInCycle >= effectiveSpan ? effectiveSpan : phaseInCycle;
-            loopUT = (effectiveSpan < span)
-                ? DecompressSpanUT(spanStartUT + clampedPhase, loiterCuts) // skip the excised loiters
-                : spanStartUT + clampedPhase;                              // no cuts: identity
+            // Remove the arrival hold (held at the boundary, then deferred), then DecompressSpanUT through
+            // the loiter cuts to the recorded loopUT - holds and cuts compose. hold == 0 makes
+            // ApplyArrivalHoldToPhase the identity and DecompressSpanUT is identity for empty cuts, so a unit
+            // with neither is byte-identical to the pre-hold clock.
+            double cutPhase = ApplyArrivalHoldToPhase(clampedPhase, holdPhasePos, hold);
+            loopUT = DecompressSpanUT(spanStartUT + cutPhase, loiterCuts);
             isInInterCycleTail = (phaseInCycle >= effectiveSpan);
             return true;
         }
@@ -7149,7 +7321,10 @@ namespace Parsek
             out long unitCycle,
             out bool isInInterCycleTail,
             MissionRelaunchSchedule schedule = null,
-            IReadOnlyList<LoopCut> loiterCuts = null)
+            IReadOnlyList<LoopCut> loiterCuts = null,
+            double arrivalHoldSeconds = 0.0,
+            double arrivalHoldAtUT = double.NaN,
+            double arrivalHoldRotationPeriod = double.NaN)
         {
             spanLoopUT = spanStartUT;
             unitCycle = 0;
@@ -7157,7 +7332,8 @@ namespace Parsek
 
             if (!TryComputeSpanLoopUT(
                     currentUT, phaseAnchorUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT,
-                    out unitCycle, out isInInterCycleTail, schedule, loiterCuts))
+                    out unitCycle, out isInInterCycleTail, schedule, loiterCuts,
+                    arrivalHoldSeconds, arrivalHoldAtUT, arrivalHoldRotationPeriod))
                 return UnitMemberRenderDecision.SpanClockUnresolved;
 
             // Inter-cycle tail (the "wait" between cycles when cadence > span): render nothing.
@@ -7215,7 +7391,10 @@ namespace Parsek
                 out _,
                 out _,
                 unit.RelaunchSchedule,
-                unit.LoiterCuts);
+                unit.LoiterCuts,
+                unit.ArrivalHoldSeconds,
+                unit.ArrivalHoldAtUT,
+                unit.DestRotationPeriodSeconds);
 
             if (decision == UnitMemberRenderDecision.Render)
                 return loopUT;

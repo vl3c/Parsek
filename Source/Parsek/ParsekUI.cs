@@ -1336,10 +1336,28 @@ namespace Parsek
                 // Polyline ownership including the post-release grace - shared with GhostOrbitLinePatch.
                 // The stamping happens in the orbit-line patch every frame the polyline owns; here we
                 // just read. The grace duration matches Patches.GhostOrbitLinePatch.PolylineReleaseGraceSeconds.
-                bool polylinePhase = ghostPidForPhase != 0
-                    && GhostMapPresence.IsPolylineRecentlyOwningGhostPhase(
+                bool polylinePhase;
+                if (ghostPidForPhase != 0)
+                {
+                    polylinePhase = GhostMapPresence.IsPolylineRecentlyOwningGhostPhase(
                         ghostPidForPhase,
                         Parsek.Patches.GhostOrbitLinePatch.PolylineReleaseGraceSeconds);
+                }
+                else
+                {
+                    // PID-less recording (a chain descent / atmospheric-only recording with NO proto ghost
+                    // vessel and no OrbitSegments, e.g. the Duna re-aim descent member): there is no ghost PID
+                    // to stamp polyline ownership against, so resolve ownership directly by RecordingId from
+                    // the polyline Driver's per-frame publish. Without this the labeled marker for such a
+                    // recording never rode its own drawn body-fixed line (polylinePhase stayed false) and the
+                    // icon fell back to the body-fixed head, off the line. No post-release grace applies (there
+                    // is no PID stamp), and TryAnchorMarkerToPolyline below still self-gates on the leg being
+                    // drawn THIS frame, so the marker rides only while the line is actually drawn.
+                    polylinePhase = kvp.Key < committed.Count
+                        && committed[kvp.Key] != null
+                        && Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(
+                            committed[kvp.Key].RecordingId);
+                }
                 Vector3 markerPos;
                 bool markerRidesPolyline = false;
                 bool meshPositioned = meshActive && state.ghost.transform.position.sqrMagnitude > 1f
@@ -1397,6 +1415,12 @@ namespace Parsek
                     {
                         markerPos = onLineMarkerPos;
                         markerRidesPolyline = true;
+                        if (ghostPidForPhase == 0)
+                            ParsekLog.VerboseRateLimited(
+                                "GhostMap",
+                                "pidless-polyline-ride." + committed[kvp.Key].RecordingId,
+                                "PID-less marker rides its own polyline: rec=" + kvp.Key
+                                    + " recId=" + committed[kvp.Key].RecordingId);
                     }
                 }
 

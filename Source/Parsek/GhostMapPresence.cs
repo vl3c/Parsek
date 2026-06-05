@@ -3610,6 +3610,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// PURE: should a ghost removal emit the positive "orbit proto retired AT its terminal/deorbit
+        /// bound" assertion, and (if so) the overshoot past that bound? Fires only for a segment-driven
+        /// orbit proto (<paramref name="hadOrbitBounds"/>) retired at a TERMINAL orbit handoff - the flight
+        /// <c>left-orbit-segments</c> / tracking-station <c>tracking-station-expired</c> reasons, where
+        /// effUT ran off the last recorded OrbitSegment with none ahead (e.g. a parking-orbit proto yielding
+        /// to the descent polyline at the deorbit). <paramref name="overshootSeconds"/> = liveUT - boundEndUT
+        /// (both in the live/loop-shifted frame): ~0 positively confirms the segment drive was clamped at
+        /// the bound and the proto was retired there rather than propagating past the deorbit; a large value
+        /// would flag a genuine overshoot. Replaces the old "prove by ABSENCE of past-window lines + the
+        /// proto being gone" inference with a single positive line. Pure / xUnit-testable.
+        /// </summary>
+        internal static bool ShouldAssertTerminalOrbitBoundClamp(
+            string reason, bool hadOrbitBounds, double boundEndUT, double liveUT, out double overshootSeconds)
+        {
+            overshootSeconds = double.NaN;
+            if (!hadOrbitBounds)
+                return false;
+            if (!string.Equals(reason, "left-orbit-segments", StringComparison.Ordinal)
+                && !string.Equals(reason, "tracking-station-expired", StringComparison.Ordinal))
+                return false;
+            if (double.IsNaN(boundEndUT) || double.IsInfinity(boundEndUT)
+                || double.IsNaN(liveUT) || double.IsInfinity(liveUT))
+                return false;
+            overshootSeconds = liveUT - boundEndUT;
+            return true;
+        }
+
+        /// <summary>
         /// Remove a ghost map ProtoVessel for a timeline playback ghost.
         /// Called when the engine destroys a ghost (OnGhostDestroyed).
         /// </summary>
@@ -3619,6 +3647,12 @@ namespace Parsek
                 return;
 
             uint ghostPid = vessel.persistentId;
+
+            // Capture the segment-drive orbit bound BEFORE the dictionary purge below so a terminal
+            // handoff (parking-orbit proto yielding to the descent at the deorbit) can positively assert
+            // the drive was clamped at the bound (see ShouldAssertTerminalOrbitBoundClamp).
+            bool hadOrbitBounds = ghostOrbitBounds.TryGetValue(ghostPid, out var removedOrbitBounds);
+            double removedBoundEndUT = hadOrbitBounds ? removedOrbitBounds.endUT : double.NaN;
 
             // Snapshot last-known frame before Die() destroys the vessel.
             bool hadLastKnown = TryGetLastKnownFrame(recordingIndex, out LastKnownGhostFrame last);
@@ -3662,6 +3696,25 @@ namespace Parsek
             destroy.UT = hadLastKnown ? last.LastUT : double.NaN;
             destroy.Reason = reason ?? "(none)";
             ParsekLog.Info(Tag, BuildGhostMapDecisionLine(destroy));
+
+            // Positive deorbit-clamp assertion: when a segment-driven orbit proto is retired at its
+            // terminal orbit handoff (e.g. a parking-orbit proto yielding to the descent polyline at the
+            // deorbit), log that the drive was clamped AT the last recorded orbit's end bound rather than
+            // driving past-window past it. Makes "the proto did not overshoot the deorbit" a positive,
+            // greppable line instead of an inference from the ABSENCE of past-window drive lines.
+            double removeLiveUT = CurrentUTNow();
+            if (ShouldAssertTerminalOrbitBoundClamp(
+                    reason, hadOrbitBounds, removedBoundEndUT, removeLiveUT, out double boundOvershootSeconds))
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Orbit proto retired AT terminal orbit bound: idx={0} pid={1} reason={2} "
+                        + "boundEndUT={3:F1} liveUT={4:F1} overshoot={5:F1}s (segment drive clamped at the "
+                        + "last recorded orbit's end; proto retired here, NOT driven past-window past the "
+                        + "bound - e.g. a parking-orbit proto yielding to the descent at the deorbit)",
+                        recordingIndex, ghostPid, reason, removedBoundEndUT, removeLiveUT,
+                        boundOvershootSeconds));
+            }
 
             // MapRenderTrace Tier-A: structural GhostDestroyed event, keyed by the
             // live ghost persistentId. Gated at the call site; reads only fields
@@ -6218,15 +6271,20 @@ namespace Parsek
                 int idx = kvp.Key;
                 if (committed == null)
                 {
+                    // Bookkeeping teardown (no committed list this tick), NOT a deorbit handoff. Use a
+                    // distinct reason so it never matches ShouldAssertTerminalOrbitBoundClamp and
+                    // mis-fires the positive "clamped at the deorbit bound" assertion.
                     if (toRemove == null) toRemove = new List<(int, string)>();
-                    toRemove.Add((idx, "tracking-station-expired"));
+                    toRemove.Add((idx, "tracking-station-committed-null"));
                     continue;
                 }
 
                 if (idx < 0 || idx >= committed.Count)
                 {
+                    // Bookkeeping teardown (stale index after the committed list shrank), NOT a deorbit
+                    // handoff. Distinct reason so it stays out of the terminal-orbit-clamp gate.
                     if (toRemove == null) toRemove = new List<(int, string)>();
-                    toRemove.Add((idx, "tracking-station-expired"));
+                    toRemove.Add((idx, "tracking-station-index-stale"));
                     continue;
                 }
 
@@ -8714,8 +8772,11 @@ namespace Parsek
             bool loopMemberInWindow = false,
             List<OrbitSegment> effectiveOrbitSegments = null)
         {
+            // Degenerate teardown (no recording behind this ghost index), NOT a genuine end-of-orbit
+            // handoff. Distinct reason so it never matches ShouldAssertTerminalOrbitBoundClamp; the
+            // genuine terminal is the no-covering-segment return at the bottom of this method.
             if (rec == null)
-                return "tracking-station-expired";
+                return "tracking-station-recording-missing";
 
             if (isSuppressed)
                 return "tracking-station-child-started";

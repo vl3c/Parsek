@@ -149,6 +149,10 @@ namespace Parsek.Patches
             // passes the period<=0 degeneracy guard; NaN/zero periods still defer.)
             if (orbit == null || double.IsNaN(orbit.period) || orbit.period <= 0.0)
                 return true;
+            // ecc==1 (exactly parabolic) counts as hyperbolic here so the icon still drives it
+            // (deferring an open orbit to stock flings the icon out, per the comment above); the
+            // arc-clip LINE instead defers exactly-parabolic to stock (its sampler returns the origin
+            // for ecc==1). The split is moot in practice: KSP never produces an exactly-parabolic orbit.
             bool hyperbolic = orbit.eccentricity >= 1.0;
 
             double currentUT = Planetarium.GetUniversalTime();
@@ -228,7 +232,7 @@ namespace Parsek.Patches
                     startUT, endUT, decision.Suppressed, HighLogic.LoadedScene),
                 1.0);
 
-            // Phase 8a director-drive (EXPERIMENTAL, gated by mapRenderDirectorDrive, default off): the
+            // Phase 8a director-drive (gated by mapRenderDirectorDrive, default on as of 2026-06-05): the
             // NEW render pipeline owns this StockConic icon by baking the loop shift into the orbit
             // EPOCH and propagating at the LIVE clock - the only place a packed ghost's icon world
             // position actually resolves (KSP rebuilds CoMD = referenceBody.position + orbitDriver.pos
@@ -941,6 +945,40 @@ namespace Parsek.Patches
     }
 
     /// <summary>
+    /// Pure anomaly/radius math for the orbit-line arc clip, split out so the elliptical-vs-
+    /// hyperbolic branching can be unit-tested off the Unity runtime (the surrounding clip is
+    /// KSP-Orbit-coupled). All inputs are plain doubles; no Orbit reference.
+    /// </summary>
+    internal static class ArcAnomalyMath
+    {
+        /// <summary>
+        /// Elliptical periapsis-wraparound test: when the arc's start true anomaly exceeds its end
+        /// true anomaly, the arc crosses periapsis (V=0) and the eccentric-anomaly range must be
+        /// rebased negative to stay monotonic. Hyperbolas are monotonic in anomaly and never wrap,
+        /// so callers must gate this to the elliptical case (this predicate does not self-gate).
+        /// </summary>
+        internal static bool NeedsPeriapsisWraparound(double fromTrueAnomaly, double toTrueAnomaly)
+            => fromTrueAnomaly > toTrueAnomaly;
+
+        /// <summary>
+        /// Rebase the start eccentric anomaly across periapsis: E -> -(2pi - E). Elliptical only.
+        /// </summary>
+        internal static double ApplyPeriapsisWraparound(double fromEccAnomaly)
+            => -(Math.PI * 2.0 - fromEccAnomaly);
+
+        /// <summary>
+        /// Conic radius at an anomaly endpoint, for the log-only altitude diagnostic. Elliptical
+        /// form r = sma*(1 - ecc*cos(E)); hyperbolic form r = sma*(1 - ecc*cosh(H)) (sma&lt;0 for a
+        /// hyperbola keeps r positive). Dispatched on the hyperbolic flag rather than re-deriving
+        /// it so the caller's single ecc&gt;1 decision stays authoritative.
+        /// </summary>
+        internal static double EndpointRadius(double semiMajorAxis, double eccentricity, double anomaly, bool hyperbolic)
+            => hyperbolic
+                ? semiMajorAxis * (1.0 - eccentricity * Math.Cosh(anomaly))
+                : semiMajorAxis * (1.0 - eccentricity * Math.Cos(anomaly));
+    }
+
+    /// <summary>
     /// Clips the ghost orbit line to only show the arc between the orbit segment's
     /// startUT and endUT, instead of the full Keplerian ellipse. Without this patch,
     /// suborbital ghosts show orbit lines passing through the planet surface.
@@ -950,7 +988,10 @@ namespace Parsek.Patches
     ///
     /// Only applies to segment-based ghosts (those with entries in ghostOrbitBounds).
     /// Terminal-orbit ghosts (stable orbits) render the stock full ellipse.
-    /// Hyperbolic orbits and full-period segments fall through to stock rendering.
+    /// Full-period segments fall through to stock rendering. Hyperbolic (ecc>1)
+    /// escape/flyby segments are clipped too, via the same eccentric-anomaly open-arc path
+    /// (the stock Orbit anomaly/position helpers are hyperbolic-safe); only exactly-parabolic
+    /// (ecc==1) orbits fall through to stock.
     /// </summary>
     [HarmonyPatch(typeof(OrbitRendererBase), "UpdateSpline")]
     internal static class GhostOrbitArcPatch
@@ -975,11 +1016,24 @@ namespace Parsek.Patches
 
             Orbit orbit = __instance.driver?.orbit;
             if (orbit == null) return true;
-            if (orbit.eccentricity >= 1.0) return true; // let stock handle hyperbolic
+
+            // Hyperbolic (ecc>=1) escape/flyby segments take the open-arc clip below: the same
+            // eccentric-anomaly bounds + stock sampler as the ellipse, minus the three
+            // periodicity-only steps (full-period early-return, periapsis wraparound, elliptical
+            // radius diagnostic). Verified hyperbolic-safe against the stock Orbit API
+            // (EccentricAnomalyAtUT -> solveEccentricAnomalyHyp, GetTrueAnomaly sinh/cosh branch,
+            // getPositionFromEccAnomalyWithSemiMinorAxis ecc>1 branch). ecc==1 (parabolic) is a
+            // degenerate edge the stock sampler returns the origin for; route it to stock instead.
+            bool hyperbolic = orbit.eccentricity > 1.0;
+            if (orbit.eccentricity >= 1.0 && !hyperbolic)
+                return true; // exactly-parabolic, let stock handle
 
             // Full orbit or more — let stock draw the complete ellipse. The span is
-            // shift-invariant, so the stored live-frame bounds give the correct test.
-            if (endUT - startUT >= orbit.period) return true;
+            // shift-invariant, so the stored live-frame bounds give the correct test. Gated to the
+            // elliptical case only: a hyperbolic period is +Infinity (and any degenerate NaN must
+            // not early-return here), so an open orbit always falls through to the clip below.
+            if (!hyperbolic && !double.IsNaN(orbit.period) && endUT - startUT >= orbit.period)
+                return true;
 
             // The OrbitDriver is normally seeded with the RAW recorded epoch (GhostOrbitIconDrivePatch
             // drives it at effUT = liveUT - shift), but the stored arc bounds are in the LIVE frame.
@@ -1004,16 +1058,22 @@ namespace Parsek.Patches
             // NaN guard — degenerate orbits or UT outside validity
             if (double.IsNaN(fromE) || double.IsNaN(toE)) return true;
 
-            // Handle wraparound (periapsis crossing) — same logic as Trajectory.UpdateFromOrbit.
-            // GetTrueAnomaly returns [0, 2pi] for E in [0, 2pi). When fromV > toV, the arc
-            // wraps through periapsis (V=0). Making fromE negative creates a monotonically
-            // increasing range that crosses E=0.
+            // Handle wraparound (periapsis crossing), ELLIPTICAL ONLY, same logic as
+            // Trajectory.UpdateFromOrbit. GetTrueAnomaly returns [0, 2pi] for E in [0, 2pi). When
+            // fromV > toV, the arc wraps through periapsis (V=0). Making fromE negative creates a
+            // monotonically increasing range that crosses E=0. A hyperbola is monotonic in
+            // (eccentric) anomaly H and never wraps, so it MUST NOT get this correction; applying
+            // it would fabricate a bogus reversed range. (fromV/toV computed for the diagnostic
+            // log either way; only the ellipse uses them to adjust fromE.)
             double fromV = orbit.GetTrueAnomaly(fromE);
             double toV = orbit.GetTrueAnomaly(toE);
-            if (fromV > toV)
-                fromE = -(Math.PI * 2.0 - fromE);
+            if (!hyperbolic && ArcAnomalyMath.NeedsPeriapsisWraparound(fromV, toV))
+                fromE = ArcAnomalyMath.ApplyPeriapsisWraparound(fromE);
 
-            // Sample the partial arc across all available points
+            // Sample the partial arc across all available points. The stock sampler
+            // getPositionFromEccAnomalyWithSemiMinorAxis and orbit.semiMinorAxis both dispatch on
+            // the orbit's eccentricity internally (cos/sin for ecc<1, cosh/sinh for ecc>1), so the
+            // identical loop produces the correct elliptical OR hyperbolic arc between fromE..toE.
             var orbitPoints = __instance.OrbitPoints;
             double semiMinorAxis = orbit.semiMinorAxis;
             int count = orbitPoints.Length; // 180 at stock sampleResolution=2.0
@@ -1033,17 +1093,23 @@ namespace Parsek.Patches
             line.drawStart = 0;
             line.drawEnd = count - 1; // 179 — open arc, same as stock hyperbolic
 
-            // Diagnostic: compute altitude at arc endpoints for verification
+            // Diagnostic: compute altitude at arc endpoints for verification. The conic radius
+            // formula differs by orbit type: r = sma*(1 - ecc*cos(E)) is the ELLIPTICAL form;
+            // a hyperbola uses r = sma*(1 - ecc*cosh(H)). ArcAnomalyMath.EndpointRadius dispatches
+            // on the hyperbolic flag so the log-only altitude is sane for both. (sma<0 for a
+            // hyperbola, so r stays positive.)
             double bodyRadius = orbit.referenceBody != null ? orbit.referenceBody.Radius : 0;
-            double startR = orbit.semiMajorAxis * (1.0 - orbit.eccentricity * Math.Cos(fromE));
-            double endR = orbit.semiMajorAxis * (1.0 - orbit.eccentricity * Math.Cos(toE));
+            double startR = ArcAnomalyMath.EndpointRadius(orbit.semiMajorAxis, orbit.eccentricity, fromE, hyperbolic);
+            double endR = ArcAnomalyMath.EndpointRadius(orbit.semiMajorAxis, orbit.eccentricity, toE, hyperbolic);
 
+            // The anomaly the line is bounded by is the (hyperbolic) eccentric anomaly H for an
+            // open arc and the eccentric anomaly E for an ellipse; log them under the same fields.
             ParsekLog.VerboseRateLimited(Tag, pid.ToString(),
                 string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Arc clip pid={0} fromE={1:F3} toE={2:F3} arc={3:F1}deg " +
-                    "startAlt={4:F0} endAlt={5:F0} bodyR={6:F0} ecc={7:F4} sma={8:F0} " +
-                    "drawEnd={9} pts={10} scene={11}",
-                    pid, fromE, toE,
+                    "Arc clip pid={0} hyperbolic={1} fromE={2:F3} toE={3:F3} arc={4:F1}deg " +
+                    "startAlt={5:F0} endAlt={6:F0} bodyR={7:F0} ecc={8:F4} sma={9:F0} " +
+                    "drawEnd={10} pts={11} scene={12}",
+                    pid, hyperbolic, fromE, toE,
                     (toE - fromE) * (180.0 / Math.PI),
                     startR - bodyRadius, endR - bodyRadius, bodyRadius,
                     orbit.eccentricity, orbit.semiMajorAxis,

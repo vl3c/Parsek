@@ -128,14 +128,12 @@ namespace Parsek.Display
             /// <summary>
             /// M recorded body-fixed latitudes (degrees). Paired index-wise
             /// with <see cref="lons"/> / <see cref="alts"/>. Each (lat, lon, alt)
-            /// triple is converted ONCE to a scaled-body-LOCAL position
-            /// (<see cref="localScaled"/>) via <c>CelestialBody.GetWorldSurfacePosition</c>
-            /// (the same call ParsekTrackingStation.cs:1199 uses for the
-            /// atmospheric marker, so the polyline lands exactly where a marker
-            /// would), then re-projected through the render-stable
-            /// <c>body.scaledBody.transform</c> each frame. See
-            /// <see cref="localScaled"/> for why the per-frame
-            /// <c>GetWorldSurfacePosition</c> call was removed.
+            /// triple is converted to a scaled-space position each frame via
+            /// <c>CelestialBody.GetWorldSurfacePosition</c> (the same call
+            /// ParsekTrackingStation.cs:1199 uses for the atmospheric marker, so the
+            /// polyline lands exactly where a marker would), built relative to the
+            /// scaled body centre so it stays strobe-free under time warp - see the
+            /// "warp-strobe fix" geometry comment in the draw loop for the full rationale.
             /// </summary>
             public double[] lats;
 
@@ -153,33 +151,6 @@ namespace Parsek.Display
             /// to index-fraction interpolation.
             /// </summary>
             public double[] recordedUTs;
-
-            /// <summary>
-            /// M scaled-body-LOCAL positions (in <c>body.scaledBody.transform</c>
-            /// local space), captured ONCE on the first draw from
-            /// <c>scaledBody.transform.InverseTransformPoint(LocalToScaledSpace(GetWorldSurfacePosition(...)))</c>.
-            /// Null until that first capture (and reset to null whenever the leg
-            /// cache is rebuilt, e.g. on a scene change, so it recaptures against
-            /// the new scene's scaled body).
-            /// <para>
-            /// Why this exists: calling <c>GetWorldSurfacePosition</c> every frame
-            /// produced a per-frame two-position jitter under time warp that grew
-            /// with the warp multiplier. <c>GetWorldSurfacePosition</c> resolves
-            /// through <c>BodyFrame</c> (decompiled: <c>BodyFrame.LocalToWorld(...) +
-            /// position</c>), which KSP updates on the physics/warp cadence, so under
-            /// warp consecutive RENDER frames sampled body orientations ~one warp
-            /// step apart and oscillated between them. The body CENTRE (position) and
-            /// the lat/lon direction are stable; only the orientation jittered. The
-            /// scaled planet you see in the map (<c>scaledBody.transform</c>) rotates
-            /// smoothly per render frame, so re-projecting a body-fixed local point
-            /// through it each frame keeps the polyline glued to the rendered surface
-            /// with zero jitter while still following the body's rotation. The
-            /// one-time capture still uses <c>GetWorldSurfacePosition</c> so the
-            /// position is exactly correct; any BodyFrame-vs-scaledBody discrepancy at
-            /// capture time is a fixed sub-degree offset, not a per-frame oscillation.
-            /// </para>
-            /// </summary>
-            public Vector3[] localScaled;
 
             /// <summary>
             /// M-element scratch buffer for per-frame ScaledSpace output
@@ -510,12 +481,37 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// PURE diagnostic helper: the body-fixed longitude (deg) to pass to
+        /// <see cref="CelestialBody.GetWorldSurfacePosition"/> so the resulting world point sits where the
+        /// surface point at <paramref name="recordedLon"/> actually WAS at <paramref name="legStartUT"/>,
+        /// not where the LIVE body rotation places it now. GetWorldSurfacePosition applies the body's
+        /// CURRENT spin; counter-rotating the longitude by the spin accumulated between legStartUT and
+        /// liveUT cancels that drift, so a fixed-UT conic seam (<c>getPositionAtUT(legStartUT)</c>) and this
+        /// body-fixed point are compared on ONE rotation basis. The shift is self-consistent with
+        /// GetWorldSurfacePosition's own eastward (= prograde) longitude convention (world azimuth =
+        /// longitude + rotationAngle(t), with rotationAngle advancing prograde over time), so the constant
+        /// offset and absolute sign cancel in the difference and no explicit spin-axis / rotationAngle
+        /// lookup is needed. A non-rotating body (<paramref name="rotationPeriod"/> == 0 / non-finite)
+        /// returns <paramref name="recordedLon"/> unchanged - no spin drift to undo. xUnit-testable (no
+        /// Unity).
+        /// </summary>
+        internal static double BodyFixedLongitudeAtUT(
+            double recordedLon, double legStartUT, double liveUT, double rotationPeriod)
+        {
+            if (double.IsNaN(rotationPeriod) || double.IsInfinity(rotationPeriod)
+                || System.Math.Abs(rotationPeriod) <= 1e-9)
+                return recordedLon;
+            return recordedLon + (legStartUT - liveUT) * 360.0 / rotationPeriod;
+        }
+
+        /// <summary>
         /// Diagnostic (Bug 2 / Root B): a polyline leg bracketed by an orbit on only ONE side stays
         /// body-fixed (launch ascent = after-only; descent-from-orbit = before-only). For the descent case
-        /// this logs the world gap + body-relative longitude delta between the leg's body-fixed start and
-        /// the preceding orbit's seam at that UT - i.e. how far the INERTIAL orbit's deorbit point
-        /// overshoots the BODY-FIXED landing track under the loop shift, the overshoot the proto icon rides
-        /// before it teleports onto this body-fixed descent. Rate-limited per rec; render-neutral.
+        /// this logs the TRUE geometric world gap + body-relative longitudes between the leg's body-fixed
+        /// start and the preceding orbit's seam, BOTH evaluated at leg.startUT (the conic via its fixed-UT
+        /// getPositionAtUT, the body-fixed point via <see cref="BodyFixedLongitudeAtUT"/> so live planet
+        /// rotation does not inflate the value - it reads ~0 km when the orbit-to-descent seam is geometrically
+        /// continuous, as at the s15 "Duna One" re-aim landing). Rate-limited per rec; render-neutral.
         /// </summary>
         private static void EmitOneSidedBracketDiagnostic(
             Recording rec, LegPolyline leg, CelestialBody body, int beforeIdx, int afterIdx)
@@ -532,16 +528,25 @@ namespace Parsek.Display
                     if (beforeIdx >= 0
                         && TryConicWorldAtUT(rec.OrbitSegments[beforeIdx], body, leg.startUT, out Vector3d cBefore))
                     {
-                        Vector3d bf = body.GetWorldSurfacePosition(leg.lats[0], leg.lons[0], leg.alts[0]);
-                        double gapKm = Vector3d.Distance(bf, cBefore) / 1000.0;
+                        // Evaluate the body-fixed deorbit point on the SAME UT/rotation basis as the conic
+                        // (leg.startUT), NOT the live body rotation. A raw GetWorldSurfacePosition uses the
+                        // body's CURRENT spin, so it drifts away from the fixed-UT conic seam as the planet
+                        // turns while this leg stays the active drawn leg - inflating the logged gap (s15
+                        // "Duna One": 0 km at the aligned instant -> ~8 km a few seconds later, purely from
+                        // Duna's spin) and overstating the true ~0 km geometric seam. BodyFixedLongitudeAtUT
+                        // counter-rotates the longitude so the gap reads the real orbit-to-descent seam.
+                        double lonAtStartUT = BodyFixedLongitudeAtUT(
+                            leg.lons[0], leg.startUT, Planetarium.GetUniversalTime(), body.rotationPeriod);
+                        Vector3d bf = body.GetWorldSurfacePosition(leg.lats[0], lonAtStartUT, leg.alts[0]);
+                        double seamGapKm = Vector3d.Distance(bf, cBefore) / 1000.0;
                         Vector3d relBf = bf - body.position;
                         Vector3d relC = cBefore - body.position;
                         double lonBf = System.Math.Atan2(relBf.z, relBf.x) * (180.0 / System.Math.PI);
                         double lonSeam = System.Math.Atan2(relC.z, relC.x) * (180.0 / System.Math.PI);
                         var s = rec.OrbitSegments[beforeIdx];
                         seamInfo = string.Format(ic,
-                            "before=seg{0}(ecc={1:F3} sma={2:F0}) overshootGap={3:F0}km lonBodyFixed={4:F1} lonOrbitSeam={5:F1}",
-                            beforeIdx, s.eccentricity, s.semiMajorAxis, gapKm, lonBf, lonSeam);
+                            "before=seg{0}(ecc={1:F3} sma={2:F0}) seamGap={3:F0}km@startUT lonBodyFixed={4:F1} lonOrbitSeam={5:F1}",
+                            beforeIdx, s.eccentricity, s.semiMajorAxis, seamGapKm, lonBf, lonSeam);
                     }
                     return string.Format(ic,
                         "Anchor leg SKIPPED (one-sided): rec={0} leg=[{1:F1},{2:F1}] body={3} anchored=false " +
@@ -587,11 +592,10 @@ namespace Parsek.Display
             {
                 // One-sided bracket -> leg stays body-fixed (correct: a launch ascent off the rotating pad
                 // = after-only; a descent-to-surface = before-only). Bug 2 / Root B diagnostic: for the
-                // descent case (an orbit BEFORE, surface after) log the world gap + body-relative longitude
-                // delta between the leg's body-fixed start and the preceding orbit's seam = how far the
-                // INERTIAL orbit's deorbit point overshoots the BODY-FIXED landing track under the loop
-                // shift (the overshoot the proto icon rides before it teleports onto this body-fixed
-                // descent). Render-neutral.
+                // descent case (an orbit BEFORE, surface after) log the TRUE geometric seam gap +
+                // body-relative longitudes between the leg's body-fixed start and the preceding orbit's
+                // seam, BOTH on the leg.startUT rotation basis (so the value reads the real orbit-to-descent
+                // continuity, ~0 km when geometrically continuous, NOT live-rotation drift). Render-neutral.
                 EmitOneSidedBracketDiagnostic(rec, leg, body, beforeIdx, afterIdx);
                 return false;
             }
@@ -1178,6 +1182,225 @@ namespace Parsek.Display
             return PolylineStaticSkipReason.None;
         }
 
+        // ------------------------------------------------------------------
+        // Per-leg draw mechanics (Phase 8b.0 extraction)
+        //
+        // The single-leg build + conic-anchor + VectorLine submit pipeline,
+        // pulled OUT of the autonomous Driver's per-frame walk verbatim and
+        // parameterized on EXPLICIT inputs so a future TracedPathTreatment
+        // (Phase 8b.1) can draw one leg through the SAME code instead of going
+        // through the Driver's CommittedRecordings walk. The Driver now calls
+        // TryDrawLeg per leg, so its per-frame output is byte-identical to the
+        // pre-extraction inlined body (the code below IS that body, with the
+        // captured locals passed as arguments). This is a mechanical move +
+        // parameterization, not a logic change: no draw decision, no anchor
+        // math, no VectorLine state, and no activation/deactivation differs.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Builds (lazily, once), positions, fills, conic-anchors, and draws a
+        /// single non-orbital leg's own VectorLine for ONE frame, exactly as the
+        /// Driver's per-leg inner loop did inline. Scene-agnostic: every input it
+        /// needs is passed explicitly (the resolved <paramref name="body"/>, the
+        /// owning <paramref name="rec"/> for the conic-anchor, the target
+        /// <paramref name="targetLayer"/> and <paramref name="drawFrame"/>, and the
+        /// <paramref name="recordingId"/> / <paramref name="legIndex"/> used only to
+        /// name the lazily-inflated line). Mutates <paramref name="leg"/> in place
+        /// (inflates <c>vectorLine</c>, fills <c>scratchScaledSpace</c>, stamps
+        /// <c>lastDrawnFrame</c>) so the caller writes the struct back into its
+        /// cached array, identical to the old <c>set.legs[li] = leg</c>.
+        ///
+        /// Returns true when the leg was drawn this frame (the old <c>anyDrawn</c>
+        /// signal), false when it was skipped because it has fewer than two points
+        /// or its VectorLine could not be inflated (identical skip conditions to the
+        /// inlined body; the body-missing skip stays at the call site since it owns
+        /// the body resolution + the rate-limited missing-body log).
+        /// </summary>
+        internal static bool TryDrawLeg(
+            ref LegPolyline leg, Recording rec, CelestialBody body,
+            int targetLayer, int drawFrame, string recordingId, int legIndex)
+        {
+            int m = leg.PointCount;
+            if (m < 2) return false;
+
+            // Inflate this leg's own VectorLine lazily. One line PER
+            // leg: a single shared line drawn once per leg via
+            // drawStart/drawEnd range slicing does NOT work, because
+            // VectorLine.Draw3D() zeroes every vertex outside the
+            // current window on each call, leaving only the last leg.
+            if (leg.vectorLine == null)
+                leg.vectorLine = BuildLegVectorLine(recordingId, legIndex, m);
+            if (leg.vectorLine == null) return false;
+
+            leg.vectorLine.rectTransform.gameObject.layer = targetLayer;
+
+            // Stable scaled-space placement: zero the line's transform
+            // every frame (matches OrbitRendererBase's REDRAW path,
+            // which sets OrbitLine.rectTransform.position = zero before
+            // each redraw). The points3 we feed are ABSOLUTE ScaledSpace
+            // positions, so the line's GameObject transform must be the
+            // identity; otherwise the mesh inherits its parent/canvas
+            // transform and visibly drifts as the map camera pans
+            // (it is not anchored in space). Position is the load-bearing
+            // reset; rotation/scale are pinned defensively.
+            var lineXform = leg.vectorLine.rectTransform;
+            lineXform.position = Vector3.zero;
+            lineXform.rotation = Quaternion.identity;
+            lineXform.localScale = Vector3.one;
+
+            // CRITICAL geometry (warp-strobe fix, take 2 - strobe-free AND never invisible).
+            // A body-fixed surface point must follow the planet's spin. Two failed approaches and
+            // why, from the strobe probe:
+            //   (a) ABSOLUTE: scratchScaledSpace[i] = LocalToScaledSpace(GetWorldSurfacePosition(.))
+            //       STROBES under warp into a parallel duplicate - ScaledSpace.totalOffset (the
+            //       scaled-origin recentering) oscillates every RENDER frame and our non-registered
+            //       VectorLine inherits it (|dPlive| up to ~750 scaled units, alternating with 0).
+            //   (b) FREEZE: capture each point in scaledBody-local once and re-project - kills the
+            //       strobe but goes INVISIBLE under warp, because a capture taken at a strobe phase
+            //       bakes a bad totalOffset into the local and lands the line off-screen until a
+            //       clean 1x recapture.
+            // The probe shows GetWorldSurfacePosition is frame-stable (|dWorld|=0) and
+            // scaledBody.transform is a registered ScaledSpace object whose position is frame-stable
+            // (|dPfrozen|~0). So build the point from the STABLE pieces only: the scaled body centre
+            // (scaledXform.position) plus the body-relative surface offset (world - body.position) *
+            // invScale. That offset is totalOffset- AND floating-origin-free (both terms live in the
+            // same frame, so it cancels), and equals LocalToScaledSpace(world) exactly when
+            // scaledXform.position == LocalToScaledSpace(body.position) - but it never touches the
+            // strobing totalOffset. Recomputed LIVE every frame: strobe-free at all warps, and with
+            // no capture it can never go stale / invisible. scaledXform also feeds the conic anchor.
+            var scaledBody = body.scaledBody;
+            Transform scaledXform = scaledBody != null ? scaledBody.transform : null;
+            if (scaledXform != null)
+            {
+                Vector3 bodyCentreScaled = scaledXform.position;
+                double invScale = ScaledSpace.InverseScaleFactor;
+                Vector3d bodyPos = body.position;
+                for (int i = 0; i < m; i++)
+                {
+                    Vector3d world = body.GetWorldSurfacePosition(
+                        leg.lats[i], leg.lons[i], leg.alts[i]);
+                    leg.scratchScaledSpace[i] = bodyCentreScaled
+                        + (Vector3)((world - bodyPos) * invScale);
+                }
+            }
+            else
+            {
+                // No scaled body available (should not happen in map view): fall back to the
+                // direct absolute path. Strobes under warp, but at least renders on the surface.
+                for (int i = 0; i < m; i++)
+                {
+                    Vector3d world = body.GetWorldSurfacePosition(
+                        leg.lats[i], leg.lons[i], leg.alts[i]);
+                    leg.scratchScaledSpace[i] =
+                        (Vector3)ScaledSpace.LocalToScaledSpace(world);
+                }
+            }
+
+            // CONIC ANCHOR: for a vacuum maneuver between two orbits (escape burn, orbit
+            // raise) rotate the captured body-fixed scaled points onto the faithful bracketing
+            // conic seam so the leg CONNECTS the loiter/hyperbola lines instead of drawing
+            // ~96 deg off under the loop shift. No-op for legs not bracketed both sides (launch
+            // ascent / descent-to-surface) and where body-fixed already matches the conic.
+            TryAnchorLegToConicSeam(rec, leg, body, scaledXform);
+
+            CopyLegIntoVectorLine(leg.vectorLine, leg.scratchScaledSpace, 0);
+            leg.vectorLine.drawStart = 0;
+            leg.vectorLine.drawEnd = m - 1;
+            // Reactivate if a prior frame's sweep hid this leg, then
+            // draw and stamp the frame. The single write-back below
+            // persists BOTH the lazily-inflated line AND the frame
+            // stamp into the cached array (set.legs is the same array
+            // reference the dict holds, so writing set.legs[li]
+            // carries through without re-storing the struct).
+            if (!leg.vectorLine.active) leg.vectorLine.active = true;
+            leg.vectorLine.Draw3D();
+            leg.lastDrawnFrame = drawFrame;
+            return true;
+        }
+
+        /// <summary>
+        /// Constructs a fresh per-leg <c>LineType.Continuous</c>
+        /// VectorLine sized to hold exactly this leg's points. One line
+        /// per leg (see <see cref="LegPolyline.vectorLine"/>): a single
+        /// shared line drawn once per leg via <c>drawStart</c>/<c>drawEnd</c>
+        /// range slicing does NOT work, because <c>Draw3D()</c> zeroes
+        /// every vertex outside the current window on each call. Uses
+        /// <c>MapView.OrbitLinesMaterial</c> (the SOLID stock orbit-line
+        /// material, NOT the dotted/dashed one) with the same 5f width and
+        /// distance/direction fade, so each leg reads as one unbroken
+        /// orbit-style line with no dashes, gaps, or interruptions (mirrors
+        /// <c>OrbitRendererBase.MakeLine</c>). A per-line vertex colour via
+        /// <see cref="VectorLine.SetColor(Color)"/> is set to the EXACT stock
+        /// vessel orbit-line grey so the polyline matches the ghost's own
+        /// orbit arcs; being a per-line colour it does not mutate the shared
+        /// material (which would dim every stock orbit line).
+        /// </summary>
+        internal static VectorLine BuildLegVectorLine(
+            string recordingId, int legIndex, int pointCount)
+        {
+            if (pointCount <= 0) return null;
+            var points = new List<Vector3>(pointCount);
+            for (int i = 0; i < pointCount; i++)
+                points.Add(Vector3.zero);
+            var line = new VectorLine(
+                "ParsekGhostTrajectoryPolyline-" + recordingId + "-leg" + legIndex,
+                points,
+                5f,
+                LineType.Continuous);
+            // Match the stock map orbit line exactly: a SOLID continuous line
+            // via MapView.OrbitLinesMaterial (NOT the dotted/dashed material),
+            // the same 5f width and the same distance/direction fade, so the
+            // ghost's non-orbital path reads as one unbroken orbit-style line
+            // with no dashes, gaps, or interruptions. Mirrors
+            // OrbitRendererBase.MakeLine. _FadeStrength / _FadeSign are global
+            // GameSettings values set on the SHARED material (idempotent:
+            // stock sets the same values every time it makes an orbit line),
+            // so this does not disturb real orbit lines.
+            Material orbitMat = MapView.OrbitLinesMaterial;
+            if (orbitMat != null)
+            {
+                line.texture = orbitMat.mainTexture;
+                line.material = orbitMat;
+                orbitMat.SetFloat("_FadeStrength", GameSettings.ORBIT_FADE_STRENGTH);
+                orbitMat.SetFloat("_FadeSign",
+                    GameSettings.ORBIT_FADE_DIRECTION_INV ? -1f : 1f);
+            }
+            line.continuousTexture = true;
+            line.UpdateImmediate = true;
+            // EXACT stock vessel orbit-line colour so the polyline is
+            // indistinguishable from the ghost's own orbit arcs: KSP's
+            // OrbitRenderer seeds an unfocused vessel with
+            // SetColor(new Color(0.71,0.71,0.71,1)) and draws the line at
+            // orbitColor = nodeColor * 0.5 (alpha preserved) with lineOpacity
+            // 1 (OrbitRenderer.GetOrbitColour / OrbitRendererBase), i.e. the
+            // mid-grey below. Per-line vertex colour, so the shared
+            // OrbitLinesMaterial is left untouched.
+            Color stockNode = new Color(0.71f, 0.71f, 0.71f, 1f);
+            Color stockOrbit = stockNode * 0.5f;
+            stockOrbit.a = stockNode.a;
+            line.SetColor(stockOrbit);
+            return line;
+        }
+
+        /// <summary>
+        /// Copies a leg's scratch <c>Vector3[]</c> into the leg's own
+        /// VectorLine's <c>points3</c> list starting at the given offset
+        /// (0 for per-leg lines).
+        /// </summary>
+        internal static void CopyLegIntoVectorLine(
+            VectorLine line, Vector3[] scratch, int startIdx)
+        {
+            if (line == null || scratch == null) return;
+            var points3 = line.points3;
+            if (points3 == null) return;
+            for (int i = 0; i < scratch.Length; i++)
+            {
+                int dst = startIdx + i;
+                if (dst < 0 || dst >= points3.Count) continue;
+                points3[dst] = scratch[i];
+            }
+        }
+
         /// <summary>
         /// Scene-wide MonoBehaviour that performs the per-frame walk over
         /// <c>RecordingStore.CommittedRecordings</c>, refreshes the cache
@@ -1471,116 +1694,20 @@ namespace Parsek.Display
                             frameSkippedNoBody++;
                             continue;
                         }
-                        int m = leg.PointCount;
-                        if (m < 2) continue;
 
-                        // Inflate this leg's own VectorLine lazily. One line PER
-                        // leg: a single shared line drawn once per leg via
-                        // drawStart/drawEnd range slicing does NOT work, because
-                        // VectorLine.Draw3D() zeroes every vertex outside the
-                        // current window on each call, leaving only the last leg.
-                        if (leg.vectorLine == null)
-                            leg.vectorLine = BuildLegVectorLine(rec.RecordingId, li, m);
-                        if (leg.vectorLine == null) continue;
-
-                        leg.vectorLine.rectTransform.gameObject.layer = targetLayer;
-
-                        // Stable scaled-space placement: zero the line's transform
-                        // every frame (matches OrbitRendererBase's REDRAW path,
-                        // which sets OrbitLine.rectTransform.position = zero before
-                        // each redraw). The points3 we feed are ABSOLUTE ScaledSpace
-                        // positions, so the line's GameObject transform must be the
-                        // identity; otherwise the mesh inherits its parent/canvas
-                        // transform and visibly drifts as the map camera pans
-                        // (it is not anchored in space). Position is the load-bearing
-                        // reset; rotation/scale are pinned defensively.
-                        var lineXform = leg.vectorLine.rectTransform;
-                        lineXform.position = Vector3.zero;
-                        lineXform.rotation = Quaternion.identity;
-                        lineXform.localScale = Vector3.one;
-
-                        // CRITICAL geometry. The points must follow the body's
-                        // rotation (a launch path stays glued to its surface site as
-                        // the planet spins), but calling GetWorldSurfacePosition every
-                        // frame jittered under time warp: it resolves through BodyFrame
-                        // (BodyFrame.LocalToWorld(...) + position), which KSP updates on
-                        // the physics/warp cadence, so consecutive render frames sampled
-                        // orientations ~one warp step apart and oscillated between two
-                        // positions (gap proportional to the warp multiplier, zero at
-                        // 1x). Instead: capture each point ONCE in the scaled planet's
-                        // LOCAL frame (via KSP's own GetWorldSurfacePosition, so the
-                        // position is exactly right), then re-project through the
-                        // render-stable body.scaledBody.transform each frame. The scaled
-                        // planet in the map rotates smoothly per render frame (no
-                        // BodyFrame jitter), so the line follows the body's spin without
-                        // oscillating. Falls back to the live per-frame path only when
-                        // the scaled body is not available (the points then jitter under
-                        // warp exactly as before, but at least render).
-                        var scaledBody = body.scaledBody;
-                        Transform scaledXform = scaledBody != null ? scaledBody.transform : null;
-                        if (scaledXform != null)
-                        {
-                            // (Re)capture the scaled-body-LOCAL positions from the
-                            // accurate live surface position whenever the leg is fresh
-                            // OR whenever warp is at the 1x baseline (where there is no
-                            // BodyFrame jitter, so the capture is exact). Under time warp
-                            // we FREEZE the captured local positions and only re-project
-                            // them through the smooth scaledBody transform below, which is
-                            // what removes the jitter. At 1x the round-trip
-                            // TransformPoint(InverseTransformPoint(x)) == x, so behaviour
-                            // is identical to the old direct path; under warp the frozen
-                            // body-fixed locals stay glued to the spinning planet.
-                            bool lowWarp = TimeWarp.CurrentRate <= 1.0001f;
-                            if (leg.localScaled == null
-                                || leg.localScaled.Length != m
-                                || lowWarp)
-                            {
-                                if (leg.localScaled == null || leg.localScaled.Length != m)
-                                    leg.localScaled = new Vector3[m];
-                                for (int i = 0; i < m; i++)
-                                {
-                                    Vector3d world = body.GetWorldSurfacePosition(
-                                        leg.lats[i], leg.lons[i], leg.alts[i]);
-                                    Vector3 worldScaled =
-                                        (Vector3)ScaledSpace.LocalToScaledSpace(world);
-                                    leg.localScaled[i] =
-                                        scaledXform.InverseTransformPoint(worldScaled);
-                                }
-                            }
-                            for (int i = 0; i < m; i++)
-                                leg.scratchScaledSpace[i] =
-                                    scaledXform.TransformPoint(leg.localScaled[i]);
-                        }
-                        else
-                        {
-                            for (int i = 0; i < m; i++)
-                            {
-                                Vector3d world = body.GetWorldSurfacePosition(
-                                    leg.lats[i], leg.lons[i], leg.alts[i]);
-                                leg.scratchScaledSpace[i] =
-                                    (Vector3)ScaledSpace.LocalToScaledSpace(world);
-                            }
-                        }
-
-                        // CONIC ANCHOR: for a vacuum maneuver between two orbits (escape burn, orbit
-                        // raise) rotate the captured body-fixed scaled points onto the faithful bracketing
-                        // conic seam so the leg CONNECTS the loiter/hyperbola lines instead of drawing
-                        // ~96 deg off under the loop shift. No-op for legs not bracketed both sides (launch
-                        // ascent / descent-to-surface) and where body-fixed already matches the conic.
-                        TryAnchorLegToConicSeam(rec, leg, body, scaledXform);
-
-                        CopyLegIntoVectorLine(leg.vectorLine, leg.scratchScaledSpace, 0);
-                        leg.vectorLine.drawStart = 0;
-                        leg.vectorLine.drawEnd = m - 1;
-                        // Reactivate if a prior frame's sweep hid this leg, then
-                        // draw and stamp the frame. The single write-back below
-                        // persists BOTH the lazily-inflated line AND the frame
-                        // stamp into the cached array (set.legs is the same array
-                        // reference the dict holds, so writing set.legs[li]
-                        // carries through without re-storing the struct).
-                        if (!leg.vectorLine.active) leg.vectorLine.active = true;
-                        leg.vectorLine.Draw3D();
-                        leg.lastDrawnFrame = drawFrame;
+                        // Per-leg build + conic-anchor + VectorLine draw mechanics,
+                        // extracted (Phase 8b.0) into the scene-agnostic
+                        // GhostTrajectoryPolylineRenderer.TryDrawLeg so a future
+                        // TracedPathTreatment can draw a single leg through the SAME
+                        // code. The extracted method is the verbatim old inlined body
+                        // with these locals passed in, so the per-frame output is
+                        // byte-identical: same scaled-space points, same conic-anchor
+                        // decisions, same VectorLine state, same activation, same frame
+                        // stamp. It mutates leg in place (line/scratch/lastDrawnFrame);
+                        // the single write-back below persists that into the cached
+                        // array exactly as before.
+                        if (!TryDrawLeg(ref leg, rec, body, targetLayer, drawFrame, rec.RecordingId, li))
+                            continue;
                         set.legs[li] = leg;
                         anyDrawn = true;
                     }
@@ -1756,89 +1883,6 @@ namespace Parsek.Display
                     cachedControllerScene = scene;
                 }
                 return cachedFlightController;
-            }
-
-            /// <summary>
-            /// Constructs a fresh per-leg <c>LineType.Continuous</c>
-            /// VectorLine sized to hold exactly this leg's points. One line
-            /// per leg (see <see cref="LegPolyline.vectorLine"/>): a single
-            /// shared line drawn once per leg via <c>drawStart</c>/<c>drawEnd</c>
-            /// range slicing does NOT work, because <c>Draw3D()</c> zeroes
-            /// every vertex outside the current window on each call. Uses
-            /// <c>MapView.OrbitLinesMaterial</c> (the SOLID stock orbit-line
-            /// material, NOT the dotted/dashed one) with the same 5f width and
-            /// distance/direction fade, so each leg reads as one unbroken
-            /// orbit-style line with no dashes, gaps, or interruptions (mirrors
-            /// <c>OrbitRendererBase.MakeLine</c>). A per-line vertex colour via
-            /// <see cref="VectorLine.SetColor(Color)"/> is set to the EXACT stock
-            /// vessel orbit-line grey so the polyline matches the ghost's own
-            /// orbit arcs; being a per-line colour it does not mutate the shared
-            /// material (which would dim every stock orbit line).
-            /// </summary>
-            private static VectorLine BuildLegVectorLine(
-                string recordingId, int legIndex, int pointCount)
-            {
-                if (pointCount <= 0) return null;
-                var points = new List<Vector3>(pointCount);
-                for (int i = 0; i < pointCount; i++)
-                    points.Add(Vector3.zero);
-                var line = new VectorLine(
-                    "ParsekGhostTrajectoryPolyline-" + recordingId + "-leg" + legIndex,
-                    points,
-                    5f,
-                    LineType.Continuous);
-                // Match the stock map orbit line exactly: a SOLID continuous line
-                // via MapView.OrbitLinesMaterial (NOT the dotted/dashed material),
-                // the same 5f width and the same distance/direction fade, so the
-                // ghost's non-orbital path reads as one unbroken orbit-style line
-                // with no dashes, gaps, or interruptions. Mirrors
-                // OrbitRendererBase.MakeLine. _FadeStrength / _FadeSign are global
-                // GameSettings values set on the SHARED material (idempotent:
-                // stock sets the same values every time it makes an orbit line),
-                // so this does not disturb real orbit lines.
-                Material orbitMat = MapView.OrbitLinesMaterial;
-                if (orbitMat != null)
-                {
-                    line.texture = orbitMat.mainTexture;
-                    line.material = orbitMat;
-                    orbitMat.SetFloat("_FadeStrength", GameSettings.ORBIT_FADE_STRENGTH);
-                    orbitMat.SetFloat("_FadeSign",
-                        GameSettings.ORBIT_FADE_DIRECTION_INV ? -1f : 1f);
-                }
-                line.continuousTexture = true;
-                line.UpdateImmediate = true;
-                // EXACT stock vessel orbit-line colour so the polyline is
-                // indistinguishable from the ghost's own orbit arcs: KSP's
-                // OrbitRenderer seeds an unfocused vessel with
-                // SetColor(new Color(0.71,0.71,0.71,1)) and draws the line at
-                // orbitColor = nodeColor * 0.5 (alpha preserved) with lineOpacity
-                // 1 (OrbitRenderer.GetOrbitColour / OrbitRendererBase), i.e. the
-                // mid-grey below. Per-line vertex colour, so the shared
-                // OrbitLinesMaterial is left untouched.
-                Color stockNode = new Color(0.71f, 0.71f, 0.71f, 1f);
-                Color stockOrbit = stockNode * 0.5f;
-                stockOrbit.a = stockNode.a;
-                line.SetColor(stockOrbit);
-                return line;
-            }
-
-            /// <summary>
-            /// Copies a leg's scratch <c>Vector3[]</c> into the leg's own
-            /// VectorLine's <c>points3</c> list starting at the given offset
-            /// (0 for per-leg lines).
-            /// </summary>
-            private static void CopyLegIntoVectorLine(
-                VectorLine line, Vector3[] scratch, int startIdx)
-            {
-                if (line == null || scratch == null) return;
-                var points3 = line.points3;
-                if (points3 == null) return;
-                for (int i = 0; i < scratch.Length; i++)
-                {
-                    int dst = startIdx + i;
-                    if (dst < 0 || dst >= points3.Count) continue;
-                    points3[dst] = scratch[i];
-                }
             }
 
             /// <summary>
