@@ -226,7 +226,7 @@ namespace Parsek.Tests
         public void ProcessAction_RouteRecoveryCredited_DoesNotTouchOtherCounters()
         {
             // The credit observation MUST NOT bump DispatchedCycles / DeliveredStops
-            // or set Paused / EndpointLost — it is a funds EARNING observed only for
+            // or set Paused / EndpointLost: it is a funds EARNING observed only for
             // diagnostics. RouteModule touches no funds state at all (it has none).
             module.ProcessAction(MakeRecoveryCredited("route-OBS", "cycle-0"));
 
