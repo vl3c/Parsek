@@ -241,7 +241,7 @@ namespace Parsek
         // than its content. The remaining columns (Status / Destination) are candidates
         // for a further fold in a later pass; this L2 step does a conservative one-column
         // compression that is safe without in-game validation.
-        private const float MinWindowWidth = 1360f;
+        private const float MinWindowWidth = 1410f;
         private const float MinWindowHeight = 220f;
 
         public bool IsOpen
