@@ -283,6 +283,9 @@ namespace Parsek
             {
                 case GameActionType.ScienceEarning:
                 case GameActionType.FundsEarning:
+                // Logistics deferred recovery credit: a funds earning (FundsModule adds
+                // it to totalEarnings), so it sorts before spendings at a shared UT.
+                case GameActionType.RouteRecoveryCredited:
                 case GameActionType.MilestoneAchievement:
                 case GameActionType.ContractComplete:
                 case GameActionType.ReputationEarning:
@@ -306,6 +309,9 @@ namespace Parsek
             {
                 case GameActionType.ScienceSpending:
                 case GameActionType.FundsSpending:
+                // Logistics gross dispatch charge (Option A): a funds spending in the
+                // recalc walk, so it sorts after earnings at a shared UT.
+                case GameActionType.RouteCargoDebited:
                 case GameActionType.FacilityUpgrade:
                 case GameActionType.FacilityRepair:
                 case GameActionType.KerbalHire:
