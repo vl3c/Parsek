@@ -52,6 +52,16 @@ namespace Parsek
             /// <summary>Count of <see cref="GameActionType.RouteCargoDelivered"/> rows seen for this route.</summary>
             internal int DeliveredStops;
 
+            /// <summary>Count of <see cref="GameActionType.RouteRecoveryCredited"/> rows seen for this route
+            /// (logistics-recovery-credit, design doc section 6.2). DIAGNOSTIC ONLY. The deferred
+            /// recovery credit's FUNDS effect is reversed by <see cref="FundsModule"/> (which processes
+            /// the credit as an earning); <see cref="RouteModule"/> only OBSERVES the row so the per-route
+            /// walk summary reflects how many credits a route has paid back. This module MUST NOT mutate
+            /// funds for the credit (the observe-only design-doc contract, section 13.4): a future edit
+            /// that adds a funds mutation here would double-count the credit and is pinned out by
+            /// T-ROUTEMODULE-OBSERVE.</summary>
+            internal int CreditedCycles;
+
             /// <summary>True once a <see cref="GameActionType.RoutePaused"/> row has been processed.
             /// Skeleton scope: this flag survives subsequent <see cref="GameActionType.RouteDispatched"/>
             /// rows on the same route — the skeleton accepts the dispatch with a warn and still
@@ -121,6 +131,9 @@ namespace Parsek
                 case GameActionType.RouteCargoDelivered:
                     ProcessCargoDelivered(action);
                     break;
+                case GameActionType.RouteRecoveryCredited:
+                    ProcessRecoveryCredited(action);
+                    break;
                 case GameActionType.RoutePaused:
                     ProcessPaused(action);
                     break;
@@ -143,6 +156,7 @@ namespace Parsek
             int endpointLost = 0;
             int totalDispatched = 0;
             int totalDelivered = 0;
+            int totalCredited = 0;
 
             foreach (var kv in byRoute)
             {
@@ -150,13 +164,15 @@ namespace Parsek
                 if (kv.Value.EndpointLost) endpointLost++;
                 totalDispatched += kv.Value.DispatchedCycles;
                 totalDelivered += kv.Value.DeliveredStops;
+                totalCredited += kv.Value.CreditedCycles;
             }
 
             ParsekLog.Verbose(Tag,
                 $"PostWalk: routes={total.ToString(IC)}, " +
                 $"paused={paused.ToString(IC)}, endpointLost={endpointLost.ToString(IC)}, " +
                 $"totalDispatched={totalDispatched.ToString(IC)}, " +
-                $"totalDelivered={totalDelivered.ToString(IC)}");
+                $"totalDelivered={totalDelivered.ToString(IC)}, " +
+                $"totalCredited={totalCredited.ToString(IC)}");
         }
 
         // ================================================================
@@ -248,6 +264,36 @@ namespace Parsek
                 $"resources={manifestSize.ToString(IC)}, " +
                 $"requested={requestedSize.ToString(IC)}, " +
                 $"ut={action.UT.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// Observes a <see cref="GameActionType.RouteRecoveryCredited"/> row
+        /// (logistics-recovery-credit, design doc section 6.2). DIAGNOSTIC ONLY:
+        /// increments the per-route <see cref="RouteWalkState.CreditedCycles"/>
+        /// counter so the <see cref="PostWalk"/> summary reflects how many deferred
+        /// recovery credits a route has paid back, and updates
+        /// <see cref="RouteWalkState.LastActionUT"/>. It MUST NOT mutate funds: the
+        /// credit's funds reversal is <see cref="FundsModule"/>'s job (the credit
+        /// flows through the FundsModule earning path so a rewind / tombstone
+        /// reconciles it via PatchFunds with no new rollback code). RouteModule is
+        /// observe-only by the design-doc contract (section 13.4); adding a funds
+        /// mutation here would double-count the credit. Pinned by
+        /// T-ROUTEMODULE-OBSERVE.
+        /// </summary>
+        private void ProcessRecoveryCredited(GameAction action)
+        {
+            if (!TryGetOrCreateState(action, "RouteRecoveryCredited", out RouteWalkState state, out string routeId))
+                return;
+
+            state.CreditedCycles++;
+            state.LastActionUT = action.UT;
+
+            ParsekLog.Verbose(Tag,
+                $"Processed RouteRecoveryCredited for route={routeId} " +
+                $"credited={state.CreditedCycles.ToString(IC)}, " +
+                $"cycleId={action.RouteCycleId ?? "(none)"}, " +
+                $"amount={action.RouteKscFundsCost.ToString("R", IC)} funds, " +
+                $"ut={action.UT.ToString("R", IC)} (observe-only, no funds mutation)");
         }
 
         private void ProcessPaused(GameAction action)

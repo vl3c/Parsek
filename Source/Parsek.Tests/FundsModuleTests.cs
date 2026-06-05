@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Xunit;
 
@@ -1130,6 +1131,105 @@ namespace Parsek.Tests
             Assert.Equal(19800.0, module.GetRunningBalance());
             // available = initial + earnings - spendings = 25000 + 7300 - 12500 = 19800
             Assert.Equal(19800.0, module.GetAvailableFunds());
+        }
+
+        // ================================================================
+        // T-RECONCILE-NOOP (logistics-recovery-credit, section 6.3 IMPORTANT
+        // CONSISTENCY REQUIREMENT): the no-rewind steady-state double-count guard.
+        //
+        // PatchFunds computes delta = target - current and applies that single
+        // delta (KspStatePatcher.cs:646-670). The "one real hazard in the plan"
+        // (section 6.3) is the asymmetric-target failure mode: if the credit were a
+        // FundsModule earning but the gross debit were NOT a spending, target would
+        // be inflated by the credit over a current (live funds) that already holds
+        // (gross out, credit in), so PatchFunds would ADD the credit back on EVERY
+        // recalc, double-counting it upward even with no rewind. Option A fixes this
+        // by routing the debit through FundsModule too.
+        //
+        // This proves Option A does NOT double-apply: with the live debit AND live
+        // credit already applied (live funds at initial - gross + recovered), a full
+        // (non-cutoff) walk produces GetAvailableFunds() == the live value, so the
+        // reconcile delta (target - current) is ~0. Funding.Instance is a KSP static
+        // unreachable from xUnit, so the live "current" is modeled directly and the
+        // reconcile delta is computed the same way PatchFunds computes it.
+        // ================================================================
+
+        [Fact]
+        public void FullWalk_DebitAndCredit_ReconcileDeltaIsZero_AgainstLiveFunds()
+        {
+            const double initial = 25000.0;
+            const double gross = 12500.0;
+            const double recovered = 7300.0;
+            // Live funds after the live debit + live credit already applied at emit
+            // time (LiveDebitFunds(gross) then LiveCreditFunds(recovered)).
+            double liveFundsCurrent = initial - gross + recovered; // 19800
+
+            var actions = new List<GameAction>
+            {
+                MakeSeed(0, (float)initial),
+                MakeRouteDebit(100, (float)gross, cycleId: "cycle-0"),
+                MakeRouteCredit(400, (float)recovered, cycleId: "cycle-0") // one interval later
+            };
+
+            // Full (non-cutoff) walk: PrePass tallies committed spendings, ProcessAction
+            // applies each row. No projection installed -> GetAvailableFunds() takes the
+            // full-walk branch (initial + earnings - spendings).
+            module.ComputeTotalSpendings(actions);
+            foreach (var a in actions)
+                module.ProcessAction(a);
+
+            double target = module.GetAvailableFunds();
+            double patchDelta = target - liveFundsCurrent; // exactly PatchFunds's delta
+
+            Assert.Equal(liveFundsCurrent, target, 3);
+            Assert.True(Math.Abs(patchDelta) < 0.01,
+                "PatchFunds reconcile delta must be ~0 (no double-application): delta=" +
+                patchDelta.ToString("R", CultureInfo.InvariantCulture));
+        }
+
+        // ================================================================
+        // T-LEGACY-DEBIT (logistics-recovery-credit, section 6.3 INTENTIONAL
+        // BEHAVIOR CHANGE, OQ3 resolved): Option A intentionally pulls a pre-feature
+        // RouteCargoDebited row (which FundsModule previously IGNORED) into the walk
+        // as a spending. On first load / recalc of a legacy save that charged gross
+        // live-only, PatchFunds reconciles the walk to live funds; because the live
+        // funds already reflect the historical charge (initial - gross) AND the walk
+        // now counts the same debit, target == current and PatchFunds does NOT
+        // double-subtract. This is the highest-blast-radius part of Option A; the
+        // test makes the intentional change explicit and proven.
+        // ================================================================
+
+        [Fact]
+        public void FullWalk_BareLegacyDebit_NoCredit_CountedOnce_NoDoubleSubtract()
+        {
+            const double initial = 25000.0;
+            const double gross = 12500.0;
+            // Legacy save: the gross was charged live-only before this feature, so
+            // live funds already reflect (initial - gross). No paired credit row.
+            double liveFundsCurrent = initial - gross; // 12500
+
+            var actions = new List<GameAction>
+            {
+                MakeSeed(0, (float)initial),
+                MakeRouteDebit(100, (float)gross, cycleId: "cycle-legacy")
+                // NO RouteRecoveryCredited row (pre-feature save).
+            };
+
+            module.ComputeTotalSpendings(actions);
+            foreach (var a in actions)
+                module.ProcessAction(a);
+
+            // The bare debit is now a walk spending: available == initial - gross.
+            Assert.Equal(liveFundsCurrent, module.GetAvailableFunds(), 3);
+            Assert.Equal(gross, module.GetTotalCommittedSpendings(), 3);
+
+            // PatchFunds reconcile delta against the already-charged live funds is ~0:
+            // the row is counted ONCE in the walk, not double-subtracted on top of the
+            // live charge.
+            double patchDelta = module.GetAvailableFunds() - liveFundsCurrent;
+            Assert.True(Math.Abs(patchDelta) < 0.01,
+                "Legacy bare-debit reconcile delta must be ~0 (no double-subtract): delta=" +
+                patchDelta.ToString("R", CultureInfo.InvariantCulture));
         }
     }
 }

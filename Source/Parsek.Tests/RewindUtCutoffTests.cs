@@ -1775,6 +1775,79 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // T-REWIND-RESERVATION (logistics-recovery-credit, section 6.3 BRANCH (b)):
+        // the cutoff-walk / reservation-floor branch. This is the branch the LIVE
+        // route emit actually triggers (RecalculateAndPatchForLiveTimelineEvent /
+        // ...IfFutureActions) whenever ANY committed action exists after the recalc
+        // UT. On that branch GetAvailableFunds() returns the RESERVATION MINIMUM
+        // from RecalculationEngine.ProjectAvailability (the projected floor), NOT
+        // runningBalance. The credit's reversibility must hold against the FLOOR:
+        // the future +credit raises it, the gross -debit and a future FundsSpending
+        // lower it. The prior T-REWIND tests assert GetRunningBalance (the full-walk
+        // quantity) and deliberately sidestep the projection; this test seeds a
+        // committed future FundsSpending so hasProjectedAvailableFunds == true and
+        // asserts the floor.
+        //
+        // Numbers: initial 25000, gross debit 12500 (UT=100), recovery credit 7300
+        // (UT=400), committed future FundsSpending 5000 (UT=700).
+        // ================================================================
+
+        [Fact]
+        public void RouteRecoveryCredit_LiveEventRecalcAtCreditUT_FloorIncludesCredit()
+        {
+            AddAll(
+                FundsSeed(25000f),
+                RouteCargoDebited(100.0, 12500f, cycleId: "cycle-0"),
+                RouteRecoveryCredited(400.0, 7300f, cycleId: "cycle-0"),
+                FundsSpending(700.0, 5000f, "rec-reserve"));
+
+            // Live-event recalc AT the credit UT (cutoff=400): the credit and debit
+            // are IN the walk (UT <= 400). runningBalance = 25000 - 12500 + 7300 =
+            // 19800. The future FundsSpending at UT=700 drives the projection branch:
+            // the floor projects 19800 -> 14800, so GetAvailableFunds() == 14800,
+            // STRICTLY LESS than runningBalance (this is the reservation system
+            // holding funds back for the committed spending), and the credit is part
+            // of the 19800 the floor is computed from.
+            LedgerOrchestrator.RecalculateAndPatch(400.0);
+            Assert.Equal(19800.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(14800.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
+            // The floor is NOT the running balance: the projection branch is active.
+            Assert.NotEqual(
+                LedgerOrchestrator.Funds.GetRunningBalance(),
+                LedgerOrchestrator.Funds.GetAvailableFunds());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Funds]") && l.Contains("Projected availability"));
+        }
+
+        [Fact]
+        public void RouteRecoveryCredit_CutoffBeforeCredit_LowersReservationFloor()
+        {
+            AddAll(
+                FundsSeed(25000f),
+                RouteCargoDebited(100.0, 12500f, cycleId: "cycle-0"),
+                RouteRecoveryCredited(400.0, 7300f, cycleId: "cycle-0"),
+                FundsSpending(700.0, 5000f, "rec-reserve"));
+
+            // Cutoff BEFORE the credit UT (cutoff=200): the credit at UT=400 is
+            // EXCLUDED from the in-walk balance, so runningBalance = 25000 - 12500 =
+            // 12500. The projection now walks the credit (+7300 at UT=400) and the
+            // spending (-5000 at UT=700) as FUTURE deltas: 12500 -> 19800 -> 14800.
+            // The reservation minimum is the STARTING balance 12500 (the credit no
+            // longer pre-raises the in-walk balance), so the floor DROPS from 14800
+            // (credit in walk) to 12500. The +credit projection delta is excluded
+            // from the in-walk seed, which is exactly the reversibility property on
+            // the projection branch: a cutoff past the credit UT drops the credit's
+            // contribution to the in-walk balance and lowers the floor.
+            LedgerOrchestrator.RecalculateAndPatch(200.0);
+            Assert.Equal(12500.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(12500.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
+            // The floor is strictly LOWER than the live-event-at-credit-UT floor
+            // (14800): excluding the credit from the in-walk balance lowered it.
+            Assert.True(LedgerOrchestrator.Funds.GetAvailableFunds() < 14800.0,
+                "floor must drop below the credit-in-walk floor when the credit is cut off");
+        }
+
+        // ================================================================
         // Test support
         // ================================================================
 

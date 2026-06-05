@@ -21,10 +21,10 @@ namespace Parsek.Tests.Logistics
     /// FundsEarning rows in the ledger, so SumRecoveredCredits feeds the emit
     /// exactly like production.
     ///
-    /// Covers the section-9 matrix: T-PAIR, T-STEADY-STATE, T-BLOCK, T-MODE-GATE,
-    /// T-PAUSE-FLUSH (immediate TryPause, armed pause-after-cycle, EndpointLost),
-    /// T-NODOUBLE, T-CRASH-WINDOW, T-FUNDS-OUT-THEN-BACK, T-AMOUNT, T-SUP,
-    /// T-SUP-NOBLOCK.
+    /// Covers the section-9 matrix: T-PAIR, T-CYCLE0, T-STEADY-STATE, T-BLOCK,
+    /// T-MODE-GATE, T-PAUSE-FLUSH (immediate TryPause, armed pause-after-cycle,
+    /// EndpointLost), T-NODOUBLE, T-CRASH-WINDOW, T-CRASH-WINDOW-TOMBSTONE,
+    /// T-FUNDS-OUT-THEN-BACK, T-AMOUNT, T-SUP, T-SUP-NOBLOCK.
     ///
     /// SCOPE NOTE: T-FUNDS-OUT-THEN-BACK here is the DEFERRAL proof (funds go out
     /// at dispatch and come back one crossing LATER, never same-tick). It is a
@@ -349,6 +349,49 @@ namespace Parsek.Tests.Logistics
             Assert.Equal((float)Recovered, credit.RouteKscFundsCost);
             // cycle-1 now owes its own credit.
             Assert.Equal("cycle-1", route.PendingRecoveryCreditCycleId);
+        }
+
+        // ==================================================================
+        // T-CYCLE0: the first-cycle edge (section 5.2). Under prior-cycle pairing,
+        // cycle-0 is the one dispatched cycle whose credit is deferred to a tick that
+        // may never come (if the route stops after one dispatch, T-PAUSE-FLUSH covers
+        // the flush). It must NOT emit a credit on its own crossing: the
+        // top-of-EmitLoopCycle flush is a no-op (no prior pending marker exists), it
+        // only SETS PendingRecoveryCreditCycleId == "cycle-0", and the net live-funds
+        // change after cycle-0's tick is -gross ONLY. Distinguishing this from the
+        // REJECTED same-tick design (where cycle-0 would net -gross + recovered in one
+        // tick) is the point of the test.
+        // ==================================================================
+
+        // catches: cycle-0 collapsing to net-at-dispatch (a credit landing in cycle-0's
+        // own tick). After cycle-0's crossing: ZERO credit rows, NO live credit, the
+        // gross debit row present, and only the pending marker armed for the deferral.
+        [Fact]
+        public void FirstCycle_NoCreditOnOwnCrossing_OnlyArmsPending_FundsDownByGrossOnly()
+        {
+            InstallSourceTree();
+            SeedRecoveryRow(Recovered);
+            var route = BuildLoopRoute();
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier(fundsCostIfCareerKsc: 12500.0);
+            var env = new EligibleEnv { IsCareer = true };
+
+            // ONE crossing: cycle-0 dispatch.
+            RouteOrchestrator.Tick(1150.0, env);
+
+            // No credit emitted on cycle-0's own crossing (the prior-cycle flush is a
+            // no-op: there is no prior pending marker when cycle-0 dispatches).
+            Assert.Empty(Credits());
+            Assert.Empty(liveCredits); // funds NOT yet back: net change is -gross only
+            // The gross debit DID land for cycle-0 (funds out at dispatch). The exact
+            // gross comes from ComputeDispatchFundsCostForRoute; the timing point is
+            // that the debit row exists and NO credit shares its tick.
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.RouteCargoDebited
+                && a.RouteCycleId == "cycle-0");
+            // cycle-0 now owes a credit, to be flushed at the NEXT crossing (deferral).
+            Assert.Equal("cycle-0", route.PendingRecoveryCreditCycleId);
         }
 
         // ==================================================================
@@ -726,6 +769,65 @@ namespace Parsek.Tests.Logistics
             Assert.False(emitted);
             Assert.Single(Credits()); // the pre-seeded one only
             Assert.Null(route.PendingRecoveryCreditCycleId);
+        }
+
+        // ==================================================================
+        // T-CRASH-WINDOW-TOMBSTONE (section 5.3 crash-window + tombstone
+        // interaction): the replay flush MUST recompute the amount FRESH from ELS,
+        // never a cached pre-crash amount. Crash between cycle-K's dispatch (pending
+        // marker on disk, NO credit row yet) and cycle-K+1's flush, with a re-fly /
+        // supersede tombstoning the source FundsEarning(Recovery) rows BETWEEN crash
+        // and reload. On the replay flush, EmitPendingRecoveryCredit re-reads ELS via
+        // SumRecoveredCredits, which now sees the tombstoned recovery hidden, so the
+        // amount recomputes to ZERO, the recovered <= 0 guard fires, and NO stale
+        // credit is emitted. The pending marker is cleared. This depends ENTIRELY on
+        // the replay path recomputing from current ELS: if an implementer cached the
+        // recovered amount on the Route, this test fails (a stale non-zero credit
+        // would be emitted).
+        // ==================================================================
+
+        // catches: a cached pre-crash credit amount defeating the tombstone reversal.
+        // The pending marker is on disk (crash window), the source recovery is
+        // tombstoned between crash and reload, and the replay flush must emit NOTHING
+        // because the amount recomputes to 0 from current (tombstoned) ELS.
+        [Fact]
+        public void CrashWindow_SourceRecoveryTombstoned_ReplayFlushEmitsNothing()
+        {
+            InstallSourceTree();
+            GameAction recoveryRow = SeedRecoveryRow(Recovered);
+
+            // Crash window: cycle-0 dispatched (pending marker on disk), but the
+            // credit row was NOT yet emitted before the crash.
+            var route = BuildLoopRoute();
+            route.PendingRecoveryCreditCycleId = "cycle-0";
+            route.PendingRecoveryCreditDispatchUT = 1150.0;
+
+            // A re-fly / supersede between crash and reload tombstones the source
+            // FundsEarning(Recovery) row + bumps the tombstone version so ELS hides it.
+            var scenario = new ParsekScenario { LedgerTombstones = new List<LedgerTombstone>() };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.LedgerTombstones.Add(new LedgerTombstone
+            {
+                TombstoneId = "tomb-crash-recovery",
+                ActionId = recoveryRow.ActionId,
+                RetiringRecordingId = "rec-refly",
+                UT = 600.0,
+                CreatedRealTime = "2026-06-06T00:00:00Z",
+            });
+            scenario.BumpTombstoneStateVersion();
+
+            var env = new EligibleEnv { IsCareer = true };
+
+            // The replay flush runs at the next crossing's UT. The amount recomputes
+            // FRESH from ELS (tombstoned recovery hidden -> SumRecoveredCredits == 0).
+            bool emitted = RouteOrchestrator.EmitPendingRecoveryCredit(route, 1450.0, env);
+
+            Assert.False(emitted); // zero recovery -> no stale credit emitted
+            Assert.Empty(Credits());
+            Assert.Empty(liveCredits); // no live stock credit applied
+            Assert.Null(route.PendingRecoveryCreditCycleId); // pending marker cleared
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("credit-skip zero-recovery"));
         }
 
         // ==================================================================
