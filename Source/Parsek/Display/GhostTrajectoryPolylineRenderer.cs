@@ -366,6 +366,21 @@ namespace Parsek.Display
             => headUT >= legStartUT && headUT <= legEndUT;
 
         /// <summary>
+        /// Phase 8b.1 no-double-draw routing predicate (Driver side): should this recording's current
+        /// non-orbital leg be drawn by the OWNED <c>TracedPathTreatment</c> instead of the Driver's
+        /// direct <c>TryDrawLeg</c> call? True exactly when the Director owns the ghost's active leg as a
+        /// fresh TracedPath this frame (<paramref name="directorOwnsTracedPath"/> =
+        /// <c>ShadowRenderDriver.IsDirectorTracedPathActive(pid, frame)</c>). The Driver routes through
+        /// the treatment when true and STANDS DOWN on its own direct call; it draws directly when false.
+        /// Because the treatment's draw and the Driver's stand-down are the SAME boolean - and the icon-
+        /// drive / orbit-line patches read the same predicate to suppress the stock proto - the leg can
+        /// never be drawn twice (treatment + Driver, or polyline + proto) on any frame. Pure mirror of
+        /// <c>TracedPathTreatment.ShouldOwnLeg</c>; xUnit-testable without Unity.
+        /// </summary>
+        internal static bool ShouldDrawLegOwnedByTreatment(bool directorOwnsTracedPath)
+            => directorOwnsTracedPath;
+
+        /// <summary>
         /// Diagnostic: body-relative WORLD longitude (degrees, atan2(z,x) in Y-up world axes) of a
         /// recorded leg point as it is ACTUALLY DRAWN - i.e. <c>GetWorldSurfacePosition(lat,lon,alt)</c>
         /// on the LIVE body minus the body centre. This is the leg's body-FIXED position; comparing it to
@@ -1632,6 +1647,17 @@ namespace Parsek.Display
                         continue;
                     }
 
+                    // Phase 8b.1: resolve this recording's live ghost map pid ONCE (committed-list
+                    // index -> ghost vessel pid; 0 when the recording has no proto-vessel ghost, e.g. an
+                    // atmospheric-only recording). The TracedPath treatment ownership decision below is
+                    // pid-keyed (ShadowRenderDriver.IsDirectorTracedPathActive), the SAME predicate the
+                    // icon-drive / orbit-line patches read to suppress the stock proto. Resolving here,
+                    // outside the leg loop, keeps the per-leg routing cheap. pid 0 (no ghost) is never
+                    // stamped by the shadow, so those recordings always take the Driver-direct path.
+                    uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
+                    bool directorOwnsTracedPath =
+                        Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(ghostPid, drawFrame);
+
                     bool anyDrawn = false;
                     for (int li = 0; li < set.legs.Length; li++)
                     {
@@ -1662,18 +1688,31 @@ namespace Parsek.Display
                             continue;
                         }
 
-                        // Per-leg build + conic-anchor + VectorLine draw mechanics,
-                        // extracted (Phase 8b.0) into the scene-agnostic
-                        // GhostTrajectoryPolylineRenderer.TryDrawLeg so a future
-                        // TracedPathTreatment can draw a single leg through the SAME
-                        // code. The extracted method is the verbatim old inlined body
-                        // with these locals passed in, so the per-frame output is
-                        // byte-identical: same scaled-space points, same conic-anchor
-                        // decisions, same VectorLine state, same activation, same frame
-                        // stamp. It mutates leg in place (line/scratch/lastDrawnFrame);
-                        // the single write-back below persists that into the cached
-                        // array exactly as before.
-                        if (!TryDrawLeg(ref leg, rec, body, targetLayer, drawFrame, rec.RecordingId, li))
+                        // Per-leg build + conic-anchor + VectorLine draw mechanics, extracted (Phase 8b.0)
+                        // into the scene-agnostic TryDrawLeg. It mutates leg in place
+                        // (line/scratch/lastDrawnFrame); the single write-back below persists that into
+                        // the cached array exactly as before.
+                        //
+                        // Phase 8b.1 (make-before-break): when the Director owns this ghost's CURRENT leg
+                        // as a TracedPath (directorOwnsTracedPath, the pid-keyed
+                        // IsDirectorTracedPathActive), route the draw through TracedPathTreatment instead
+                        // of the Driver's direct call - the treatment becomes the structural owner of the
+                        // non-orbital polyline leg. It draws via the SAME shared TryDrawLeg, so the bytes
+                        // are identical; the cutover is a routing flip, not a pixel change. The two paths
+                        // are MUTUALLY EXCLUSIVE per leg per frame (one if/else on the same shared
+                        // predicate the suppression patches read), so the leg is never drawn twice and
+                        // the stock proto is suppressed exactly when the treatment draws. Gate off / no
+                        // fresh TracedPath intent -> directorOwnsTracedPath is false -> the Driver-direct
+                        // path runs, byte-identical to today. EITHER path sets anyDrawn + writes the leg
+                        // back + (below) publishes activeLegRecordings, so the ownership signal
+                        // (IsPolylineOwningGhostPhase) stays consistent whichever path drew - the proto
+                        // orbit line is still hidden and the marker still rides the drawn line (the
+                        // signal repoint is Phase 8b.2, deliberately not touched here).
+                        bool legDrawn = ShouldDrawLegOwnedByTreatment(directorOwnsTracedPath)
+                            ? Parsek.MapRender.TracedPathTreatment.TryDrawOwnedLeg(
+                                ref leg, rec, body, targetLayer, drawFrame, rec.RecordingId, li, ghostPid)
+                            : TryDrawLeg(ref leg, rec, body, targetLayer, drawFrame, rec.RecordingId, li);
+                        if (!legDrawn)
                             continue;
                         set.legs[li] = leg;
                         anyDrawn = true;

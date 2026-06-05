@@ -716,6 +716,39 @@ namespace Parsek.Tests
                 legStartUT: 100.0, legEndUT: 200.0, headUT: 200.0));
         }
 
+        // --- Phase 8b.1: TracedPath treatment ownership routing (no double-draw) ---
+
+        [Fact]
+        public void ShouldDrawLegOwnedByTreatment_DirectorOwns_RoutesThroughTreatment()
+        {
+            // The Director owns this ghost's active leg as a fresh TracedPath this frame, so the Driver
+            // routes the draw through the treatment (and stands down on its own direct TryDrawLeg).
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldDrawLegOwnedByTreatment(
+                directorOwnsTracedPath: true));
+        }
+
+        [Fact]
+        public void ShouldDrawLegOwnedByTreatment_DirectorDoesNotOwn_DriverDrawsDirect()
+        {
+            // Gate off / no fresh TracedPath intent / no ghost pid: the Driver draws directly,
+            // byte-identical to today.
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDrawLegOwnedByTreatment(
+                directorOwnsTracedPath: false));
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void TreatmentOwnership_DriverAndTreatmentAgreeOnTheSameBoolean(bool directorActive)
+        {
+            // No-double-draw guarantee: the Driver's "route through the treatment" decision and the
+            // treatment's "I own this leg" decision are the SAME boolean, so for any frame exactly one of
+            // {treatment-draw, Driver-direct-draw} runs - the leg can never be drawn twice.
+            Assert.Equal(
+                GhostTrajectoryPolylineRenderer.ShouldDrawLegOwnedByTreatment(directorActive),
+                Parsek.MapRender.TracedPathTreatment.ShouldOwnLeg(directorActive));
+        }
+
         // --- FIX #27: below-SURFACE degenerate-segment cover exclusion ---
         //
         // Duna-like geometry: radius 320000, atmosphere top 50000 above radius.
