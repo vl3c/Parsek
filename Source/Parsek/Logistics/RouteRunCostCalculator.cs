@@ -253,6 +253,166 @@ namespace Parsek.Logistics
             return result;
         }
 
+        // ==================================================================
+        // Candidate path (no Route object yet)
+        // ==================================================================
+        //
+        // The route-creation summary and the candidate row run BEFORE any
+        // Route exists: the player has not promoted the Supply Run yet. The
+        // inputs are the same (source snapshot for launch, source tree for
+        // recovery), so the candidate path mirrors Compute / Assemble but
+        // takes the source recording + tree + an explicit KSC-origin flag
+        // instead of reading them off a Route.
+
+        /// <summary>
+        /// Resolve the recording-id set of a candidate's source tree directly
+        /// from the in-hand <see cref="RecordingTree"/> (the candidate already
+        /// holds it, so no <see cref="RouteTreeGuard.FindCommittedTree"/> store
+        /// lookup is needed). Returns an empty set for a null tree or a tree
+        /// with no recordings (then recovered = 0, the same conservative
+        /// over-statement as the route path, gotcha G1).
+        /// </summary>
+        internal static HashSet<string> ResolveTreeRecordingIds(RecordingTree tree)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (tree == null || tree.Recordings == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "ResolveTreeRecordingIds(tree): null tree or no recordings: empty member set");
+                return ids;
+            }
+
+            foreach (var kv in tree.Recordings)
+            {
+                if (!string.IsNullOrEmpty(kv.Key))
+                    ids.Add(kv.Key);
+            }
+            return ids;
+        }
+
+        /// <summary>
+        /// Sum recovery <c>FundsAwarded</c> over <paramref name="els"/> for rows
+        /// whose <c>RecordingId</c> is in <paramref name="treeRecordingIds"/>.
+        /// The Route-less sibling of <see cref="SumRecoveredCredits(Route,
+        /// IReadOnlyList{GameAction}, HashSet{string}, out int)"/> used by the
+        /// candidate path; identical predicate (FundsEarning + Recovery + tree
+        /// membership), logged without a route id.
+        /// </summary>
+        private static double SumRecoveredCreditsForCandidate(
+            IReadOnlyList<GameAction> els,
+            HashSet<string> treeRecordingIds,
+            out int recoveryEventCount)
+        {
+            recoveryEventCount = 0;
+            if (els == null || els.Count == 0 || treeRecordingIds == null || treeRecordingIds.Count == 0)
+                return 0.0;
+
+            double total = 0.0;
+            int scanned = 0;
+            int matched = 0;
+            for (int i = 0; i < els.Count; i++)
+            {
+                GameAction a = els[i];
+                if (a == null)
+                    continue;
+                if (a.Type != GameActionType.FundsEarning)
+                    continue;
+                if (a.FundsSource != FundsEarningSource.Recovery)
+                    continue;
+                scanned++;
+                if (string.IsNullOrEmpty(a.RecordingId) || !treeRecordingIds.Contains(a.RecordingId))
+                    continue;
+                matched++;
+                total += a.FundsAwarded;
+            }
+
+            recoveryEventCount = matched;
+            ParsekLog.Verbose(Tag,
+                $"SumRecoveredCredits candidate recoveryRows={scanned} " +
+                $"matched={matched} treeMembers={treeRecordingIds.Count} sum=" +
+                total.ToString("R", CultureInfo.InvariantCulture));
+            return total;
+        }
+
+        /// <summary>
+        /// Assemble a <see cref="RouteRunCost"/> for a candidate from an
+        /// already-known launch cost, an explicit KSC-origin flag, the injected
+        /// effective ledger, and the injected tree-member id set. Pure (every
+        /// dependency injected), so the arithmetic is unit-testable without a
+        /// live snapshot walk. <see cref="ComputeForCandidate"/> is the
+        /// production entry that derives <paramref name="launchCost"/> from the
+        /// source snapshot and forwards here.
+        ///
+        /// <para><c>Applicable = isCareer &amp;&amp; isKscOrigin</c> (gotcha
+        /// G5), <c>CostKnown = Applicable &amp;&amp; LaunchCost &gt; 0</c>
+        /// (gotcha G7), <c>NetCost = max(0, LaunchCost - RecoveredCredits)</c>.
+        /// </para>
+        /// </summary>
+        internal static RouteRunCost AssembleForCandidate(
+            bool isCareer,
+            bool isKscOrigin,
+            double launchCost,
+            IReadOnlyList<GameAction> els,
+            HashSet<string> treeRecordingIds)
+        {
+            RouteRunCost result = default(RouteRunCost);
+            result.Applicable = isCareer && isKscOrigin;
+
+            result.LaunchCost = launchCost;
+            result.RecoveredCredits = SumRecoveredCreditsForCandidate(
+                els, treeRecordingIds, out int recoveryEventCount);
+            result.RecoveryEventCount = recoveryEventCount;
+
+            result.CostKnown = result.Applicable && result.LaunchCost > 0.0;
+
+            double net = result.LaunchCost - result.RecoveredCredits;
+            result.NetCost = net > 0.0 ? net : 0.0;
+
+            ParsekLog.Verbose(Tag,
+                $"RunCost candidate applicable={result.Applicable} " +
+                $"known={result.CostKnown} launch=" +
+                result.LaunchCost.ToString("R", CultureInfo.InvariantCulture) +
+                " recovered=" +
+                result.RecoveredCredits.ToString("R", CultureInfo.InvariantCulture) +
+                " net=" +
+                result.NetCost.ToString("R", CultureInfo.InvariantCulture) +
+                $" recoveries={result.RecoveryEventCount}");
+
+            return result;
+        }
+
+        /// <summary>
+        /// Production candidate entry: compute the launch cost from the source
+        /// recording's <c>VesselSnapshot</c> via
+        /// <see cref="RouteFundsCalculator.ComputeDispatchFundsCost"/> (the same
+        /// gross walk the route path uses through ERS, but the candidate already
+        /// holds its source recording, so no ERS lookup is needed), then
+        /// assemble the struct. The two cost lookups are injected so tests pass
+        /// deterministic prices; production hands in the live
+        /// <see cref="LiveRouteRuntimeEnvironment.LookupPartCost"/> /
+        /// <see cref="LiveRouteRuntimeEnvironment.LookupResourceUnitCost"/>. A
+        /// null source or null <c>VesselSnapshot</c> yields launch = 0, which
+        /// makes <c>CostKnown</c> false (gotcha G7: the UI then suppresses the
+        /// line rather than rendering "0 funds").
+        /// </summary>
+        internal static RouteRunCost ComputeForCandidate(
+            Recording source,
+            RecordingTree tree,
+            bool isCareer,
+            bool isKscOrigin,
+            IReadOnlyList<GameAction> els,
+            Func<string, float> partCostLookup,
+            Func<string, float> resourceUnitCostLookup)
+        {
+            double launchCost = (source != null && source.VesselSnapshot != null)
+                ? RouteFundsCalculator.ComputeDispatchFundsCost(
+                    source.VesselSnapshot, partCostLookup, resourceUnitCostLookup)
+                : 0.0;
+            HashSet<string> treeRecordingIds = ResolveTreeRecordingIds(tree);
+            return AssembleForCandidate(
+                isCareer, isKscOrigin, launchCost, els, treeRecordingIds);
+        }
+
         private static string ShortId(Route route)
         {
             return ShortId(route != null ? route.Id : null);

@@ -283,7 +283,13 @@ namespace Parsek
             Game.Modes mode = HighLogic.CurrentGame != null
                 ? HighLogic.CurrentGame.Mode
                 : Game.Modes.SANDBOX;
-            string body = RouteCreationFormatters.BuildSummaryBlock(result, mode, tree);
+            // Run-cost block (Career + KSC origin) computed from the candidate's
+            // source recording + tree (no Route exists yet); reuses the same
+            // candidate-cost helper the window's Create-Route confirm dialog uses so
+            // the two dialogs never diverge.
+            RouteRunCostCalculator.RouteRunCost runCost =
+                LogisticsWindowUI.ComputeCandidateRunCost(result, tree);
+            string body = RouteCreationFormatters.BuildSummaryBlock(result, mode, tree, runCost);
             // (Phase 6 should-fix) The default interval is the FULL [root..undock]
             // span (undockUT - rootLaunchUT), i.e. N=1, NOT the leaf dock-child span
             // (source.EndUT - source.StartUT). On a multi-recording flight the leaf

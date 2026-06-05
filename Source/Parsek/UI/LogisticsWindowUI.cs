@@ -50,6 +50,15 @@ namespace Parsek
         private float lastCandidateComputeRealtime = -1f;
         private const float CandidateRecomputeIntervalSeconds = 1.0f;
 
+        // Run-cost (Phase 3.4): per-candidate net funds cost, keyed by tree id and
+        // recomputed on the SAME ~1 Hz candidate-cache timer as cachedCandidates.
+        // The candidate cost is an O(actions) ELS scan plus a snapshot part-cost
+        // walk, so it MUST NOT run on the IMGUI draw path; the "Would deliver" cell
+        // only READS this cache. Empty until the first candidate refresh; a cache
+        // miss draws no suffix (the cell is unchanged).
+        private readonly Dictionary<string, RouteRunCostCalculator.RouteRunCost> candidateRunCostCache =
+            new Dictionary<string, RouteRunCostCalculator.RouteRunCost>();
+
         // M3 near-miss cache: the "recently committed trees not yet eligible" list
         // (DeriveNearMisses walks every committed tree through RouteAnalysisEngine,
         // exactly like DeriveCandidates), throttled on the SAME ~1 Hz timer as the
@@ -142,6 +151,13 @@ namespace Parsek
             public LogisticsDeliveryPresentation.PausedRouteLabel PausedLabel;
             public string PausedLabelText;        // resolved cell text for the New / Paused label
             public bool ShowSendOnceGuidance;     // true only on a never-run paused row
+
+            // Run-cost (Phase 2): the per-run net funds cost (launch - recovered),
+            // computed on the ~1 Hz timer from ComputeELS() + the route's resolved
+            // tree-member id set, NEVER on the IMGUI draw path (the recovery sum is an
+            // O(actions) scan). Career + KSC-origin only: Applicable / CostKnown are
+            // false otherwise and the detail draw path then renders nothing.
+            public RouteRunCostCalculator.RouteRunCost RunCost;
         }
 
         // Deferred mutations: collected during the draw loop and applied after the
@@ -1098,12 +1114,26 @@ namespace Parsek
             // the candidate detail line uses, so the cell and the detail never diverge.
             // The "eligible" / sealed copy that used to ride the dropped Status cell now
             // lives in this cell's tooltip plus the section-header tooltip.
+            //
+            // Run-cost (Phase 3.4): a compact net-cost suffix + tooltip detail is added
+            // ONLY for Career + KSC origin with a known launch cost. The cost is read
+            // from candidateRunCostCache (computed on the ~1 Hz candidate refresh,
+            // never here on the draw path); a cache miss or a not-applicable / unknown
+            // cost leaves the cell exactly as before (no suffix, base tooltip).
+            string wouldDeliverText = LogisticsDeliveryPresentation.FormatWouldDeliver(
+                candidate.Analysis.ResourceDeliveryManifest,
+                candidate.Analysis.InventoryDeliveryManifest);
+            string wouldDeliverTip =
+                "A sealed, valid Supply Run: what it would deliver to the destination per cycle. Create Route promotes it to a Paused route you can Send Once / Activate.";
+            if (candidateRunCostCache.TryGetValue(treeId, out RouteRunCostCalculator.RouteRunCost candCost)
+                && candCost.Applicable && candCost.CostKnown)
+            {
+                wouldDeliverText += LogisticsCostPresentation.FormatCandidateSuffix(candCost);
+                wouldDeliverTip = LogisticsCostPresentation.FormatDetailLine(candCost)
+                    + "\n" + LogisticsCostPresentation.FormatDetailTooltip(candCost);
+            }
             GUILayout.Label(
-                new GUIContent(
-                    LogisticsDeliveryPresentation.FormatWouldDeliver(
-                        candidate.Analysis.ResourceDeliveryManifest,
-                        candidate.Analysis.InventoryDeliveryManifest),
-                    "A sealed, valid Supply Run: what it would deliver to the destination per cycle. Create Route promotes it to a Paused route you can Send Once / Activate."),
+                new GUIContent(wouldDeliverText, wouldDeliverTip),
                 GUILayout.Width(ColW_WouldDeliver));
             // L3: Transit cell (the candidate's natural run duration) now has its own
             // column in the candidate header, so it draws a real value instead of riding
@@ -1178,6 +1208,19 @@ namespace Parsek
             }
 
             DetailLine($"Interval: {FormatDuration(route.DispatchInterval)}   Transit: {FormatDuration(route.TransitDuration)}   Cycles: {route.CompletedCycles}");
+
+            // Run-cost (Phase 3, decision D3): one detail line + tooltip, drawn ONLY
+            // when the cost applies (Career + KSC origin) AND is known (the source
+            // snapshot resolved a launch cost > 0). Outside that, draw NOTHING (no
+            // "n/a", no "0 funds", gotcha G7). The line + tooltip text are shaped by
+            // the pure LogisticsCostPresentation; this path only draws.
+            if (leg.RunCost.Applicable && leg.RunCost.CostKnown)
+            {
+                DetailLine(new GUIContent(
+                    LogisticsCostPresentation.FormatDetailLine(leg.RunCost),
+                    LogisticsCostPresentation.FormatDetailTooltip(leg.RunCost)));
+            }
+
             DrawCadenceStepper(route);
 
             // H5: resolved recording / tree (mission) names instead of 8-char GUID
@@ -1599,6 +1642,17 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
+        // Detail line carrying a hover tooltip (GUIContent). Same indented full-width
+        // layout as the string overloads; used by the run-cost line so the net =
+        // launch - recovered explanation + D1 caveat surface on hover.
+        private void DetailLine(GUIContent content)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(24f);
+            GUILayout.Label(content, detailStyle, GUILayout.ExpandWidth(true));
+            GUILayout.EndHorizontal();
+        }
+
         private void DrawSectionHeader(string text)
         {
             // Use the shared house section-header bar (bold label in a box, full-width)
@@ -1813,7 +1867,11 @@ namespace Parsek
             // Same summary call the post-commit auto-dialog makes (analysis + mode +
             // tree); passing cand.Tree makes the Transit line resolve the real
             // [root..dock] span so the dialog matches the route that gets built.
-            string body = RouteCreationFormatters.BuildSummaryBlock(cand.Analysis, mode, cand.Tree);
+            // The run-cost block (Career + KSC origin) is computed here from the
+            // candidate's source recording + tree (no Route exists yet) and passed in.
+            RouteRunCostCalculator.RouteRunCost runCost =
+                ComputeCandidateRunCost(cand.Analysis, cand.Tree);
+            string body = RouteCreationFormatters.BuildSummaryBlock(cand.Analysis, mode, cand.Tree, runCost);
 
             ParsekLog.Info("UI",
                 $"Logistics: Create Route confirm dialog spawned tree={ShortId(cand.Tree.Id)} mode={mode}");
@@ -1986,6 +2044,25 @@ namespace Parsek
             {
                 cachedCandidates = RouteCandidateFinder.DeriveCandidates();
                 lastCandidateComputeRealtime = now;
+
+                // Run-cost (Phase 3.4): recompute each candidate's net cost on this
+                // ~1 Hz refresh and stash it by tree id so DrawCandidateRow reads it
+                // off the draw path. Rebuilt wholesale each refresh (the candidate
+                // set is small and can change), so stale tree ids never linger.
+                candidateRunCostCache.Clear();
+                int costed = 0;
+                for (int i = 0; i < cachedCandidates.Count; i++)
+                {
+                    RouteCandidate cand = cachedCandidates[i];
+                    string treeId = cand?.Tree?.Id;
+                    if (cand?.Analysis == null || string.IsNullOrEmpty(treeId))
+                        continue;
+                    candidateRunCostCache[treeId] = ComputeCandidateRunCost(cand.Analysis, cand.Tree);
+                    costed++;
+                }
+                ParsekLog.Verbose("UI",
+                    $"Logistics candidate run-cost cache refreshed candidates={cachedCandidates.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"costed={costed.ToString(CultureInfo.InvariantCulture)}");
             }
             return cachedCandidates ?? new List<RouteCandidate>();
         }
@@ -2138,7 +2215,118 @@ namespace Parsek
                     $"label={leg.PausedLabel}");
             }
 
+            // Run-cost (Phase 2): per-run net funds cost. Computed HERE on the ~1 Hz
+            // refresh because SumRecoveredCredits is an O(actions) ELS scan that must
+            // never run on the IMGUI draw path. ComputeELS is memoized (elsCache), so
+            // re-calling it after the H2/H3 delivery scan above adds no second ledger
+            // walk. Applicable / CostKnown are false outside Career + KSC origin, so
+            // the detail draw path then renders nothing.
+            leg.RunCost = ComputeRouteRunCost(route);
+
             return leg;
+        }
+
+        /// <summary>
+        /// Computes one route's per-run net funds cost
+        /// (<see cref="RouteRunCostCalculator.RouteRunCost"/>) for the legibility
+        /// cache. This is the one non-pure piece (it needs the live
+        /// <see cref="EffectiveState.ComputeELS"/> and the live Career probe), so it
+        /// stays in the window file and feeds the pure calculator + presentation
+        /// helpers; called only on the ~1 Hz refresh, never per IMGUI frame.
+        ///
+        /// <para>Career is probed with the same defensively-wrapped shape as
+        /// <see cref="LiveRouteRuntimeEnvironment.IsCareer"/>
+        /// (<c>HighLogic.CurrentGame.Mode == Game.Modes.CAREER</c>). ComputeELS is
+        /// wrapped in a try/catch (it can throw during early load before the scenario
+        /// module is published) and treated as no recoveries on failure, mirroring
+        /// <see cref="CollectRouteDeliverySummary"/>. The tree-member id set is
+        /// resolved once per route per refresh via
+        /// <see cref="RouteRunCostCalculator.ResolveTreeRecordingIds(Route)"/>.</para>
+        /// </summary>
+        private static RouteRunCostCalculator.RouteRunCost ComputeRouteRunCost(Route route)
+        {
+            bool isCareer;
+            try
+            {
+                isCareer = HighLogic.CurrentGame != null
+                    && HighLogic.CurrentGame.Mode == Game.Modes.CAREER;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("UI",
+                    $"Logistics run-cost: IsCareer probe threw {ex.GetType().Name}: {ex.Message}; defaulting false");
+                isCareer = false;
+            }
+
+            IReadOnlyList<GameAction> els;
+            try
+            {
+                els = EffectiveState.ComputeELS();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("UI",
+                    $"Logistics run-cost: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as no recoveries");
+                els = null;
+            }
+
+            HashSet<string> treeRecordingIds = RouteRunCostCalculator.ResolveTreeRecordingIds(route);
+            return RouteRunCostCalculator.Compute(route, isCareer, els, treeRecordingIds);
+        }
+
+        /// <summary>
+        /// Computes a CANDIDATE's per-run net funds cost (Phase 3.2 / 3.4): the
+        /// route-creation summary and the candidate row run before any
+        /// <see cref="Route"/> exists, so this derives the inputs from the
+        /// candidate's source recording + owning tree instead of a Route. KSC origin
+        /// is decided exactly as <c>RouteBuilder</c> decides it
+        /// (<c>LaunchSiteName</c> set AND <c>StartBodyName == "Kerbin"</c>). Career
+        /// and ELS are probed with the same defensive wrap + memoized
+        /// <see cref="EffectiveState.ComputeELS"/> as the route path. Returns a
+        /// not-applicable / unknown cost (which the UI then suppresses) when the
+        /// analysis or source recording is null. Called only off the IMGUI draw path
+        /// (dialog spawn + the ~1 Hz candidate cache), never per frame.
+        /// </summary>
+        internal static RouteRunCostCalculator.RouteRunCost ComputeCandidateRunCost(
+            RouteAnalysisResult analysis, RecordingTree tree)
+        {
+            Recording source = analysis?.SourceRecording;
+
+            bool isCareer;
+            try
+            {
+                isCareer = HighLogic.CurrentGame != null
+                    && HighLogic.CurrentGame.Mode == Game.Modes.CAREER;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("UI",
+                    $"Logistics candidate run-cost: IsCareer probe threw {ex.GetType().Name}: {ex.Message}; defaulting false");
+                isCareer = false;
+            }
+
+            // KSC origin: same predicate RouteBuilder applies when it sets
+            // Route.IsKscOrigin (LaunchSiteName set AND StartBodyName == "Kerbin").
+            bool isKscOrigin = source != null
+                && !string.IsNullOrEmpty(source.LaunchSiteName)
+                && string.Equals(source.StartBodyName, "Kerbin", System.StringComparison.Ordinal);
+
+            IReadOnlyList<GameAction> els;
+            try
+            {
+                els = EffectiveState.ComputeELS();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("UI",
+                    $"Logistics candidate run-cost: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as no recoveries");
+                els = null;
+            }
+
+            return RouteRunCostCalculator.ComputeForCandidate(
+                source, tree, isCareer, isKscOrigin, els,
+                LiveRouteRuntimeEnvironment.LookupPartCost,
+                LiveRouteRuntimeEnvironment.LookupResourceUnitCost);
         }
 
         /// <summary>

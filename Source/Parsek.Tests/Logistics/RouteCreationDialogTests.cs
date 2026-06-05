@@ -363,16 +363,16 @@ namespace Parsek.Tests.Logistics
         // -----------------------------------------------------------------
 
         [Fact]
-        public void Spawn_CareerMode_SummaryBlockMentionsDispatchCost()
+        public void Spawn_CareerKsc_SummaryBlockShowsRunCost()
         {
-            // catches: Spawn calling BuildSummaryBlock with a hardcoded
-            // SANDBOX (or no-arg) signature, which would drop the Career-only
-            // "Dispatch cost: TBD" line. The dialog needs the line in Career
-            // even though the cost is TBD — players notice when the line
-            // vanishes from a Career save. xUnit cannot drive
-            // HighLogic.CurrentGame.Mode, so we drive BuildSummaryBlock with
-            // the cached analysis the dialog computed during Spawn — same
-            // input the real wire path would feed in Career.
+            // catches: the run-cost block dropping out of the Career + KSC summary
+            // (the replacement for the old "Dispatch cost: TBD" placeholder). The
+            // dialog needs the per-run cost in Career so players see the recurring
+            // funds impact before confirming. xUnit cannot drive
+            // HighLogic.CurrentGame.Mode or the live ledger, so we drive
+            // BuildSummaryBlock with the cached analysis the dialog computed during
+            // Spawn plus an applicable RunCost (the same shape the real Career wire
+            // path feeds via LogisticsWindowUI.ComputeCandidateRunCost).
             RouteAnalysisResult capturedAnalysis = null;
             RouteCreationDialog.TestHookForConfirm = () =>
             {
@@ -386,19 +386,29 @@ namespace Parsek.Tests.Logistics
             RouteCreationDialog.TryShow(BuildEligibleTree(out _));
 
             Assert.NotNull(capturedAnalysis);
+            var runCost = new RouteRunCostCalculator.RouteRunCost
+            {
+                Applicable = true,
+                CostKnown = true,
+                LaunchCost = 12500.0,
+                RecoveredCredits = 7300.0,
+                NetCost = 5200.0,
+                RecoveryEventCount = 1
+            };
             string careerBody = RouteCreationFormatters.BuildSummaryBlock(
-                capturedAnalysis, Game.Modes.CAREER);
-            Assert.Contains("Dispatch cost", careerBody);
+                capturedAnalysis, Game.Modes.CAREER, null, runCost);
+            Assert.Contains("Cost per run: 5,200 funds", careerBody);
+            Assert.DoesNotContain("TBD", careerBody);
         }
 
         [Fact]
-        public void Spawn_SandboxMode_SummaryBlockOmitsDispatchCost()
+        public void Spawn_SandboxMode_SummaryBlockOmitsCost()
         {
-            // catches: Career-only conditional bleeding into Sandbox — would
-            // surface a "Dispatch cost: TBD" line in Sandbox saves and confuse
-            // players who never opted into a Career economy. xUnit context has
-            // HighLogic.CurrentGame == null, which exercises the SANDBOX
-            // fallback in Spawn — so this test pins the wire-path default.
+            // catches: a cost block bleeding into Sandbox (no funds). A
+            // not-applicable RunCost (the caller computes Applicable=false outside
+            // Career) must omit the block. xUnit context has
+            // HighLogic.CurrentGame == null, which exercises the SANDBOX fallback in
+            // Spawn; the wire path then supplies a not-applicable cost.
             RouteAnalysisResult capturedAnalysis = null;
             RouteCreationDialog.TestHookForConfirm = () =>
             {
@@ -412,9 +422,15 @@ namespace Parsek.Tests.Logistics
             RouteCreationDialog.TryShow(BuildEligibleTree(out _));
 
             Assert.NotNull(capturedAnalysis);
+            var runCost = new RouteRunCostCalculator.RouteRunCost
+            {
+                Applicable = false,
+                CostKnown = false
+            };
             string sandboxBody = RouteCreationFormatters.BuildSummaryBlock(
-                capturedAnalysis, Game.Modes.SANDBOX);
-            Assert.DoesNotContain("Dispatch cost", sandboxBody);
+                capturedAnalysis, Game.Modes.SANDBOX, null, runCost);
+            Assert.DoesNotContain("Cost per run", sandboxBody);
+            Assert.DoesNotContain("TBD", sandboxBody);
         }
 
         // -----------------------------------------------------------------

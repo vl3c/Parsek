@@ -402,7 +402,7 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void ResolveTreeRecordingIds_NullRoute_ReturnsEmpty()
         {
-            HashSet<string> ids = RouteRunCostCalculator.ResolveTreeRecordingIds(null);
+            HashSet<string> ids = RouteRunCostCalculator.ResolveTreeRecordingIds((Route)null);
 
             Assert.NotNull(ids);
             Assert.Empty(ids);
@@ -419,6 +419,186 @@ namespace Parsek.Tests.Logistics
 
             Assert.NotNull(ids);
             Assert.Empty(ids);
+        }
+
+        // ==================================================================
+        // Candidate path (no Route object): AssembleForCandidate,
+        // ResolveTreeRecordingIds(RecordingTree), ComputeForCandidate
+        // ==================================================================
+
+        private static RecordingTree MakeTree(string id, params string[] recordingIds)
+        {
+            var tree = new RecordingTree { Id = id };
+            for (int i = 0; i < recordingIds.Length; i++)
+                tree.Recordings[recordingIds[i]] = new Recording { RecordingId = recordingIds[i] };
+            return tree;
+        }
+
+        // catches: the tree-direct id resolver dropping members or NRE-ing on a
+        // populated tree (the candidate path reads tree.Recordings.Keys directly).
+        [Fact]
+        public void ResolveTreeRecordingIds_Tree_EnumeratesAllMembers()
+        {
+            RecordingTree tree = MakeTree("tree-1", "rec-a", "rec-b");
+
+            HashSet<string> ids = RouteRunCostCalculator.ResolveTreeRecordingIds(tree);
+
+            Assert.Equal(2, ids.Count);
+            Assert.Contains("rec-a", ids);
+            Assert.Contains("rec-b", ids);
+        }
+
+        // catches: an NRE on a null tree (a candidate with no owning tree).
+        [Fact]
+        public void ResolveTreeRecordingIds_Tree_Null_ReturnsEmpty()
+        {
+            HashSet<string> ids = RouteRunCostCalculator.ResolveTreeRecordingIds((RecordingTree)null);
+
+            Assert.NotNull(ids);
+            Assert.Empty(ids);
+        }
+
+        // catches: a candidate launch-only run not showing the full launch as net.
+        [Fact]
+        public void AssembleForCandidate_LaunchOnly_NetEqualsLaunch()
+        {
+            var els = new List<GameAction>();
+
+            var cost = RouteRunCostCalculator.AssembleForCandidate(
+                isCareer: true, isKscOrigin: true, launchCost: 12500.0, els,
+                TreeMembers("rec-a"));
+
+            Assert.True(cost.Applicable);
+            Assert.True(cost.CostKnown);
+            Assert.Equal(12500.0, cost.NetCost, 3);
+            Assert.Equal(0, cost.RecoveryEventCount);
+        }
+
+        // catches: the candidate net not subtracting recovered credits (and the
+        // G1 tree-scope: the recovery row is a tree member, not a route member,
+        // and there is no Route object here at all).
+        [Fact]
+        public void AssembleForCandidate_WithRecovery_NetEqualsLaunchMinusPayout()
+        {
+            var els = new List<GameAction> { MakeRecoveryRow("rec-flyhome", 7300f) };
+
+            var cost = RouteRunCostCalculator.AssembleForCandidate(
+                isCareer: true, isKscOrigin: true, launchCost: 12500.0, els,
+                TreeMembers("rec-dockchild", "rec-flyhome"));
+
+            Assert.Equal(7300.0, cost.RecoveredCredits, 3);
+            Assert.Equal(5200.0, cost.NetCost, 3);
+            Assert.Equal(1, cost.RecoveryEventCount);
+        }
+
+        // catches: a candidate cost showing outside Career.
+        [Fact]
+        public void AssembleForCandidate_NonCareer_NotApplicable()
+        {
+            var els = new List<GameAction> { MakeRecoveryRow("rec-a", 1000f) };
+
+            var cost = RouteRunCostCalculator.AssembleForCandidate(
+                isCareer: false, isKscOrigin: true, launchCost: 12500.0, els,
+                TreeMembers("rec-a"));
+
+            Assert.False(cost.Applicable);
+            Assert.False(cost.CostKnown);
+        }
+
+        // catches: a candidate cost showing for a non-KSC origin (deducts cargo,
+        // not funds).
+        [Fact]
+        public void AssembleForCandidate_NonKscOrigin_NotApplicable()
+        {
+            var els = new List<GameAction>();
+
+            var cost = RouteRunCostCalculator.AssembleForCandidate(
+                isCareer: true, isKscOrigin: false, launchCost: 12500.0, els,
+                TreeMembers("rec-a"));
+
+            Assert.False(cost.Applicable);
+            Assert.False(cost.CostKnown);
+        }
+
+        // The G7 candidate guard: an unhydrated snapshot makes launch 0, which
+        // must read as cost-unknown (the UI suppresses, no "0 funds").
+        [Fact]
+        public void AssembleForCandidate_LaunchZero_CostUnknown()
+        {
+            var els = new List<GameAction>();
+
+            var cost = RouteRunCostCalculator.AssembleForCandidate(
+                isCareer: true, isKscOrigin: true, launchCost: 0.0, els,
+                TreeMembers("rec-a"));
+
+            Assert.True(cost.Applicable);
+            Assert.False(cost.CostKnown);
+        }
+
+        // catches: the candidate net not flooring at 0 when recovered exceeds launch.
+        [Fact]
+        public void AssembleForCandidate_RecoveredExceedsLaunch_NetFloorsAtZero()
+        {
+            var els = new List<GameAction> { MakeRecoveryRow("rec-a", 20000f) };
+
+            var cost = RouteRunCostCalculator.AssembleForCandidate(
+                isCareer: true, isKscOrigin: true, launchCost: 12500.0, els,
+                TreeMembers("rec-a"));
+
+            Assert.Equal(0.0, cost.NetCost, 3);
+        }
+
+        // catches: ComputeForCandidate not walking the source snapshot for the
+        // launch cost (end-to-end: snapshot part-cost walk + tree recovery sum).
+        [Fact]
+        public void ComputeForCandidate_WalksSnapshot_AndSumsTreeRecovery()
+        {
+            // A two-part snapshot: pod (1000) + tank (500) + 200 LF * 0.8/u = 160.
+            // Launch = 1000 + 500 + 160 = 1660.
+            var snapshot = new ConfigNode("VESSEL");
+            ConfigNode pod = snapshot.AddNode("PART");
+            pod.AddValue("name", "pod");
+            ConfigNode tank = snapshot.AddNode("PART");
+            tank.AddValue("name", "tank");
+            ConfigNode res = tank.AddNode("RESOURCE");
+            res.AddValue("name", "LiquidFuel");
+            res.AddValue("amount", "200");
+
+            var source = new Recording { RecordingId = "rec-src", VesselSnapshot = snapshot };
+            RecordingTree tree = MakeTree("tree-1", "rec-src", "rec-flyhome");
+
+            var els = new List<GameAction> { MakeRecoveryRow("rec-flyhome", 1000f) };
+
+            float PartCost(string n) => n == "pod" ? 1000f : (n == "tank" ? 500f : 0f);
+            float ResCost(string n) => n == "LiquidFuel" ? 0.8f : 0f;
+
+            var cost = RouteRunCostCalculator.ComputeForCandidate(
+                source, tree, isCareer: true, isKscOrigin: true, els, PartCost, ResCost);
+
+            Assert.True(cost.Applicable);
+            Assert.True(cost.CostKnown);
+            Assert.Equal(1660.0, cost.LaunchCost, 3);
+            Assert.Equal(1000.0, cost.RecoveredCredits, 3);
+            Assert.Equal(660.0, cost.NetCost, 3);
+            Assert.Equal(1, cost.RecoveryEventCount);
+        }
+
+        // catches: ComputeForCandidate NRE-ing or mis-flagging on a null /
+        // unhydrated source snapshot (launch 0 -> cost unknown, G7).
+        [Fact]
+        public void ComputeForCandidate_NullSnapshot_CostUnknown()
+        {
+            var source = new Recording { RecordingId = "rec-src", VesselSnapshot = null };
+            RecordingTree tree = MakeTree("tree-1", "rec-src");
+            var els = new List<GameAction>();
+
+            var cost = RouteRunCostCalculator.ComputeForCandidate(
+                source, tree, isCareer: true, isKscOrigin: true, els,
+                n => 0f, n => 0f);
+
+            Assert.True(cost.Applicable);
+            Assert.False(cost.CostKnown);
+            Assert.Equal(0.0, cost.LaunchCost, 3);
         }
     }
 }
