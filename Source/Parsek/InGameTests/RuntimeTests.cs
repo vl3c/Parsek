@@ -9570,6 +9570,84 @@ namespace Parsek.InGameTests
                     + dist.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "m)");
             }
         }
+
+        /// <summary>
+        /// Phase 8b.0 extraction coverage (the Unity/Vectrosity-coupled draw
+        /// mechanics xUnit cannot reach). Exercises the extracted scene-agnostic
+        /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.TryDrawLeg"/>
+        /// with a LIVE CelestialBody + a real Vectrosity VectorLine, confirming the
+        /// extracted single-leg pipeline (lazy line inflate, scaled-space fill,
+        /// conic-anchor, Draw3D submit, frame stamp) runs end-to-end OUTSIDE the
+        /// Driver's per-frame walk: this is exactly the call shape a future
+        /// TracedPathTreatment (8b.1) uses to draw one leg. Builds one Absolute
+        /// ascent leg, calls TryDrawLeg directly, and asserts it reported drawn,
+        /// inflated + activated its own line, filled the scaled-space scratch, and
+        /// stamped the supplied draw frame.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "Extracted TryDrawLeg draws a single leg through a live VectorLine (Phase 8b.0)")]
+        public void GhostTrajectoryPolyline_TryDrawLeg_DrawsSingleLeg()
+        {
+            var rec = new Recording { RecordingId = "ingame-trydrawleg-1" };
+            var frames = new System.Collections.Generic.List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0, latitude = -0.1, longitude = -74.5, altitude = 70.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 200.0, latitude = -0.05, longitude = -74.5, altitude = 20000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 600.0, latitude = 0.0, longitude = -74.5, altitude = 100000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 600.0,
+                frames = frames,
+                checkpoints = new System.Collections.Generic.List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 10f,
+            });
+
+            var legs = Parsek.Display.GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+            InGameAssert.AreEqual(1, legs.Count, "expected one leg from one Absolute section");
+
+            CelestialBody kerbin = FlightGlobals.Bodies.Find(b => b.name == "Kerbin");
+            InGameAssert.IsTrue(kerbin != null, "Kerbin body must resolve");
+
+            var leg = legs[0];
+            int drawFrame = Time.frameCount;
+            bool drawn = Parsek.Display.GhostTrajectoryPolylineRenderer.TryDrawLeg(
+                ref leg, rec, kerbin, /*targetLayer*/ 31, drawFrame, rec.RecordingId, /*legIndex*/ 0);
+
+            try
+            {
+                InGameAssert.IsTrue(drawn, "TryDrawLeg must report the leg drawn for a 3-point leg");
+                InGameAssert.IsTrue(leg.vectorLine != null, "TryDrawLeg must lazily inflate the leg's VectorLine");
+                InGameAssert.IsTrue(leg.vectorLine.active, "the drawn leg's VectorLine must be active");
+                InGameAssert.AreEqual(drawFrame, leg.lastDrawnFrame, "TryDrawLeg must stamp the supplied draw frame");
+                InGameAssert.IsTrue(leg.vectorLine.drawEnd == leg.PointCount - 1,
+                    "drawEnd must be the leg's last point index");
+
+                // The scaled-space scratch must be populated (non-zero for a real
+                // surface point) and the VectorLine points3 must mirror it - the
+                // same fill the Driver produces inline.
+                bool anyNonZero = false;
+                for (int i = 0; i < leg.PointCount; i++)
+                    if (leg.scratchScaledSpace[i] != Vector3.zero) { anyNonZero = true; break; }
+                InGameAssert.IsTrue(anyNonZero, "TryDrawLeg must fill the scaled-space scratch buffer");
+                InGameAssert.IsTrue(leg.vectorLine.points3 != null
+                    && leg.vectorLine.points3.Count == leg.PointCount,
+                    "the inflated VectorLine must hold exactly the leg's points");
+            }
+            finally
+            {
+                // Clean up the Vectrosity GameObject this isolated test created
+                // (the cache never saw this leg, so the renderer will not destroy it).
+                var line = leg.vectorLine;
+                if (line != null)
+                    Vectrosity.VectorLine.Destroy(ref line);
+            }
+        }
     }
 
     /// <summary>
