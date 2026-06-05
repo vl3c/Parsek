@@ -1,4 +1,6 @@
 using System.Globalization;
+using Parsek.Display;
+using UnityEngine;
 
 namespace Parsek.MapRender
 {
@@ -9,13 +11,24 @@ namespace Parsek.MapRender
     /// <c>DriveUT</c> and cannot disagree - design §6.5 invariant 2 is STRUCTURALLY guaranteed here
     /// (unlike the managed StockConic surface KSP co-owns).
     ///
-    /// <para>Phase 5 scope: this is the follower shell. It follows the intent and emits the §13
-    /// traced-drive line, and it is the structural OWNER the cutover fills in. The actual transfer of
-    /// the polyline objects off the autonomous <c>GhostTrajectoryPolylineRenderer</c> +
-    /// <c>activeLegRecordings</c> / <c>IsRenderingNonOrbitalLeg</c> publish is the Phase-8b sub-phase
-    /// (retire those, the treatment owns the polyline) and the marker ownership is 8c; doing the draw
-    /// here now would double-draw against the still-live autonomous renderer. So this stays a follower
-    /// until those surfaces are flipped.</para>
+    /// <para>Phase 8b.1 scope: the treatment now OWNS the non-orbital polyline leg draw for a
+    /// director-owned ghost. It does NOT spin up a parallel host: the existing autonomous
+    /// <c>GhostTrajectoryPolylineRenderer.Driver.LateUpdate</c> stays the single draw host (the locked
+    /// design - drawing from the Update-time shadow would strobe / mis-layer against the stock orbit
+    /// lines). When the Director decides <c>Visible &amp;&amp; TracedPath</c> for a pid this frame (the pid
+    /// stamped fresh in <see cref="ShadowRenderDriver.tracedPathByPid"/>, surfaced via
+    /// <see cref="ShadowRenderDriver.IsDirectorTracedPathActive"/>), the Driver routes that ONE leg's
+    /// draw through <see cref="TryDrawOwnedLeg"/> here (the same shared <c>TryDrawLeg</c> conic-anchor)
+    /// and STANDS DOWN on its own direct <c>TryDrawLeg</c> call for that leg, so the leg is never drawn
+    /// twice. Every other recording, and all recordings when the gate is off or there is no fresh
+    /// TracedPath intent, keep drawing through the Driver's direct path - byte-identical to today.</para>
+    ///
+    /// <para>What 8b.1 does NOT touch (deferred): the ownership SIGNAL repoint. The Driver still
+    /// publishes <c>activeLegRecordings</c> / <c>IsRenderingNonOrbitalLeg</c> for a director-owned pid it
+    /// stands down on (it still walks the leg, resolves the body, head-UT-gates, and sets
+    /// <c>anyDrawn</c>), so <c>IsPolylineOwningGhostPhase</c> stays correct and the proto orbit line is
+    /// still hidden + the marker still rides the drawn line. Repointing that signal to the Director is
+    /// Phase 8b.2; the marker ownership is 8c.</para>
     /// </summary>
     internal sealed class TracedPathTreatment : IGhostRenderTreatment
     {
@@ -26,14 +39,57 @@ namespace Parsek.MapRender
         internal static bool ShouldApply(GhostRenderIntent intent)
             => intent.Visible && intent.Treatment == Treatment.TracedPath;
 
+        /// <summary>
+        /// PURE no-double-draw decision (8b.1): should the OWNED treatment draw this ghost's
+        /// non-orbital leg this frame (and the autonomous Driver stand down on its own
+        /// <c>TryDrawLeg</c> for the same leg)? True exactly when the Director's active segment for the
+        /// pid is a fresh TracedPath this frame (<paramref name="directorTracedPathActive"/> =
+        /// <see cref="ShadowRenderDriver.IsDirectorTracedPathActive"/>). The treatment's "draw" and the
+        /// Driver's "stand down" are the SAME boolean, so they can never both draw the leg on any frame
+        /// (the single shared predicate is also the one the icon-drive / orbit-line patches read to
+        /// suppress the stock proto, so the proto and the treatment never co-draw either). Unit-testable
+        /// without Unity (the predicate result is passed in).
+        /// </summary>
+        internal static bool ShouldOwnLeg(bool directorTracedPathActive)
+            => directorTracedPathActive;
+
+        /// <summary>
+        /// OWNED single-leg draw (8b.1): draws one non-orbital leg through the SAME shared per-leg
+        /// mechanics the autonomous Driver uses (<see cref="GhostTrajectoryPolylineRenderer.TryDrawLeg"/>
+        /// - the conic-anchor seam math, the scaled-space build, the VectorLine inflate/fill/Draw3D, the
+        /// frame stamp), so the bytes drawn are identical to the Driver-direct path: 8b.1 is a routing
+        /// flip, not a pixel change (make-before-break). Mutates <paramref name="leg"/> in place exactly
+        /// as the Driver's direct call does; the caller writes the struct back into its cached array.
+        /// Returns the Driver's <c>anyDrawn</c> signal for the leg. The §13 traced-drive line is emitted
+        /// alongside so the cutover is observable in the log.
+        /// </summary>
+        internal static bool TryDrawOwnedLeg(
+            ref GhostTrajectoryPolylineRenderer.LegPolyline leg, Recording rec, CelestialBody body,
+            int targetLayer, int drawFrame, string recordingId, int legIndex, uint pid)
+        {
+            bool drawn = GhostTrajectoryPolylineRenderer.TryDrawLeg(
+                ref leg, rec, body, targetLayer, drawFrame, recordingId, legIndex);
+
+            // §13 traced-drive line (design §13): the treatment owns this leg this frame. Rate-limited
+            // per pid so a steady non-orbital phase does not spam. Reuses the recorded leg span as the
+            // drive window (the treatment reads the recorded points by UT window).
+            ParsekLog.VerboseRateLimited("MapRender", "tracedpath-own-" + pid.ToString(CultureInfo.InvariantCulture),
+                string.Format(CultureInfo.InvariantCulture,
+                    "TracedPath OWNS leg pid={0} rec={1} leg{2}=[{3:F1},{4:F1}] body={5} drawn={6} frame={7}",
+                    pid, recordingId ?? "?", legIndex, leg.startUT, leg.endUT, body != null ? body.name : "?",
+                    drawn, drawFrame),
+                2.0);
+            return drawn;
+        }
+
         public void Apply(GhostRenderIntent intent, IGhostMapScene scene, uint pid)
         {
             if (!ShouldApply(intent))
                 return;
 
-            // Follower (pre-8b): the autonomous polyline renderer still draws the path and the marker
-            // path still draws the icon for this recording's non-orbital leg; the treatment records its
-            // intent to own them at the DriveUT so the 8b/8c flip is a swap, not a discovery.
+            // The actual owned draw is routed through TryDrawOwnedLeg from the Driver's LateUpdate (the
+            // single draw host - see the class summary). This Apply records the treatment's intent for
+            // the per-pid §13 trace; it does not double-draw (the Driver, not Apply, calls TryDrawLeg).
             ParsekLog.VerboseRateLimited("MapRender", "tracedpath-drive-" + pid.ToString(CultureInfo.InvariantCulture),
                 string.Format(CultureInfo.InvariantCulture,
                     "TracedPath drive pid={0} driveUT={1:F3} body={2}",
@@ -41,7 +97,10 @@ namespace Parsek.MapRender
                 2.0);
         }
 
-        // Pre-8b the autonomous renderer owns hide/show; the treatment does not force the polyline off.
+        // The autonomous Driver owns hide/show via its per-frame deactivation sweep (a leg not drawn
+        // this frame is deactivated). The treatment shares that mechanism (it draws via the same cached
+        // leg + VectorLine), so a director-owned leg that stops being active is hidden by the same sweep;
+        // there is nothing separate for the treatment to tear down here.
         public void StandDown(IGhostMapScene scene, uint pid)
         {
         }
