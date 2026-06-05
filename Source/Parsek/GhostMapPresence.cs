@@ -1003,6 +1003,60 @@ namespace Parsek
         }
 
         /// <summary>
+        /// PURE marker-draw / proto-icon-suppression decision (Phase 8c). True when the Parsek
+        /// non-proto trajectory marker MUST draw for a ghost pid this frame because the stock proto
+        /// icon is hidden; false when the stock proto icon is the visible indicator (skip our marker).
+        /// This is the dual of "proto icon hidden", so it preserves the no-double-marker / no-gap
+        /// invariant: exactly one of {proto icon, our marker} draws per ghost per frame.
+        ///
+        /// <para>Gate OFF -> the legacy predicate ONLY (<paramref name="iconSuppressedLegacy"/> ||
+        /// <paramref name="polylineOwning"/>), byte-identical to the pre-8c marker-skip paths. The
+        /// Director DECISION input is never consulted.</para>
+        ///
+        /// <para>Gate ON -> the Director is the AUTHORITATIVE source: proto suppressed when the
+        /// Director's TracedPath DECISION owns the leg (<paramref name="directorTracedPathActive"/>,
+        /// repointing the context-(a) icon-suppression that previously rode <c>ghostsWithSuppressedIcon</c>)
+        /// OR the polyline actually owns the phase (<paramref name="polylineOwning"/>, already
+        /// Director-sourced via 8b.2's actual-draw set) OR the legacy <paramref name="iconSuppressedLegacy"/>
+        /// is set. The legacy disjunct is KEPT as the fallback so the Director-no-bounds transient
+        /// (context (b)), below-atmosphere, and off-arc clamp - none of which the Director owns yet -
+        /// still draw the marker; it is retired only as the AUTHORITATIVE source for the director-owned
+        /// (TracedPath) leg, not deleted (that is Phase 8e).</para>
+        ///
+        /// <para>No marker gap (gate ON): the decision is a SUPERSET of the legacy decision (it adds the
+        /// <paramref name="directorTracedPathActive"/> disjunct), so it can never be false on a frame the
+        /// proto icon is hidden. No double marker: whenever <paramref name="directorTracedPathActive"/> is
+        /// true the orbit-line Postfix's first branch has set the proto <c>drawIcons=NONE</c>, so the proto
+        /// icon is not also drawn.</para>
+        /// </summary>
+        internal static bool ResolveMarkerDrawDecision(
+            bool directorDriveGateOn,
+            bool directorTracedPathActive,
+            bool polylineOwning,
+            bool iconSuppressedLegacy)
+            => directorDriveGateOn
+                ? (directorTracedPathActive || polylineOwning || iconSuppressedLegacy)
+                : (iconSuppressedLegacy || polylineOwning);
+
+        /// <summary>
+        /// Unity-coupled wrapper over <see cref="ResolveMarkerDrawDecision"/> (Phase 8c): resolves the
+        /// director-drive gate + the three per-pid signals and returns whether the Parsek non-proto
+        /// marker must draw for <paramref name="ghostPid"/> this frame (proto icon hidden). Both marker
+        /// call sites (<c>ParsekUI.DrawMapMarkers</c> flight-map, <c>ParsekTrackingStation
+        /// .ClassifyAtmosphericMarkerSkip</c> TS) route through this single source so they cannot diverge.
+        /// </summary>
+        internal static bool ShouldDrawNonProtoMarkerForGhost(uint ghostPid)
+        {
+            bool gateOn = ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive;
+            return ResolveMarkerDrawDecision(
+                gateOn,
+                Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(
+                    ghostPid, UnityEngine.Time.frameCount),
+                IsPolylineOwningGhostPhase(ghostPid),
+                IsIconSuppressed(ghostPid));
+        }
+
+        /// <summary>
         /// Phase 7 of Rewind-to-Staging (design §3.3): shared helper — is the
         /// recording at this index in the active session's SessionSuppressedSubtree?
         /// Returns false when no session is active or the index is out of range.

@@ -240,6 +240,35 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     s15 "Duna One" looped re-aim + a non-looped Mun mission through landing with `mapRenderDirectorDrive` on,
     watching the TracedPath<->StockConic seam: no orbit-line blink, no icon teleport, and crucially NO
     invisible gap (proto must never be hidden with nothing drawn).
+- **Phase 8c - Marker / proto-icon-suppression decision (DONE - this branch, NEEDS IN-GAME).** Made the
+  Director/treatment the AUTHORITATIVE source of the MARKER-draw + proto-ICON-suppression decision for the
+  two marker call sites, behind the gate; kept the legacy `ghostsWithSuppressedIcon` / `IsIconSuppressed` /
+  `ClassifyAtmosphericMarkerSkip` as the gate-OFF fallback (NOT deleted - that is 8e). **Fork resolved:**
+  both `ParsekUI.DrawMapMarkers` and `ParsekTrackingStation.ClassifyAtmosphericMarkerSkip` previously
+  decided "draw our non-proto marker" from `IsIconSuppressed(pid) || IsPolylineOwningGhostPhase(pid)`. The
+  `IsPolylineOwningGhostPhase` half is ALREADY Director-sourced (8b.2 actual-draw set). The `IsIconSuppressed`
+  half is written in two distinct contexts: **(a)** the Director TracedPath DECISION suppress
+  (`GhostOrbitLinePatch.cs:132/556` on `IsDirectorTracedPathActive`) and **(b)** the no-bounds legacy
+  transient (`:172/882` on `IsDirectorTracking`) plus the legacy below-atmosphere / off-arc clamp. 8c repoints
+  the marker decision for context (a) onto the Director-sourced `IsDirectorTracedPathActive` directly, and
+  KEEPS the legacy `IsIconSuppressed` disjunct as the fallback for context (b) + below-atmosphere + off-arc
+  (none of which the Director owns yet). Mechanism: a single pure `GhostMapPresence.ResolveMarkerDrawDecision`
+  (gate ON -> `directorTracedPathActive || polylineOwning || iconSuppressedLegacy`; gate OFF ->
+  `iconSuppressedLegacy || polylineOwning`, byte-identical) + the Unity wrapper
+  `ShouldDrawNonProtoMarkerForGhost` both call sites route through. **No marker gap:** the gate-ON decision
+  is a SUPERSET of the legacy decision (adds only the `directorTracedPathActive` disjunct), so it is never
+  FALSE on a frame the proto is hidden; whenever `IsDirectorTracedPathActive` is true the line Postfix's
+  first branch (`:552`) has set `drawIcons=NONE` + added to `ghostsWithSuppressedIcon`, so the proto icon is
+  not co-drawn (no double marker). **Marker rides the line** unchanged: `TryAnchorMarkerToPolyline` still
+  anchors the marker to the drawn polyline when a leg drew this frame, falling back to the trajectory head
+  otherwise (visible). The decision-based proto-LINE suppression in `GhostOrbitLinePatch.cs:130/552` is the
+  line-level hide MECHANISM and is untouched (its retirement is 8e). Tests: pure `ResolveMarkerDrawDecision`
+  (`MarkerDrawDecisionTests`, 6, incl. the exhaustive superset/no-gap proof); in-game
+  `MarkerDrawDecision_DispatchesOnLiveGate_NoGap` (RuntimeTests, GhostMap, TRACKSTATION) covers the live-gate
+  dispatch + fallback + no-double-marker. Build clean; full suite green (13408); GrepAudit OK. **In-game gate
+  to run:** s15 "Duna One" looped re-aim + a non-looped Mun mission through landing with
+  `mapRenderDirectorDrive` on: marker present and riding the line on owned legs, no double marker, no blank
+  frame at the TracedPath<->StockConic seam; toggle the gate OFF -> byte-identical to the legacy marker paths.
 - **Phase 8** per-surface cutover (8a-8e) - deletes the scattered gates; in-game per sub-phase.
 - **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3
   `TransferConic` frame-agnostic return - touch the in-game-validated re-aim path.

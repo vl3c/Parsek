@@ -9787,6 +9787,77 @@ namespace Parsek.InGameTests
                     ParsekSettings.Current.mapRenderDirectorDrive = priorGate.Value;
             }
         }
+
+        /// <summary>
+        /// Phase 8c marker-draw / proto-icon-suppression decision, end-to-end through the LIVE gate
+        /// (<see cref="ParsekSettings.Current"/>) that xUnit cannot read. Asserts the Unity-coupled
+        /// wrapper <see cref="GhostMapPresence.ShouldDrawNonProtoMarkerForGhost"/> - the SINGLE source
+        /// both marker call sites (flight-map <c>DrawMapMarkers</c> + TS <c>ClassifyAtmosphericMarkerSkip</c>)
+        /// route through - dispatches correctly: the legacy icon-suppressed flag is the fallback under the
+        /// gate AND the byte-identical gate-off source, and polyline-owns (8b.2 actual-draw) drives the
+        /// marker under the gate. Drives the two directly-controllable signals (the
+        /// <c>ghostsWithSuppressedIcon</c> set and the polyline-owns publish + pid map); the third input
+        /// (the Director TracedPath DECISION) is covered by the pure <c>ResolveMarkerDrawDecision</c> xUnit
+        /// tests. The no-double-marker / no-gap invariant is asserted: marker drawn IFF a signal hides the
+        /// proto icon.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "ShouldDrawNonProtoMarkerForGhost dispatches on the live gate, no-gap (Phase 8c)")]
+        public void MarkerDrawDecision_DispatchesOnLiveGate_NoGap()
+        {
+            const uint pidSuppressed = 8_030_001u;   // legacy ghostsWithSuppressedIcon only
+            const uint pidPolyline = 8_030_002u;      // polyline-owns only
+            const uint pidVisible = 8_030_003u;       // no signal -> proto icon visible
+            const string recPolyline = "ingame-8c-polyline-owns";
+
+            bool? priorGate = ParsekSettings.Current != null
+                ? (bool?)ParsekSettings.Current.mapRenderDirectorDrive : null;
+            try
+            {
+                // pidSuppressed: legacy below-atmosphere / off-arc clamp signal (the fallback the phase
+                // KEEPS). pidPolyline: a recording whose polyline owns the phase (8b.2 actual-draw set),
+                // mapped to its pid so IsPolylineOwningGhostPhase resolves. pidVisible: nothing set.
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pidSuppressed);
+                GhostMapPresence.TrackRecordingGhostIdentityForTesting(pidPolyline, 0, recPolyline);
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                    recPolyline, inDirectorOwnedSet: true, inLegacySet: true);
+
+                // --- Gate ON ---
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.mapRenderDirectorDrive = true;
+                InGameAssert.IsTrue(
+                    GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidSuppressed),
+                    "gate ON: legacy icon-suppressed is the kept fallback -> draw our marker (no gap)");
+                InGameAssert.IsTrue(
+                    GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidPolyline),
+                    "gate ON: polyline-owns (8b.2 actual-draw) -> draw our marker");
+                InGameAssert.IsFalse(
+                    GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidVisible),
+                    "gate ON: no signal -> proto icon visible, skip our marker (no double marker)");
+
+                // --- Gate OFF (byte-identical to the legacy IsIconSuppressed || IsPolylineOwning) ---
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.mapRenderDirectorDrive = false;
+                InGameAssert.IsTrue(
+                    GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidSuppressed),
+                    "gate OFF: legacy icon-suppressed still draws our marker");
+                InGameAssert.IsTrue(
+                    GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidPolyline),
+                    "gate OFF: polyline-owns still draws our marker (legacy set is consulted gate-off)");
+                InGameAssert.IsFalse(
+                    GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidVisible),
+                    "gate OFF: no signal -> skip our marker");
+            }
+            finally
+            {
+                GhostMapPresence.ghostsWithSuppressedIcon.Remove(pidSuppressed);
+                GhostMapPresence.TrackRecordingGhostIdentityForTesting(pidPolyline, 0, null);
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                    recPolyline, inDirectorOwnedSet: false, inLegacySet: false);
+                if (ParsekSettings.Current != null && priorGate.HasValue)
+                    ParsekSettings.Current.mapRenderDirectorDrive = priorGate.Value;
+            }
+        }
     }
 
     /// <summary>
