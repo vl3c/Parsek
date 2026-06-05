@@ -288,10 +288,19 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     because `SetPresenceDriver` runs unconditionally at init before any frame; no director gate added.
     The `CheckPendingMapVessels` body + the 6 dictionaries are UNTOUCHED (that is 8d.1). Source-gate test
     `MapPresenceSeamTests` (4) locks the host off the direct call. Build clean; full suite green (13412).
-  - **8d.1 (next, single PR) - relocate the body.** Move `CheckPendingMapVessels` + the 6 dictionaries
-    into `GhostMapPresence.UpdateFlightMapGhostLifecycle`, gate ON -> migrated body, gate OFF -> legacy
-    in-policy body (verbatim fallback, deleted in 8e). Riskiest slice; multiple in-game validation cycles
-    (looped re-aim "Duna One" + a non-looped Mun mission through landing).
+  - **8d.1 (next, single PR) - relocate the body (PURE MOVE, no gate).** Move `CheckPendingMapVessels`
+    + the 6 dictionaries (+ `terminalMapRetentionLoggedIds` + `nextMapOrbitUpdateTime` + the
+    `PendingMapVessel` struct) into `GhostMapPresence.UpdateFlightMapGhostLifecycle(currentUT,
+    loopUnits)`; the seam ALWAYS calls it, `CheckPendingMapVessels` deleted from the policy. **Decision
+    (2026-06-05):** the body is a thin orchestrator over `GhostMapPresence.*` statics (every proto/KSP
+    mutation already routes through them; only engine read is `CurrentLoopUnits`; the 6 dicts are touched
+    ONLY in `ParsekPlaybackPolicy.cs`), so the relocation is a FAITHFUL COPY with no logic change; a gate
+    would toggle two identical paths and duplicate ~655 lines, so 8d.1 is a no-behavior-change move (like
+    8d.0 / 8b.0). `loopUnits` MUST be `engine.CurrentLoopUnits` (NOT the scene's cached `LoopUnits`,
+    a different source). The 6 dicts become `internal static` on `GhostMapPresence` (the still-in-policy
+    enqueue tail + teardowns reach them directly until 8d.2 moves them). Riskiest slice (655-line cut),
+    so it ships on a HARD clean-context review + green tests; maintainer playtests the merged build
+    (Duna One looped re-aim + a non-looped Mun mission through landing) as the standard post-merge check.
   - **8d.2** - enqueue + scene-change teardown ownership (gated, legacy fallback).
   - **8d.3** - decompose into named sub-passes + pure-extract predicates with unit tests.
 - **Phase 8** per-surface cutover (8a-8e) - deletes the scattered gates; in-game per sub-phase.

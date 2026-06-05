@@ -9997,5 +9997,887 @@ namespace Parsek
                     typeStr));
             return VesselType.Ship;
         }
+
+        // ===================================================================================
+        // Flight-scene map-presence lifecycle (Phase 8d.1 relocation from ParsekPlaybackPolicy).
+        // FAITHFUL MOVE — the body, struct, dicts, scalars, and dict-touching helpers below were
+        // copied VERBATIM from ParsekPlaybackPolicy.CheckPendingMapVessels and its helpers. The
+        // only edits are: (a) engine.CurrentLoopUnits -> the loopUnits parameter, and (b) the
+        // internal-static ShouldRunMapOrbitReseed / TryResolveTerminalFallbackMapOrbitUpdate /
+        // ShouldRetainMapPresenceForTerminalRealSpawn helpers (left in ParsekPlaybackPolicy per the
+        // plan) are now qualified with ParsekPlaybackPolicy. — those helpers' bodies are unchanged.
+        // The fields use a flight* prefix to mirror the trackingStation* twin naming. They are
+        // internal (not private) because the still-in-policy enqueue tail + teardowns reach them
+        // until Phase 8d.2 relocates those too.
+        // ===================================================================================
+
+        /// <summary>
+        /// Recording indices eligible for ghost map ProtoVessels but deferred until
+        /// the ghost enters an orbital segment. Avoids showing orbit lines during
+        /// atmospheric ascent when the ghost mesh is still on the pad.
+        /// </summary>
+        internal struct PendingMapVessel
+        {
+            internal IPlaybackTrajectory Trajectory;
+            internal bool AllowSoiGapStateVectorFallback;
+            internal string ExpectedSoiGapBody;
+
+            internal PendingMapVessel(
+                IPlaybackTrajectory trajectory,
+                bool allowSoiGapStateVectorFallback,
+                string expectedSoiGapBody)
+            {
+                Trajectory = trajectory;
+                AllowSoiGapStateVectorFallback = allowSoiGapStateVectorFallback;
+                ExpectedSoiGapBody = expectedSoiGapBody;
+            }
+        }
+
+        internal static readonly Dictionary<int, PendingMapVessel> flightPendingMapVessels =
+            new Dictionary<int, PendingMapVessel>();
+
+        internal static readonly Dictionary<int, string> flightSoiGapStateVectorExpectedBodies =
+            new Dictionary<int, string>();
+
+        /// <summary>
+        /// Tracks the last orbit segment body+SMA per recording index for change detection.
+        /// Used to update the ghost ProtoVessel orbit as the ghost traverses segments.
+        /// </summary>
+        private const float MapOrbitUpdateIntervalSec = 0.5f;
+        private static float nextMapOrbitUpdateTime;
+
+        internal static readonly Dictionary<int, (string body, double sma, double ecc)> flightLastMapOrbitByIndex =
+            new Dictionary<int, (string body, double sma, double ecc)>();
+
+        internal static readonly HashSet<string> flightTerminalMapRetentionLoggedIds =
+            new HashSet<string>();
+
+        /// <summary>
+        /// Per-chain dedup: maps chainId → recording index that currently owns the ghost map vessel.
+        /// When a new chain segment creates a ghost map vessel, the previous segment's is removed.
+        /// Prevents duplicate orbit lines during fast time warp across chain boundaries.
+        /// </summary>
+        internal static readonly Dictionary<string, int> flightChainMapOwner = new Dictionary<string, int>();
+
+        /// <summary>
+        /// State-vector orbit tracking: recording indices with physics-only suborbital
+        /// orbit lines (no orbit segments). Maps index → trajectory for re-defer.
+        /// </summary>
+        internal static readonly Dictionary<int, IPlaybackTrajectory> flightStateVectorOrbitTrajectories =
+            new Dictionary<int, IPlaybackTrajectory>();
+
+        /// <summary>
+        /// Per-recording cached waypoint indices for InterpolateAtUT calls (avoids
+        /// O(n) scan on every 0.5s orbit update).
+        /// </summary>
+        internal static readonly Dictionary<int, int> flightStateVectorCachedIndices =
+            new Dictionary<int, int>();
+
+        /// <summary>
+        /// Bulk-clear all flight-scene map-presence collections + reset the reseed timer.
+        /// Faithfully reproduces the exact set of clears that ParsekPlaybackPolicy's
+        /// HandleAllGhostsDestroying + Dispose performed for these collections (Phase 8d.1).
+        /// </summary>
+        internal static void ClearFlightMapPresenceState()
+        {
+            flightPendingMapVessels.Clear();
+            flightLastMapOrbitByIndex.Clear();
+            flightChainMapOwner.Clear();
+            flightStateVectorOrbitTrajectories.Clear();
+            flightSoiGapStateVectorExpectedBodies.Clear();
+            flightStateVectorCachedIndices.Clear();
+            flightTerminalMapRetentionLoggedIds.Clear();
+            nextMapOrbitUpdateTime = 0f;
+        }
+
+        /// <summary>
+        /// Resolve the Mission-loop sample UT for a flight-scene map ghost and the matching
+        /// live-frame epoch shift. Thin wrapper over
+        /// <see cref="GhostPlaybackLogic.ResolveTrackingStationSampleUT"/> (the same seam the
+        /// Tracking Station and KSC map drivers use): returns the loop-mapped <c>effUT</c> for a
+        /// looping member (and <paramref name="renderHidden"/>=true when it is outside its loop
+        /// window this cycle), or the unchanged <paramref name="currentUT"/> with shift 0 for a
+        /// non-member / when no Mission loops. <paramref name="loopEpochShiftSeconds"/> is
+        /// <c>currentUT - effUT</c>: the amount the seeded orbit epoch + stored arc bounds must be
+        /// pushed forward so the icon, drawn at the live clock, lands on the replayed position.
+        /// </summary>
+        internal static double ResolveMapPresenceSampleUT(
+            int idx, double memberStartUT, double memberEndUT, double currentUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
+            out bool renderHidden, out double loopEpochShiftSeconds)
+        {
+            double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                idx, memberStartUT, memberEndUT, currentUT, loopUnits, out renderHidden);
+            loopEpochShiftSeconds = currentUT - effUT;
+            return effUT;
+        }
+
+        /// <summary>
+        /// Per-frame check for ghost map ProtoVessels. Handles three responsibilities:
+        /// 1. Creates deferred ProtoVessels when ghosts enter their first orbital segment
+        /// 2. Creates state-vector orbit ProtoVessels for physics-only suborbital recordings
+        /// 3. Updates existing ProtoVessel orbits (segment-based and state-vector-based)
+        /// </summary>
+        internal static void UpdateFlightMapGhostLifecycle(
+            double currentUT, GhostPlaybackLogic.LoopUnitSet loopUnits)
+        {
+            // Mission-loop span clock: the same per-frame LoopUnitSet the flight engine drives the
+            // ghost MESHES with (engine.CurrentLoopUnits). The Tracking Station and KSC map drivers
+            // already remap the live UT through this clock; this is the flight-scene equivalent so
+            // a looped Mission's map orbit lines + icons sample the recording at the loop-mapped
+            // effUT instead of the raw live UT (which is far outside a looped member's recorded UT
+            // range). Empty (the common case) makes every ResolveMapPresenceSampleUT below return
+            // the unchanged live UT with shift 0, so non-looping behavior is byte-identical.
+
+            // 1. Create deferred ProtoVessels for ghosts that just entered an orbital segment
+            //    OR for physics-only recordings that crossed the state-vector threshold.
+            if (flightPendingMapVessels.Count > 0)
+            {
+                List<(int idx, TrackingStationGhostSource source, OrbitSegment segment, TrajectoryPoint point, string expectedBody, double effUT)> toCreate = null;
+
+                foreach (var kvp in flightPendingMapVessels)
+                {
+                    int idx = kvp.Key;
+                    PendingMapVessel pending = kvp.Value;
+                    IPlaybackTrajectory traj = pending.Trajectory;
+
+                    // Loop-mapped sample UT for this member (effUT == currentUT off the loop path).
+                    // renderHidden => this member is outside its loop window this cycle: skip the
+                    // create, exactly like the Tracking Station create pass skips it.
+                    double effUT = ResolveMapPresenceSampleUT(
+                        idx, traj.StartUT, traj.EndUT, currentUT, loopUnits,
+                        out bool renderHidden, out double pendingLoopShift);
+                    if (renderHidden)
+                        continue;
+
+                    // A non-zero loop epoch shift means this is a Mission-loop member replaying
+                    // inside its window this cycle (effUT != live currentUT). Two consequences:
+                    //  - it unlocks the no-segment terminal-orbit synthesis (plan section 1.4); and
+                    //  - it lets the map ghost draw even when the recording already materialized a
+                    //    persisted real terminal vessel (loopMemberInWindow). Without the latter, a
+                    //    looped leg whose mission left a real craft parked at its terminal (e.g. the
+                    //    Mun-return leg) gets no trajectory following the ghost, because the static
+                    //    real vessel claims the materialization. Both flags default false off the loop
+                    //    path, so neither the terminal-orbit synthesis nor the materialization bypass
+                    //    affects non-loop members. (The EndpointTail entry in the acceptance check below
+                    //    is a SEPARATE, intentional consistency fix -- it materializes a non-loop
+                    //    member that resolves to EndpointTail, which the create path previously left
+                    //    pending -- and is NOT gated by these flags.)
+                    bool isLoopMemberInWindow = pendingLoopShift != 0.0;
+                    bool acceptTerminalOrbitForLoopSynthesis =
+                        isLoopMemberInWindow
+                        && GhostMapPresence.IsTerminalOrbitSynthesisSafeForLoopMember(traj);
+                    if (acceptTerminalOrbitForLoopSynthesis)
+                    {
+                        ParsekLog.VerboseRateLimited("Policy",
+                            string.Format(CultureInfo.InvariantCulture,
+                                "pending-map-accept-terminal-{0}", idx),
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Pending map-create accepting terminal-orbit synthesis for loop member " +
+                                "rec=#{0} vessel=\"{1}\" pendingLoopShift={2:F1}",
+                                idx,
+                                traj.VesselName ?? "(null)",
+                                pendingLoopShift),
+                            5.0);
+                    }
+
+                    int cachedStateVectorIndex = flightStateVectorCachedIndices.TryGetValue(idx, out int cached)
+                        ? cached
+                        : -1;
+                    TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                        traj,
+                        false,
+                        IsMaterializedForMapPresence(traj),
+                        effUT,
+                        true,
+                        "map-presence-pending-create",
+                        ref cachedStateVectorIndex,
+                        out OrbitSegment segment,
+                        out TrajectoryPoint point,
+                        out _,
+                        recordingIndex: idx,
+                        allowSoiGapStateVectorFallback: pending.AllowSoiGapStateVectorFallback,
+                        expectedSoiGapBody: pending.ExpectedSoiGapBody,
+                        acceptTerminalOrbitForLoopSynthesis: acceptTerminalOrbitForLoopSynthesis,
+                        loopMemberInWindow: isLoopMemberInWindow);
+                    flightStateVectorCachedIndices[idx] = cachedStateVectorIndex;
+
+                    // Re-aim: swap the recorded covering segment for the re-aimed one at create time so
+                    // the orbit line is aimed at the target's CURRENT position from the first frame the
+                    // ghost re-enters its window. A re-aim owner in a TRIM GAP (between a recorded
+                    // body-relative leg and the trimmed interplanetary transfer) has no covering re-aimed
+                    // segment: skip the create entirely (keep the member pending / hidden) rather than
+                    // fall back to a recorded sub-segment, which re-created the ghost at a random orbit
+                    // position every frame while the refresh removed it (the SOI-boundary icon flicker).
+                    if (source == TrackingStationGhostSource.Segment
+                        && !GhostMapPresence.TryResolveReaimedCoveringSegment(
+                            idx, traj.RecordingId, traj.OrbitSegments, currentUT, effUT, loopUnits,
+                            segment, out segment))
+                        continue;
+
+                    if (source == TrackingStationGhostSource.Segment
+                        || GhostMapPresence.IsStateVectorGhostSource(source)
+                        || source == TrackingStationGhostSource.TerminalOrbit
+                        || source == TrackingStationGhostSource.EndpointTail)
+                    {
+                        if (toCreate == null)
+                            toCreate = new List<(int, TrackingStationGhostSource, OrbitSegment, TrajectoryPoint, string, double)>();
+                        toCreate.Add((idx, source, segment, point, pending.ExpectedSoiGapBody, effUT));
+                    }
+                }
+
+                if (toCreate != null)
+                {
+                    for (int i = 0; i < toCreate.Count; i++)
+                    {
+                        int idx = toCreate[i].idx;
+                        if (flightPendingMapVessels.TryGetValue(idx, out var pending))
+                        {
+                            IPlaybackTrajectory traj = pending.Trajectory;
+                            // Per-chain dedup before deferred creation
+                            RemovePreviousChainMapVessel(idx);
+                            // Create at the loop-mapped effUT so the source/segment/point match the
+                            // looped phase (effUT == currentUT off the loop path). Pass the live-frame
+                            // epoch shift through so the orbit + body-frame cache are shifted at
+                            // create-time too. Without this the body-frame cache holds raw recorded
+                            // UTs on the first frame, and the orbit-line patch sees currentUT past
+                            // those bounds and blanks the line until the next rate-limited update
+                            // pass refreshes it (up to ~0.5s in flight, ~2s in TS) -- visible as a
+                            // brief orbit-line blackout at first appearance and at every window
+                            // re-entry.
+                            double pendingLoopEpochShift = currentUT - toCreate[i].effUT;
+                            Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
+                                idx,
+                                traj,
+                                toCreate[i].source,
+                                toCreate[i].segment,
+                                toCreate[i].point,
+                                toCreate[i].effUT,
+                                out bool retryLater,
+                                loopEpochShiftSeconds: pendingLoopEpochShift);
+                            // PR #574 review P2 (retry-later semantics): keep
+                            // the pending entry alive when the active-Re-Fly
+                            // suppression gate fires — otherwise a parent
+                            // recording mid-flight in a Relative-anchored
+                            // section would be permanently dropped from the
+                            // pending-map queue and never re-attempt after
+                            // the Re-Fly session ends.
+                            if (retryLater && ghost == null)
+                            {
+                                ParsekLog.Verbose("Policy", string.Format(CultureInfo.InvariantCulture,
+                                    "CheckPendingMapVessels: kept pending entry for #{0} \"{1}\" — " +
+                                    "map ghost creation requested retryLater, will retry next tick",
+                                    idx, traj.VesselName ?? "(null)"));
+                                continue;
+                            }
+                            flightPendingMapVessels.Remove(idx);
+
+                            if (ghost != null)
+                            {
+                                if (GhostMapPresence.IsStateVectorGhostSource(toCreate[i].source))
+                                {
+                                    flightStateVectorOrbitTrajectories[idx] = traj;
+                                    if (toCreate[i].source == TrackingStationGhostSource.StateVectorSoiGap)
+                                        flightSoiGapStateVectorExpectedBodies[idx] = toCreate[i].expectedBody;
+                                    else
+                                        flightSoiGapStateVectorExpectedBodies.Remove(idx);
+                                    ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
+                                        "Created state-vector ghost map vessel for #{0} \"{1}\" — alt={2:F0} speed={3:F1} source={4}",
+                                        idx, traj.VesselName,
+                                        toCreate[i].point.altitude,
+                                        toCreate[i].point.velocity.magnitude,
+                                        toCreate[i].source == TrackingStationGhostSource.StateVectorSoiGap
+                                            ? "soi-gap-state-vector"
+                                            : "state-vector"));
+                                }
+                                else if (TryGetMapOrbitKey(toCreate[i].source, toCreate[i].segment, out var orbitKey))
+                                {
+                                    flightSoiGapStateVectorExpectedBodies.Remove(idx);
+                                    flightLastMapOrbitByIndex[idx] = orbitKey;
+
+                                    ParsekLog.Info("Policy",
+                                        $"Created deferred ghost map vessel for #{idx} \"{traj.VesselName}\" " +
+                                        $"— source={toCreate[i].source} body={orbitKey.body} sma={orbitKey.sma:F0}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Map-orbit reseed for existing ProtoVessels. Rate-limited to the real-time timer, BUT
+            // warp-aware: under time warp the playback head sprints through short segments (e.g. the many
+            // short Duna-capture conics) faster than the 0.5 s timer reseeds, so the applied orbit goes
+            // stale and GhostOrbitLinePatch's stale-segment guard blanks the line every frame (the ~1-min
+            // warped-approach blink). Also reseed the moment a ghost's head leaves its applied segment so
+            // the orbit stays current and the stale-segment guard (which still suppresses the genuine
+            // pre-burn arc on a propulsive->orbital handoff) stops firing on reseed lag alone. The head-left
+            // scan is computed only while warping + before the timer (so 1x is byte-identical + cost-free).
+            bool mapReseedTimerElapsed = UnityEngine.Time.time >= nextMapOrbitUpdateTime;
+            bool mapReseedHeadLeftSegment = !mapReseedTimerElapsed
+                && TimeWarp.CurrentRate > 1.0f
+                && GhostMapPresence.AnyGhostHeadLeftAppliedSegment(currentUT);
+            if (!ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(mapReseedTimerElapsed, TimeWarp.CurrentRate, mapReseedHeadLeftSegment))
+                return;
+            nextMapOrbitUpdateTime = UnityEngine.Time.time + MapOrbitUpdateIntervalSec;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return;
+            PruneTerminalMapRetentionLogKeys(committed);
+
+            // 2a. Segment-based orbit updates (existing)
+            List<KeyValuePair<int, (string body, double sma, double ecc)>> orbitUpdates = null;
+            List<int> toRemoveFromMap = null;
+            List<(int idx, string expectedBody)> toRequeue = null;
+
+            foreach (var kvp in flightLastMapOrbitByIndex)
+            {
+                int idx = kvp.Key;
+                if (idx < 0 || idx >= committed.Count) continue;
+
+                var rec = committed[idx];
+                if (!rec.HasOrbitSegments) continue;
+
+                // Loop-mapped sample UT + live-frame epoch shift (effUT == currentUT, shift 0 off
+                // the loop path). renderHidden => the member left its loop window this cycle: tear
+                // the orbit ghost down, mirroring the Tracking Station refresh pass.
+                double effUT = ResolveMapPresenceSampleUT(
+                    idx, rec.StartUT, rec.EndUT, currentUT, loopUnits,
+                    out bool renderHidden, out double loopEpochShiftSeconds);
+                if (renderHidden)
+                {
+                    GhostMapPresence.RemoveGhostVesselForRecording(idx, "mission-loop-out-of-window");
+                    if (toRemoveFromMap == null) toRemoveFromMap = new List<int>();
+                    toRemoveFromMap.Add(idx);
+                    // Re-queue to pendingMapVessels so the create pass re-materializes the orbit
+                    // ghost when the span clock sweeps back into this member's window next cycle.
+                    // Unlike the Tracking Station (which scans all committed indices every frame),
+                    // the flight driver only creates from the pending queue, and the ProtoVessel
+                    // was just removed, so 2a alone could never bring it back.
+                    if (toRequeue == null) toRequeue = new List<(int, string)>();
+                    toRequeue.Add((idx, null));
+                    continue;
+                }
+
+                // Re-aim: for a re-aim loop owner, the flight map orbit line must follow the per-window
+                // RE-AIMED transfer (aimed at the target's CURRENT position), not the recorded geometry
+                // (which points at the target's RECORDED position - the "wrong place in the target's
+                // orbit" the playtest showed). Resolved ONCE here from the LIVE currentUT (same window
+                // the flight engine + tracking station use) and threaded through every effUT-based read
+                // below; reference-identical to rec.OrbitSegments for every non-re-aim member.
+                List<OrbitSegment> effectiveSegments = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                    idx, rec.RecordingId, rec.OrbitSegments, currentUT, loopUnits);
+
+                // Same-body carry: while the playback head is inside a body frame, briefly
+                // dropping the ghost between two non-orbit-equivalent segments (e.g., capture
+                // burn between two Mun orbits) would tear down and recreate the ProtoVessel,
+                // producing the visible flicker the user reported near Mun SOI. We only want
+                // to drop the ghost when the body actually changes (SOI / frame change) or
+                // when the recording is truly past its last segment. Body-frame carry keeps
+                // the previous segment's orbit active until UT enters the next segment.
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT);
+
+                // Gap-points glide: FindOrbitSegmentOrSameBodyCarry keeps seg.HasValue true across a
+                // same-body inter-segment gap by carrying the PREVIOUS segment forward. That is correct
+                // for an equivalent-orbit gap (capture burn between two same Mun orbits) but wrong for a
+                // real orbit RAISE (parking -> higher loiter, sma 671928 -> 731230 across a ~205s arc):
+                // the stale parking orbit freezes the icon, then it teleports ~1318 km onto the loiter
+                // orbit when UT enters the next segment. The recorder captured that raise as body-fixed
+                // Absolute trajectory POINTS, so route the icon onto those points and glide it across the
+                // gap. Gated to the NON-orbit-equivalent gap so the equivalent-orbit carry stays untouched.
+                bool driveGapFromPoints =
+                    seg.HasValue
+                    && GhostMapPresence.ShouldDriveGapFromPoints(effectiveSegments, rec, effUT);
+
+                // Flight-map companion to the TS covering-segment log: same MapTraj on-change diagnostic so the
+                // SOI-exit blink / orbit-line GAP / body flip-flop is visible on the flight path too. When a
+                // segment covers effUT the icon follows that OrbitSegment (source=Segment); when none does and
+                // a terminal state-vector fallback is cached for this member, the icon is driven by that
+                // fallback (resolved in the !seg.HasValue branch below), so report source=StateVector. The
+                // gap-points glide above also drives the icon from the state-vector point path, so report
+                // source=StateVector for it too. The membership check is stable frame-to-frame (it does not
+                // flip-flop) and mirrors the TS path's trackingStationStateVectorOrbitTrajectories check.
+                bool flightIsStateVector =
+                    driveGapFromPoints
+                    || (!seg.HasValue && flightStateVectorCachedIndices.ContainsKey(idx));
+                GhostMapPresence.LogMapCoveringSegmentChange("FLIGHT", idx, effUT, seg, seg.HasValue && !driveGapFromPoints,
+                    flightIsStateVector,
+                    effectiveSegments != null ? effectiveSegments.Count : 0);
+
+                // Gap-points glide branch: drive the existing (Segment-created) ghost from the recorded
+                // body-fixed point at effUT via the same state-vector positioner the SOI-gap fallback uses.
+                // UpdateGhostOrbitFromStateVectors clears the stale segment-drive dicts (bounds / loop-shift /
+                // epoch-shift) so GhostOrbitIconDrivePatch defers to stock at live UT instead of clamping the
+                // icon past-window on the parking orbit. continue skips the segment-apply tail below.
+                if (driveGapFromPoints)
+                {
+                    int gapCachedIndex = flightStateVectorCachedIndices.TryGetValue(idx, out int gapCached)
+                        ? gapCached
+                        : -1;
+                    TrajectoryPoint? gapPoint = TrajectoryMath.BracketPointAtUT(rec.Points, effUT, ref gapCachedIndex);
+                    flightStateVectorCachedIndices[idx] = gapCachedIndex;
+                    if (gapPoint.HasValue)
+                    {
+                        // UpdateGhostOrbitFromStateVectors returns true ONLY in the active-re-fly
+                        // suppression case; false on the normal success path. The flight scene removes the
+                        // ghost via its own re-fly suppression machinery (MarkStateVectorGhostDeferredForActiveReFly
+                        // runs inside the call), so we just record the result for the log here.
+                        bool reFlySuppressed = GhostMapPresence.UpdateGhostOrbitFromStateVectors(
+                            idx, rec, gapPoint.Value, effUT,
+                            stateVectorUpdateReason: "orbit-raise-gap-points",
+                            loopEpochShiftSeconds: loopEpochShiftSeconds);
+                        ParsekLog.VerboseRateLimited("Policy",
+                            "flight-gap-points-glide-" + idx,
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Flight gap-points glide: member={0} effUT={1:F1} body={2} alt={3:F0} reFlySuppressed={4} " +
+                                "(orbit-raise gap, icon glides recorded ascent instead of segment carry)",
+                                idx, effUT, gapPoint.Value.bodyName ?? "(null)", gapPoint.Value.altitude, reFlySuppressed),
+                            2.0);
+                        // The ghost is now state-vector-driven; record a sentinel orbit key (sma/ecc 0)
+                        // via the deferred orbitUpdates list (we cannot mutate lastMapOrbitByIndex during
+                        // its own enumeration) so the next in-segment frame sees a differing key and
+                        // re-applies a fresh covering orbit instead of skip-unchanged.
+                        if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
+                        orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(
+                            idx, (gapPoint.Value.bodyName, 0.0, 0.0)));
+                        continue;
+                    }
+                    // No bracketing point (effUT precedes first / past last recorded point): fall through
+                    // to the unchanged carry/segment-apply path. Never force a single stale point.
+                    ParsekLog.VerboseRateLimited("Policy",
+                        "flight-gap-points-nobracket-" + idx,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Flight gap-points glide skipped (no bracketing point): member={0} effUT={1:F1} " +
+                            "(falling through to same-body segment carry)",
+                            idx, effUT),
+                        5.0);
+                }
+
+                // No map-visible orbit at current UT — either we've truly left orbital
+                // playback, or the next segment is in a different SOI/body.
+                if (!seg.HasValue)
+                {
+                    int cachedStateVectorIndex = flightStateVectorCachedIndices.TryGetValue(idx, out int cached)
+                        ? cached
+                        : -1;
+                    if (ParsekPlaybackPolicy.TryResolveTerminalFallbackMapOrbitUpdate(
+                        rec,
+                        idx,
+                        effUT,
+                        loopEpochShiftSeconds,
+                        kvp.Value,
+                        IsMaterializedForMapPresence(rec),
+                        ref cachedStateVectorIndex,
+                        out OrbitSegment fallbackSegment,
+                        out var fallbackKey,
+                        out bool fallbackChanged))
+                    {
+                        flightStateVectorCachedIndices[idx] = cachedStateVectorIndex;
+                        if (fallbackChanged)
+                        {
+                            GhostMapPresence.UpdateGhostOrbitForRecording(
+                                idx, fallbackSegment,
+                                loopEpochShiftSeconds: loopEpochShiftSeconds);
+                            if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
+                            orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(idx, fallbackKey));
+                        }
+                        continue;
+                    }
+                    flightStateVectorCachedIndices[idx] = cachedStateVectorIndex;
+
+                    bool hasFutureSegment = false;
+                    string futureSegmentBody = null;
+                    var segs = effectiveSegments;
+                    for (int s = 0; s < segs.Count; s++)
+                    {
+                        if (segs[s].startUT > effUT)
+                        {
+                            hasFutureSegment = true;
+                            futureSegmentBody = segs[s].bodyName;
+                            break;
+                        }
+                    }
+
+                    if (ParsekPlaybackPolicy.ShouldRetainMapPresenceForTerminalRealSpawn(rec, hasFutureSegment))
+                    {
+                        string retentionKey = rec.RecordingId ?? idx.ToString(CultureInfo.InvariantCulture);
+                        string reason = rec.TerminalSpawnCannotSpawnSafely
+                            ? rec.TerminalSpawnSafetyReasonCode ?? "cannot-spawn-safely"
+                            : rec.TerminalSpawnSafetyDeferred
+                                ? rec.TerminalSpawnSafetyReasonCode ?? "deferred"
+                                : "pending-terminal-real-spawn";
+                        string message = string.Format(CultureInfo.InvariantCulture,
+                            "Map presence retained because terminal real spawn is pending/deferred: " +
+                            "rec={0} idx={1} vessel=\"{2}\" currentUT={3:F2} reason={4}",
+                            rec.RecordingId ?? "(null)",
+                            idx,
+                            rec.VesselName ?? "(null)",
+                            currentUT,
+                            reason);
+                        if (flightTerminalMapRetentionLoggedIds.Add(retentionKey))
+                            ParsekLog.Info("Policy", message);
+                        else
+                            ParsekLog.VerboseRateLimited(
+                                "Policy",
+                                "terminal-map-retained-" + retentionKey,
+                                message);
+                        continue;
+                    }
+
+                    GhostMapPresence.RemoveGhostVesselForRecording(idx,
+                        hasFutureSegment ? "gap-between-orbit-segments" : "left-orbit-segments");
+
+                    if (hasFutureSegment)
+                    {
+                        // Re-add to pending so the next segment creates a new ProtoVessel
+                        if (toRequeue == null) toRequeue = new List<(int, string)>();
+                        toRequeue.Add((idx, futureSegmentBody));
+                    }
+
+                    if (toRemoveFromMap == null) toRemoveFromMap = new List<int>();
+                    toRemoveFromMap.Add(idx);
+                    continue;
+                }
+
+                // Skip re-applying an unchanged orbit — EXCEPT for loop members, whose stored key
+                // (body/sma/ecc) does not capture the per-cycle epoch + bounds shift, so a cycle
+                // wrap onto the same-shape segment would otherwise leave a stale shift and mis-clip
+                // the arc. Loop members re-apply every tick (cheap; the shift is constant within a
+                // cycle so this is idempotent until the wrap).
+                if (loopEpochShiftSeconds == 0.0
+                    && seg.Value.bodyName == kvp.Value.body
+                    && seg.Value.semiMajorAxis == kvp.Value.sma
+                    && seg.Value.eccentricity == kvp.Value.ecc)
+                    continue;
+
+                GhostMapPresence.UpdateGhostOrbitForRecording(
+                    idx, seg.Value,
+                    loopEpochShiftSeconds: loopEpochShiftSeconds,
+                    effectiveOrbitSegments: effectiveSegments);
+                if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
+                orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(
+                    idx, (seg.Value.bodyName, seg.Value.semiMajorAxis, seg.Value.eccentricity)));
+            }
+
+            if (orbitUpdates != null)
+            {
+                for (int i = 0; i < orbitUpdates.Count; i++)
+                    flightLastMapOrbitByIndex[orbitUpdates[i].Key] = orbitUpdates[i].Value;
+            }
+            if (toRemoveFromMap != null)
+            {
+                for (int i = 0; i < toRemoveFromMap.Count; i++)
+                    flightLastMapOrbitByIndex.Remove(toRemoveFromMap[i]);
+            }
+            if (toRequeue != null)
+            {
+                for (int i = 0; i < toRequeue.Count; i++)
+                {
+                    int idx = toRequeue[i].idx;
+                    if (!flightPendingMapVessels.ContainsKey(idx) && idx < committed.Count)
+                    {
+                        var traj = committed[idx] as IPlaybackTrajectory;
+                        if (traj != null)
+                        {
+                            flightPendingMapVessels[idx] = new PendingMapVessel(
+                                traj,
+                                allowSoiGapStateVectorFallback: true,
+                                expectedSoiGapBody: toRequeue[i].expectedBody);
+                            ParsekLog.Verbose("MapPresence",
+                                $"Re-queued recording #{idx} to pendingMapVessels (gap between orbit segments expectedBody={toRequeue[i].expectedBody ?? "(none)"})");
+                        }
+                    }
+                }
+            }
+
+            // 2b. State-vector orbit updates (new — physics-only suborbital)
+            if (flightStateVectorOrbitTrajectories.Count > 0)
+            {
+                List<int> toReDefer = null;
+                List<int> toExitStateVector = null;
+                List<KeyValuePair<int, (string body, double sma, double ecc)>> stateVectorSegmentUpdates = null;
+
+                foreach (var kvp in flightStateVectorOrbitTrajectories)
+                {
+                    int idx = kvp.Key;
+                    IPlaybackTrajectory traj = kvp.Value;
+
+                    if (!flightStateVectorCachedIndices.ContainsKey(idx))
+                        flightStateVectorCachedIndices[idx] = -1;
+                    int cached = flightStateVectorCachedIndices[idx];
+
+                    // Loop-mapped sample UT + live-frame epoch shift (effUT == currentUT, shift 0
+                    // off the loop path). renderHidden => the member is outside its loop window
+                    // this cycle: tear the ghost down and re-defer so the create pass re-materializes
+                    // it when the span clock sweeps back into its window.
+                    double effUT = ResolveMapPresenceSampleUT(
+                        idx, traj.StartUT, traj.EndUT, currentUT, loopUnits,
+                        out bool renderHidden, out double loopEpochShiftSeconds);
+                    if (renderHidden)
+                    {
+                        GhostMapPresence.RemoveGhostVesselForRecording(idx, "mission-loop-out-of-window");
+                        if (toReDefer == null) toReDefer = new List<int>();
+                        toReDefer.Add(idx);
+                        continue;
+                    }
+
+                    if (flightSoiGapStateVectorExpectedBodies.TryGetValue(idx, out string expectedSoiGapBody))
+                    {
+                        // Loop-aware caller (state-vector orbit update pass): plan section 1.4.
+                        bool acceptTerminalOrbitForLoopSynthesis =
+                            loopEpochShiftSeconds != 0.0
+                            && GhostMapPresence.IsTerminalOrbitSynthesisSafeForLoopMember(traj);
+                        TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                            traj,
+                            false,
+                            IsMaterializedForMapPresence(traj),
+                            effUT,
+                            true,
+                            "map-presence-soi-gap-state-vector-update",
+                            ref cached,
+                            out OrbitSegment segment,
+                            out TrajectoryPoint soiGapPoint,
+                            out _,
+                            recordingIndex: idx,
+                            allowSoiGapStateVectorFallback: true,
+                            expectedSoiGapBody: expectedSoiGapBody,
+                            acceptTerminalOrbitForLoopSynthesis: acceptTerminalOrbitForLoopSynthesis,
+                            // Keep updating a loop member's ghost alongside any persisted real
+                            // terminal vessel (mirrors the create-path bypass).
+                            loopMemberInWindow: loopEpochShiftSeconds != 0.0);
+                        flightStateVectorCachedIndices[idx] = cached;
+
+                        if (source == TrackingStationGhostSource.StateVectorSoiGap)
+                        {
+                            if (GhostMapPresence.UpdateGhostOrbitFromStateVectors(
+                                idx,
+                                traj,
+                                soiGapPoint,
+                                effUT,
+                                allowOrbitalCheckpointStateVector: true,
+                                stateVectorUpdateReason: "soi-gap-state-vector-fallback",
+                                loopEpochShiftSeconds: loopEpochShiftSeconds))
+                            {
+                                GhostMapPresence.RemoveGhostVesselForRecording(
+                                    idx,
+                                    GhostMapPresence.TrackingStationGhostSkipActiveReFlyRelativeUpdate);
+                                if (toReDefer == null) toReDefer = new List<int>();
+                                toReDefer.Add(idx);
+                            }
+                            continue;
+                        }
+
+                        if (source == TrackingStationGhostSource.Segment
+                            || source == TrackingStationGhostSource.TerminalOrbit
+                            || source == TrackingStationGhostSource.EndpointTail)
+                        {
+                            // EndpointTail populates a valid `segment` out-param exactly
+                            // like TerminalOrbit (the loop-synthesis no-segment fallback),
+                            // so consume it here too; otherwise a terminal-region loop
+                            // member resolving to EndpointTail would fall through to the
+                            // flat BracketPointAtUT path below. Matches the pending-create
+                            // (line ~1387) and orbit-update (line ~1922) callers.
+                            GhostMapPresence.UpdateGhostOrbitForRecording(
+                                idx, segment,
+                                loopEpochShiftSeconds: loopEpochShiftSeconds);
+                            if (TryGetMapOrbitKey(source, segment, out var segmentKey))
+                            {
+                                if (stateVectorSegmentUpdates == null)
+                                    stateVectorSegmentUpdates = new List<KeyValuePair<int, (string, double, double)>>();
+                                stateVectorSegmentUpdates.Add(new KeyValuePair<int, (string, double, double)>(idx, segmentKey));
+                            }
+
+                            if (toExitStateVector == null) toExitStateVector = new List<int>();
+                            toExitStateVector.Add(idx);
+                            continue;
+                        }
+                    }
+
+                    TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, effUT, ref cached);
+                    flightStateVectorCachedIndices[idx] = cached;
+
+                    if (!pt.HasValue) continue;
+
+                    // Relative-frame points reuse `TrajectoryPoint.altitude` as the
+                    // anchor-local dz offset (metres along the anchor's local z axis),
+                    // not as geographic altitude. Feeding the dz into the
+                    // `ShouldRemoveStateVectorOrbit` altitude threshold trips the
+                    // remove path on every typical rendezvous frame (dz ~ 0) and
+                    // re-defers the ghost — but pending-create currently skips
+                    // Relative frames, so the ghost disappears through the section
+                    // rather than staying attached to the anchor (#547 P1 review).
+                    // Skip the threshold check entirely for Relative-frame points;
+                    // `UpdateGhostOrbitFromStateVectors` already dispatches on
+                    // `referenceFrame` and resolves the world position via
+                    // anchor + offset for that branch.
+                    bool inRelativeFrame = GhostMapPresence.IsInRelativeFrame(traj, effUT);
+                    if (!inRelativeFrame)
+                    {
+                        double atmosRemove = GhostMapPresence.GetAtmosphereDepth(pt.Value.bodyName);
+                        if (GhostMapPresence.ShouldRemoveStateVectorOrbit(pt.Value.altitude, pt.Value.velocity.magnitude, atmosRemove))
+                        {
+                            GhostMapPresence.RemoveGhostVesselForRecording(idx, "below-state-vector-threshold");
+                            if (toReDefer == null) toReDefer = new List<int>();
+                            toReDefer.Add(idx);
+                            ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
+                                "Removed state-vector ghost map vessel for #{0} — alt={1:F0} speed={2:F1} below threshold",
+                                idx, pt.Value.altitude, pt.Value.velocity.magnitude));
+                            continue;
+                        }
+                    }
+
+                    if (GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, traj, pt.Value, effUT,
+                        loopEpochShiftSeconds: loopEpochShiftSeconds))
+                    {
+                        GhostMapPresence.RemoveGhostVesselForRecording(
+                            idx,
+                            GhostMapPresence.TrackingStationGhostSkipActiveReFlyRelativeUpdate);
+                        if (toReDefer == null) toReDefer = new List<int>();
+                        toReDefer.Add(idx);
+                    }
+                }
+
+                if (toReDefer != null)
+                {
+                    for (int i = 0; i < toReDefer.Count; i++)
+                    {
+                        int idx = toReDefer[i];
+                        if (flightStateVectorOrbitTrajectories.TryGetValue(idx, out var traj))
+                            flightPendingMapVessels[idx] = new PendingMapVessel(
+                                traj,
+                                allowSoiGapStateVectorFallback: false,
+                                expectedSoiGapBody: null);
+                        flightStateVectorOrbitTrajectories.Remove(idx);
+                        flightSoiGapStateVectorExpectedBodies.Remove(idx);
+                        // stateVectorCachedIndices[idx] intentionally kept — avoids
+                        // O(n) re-scan if the ghost re-ascends above threshold.
+                    }
+                }
+
+                if (stateVectorSegmentUpdates != null)
+                {
+                    for (int i = 0; i < stateVectorSegmentUpdates.Count; i++)
+                        flightLastMapOrbitByIndex[stateVectorSegmentUpdates[i].Key] = stateVectorSegmentUpdates[i].Value;
+                }
+
+                if (toExitStateVector != null)
+                {
+                    for (int i = 0; i < toExitStateVector.Count; i++)
+                    {
+                        int idx = toExitStateVector[i];
+                        flightStateVectorOrbitTrajectories.Remove(idx);
+                        flightSoiGapStateVectorExpectedBodies.Remove(idx);
+                    }
+                }
+            }
+
+            GhostMapPresence.EmitLifecycleSummary("flight-map-presence", currentUT);
+        }
+
+        private static void PruneTerminalMapRetentionLogKeys(IReadOnlyList<Recording> committed)
+        {
+            if (flightTerminalMapRetentionLoggedIds.Count == 0)
+                return;
+
+            if (committed == null || committed.Count == 0)
+            {
+                flightTerminalMapRetentionLoggedIds.Clear();
+                return;
+            }
+
+            List<string> staleKeys = null;
+            foreach (string key in flightTerminalMapRetentionLoggedIds)
+            {
+                bool found = false;
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var rec = committed[i];
+                    if (rec == null)
+                        continue;
+
+                    if (string.Equals(rec.RecordingId, key, StringComparison.Ordinal)
+                        || (string.IsNullOrEmpty(rec.RecordingId)
+                            && key == i.ToString(CultureInfo.InvariantCulture)))
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    if (staleKeys == null) staleKeys = new List<string>();
+                    staleKeys.Add(key);
+                }
+            }
+
+            if (staleKeys == null)
+                return;
+
+            for (int i = 0; i < staleKeys.Count; i++)
+                flightTerminalMapRetentionLoggedIds.Remove(staleKeys[i]);
+        }
+
+        internal static bool TryGetMapOrbitKey(
+            TrackingStationGhostSource source,
+            OrbitSegment segment,
+            out (string body, double sma, double ecc) orbitKey)
+        {
+            if (source == TrackingStationGhostSource.Segment
+                || source == TrackingStationGhostSource.TerminalOrbit)
+            {
+                orbitKey = (segment.bodyName, segment.semiMajorAxis, segment.eccentricity);
+                return true;
+            }
+
+            orbitKey = default((string, double, double));
+            return false;
+        }
+
+        internal static bool IsMaterializedForMapPresence(IPlaybackTrajectory traj)
+        {
+            var rec = traj as Recording;
+            if (rec == null)
+                return false;
+
+            bool realVesselExists = false;
+            if (rec.VesselPersistentId != 0)
+            {
+                try
+                {
+                    realVesselExists = FlightRecorder.FindVesselByPid(rec.VesselPersistentId) != null;
+                }
+                catch (Exception)
+                {
+                    realVesselExists = false;
+                }
+            }
+
+            return GhostMapPresence.IsTrackingStationRecordingMaterialized(rec, realVesselExists);
+        }
+
+        /// <summary>
+        /// If the recording at the given index belongs to a chain and another segment
+        /// from the same chain currently owns a ghost map vessel, remove the old one.
+        /// Updates chainMapOwner to track the new owner.
+        /// </summary>
+        internal static void RemovePreviousChainMapVessel(int newIndex)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || newIndex < 0 || newIndex >= committed.Count) return;
+
+            string chainId = committed[newIndex].ChainId;
+            if (string.IsNullOrEmpty(chainId)) return;
+
+            if (flightChainMapOwner.TryGetValue(chainId, out int oldIndex) && oldIndex != newIndex)
+            {
+                GhostMapPresence.RemoveGhostVesselForRecording(oldIndex, "chain-segment-replaced");
+                flightLastMapOrbitByIndex.Remove(oldIndex);
+                ParsekLog.Verbose("Policy",
+                    $"Chain dedup: removed ghost map for #{oldIndex} (replaced by #{newIndex} in chain {chainId})");
+            }
+
+            flightChainMapOwner[chainId] = newIndex;
+        }
     }
 }
