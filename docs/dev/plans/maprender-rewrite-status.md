@@ -157,8 +157,8 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
   TracedPath is a follower shell until 8b (the autonomous polyline still draws). STILL DEFERRED in
   Phase 5: the floating-origin frame + camera-focus draw-side, the §13 seam / moon-config logs, and
   resolving §15.1 (proto re-seed latency) in-game before the swap execution.
-- **Phase 8a - REAL CUTOVER WIRED, default-OFF gated (NEEDS IN-GAME VALIDATION).** Setting
-  `ParsekSettings.mapRenderDirectorDrive` (Settings, EXPERIMENTAL, default false). When on, the new
+- **Phase 8a - VALIDATED IN-GAME 2026-06-05, DEFAULT-ON.** Setting
+  `ParsekSettings.mapRenderDirectorDrive` (Settings, default TRUE as of 2026-06-05; toggle off restores legacy). When on, the new
   pipeline OWNS the StockConic icon: `GhostOrbitIconDrivePatch` calls
   `StockConicTreatment.SeedAndDriveLive(orbit, seg, body, shift, liveDriveUT)` - it bakes the loop shift
   into the orbit EPOCH and propagates at the LIVE clock, the only clock KSP actually resolves a packed
@@ -170,16 +170,21 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
   a NO-OP (the elements were already correct; the icon was off because of the CLOCK, not the elements) -
   superseded. The shadow stores the per-pid seed (`ShadowRenderDriver` `seedByPid` +
   `TryGetFreshStockConicSeed`, +/-2 frame freshness); `ShadowRenderDriver.Enabled` makes the shadow run
-  when tracing OR this gate is on. Default off = zero behaviour change; the legacy effUT drive runs when
-  off / no fresh seed. **To validate:** turn on `mapRenderDirectorDrive` (+ `mapRenderTracing` to read the
-  metric) on the s15 looped re-aim mission, expect `angleIconVsOrbitEff -> ~0` (was ~96.5) and the icon
-  visually on its line. KNOWN LIMITS until validated: only same-body StockConic ghosts are seeded
+  when tracing OR this gate is on. Toggle off restores the legacy effUT drive; the legacy drive also still
+  runs per-frame wherever there is no fresh seed. **VALIDATED 2026-06-05** (s15 "Duna One",
+  `mapRenderDirectorDrive` + `mapRenderTracing` on): `angleIconVsOrbitEff` collapses to ~1-3 deg (min 1.02)
+  on director-driven frames vs the ~96.5 deg baseline, icon visually on its line. COVERAGE GAP (cutover
+  Step 2, the prerequisite to 8e legacy deletion): 83/242 sampled director decisions in the validation log
+  fell back to legacy (no fresh seed), clustering the residual >45 deg anomalies on the deliberately-skipped
+  re-aim/overlap members + the hyperbolic-escape ecc>=1 segment; default-on stays safe because those frames
+  are byte-identical to the legacy path. KNOWN LIMITS: only same-body StockConic ghosts are seeded
   (re-aim/overlap skipped); a fresh seed whose body name does not resolve (degenerate, never for a real
   recording) falls to the legacy path - the icon-drive + arc-clip + probe share ONE predicate
   (`ShadowRenderDriver.IsDirectorDriveActive` = gate AND fresh seed AND body resolves) so they never split
   on it; toggling the gate OFF mid-flight may briefly (~0.5s, until the next dispatcher reseed re-snaps the
-  raw epoch) show a stale orbit (self-healing, manual-toggle-only). Risk hotspot - wants a clean-context
-  review before the gate flips default-on / the legacy path is deleted (8a finalization).
+  raw epoch) show a stale orbit (self-healing, manual-toggle-only). The default-on flip (8a finalization)
+  landed on `maprender-cutover` after this in-game validation; the legacy path DELETION stays gated on
+  closing the coverage gap above (cutover Step 2) and is the separate Phase 8e.
   In-game test: `DirectorDriveEpochBakePlacesIconOnRecordedPhase` (RuntimeTests, GhostMap, FLIGHT).
 - **Phase 7a - DONE (TS shadow parity).** `MapRender/TrackingStationScene.cs` (scene gate = TRACKSTATION)
   over the new shared `GhostMapSceneBase` (the scene-agnostic resolve/body/orbit plumbing extracted from

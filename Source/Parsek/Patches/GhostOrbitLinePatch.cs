@@ -228,7 +228,7 @@ namespace Parsek.Patches
                     startUT, endUT, decision.Suppressed, HighLogic.LoadedScene),
                 1.0);
 
-            // Phase 8a director-drive (EXPERIMENTAL, gated by mapRenderDirectorDrive, default off): the
+            // Phase 8a director-drive (gated by mapRenderDirectorDrive, default on as of 2026-06-05): the
             // NEW render pipeline owns this StockConic icon by baking the loop shift into the orbit
             // EPOCH and propagating at the LIVE clock - the only place a packed ghost's icon world
             // position actually resolves (KSP rebuilds CoMD = referenceBody.position + orbitDriver.pos
