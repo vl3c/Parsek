@@ -382,6 +382,54 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// Decide a candidate's KSC origin the way <c>RouteBuilder</c> decides
+        /// <see cref="Route.IsKscOrigin"/>: the launch-site / start-body info
+        /// lives on the FIRST recording of the flight (the tree ROOT), NOT on the
+        /// window-carrying merged child the candidate's
+        /// <c>analysis.SourceRecording</c> points at. That child started
+        /// mid-flight at the dock, so it has no launch site
+        /// (<c>LaunchSiteName == null</c>), and every supply route requires a
+        /// dock+transfer+undock, so on the common multi-recording docking flight
+        /// reading the predicate off the dock child would wrongly report
+        /// non-KSC. Resolve the tree root via
+        /// <c>tree.RootRecordingId -&gt; tree.Recordings[...]</c> (mirroring
+        /// <c>RouteBuilder</c>) and test <c>LaunchSiteName</c> set AND
+        /// <c>StartBodyName == "Kerbin"</c> on it; fall back to
+        /// <paramref name="source"/> only when the tree has no resolvable root
+        /// (the legacy single-recording case where the source IS the root). This
+        /// keeps the candidate KSC gate consistent with the built
+        /// <see cref="Route.IsKscOrigin"/> across all three display surfaces
+        /// (gotcha G5 / decision D2).
+        /// </summary>
+        internal static bool IsCandidateKscOrigin(Recording source, RecordingTree tree)
+        {
+            Recording originRec = source;
+            bool usedRoot = false;
+            if (tree?.Recordings != null
+                && !string.IsNullOrEmpty(tree.RootRecordingId)
+                && tree.Recordings.TryGetValue(tree.RootRecordingId, out Recording rootRec)
+                && rootRec != null)
+            {
+                originRec = rootRec;
+                usedRoot = true;
+            }
+
+            bool isKscOrigin = originRec != null
+                && !string.IsNullOrEmpty(originRec.LaunchSiteName)
+                && string.Equals(originRec.StartBodyName, "Kerbin", StringComparison.Ordinal);
+
+            ParsekLog.Verbose(Tag,
+                $"IsCandidateKscOrigin source={ShortId(source != null ? source.RecordingId : null)} " +
+                $"tree={ShortId(tree != null ? tree.Id : null)} " +
+                $"rootId={ShortId(tree != null ? tree.RootRecordingId : null)} usedRoot={usedRoot} " +
+                $"launchSite='{(originRec != null ? originRec.LaunchSiteName ?? "<null>" : "<null>")}' " +
+                $"startBody='{(originRec != null ? originRec.StartBodyName ?? "<null>" : "<null>")}' " +
+                $"kscOrigin={isKscOrigin}");
+
+            return isKscOrigin;
+        }
+
+        /// <summary>
         /// Production candidate entry: compute the launch cost from the source
         /// recording's <c>VesselSnapshot</c> via
         /// <see cref="RouteFundsCalculator.ComputeDispatchFundsCost"/> (the same

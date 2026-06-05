@@ -600,5 +600,161 @@ namespace Parsek.Tests.Logistics
             Assert.False(cost.CostKnown);
             Assert.Equal(0.0, cost.LaunchCost, 3);
         }
+
+        // ==================================================================
+        // IsCandidateKscOrigin (KSC gate derived from the tree ROOT, not the
+        // dock-child source recording). See the SHOULD-FIX: the dock-merged
+        // child carries LaunchSiteName == null, so a source-only check wrongly
+        // reports non-KSC on the common docking flight.
+        // ==================================================================
+
+        // Builds a tree whose ROOT recording carries the launch-site / start-body
+        // origin info, and a separate dock-child member that carries neither (the
+        // common docking flight: the child started mid-flight at the dock).
+        private static RecordingTree MakeDockingTree(
+            string treeId,
+            string rootId,
+            string rootLaunchSite,
+            string rootStartBody,
+            string dockChildId)
+        {
+            var tree = new RecordingTree { Id = treeId, RootRecordingId = rootId };
+            tree.Recordings[rootId] = new Recording
+            {
+                RecordingId = rootId,
+                LaunchSiteName = rootLaunchSite,
+                StartBodyName = rootStartBody,
+            };
+            tree.Recordings[dockChildId] = new Recording
+            {
+                RecordingId = dockChildId,
+                LaunchSiteName = null,   // dock child has no launch site
+                StartBodyName = "Kerbin",
+            };
+            return tree;
+        }
+
+        // THE FINDING'S REGRESSION GUARD: a two-recording docking tree whose
+        // source (dock child) has LaunchSiteName == null but whose ROOT has a
+        // launch site + StartBodyName == "Kerbin". Reading the predicate off the
+        // dock child returns false (wrongly suppressing the cost block); reading
+        // it off the tree root returns true, matching the built Route.IsKscOrigin.
+        [Fact]
+        public void IsCandidateKscOrigin_DockChildSource_RootHasLaunchSite_True()
+        {
+            RecordingTree tree = MakeDockingTree(
+                "tree-1", "rec-root", "LaunchPad", "Kerbin", "rec-dockchild");
+            Recording dockChild = tree.Recordings["rec-dockchild"];
+
+            // Sanity: a source-only check (the OLD behavior) would be false.
+            Assert.True(string.IsNullOrEmpty(dockChild.LaunchSiteName));
+
+            bool ksc = RouteRunCostCalculator.IsCandidateKscOrigin(dockChild, tree);
+
+            Assert.True(ksc);
+        }
+
+        // catches: the root resolution being skipped so a real KSC docking route
+        // shows no cost block. Full end-to-end ComputeForCandidate on the docking
+        // tree, with the snapshot hydrated on the dock-child source: Applicable
+        // and CostKnown must both be true.
+        [Fact]
+        public void ComputeForCandidate_DockChildSource_RootKsc_Applicable()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            ConfigNode pod = snapshot.AddNode("PART");
+            pod.AddValue("name", "pod");
+
+            RecordingTree tree = MakeDockingTree(
+                "tree-1", "rec-root", "LaunchPad", "Kerbin", "rec-dockchild");
+            // The source the candidate path feeds is the dock child, carrying the
+            // hydrated snapshot (SourceRefs[0]); its LaunchSiteName is null.
+            Recording dockChild = tree.Recordings["rec-dockchild"];
+            dockChild.VesselSnapshot = snapshot;
+
+            bool isKscOrigin = RouteRunCostCalculator.IsCandidateKscOrigin(dockChild, tree);
+            var els = new List<GameAction>();
+
+            var cost = RouteRunCostCalculator.ComputeForCandidate(
+                dockChild, tree, isCareer: true, isKscOrigin, els,
+                n => n == "pod" ? 1000f : 0f, n => 0f);
+
+            Assert.True(cost.Applicable);
+            Assert.True(cost.CostKnown);
+            Assert.Equal(1000.0, cost.LaunchCost, 3);
+        }
+
+        // catches: the fallback regressing. When the tree has no resolvable root
+        // (legacy single-recording flight: the source IS the root), the predicate
+        // must read off the source recording directly.
+        [Fact]
+        public void IsCandidateKscOrigin_NoResolvableRoot_FallsBackToSource()
+        {
+            // Tree exists but RootRecordingId points at a missing member.
+            var tree = new RecordingTree { Id = "tree-1", RootRecordingId = "rec-missing" };
+            var source = new Recording
+            {
+                RecordingId = "rec-src",
+                LaunchSiteName = "LaunchPad",
+                StartBodyName = "Kerbin",
+            };
+
+            bool ksc = RouteRunCostCalculator.IsCandidateKscOrigin(source, tree);
+
+            Assert.True(ksc);
+        }
+
+        // catches: a null tree NRE-ing instead of degrading to the source check.
+        [Fact]
+        public void IsCandidateKscOrigin_NullTree_UsesSource()
+        {
+            var source = new Recording
+            {
+                RecordingId = "rec-src",
+                LaunchSiteName = "LaunchPad",
+                StartBodyName = "Kerbin",
+            };
+
+            bool ksc = RouteRunCostCalculator.IsCandidateKscOrigin(source, null);
+
+            Assert.True(ksc);
+        }
+
+        // catches: a genuinely non-KSC origin (root launched off-Kerbin, e.g. a
+        // Mun-surface depot run) wrongly reading as KSC.
+        [Fact]
+        public void IsCandidateKscOrigin_RootNonKerbin_False()
+        {
+            RecordingTree tree = MakeDockingTree(
+                "tree-1", "rec-root", "LaunchPad", "Mun", "rec-dockchild");
+            Recording dockChild = tree.Recordings["rec-dockchild"];
+
+            bool ksc = RouteRunCostCalculator.IsCandidateKscOrigin(dockChild, tree);
+
+            Assert.False(ksc);
+        }
+
+        // catches: a root with no launch site at all (a flight that never touched
+        // a launch site) reading as KSC.
+        [Fact]
+        public void IsCandidateKscOrigin_RootNoLaunchSite_False()
+        {
+            RecordingTree tree = MakeDockingTree(
+                "tree-1", "rec-root", null, "Kerbin", "rec-dockchild");
+            Recording dockChild = tree.Recordings["rec-dockchild"];
+
+            bool ksc = RouteRunCostCalculator.IsCandidateKscOrigin(dockChild, tree);
+
+            Assert.False(ksc);
+        }
+
+        // catches: a null source AND no resolvable root NRE-ing.
+        [Fact]
+        public void IsCandidateKscOrigin_NullSourceNoRoot_False()
+        {
+            bool ksc = RouteRunCostCalculator.IsCandidateKscOrigin(null, null);
+
+            Assert.False(ksc);
+        }
     }
 }

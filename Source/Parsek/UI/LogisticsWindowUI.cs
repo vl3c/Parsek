@@ -2279,9 +2279,12 @@ namespace Parsek
         /// route-creation summary and the candidate row run before any
         /// <see cref="Route"/> exists, so this derives the inputs from the
         /// candidate's source recording + owning tree instead of a Route. KSC origin
-        /// is decided exactly as <c>RouteBuilder</c> decides it
-        /// (<c>LaunchSiteName</c> set AND <c>StartBodyName == "Kerbin"</c>). Career
-        /// and ELS are probed with the same defensive wrap + memoized
+        /// is decided exactly as <c>RouteBuilder</c> decides the built
+        /// <see cref="Route.IsKscOrigin"/>: from the tree ROOT recording
+        /// (<c>LaunchSiteName</c> set AND <c>StartBodyName == "Kerbin"</c>), NOT from
+        /// the dock-child <c>analysis.SourceRecording</c> (which carries a null
+        /// launch site), via <see cref="RouteRunCostCalculator.IsCandidateKscOrigin"/>.
+        /// Career and ELS are probed with the same defensive wrap + memoized
         /// <see cref="EffectiveState.ComputeELS"/> as the route path. Returns a
         /// not-applicable / unknown cost (which the UI then suppresses) when the
         /// analysis or source recording is null. Called only off the IMGUI draw path
@@ -2305,11 +2308,15 @@ namespace Parsek
                 isCareer = false;
             }
 
-            // KSC origin: same predicate RouteBuilder applies when it sets
-            // Route.IsKscOrigin (LaunchSiteName set AND StartBodyName == "Kerbin").
-            bool isKscOrigin = source != null
-                && !string.IsNullOrEmpty(source.LaunchSiteName)
-                && string.Equals(source.StartBodyName, "Kerbin", System.StringComparison.Ordinal);
+            // KSC origin: derived from the tree ROOT recording, exactly as
+            // RouteBuilder derives the built Route.IsKscOrigin. The launch-site /
+            // start-body info lives on the first recording of the flight (the
+            // tree root), NOT on analysis.SourceRecording: that child started
+            // mid-flight at the dock and carries LaunchSiteName == null, so a
+            // source-only check would suppress the cost block on the common
+            // docking case (G5 / D2). The helper falls back to the source only
+            // when the tree has no resolvable root (legacy single-recording).
+            bool isKscOrigin = RouteRunCostCalculator.IsCandidateKscOrigin(source, tree);
 
             IReadOnlyList<GameAction> els;
             try
