@@ -875,6 +875,93 @@ Bug 2 fixed.
 
 ---
 
+## 13b. Discovered defect: the arrival hold is loop-independent (per-loop rotation drift)
+
+Status: ROOT CAUSE CONFIRMED (code + math + log), FIX DESIGNED, NOT IMPLEMENTED. The dynamic
+per-loop hold is the next implementation step for Bug 2. This documents a confirmed defect in
+the arrival hold this plan already describes (sections 1, 13, Appendix A.1 / A.2): the hold
+correctly aligns ONE reference loop but is constant across every replayed loop, so a per-loop
+rotation offset accumulates. It does not change the hold-vs-tof framing established above (the
+tof is still not the lever); it refines the hold from a fixed scalar to a function of the
+playback loop index.
+
+### Root cause, three independent confirmations
+
+- Code. `ArrivalHoldPlanner.ComputeArrivalHold` computes `liveEntryUT = phaseAnchorUT +
+  (CompressSpanUT(recordedArrivalUT, loiterCuts) - spanStartUT)`, then
+  `w = GhostPlaybackLogic.ComputeArrivalAlignHoldSeconds(recordedArrivalUT, liveEntryUT,
+  T_rot)`. It uses the FIXED `phaseAnchorUT` with no playback-loop-index (`cycleIndex`) term,
+  so the hold value W is constant on every replayed loop (measured 46450.59 s for Duna One,
+  save s15). `GhostPlaybackLogic.TryComputeSpanLoopUT` DOES compute the loop index `cycleIndex`
+  internally (the `elapsed / cycleDuration` floor), but the hold scalar it applies via
+  `ApplyArrivalHoldToPhase` is the same on every cycle, so the per-loop rotation phase is never
+  re-aligned.
+- Math. The synodic launch cadence is 19,653,075.77 s = 299.9652 destination rotations (Duna
+  `T_rot` = 65,517.86 s), not a whole number. The 0.0348-rotation shortfall means the deorbit
+  lands about 12.5 degrees further around the destination spin on each successive loop. A
+  loop-independent hold cannot cancel a per-loop-varying offset, so it accumulates.
+- Log. The seam diagnostic `EmitOneSidedBracketDiagnostic` in
+  `Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs` (its `overshootGap` /
+  `lonBodyFixed` / `lonOrbitSeam` fields for the one-sided descent leg) reported
+  `overshootGap` = 17 km (`lonBodyFixed` = 84.5, `lonOrbitSeam` ~ 82) on one viewing and 224 km
+  (`lonBodyFixed` = 45.8, `lonOrbitSeam` ~ 80) about three loops later. The 38.7 degree shift in
+  `lonBodyFixed` equals 3.09 loops times 12.5 degrees per loop, an exact match. `lonOrbitSeam`
+  (the inertial conic) stayed put while the body-fixed track rotated away under it.
+
+### Consequence (the user-visible symptom)
+
+The inertial proto orbit conic (recorded parking orbit) and the body-fixed deorbit / descent
+polyline coincide only on the one reference loop and progressively separate on later loops, from
+about 0 km (aligned) toward half the destination circumference. That growing separation is what
+the user sees as "two straight-ish lines instead of an arc" joining the proto orbit to the
+landing polyline: this IS the Bug 2 proto-to-descent disconnect. The GEOGRAPHIC landing site
+stays correct on every loop (the body-fixed lat / lon is painted on the rotating planet); only
+the inertial-conic-to-body-fixed JOIN drifts. This also rules out the two earlier suspects: NOT
+sparse-sample chording (sub-pixel here) and NOT `TryAnchorLegToConicSeam` (the descent leg is
+correctly one-sided and left body-fixed).
+
+### Designed fix: the dynamic (per-loop) hold
+
+Make the hold a function of the playback loop index N:
+
+```
+W_N = (W_0 - N * (cadence mod T_rot)) mod T_rot
+```
+
+where `cadence` is the synodic window period, `T_rot` is the destination rotation period, and
+`W_0` is the current reference hold. This re-aligns the destination rotation at the deorbit on
+EVERY loop, so the inertial conic flows into the body-fixed descent as one connected arc each
+loop. It is free and cadence-preserving: the hold is dead time at the heliocentric-to-capture
+boundary that elapses under high warp, so varying it 0 to one rotation per loop costs no visible
+time and does not move the synodic launch schedule. `W_N` stays in `[0, T_rot)` and the mission
+still fits the window (`compressedSpan + W_N` maxes at `compressedSpan + T_rot`, far below one
+cadence, the same bound `TryComputeSpanLoopUT`'s existing clamp enforces).
+
+Implementation seam: apply it in `TryComputeSpanLoopUT` / `ApplyArrivalHoldToPhase`, which
+already compute `cycleIndex`; carry `W_0`, `cadence`, and `T_rot` into the loop unit and compute
+`W_N` for the current `cycleIndex` before applying. Both render paths (the OrbitSegment director
+and the autonomous body-fixed polyline) read this one clock, so both inherit the per-loop hold
+(the same shared-clock invariant the hold already relies on, section 12).
+
+Regression fence: when alignment is Off (Drop mode) `W_0` = 0 so every `W_N` = 0, byte-identical
+to today; the launch-to-SOI-entry pipeline is untouched (the hold acts only after SOI entry); a
+zero hold stays byte-identical.
+
+### Residual caveat (be honest)
+
+Even the aligned reference loop showed a roughly 17 km / 3 degree residual. The per-loop fix
+removes the 12.5-degrees-per-loop drift but not this smaller secondary offset, whose likely
+source is the OrbitSegment conic-fit at the boundary (the fitted parking-orbit conic need not
+pass exactly through the recorded body-fixed deorbit point) or hold quantization. To be confirmed
+separately, cosmetically minor next to the 0-to-180-degree per-loop drift.
+
+### Out of scope / still separate
+
+Retiring the transfer proto that keeps orbiting past the deorbit (the proto-overshoot), and the
+Ike orbital-phase alignment lever, both stay deferred.
+
+---
+
 ## 14. Dead-end compliance (all five honored, including under composition)
 
 1. No per-element LAN / Kepler-node rotation: the design chooses a window INDEX (a scheduling
