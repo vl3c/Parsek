@@ -155,27 +155,80 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        [Fact]
-        public void BuildSummaryBlock_CareerMode_IncludesDispatchCostLine()
+        private static RouteRunCostCalculator.RouteRunCost ApplicableRunCost(
+            double launch, double recovered, int recoveries)
         {
-            // catches: the Career-mode "Dispatch cost" row dropping out of the
-            // summary block. Career players need cost visibility before
-            // confirming the route; without it the dialog hides a recurring
-            // funds debit behind a single click.
-            string block = RouteCreationFormatters.BuildSummaryBlock(
-                EligibleAnalysis(), Game.Modes.CAREER);
-            Assert.Contains("Dispatch cost", block);
+            double net = launch - recovered;
+            return new RouteRunCostCalculator.RouteRunCost
+            {
+                Applicable = true,
+                CostKnown = launch > 0.0,
+                LaunchCost = launch,
+                RecoveredCredits = recovered,
+                NetCost = net > 0.0 ? net : 0.0,
+                RecoveryEventCount = recoveries
+            };
         }
 
         [Fact]
-        public void BuildSummaryBlock_SandboxMode_OmitsDispatchCostLine()
+        public void BuildSummaryBlock_CareerKsc_WithRunCost_IncludesCostBlock()
         {
-            // catches: leaking the "Dispatch cost" row into Sandbox mode,
-            // which has no funds budget. A spurious cost line would confuse
-            // sandbox players and imply a non-existent debit.
+            // catches: the run-cost block dropping out of the Career + KSC summary.
+            // Career players need cost visibility before confirming the route; the
+            // old "Dispatch cost: TBD" placeholder was replaced by the real net.
+            RouteRunCostCalculator.RouteRunCost cost = ApplicableRunCost(12500.0, 7300.0, 1);
             string block = RouteCreationFormatters.BuildSummaryBlock(
-                EligibleAnalysis(), Game.Modes.SANDBOX);
-            Assert.DoesNotContain("Dispatch cost", block);
+                EligibleAnalysis(), Game.Modes.CAREER, null, cost);
+            Assert.Contains("Cost per run: 5,200 funds", block);
+            Assert.Contains("Launch: 12,500 funds", block);
+            Assert.Contains("Recovered: 7,300 funds", block);
+            // The old placeholder must be gone.
+            Assert.DoesNotContain("TBD", block);
+        }
+
+        [Fact]
+        public void BuildSummaryBlock_SandboxMode_OmitsCostBlock()
+        {
+            // catches: leaking a cost block into Sandbox mode (no funds). A
+            // not-applicable RunCost (the caller computes Applicable=false outside
+            // Career) must omit the block entirely.
+            RouteRunCostCalculator.RouteRunCost cost = new RouteRunCostCalculator.RouteRunCost
+            {
+                Applicable = false,
+                CostKnown = false
+            };
+            string block = RouteCreationFormatters.BuildSummaryBlock(
+                EligibleAnalysis(), Game.Modes.SANDBOX, null, cost);
+            Assert.DoesNotContain("Cost per run", block);
+            Assert.DoesNotContain("TBD", block);
+        }
+
+        [Fact]
+        public void BuildSummaryBlock_NoRunCostPassed_OmitsCostBlock()
+        {
+            // catches: a null run-cost (test / legacy call paths that do not wire
+            // the cost) rendering a stray block. The block must only appear when an
+            // applicable, known cost is supplied.
+            string block = RouteCreationFormatters.BuildSummaryBlock(
+                EligibleAnalysis(), Game.Modes.CAREER);
+            Assert.DoesNotContain("Cost per run", block);
+            Assert.DoesNotContain("TBD", block);
+        }
+
+        [Fact]
+        public void BuildSummaryBlock_CareerKsc_UnknownCost_OmitsCostBlock()
+        {
+            // catches: an unhydrated snapshot (launch 0 -> CostKnown false) leaking a
+            // misleading "0 funds" block (gotcha G7). The block must be suppressed.
+            RouteRunCostCalculator.RouteRunCost cost = new RouteRunCostCalculator.RouteRunCost
+            {
+                Applicable = true,
+                CostKnown = false,
+                LaunchCost = 0.0
+            };
+            string block = RouteCreationFormatters.BuildSummaryBlock(
+                EligibleAnalysis(), Game.Modes.CAREER, null, cost);
+            Assert.DoesNotContain("Cost per run", block);
         }
     }
 }

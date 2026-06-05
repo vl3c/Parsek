@@ -96,8 +96,8 @@ namespace Parsek.Logistics
         /// <summary>
         /// Build the multi-line dialog summary block describing the route the
         /// player is about to create. Includes Origin / Endpoint / Resources /
-        /// Inventory / Transit lines, plus a "Dispatch cost: TBD" line in
-        /// Career mode only.
+        /// Inventory / Transit lines, plus a per-run cost block (Career + KSC
+        /// origin only).
         /// </summary>
         /// <remarks>
         /// CRE-2: the Transit line is the FULL rendered <c>[root..undock]</c> span
@@ -108,9 +108,22 @@ namespace Parsek.Logistics
         /// <c>TransitDuration</c>. Pass the source <paramref name="tree"/> so the
         /// span helper can resolve the tree ROOT launch UT; when it is null the
         /// helper falls back to the leaf span (no worse than the old behaviour).
+        ///
+        /// Run-cost (Phase 3.2): the old "Dispatch cost: TBD" line was gated on
+        /// <c>mode == CAREER</c> ONLY (no KSC-origin check), so a Career non-KSC
+        /// route printed TBD. The replacement cost block is computed by the caller
+        /// (it needs the live ledger + part-cost lookups) and passed in as
+        /// <paramref name="runCost"/>; its <c>Applicable</c> flag already encodes
+        /// the ADDED Career + KSC-origin gate, so the block shows ONLY for Career +
+        /// KSC origin with a known launch cost and NOTHING otherwise (no TBD, no "0
+        /// funds", no "n/a"). A null <paramref name="runCost"/> (test paths that do
+        /// not exercise the cost) simply omits the block.
         /// </remarks>
         internal static string BuildSummaryBlock(
-            RouteAnalysisResult analysis, Game.Modes mode, RecordingTree tree = null)
+            RouteAnalysisResult analysis,
+            Game.Modes mode,
+            RecordingTree tree = null,
+            RouteRunCostCalculator.RouteRunCost? runCost = null)
         {
             var sb = new StringBuilder();
             if (analysis == null || !analysis.IsEligible)
@@ -190,11 +203,16 @@ namespace Parsek.Logistics
                 : 0.0;
             sb.Append("Transit: ").Append(FormatTransitTime(transit)).Append('\n');
 
-            if (mode == Game.Modes.CAREER)
+            // Run-cost block (Phase 3.2): show ONLY for Career + KSC origin with a
+            // known launch cost. Applicable already encodes the Career + KSC gate
+            // (computed by the caller from the source recording + tree), and
+            // CostKnown gates out an unhydrated snapshot (gotcha G7). Outside that,
+            // append nothing (no TBD, no "0 funds"). The `mode` parameter is no
+            // longer the gate (Applicable carries it), but is kept in the signature
+            // for callers and back-compat.
+            if (runCost.HasValue && runCost.Value.Applicable && runCost.Value.CostKnown)
             {
-                // v0 dispatch-cost computation is not wired yet; the line
-                // exists so Phase 3 has the layout pinned by tests.
-                sb.Append("Dispatch cost: TBD\n");
+                sb.Append(LogisticsCostPresentation.FormatCreationSummaryBlock(runCost.Value));
             }
 
             return sb.ToString();

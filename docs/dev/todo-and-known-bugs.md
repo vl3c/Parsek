@@ -328,6 +328,13 @@ asserts only 2 emits total.
 
 ---
 
+## Done - Logistics supply-route per-run cost display (Career + KSC origin)
+
+- ~~Surface the per-run funds cost of a Supply Route in the Logistics UI (route detail panel, Create Route summary, Candidate row).~~ DONE. The pure `RouteRunCostCalculator` (`net = launch - recovered`, recovery summed over the whole source TREE via `ComputeELS()`, gotcha G1) feeds the throttled `RouteLegibility` cache (Phase 2) and the candidate-cost cache (~1 Hz, never on the draw path). The pure `LogisticsCostPresentation` shapes the detail line + tooltip, the creation-summary block, and the compact candidate-row suffix; the `*UI` files only draw. Display is Career + KSC-origin only and is suppressed when the source snapshot has not hydrated (no "0 funds" line, gotcha G7). Phase 4 closed the test matrix: `RouteRunCostCalculatorTests` and `LogisticsCostPresentationTests` pin the arithmetic and every formatted surface (with-recovery and no-recovery shapes, InvariantCulture under a comma locale, ASCII-only with no em dash). Review follow-up: the candidate-path KSC gate (creation summary + candidate row) now derives KSC origin from the tree ROOT recording via `RouteRunCostCalculator.IsCandidateKscOrigin` (mirroring `RouteBuilder`), not from the dock-child `analysis.SourceRecording` whose `LaunchSiteName` is null on the common docking flight; pinned by the `IsCandidateKscOrigin_*` tests.
+- **Deferred follow-up (decision D1, display-only):** the per-cycle ledger CHARGE is still the GROSS launch cost; only the DISPLAY is the recovery-aware net. Crediting recovery per cycle in the ledger touches `GameActionType` epoch-isolation / rollback contracts and is a larger, riskier change; it is left for a v1 follow-up. If the player does not recover the transport in the recorded flight, gross == net, so the display matches the charge in that common case.
+
+---
+
 ## Open - Logistics scenario-lifecycle coverage relies on source-text gates
 
 - The route system has three `ParsekScenario` lifecycle hookups (`RouteStore.SaveRoutesTo`, `LoadRoutesFrom`, `RevalidateSources`) and they are pinned by `RouteStoreScenarioIntegrationTests.Scenario_OnSaveAndOnLoad_InvokeRouteStoreCodec`, which greps the source for the three literal strings. The pattern matches existing precedents (`ChainSaveLoadTests`, `GrepAuditTests`, `Bug278SnapshotPersistenceTests`, etc.) but only verifies presence, not surrounding state or order.
