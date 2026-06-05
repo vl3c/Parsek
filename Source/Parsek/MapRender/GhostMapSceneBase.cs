@@ -70,5 +70,10 @@ namespace Parsek.MapRender
         }
 
         public CelestialBody ResolveBody(string bodyName) => FlightGlobals.GetBodyByName(bodyName);
+
+        // Presence-drive differs per scene: FLIGHT runs the pending-queue model
+        // (ParsekPlaybackPolicy.CheckPendingMapVessels); the Tracking Station runs
+        // GhostMapPresence.UpdateTrackingStationGhostLifecycle. Each scene supplies its own body.
+        public abstract void DriveMapPresence(double currentUT);
     }
 }
