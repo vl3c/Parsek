@@ -6271,15 +6271,20 @@ namespace Parsek
                 int idx = kvp.Key;
                 if (committed == null)
                 {
+                    // Bookkeeping teardown (no committed list this tick), NOT a deorbit handoff. Use a
+                    // distinct reason so it never matches ShouldAssertTerminalOrbitBoundClamp and
+                    // mis-fires the positive "clamped at the deorbit bound" assertion.
                     if (toRemove == null) toRemove = new List<(int, string)>();
-                    toRemove.Add((idx, "tracking-station-expired"));
+                    toRemove.Add((idx, "tracking-station-committed-null"));
                     continue;
                 }
 
                 if (idx < 0 || idx >= committed.Count)
                 {
+                    // Bookkeeping teardown (stale index after the committed list shrank), NOT a deorbit
+                    // handoff. Distinct reason so it stays out of the terminal-orbit-clamp gate.
                     if (toRemove == null) toRemove = new List<(int, string)>();
-                    toRemove.Add((idx, "tracking-station-expired"));
+                    toRemove.Add((idx, "tracking-station-index-stale"));
                     continue;
                 }
 
@@ -8717,8 +8722,11 @@ namespace Parsek
             bool loopMemberInWindow = false,
             List<OrbitSegment> effectiveOrbitSegments = null)
         {
+            // Degenerate teardown (no recording behind this ghost index), NOT a genuine end-of-orbit
+            // handoff. Distinct reason so it never matches ShouldAssertTerminalOrbitBoundClamp; the
+            // genuine terminal is the no-covering-segment return at the bottom of this method.
             if (rec == null)
-                return "tracking-station-expired";
+                return "tracking-station-recording-missing";
 
             if (isSuppressed)
                 return "tracking-station-child-started";

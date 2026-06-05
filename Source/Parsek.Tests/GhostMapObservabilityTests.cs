@@ -760,13 +760,22 @@ namespace Parsek.Tests
             Assert.Equal(2.5, overshoot, 6); // liveUT - boundEndUT
         }
 
-        [Fact]
-        public void ShouldAssertTerminalOrbitBoundClamp_NonTerminalReason_DoesNotAssert()
+        [Theory]
+        [InlineData("gap-between-orbit-segments")]          // mid-recording gap, orbit segments still ahead
+        [InlineData("tracking-station-committed-null")]     // bookkeeping teardown (no committed list)
+        [InlineData("tracking-station-index-stale")]        // bookkeeping teardown (stale index)
+        [InlineData("tracking-station-recording-missing")]  // degenerate teardown (rec == null)
+        [InlineData("mission-loop-out-of-window")]
+        [InlineData("tracking-station-state-vector-expired")]
+        [InlineData("tracking-station-spawned-real-vessel")]
+        [InlineData("chain-segment-replaced")]
+        public void ShouldAssertTerminalOrbitBoundClamp_NonTerminalReason_DoesNotAssert(string reason)
         {
-            // A mid-recording gap (orbit segments still ahead) is NOT a deorbit handoff.
+            // ONLY the two genuine terminal-orbit handoffs (left-orbit-segments / tracking-station-expired)
+            // may trigger the positive clamp assertion. Every bookkeeping / degenerate / non-terminal
+            // teardown must be excluded so the "did not overshoot the deorbit" line is never misleading.
             Assert.False(GhostMapPresence.ShouldAssertTerminalOrbitBoundClamp(
-                "gap-between-orbit-segments", hadOrbitBounds: true, boundEndUT: 1000.0, liveUT: 1002.5,
-                out double overshoot));
+                reason, hadOrbitBounds: true, boundEndUT: 1000.0, liveUT: 1002.5, out double overshoot));
             Assert.True(double.IsNaN(overshoot));
         }
 
