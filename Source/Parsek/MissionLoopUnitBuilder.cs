@@ -561,7 +561,8 @@ namespace Parsek
             unit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex, memberArray, spanStartUT, spanEndUT, effectiveCadence, phaseAnchorUT,
                 effectiveOverlapCadence, memberWindowByIndex, relaunchSchedule, reaimPlan, reaimSchedule,
-                loiterCuts, arrivalHold.HoldSeconds, arrivalHold.HoldAtUT);
+                loiterCuts, arrivalHold.HoldSeconds, arrivalHold.HoldAtUT,
+                arrivalHold.RotationPeriodSeconds);
 
             if (!SuppressLogging)
             {

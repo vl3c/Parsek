@@ -218,5 +218,198 @@ namespace Parsek.Tests
             Loop(650.0, out double a); Assert.Equal(600.0, a, Tol);   // within the clamped hold: held at 600
             Loop(1050.0, out double b); Assert.Equal(950.0, b, Tol);  // after: deferred by the clamped 100 (not 200)
         }
+
+        // === ComputePerLoopArrivalHoldSeconds (13c dynamic per-loop hold) =====================
+
+        [Theory]
+        [InlineData(0L)]
+        [InlineData(1L)]
+        [InlineData(7L)]
+        [InlineData(1000L)]
+        public void PerLoop_ZeroBaseHold_ReturnsZeroForEveryN(long cycleIndex)
+        {
+            // W_0 = 0 (alignment Off / Drop) must stay 0 for every loop - the 13b regression fence. The bare
+            // formula is a nonzero per-loop sawtooth at W_0 = 0, so the gate is what keeps Off byte-identical.
+            double wn = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(0.0, cycleIndex, 19653076.0, 65518.0);
+            Assert.Equal(0.0, wn, Tol);
+        }
+
+        [Theory]
+        [InlineData(-5.0)]
+        [InlineData(double.NaN)]
+        public void PerLoop_NonPositiveBaseHold_ReturnsBaseUnchanged(double w0)
+        {
+            // The gate is strictly W_0 > 0; any non-positive (or NaN) base hold passes through unchanged.
+            double wn = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(w0, 3L, 19653076.0, 65518.0);
+            Assert.Equal(w0, wn, Tol);
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(-100.0)]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        public void PerLoop_DegenerateRotationPeriod_ReturnsBaseHoldUnchanged(double rotationPeriod)
+        {
+            // No rotation constraint (NaN sentinel / non-positive / infinite T_rot): no per-loop adjustment,
+            // the constant base hold is preserved (a re-aim unit with no destination rotation constraint).
+            const double w0 = 12345.0;
+            double wn = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(w0, 4L, 19653076.0, rotationPeriod);
+            Assert.Equal(w0, wn, Tol);
+        }
+
+        [Fact]
+        public void PerLoop_NEquals0_ReturnsBaseHold()
+        {
+            // At N=0 the subtracted drift is 0, so W_0 is returned unchanged (already in [0,T_rot) by
+            // construction from ComputeArrivalAlignHoldSeconds).
+            const double w0 = 46450.59, cadence = 19653076.0, tRot = 65518.0;
+            double wn = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(w0, 0L, cadence, tRot);
+            Assert.Equal(w0, wn, 6);
+        }
+
+        [Fact]
+        public void PerLoop_NEquals1_SubtractsCadenceModTrot_Wrapped()
+        {
+            // N=1 subtracts (cadence mod T_rot), mod-wrapped into [0,T_rot). Hand-computed reference.
+            const double w0 = 46450.59, cadence = 19653076.0, tRot = 65518.0;
+            double drift = cadence % tRot;                       // the per-loop rotation-phase step
+            double expect = ((w0 - drift) % tRot + tRot) % tRot; // mod-wrapped
+            double wn = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(w0, 1L, cadence, tRot);
+            Assert.Equal(expect, wn, 6);
+            Assert.True(wn >= 0.0 && wn < tRot, $"WN={wn} out of [0,{tRot})");
+        }
+
+        [Fact]
+        public void PerLoop_WrapAround_NegativeInnerBroughtBackIntoRange()
+        {
+            // A loop where (W_0 - N*drift) goes negative: the +T_rot in the double-mod brings it back into
+            // [0,T_rot). Pick small W_0 and a drift that overshoots it at N=1.
+            const double w0 = 10.0, tRot = 100.0;
+            // cadence mod T_rot = 30, so W_1 = ((10 - 30) mod 100 + 100) mod 100 = 80.
+            double wn = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(w0, 1L, 130.0, tRot);
+            Assert.Equal(80.0, wn, Tol);
+            Assert.True(wn >= 0.0 && wn < tRot);
+        }
+
+        [Theory]
+        [InlineData(46450.59, 19653076.0, 65518.0)]   // Duna One: synodic cadence, Duna rotation
+        [InlineData(900.0, 130.0, 100.0)]             // small overshooting drift
+        [InlineData(50.0, 19653076.0, 21549.425)]     // Kerbin-ish rotation
+        public void PerLoop_AlwaysInRange_AcrossManyLoops(double w0, double cadence, double tRot)
+        {
+            for (long n = 0; n < 64; n++)
+            {
+                double wn = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(w0, n, cadence, tRot);
+                Assert.True(wn >= 0.0 && wn < tRot, $"N={n} WN={wn} out of [0,{tRot})");
+            }
+        }
+
+        [Fact]
+        public void PerLoop_ReAlignsDeorbitRotationPhaseEveryLoop()
+        {
+            // The alignment property: with the per-loop hold applied, the live deorbit lands at the SAME
+            // destination rotation phase on every loop. The unshifted live deorbit on loop N sits at
+            // (base + N*cadence) mod T_rot; adding W_N must drive it to the recorded phase (base + W_0) mod
+            // T_rot for every N. (This is the recurrence's whole point.)
+            const double w0 = 46450.59, cadence = 19653076.0, tRot = 65518.0, baseDeorbit = 123456.0;
+            double recordedPhase = ((baseDeorbit + w0) % tRot + tRot) % tRot;
+            for (long n = 0; n < 50; n++)
+            {
+                double wn = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(w0, n, cadence, tRot);
+                double liveDeorbit = baseDeorbit + n * cadence + wn;
+                double livePhase = (liveDeorbit % tRot + tRot) % tRot;
+                Assert.Equal(recordedPhase, livePhase, 4);
+            }
+        }
+
+        [Fact]
+        public void PerLoop_FirstLoopMatchesConstantHold()
+        {
+            // On loop 0 the per-loop hold equals the constant W_0, so the reference loop is unchanged from the
+            // pre-13c constant-hold behavior. (Cross-checks PerLoop_NEquals0 against the clock's W_0.)
+            const double w0 = 46450.59, cadence = 19653076.0, tRot = 65518.0;
+            Assert.Equal(w0, GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(w0, 0L, cadence, tRot), 6);
+        }
+
+        // === TryComputeSpanLoopUT byte-identical when Off / invalid T_rot (13c regression fence) ==
+
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(0.0)]
+        [InlineData(-100.0)]
+        [InlineData(65518.0)]
+        public void Clock_NoHold_ByteIdenticalRegardlessOfRotationPeriod(double rotationPeriod)
+        {
+            // With arrivalHoldSeconds = 0 (alignment Off) the per-loop branch is gated out, so any
+            // arrivalHoldRotationPeriod (including a valid one) leaves loopUT / cycleIndex byte-identical to
+            // the no-period call, across a swept range of currentUT and several loops.
+            const double anchor = 0, s0 = 0, s1 = 1000, cad = 1000; // cadence == span -> multiple loops
+            for (double t = 0.0; t <= 5200.0; t += 37.0)
+            {
+                bool okBase = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    t, anchor, s0, s1, cad, out double baseUT, out long baseCyc, out bool baseTail);
+                bool okNew = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    t, anchor, s0, s1, cad, out double newUT, out long newCyc, out bool newTail,
+                    schedule: null, loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
+                    arrivalHoldRotationPeriod: rotationPeriod);
+                Assert.Equal(okBase, okNew);
+                Assert.Equal(baseUT, newUT, Tol);
+                Assert.Equal(baseCyc, newCyc);
+                Assert.Equal(baseTail, newTail);
+            }
+        }
+
+        [Fact]
+        public void Clock_WithHold_InvalidRotationPeriod_KeepsConstantHoldBehavior()
+        {
+            // arrivalHoldSeconds > 0 but T_rot invalid (NaN, the default): the per-loop branch returns the base
+            // hold unchanged, so the clock matches the pre-13c constant-hold path on every loop.
+            const double anchor = 0, s0 = 0, s1 = 1000, cad = 2000, hold = 200, holdAt = 600;
+            void Check(double currentUT, double expect)
+            {
+                GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    currentUT, anchor, s0, s1, cad, out double loopUT, out long _, out bool _,
+                    schedule: null, loiterCuts: null, arrivalHoldSeconds: hold, arrivalHoldAtUT: holdAt,
+                    arrivalHoldRotationPeriod: double.NaN);
+                Assert.Equal(expect, loopUT, Tol);
+            }
+            // Same expectations as Clock_WithHold_BeforeIdentity_WithinHeld_AfterDeferred (constant hold).
+            Check(500.0, 500.0);
+            Check(700.0, 600.0);
+            Check(900.0, 700.0);
+        }
+
+        [Fact]
+        public void Clock_WithHold_ValidRotationPeriod_AppliesPerLoopHoldOnLaterLoop()
+        {
+            // arrivalHoldSeconds > 0 and a valid T_rot: loop 0 uses W_0 (constant-hold behavior), a later loop
+            // uses a DIFFERENT per-loop W_N, so the in-SOI replay defers by W_N (not the constant W_0). Cadence
+            // > span+hold so the defense clamp never trips; a T_rot that yields a clear per-loop step.
+            const double anchor = 0, s0 = 0, s1 = 1000, cad = 2000, hold = 200, holdAt = 600, tRot = 700;
+
+            // Loop 0: W_0 = 200. elapsed 900 -> cyc 0, phase 900. holdPhasePos = 600; phase 900 > 600+200 ->
+            // after the hold -> loopUT = 900 - 200 = 700 (the constant-hold reference loop).
+            GhostPlaybackLogic.TryComputeSpanLoopUT(
+                900.0, anchor, s0, s1, cad, out double loop0, out long cyc0, out bool _,
+                schedule: null, loiterCuts: null, arrivalHoldSeconds: hold, arrivalHoldAtUT: holdAt,
+                arrivalHoldRotationPeriod: tRot);
+            Assert.Equal(0, cyc0);
+            Assert.Equal(700.0, loop0, Tol);
+
+            // Loop 3: drift = cad mod tRot = 2000 mod 700 = 600; W_3 = ((200 - 3*600) mod 700 + 700) mod 700
+            //        = ((200 - 1800) mod 700 + 700) mod 700 = 500.
+            double w3 = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(hold, 3L, cad, tRot);
+            Assert.Equal(500.0, w3, Tol);
+            // currentUT inside loop 3 with phaseInCycle 900: elapsed 6900 -> cyc 3, phase 900. holdPhasePos =
+            // 600; phase 900 <= 600 + W_3(500) = 1100 -> WITHIN the (larger) per-loop hold -> held at the
+            // boundary 600 (NOT 700, which is what the constant W_0=200 would have produced).
+            GhostPlaybackLogic.TryComputeSpanLoopUT(
+                6900.0, anchor, s0, s1, cad, out double loop3, out long cyc3, out bool _,
+                schedule: null, loiterCuts: null, arrivalHoldSeconds: hold, arrivalHoldAtUT: holdAt,
+                arrivalHoldRotationPeriod: tRot);
+            Assert.Equal(3, cyc3);
+            Assert.Equal(600.0, loop3, Tol);
+        }
     }
 }

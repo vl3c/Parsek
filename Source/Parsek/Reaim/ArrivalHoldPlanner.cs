@@ -13,12 +13,19 @@ namespace Parsek.Reaim
         /// <summary>The arrival hold decision. Pure value.</summary>
         internal struct ArrivalHoldResult
         {
-            public double HoldSeconds;   // 0 when no hold
-            public double HoldAtUT;      // NaN when no hold
+            public double HoldSeconds;          // 0 when no hold
+            public double HoldAtUT;             // NaN when no hold
+            public double RotationPeriodSeconds; // destination T_rot used for the hold; NaN when no hold
             public bool Applied;
 
             internal static ArrivalHoldResult None =>
-                new ArrivalHoldResult { HoldSeconds = 0.0, HoldAtUT = double.NaN, Applied = false };
+                new ArrivalHoldResult
+                {
+                    HoldSeconds = 0.0,
+                    HoldAtUT = double.NaN,
+                    RotationPeriodSeconds = double.NaN,
+                    Applied = false,
+                };
         }
 
         /// <summary>
@@ -77,7 +84,13 @@ namespace Parsek.Reaim
             if (!(w > 0.0) || double.IsInfinity(w))
                 return ArrivalHoldResult.None;  // already aligned (w == 0) or degenerate: no hold
 
-            return new ArrivalHoldResult { HoldSeconds = w, HoldAtUT = recordedArrivalUT, Applied = true };
+            return new ArrivalHoldResult
+            {
+                HoldSeconds = w,
+                HoldAtUT = recordedArrivalUT,
+                RotationPeriodSeconds = tRot,
+                Applied = true,
+            };
         }
     }
 }
