@@ -186,6 +186,17 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
   landed on `maprender-cutover` after this in-game validation; the legacy path DELETION stays gated on
   closing the coverage gap above (cutover Step 2) and is the separate Phase 8e.
   In-game test: `DirectorDriveEpochBakePlacesIconOnRecordedPhase` (RuntimeTests, GhostMap, FLIGHT).
+  - **Coverage-gap Category 1 (hyperbolic orbit LINE clip) - DONE.** `GhostOrbitArcPatch.Prefix`
+    previously bailed to stock for `ecc>=1`, so a hyperbolic escape/flyby segment drew the FULL open
+    asymptote-to-asymptote hyperbola instead of being clipped to its `[startUT,endUT]` window (the icon
+    already rode the hyperbola correctly). The patch now clips the open arc via the same
+    eccentric-anomaly path as the ellipse (verified hyperbolic-safe against the stock Orbit API:
+    `EccentricAnomalyAtUT` -> `solveEccentricAnomalyHyp`, `GetTrueAnomaly` sinh/cosh branch,
+    `getPositionFromEccAnomalyWithSemiMinorAxis` ecc>1 branch), gating off the three periodicity-only
+    steps (full-period early-return, periapsis wraparound, elliptical radius diagnostic) and keeping the
+    same director-drive-vs-effUT frame selection so the clipped line and the icon stay in lockstep.
+    Pure math split into `ArcAnomalyMath` (unit-tested, `ArcAnomalyMathTests`); in-game test
+    `HyperbolicArcClipBoundsLineToSegmentWindow` (RuntimeTests, GhostMap, FLIGHT).
 - **Phase 7a - DONE (TS shadow parity).** `MapRender/TrackingStationScene.cs` (scene gate = TRACKSTATION)
   over the new shared `GhostMapSceneBase` (the scene-agnostic resolve/body/orbit plumbing extracted from
   `MapViewScene`, which is now just the FLIGHT gate). `ParsekTrackingStation.Update` runs
