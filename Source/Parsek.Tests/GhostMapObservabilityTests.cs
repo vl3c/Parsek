@@ -740,5 +740,63 @@ namespace Parsek.Tests
             // Warping but no head left its segment yet -> wait for the timer.
             Assert.False(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(false, 1000.0f, false));
         }
+
+        // -----------------------------------------------------------------
+        // ShouldAssertTerminalOrbitBoundClamp — positive deorbit-clamp
+        // assertion gate (proves the orbit proto was retired AT its last
+        // recorded orbit bound, not driven past the deorbit).
+        // -----------------------------------------------------------------
+
+        [Theory]
+        [InlineData("left-orbit-segments")]      // flight-scene terminal handoff
+        [InlineData("tracking-station-expired")] // tracking-station terminal handoff
+        public void ShouldAssertTerminalOrbitBoundClamp_TerminalReasonWithBounds_AssertsOvershoot(string reason)
+        {
+            bool assert = GhostMapPresence.ShouldAssertTerminalOrbitBoundClamp(
+                reason, hadOrbitBounds: true, boundEndUT: 1000.0, liveUT: 1002.5,
+                out double overshoot);
+
+            Assert.True(assert);
+            Assert.Equal(2.5, overshoot, 6); // liveUT - boundEndUT
+        }
+
+        [Theory]
+        [InlineData("gap-between-orbit-segments")]          // mid-recording gap, orbit segments still ahead
+        [InlineData("tracking-station-committed-null")]     // bookkeeping teardown (no committed list)
+        [InlineData("tracking-station-index-stale")]        // bookkeeping teardown (stale index)
+        [InlineData("tracking-station-recording-missing")]  // degenerate teardown (rec == null)
+        [InlineData("mission-loop-out-of-window")]
+        [InlineData("tracking-station-state-vector-expired")]
+        [InlineData("tracking-station-spawned-real-vessel")]
+        [InlineData("chain-segment-replaced")]
+        public void ShouldAssertTerminalOrbitBoundClamp_NonTerminalReason_DoesNotAssert(string reason)
+        {
+            // ONLY the two genuine terminal-orbit handoffs (left-orbit-segments / tracking-station-expired)
+            // may trigger the positive clamp assertion. Every bookkeeping / degenerate / non-terminal
+            // teardown must be excluded so the "did not overshoot the deorbit" line is never misleading.
+            Assert.False(GhostMapPresence.ShouldAssertTerminalOrbitBoundClamp(
+                reason, hadOrbitBounds: true, boundEndUT: 1000.0, liveUT: 1002.5, out double overshoot));
+            Assert.True(double.IsNaN(overshoot));
+        }
+
+        [Fact]
+        public void ShouldAssertTerminalOrbitBoundClamp_NoOrbitBounds_DoesNotAssert()
+        {
+            // A state-vector ghost (no segment bounds) carries no deorbit bound to clamp against.
+            Assert.False(GhostMapPresence.ShouldAssertTerminalOrbitBoundClamp(
+                "tracking-station-expired", hadOrbitBounds: false, boundEndUT: double.NaN, liveUT: 1002.5,
+                out double overshoot));
+            Assert.True(double.IsNaN(overshoot));
+        }
+
+        [Theory]
+        [InlineData(double.NaN, 1002.5)]
+        [InlineData(1000.0, double.PositiveInfinity)]
+        public void ShouldAssertTerminalOrbitBoundClamp_NonFiniteInputs_DoNotAssert(double boundEndUT, double liveUT)
+        {
+            Assert.False(GhostMapPresence.ShouldAssertTerminalOrbitBoundClamp(
+                "left-orbit-segments", hadOrbitBounds: true, boundEndUT, liveUT, out double overshoot));
+            Assert.True(double.IsNaN(overshoot));
+        }
     }
 }

@@ -1231,5 +1231,53 @@ namespace Parsek.Tests
             // A few km on a 730 km orbit (under the 50 km floor and under 5 percent) -> anchor.
             Assert.False(GhostTrajectoryPolylineRenderer.IsSeamResidualTooLarge(3f, 4f, 730f));
         }
+
+        // --- BodyFixedLongitudeAtUT (one-sided-bracket diagnostic rotation basis) ---
+
+        [Fact]
+        public void BodyFixedLongitudeAtUT_LiveEqualsStartUT_ReturnsRecordedLonUnchanged()
+        {
+            // At the aligned instant (liveUT == legStartUT) there is no spin to undo, so the
+            // body-fixed point is evaluated at its raw recorded longitude.
+            Assert.Equal(
+                50.0,
+                GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(50.0, 1000.0, 1000.0, 360.0),
+                10);
+        }
+
+        [Fact]
+        public void BodyFixedLongitudeAtUT_LiveAheadOfStartUT_CounterRotatesWest()
+        {
+            // period 360 s -> 1 deg/s. Live is 10 s past legStartUT, so the planet has spun +10 deg
+            // east; the corrected longitude rolls back 10 deg west to undo that drift.
+            Assert.Equal(
+                40.0,
+                GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(50.0, 1000.0, 1010.0, 360.0),
+                10);
+        }
+
+        [Fact]
+        public void BodyFixedLongitudeAtUT_ShiftScalesWithElapsedSpin()
+        {
+            // A half-period of elapsed live time counter-rotates by exactly 180 deg.
+            Assert.Equal(
+                -130.0, // 50 - 180
+                GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(50.0, 1000.0, 1180.0, 360.0),
+                10);
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        public void BodyFixedLongitudeAtUT_NonRotatingOrInvalidPeriod_ReturnsRecordedLon(double period)
+        {
+            // A non-rotating body (or an unavailable rotation period) has no spin drift to undo, so
+            // the recorded longitude is returned verbatim regardless of the legStartUT/liveUT gap.
+            Assert.Equal(
+                50.0,
+                GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(50.0, 1000.0, 9999.0, period),
+                10);
+        }
     }
 }

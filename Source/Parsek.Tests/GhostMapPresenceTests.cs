@@ -1973,6 +1973,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetTrackingStationGhostRemovalReason_NullRecording_ReturnsRecordingMissing()
+        {
+            // A degenerate teardown (no recording behind the ghost index) must NOT reuse the genuine
+            // terminal reason "tracking-station-expired", or it would mis-trigger the positive
+            // deorbit-clamp assertion in RemoveGhostVesselForRecording.
+            string reason = GhostMapPresence.GetTrackingStationGhostRemovalReason(
+                rec: null,
+                isSuppressed: false,
+                hasOrbitBounds: true,
+                currentUT: 320);
+
+            Assert.Equal("tracking-station-recording-missing", reason);
+        }
+
+        [Fact]
         public void GetTrackingStationGhostRemovalReason_MaterializedLoopMemberInWindow_KeepsGhost()
         {
             // A Mission-loop member replaying inside its window keeps its map ghost even
