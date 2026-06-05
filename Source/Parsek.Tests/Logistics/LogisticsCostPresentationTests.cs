@@ -160,14 +160,18 @@ namespace Parsek.Tests.Logistics
         // FormatDetailTooltip
         // ------------------------------------------------------------------
 
-        // catches: the tooltip losing the net definition or the D1 gross-charge
-        // caveat (the player must know the per-cycle charge is still gross).
+        // catches: the tooltip losing the net definition or the recovery-credit
+        // timing note (the player must know gross is fronted at dispatch and the
+        // recovered amount is credited back one cycle later).
         [Fact]
-        public void FormatDetailTooltip_ExplainsNetAndD1Caveat()
+        public void FormatDetailTooltip_ExplainsNetAndCreditTiming()
         {
             string s = LogisticsCostPresentation.FormatDetailTooltip(Cost(12500.0, 7300.0, 1));
             Assert.Contains("launch cost - recovered credits", s);
-            Assert.Contains("per-cycle charge is currently the gross launch cost", s);
+            Assert.Contains("per-cycle charge now matches the displayed net", s);
+            Assert.Contains("credited back one cycle later", s);
+            // The pre-feature "currently the gross" caveat must be gone.
+            Assert.DoesNotContain("currently the gross launch cost", s);
             // With recovery the recover-to-reduce hint must NOT appear (already done).
             Assert.DoesNotContain(LogisticsCostPresentation.RecoverToReduceHint, s);
             AssertAsciiNoEmDash(s);

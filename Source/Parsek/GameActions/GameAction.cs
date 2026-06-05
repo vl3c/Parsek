@@ -77,7 +77,23 @@ namespace Parsek
         /// can only be cleared by explicit unpause. Reason text is in
         /// <see cref="GameAction.RouteEndpointReason"/>.
         /// </summary>
-        RouteEndpointLost     = 27
+        RouteEndpointLost     = 27,
+
+        /// <summary>
+        /// Deferred per-cycle recovery credit for a Career, KSC-origin Supply Route
+        /// (logistics-recovery-credit plan, design doc section 6.1). Emitted ONE
+        /// dispatch interval after a dispatched cycle (at the next dock crossing),
+        /// keyed on the PRIOR dispatched cycle it pays back via
+        /// <see cref="GameAction.RouteCycleId"/>. The credit amount (the source
+        /// tree's per-run recovery, summed by
+        /// <c>RouteRunCostCalculator.SumRecoveredCredits</c>) is stored as a
+        /// positive magnitude in <see cref="GameAction.RouteKscFundsCost"/>; the
+        /// action TYPE carries the credit direction. Processed by
+        /// <see cref="FundsModule"/> as a fund EARNING so a rewind / re-fly /
+        /// tombstone reverses it through the same recalc + patch path that reverses
+        /// a recovery <see cref="GameActionType.FundsEarning"/>.
+        /// </summary>
+        RouteRecoveryCredited = 28
     }
 
     /// <summary>How science was collected — transmitted from orbit or recovered on the ground.</summary>
@@ -654,6 +670,9 @@ namespace Parsek
                 case GameActionType.RouteEndpointLost:
                     SerializeRouteEndpointLost(node);
                     break;
+                case GameActionType.RouteRecoveryCredited:
+                    SerializeRouteRecoveryCredited(node);
+                    break;
             }
         }
 
@@ -787,6 +806,9 @@ namespace Parsek
                     break;
                 case GameActionType.RouteEndpointLost:
                     DeserializeRouteEndpointLost(node, a);
+                    break;
+                case GameActionType.RouteRecoveryCredited:
+                    DeserializeRouteRecoveryCredited(node, a);
                     break;
             }
 
@@ -1212,6 +1234,23 @@ namespace Parsek
         {
             ReadRouteCommon(n, a);
             a.RouteEndpointReason = n.GetValue("routeEndpointReason");
+        }
+
+        // RouteRecoveryCredited reuses the route-common identity codec plus the
+        // existing routeKscFundsCost float field for the credit amount (a positive
+        // magnitude; the action type carries the credit direction, same convention
+        // as RouteCargoDebited / RouteCargoDelivered). No new serialized field.
+        private void SerializeRouteRecoveryCredited(ConfigNode n)
+        {
+            WriteRouteCommon(n);
+            if (RouteKscFundsCost != 0f)
+                n.AddValue("routeKscFundsCost", RouteKscFundsCost.ToString("R", IC));
+        }
+
+        private static void DeserializeRouteRecoveryCredited(ConfigNode n, GameAction a)
+        {
+            ReadRouteCommon(n, a);
+            TryParseFloat(n, "routeKscFundsCost", out a.RouteKscFundsCost);
         }
 
         /// <summary>

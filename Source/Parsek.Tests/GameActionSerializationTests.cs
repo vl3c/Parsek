@@ -1144,6 +1144,50 @@ namespace Parsek.Tests
             Assert.Equal("EndpointLost:OrbitalNoFallback", result.RouteEndpointReason);
         }
 
+        // T-TYPE (logistics-recovery-credit section 9): the new credit row
+        // round-trips with RouteId / RouteCycleId / RouteKscFundsCost preserved.
+        [Fact]
+        public void Serialize_RouteRecoveryCredited_RoundTripsIdsAndAmount()
+        {
+            var original = new GameAction
+            {
+                UT = 54000.0,
+                Type = GameActionType.RouteRecoveryCredited,
+                RouteId = "route-credit",
+                RouteCycleId = "cycle-3", // the PRIOR dispatched cycle it pays back
+                RouteStopIndex = -1,
+                Sequence = 0,
+                RouteKscFundsCost = 7300f // positive magnitude; type carries the credit direction
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.RouteRecoveryCredited, result.Type);
+            Assert.Equal("route-credit", result.RouteId);
+            Assert.Equal("cycle-3", result.RouteCycleId);
+            Assert.Equal(7300f, result.RouteKscFundsCost);
+        }
+
+        // T-TYPE forward-safety: an unknown future type id does NOT throw; it
+        // deserializes to a warn + skip (the row keeps its default type, the
+        // unknown id is logged). Guards GameAction.cs Enum.IsDefined behavior.
+        [Fact]
+        public void Deserialize_UnknownRouteTypeId_WarnsAndDoesNotThrow()
+        {
+            var node = new ConfigNode("GAME_ACTION");
+            node.AddValue("ut", "55000");
+            node.AddValue("type", "9999"); // not a defined GameActionType
+            node.AddValue("routeId", "route-future");
+
+            GameAction result = null;
+            var ex = Record.Exception(() => result = GameAction.DeserializeFrom(node));
+            Assert.Null(ex);
+            Assert.NotNull(result);
+            // RouteRecoveryCredited (28) is the highest DEFINED id; 9999 is unknown,
+            // so the type field stays at its default and the row is harmless.
+            Assert.NotEqual((GameActionType)9999, result.Type);
+        }
+
         [Fact]
         public void Serialize_RouteAction_OmitsZeroAndNullFields()
         {

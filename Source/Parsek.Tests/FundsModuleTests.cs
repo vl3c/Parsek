@@ -997,5 +997,139 @@ namespace Parsek.Tests
             module.ProcessAction(MakeFundsEarning(10, 5000f, FundsEarningSource.Recovery, "r1"));
             Assert.False(module.HasSeed);
         }
+
+        // ================================================================
+        // logistics-recovery-credit (Option A): route credit + debit in the walk
+        // ================================================================
+
+        private static GameAction MakeRouteCredit(double ut, float amount,
+            string routeId = "route-1", string cycleId = "cycle-0", bool effective = true)
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.RouteRecoveryCredited,
+                RouteId = routeId,
+                RouteCycleId = cycleId,
+                RouteKscFundsCost = amount, // positive magnitude; type carries the sign
+                Effective = effective
+            };
+        }
+
+        private static GameAction MakeRouteDebit(double ut, float kscCost,
+            string routeId = "route-1", string cycleId = "cycle-0")
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.RouteCargoDebited,
+                RouteId = routeId,
+                RouteCycleId = cycleId,
+                RouteKscFundsCost = kscCost
+            };
+        }
+
+        // T-FUNDSMODULE-CREDIT: the credit is processed as a fund EARNING (adds to
+        // balance + totalEarnings), reading RouteKscFundsCost.
+        [Fact]
+        public void RouteRecoveryCredited_AddsToBalanceAndTotalEarnings()
+        {
+            module.ProcessAction(MakeSeed(0, 25000f));
+            module.ProcessAction(MakeRouteCredit(100, 7300f));
+
+            Assert.Equal(32300.0, module.GetRunningBalance());
+            Assert.Equal(7300.0, module.GetTotalEarnings());
+        }
+
+        // T-FUNDSMODULE-CREDIT: a non-effective credit is skipped (symmetry with
+        // the FundsEarning path).
+        [Fact]
+        public void RouteRecoveryCredited_NonEffective_Skipped()
+        {
+            module.ProcessAction(MakeSeed(0, 25000f));
+            module.ProcessAction(MakeRouteCredit(100, 7300f, effective: false));
+
+            Assert.Equal(25000.0, module.GetRunningBalance());
+            Assert.Equal(0.0, module.GetTotalEarnings());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Funds]") && l.Contains("RouteRecoveryCredited skipped") && l.Contains("not effective"));
+        }
+
+        // T-FUNDSMODULE-CREDIT: projection delta is the positive credit amount.
+        [Fact]
+        public void RouteRecoveryCredited_ProjectionDelta_Positive()
+        {
+            bool ok = module.TryGetProjectionDelta(MakeRouteCredit(100, 7300f), out double delta);
+            Assert.True(ok);
+            Assert.Equal(7300.0, delta);
+        }
+
+        [Fact]
+        public void RouteRecoveryCredited_ProjectionDelta_NonEffective_False()
+        {
+            bool ok = module.TryGetProjectionDelta(MakeRouteCredit(100, 7300f, effective: false), out double delta);
+            Assert.False(ok);
+            Assert.Equal(0.0, delta);
+        }
+
+        // T-FUNDSMODULE-DEBIT (Option A): the gross debit subtracts RouteKscFundsCost.
+        [Fact]
+        public void RouteCargoDebited_SubtractsFromBalance()
+        {
+            module.ProcessAction(MakeSeed(0, 25000f));
+            module.ProcessAction(MakeRouteDebit(100, 12500f));
+
+            Assert.Equal(12500.0, module.GetRunningBalance());
+        }
+
+        // T-FUNDSMODULE-DEBIT: ComputeTotalSpendings counts the route debit.
+        [Fact]
+        public void ComputeTotalSpendings_IncludesRouteCargoDebit()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeRouteDebit(100, 12500f),
+                MakeFundsSpending(10, 5000f, FundsSpendingSource.VesselBuild)
+            };
+
+            module.ComputeTotalSpendings(actions);
+
+            Assert.Equal(17500.0, module.GetTotalCommittedSpendings());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Funds]") && l.Contains("ComputeTotalSpendings") && l.Contains("routeDebits=1"));
+        }
+
+        // T-FUNDSMODULE-DEBIT: projection delta is the negative gross.
+        [Fact]
+        public void RouteCargoDebited_ProjectionDelta_Negative()
+        {
+            bool ok = module.TryGetProjectionDelta(MakeRouteDebit(100, 12500f), out double delta);
+            Assert.True(ok);
+            Assert.Equal(-12500.0, delta);
+        }
+
+        // T-FUNDSMODULE-DEBIT: a full walk over (seed, gross debit, recovery credit)
+        // yields GetAvailableFunds() == initial - gross + recovered. This is the
+        // end-to-end Option A invariant: the whole cycle reconciles through one
+        // module.
+        [Fact]
+        public void FullWalk_Debit_Then_Credit_NetsToInitialMinusGrossPlusRecovered()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeSeed(0, 25000f),
+                MakeRouteDebit(100, 12500f, cycleId: "cycle-0"),
+                MakeRouteCredit(400, 7300f, cycleId: "cycle-0") // one interval later
+            };
+
+            module.ComputeTotalSpendings(actions);
+            foreach (var a in actions)
+                module.ProcessAction(a);
+
+            // running balance = 25000 - 12500 + 7300 = 19800
+            Assert.Equal(19800.0, module.GetRunningBalance());
+            // available = initial + earnings - spendings = 25000 + 7300 - 12500 = 19800
+            Assert.Equal(19800.0, module.GetAvailableFunds());
+        }
     }
 }

@@ -165,6 +165,16 @@ namespace Parsek
                 case GameActionType.StrategyActivate:
                     ProcessStrategySetupCost(action);
                     break;
+                // Supply-route per-cycle funds (logistics-recovery-credit, Option A,
+                // design doc section 6.2/6.3). Both the gross dispatch debit and the
+                // deferred recovery credit flow through the recalc walk so a rewind /
+                // re-fly / tombstone reconciles them symmetrically via PatchFunds.
+                case GameActionType.RouteCargoDebited:
+                    ProcessRouteCargoDebited(action);
+                    break;
+                case GameActionType.RouteRecoveryCredited:
+                    ProcessRouteRecoveryCredited(action);
+                    break;
                 // All other action types: ignore silently
             }
         }
@@ -201,6 +211,7 @@ namespace Parsek
             int facilityCostCount = 0;
             int hireCostCount = 0;
             int setupCostCount = 0;
+            int routeDebitCount = 0;
             for (int i = 0; i < actions.Count; i++)
             {
                 var a = actions[i];
@@ -230,12 +241,21 @@ namespace Parsek
                         totalCommittedSpendings += (double)a.SetupCost;
                         setupCostCount++;
                         break;
+                    case GameActionType.RouteCargoDebited:
+                        // Option A: the gross dispatch debit is a fund spending so the
+                        // reservation projection and the recalc target reflect it. A
+                        // zero RouteKscFundsCost (Sandbox / Science / non-KSC) adds
+                        // nothing, matching the live debit's gate.
+                        totalCommittedSpendings += (double)a.RouteKscFundsCost;
+                        routeDebitCount++;
+                        break;
                 }
             }
 
             ParsekLog.Verbose(Tag,
                 $"ComputeTotalSpendings: spendings={spendingCount}, penalties={penaltyCount}, " +
                 $"facilityCosts={facilityCostCount}, hireCosts={hireCostCount}, setupCosts={setupCostCount}, " +
+                $"routeDebits={routeDebitCount}, " +
                 $"totalCommittedSpendings={totalCommittedSpendings.ToString("R", IC)}");
         }
 
@@ -498,6 +518,70 @@ namespace Parsek
                 $"runningBalance={runningBalance.ToString("R", IC)}");
         }
 
+        /// <summary>
+        /// Processes RouteCargoDebited (logistics-recovery-credit, Option A): the
+        /// gross per-cycle dispatch debit is a fund SPENDING in the recalc walk so
+        /// the recalc target reflects funds going OUT at dispatch, mirroring the
+        /// live <c>LiveDebitFunds</c> mutation. The amount is the positive
+        /// <see cref="GameAction.RouteKscFundsCost"/> (zero in Sandbox / Science /
+        /// non-KSC, which adds nothing). Unconditional (no Effective gate): a route
+        /// debit row always represents real funds charged at dispatch. Routing the
+        /// debit through the walk is what makes the credit's PatchFunds reconcile
+        /// faithful (design doc section 6.3 consistency requirement) and closes the
+        /// pre-feature gross-charge rewind hole (section 3.2).
+        /// </summary>
+        private void ProcessRouteCargoDebited(GameAction action)
+        {
+            double cost = (double)action.RouteKscFundsCost;
+            if (cost == 0.0)
+                return;
+
+            runningBalance -= cost;
+
+            ParsekLog.Verbose(Tag,
+                $"RouteCargoDebited: -{cost.ToString("R", IC)}, " +
+                $"routeId={action.RouteId ?? "(none)"}, " +
+                $"cycleId={action.RouteCycleId ?? "(none)"}, " +
+                $"runningBalance={runningBalance.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// Processes RouteRecoveryCredited (logistics-recovery-credit, design doc
+        /// section 6.2): the deferred per-cycle recovery credit is a fund EARNING,
+        /// the exact mirror of <see cref="ProcessFundsEarning"/> but reading the
+        /// amount from <see cref="GameAction.RouteKscFundsCost"/> (a positive
+        /// magnitude; the action type carries the sign). Gated on
+        /// <see cref="GameAction.Effective"/> for symmetry with the earning path.
+        /// Adding it to <c>runningBalance</c> and <c>totalEarnings</c> here is what
+        /// makes a cutoff walk (rewind) or a tombstone (re-fly) un-credit it with
+        /// no new rollback code: a credit excluded from the walk drops
+        /// <c>GetAvailableFunds()</c> and <c>PatchFunds</c> reconciles live funds
+        /// down.
+        /// </summary>
+        private void ProcessRouteRecoveryCredited(GameAction action)
+        {
+            if (!action.Effective)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RouteRecoveryCredited skipped (not effective): " +
+                    $"amount={action.RouteKscFundsCost.ToString("R", IC)}, " +
+                    $"routeId={action.RouteId ?? "(none)"}, " +
+                    $"cycleId={action.RouteCycleId ?? "(none)"}");
+                return;
+            }
+
+            double amount = (double)action.RouteKscFundsCost;
+            runningBalance += amount;
+            totalEarnings += amount;
+
+            ParsekLog.Verbose(Tag,
+                $"RouteRecoveryCredited: +{amount.ToString("R", IC)}, " +
+                $"routeId={action.RouteId ?? "(none)"}, " +
+                $"cycleId={action.RouteCycleId ?? "(none)"}, " +
+                $"runningBalance={runningBalance.ToString("R", IC)}, " +
+                $"totalEarnings={totalEarnings.ToString("R", IC)}");
+        }
+
         // ================================================================
         // Query methods
         // ================================================================
@@ -575,6 +659,18 @@ namespace Parsek
                     return true;
                 case GameActionType.StrategyActivate:
                     delta = -(double)action.SetupCost;
+                    return true;
+                // Option A: the gross route debit projects negative (funds out at
+                // dispatch); the deferred recovery credit projects positive (funds
+                // back one interval later). Both must appear in the cashflow
+                // projection so a route's future debit/credit pair is seen by the
+                // reservation system, not just the immediate live mutation.
+                case GameActionType.RouteCargoDebited:
+                    delta = -(double)action.RouteKscFundsCost;
+                    return true;
+                case GameActionType.RouteRecoveryCredited:
+                    if (!action.Effective) return false;
+                    delta = (double)action.RouteKscFundsCost;
                     return true;
                 default:
                     return false;

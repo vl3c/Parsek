@@ -199,6 +199,43 @@ namespace Parsek.Logistics
         /// </summary>
         internal static bool TryPause(Route route)
         {
+            // Production entry: resolve the live UT + env so the final-owed recovery
+            // credit can be flushed on the immediate-pause transition (section 5.4).
+            // Resolve defensively: a degenerate environment (early load, or an
+            // off-Unity context) must NOT block the pause. If the live values cannot
+            // be obtained, pass a null env / -1 UT and the flush no-ops safely
+            // (EmitPendingRecoveryCredit fails the Career gate on a null env and
+            // clears any stale pending marker without emitting).
+            double ut = -1.0;
+            IRouteRuntimeEnvironment env = null;
+            try
+            {
+                ut = Planetarium.GetUniversalTime();
+                env = new LiveRouteRuntimeEnvironment();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TryPause: live UT/env resolution threw {ex.GetType().Name}: {ex.Message}; " +
+                    "pausing without a recovery-credit flush");
+            }
+            return TryPause(route, ut, env);
+        }
+
+        /// <summary>
+        /// Env-injected pause used by unit tests, and the implementation the
+        /// parameterless <see cref="TryPause(Route)"/> delegates to with live
+        /// values. The <paramref name="currentUT"/> / <paramref name="env"/> are
+        /// threaded so the IMMEDIATE-pause transition (section 5.4) can flush the
+        /// route's last dispatched cycle's owed recovery credit before the route
+        /// goes quiet (a loop-route that stops crossing never reaches its "next
+        /// crossing", so the deferred credit would otherwise be stranded forever).
+        /// The InTransit pause-after-cycle path does NOT flush here: that cycle's
+        /// credit is flushed at the armed-pause transition in
+        /// <see cref="ApplyDeliveryFromPlan"/> instead.
+        /// </summary>
+        internal static bool TryPause(Route route, double currentUT, IRouteRuntimeEnvironment env)
+        {
             if (route == null)
             {
                 ParsekLog.Info(Tag, "TryPause: route=null");
@@ -218,6 +255,11 @@ namespace Parsek.Logistics
                     "(current cycle finishes, then route pauses)");
                 return true;
             }
+
+            // Flush the final owed recovery credit before the route stops crossing
+            // (section 5.4). Idempotent via guard 3; no-ops on the Career-KSC gate /
+            // zero-recovery branch if the route owes nothing.
+            EmitPendingRecoveryCredit(route, currentUT, env);
 
             route.PauseAfterCurrentCycle = false;
             route.TransitionTo(RouteStatus.Paused, "player-pause");
@@ -551,6 +593,13 @@ namespace Parsek.Logistics
 
             if (!elig.Eligible)
             {
+                // Recovery-credit deferral across a blocked gap (logistics-recovery-credit
+                // section 7): a blocked crossing emits NO credit of its OWN (it did not
+                // dispatch), but it IS the "next crossing" for the PRIOR dispatched
+                // cycle, so flush that prior cycle's owed credit here too. If the prior
+                // cycle did not dispatch, the pending marker is null and this no-ops.
+                EmitPendingRecoveryCredit(route, currentUT, env);
+
                 // Blocked cycle: emit NOTHING (no debit, no delivery; the ghost
                 // still renders — "world looks busy, transfers nothing"). Bump
                 // SkippedCycles and STILL snap the cycle index forward (to the
@@ -788,6 +837,15 @@ namespace Parsek.Logistics
         internal static bool EmitLoopCycle(
             Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId)
         {
+            // Recovery-credit deferral (logistics-recovery-credit section 5.2/5.3):
+            // flush the PRIOR dispatched cycle's owed credit FIRST, at THIS
+            // crossing's UT, BEFORE the delivery-keyed replay short-circuit below.
+            // The crash-window note (section 5.3) requires this ordering: a crossing
+            // that replay-skips its OWN delivery must still flush the PRIOR cycle's
+            // owed credit, so the flush cannot sit behind the IsDeliveryAlreadyInLedger
+            // return. Idempotent via the credit's own keyed backstop (guard 3).
+            EmitPendingRecoveryCredit(route, currentUT, env);
+
             // ELS idempotency backstop (must-fix #4). LastObservedLoopCycleIndex
             // (persisted via the Phase 1 codec) is the PRIMARY re-fire guard, but a
             // save/reload mid-cycle, a Rewind, or a double-tick can re-present the
@@ -815,6 +873,23 @@ namespace Parsek.Logistics
             // Dispatch + debit half (RouteDispatched Sequence 0, RouteCargoDebited
             // Sequence 1, origin/funds debit, sets KscDispatchFundsCost).
             EmitDispatchDebit(route, currentUT, env, cycleId);
+
+            // Recovery-credit deferral (logistics-recovery-credit section 5.2): this
+            // cycle just dispatched a (potential) Career-KSC charge, so it now OWES a
+            // recovery credit to be flushed on the NEXT crossing. Set the pending
+            // marker only when this cycle actually dispatched a Career-KSC charge
+            // (gotcha G5: no charge -> no credit owed). The prior cycle's credit was
+            // already flushed above; this overwrites the cleared marker with this
+            // cycle's id. Persisted by RouteCodec (section 5.6) so a save/reload
+            // between crossings does not drop the owed credit.
+            if (env != null && env.IsCareer && route.IsKscOrigin)
+            {
+                route.PendingRecoveryCreditCycleId = cycleId;
+                route.PendingRecoveryCreditDispatchUT = currentUT;
+                ParsekLog.Verbose(Tag,
+                    $"EmitLoopCycle: route {ShortIdForLog(route)} armed pending recovery credit " +
+                    $"cycle={cycleId} dispatchUT={currentUT.ToString("R", IC)}");
+            }
 
             // Delivery half. ApplyDelivery resolves the live destination vessel,
             // plans + applies the fill, debits Career funds, emits
@@ -1140,6 +1215,11 @@ namespace Parsek.Logistics
                     $"Delivery: route {ShortIdForLog(route)} cycle={cycleId} endpoint lost at delivery " +
                     $"reason={endpointReason ?? "<none>"}");
                 EmitEndpointLostAction(route, currentUT, "endpoint-destroyed-at-delivery:" + (endpointReason ?? "unknown"));
+                // Recovery-credit deferral tail (logistics-recovery-credit section 5.4):
+                // this cycle dispatched + armed its pending credit during EmitLoopCycle,
+                // and an EndpointLost route stops crossing, so flush the owed credit
+                // before the route goes quiet. Idempotent / gated; no-ops if nothing owed.
+                EmitPendingRecoveryCredit(route, currentUT, env);
                 route.TransitionTo(RouteStatus.EndpointLost, "endpoint-lost-at-delivery");
                 route.PendingDeliveryUT = null;
                 route.PendingStopIndex = -1;
@@ -1337,6 +1417,15 @@ namespace Parsek.Logistics
             // un-pause + dispatch doesn't auto-pause again.
             if (route.PauseAfterCurrentCycle)
             {
+                // Armed pause-after-cycle tail (logistics-recovery-credit section 5.4):
+                // this cycle SET its pending recovery credit during its own
+                // EmitLoopCycle (right after EmitDispatchDebit), and there is no
+                // further crossing because the route is about to go quiet, so flush
+                // the pending credit here before TransitionTo(Paused). The ctx
+                // career/KSC flags drive the gate (no live env in scope here).
+                EmitPendingRecoveryCredit(
+                    route, ctx.CurrentUT, new ApplyDeliveryEnvAdapter(ctx.IsCareer));
+
                 route.PauseAfterCurrentCycle = false;
                 string reason = plan.IsPartial ? "delivered-partial-then-paused" : "delivered-then-paused";
                 route.TransitionTo(RouteStatus.Paused, reason);
@@ -1390,6 +1479,190 @@ namespace Parsek.Logistics
                 return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// ELS-based idempotency check for the recovery credit
+        /// (logistics-recovery-credit, design doc section 6.4). Exact structural
+        /// mirror of <see cref="IsDeliveryAlreadyInLedger"/> but scanning for a
+        /// <see cref="GameActionType.RouteRecoveryCredited"/> row with the same
+        /// <c>(RouteId, RouteCycleId)</c> pair. Keyed on the CREDIT's own row (the
+        /// PRIOR dispatched cycle it pays back), NOT on the delivery row, so a
+        /// present delivery for the current crossing is never mistaken for "credit
+        /// already emitted" (gotcha G6). Reads ELS (supersede / tombstone aware): a
+        /// tombstoned credit row must NOT block re-emitting a fresh credit on a
+        /// re-fly, and ELS hides tombstoned rows, so this is the right surface.
+        /// </summary>
+        private static bool IsRecoveryCreditAlreadyInLedger(string routeId, string cycleId)
+        {
+            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
+                return false;
+
+            IReadOnlyList<GameAction> els;
+            try
+            {
+                els = EffectiveState.ComputeELS();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"IsRecoveryCreditAlreadyInLedger: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as not-in-ledger");
+                return false;
+            }
+
+            if (els == null) return false;
+            for (int i = 0; i < els.Count; i++)
+            {
+                GameAction a = els[i];
+                if (a == null) continue;
+                if (a.Type != GameActionType.RouteRecoveryCredited) continue;
+                if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
+                if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// ELS reader for the recovery-credit AMOUNT computation. Exception-safe:
+        /// a throw is treated as "no recoveries" (empty list), so a degenerate
+        /// ledger state never crashes the crossing. Mirrors the try/catch in
+        /// <see cref="IsRecoveryCreditAlreadyInLedger"/>.
+        /// </summary>
+        private static IReadOnlyList<GameAction> SafeComputeEls()
+        {
+            try
+            {
+                return EffectiveState.ComputeELS();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"SafeComputeEls: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as empty");
+                return Array.Empty<GameAction>();
+            }
+        }
+
+        /// <summary>
+        /// Flush the PRIOR dispatched cycle's deferred recovery credit at
+        /// <paramref name="currentUT"/> (logistics-recovery-credit, design doc
+        /// section 5.2). Emits a single
+        /// <see cref="GameActionType.RouteRecoveryCredited"/> row keyed on the
+        /// PENDING (prior dispatched) cycle id and applies the matching live stock
+        /// credit, then clears the pending marker. Returns true when a credit row
+        /// was emitted (for the caller's log line). Called from the TOP of
+        /// <see cref="EmitLoopCycle"/> (before the delivery-keyed replay
+        /// short-circuit), from the blocked-cycle branch, and from the pause / stop
+        /// transitions (section 5.4) so the deferral stays honest across blocked
+        /// gaps and the route's final dispatched cycle. Idempotent (guard 3): a
+        /// re-presented crossing whose credit already landed emits nothing.
+        ///
+        /// <para>Career + KSC origin only (gotcha G5). A pending id can only have
+        /// been set on a Career-KSC dispatch, but the gate is re-checked
+        /// defensively in case env flips (e.g. a save copied into Sandbox); a stale
+        /// pending marker is then CLEARED without emitting.</para>
+        /// </summary>
+        internal static bool EmitPendingRecoveryCredit(
+            Route route, double currentUT, IRouteRuntimeEnvironment env)
+        {
+            if (route == null)
+            {
+                ParsekLog.Verbose(Tag, "EmitPendingRecoveryCredit: null route");
+                return false;
+            }
+
+            // Nothing owed (fresh route, or already flushed). Not an error.
+            string pendingCycleId = route.PendingRecoveryCreditCycleId;
+            if (string.IsNullOrEmpty(pendingCycleId))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"EmitPendingRecoveryCredit: route {ShortIdForLog(route)} no pending credit at " +
+                    $"ut={currentUT.ToString("R", IC)}");
+                return false;
+            }
+
+            // Gate: Career + KSC origin only. Mirror EmitDispatchDebit's isCareerKsc.
+            bool isCareerKsc = env != null && env.IsCareer && route.IsKscOrigin;
+            if (!isCareerKsc)
+            {
+                ClearPendingRecoveryCredit(route);
+                ParsekLog.Info(Tag,
+                    $"EmitPendingRecoveryCredit: route {ShortIdForLog(route)} cycle={pendingCycleId} " +
+                    $"credit-skip non-career-ksc (career={(env != null && env.IsCareer ? "1" : "0")} " +
+                    $"ksc={(route.IsKscOrigin ? "1" : "0")}): cleared pending");
+                return false;
+            }
+
+            // Idempotency backstop (guard 3): do not emit a second credit for the
+            // same (RouteId, pendingCycleId). A save/reload re-presented this
+            // crossing whose pending credit was already flushed.
+            if (IsRecoveryCreditAlreadyInLedger(route.Id, pendingCycleId))
+            {
+                ClearPendingRecoveryCredit(route);
+                ParsekLog.Info(Tag,
+                    $"EmitPendingRecoveryCredit: route {ShortIdForLog(route)} cycle={pendingCycleId} " +
+                    "replay (credit already in ledger): emitting nothing, cleared stale pending");
+                return false;
+            }
+
+            // Amount: reuse SumRecoveredCredits over the source tree, read from ELS.
+            HashSet<string> treeIds = RouteRunCostCalculator.ResolveTreeRecordingIds(route);
+            IReadOnlyList<GameAction> els = SafeComputeEls();
+            double recovered = RouteRunCostCalculator.SumRecoveredCredits(route, els, treeIds, out int n);
+            if (recovered <= 0.0)
+            {
+                ClearPendingRecoveryCredit(route);
+                ParsekLog.Info(Tag,
+                    $"EmitPendingRecoveryCredit: route {ShortIdForLog(route)} cycle={pendingCycleId} " +
+                    $"credit-skip zero-recovery (recoveryRows={n.ToString(IC)}): cleared pending");
+                return false;
+            }
+
+            double dispatchUTForLog = route.PendingRecoveryCreditDispatchUT;
+
+            // Emit the credit row (section 6.1) and apply the live stock credit
+            // (section 6.3). Sequence 0: emitted FIRST at this crossing's UT,
+            // before this cycle's RouteDispatched (which is Sequence 0 too at a
+            // LATER-or-equal UT, but the credit's RouteCycleId names the PRIOR
+            // cycle, so the keys never collide).
+            var credit = new GameAction
+            {
+                Type = GameActionType.RouteRecoveryCredited,
+                UT = currentUT,
+                RouteId = route.Id,
+                RouteCycleId = pendingCycleId,
+                RouteStopIndex = -1,
+                Sequence = 0,
+                RouteKscFundsCost = (float)recovered, // positive magnitude; type carries the credit direction
+            };
+            Ledger.AddAction(credit);
+
+            var funder = RecoveryCreditFunderForTesting;
+            if (funder != null)
+                funder(recovered);
+            else
+                LiveCreditFunds(recovered);
+
+            ClearPendingRecoveryCredit(route);
+
+            ParsekLog.Info(Tag,
+                $"RecoveryCredit: route {ShortIdForLog(route)} creditedCycle={pendingCycleId} " +
+                $"recovered={recovered.ToString("R", IC)} recoveryRows={n.ToString(IC)} " +
+                $"ut={currentUT.ToString("R", IC)} dispatchUT={dispatchUTForLog.ToString("R", IC)}");
+            return true;
+        }
+
+        /// <summary>
+        /// Clears the recovery-credit pending marker back to its "no credit owed"
+        /// defaults (null cycle id, -1 dispatch UT). Single place the reset shape
+        /// is defined so every clear path (flush, skip, gate-fail) stays
+        /// consistent.
+        /// </summary>
+        private static void ClearPendingRecoveryCredit(Route route)
+        {
+            if (route == null) return;
+            route.PendingRecoveryCreditCycleId = null;
+            route.PendingRecoveryCreditDispatchUT = -1.0;
         }
 
         /// <summary>
@@ -1492,6 +1765,44 @@ namespace Parsek.Logistics
             }
         }
 
+        /// <summary>
+        /// Production funds-CREDIT delegate (logistics-recovery-credit, design doc
+        /// section 6.3). Mirror of <see cref="LiveDebitFunds"/> with a POSITIVE
+        /// delta: the deferred per-cycle recovery credit. Defensively null-checks
+        /// <c>Funding.Instance</c> (early-load ticks) and try/catches. This is the
+        /// immediate live effect; the recalc walk's <c>PatchFunds</c> is a
+        /// reconcile-to-target, NOT an additive replay, so the credit is not
+        /// double-applied (when no rewind has happened the target already includes
+        /// the credit as a FundsModule earning, so the delta is ~0). After a rewind
+        /// cutoff the credit row is excluded from the target while live funds still
+        /// carry this mutation, so PatchFunds subtracts it: reversible by
+        /// construction.
+        /// </summary>
+        private static void LiveCreditFunds(double amount)
+        {
+            try
+            {
+                if (Funding.Instance != null && amount > 0.0)
+                {
+                    Funding.Instance.AddFunds(+amount, TransactionReasons.None);
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"LiveCreditFunds({amount.ToString("R", IC)}) threw {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Production funds-credit seam for the recovery credit. Default routes to
+        /// <see cref="LiveCreditFunds"/>; xUnit assigns a fake that records the
+        /// credit amount without touching the <c>Funding</c> static (which is not
+        /// available off-Unity). Mirrors the
+        /// <see cref="DeliveryApplierForTesting"/> seam pattern.
+        /// </summary>
+        internal static Action<double> RecoveryCreditFunderForTesting;
+
         // ==================================================================
         // Delivery seam types (item 6 Phase B)
         // ==================================================================
@@ -1516,6 +1827,27 @@ namespace Parsek.Logistics
             public Func<int> InventoryActualCountReader;
             public Action<double> FundsDebiter;
             public Action<GameAction> LedgerEmitter;
+        }
+
+        /// <summary>
+        /// Minimal <see cref="IRouteRuntimeEnvironment"/> adapter carrying only the
+        /// Career flag, used to drive <see cref="EmitPendingRecoveryCredit"/>'s
+        /// Career + KSC gate from inside <see cref="ApplyDeliveryFromPlan"/> (the
+        /// armed pause-after-cycle credit flush, section 5.4), where the live env is
+        /// not in scope. <see cref="EmitPendingRecoveryCredit"/> reads only
+        /// <see cref="IsCareer"/> off the env; every other member is a never-called
+        /// stub. The KSC-origin half of the gate is read off the route, not the env.
+        /// </summary>
+        private sealed class ApplyDeliveryEnvAdapter : IRouteRuntimeEnvironment
+        {
+            public ApplyDeliveryEnvAdapter(bool isCareer) { IsCareer = isCareer; }
+            public bool IsCareer { get; }
+            public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = null; return false; }
+            public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = null; return false; }
+            public bool OriginHasCargo(Route route, out string lackingResource) { lackingResource = null; return false; }
+            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
+            public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = null; return true; }
+            public bool RouteHasValidSourcesInErs(Route route) => true;
         }
 
         // ==================================================================

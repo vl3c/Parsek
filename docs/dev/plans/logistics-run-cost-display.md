@@ -103,9 +103,9 @@ DECIDED (author, 2026-06-05): **display-only.** Show net (launch - recovered) as
 - Crediting recovery per cycle in the ledger touches `GameActionType` epoch-isolation / rollback contracts (design section 6.6 and the route ledger modules) and is a much bigger, riskier change.
 - This plan therefore leaves [Route.KscDispatchFundsCost](../../../Source/Parsek/Logistics/Route.cs:77) and `EmitDispatchDebit` untouched and only ADDS display.
 
-Consequence to call out in the UI tooltip: today the per-cycle charge is the GROSS launch cost; the net shown is what the run truly costs you once the transport is recovered. If the player does not recover the transport in the recorded flight, gross == net. A v1 follow-up (out of scope here) can reconcile the charge to the net.
+Consequence to call out in the UI tooltip: the per-cycle charge now matches the displayed net. The gross launch cost is fronted at dispatch and the recovered amount is credited back one cycle later (logistics-recovery-credit), so in steady state the per-cycle net equals the displayed net. If the player does not recover the transport in the recorded flight, gross == net.
 
-(Alternative, larger: actually credit recovery per cycle so the economy matches the headline. If chosen, this plan's Phase 3 expands to add a recovery-credit ledger row per cycle with epoch-isolation coverage. Flag and split into its own design before building.)
+(Alternative, larger: actually credit recovery per cycle so the economy matches the headline. DONE: implemented by `docs/dev/plans/logistics-recovery-credit.md`. The orchestrator now emits a deferred per-cycle `RouteRecoveryCredited` ledger row at the next dock crossing, keyed on the prior dispatched cycle, and FundsModule reverses both the gross debit and the credit through the recalc + tombstone path. The dispatch debit and the `KscFundsAvailable` gate stay on gross, so you still front the full build cost to launch.)
 
 ### D2. Display predicate
 Show the cost line/block only when `IsCareer && route.IsKscOrigin`. Reuse the career probe shape from [LiveRouteRuntimeEnvironment.IsCareer](../../../Source/Parsek/Logistics/LiveRouteRuntimeEnvironment.cs:50) (`HighLogic.CurrentGame.Mode == Game.Modes.CAREER`, defensively wrapped). For the route-creation summary the route object does not exist yet, so gate on `IsCareer && analysis-implies-KSC-origin`. Caution: the existing `Dispatch cost: TBD` line is gated on `mode == Game.Modes.CAREER` ONLY ([RouteCreationFormatters.cs:193](../../../Source/Parsek/Logistics/RouteCreationFormatters.cs:193)), with NO KSC-origin check, so a Career non-KSC route prints TBD today. The new block must ADD the KSC-origin gate (see Phase 3.2); do not assume the Career non-KSC path is already cost-free.
@@ -150,7 +150,7 @@ Keep tree-membership resolution (treeId -> recording-id set) in a small helper. 
 1. **Detail panel** ([DrawRouteDetail](../../../Source/Parsek/UI/LogisticsWindowUI.cs:1127)): when `leg.RunCost.Applicable && leg.RunCost.CostKnown`, add one `DetailLine` after the Interval/Transit/Cycles line ([:1180](../../../Source/Parsek/UI/LogisticsWindowUI.cs:1180)):
    - With recovery: `Cost/run: 5,200 funds  (launch 12,500 - recovered 7,300)`
    - No recovery: `Cost/run: 12,500 funds  (transport not recovered in the recording)` plus the recover-to-reduce hint in the tooltip.
-   - Tooltip: explain net = launch - recovered, that recovered is the actual distance-scaled payout, and the D1 caveat (per-cycle charge is currently gross). Pure formatting goes in `LogisticsDeliveryPresentation` (or a new `LogisticsCostPresentation`) for unit testing; the `*UI` file only draws.
+   - Tooltip: explain net = launch - recovered, that recovered is the actual distance-scaled payout, and the timing (gross fronted at dispatch, recovered credited back one cycle later, per logistics-recovery-credit). Pure formatting goes in `LogisticsDeliveryPresentation` (or a new `LogisticsCostPresentation`) for unit testing; the `*UI` file only draws.
    - When `!Applicable` (not Career, or non-KSC origin) OR `!CostKnown` (launch cost unavailable), draw nothing (no "n/a" line, no "0 funds" line).
 2. **Creation summary** ([BuildSummaryBlock](../../../Source/Parsek/Logistics/RouteCreationFormatters.cs:112)): replace the `Dispatch cost: TBD` line with the real block when Career + KSC origin:
    ```
@@ -174,8 +174,8 @@ Keep tree-membership resolution (treeId -> recording-id set) in a small helper. 
   - superseded/tombstoned recovery excluded because the input is `ComputeELS()` (feed an els list that already excludes it; document that the live ELS does the exclusion).
 - Presentation test for the formatted line/block (InvariantCulture, no em dashes, ASCII only, both with-recovery and no-recovery shapes).
 - CHANGELOG `## 0.10.0`: one user-facing line, e.g. "Logistics: route detail and creation summary now show the per-run funds cost (launch minus recovered credits) in Career."
-- `docs/dev/todo-and-known-bugs.md`: mark the run-cost display item done; note the D1 deferral (per-cycle charge still gross) as a known follow-up.
-- `docs/parsek-logistics-supply-routes-design.md` section 11 "KSC cost tuning": record that recovery-aware NET cost is now displayed, and that crediting recovery in the per-cycle CHARGE remains deferred (D1).
+- `docs/dev/todo-and-known-bugs.md`: mark the run-cost display item done. The D1 deferral (per-cycle charge stays gross) is now CLOSED: the deferred recovery credit reconciles the per-cycle charge to the displayed net (logistics-recovery-credit).
+- `docs/parsek-logistics-supply-routes-design.md` section 11 "KSC cost tuning": record that recovery-aware NET cost is now displayed, and that the per-cycle CHARGE now reconciles to the displayed net via the deferred recovery credit (no longer deferred).
 
 ---
 

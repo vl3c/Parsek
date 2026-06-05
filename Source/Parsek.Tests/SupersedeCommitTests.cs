@@ -152,15 +152,19 @@ namespace Parsek.Tests
             yield return new object[] { GameActionType.FundsInitial, false, false };
             yield return new object[] { GameActionType.ScienceInitial, false, false };
             yield return new object[] { GameActionType.ReputationInitial, false, false };
-            // Route skeleton (design doc §6): RouteModule is a state-tracker only —
-            // no resource mutation and no recording-scoped retry semantics. Both
-            // gates stay false until the future dispatch integration wires real
-            // cargo / funds effects through these action types.
+            // Route types (design doc section 6): scheduler-emitted under a RouteId, not
+            // flight-recorder output, so they never strict-block or retry-block an
+            // auto-seal. This holds even though FundsModule now consumes the funds
+            // route rows (logistics-recovery-credit, Option A): their FUNDS effect is
+            // reversed through the cutoff walk / tombstone path, NOT through the
+            // recording-scoped supersede block. RouteRecoveryCredited inherits the
+            // same exclusion (section 6.5).
             yield return new object[] { GameActionType.RouteDispatched, false, false };
             yield return new object[] { GameActionType.RouteCargoDebited, false, false };
             yield return new object[] { GameActionType.RouteCargoDelivered, false, false };
             yield return new object[] { GameActionType.RoutePaused, false, false };
             yield return new object[] { GameActionType.RouteEndpointLost, false, false };
+            yield return new object[] { GameActionType.RouteRecoveryCredited, false, false };
         }
 
         [Fact]
