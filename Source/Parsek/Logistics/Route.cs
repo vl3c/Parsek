@@ -230,6 +230,28 @@ namespace Parsek.Logistics
         public long LastObservedLoopCycleIndex = -1;
 
         /// <summary>
+        /// Recovery-credit deferral marker (logistics-recovery-credit, design doc
+        /// section 5.2): the id of the dispatched cycle whose recovery credit has
+        /// not yet been flushed. A Career, KSC-origin dispatch sets this to the
+        /// cycle it just dispatched (<c>cycle-K</c>); the NEXT dock crossing flushes
+        /// that owed credit (at a strictly later UT) and clears the marker, then sets
+        /// its own. Null means no credit is owed (route just activated, or the last
+        /// owed credit was already flushed). Persisted sparsely by
+        /// <see cref="RouteCodec"/> (omitted when null) so a save / reload between
+        /// crossings does not lose or double-emit the owed credit. Default null.
+        /// </summary>
+        public string PendingRecoveryCreditCycleId;
+
+        /// <summary>
+        /// The dispatch UT of the cycle named by
+        /// <see cref="PendingRecoveryCreditCycleId"/>, recorded for the audit / log
+        /// only (the credit's actual UT is the NEXT crossing's UT, not this).
+        /// Persisted sparsely by <see cref="RouteCodec"/> (omitted when -1).
+        /// Default -1 (no pending credit).
+        /// </summary>
+        public double PendingRecoveryCreditDispatchUT = -1.0;
+
+        /// <summary>
         /// Phase 0 discriminator (design §0.5, §0.6): TRUE when this route has a
         /// backing-mission tree, which is every v0 route. v0 has no non-loop
         /// dispatch model, so the self-timer paths (<see cref="NextDispatchUT"/>,

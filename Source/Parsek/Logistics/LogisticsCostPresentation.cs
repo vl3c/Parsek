@@ -12,11 +12,10 @@ namespace Parsek.Logistics
     /// unit-testable without IMGUI. The <c>*UI</c> file only draws; all string
     /// shaping lives here.
     ///
-    /// Cost is display-only (decision D1): the figures shown never change what
-    /// the orchestrator actually charges per dispatch. The detail tooltip
-    /// surfaces that caveat so the player knows the headline net is what the run
-    /// truly costs once the transport is recovered, while the per-cycle charge
-    /// stays the gross launch cost.
+    /// The per-cycle charge now matches the displayed net (logistics-recovery-credit):
+    /// the gross launch cost is fronted at dispatch and the recovered amount is
+    /// credited back one cycle later, so the headline net is what the run truly
+    /// costs in steady state. The detail tooltip explains that timing.
     ///
     /// Funds are written as a plain comma-grouped integer plus the word "funds"
     /// (no currency glyph, no em dash, plain ASCII, gotcha G6).
@@ -71,9 +70,9 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// The detail-line hover tooltip: explains net = launch - recovered,
-        /// that recovered is the actual distance-scaled payout, and the D1
-        /// caveat (the per-cycle charge is currently the gross launch cost). On a
-        /// no-recovery run it also appends the recover-to-reduce hint.
+        /// that recovered is the actual distance-scaled payout, and the timing
+        /// (gross fronted at dispatch, recovered credited back one cycle later).
+        /// On a no-recovery run it also appends the recover-to-reduce hint.
         /// </summary>
         internal static string FormatDetailTooltip(RouteRunCostCalculator.RouteRunCost cost)
         {
@@ -83,9 +82,9 @@ namespace Parsek.Logistics
             sb.Append("when the transport (and any jettisoned parts) were recovered in the recording. ");
             if (cost.RecoveryEventCount <= 0 && cost.RecoveredCredits <= 0.0)
                 sb.Append(RecoverToReduceHint).Append(' ');
-            sb.Append("Note: the per-cycle charge is currently the gross launch cost (")
+            sb.Append("The per-cycle charge now matches the displayed net: the gross launch cost (")
               .Append(FormatFunds(cost.LaunchCost))
-              .Append("); the net shown is what the run truly costs once the transport is recovered.");
+              .Append(") is fronted at dispatch and the recovered amount is credited back one cycle later.");
             return sb.ToString();
         }
 

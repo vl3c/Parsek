@@ -222,6 +222,75 @@ namespace Parsek.Tests
                 l.Contains("[Ledger]") && l.Contains("Loaded ledger") && l.Contains("actions=5"));
         }
 
+        // ================================================================
+        // T-SCENARIO-ROUNDTRIP (logistics-recovery-credit, section 6.1 +
+        // CLAUDE.md Post-Change Checklist): the new RouteRecoveryCredited
+        // GameActionType survives the LEDGER persistence path, not just a direct
+        // GameAction.SerializeInto/DeserializeFrom (which T-TYPE already covers).
+        //
+        // ParsekScenario OnSave/OnLoad persists the ledger via Ledger.SaveToFile /
+        // LoadFromFile (the same SerializeInto-per-action + DeserializeFrom codec
+        // the scenario routes every other route row through). ParsekScenario
+        // OnSave/OnLoad itself cannot be driven from xUnit (Planetarium + Unity
+        // GameEvents are unguarded, see reference_parsek_scenario_xunit), so this
+        // exercises the ledger-node persistence path directly: a RouteRecoveryCredited
+        // row with RouteId / RouteCycleId / RouteKscFundsCost is not silently dropped
+        // at the ledger layer.
+        // ================================================================
+
+        [Fact]
+        public void SaveAndLoad_RouteRecoveryCredited_SurvivesLedgerPersistencePath()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+            // The gross dispatch debit (Option A: a walk spending).
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.RouteCargoDebited,
+                RouteId = "route-credit",
+                RouteCycleId = "cycle-0",
+                RouteKscFundsCost = 12500f
+            });
+            // The deferred recovery credit (Option A: a walk earning) one interval
+            // later, keyed on the PRIOR dispatched cycle it pays back.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 400.0,
+                Type = GameActionType.RouteRecoveryCredited,
+                RouteId = "route-credit",
+                RouteCycleId = "cycle-0",
+                RouteStopIndex = -1,
+                Sequence = 0,
+                RouteKscFundsCost = 7300f // positive magnitude; type carries the credit direction
+            });
+
+            bool saveOk = Ledger.SaveToFile(LedgerPath);
+            Assert.True(saveOk);
+
+            // Load into a fresh ledger (mirror the scenario OnLoad rehydration).
+            Ledger.ResetForTesting();
+            logLines.Clear();
+            bool loadOk = Ledger.LoadFromFile(LedgerPath);
+            Assert.True(loadOk);
+            Assert.Equal(3, Ledger.Actions.Count);
+
+            var credit = Ledger.Actions.Single(a => a.Type == GameActionType.RouteRecoveryCredited);
+            Assert.Equal("route-credit", credit.RouteId);
+            Assert.Equal("cycle-0", credit.RouteCycleId);
+            Assert.Equal(7300f, credit.RouteKscFundsCost);
+            Assert.Equal(400.0, credit.UT);
+
+            var debit = Ledger.Actions.Single(a => a.Type == GameActionType.RouteCargoDebited);
+            Assert.Equal("route-credit", debit.RouteId);
+            Assert.Equal("cycle-0", debit.RouteCycleId);
+            Assert.Equal(12500f, debit.RouteKscFundsCost);
+        }
+
         [Fact]
         public void LoadFromFile_PreResetLedgerVersion_IsRejected()
         {

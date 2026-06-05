@@ -59,6 +59,19 @@ namespace Parsek.Tests
             };
         }
 
+        private static GameAction MakeRecoveryCredited(string routeId, string cycleId = "cyc-1",
+            float amount = 7300f, double ut = 300.0)
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.RouteRecoveryCredited,
+                RouteId = routeId,
+                RouteCycleId = cycleId,
+                RouteKscFundsCost = amount // positive magnitude; type carries the credit direction
+            };
+        }
+
         private static GameAction MakePaused(string routeId, string reason = "PlayerPause", double ut = 150.0)
         {
             return new GameAction
@@ -187,6 +200,77 @@ namespace Parsek.Tests
             Assert.True(state.EndpointLost);
         }
 
+        // ================================================================
+        // T-ROUTEMODULE-OBSERVE (logistics-recovery-credit, section 6.2): the
+        // RouteRecoveryCredited observation case increments the per-route credited
+        // DIAGNOSTIC counter and performs NO funds mutation. RouteModule is
+        // observe-only by the design-doc contract (section 13.4); the credit's
+        // funds reversal is FundsModule's job. Pins that a future edit cannot
+        // silently add a funds mutation to the RouteModule case.
+        // ================================================================
+
+        [Fact]
+        public void ProcessAction_RouteRecoveryCredited_IncrementsCreditedCounter()
+        {
+            // Fails if the RouteRecoveryCredited case is dropped (the credit falls
+            // through to the default and the per-route walk summary loses it).
+            module.ProcessAction(MakeRecoveryCredited("route-CR", "cycle-0", 7300f, 300.0));
+            module.ProcessAction(MakeRecoveryCredited("route-CR", "cycle-1", 7300f, 600.0));
+
+            var state = module.GetWalkStateForTesting()["route-CR"];
+            Assert.Equal(2, state.CreditedCycles);
+            Assert.Equal(600.0, state.LastActionUT);
+        }
+
+        [Fact]
+        public void ProcessAction_RouteRecoveryCredited_DoesNotTouchOtherCounters()
+        {
+            // The credit observation MUST NOT bump DispatchedCycles / DeliveredStops
+            // or set Paused / EndpointLost: it is a funds EARNING observed only for
+            // diagnostics. RouteModule touches no funds state at all (it has none).
+            module.ProcessAction(MakeRecoveryCredited("route-OBS", "cycle-0"));
+
+            var state = module.GetWalkStateForTesting()["route-OBS"];
+            Assert.Equal(1, state.CreditedCycles);
+            Assert.Equal(0, state.DispatchedCycles);
+            Assert.Equal(0, state.DeliveredStops);
+            Assert.False(state.Paused);
+            Assert.False(state.EndpointLost);
+        }
+
+        [Fact]
+        public void LogContract_ProcessRecoveryCredited_EmitsObserveOnlyVerbose()
+        {
+            // Fails if the credit observation stops logging the route id / amount or
+            // drops the observe-only marker (the marker is what documents that this
+            // module does not mutate funds for the row).
+            module.ProcessAction(MakeRecoveryCredited("route-CR-LOG", "cycle-2", 4200f, 700.0));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("Processed RouteRecoveryCredited")
+                && l.Contains("route=route-CR-LOG")
+                && l.Contains("credited=1")
+                && l.Contains("observe-only, no funds mutation"));
+        }
+
+        [Fact]
+        public void PostWalk_ReportsTotalCreditedCount()
+        {
+            // The PostWalk summary surfaces totalCredited so a collect-logs dump can
+            // confirm how many recovery credits a recalc walk paid back.
+            module.ProcessAction(MakeRecoveryCredited("route-PW-1", "cycle-0"));
+            module.ProcessAction(MakeRecoveryCredited("route-PW-2", "cycle-0"));
+            module.ProcessAction(MakeRecoveryCredited("route-PW-2", "cycle-1"));
+
+            module.PostWalk();
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("PostWalk")
+                && l.Contains("totalCredited=3"));
+        }
+
         [Fact]
         public void Reset_ClearsAllState()
         {
@@ -212,6 +296,7 @@ namespace Parsek.Tests
                 MakeDispatched("route-H", "cyc-1", 100.0),
                 MakeDispatched("route-H", "cyc-2", 200.0),
                 MakeDelivered("route-H", "cyc-1", 0, 150.0),
+                MakeRecoveryCredited("route-H", "cyc-1", 7300f, 175.0),
                 MakePaused("route-H", "PlayerPause", 250.0),
             };
 
@@ -306,6 +391,7 @@ namespace Parsek.Tests
                 sb.Append(kv.Key).Append('|')
                     .Append(kv.Value.DispatchedCycles).Append('|')
                     .Append(kv.Value.DeliveredStops).Append('|')
+                    .Append(kv.Value.CreditedCycles).Append('|')
                     .Append(kv.Value.Paused).Append('|')
                     .Append(kv.Value.EndpointLost).Append('|')
                     .Append(kv.Value.LastReason ?? "").Append('|')

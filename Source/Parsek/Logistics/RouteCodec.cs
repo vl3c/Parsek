@@ -123,6 +123,16 @@ namespace Parsek.Logistics
                 node.AddValue("lastObservedLoopCycleIndex",
                     route.LastObservedLoopCycleIndex.ToString(ic));
 
+            // Recovery-credit deferral marker (logistics-recovery-credit section 5.6).
+            // Sparse: null cycle id / -1 dispatch UT are the "no credit owed"
+            // defaults, so omit both. This is the credit's save/reload re-fire guard,
+            // mirroring lastObservedLoopCycleIndex above.
+            if (!string.IsNullOrEmpty(route.PendingRecoveryCreditCycleId))
+                node.AddValue("pendingRecoveryCreditCycleId", route.PendingRecoveryCreditCycleId);
+            if (route.PendingRecoveryCreditDispatchUT >= 0.0)
+                node.AddValue("pendingRecoveryCreditDispatchUT",
+                    route.PendingRecoveryCreditDispatchUT.ToString("R", ic));
+
             // EXCLUDED_INTERVALS: one child node carrying repeated excludedInterval
             // values. Empty set writes NO node (keeps the empty-definition save lean).
             if (route.ExcludedIntervalKeys != null && route.ExcludedIntervalKeys.Count > 0)
@@ -251,6 +261,16 @@ namespace Parsek.Logistics
             TryParseDoubleWithDefault(node.GetValue("recordedDockUT"), inv, ic, -1.0, out route.RecordedDockUT);
             TryParseDoubleWithDefault(node.GetValue("loopAnchorUT"), inv, ic, -1.0, out route.LoopAnchorUT);
             TryParseLong(node.GetValue("lastObservedLoopCycleIndex"), ic, -1L, out route.LastObservedLoopCycleIndex);
+
+            // Recovery-credit deferral marker (logistics-recovery-credit section 5.6).
+            // Missing pendingRecoveryCreditCycleId -> null (no credit owed); missing
+            // pendingRecoveryCreditDispatchUT -> -1. A pre-feature save simply has no
+            // pending marker, which is the correct "no credit owed yet" state.
+            route.PendingRecoveryCreditCycleId = node.GetValue("pendingRecoveryCreditCycleId");
+            if (string.IsNullOrEmpty(route.PendingRecoveryCreditCycleId))
+                route.PendingRecoveryCreditCycleId = null;
+            TryParseDoubleWithDefault(node.GetValue("pendingRecoveryCreditDispatchUT"),
+                inv, ic, -1.0, out route.PendingRecoveryCreditDispatchUT);
 
             ConfigNode excludedNode = node.GetNode(ExcludedIntervalsNode);
             if (excludedNode != null)

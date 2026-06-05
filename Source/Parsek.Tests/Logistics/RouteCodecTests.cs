@@ -322,6 +322,77 @@ namespace Parsek.Tests.Logistics
             Assert.True(roundTripped.IsLoopRoute);
         }
 
+        // T-CODEC (logistics-recovery-credit section 5.6): the recovery-credit
+        // pending marker (cycle id + dispatch UT) round-trips when set.
+        [Fact]
+        public void RoundTrip_PendingRecoveryCredit_Preserved()
+        {
+            var leanStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+            var route = new RouteFixtureBuilder()
+                .WithId("pending-credit-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .WithBackingMissionTreeId("tree-9")
+                .Build();
+            route.PendingRecoveryCreditCycleId = "cycle-4";
+            route.PendingRecoveryCreditDispatchUT = 123456.5;
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+            Assert.True(node.HasValue("pendingRecoveryCreditCycleId"),
+                "pendingRecoveryCreditCycleId must be written when set");
+            Assert.True(node.HasValue("pendingRecoveryCreditDispatchUT"),
+                "pendingRecoveryCreditDispatchUT must be written when >= 0");
+
+            Route roundTripped = Route.DeserializeFrom(node);
+            Assert.NotNull(roundTripped);
+            Assert.Equal("cycle-4", roundTripped.PendingRecoveryCreditCycleId);
+            Assert.Equal(123456.5, roundTripped.PendingRecoveryCreditDispatchUT);
+        }
+
+        // T-CODEC sparse-default proof: a route with no pending marker omits BOTH
+        // keys and deserializes to the null / -1 defaults.
+        [Fact]
+        public void RoundTrip_PendingRecoveryCredit_SparseDefaults()
+        {
+            var leanStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+            var route = new RouteFixtureBuilder()
+                .WithId("no-pending-credit-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .WithBackingMissionTreeId("tree-9")
+                .Build();
+            // Default: no credit owed.
+            Assert.Null(route.PendingRecoveryCreditCycleId);
+            Assert.Equal(-1.0, route.PendingRecoveryCreditDispatchUT);
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+            Assert.False(node.HasValue("pendingRecoveryCreditCycleId"),
+                "pendingRecoveryCreditCycleId must be omitted when null");
+            Assert.False(node.HasValue("pendingRecoveryCreditDispatchUT"),
+                "pendingRecoveryCreditDispatchUT must be omitted when -1");
+
+            Route roundTripped = Route.DeserializeFrom(node);
+            Assert.NotNull(roundTripped);
+            Assert.Null(roundTripped.PendingRecoveryCreditCycleId);
+            Assert.Equal(-1.0, roundTripped.PendingRecoveryCreditDispatchUT);
+        }
+
         // catches: the cadence multiplier (Phase 6) not round-tripping, or the
         // sparse default (N=1) being written to / read off the wire as non-default.
         [Fact]
