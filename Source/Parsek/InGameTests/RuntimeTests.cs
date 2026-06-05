@@ -9648,6 +9648,81 @@ namespace Parsek.InGameTests
                     Vectrosity.VectorLine.Destroy(ref line);
             }
         }
+
+        /// <summary>
+        /// Phase 8b.1 ownership coverage (Unity/Vectrosity-coupled). The treatment now OWNS the
+        /// non-orbital polyline leg draw for a director-owned ghost: when the Director decides
+        /// TracedPath for a pid, the Driver routes that leg's draw through
+        /// <see cref="Parsek.MapRender.TracedPathTreatment.TryDrawOwnedLeg"/> (the SAME shared
+        /// <c>TryDrawLeg</c> conic-anchor) and stands down on its own direct call. This validates the
+        /// make-before-break byte-identity: drawing one leg through the treatment produces an identical
+        /// live VectorLine result (drawn / inflated / activated / filled / frame-stamped) to the
+        /// Driver-direct path the 8b.0 test exercised. xUnit cannot reach this (live CelestialBody +
+        /// Vectrosity); the pure routing predicate (no-double-draw) is covered by the unit tests.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "TracedPathTreatment.TryDrawOwnedLeg draws a single leg through a live VectorLine (Phase 8b.1)")]
+        public void TracedPathTreatment_TryDrawOwnedLeg_DrawsSingleLeg()
+        {
+            var rec = new Recording { RecordingId = "ingame-tracedown-1" };
+            var frames = new System.Collections.Generic.List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0, latitude = -0.1, longitude = -74.5, altitude = 70.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 200.0, latitude = -0.05, longitude = -74.5, altitude = 20000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 600.0, latitude = 0.0, longitude = -74.5, altitude = 100000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 600.0,
+                frames = frames,
+                checkpoints = new System.Collections.Generic.List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 10f,
+            });
+
+            var legs = Parsek.Display.GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+            InGameAssert.AreEqual(1, legs.Count, "expected one leg from one Absolute section");
+
+            CelestialBody kerbin = FlightGlobals.Bodies.Find(b => b.name == "Kerbin");
+            InGameAssert.IsTrue(kerbin != null, "Kerbin body must resolve");
+
+            var leg = legs[0];
+            int drawFrame = Time.frameCount;
+            // Route the leg through the OWNED treatment exactly as the Driver does for a director-owned
+            // pid. The pid is arbitrary here (no live ghost / shadow stamp is needed - the Driver decides
+            // ownership via IsDirectorTracedPathActive; this test drives the owned-draw path directly).
+            bool drawn = Parsek.MapRender.TracedPathTreatment.TryDrawOwnedLeg(
+                ref leg, rec, kerbin, /*targetLayer*/ 31, drawFrame, rec.RecordingId, /*legIndex*/ 0,
+                /*pid*/ 123456u);
+
+            try
+            {
+                InGameAssert.IsTrue(drawn, "TryDrawOwnedLeg must report the leg drawn for a 3-point leg");
+                InGameAssert.IsTrue(leg.vectorLine != null, "TryDrawOwnedLeg must lazily inflate the leg's VectorLine");
+                InGameAssert.IsTrue(leg.vectorLine.active, "the drawn leg's VectorLine must be active");
+                InGameAssert.AreEqual(drawFrame, leg.lastDrawnFrame, "TryDrawOwnedLeg must stamp the supplied draw frame");
+                InGameAssert.IsTrue(leg.vectorLine.drawEnd == leg.PointCount - 1,
+                    "drawEnd must be the leg's last point index");
+
+                bool anyNonZero = false;
+                for (int i = 0; i < leg.PointCount; i++)
+                    if (leg.scratchScaledSpace[i] != Vector3.zero) { anyNonZero = true; break; }
+                InGameAssert.IsTrue(anyNonZero, "TryDrawOwnedLeg must fill the scaled-space scratch buffer");
+                InGameAssert.IsTrue(leg.vectorLine.points3 != null
+                    && leg.vectorLine.points3.Count == leg.PointCount,
+                    "the inflated VectorLine must hold exactly the leg's points");
+            }
+            finally
+            {
+                var line = leg.vectorLine;
+                if (line != null)
+                    Vectrosity.VectorLine.Destroy(ref line);
+            }
+        }
     }
 
     /// <summary>

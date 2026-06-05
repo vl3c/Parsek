@@ -66,5 +66,21 @@ namespace Parsek.Tests
             var hidden = GhostRenderIntent.Hidden();
             Assert.False(StockConicTreatment.ShouldApply(hidden) || TracedPathTreatment.ShouldApply(hidden));
         }
+
+        // --- Phase 8b.1: owned-leg routing (no-double-draw) ---
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void ShouldOwnLeg_MirrorsTheDirectorTracedPathActiveFlag(bool directorTracedPathActive)
+        {
+            // The treatment owns (draws) the leg exactly when the Director's active segment for the pid
+            // is a fresh TracedPath this frame - the SAME boolean the Driver uses to stand down on its
+            // own direct draw and the suppression patches use to hide the stock proto. One shared
+            // predicate => the leg is never drawn twice.
+            Assert.Equal(
+                directorTracedPathActive,
+                TracedPathTreatment.ShouldOwnLeg(directorTracedPathActive));
+        }
     }
 }
