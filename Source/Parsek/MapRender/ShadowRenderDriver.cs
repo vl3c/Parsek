@@ -53,6 +53,11 @@ namespace Parsek.MapRender
         {
             public string Signature;
             public GhostRenderChain Chain;
+            // True when this cached chain was assembled from RE-AIMED OrbitSegments (the override differed
+            // from the recorded list by reference). Stored WITH the chain so the per-frame skip decision
+            // (ShouldSkipReaimSegment) uses the SAME resolve the chain was built from - never a second
+            // UT->window mapping that could disagree with the cached geometry.
+            public bool HasReaimedSegments;
         }
 
         // The Director's current StockConic seed per pid (the inertial OrbitSegment + frame body),
@@ -262,20 +267,33 @@ namespace Parsek.MapRender
                         continue;
                     }
 
-                    GhostRenderChain chain = GetOrBuildChain(pid, traj, idx, wStart, wEnd, surface);
+                    GhostRenderChain chain = GetOrBuildChain(
+                        pid, traj, idx, wStart, wEnd, currentUT, units, surface,
+                        out bool chainHasReaimedSegments);
                     GhostSample sample = ChainSampler.Sample(chain, currentUT, units);
                     priorIntentByPid.TryGetValue(pid, out GhostRenderIntent prior);
                     GhostRenderIntent intent = GhostRenderDirector.Decide(sample, prior, traj.VesselName);
                     priorIntentByPid[pid] = intent;
 
                     // Per-ACTIVE-SEGMENT re-aim skip (design §4, refined from per-member): only the
-                    // heliocentric (Sun-relative) LEG is re-synthesized, so skip the ghost ONLY while it is
-                    // currently flying that leg, NOT the whole member. A single-recording interplanetary
-                    // flight ("Kerbal X": Kerbin escape -> Sun transfer -> Duna) has FAITHFUL Kerbin-escape
-                    // and destination-arrival phases that MUST render with the director-drive; skipping the
-                    // whole member on its Sun leg would also drop its faithful hyperbolic Kerbin escape (the
-                    // icon-off-orbit regression). intent.FrameBodyName is the active segment's frame body.
-                    if (ShouldSkipReaimSegment(intent.Visible, scene.IsStarBody(intent.FrameBodyName)))
+                    // heliocentric (Sun-relative) LEG of a re-aim owner is replaced. Now COVERAGE-AWARE:
+                    //  - re-aimed window + ON the heliocentric leg (chainHasReaimedSegments && sampleInSegment)
+                    //    -> DO NOT skip: render the re-aimed conic (THE FIX - kills icon-off-orbit).
+                    //  - re-aimed window + TRIM GAP / held interior gap (sampleInSegment=false) -> SKIP (hide),
+                    //    matching the legacy hide-in-gap contract; without this the Director would drive a held
+                    //    stale Sun conic across the gap (the review's bug case).
+                    //  - declined window (chainHasReaimedSegments=false) on a re-aim owner's wrong-aimed Sun leg
+                    //    -> SKIP.
+                    //  - faithful NON-owner Sun leg (a real non-looped interplanetary recording) -> DO NOT skip.
+                    // A single-recording interplanetary flight's FAITHFUL Kerbin-escape / destination-arrival
+                    // legs (frame body NOT a star) are never matched here and render with the director-drive.
+                    bool memberIsReaimOwner =
+                        units != null && units.TryGetUnitForMember(idx, out GhostPlaybackLogic.LoopUnit ownerUnit)
+                        && ownerUnit.IsReaim;
+                    bool sampleInSegment = sample.Coverage == Coverage.InSegment;
+                    if (ShouldSkipReaimSegment(
+                            intent.Visible, scene.IsStarBody(intent.FrameBodyName),
+                            memberIsReaimOwner, chainHasReaimedSegments, sampleInSegment))
                     {
                         skipReaim++;
                         continue;
@@ -312,17 +330,32 @@ namespace Parsek.MapRender
                 5.0);
         }
 
-        // PURE: skip the ACTIVE segment when it is the re-synthesized heliocentric (star-relative) leg.
-        // The raw recording's heliocentric conic points where the target USED to be (the re-aim re-plans
-        // it), so the shadow cannot render it faithfully and must not director-drive it; the
-        // Kerbin-departure / destination-arrival legs of the SAME recording ARE faithful and render.
-        // Decided per active segment (after Decide), not per whole trajectory - a single-recording
-        // interplanetary flight has both faithful and re-aimed legs. <paramref name="frameBodyIsStar"/>
-        // is the live <c>IGhostMapScene.IsStarBody(intent.FrameBodyName)</c> result (kept out so this
-        // predicate is Unity-free and unit-testable).
-        internal static bool ShouldSkipReaimSegment(bool intentVisible, bool frameBodyIsStar)
+        // PURE, COVERAGE-AWARE: decide whether to skip the ACTIVE heliocentric (star-relative) segment of a
+        // re-aim OWNER. The skip-lift (the critical fix from review): once the Director feeds the re-aimed
+        // OrbitSegments, the owner's in-window heliocentric leg is aimed at the target's CURRENT position and
+        // MUST render (no longer skipped to legacy) - that is what kills the icon-off-orbit bug. But the skip
+        // is still required where the re-aimed geometry does NOT cover the frame, otherwise the Director would
+        // drive a held stale Sun conic across the trim gap.
+        //
+        // skip = intentVisible && frameBodyIsStar && memberIsReaimOwner
+        //        && !(chainHasReaimedSegments && sampleInSegment)
+        //
+        //  - re-aimed window + ON the heliocentric leg (chainHasReaimedSegments && sampleInSegment) => DRAW.
+        //  - re-aimed window + TRIM GAP / held interior gap (sampleInSegment=false)                 => SKIP.
+        //  - declined window (chainHasReaimedSegments=false) on the wrong-aimed recorded Sun leg     => SKIP.
+        //  - faithful NON-owner Sun leg (real non-looped interplanetary recording, owner=false)      => DRAW.
+        //  - hidden intent (intentVisible=false)                                                     => never skip.
+        // The Kerbin-escape / destination-arrival legs (frame body NOT a star) never reach the skip test, so
+        // they always render. <paramref name="frameBodyIsStar"/> is the live
+        // <c>IGhostMapScene.IsStarBody(intent.FrameBodyName)</c> result (kept out so this stays Unity-free /
+        // unit-testable); <paramref name="sampleInSegment"/> is <c>sample.Coverage == Coverage.InSegment</c>
+        // for THIS frame (false for a held interior gap, which intent.Visible alone cannot distinguish).
+        internal static bool ShouldSkipReaimSegment(
+            bool intentVisible, bool frameBodyIsStar, bool memberIsReaimOwner,
+            bool chainHasReaimedSegments, bool sampleInSegment)
         {
-            return intentVisible && frameBodyIsStar;
+            return intentVisible && frameBodyIsStar && memberIsReaimOwner
+                && !(chainHasReaimedSegments && sampleInSegment);
         }
 
         // Resolve a member's window (trimmed if it belongs to a unit) and classify ONLY its overlap
@@ -347,18 +380,70 @@ namespace Parsek.MapRender
 
         private static GhostRenderChain GetOrBuildChain(
             uint pid, IPlaybackTrajectory traj, int idx, double wStart, double wEnd,
-            GhostTrajectoryPolylineRenderer.BodySurfaceProvider surface)
+            double currentUT, GhostPlaybackLogic.LoopUnitSet units,
+            GhostTrajectoryPolylineRenderer.BodySurfaceProvider surface,
+            out bool chainHasReaimedSegments)
         {
-            string sig = string.Format(CultureInfo.InvariantCulture, "{0}|{1:R}|{2:R}|{3}|{4}",
-                traj.RecordingId ?? "?", wStart, wEnd,
-                traj.OrbitSegments?.Count ?? 0, traj.Points?.Count ?? 0);
-            if (chainByPid.TryGetValue(pid, out CachedChain cached) && cached.Signature == sig)
-                return cached.Chain;
+            // Resolve the EFFECTIVE OrbitSegments for THIS frame: a re-aim owner's in-window heliocentric
+            // leg comes back re-aimed (aimed at the target's CURRENT position), every faithful member /
+            // declined window comes back as the recorded list (same reference). The resolver lives in
+            // GhostMapPresence (already [ERS-exempt]-allowlisted), so the new read stays inside the exempt
+            // file. windowIndex is the synodic window (-1 for non-re-aim / declined / pre-first-window).
+            List<OrbitSegment> recorded = traj.OrbitSegments;
+            List<OrbitSegment> effective = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                idx, traj.RecordingId, recorded, currentUT, units, out long windowIndex);
+            // Reference inequality == "this build used re-aimed segments" (the resolver returns the recorded
+            // list unchanged for faithful members / declined windows). Stored with the cached entry so the
+            // per-frame skip decision uses the SAME resolve - not a second Ut->window mapping.
+            chainHasReaimedSegments = !ReferenceEquals(effective, recorded);
 
+            string sig = BuildChainSignature(traj, wStart, wEnd, windowIndex);
+            if (chainByPid.TryGetValue(pid, out CachedChain cached) && cached.Signature == sig)
+            {
+                chainHasReaimedSegments = cached.HasReaimedSegments;
+                return cached.Chain;
+            }
+
+            // Feed the re-aimed override (CANDIDATE (a)) only when it differs from the recorded list; the
+            // recorded Points still source the TracedPath body-relative legs inside ChainAssembler. When the
+            // member is a re-aim owner, pass the plan's common ancestor so the in-window heliocentric segment
+            // is marked Transfer/isGenerated (cosmetic).
+            IReadOnlyList<OrbitSegment> overrideSegs = chainHasReaimedSegments ? effective : null;
+            string reaimAncestor = chainHasReaimedSegments ? ResolveReaimAncestor(units, idx) : null;
             GhostRenderChain chain = ChainAssembler.Build(
-                traj, idx, instanceKey: 0, wStart, wEnd, faithfulFallback: false, surface: surface);
-            chainByPid[pid] = new CachedChain { Signature = sig, Chain = chain };
+                traj, idx, instanceKey: 0, wStart, wEnd, faithfulFallback: false, surface: surface,
+                orbitSegmentsOverride: overrideSegs, reaimAncestorBody: reaimAncestor);
+            chainByPid[pid] = new CachedChain
+            {
+                Signature = sig,
+                Chain = chain,
+                HasReaimedSegments = chainHasReaimedSegments,
+            };
             return chain;
+        }
+
+        // The chain cache signature. The window token (|w{windowIndex}) is the load-bearing discriminator
+        // under re-aim: the RECORDED OrbitSegments.Count does NOT change across synodic windows, so without
+        // the window token a window advance (new re-aimed geometry, same recorded count) would NOT invalidate
+        // the cache and the stale prior-window chain would keep rendering. windowIndex = -1 for every
+        // non-re-aim member, so the token is constant there and the signature is identical to the pre-wiring
+        // shape modulo the trailing "|w-1" (still unique per member, still rebuilds on the same triggers).
+        internal static string BuildChainSignature(
+            IPlaybackTrajectory traj, double wStart, double wEnd, long windowIndex)
+        {
+            return string.Format(CultureInfo.InvariantCulture, "{0}|{1:R}|{2:R}|{3}|{4}|w{5}",
+                traj.RecordingId ?? "?", wStart, wEnd,
+                traj.OrbitSegments?.Count ?? 0, traj.Points?.Count ?? 0, windowIndex);
+        }
+
+        // The re-aim plan's common-ancestor (star) body for marking the synthesized heliocentric segment
+        // Transfer/isGenerated. Null when the member is not a resolvable re-aim unit.
+        private static string ResolveReaimAncestor(GhostPlaybackLogic.LoopUnitSet units, int idx)
+        {
+            if (units != null && units.TryGetUnitForMember(idx, out GhostPlaybackLogic.LoopUnit unit)
+                && unit.IsReaim)
+                return unit.ReaimPlan.Value.CommonAncestor;
+            return null;
         }
 
         // §13 locate + intent diagnostic (design §13), rate-limited per pid so a steady chain does not

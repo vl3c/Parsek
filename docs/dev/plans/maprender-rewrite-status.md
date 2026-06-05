@@ -328,6 +328,52 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
   re-aim / overlap members + the hyperbolic-escape segment that fall back to the legacy draw path); that
   needs its own scoping before deletion. Presence (8d) is independent of that gap (presence was never
   gated and always runs).
+- **Cutover completion = INTEGRATION before deletion (decided 2026-06-06).** The 8e read-only scoping
+  overturned the "delete legacy + drop the gate" premise: the legacy draw code (autonomous Driver walk,
+  legacy effUT icon drive, `activeLegRecordings`, `ghostsWithSuppressedIcon`, grace fields) is NOT a
+  gate-off-only fallback - it is the gate-ON DEFAULT path today for the ~34% of decisions (83/242)
+  covering re-aim members, overlap members, and unseeded ghosts the Director architecturally cannot yet
+  own; the autonomous Driver is also the single structural polyline draw host. So the design-doc end
+  state (a single modular system) is reached by INTEGRATING those in-use legacy responsibilities INTO the
+  Director pipeline, THEN deleting the now-dead legacy + dropping the gate (deletion LAST). Three
+  integration pieces: (1) re-aim rendering, (2) overlap rendering, (3) the shared polyline draw host.
+  - **Integration 1 - re-aim rendering (DONE, gated, awaiting in-game gate).** The re-aim TRAJECTORY
+    workstream is confirmed READY (PR #1030 shipped the destination-SOI arrival hold; the re-aimed
+    transfer+arrival geometry is computed per loop, cached, and already exposed via
+    `GhostMapPresence.ResolveEffectiveMapOrbitSegments` / `ReaimPlaybackResolver.Shared`, and consumed by
+    the legacy renderer every frame). The Director skipped re-aim only because it read the RAW recording.
+    Fix (branch `maprender-reaim-render`): `ChainAssembler.Build` gains an `orbitSegmentsOverride` (fed the
+    re-aimed list, while `traj.Points` still feeds the body-relative TracedPath legs - do NOT wrap in
+    `ReaimedTrajectory`, its Points are empty by design); `ShadowRenderDriver.GetOrBuildChain` resolves the
+    effective segments + window via a new `ResolveEffectiveMapOrbitSegments(out windowIndex)` overload,
+    passes the override, caches by `|w{windowIndex}` (synodic-window advance invalidates), and records
+    `chainHasReaimedSegments = !ReferenceEquals(effective, recorded)` on the cache entry; the skip becomes
+    the coverage-aware `ShouldSkipReaimSegment(intentVisible, frameBodyIsStar, memberIsReaimOwner,
+    chainHasReaimedSegments, sampleInSegment)` => skip = `intentVisible && frameBodyIsStar &&
+    memberIsReaimOwner && !(chainHasReaimedSegments && sampleInSegment)`. The `sampleInSegment`
+    (`sample.Coverage == InSegment`) term is LOAD-BEARING (plan-review catch): without it the Director
+    would drive a held stale Sun conic across a trim gap where the legacy path hides. Once re-aim produces
+    a StockConic seed, the 8a epoch-bake icon drive, Cat-1 hyperbolic arc clip, and 8c marker all apply
+    unchanged via `IsDirectorDriveActive`, so the icon-off-orbit fix (CHANGELOG 0.10.0) is finally TRUE
+    for the re-aim heliocentric leg (it was falling back to legacy, where the icon stayed live-clock =
+    the residual >45deg anomalies). Gate-OFF byte-identical (all logic inside `RunFrame`, seeds consumed
+    only under the gate). Two clean reviews (plan + code) SHIP. **In-game gate:** s15 "Duna One", gate-on
+    + tracing-on: re-aim ghost's icon rides its heliocentric line (`angleIconVsOrbitEff` -> ~0, was
+    >45deg), `decision-vs-truth` parity, trim-gap frames stay hidden, no SOI-seam blink; toggle gate-off
+    -> byte-identical.
+  - **Integration 2 - overlap rendering (planned, near-trivial).** No per-instance MAP model exists
+    (`GhostMapPresence` is one-vessel-per-recording); an overlapping mission renders as ONE ProtoVessel +
+    one polyline head at the selected cycle. So integration = delete the conservative `SkipOverlap` gate
+    in `ShadowRenderDriver` after a reconciler parity check (`ChainSampler` already shares the loop clock).
+    Needs an overlapping-loop save (period < span) to validate; s15/Mun don't overlap.
+  - **Integration 3 - shared polyline draw host (planned, structural).** The polyline draw MUST stay in
+    the ordered LateUpdate host (timing invariants: `-50` order, LateUpdate-not-Update, publish-before-
+    orbit-patch-read), so "Director drives the polyline" = the Director owns the iteration/ownership
+    DECISION while the draw stays put; plus close the pid-0 atmospheric-only enumeration gap (Director
+    enumerates `ghostMapVesselPids`; the Driver walks `CommittedRecordings`). Medium-large.
+  - **Then 8e (deletion LAST):** once 1-3 land and nothing rides the legacy draw path, delete the legacy
+    fallbacks + autonomous walk + grace fields, grep-audit no readers, drop the `mapRenderDirectorDrive`
+    gate -> single modular system.
 - **Phase 8** per-surface cutover (8a-8e) - deletes the scattered gates; in-game per sub-phase.
 - **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3
   `TransferConic` frame-agnostic return - touch the in-game-validated re-aim path.
