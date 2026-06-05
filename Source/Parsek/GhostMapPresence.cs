@@ -46,6 +46,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: a resolved ghost source the deferred map-create pass is willing to materialize
+        /// (everything except <see cref="TrackingStationGhostSource.None"/>): a covering Segment,
+        /// either state-vector flavor, the loop-synthesis TerminalOrbit fallback, or the EndpointTail
+        /// consistency fix. Extracted byte-for-byte from the inline create-acceptance check.
+        /// </summary>
+        internal static bool IsMapCreateAcceptedSource(TrackingStationGhostSource source)
+        {
+            return source == TrackingStationGhostSource.Segment
+                || IsStateVectorGhostSource(source)
+                || source == TrackingStationGhostSource.TerminalOrbit
+                || source == TrackingStationGhostSource.EndpointTail;
+        }
+
+        /// <summary>
+        /// Pure: a resolved ghost source that populates a valid <c>segment</c> out-param (Segment,
+        /// the loop-synthesis no-segment TerminalOrbit fallback, or EndpointTail, which populates the
+        /// segment exactly like TerminalOrbit). Used by the state-vector update pass to decide whether
+        /// to consume the segment branch instead of falling through to the flat point path.
+        /// </summary>
+        internal static bool IsSegmentBearingGhostSource(TrackingStationGhostSource source)
+        {
+            return source == TrackingStationGhostSource.Segment
+                || source == TrackingStationGhostSource.TerminalOrbit
+                || source == TrackingStationGhostSource.EndpointTail;
+        }
+
+        /// <summary>
         /// Tracking-station per-tick orbit-source precedence for an already-created ghost:
         /// a wrapped/closed OrbitSegment covering the effective UT is the trusted source and
         /// wins over a co-located OrbitalCheckpoint state-vector. The checkpoint state-vector is
@@ -10129,6 +10156,40 @@ namespace Parsek
             // range). Empty (the common case) makes every ResolveMapPresenceSampleUT below return
             // the unchanged live UT with shift 0, so non-looping behavior is byte-identical.
 
+            RunFlightMapDeferredCreatePass(currentUT, loopUnits);            // Pass 1 (always runs)
+
+            // 2. Map-orbit reseed for existing ProtoVessels. Rate-limited to the real-time timer, BUT
+            // warp-aware: under time warp the playback head sprints through short segments (e.g. the many
+            // short Duna-capture conics) faster than the 0.5 s timer reseeds, so the applied orbit goes
+            // stale and GhostOrbitLinePatch's stale-segment guard blanks the line every frame (the ~1-min
+            // warped-approach blink). Also reseed the moment a ghost's head leaves its applied segment so
+            // the orbit stays current and the stale-segment guard (which still suppresses the genuine
+            // pre-burn arc on a propulsive->orbital handoff) stops firing on reseed lag alone. The head-left
+            // scan is computed only while warping + before the timer (so 1x is byte-identical + cost-free).
+            //
+            // Pass 2 gate + preamble stay HERE so the two early-returns keep skipping Pass 3.
+            bool mapReseedTimerElapsed = UnityEngine.Time.time >= nextMapOrbitUpdateTime;
+            bool mapReseedHeadLeftSegment = !mapReseedTimerElapsed
+                && TimeWarp.CurrentRate > 1.0f
+                && GhostMapPresence.AnyGhostHeadLeftAppliedSegment(currentUT);
+            if (!ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(mapReseedTimerElapsed, TimeWarp.CurrentRate, mapReseedHeadLeftSegment))
+                return;
+            nextMapOrbitUpdateTime = UnityEngine.Time.time + MapOrbitUpdateIntervalSec;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return;
+            PruneTerminalMapRetentionLogKeys(committed);
+
+            RunFlightMapOrbitReseedPass(currentUT, loopUnits, committed);    // Pass 2 body
+            RunFlightMapStateVectorUpdatePass(currentUT, loopUnits, committed); // Pass 3 body
+        }
+
+        // Pass 1 — deferred create. Always runs (no gate). Creates deferred ProtoVessels for ghosts
+        // that just entered an orbital segment OR for physics-only recordings that crossed the
+        // state-vector threshold. Body relocated verbatim from the former inline pass.
+        private static void RunFlightMapDeferredCreatePass(
+            double currentUT, GhostPlaybackLogic.LoopUnitSet loopUnits)
+        {
             // 1. Create deferred ProtoVessels for ghosts that just entered an orbital segment
             //    OR for physics-only recordings that crossed the state-vector threshold.
             if (flightPendingMapVessels.Count > 0)
@@ -10215,10 +10276,7 @@ namespace Parsek
                             segment, out segment))
                         continue;
 
-                    if (source == TrackingStationGhostSource.Segment
-                        || GhostMapPresence.IsStateVectorGhostSource(source)
-                        || source == TrackingStationGhostSource.TerminalOrbit
-                        || source == TrackingStationGhostSource.EndpointTail)
+                    if (GhostMapPresence.IsMapCreateAcceptedSource(source))
                     {
                         if (toCreate == null)
                             toCreate = new List<(int, TrackingStationGhostSource, OrbitSegment, TrajectoryPoint, string, double)>();
@@ -10304,27 +10362,15 @@ namespace Parsek
                     }
                 }
             }
+        }
 
-            // 2. Map-orbit reseed for existing ProtoVessels. Rate-limited to the real-time timer, BUT
-            // warp-aware: under time warp the playback head sprints through short segments (e.g. the many
-            // short Duna-capture conics) faster than the 0.5 s timer reseeds, so the applied orbit goes
-            // stale and GhostOrbitLinePatch's stale-segment guard blanks the line every frame (the ~1-min
-            // warped-approach blink). Also reseed the moment a ghost's head leaves its applied segment so
-            // the orbit stays current and the stale-segment guard (which still suppresses the genuine
-            // pre-burn arc on a propulsive->orbital handoff) stops firing on reseed lag alone. The head-left
-            // scan is computed only while warping + before the timer (so 1x is byte-identical + cost-free).
-            bool mapReseedTimerElapsed = UnityEngine.Time.time >= nextMapOrbitUpdateTime;
-            bool mapReseedHeadLeftSegment = !mapReseedTimerElapsed
-                && TimeWarp.CurrentRate > 1.0f
-                && GhostMapPresence.AnyGhostHeadLeftAppliedSegment(currentUT);
-            if (!ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(mapReseedTimerElapsed, TimeWarp.CurrentRate, mapReseedHeadLeftSegment))
-                return;
-            nextMapOrbitUpdateTime = UnityEngine.Time.time + MapOrbitUpdateIntervalSec;
-
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return;
-            PruneTerminalMapRetentionLogKeys(committed);
-
+        // Pass 2 — segment-based map-orbit reseed for existing ProtoVessels. Runs only after the
+        // orchestrator's gate + preamble passed (committed already resolved, non-null, and the
+        // terminal-retention log keys already pruned). Body relocated verbatim from the former
+        // "2a. Segment-based orbit updates" pass.
+        private static void RunFlightMapOrbitReseedPass(
+            double currentUT, GhostPlaybackLogic.LoopUnitSet loopUnits, IReadOnlyList<Recording> committed)
+        {
             // 2a. Segment-based orbit updates (existing)
             List<KeyValuePair<int, (string body, double sma, double ecc)>> orbitUpdates = null;
             List<int> toRemoveFromMap = null;
@@ -10589,7 +10635,15 @@ namespace Parsek
                     }
                 }
             }
+        }
 
+        // Pass 3 — state-vector orbit updates (physics-only suborbital) for existing ProtoVessels.
+        // Runs only after the orchestrator's gate + preamble passed (committed already resolved and
+        // non-null). Body relocated verbatim from the former "2b. State-vector orbit updates" pass,
+        // including the EmitLifecycleSummary tail.
+        private static void RunFlightMapStateVectorUpdatePass(
+            double currentUT, GhostPlaybackLogic.LoopUnitSet loopUnits, IReadOnlyList<Recording> committed)
+        {
             // 2b. State-vector orbit updates (new — physics-only suborbital)
             if (flightStateVectorOrbitTrajectories.Count > 0)
             {
@@ -10667,9 +10721,7 @@ namespace Parsek
                             continue;
                         }
 
-                        if (source == TrackingStationGhostSource.Segment
-                            || source == TrackingStationGhostSource.TerminalOrbit
-                            || source == TrackingStationGhostSource.EndpointTail)
+                        if (GhostMapPresence.IsSegmentBearingGhostSource(source))
                         {
                             // EndpointTail populates a valid `segment` out-param exactly
                             // like TerminalOrbit (the loop-synthesis no-segment fallback),

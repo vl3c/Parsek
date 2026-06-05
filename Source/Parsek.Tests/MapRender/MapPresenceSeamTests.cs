@@ -216,5 +216,78 @@ namespace Parsek.Tests
             Assert.Contains("public override void DriveMapPresence(", source);
             Assert.Contains("UpdateTrackingStationGhostLifecycle(", source);
         }
+
+        // ----- Phase 8d.3 decomposition source-gate -----
+
+        [Fact]
+        public void UpdateFlightMapGhostLifecycle_DecomposedIntoNamedPasses_8d3()
+        {
+            string source = ReadSource("Source", "Parsek", "GhostMapPresence.cs");
+
+            // Phase 8d.3 split the ~655-line orchestrator into three named sub-pass methods
+            // (behavior-preserving). The three pass methods exist as private static voids...
+            Assert.Contains("private static void RunFlightMapDeferredCreatePass(", source);
+            Assert.Contains("private static void RunFlightMapOrbitReseedPass(", source);
+            Assert.Contains("private static void RunFlightMapStateVectorUpdatePass(", source);
+
+            // ...and the orchestrator body calls all three IN ORDER, with the Pass 2 gate
+            // (ShouldRunMapOrbitReseed) + the second committed-null early-return still sitting in the
+            // orchestrator BETWEEN the Pass 1 call and the Pass 2 call, so the early-returns keep
+            // skipping the reseed + state-vector passes. Bound the orchestrator body between its own
+            // signature and the first pass-method declaration (the next member after it).
+            string orchestrator = ExtractMethodRegion(
+                source,
+                "internal static void UpdateFlightMapGhostLifecycle(",
+                "private static void RunFlightMapDeferredCreatePass(");
+
+            int deferredCall = orchestrator.IndexOf("RunFlightMapDeferredCreatePass(", StringComparison.Ordinal);
+            int gate = orchestrator.IndexOf("ShouldRunMapOrbitReseed(", StringComparison.Ordinal);
+            int committedReturn = orchestrator.IndexOf("if (committed == null) return;", StringComparison.Ordinal);
+            int reseedCall = orchestrator.IndexOf("RunFlightMapOrbitReseedPass(", StringComparison.Ordinal);
+            int stateVectorCall = orchestrator.IndexOf("RunFlightMapStateVectorUpdatePass(", StringComparison.Ordinal);
+
+            Assert.True(deferredCall >= 0, "orchestrator must call RunFlightMapDeferredCreatePass");
+            Assert.True(gate >= 0, "orchestrator must keep the ShouldRunMapOrbitReseed gate");
+            Assert.True(committedReturn >= 0, "orchestrator must keep the committed-null early-return");
+            Assert.True(reseedCall >= 0, "orchestrator must call RunFlightMapOrbitReseedPass");
+            Assert.True(stateVectorCall >= 0, "orchestrator must call RunFlightMapStateVectorUpdatePass");
+
+            // Order: Pass1 call -> gate + committed early-return -> Pass2 call -> Pass3 call.
+            Assert.True(deferredCall < gate, "Pass 1 call must precede the reseed gate");
+            Assert.True(gate < reseedCall, "the reseed gate must precede the Pass 2 call");
+            Assert.True(committedReturn < reseedCall, "the committed early-return must precede the Pass 2 call");
+            Assert.True(reseedCall < stateVectorCall, "Pass 2 call must precede Pass 3 call");
+        }
+
+        // ----- Phase 8d.3 extracted pure predicates (truth tables) -----
+
+        // The enum is internal, so [InlineData] passes the int value (a public-safe parameter type)
+        // and the test casts it back. This keeps the xUnit test methods public while still locking
+        // each enum member's truth-table cell.
+        [Theory]
+        [InlineData((int)GhostMapPresence.TrackingStationGhostSource.Segment, true)]
+        [InlineData((int)GhostMapPresence.TrackingStationGhostSource.StateVector, true)]
+        [InlineData((int)GhostMapPresence.TrackingStationGhostSource.StateVectorSoiGap, true)]
+        [InlineData((int)GhostMapPresence.TrackingStationGhostSource.TerminalOrbit, true)]
+        [InlineData((int)GhostMapPresence.TrackingStationGhostSource.EndpointTail, true)]
+        [InlineData((int)GhostMapPresence.TrackingStationGhostSource.None, false)]
+        public void IsMapCreateAcceptedSource_AcceptsEverythingExceptNone(int sourceValue, bool expected)
+        {
+            var source = (GhostMapPresence.TrackingStationGhostSource)sourceValue;
+            Assert.Equal(expected, GhostMapPresence.IsMapCreateAcceptedSource(source));
+        }
+
+        [Theory]
+        [InlineData((int)GhostMapPresence.TrackingStationGhostSource.Segment, true)]
+        [InlineData((int)GhostMapPresence.TrackingStationGhostSource.TerminalOrbit, true)]
+        [InlineData((int)GhostMapPresence.TrackingStationGhostSource.EndpointTail, true)]
+        [InlineData((int)GhostMapPresence.TrackingStationGhostSource.StateVector, false)]
+        [InlineData((int)GhostMapPresence.TrackingStationGhostSource.StateVectorSoiGap, false)]
+        [InlineData((int)GhostMapPresence.TrackingStationGhostSource.None, false)]
+        public void IsSegmentBearingGhostSource_OnlySegmentTerminalOrbitAndEndpointTail(int sourceValue, bool expected)
+        {
+            var source = (GhostMapPresence.TrackingStationGhostSource)sourceValue;
+            Assert.Equal(expected, GhostMapPresence.IsSegmentBearingGhostSource(source));
+        }
     }
 }
