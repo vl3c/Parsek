@@ -6850,8 +6850,11 @@ namespace Parsek
         /// renderer enabled so it re-shows automatically) while the polyline owns
         /// the phase, so the two visuals do not overlap and the orbit does not
         /// churn under warp. Maps pid to RecordingId via <see cref="vesselPidToRecordingId"/>
-        /// and queries the Driver's published set. No-op when the polyline feature
-        /// is off (the set is empty), so stock orbit behaviour is unchanged.
+        /// and queries the polyline renderer's published ownership (8b.2: behind the
+        /// director-drive gate the authoritative source is the treatment-published
+        /// actual-draw set, falling back to the legacy autonomous-Driver set when the
+        /// gate is off - see <c>GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg</c>).
+        /// No-op when nothing draws (the sets are empty), so stock orbit behaviour is unchanged.
         /// </summary>
         internal static bool IsPolylineOwningGhostPhase(uint pid)
         {

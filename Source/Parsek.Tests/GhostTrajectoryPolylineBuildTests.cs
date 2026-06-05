@@ -33,6 +33,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             GhostTrajectoryPolylineRenderer.Clear();
+            ParsekSettings.CurrentOverrideForTesting = null;
         }
 
         // --- BuildLegsForRecording: per-section dispatch ---
@@ -747,6 +748,81 @@ namespace Parsek.Tests
             Assert.Equal(
                 GhostTrajectoryPolylineRenderer.ShouldDrawLegOwnedByTreatment(directorActive),
                 Parsek.MapRender.TracedPathTreatment.ShouldOwnLeg(directorActive));
+        }
+
+        // --- Phase 8b.2: ownership-signal authority (Director/treatment-sourced vs legacy) ---
+
+        [Fact]
+        public void ResolveOwnership_GateOff_UsesLegacySetOnly()
+        {
+            // Gate OFF: byte-identical to pre-8b.2 - the legacy autonomous-Driver set is the ONLY
+            // source; the director-owned set is never consulted (true OR false on it changes nothing).
+            Assert.True(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
+                directorDriveGateOn: false, inDirectorOwnedSet: false, inLegacySet: true));
+            Assert.False(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
+                directorDriveGateOn: false, inDirectorOwnedSet: false, inLegacySet: false));
+            // Director set is IGNORED gate-off: present-in-director-only is NOT ownership.
+            Assert.False(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
+                directorDriveGateOn: false, inDirectorOwnedSet: true, inLegacySet: false));
+        }
+
+        [Fact]
+        public void ResolveOwnership_GateOn_TreatmentSourcedIsAuthoritative()
+        {
+            // Gate ON: the treatment-published director-owned set is authoritative for the legs the
+            // treatment actually drew (this is the 8b.2 repoint).
+            Assert.True(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
+                directorDriveGateOn: true, inDirectorOwnedSet: true, inLegacySet: false));
+        }
+
+        [Fact]
+        public void ResolveOwnership_GateOn_LegacySetStillCoversNonDirectorOwnedGhosts()
+        {
+            // Gate ON: a ghost the shadow does NOT own (pid-0 atmospheric-only / re-aim / overlap) still
+            // takes the Driver-direct path and publishes to the legacy set; the union keeps it owned, so
+            // its proto is still suppressed and the marker handoff is unchanged.
+            Assert.True(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
+                directorDriveGateOn: true, inDirectorOwnedSet: false, inLegacySet: true));
+        }
+
+        [Fact]
+        public void ResolveOwnership_GateOn_NeitherSet_NoOwnership_NoNewGap()
+        {
+            // THE no-new-gap invariant: when NO leg actually drew (neither set has the recording), the
+            // signal is FALSE, so the proto orbit line / icon is NOT hidden. Both sets are populated only
+            // on an actual draw, so "Director decided TracedPath but nothing drew" can never report
+            // ownership (the Option-A gap this phase deliberately avoids). proto hidden IFF a leg drew.
+            Assert.False(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
+                directorDriveGateOn: true, inDirectorOwnedSet: false, inLegacySet: false));
+        }
+
+        [Fact]
+        public void IsRenderingNonOrbitalLeg_EndToEnd_ReadsTheGateAndDispatches()
+        {
+            // End-to-end (the gate read + dispatch IsPolylineOwningGhostPhase ultimately calls): with the
+            // gate ON the treatment-sourced (director-owned) publish is authoritative; with the gate OFF
+            // only the legacy autonomous-Driver publish counts.
+            const string recDir = "rec-director-owned";
+            const string recLegacy = "rec-legacy-only";
+            GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                recDir, inDirectorOwnedSet: true, inLegacySet: false);
+            GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                recLegacy, inDirectorOwnedSet: false, inLegacySet: true);
+
+            // Gate ON: director-owned recording is owned (treatment-sourced), legacy recording stays owned
+            // via the union (covers the non-director-owned ghost under the gate).
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings { mapRenderDirectorDrive = true };
+            Assert.True(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recDir));
+            Assert.True(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recLegacy));
+
+            // Gate OFF: only the legacy publish is consulted - the director-owned-only recording is NOT
+            // owned (byte-identical to pre-8b.2), the legacy-set recording still is.
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings { mapRenderDirectorDrive = false };
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recDir));
+            Assert.True(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recLegacy));
+
+            // Null recordingId is never owned.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(null));
         }
 
         // --- FIX #27: below-SURFACE degenerate-segment cover exclusion ---
