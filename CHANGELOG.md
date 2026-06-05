@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Fixed
 
 - Fixed a looped interplanetary landing mission's orbit-to-descent join drifting further around the destination planet on each successive replay (its parking orbit and descent path lined up only on the first loop, then separated more every loop). The landing-body alignment now re-aligns the destination's rotation on every loop, not just the first.
+- Fixed a looped landing mission's map icon not sitting on its own drawn descent path. Because that final descent leg has no orbit of its own, its icon fell back to a separate position off the line. The icon now rides its descent line directly.
 - Fixed map ghost trajectory surface lines (launch and descent paths) either showing a doubled, warp-dependent duplicate copy or not appearing at all under time warp until you dropped to 1x speed. They now draw once, stay glued to the surface, and stay visible at every warp rate.
 - Fixed a brief wrong-position flash of a looped interplanetary mission's map icon at a staging/separation seam. A parking-orbit coast the recorder stored as several fragments is now drawn as one continuous orbit during looped playback, so the icon no longer jumps for a few frames before settling onto the escape trajectory.
 - Fixed a brief stale ghost orbit-line and icon flash when a looping recording first appears on the flight map (the loop time-shift was applied one frame late on initial map creation).
