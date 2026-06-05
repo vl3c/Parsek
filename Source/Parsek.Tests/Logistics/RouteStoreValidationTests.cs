@@ -262,6 +262,99 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("sidecar-epoch"));
         }
 
+        // logistics-recovery-credit section 5.4: a route that flips INTO
+        // MissingSourceRecording stops crossing, so its last dispatched cycle's
+        // deferred recovery credit must be flushed (or its stale marker cleared) at
+        // the transition, never stranded forever. In the xUnit harness the live
+        // env / Planetarium cannot resolve, so the defensive flush no-ops on the
+        // Career gate and CLEARS the marker; that is the observable proof the flush
+        // call is wired into the into-missing edge.
+        // catches: a pending recovery-credit marker stranded on a route deleted
+        // while MissingSourceRecording.
+        [Fact]
+        public void Revalidate_IntoMissingSource_FlushesPendingRecoveryCredit_ClearsMarker()
+        {
+            var sourceRef = new RouteSourceRef
+            {
+                RecordingId = "rec-deleted-pending",
+                RouteProofHash = "deadbeef00000000"
+            };
+            InstallScenario();
+            RouteStore.AddRoute(BuildRoute("route-pending-missing", RouteStatus.Active, sourceRef));
+            Assert.True(RouteStore.TryGetRoute("route-pending-missing", out Route armed));
+            armed.PendingRecoveryCreditCycleId = "cycle-7";
+            armed.PendingRecoveryCreditDispatchUT = 1234.0;
+            logLines.Clear();
+
+            int transitioned = RouteStore.RevalidateSources("test");
+
+            Assert.Equal(1, transitioned);
+            Assert.True(RouteStore.TryGetRoute("route-pending-missing", out Route route));
+            Assert.Equal(RouteStatus.MissingSourceRecording, route.Status);
+            // The owed credit's marker is flushed/cleared at the transition.
+            Assert.Null(route.PendingRecoveryCreditCycleId);
+            Assert.Equal(-1.0, route.PendingRecoveryCreditDispatchUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("flushing owed recovery credit before source-problem transition"));
+        }
+
+        // logistics-recovery-credit section 5.4: SourceChanged never auto-recovers
+        // (design 7.4 requires recreation), so a pending credit owed when the route
+        // flips into SourceChanged would leak permanently. Flush it at the edge.
+        // catches: a pending recovery-credit marker stranded on a SourceChanged route.
+        [Fact]
+        public void Revalidate_IntoSourceChanged_FlushesPendingRecoveryCredit_ClearsMarker()
+        {
+            var rec = BuildRouteSourceRecording("rec-drift-pending", sidecarEpoch: 1);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            var sourceRef = BuildMatchingSourceRef(rec);
+
+            rec.SidecarEpoch = 9; // drift -> SourceChanged
+            RecordingStore.BumpStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            InstallScenario();
+            RouteStore.AddRoute(BuildRoute("route-pending-changed", RouteStatus.Active, sourceRef));
+            Assert.True(RouteStore.TryGetRoute("route-pending-changed", out Route armed));
+            armed.PendingRecoveryCreditCycleId = "cycle-3";
+            armed.PendingRecoveryCreditDispatchUT = 555.0;
+            logLines.Clear();
+
+            int transitioned = RouteStore.RevalidateSources("test");
+
+            Assert.Equal(1, transitioned);
+            Assert.True(RouteStore.TryGetRoute("route-pending-changed", out Route route));
+            Assert.Equal(RouteStatus.SourceChanged, route.Status);
+            Assert.Null(route.PendingRecoveryCreditCycleId);
+            Assert.Equal(-1.0, route.PendingRecoveryCreditDispatchUT);
+        }
+
+        // logistics-recovery-credit section 5.4: a route with NO owed credit flips
+        // into a source-problem state without paying the live UT/env resolution
+        // cost (the fast-path early return) and emits no flush log.
+        // catches: the flush firing (and logging) when nothing is owed.
+        [Fact]
+        public void Revalidate_IntoMissingSource_NoPendingCredit_NoFlushLog()
+        {
+            var sourceRef = new RouteSourceRef
+            {
+                RecordingId = "rec-deleted-nopending",
+                RouteProofHash = "deadbeef00000000"
+            };
+            InstallScenario();
+            RouteStore.AddRoute(BuildRoute("route-nopending-missing", RouteStatus.Active, sourceRef));
+            logLines.Clear();
+
+            int transitioned = RouteStore.RevalidateSources("test");
+
+            Assert.Equal(1, transitioned);
+            Assert.True(RouteStore.TryGetRoute("route-nopending-missing", out Route route));
+            Assert.Equal(RouteStatus.MissingSourceRecording, route.Status);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("flushing owed recovery credit before source-problem transition"));
+        }
+
         // catches: a coarse fingerprint missing route-relevant proof changes.
         // The recording's SidecarEpoch is unchanged but a connection-window
         // UndockUT was rewritten under us — that has to flip the route.

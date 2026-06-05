@@ -22,8 +22,19 @@ namespace Parsek.Tests.Logistics
     /// exactly like production.
     ///
     /// Covers the section-9 matrix: T-PAIR, T-STEADY-STATE, T-BLOCK, T-MODE-GATE,
-    /// T-PAUSE-FLUSH, T-NODOUBLE, T-CRASH-WINDOW, T-FUNDS-OUT-THEN-BACK, T-AMOUNT,
-    /// T-SUP, T-SUP-NOBLOCK.
+    /// T-PAUSE-FLUSH (immediate TryPause, armed pause-after-cycle, EndpointLost),
+    /// T-NODOUBLE, T-CRASH-WINDOW, T-FUNDS-OUT-THEN-BACK, T-AMOUNT, T-SUP,
+    /// T-SUP-NOBLOCK.
+    ///
+    /// SCOPE NOTE: T-FUNDS-OUT-THEN-BACK here is the DEFERRAL proof (funds go out
+    /// at dispatch and come back one crossing LATER, never same-tick). It is a
+    /// forward-only timeline assertion and does NOT exercise a rewind. The separate
+    /// REWIND-REVERSAL proof (T-REWIND, the safety-critical rollback path: a cutoff
+    /// walk un-credits the recovery by exactly the credit amount, and Option A's
+    /// gross debit cutoff is symmetric) lives in
+    /// <c>RewindUtCutoffTests.RouteRecoveryCredit_CutoffBeforeCredit_*</c> /
+    /// <c>RouteCargoDebit_CutoffBeforeDebit_*</c>, which drive the real engine +
+    /// PatchFunds path. Do NOT read the deferral test below as the rollback test.
     /// </summary>
     [Collection("Sequential")]
     public class RouteRecoveryCreditTests : IDisposable
@@ -205,6 +216,38 @@ namespace Parsek.Tests.Logistics
             return Ledger.Actions.Where(a => a.Type == GameActionType.RouteRecoveryCredited).ToList();
         }
 
+        // Minimal capturing writer bundle for ApplyDeliveryFromPlan (the armed
+        // pause-after-cycle flush test). Mirrors RouteOrchestratorDeliveryTests'
+        // CapturingWriters: writer drives the actual, reader reports total written.
+        private sealed class CapturingDeliveryWriters
+        {
+            public readonly List<(string Name, double Amount)> ResourceCalls = new List<(string, double)>();
+            public readonly List<double> FundsDebits = new List<double>();
+
+            public void WriteResource(string name, double amount) => ResourceCalls.Add((name, amount));
+
+            public double ReadActualResource(string name)
+            {
+                double total = 0.0;
+                for (int i = 0; i < ResourceCalls.Count; i++)
+                    if (ResourceCalls[i].Name == name)
+                        total += ResourceCalls[i].Amount;
+                return total;
+            }
+
+            public void WriteInventory(InventoryPayloadItem item, int slot) { }
+            public int ReadInventoryActualCount() => 0;
+            public void DebitFunds(double cost) => FundsDebits.Add(cost);
+        }
+
+        private static DeliveryPlan BuildFullFillPlan(Dictionary<string, double> manifest)
+        {
+            var resources = new List<ResourceDeliveryLine>();
+            foreach (var kv in manifest)
+                resources.Add(new ResourceDeliveryLine(kv.Key, kv.Value, kv.Value));
+            return new DeliveryPlan(resources, Array.Empty<InventoryDeliveryLine>(), isPartial: false, isZero: false);
+        }
+
         // ==================================================================
         // T-AMOUNT: amount == SumRecoveredCredits; zero-recovery clears pending
         // ==================================================================
@@ -309,12 +352,18 @@ namespace Parsek.Tests.Logistics
         }
 
         // ==================================================================
-        // T-FUNDS-OUT-THEN-BACK: the deferral proof (live funds timeline)
+        // T-FUNDS-OUT-THEN-BACK: the DEFERRAL proof (forward-only funds timeline).
+        // This is NOT the rewind-reversal proof. It asserts the credit lands one
+        // crossing LATER than the dispatch it pays back (timing honesty), so it is
+        // satisfiable only under the prior-cycle pairing. The "funds go back out on
+        // a rewind" property is proven separately and independently by T-REWIND in
+        // RewindUtCutoffTests (cutoff walk + PatchFunds). Keep the two distinct:
+        // deferral here, reversibility there.
         // ==================================================================
 
         // catches: the credit collapsing to net-at-dispatch. After crossing 1 the
         // live credit list is EMPTY (funds down by gross only); only after
-        // crossing 2 does the credit land.
+        // crossing 2 does the credit land. (Deferral, not reversal: see T-REWIND.)
         [Fact]
         public void FundsTimeline_DownByGrossOnly_AfterFirstCrossing()
         {
@@ -513,6 +562,84 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.TryActivate(route, 1400.0);
             RouteOrchestrator.Tick(1450.0, env);
             Assert.Single(Credits()); // still only the one cycle-0 credit
+        }
+
+        // catches: the armed pause-after-cycle tail (ApplyDeliveryFromPlan honoring
+        // Route.PauseAfterCurrentCycle) NOT flushing the owed recovery credit before
+        // it transitions the route to Paused. That cycle set its own pending marker
+        // during EmitLoopCycle, and there is no further crossing, so the credit must
+        // be flushed at the armed-pause transition (section 5.4) or it strands.
+        [Fact]
+        public void ArmedPauseAfterCycle_FlushesOwedRecoveryCredit_BeforePaused()
+        {
+            InstallSourceTree();
+            SeedRecoveryRow(Recovered);
+            var route = BuildLoopRoute(status: RouteStatus.InTransit);
+            // This cycle dispatched + armed its own pending credit during EmitLoopCycle.
+            route.PendingRecoveryCreditCycleId = "cycle-0";
+            route.PendingRecoveryCreditDispatchUT = 1150.0;
+            route.PauseAfterCurrentCycle = true;
+            route.PendingStopIndex = 0;
+
+            var writers = new CapturingDeliveryWriters();
+            var plan = BuildFullFillPlan(route.Stops[0].DeliveryManifest);
+            var ctx = new RouteOrchestrator.ApplyDeliveryContext
+            {
+                CycleId = "cycle-0",
+                CurrentUT = 1450.0,
+                StopIndex = 0,
+                IsCareer = true,
+                IsKscOrigin = true,
+                KscFundsCost = 0.0,
+                ResourceWriter = writers.WriteResource,
+                ResourceActualReader = writers.ReadActualResource,
+                InventoryWriter = writers.WriteInventory,
+                InventoryActualCountReader = writers.ReadInventoryActualCount,
+                FundsDebiter = writers.DebitFunds,
+                LedgerEmitter = Ledger.AddAction,
+            };
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
+
+            // Route paused, pause-flag consumed.
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.PauseAfterCurrentCycle);
+            // The owed recovery credit flushed at the armed-pause UT, keyed on cycle-0.
+            var credit = Assert.Single(Credits());
+            Assert.Equal("cycle-0", credit.RouteCycleId);
+            Assert.Equal(1450.0, credit.UT);
+            Assert.Equal((float)Recovered, credit.RouteKscFundsCost);
+            Assert.Single(liveCredits);
+            Assert.Equal(Recovered, liveCredits[0]);
+            Assert.Null(route.PendingRecoveryCreditCycleId);
+        }
+
+        // catches: the EndpointLost-at-delivery transition (logistics-recovery-credit
+        // section 5.4) failing to flush the route's last dispatched cycle's credit.
+        // The live-Vessel ApplyDelivery wrapper is not xUnit-reachable, so this
+        // exercises the SAME EmitPendingRecoveryCredit call the EndpointLost path
+        // makes (route still Career-KSC, pending marker set, a real later UT), and
+        // asserts the credit lands exactly once. The call-site wiring at the
+        // EndpointLost transition is verified by reading.
+        [Fact]
+        public void EndpointLostAtDelivery_FlushCall_EmitsOwedRecoveryCredit()
+        {
+            InstallSourceTree();
+            SeedRecoveryRow(Recovered);
+            var route = BuildLoopRoute(status: RouteStatus.InTransit);
+            route.PendingRecoveryCreditCycleId = "cycle-0";
+            route.PendingRecoveryCreditDispatchUT = 1150.0;
+            var env = new EligibleEnv { IsCareer = true };
+
+            // Mirror the EndpointLost-at-delivery flush: same call, same env shape.
+            bool emitted = RouteOrchestrator.EmitPendingRecoveryCredit(route, 1450.0, env);
+
+            Assert.True(emitted);
+            var credit = Assert.Single(Credits());
+            Assert.Equal("cycle-0", credit.RouteCycleId);
+            Assert.Equal(1450.0, credit.UT);
+            Assert.Single(liveCredits);
+            Assert.Null(route.PendingRecoveryCreditCycleId);
         }
 
         // ==================================================================

@@ -432,6 +432,23 @@ namespace Parsek.Logistics
 
                 if (next != prev)
                 {
+                    // logistics-recovery-credit section 5.4 (ENDPOINT-LOST /
+                    // source-missing tail): a loop-route that flips INTO
+                    // MissingSourceRecording / SourceChanged stops crossing, so its
+                    // last dispatched cycle's deferred recovery credit would be
+                    // stranded forever (its "next crossing" never comes). Flush the
+                    // owed credit at this transition BEFORE TransitionTo, mirroring
+                    // the TryPause / armed-pause / EndpointLost-at-delivery flush
+                    // sites. SourceChanged never auto-recovers (design 7.4 requires
+                    // recreation) and a deleted MissingSourceRecording route is gone
+                    // permanently, so without this the credit (owed funds) leaks.
+                    // Defensive: a degenerate env / -1 UT makes EmitPendingRecoveryCredit
+                    // no-op safely on the Career gate and clear the stale marker.
+                    if (IsSourceProblemStatus(next) && !IsSourceProblemStatus(prev))
+                    {
+                        FlushPendingRecoveryCreditOnSourceProblem(route, reasonOrNone);
+                    }
+
                     route.TransitionTo(next, $"{reasonOrNone}/{cause}");
                     transitioned++;
 
@@ -456,6 +473,60 @@ namespace Parsek.Logistics
                 $"ersIndexed={ersIndexed} ersTotal={ersTotal}");
 
             return transitioned;
+        }
+
+        /// <summary>
+        /// True for the two source-problem stop states a loop-route can flip into
+        /// during <see cref="RevalidateSources(string)"/> that halt crossing
+        /// (<see cref="RouteStatus.MissingSourceRecording"/> /
+        /// <see cref="RouteStatus.SourceChanged"/>). Used to gate the deferred
+        /// recovery-credit flush so it fires only on the INTO-source-problem edge,
+        /// never on a self-edge or a recovery edge.
+        /// </summary>
+        internal static bool IsSourceProblemStatus(RouteStatus status)
+        {
+            return status == RouteStatus.MissingSourceRecording
+                || status == RouteStatus.SourceChanged;
+        }
+
+        /// <summary>
+        /// Flush the route's last dispatched cycle's deferred recovery credit when
+        /// the route flips into a source-problem stop state (logistics-recovery-credit
+        /// section 5.4). Resolves a live UT + env defensively, exactly like
+        /// <see cref="RouteOrchestrator.TryPause(Route)"/>: an early-load or off-Unity
+        /// context that cannot obtain live values passes a null env / -1 UT, and
+        /// <see cref="RouteOrchestrator.EmitPendingRecoveryCredit"/> then no-ops on
+        /// the Career-KSC gate and clears any stale pending marker without emitting.
+        /// Idempotent via the credit's keyed backstop, so a re-presented transition
+        /// never double-credits.
+        /// </summary>
+        private static void FlushPendingRecoveryCreditOnSourceProblem(Route route, string reasonOrNone)
+        {
+            if (route == null) return;
+
+            // Fast path: nothing owed, so do not pay the live UT/env resolution cost.
+            if (string.IsNullOrEmpty(route.PendingRecoveryCreditCycleId))
+                return;
+
+            double ut = -1.0;
+            IRouteRuntimeEnvironment env = null;
+            try
+            {
+                ut = Planetarium.GetUniversalTime();
+                env = new LiveRouteRuntimeEnvironment();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RevalidateSources: route {ShortId(route.Id)} live UT/env resolution threw " +
+                    $"{ex.GetType().Name}: {ex.Message}; flushing recovery credit without a live funds context " +
+                    $"(reason={reasonOrNone})");
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"RevalidateSources: route {ShortId(route.Id)} flushing owed recovery credit before " +
+                $"source-problem transition (reason={reasonOrNone})");
+            RouteOrchestrator.EmitPendingRecoveryCredit(route, ut, env);
         }
 
         // Builds a comparison-only RouteSourceRef from a live Recording so
