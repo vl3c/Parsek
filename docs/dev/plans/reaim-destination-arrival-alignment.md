@@ -1057,12 +1057,15 @@ additive; non-re-aim callers stay byte-identical. Steps:
    - A log-assertion test (if a per-unit summary line is emitted) per the batch-counting
      convention.
 
-5. Post-fix verification (live KSP). Log the `overshootGap` field
-   (`EmitOneSidedBracketDiagnostic` in `GhostTrajectoryPolylineRenderer.cs`) across several loops
-   in game. If it stays roughly constant (about 17 km, NOT growing with N) the per-loop term is
-   working and the residual is the separate conic-fit matter (the 13b residual caveat). If it
-   still grows with N, the term is mis-applied (wrong sign, ungated, or `cadence`/`T_rot`
-   swapped).
+5. Post-fix verification (live KSP). Log the `seamGap` field (formerly `overshootGap`;
+   `EmitOneSidedBracketDiagnostic` in `GhostTrajectoryPolylineRenderer.cs`) across several loops
+   in game. The diagnostic now evaluates the body-fixed point at `leg.startUT` (not the live planet
+   rotation), so a working per-loop term keeps `seamGap` SMALL and stable (~0 km, the true geometric
+   seam) across loops rather than growing toward hundreds of km with N. If it still grows with N, the
+   term is mis-applied (wrong sign, ungated, or `cadence`/`T_rot` swapped). NOTE: the old "about 17 km
+   constant residual" expectation was a live-rotation measurement artifact of the diagnostic itself,
+   removed by the `leg.startUT` basis fix (see the 13b RESIDUAL CAVEAT); there is no separate conic-fit
+   residual to chase.
 
 Scope fence: this change is confined to the loop clock and `LoopUnit`. The
 launch-to-SOI-entry pipeline, the OrbitSegment director, and the body-fixed polyline all inherit
