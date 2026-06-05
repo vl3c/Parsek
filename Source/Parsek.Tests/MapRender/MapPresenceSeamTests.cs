@@ -154,6 +154,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GhostMapPresence_Declares_GhostCreatedAndDestroyedMapPresence_8d2()
+        {
+            string source = ReadSource("Source", "Parsek", "GhostMapPresence.cs");
+
+            // Phase 8d.2 relocated the map-presence portions of the policy's two ghost-lifecycle
+            // handlers here as internal static methods.
+            Assert.Contains("internal static void HandleFlightGhostCreatedMapPresence(", source);
+            Assert.Contains("internal static void HandleFlightGhostDestroyedMapPresence(", source);
+        }
+
+        [Fact]
+        public void ParsekPlaybackPolicy_HandleGhostCreated_DelegatesPresence_KeepsCameraConcern_8d2()
+        {
+            string source = ReadSource("Source", "Parsek", "ParsekPlaybackPolicy.cs");
+            string codeOnly = StripLineComments(source);
+
+            // The handler delegates the presence enqueue to the relocated GhostMapPresence method...
+            Assert.Contains("GhostMapPresence.HandleFlightGhostCreatedMapPresence(", codeOnly);
+            // ...while the camera-follow concern stays in the policy.
+            Assert.Contains("TryAutoFollowChainSeamSpawn(", codeOnly);
+
+            // ...and the moved enqueue statements no longer live in the policy (proving move, not
+            // copy): the pending-queue write (both the indexer access and the PendingMapVessel
+            // construction) is gone. (ResolveMapPresenceGhostSource is intentionally NOT asserted
+            // absent: TryResolveTerminalFallbackMapOrbitUpdate, a helper kept in the policy per the
+            // plan, still calls it.)
+            Assert.DoesNotContain("flightPendingMapVessels[", codeOnly);
+            Assert.DoesNotContain("new GhostMapPresence.PendingMapVessel(", codeOnly);
+        }
+
+        [Fact]
+        public void ParsekPlaybackPolicy_HandleGhostDestroyed_DelegatesPresence_KeepsHeldGhosts_8d2()
+        {
+            string source = ReadSource("Source", "Parsek", "ParsekPlaybackPolicy.cs");
+            string codeOnly = StripLineComments(source);
+
+            // The handler delegates the presence teardown to the relocated GhostMapPresence method...
+            Assert.Contains("GhostMapPresence.HandleFlightGhostDestroyedMapPresence(", codeOnly);
+            // ...while the soft-cap held-ghost removal stays in the policy.
+            Assert.Contains("heldGhosts.Remove(", codeOnly);
+
+            // ...and the moved teardown statements no longer live in the policy (proving move, not
+            // copy): the per-index ghost-presence removal call is gone.
+            Assert.DoesNotContain("RemoveAllGhostPresenceForIndex(", codeOnly);
+        }
+
+        [Fact]
         public void IGhostMapScene_Declares_DriveMapPresence()
         {
             string source = ReadSource("Source", "Parsek", "MapRender", "IGhostMapScene.cs");

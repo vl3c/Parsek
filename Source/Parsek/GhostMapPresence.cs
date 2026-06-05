@@ -10879,5 +10879,184 @@ namespace Parsek
 
             flightChainMapOwner[chainId] = newIndex;
         }
+
+        // ===================================================================================
+        // Flight-scene ghost-create / ghost-destroy MAP-PRESENCE portions (Phase 8d.2 relocation
+        // from ParsekPlaybackPolicy.HandleGhostCreated / HandleGhostDestroyed). FAITHFUL MOVE —
+        // the blocks below were copied VERBATIM from those two handlers. The only edits are:
+        // (a) engine.CurrentLoopUnits -> the loopUnits parameter (HandleFlightGhostCreatedMapPresence),
+        // (b) the ShouldDeferLoopShiftedMapPresence predicate (left in ParsekPlaybackPolicy — it has
+        // test callers there) is qualified with ParsekPlaybackPolicy., and (c) now-redundant
+        // GhostMapPresence. self-qualifiers on members that are in-class here were stripped. The
+        // policy keeps the engine-event subscription wiring + the non-presence concerns
+        // (TryAutoFollowChainSeamSpawn camera follow, heldGhosts soft-cap state).
+        // ===================================================================================
+
+        /// <summary>
+        /// Map-presence ENQUEUE portion of <c>ParsekPlaybackPolicy.HandleGhostCreated</c> (Phase 8d.2
+        /// relocation): debris-skip gate, terminal-eligibility / orbit-data gates, per-chain dedup,
+        /// initial source resolution, the loop-aware defer decision, and the immediate-create vs
+        /// pending-queue branch. The policy's handler runs <c>TryAutoFollowChainSeamSpawn(evt)</c>
+        /// (camera concern) first, then calls this. <paramref name="loopUnits"/> is the engine's
+        /// per-frame <c>CurrentLoopUnits</c> the policy reads at the call site.
+        /// </summary>
+        internal static void HandleFlightGhostCreatedMapPresence(
+            GhostLifecycleEvent evt, GhostPlaybackLogic.LoopUnitSet loopUnits)
+        {
+            // KEEP debris-only: this is the policy decision to NOT give debris
+            // recordings their own tracking-station map presence / orbit lines.
+            // Controlled-decoupled children (extension of the parent-anchor
+            // contract) carry IsDebris=false and correctly pass this gate so
+            // they continue to receive map presence as today.
+            if (evt.Trajectory == null || evt.Trajectory.IsDebris)
+            {
+                if (evt.Trajectory?.IsDebris == true)
+                    ParsekLog.Verbose("Policy",
+                        $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory?.VesselName}\" - debris");
+                return;
+            }
+
+            var terminal = evt.Trajectory.TerminalStateValue;
+            if (!IsTerminalStateEligibleForMapPresence(terminal))
+            {
+                ParsekLog.VerboseRateLimited("Policy", $"skip-map-terminal-{evt.Index}",
+                    $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory.VesselName}\" — terminal={terminal.Value}");
+                return;
+            }
+
+            // Accept recordings with terminal orbit data, orbit segments, or trajectory
+            // points (physics-only suborbital recordings have points but no orbit data).
+            bool hasOrbitData = HasOrbitData(evt.Trajectory);
+            bool hasOrbitSegments = evt.Trajectory.HasOrbitSegments;
+            bool hasPoints = evt.Trajectory.Points != null && evt.Trajectory.Points.Count > 0;
+            if (!hasOrbitData && !hasOrbitSegments && !hasPoints)
+                return;
+
+            // Per-chain dedup: if another segment from the same chain already has a ghost
+            // map vessel, remove it before creating the new one. Prevents duplicate orbit
+            // lines during fast time warp across chain boundaries.
+            RemovePreviousChainMapVessel(evt.Index);
+
+            // Check whether the ghost starts in a map-visible source. Otherwise,
+            // defer — the per-frame shared resolver will create it when it enters
+            // an orbital segment or state-vector fallback range.
+            double startUT = evt.Trajectory.StartUT;
+            int cachedStateVectorIndex = flightStateVectorCachedIndices.TryGetValue(evt.Index, out int cached)
+                ? cached
+                : -1;
+            // Initial-create-on-first-loop-entry: pass acceptTerminalOrbitForLoopSynthesis:
+            // false. This path runs at startUT with no loopUnits / effUT / shift in scope, so
+            // the relaxed terminal-orbit source would seed at the raw recorded UT (wrong
+            // position). The proto-vessel is created later on a loop-aware tick once the
+            // pending queue and per-frame ResolveMapPresenceSampleUT compute effUT and the
+            // accompanying loop epoch shift. Same reasoning as the TS-startup wrapper. Plan section 1.4.
+            TrackingStationGhostSource source = ResolveMapPresenceGhostSource(
+                evt.Trajectory,
+                false,
+                IsMaterializedForMapPresence(evt.Trajectory),
+                startUT,
+                true,
+                "map-presence-initial-create",
+                ref cachedStateVectorIndex,
+                out OrbitSegment segment,
+                out TrajectoryPoint stateVectorPoint,
+                out _,
+                recordingIndex: evt.Index,
+                acceptTerminalOrbitForLoopSynthesis: false);
+            flightStateVectorCachedIndices[evt.Index] = cachedStateVectorIndex;
+
+            // Loop-shifted members must be created on a loop-aware per-frame tick
+            // (CheckPendingMapVessels): that path resolves the source at the loop-mapped
+            // effUT and threads the live-frame epoch shift into the orbit + arc-clip bounds.
+            // Creating here at the raw recorded startUT with the default shift=0 seeds
+            // recorded-UT bounds and leaves ghostOrbitLoopShiftedPids clear, so for one tick
+            // the map-orbit window resolver returns a recorded-UT fallback window (the
+            // icon-clamp / orbit-line glitch at first appearance and at every window re-entry).
+            // Defer so the per-frame path owns loop-member creation, mirroring the TS create
+            // sites and the flight pending-create path. Off the loop path effUT == currentUT
+            // (shift 0, renderHidden false), so non-loop members keep the immediate create
+            // byte-for-byte.
+            double initialNowUT = Planetarium.GetUniversalTime();
+            ResolveMapPresenceSampleUT(
+                evt.Index, evt.Trajectory.StartUT, evt.Trajectory.EndUT, initialNowUT,
+                loopUnits, out bool initialRenderHidden, out double initialLoopShift);
+            bool deferForLoopAware =
+                ParsekPlaybackPolicy.ShouldDeferLoopShiftedMapPresence(initialLoopShift, initialRenderHidden);
+
+            if (source != TrackingStationGhostSource.None && !deferForLoopAware)
+            {
+                Vessel ghost = CreateGhostVesselFromSource(
+                    evt.Index,
+                    evt.Trajectory,
+                    source,
+                    segment,
+                    stateVectorPoint,
+                    startUT);
+                if (ghost != null)
+                {
+                    if (IsStateVectorGhostSource(source))
+                    {
+                        flightStateVectorOrbitTrajectories[evt.Index] = evt.Trajectory;
+                        if (source != TrackingStationGhostSource.StateVectorSoiGap)
+                            flightSoiGapStateVectorExpectedBodies.Remove(evt.Index);
+                    }
+                    else if (TryGetMapOrbitKey(source, segment, out var orbitKey))
+                    {
+                        flightSoiGapStateVectorExpectedBodies.Remove(evt.Index);
+                        flightLastMapOrbitByIndex[evt.Index] = orbitKey;
+                    }
+                }
+            }
+            else
+            {
+                // Initial/pre-orbital deferrals and loop-shifted members are not SOI-gap
+                // recoveries; only the gap-between-orbit-segments requeue path opts into that
+                // fallback. The per-frame CheckPendingMapVessels pass resolves the source at
+                // the loop-mapped effUT and creates with the live-frame epoch shift.
+                flightPendingMapVessels[evt.Index] = new PendingMapVessel(
+                    evt.Trajectory,
+                    allowSoiGapStateVectorFallback: false,
+                    expectedSoiGapBody: null);
+                ParsekLog.Verbose("Policy",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Deferred ghost map vessel for #{0} \"{1}\": {2} (source={3} loopShift={4:F2} renderHidden={5})",
+                        evt.Index,
+                        evt.Trajectory.VesselName,
+                        deferForLoopAware
+                            ? "loop-shifted member, deferring to loop-aware per-frame create"
+                            : "recording starts pre-orbital",
+                        source,
+                        initialLoopShift,
+                        initialRenderHidden));
+            }
+        }
+
+        /// <summary>
+        /// Map-presence TEARDOWN portion of <c>ParsekPlaybackPolicy.HandleGhostDestroyed</c> (Phase
+        /// 8d.2 relocation): clears the five per-index presence dicts, resolves the committed
+        /// vesselPid (and drops the terminal-retention log key), then removes both recording-index
+        /// and chain-based ghost map ProtoVessels. The policy's handler keeps the Verbose log and the
+        /// <c>heldGhosts.Remove</c> (soft-cap state) and calls this with <c>evt.Index</c>.
+        /// </summary>
+        internal static void HandleFlightGhostDestroyedMapPresence(int index)
+        {
+            flightPendingMapVessels.Remove(index);
+            flightLastMapOrbitByIndex.Remove(index);
+            flightStateVectorOrbitTrajectories.Remove(index);
+            flightSoiGapStateVectorExpectedBodies.Remove(index);
+            flightStateVectorCachedIndices.Remove(index);
+
+            // Remove both recording-index and chain-based ghost map ProtoVessels
+            var committed = RecordingStore.CommittedRecordings;
+            uint vesselPid = 0;
+            if (committed != null && index >= 0 && index < committed.Count)
+            {
+                vesselPid = committed[index].VesselPersistentId;
+                if (!string.IsNullOrEmpty(committed[index].RecordingId))
+                    flightTerminalMapRetentionLoggedIds.Remove(committed[index].RecordingId);
+            }
+
+            RemoveAllGhostPresenceForIndex(index, vesselPid, "ghost-destroyed");
+        }
     }
 }
