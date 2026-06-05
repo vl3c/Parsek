@@ -193,7 +193,7 @@ namespace Parsek
                 s.verboseLogging = defaults.VerboseLogging;
                 s.ghostRenderTracing = false;
                 s.mapRenderTracing = false;
-                s.mapRenderDirectorDrive = false;
+                s.mapRenderDirectorDrive = true;
                 s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
@@ -468,8 +468,8 @@ namespace Parsek
             }
 
             bool mapRenderDirectorDrive = GUILayout.Toggle(s.mapRenderDirectorDrive,
-                new GUIContent(" Map/TS new render drive (EXPERIMENTAL)",
-                    "When on, the new map-render pipeline drives each conic ghost's orbit + icon from one source: it bakes the loop time-shift into the orbit epoch so the icon lands on its recorded orbit phase. Targets the looped-re-aim icon-rotated-off-its-line bug; UNDER VALIDATION. Experimental; off uses the existing path. Leave off unless validating the rewrite."));
+                new GUIContent(" Map/TS director render drive (default on)",
+                    "On by default: the new map-render pipeline drives each conic ghost's orbit + icon from one source, baking the loop time-shift into the orbit epoch so the icon lands on its recorded orbit phase. Fixes the looped-re-aim icon-rotated-off-its-line bug (validated in-game). Turn off to fall back to the legacy render path."));
             if (mapRenderDirectorDrive != s.mapRenderDirectorDrive)
             {
                 s.mapRenderDirectorDrive = mapRenderDirectorDrive;

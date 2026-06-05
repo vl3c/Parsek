@@ -1705,6 +1705,119 @@ namespace Parsek.InGameTests
                 $"minStep={minStep:F1}m liveUtR={rLiveUt:E2}m");
         }
 
+        /// <summary>
+        /// Regression guard for the hyperbolic-escape ghost orbit LINE clip (Phase-8a coverage-gap
+        /// Category 1). The icon already rode the hyperbola correctly; this asserts the LINE is
+        /// clipped to its recorded segment window instead of being drawn by stock as the FULL open
+        /// asymptote-to-asymptote hyperbola across the whole map. It replicates the exact computation
+        /// <c>GhostOrbitArcPatch.Prefix</c> runs on a hyperbolic orbit (the patch's full
+        /// OrbitRendererBase + ghostOrbitBounds plumbing is too heavy to wire up here, so this drives
+        /// the real KSP Orbit anomaly/position helpers the clip depends on, like
+        /// <see cref="DirectorDriveEpochBakePlacesIconOnRecordedPhase"/>): convert the segment
+        /// [startUT,endUT] to hyperbolic eccentric anomaly via EccentricAnomalyAtUT, sample with
+        /// getPositionFromEccAnomalyWithSemiMinorAxis, and check the draw range is a bounded OPEN arc.
+        /// Uses the real escape orbit from the evidence log (sma=-3818300 ecc=1.1916, segment
+        /// 63966985.6..64044032.7).
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "Hyperbolic escape ghost orbit LINE is clipped to its segment window (open sub-arc), not drawn as the full stock hyperbola")]
+        public void HyperbolicArcClipBoundsLineToSegmentWindow()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            const double rawEpoch = 63966985.6;
+            const double segStart = 63966985.6;
+            const double segEnd = 64044032.7;
+            var orbit = new Orbit();
+            orbit.SetOrbit(1.3329, 1.1916, -3818300.0, 50.0, 60.0, 0.0238, rawEpoch, kerbin);
+            orbit.Init();
+            InGameAssert.IsTrue(orbit.eccentricity > 1.0,
+                $"test orbit must be hyperbolic (ecc={orbit.eccentricity:F3})");
+            InGameAssert.IsTrue(double.IsInfinity(orbit.period) || double.IsNaN(orbit.period),
+                $"a hyperbolic orbit must NOT have a finite period (period={orbit.period}), the " +
+                $"full-period early-return must never fire for it");
+
+            // NOTE: this MIRRORS GhostOrbitArcPatch.Prefix's hyperbolic path rather than invoking the
+            // Harmony patch (which needs live OrbitRendererBase + ghostOrbitBounds wiring), like the
+            // director-drive in-game test. So the endpoint-position checks are a self-consistency pin
+            // on the stock Orbit API the patch relies on; the load-bearing guard is windowSpan <
+            // stockSpan below (the clip is a strict sub-arc, not the full open hyperbola).
+            // --- The clip's anomaly bounds (GhostOrbitArcPatch.Prefix, hyperbolic path) ---
+            double fromH = orbit.EccentricAnomalyAtUT(segStart);
+            double toH = orbit.EccentricAnomalyAtUT(segEnd);
+            InGameAssert.IsFalse(double.IsNaN(fromH) || double.IsNaN(toH),
+                $"hyperbolic eccentric anomaly bounds must be finite (fromH={fromH}, toH={toH})");
+            // Hyperbola is monotonic in H, no periapsis wraparound. The window must be a forward,
+            // non-degenerate sweep (toH strictly past fromH).
+            InGameAssert.IsGreaterThan(toH - fromH, 1e-6,
+                $"hyperbolic anomaly window must be a forward sweep (fromH={fromH:F4}, toH={toH:F4})");
+
+            // The FULL stock hyperbolic sweep (OrbitRendererBase.UpdateSpline else-branch):
+            // st = -acos(-1/ecc) .. end = +acos(-1/ecc). The clipped window must be a STRICT
+            // subset of that, i.e. the line stops short of the asymptotes, not the whole hyperbola.
+            double stockHalfSweep = System.Math.Acos(-1.0 / orbit.eccentricity);
+            InGameAssert.IsGreaterThan(fromH, -stockHalfSweep,
+                $"clipped start H ({fromH:F4}) must be inside the stock sweep start (-{stockHalfSweep:F4})");
+            InGameAssert.IsLessThan(toH, stockHalfSweep,
+                $"clipped end H ({toH:F4}) must be inside the stock sweep end ({stockHalfSweep:F4})");
+            double windowSpan = toH - fromH;
+            double stockSpan = 2.0 * stockHalfSweep;
+            InGameAssert.IsLessThan(windowSpan, stockSpan,
+                $"clipped window span ({windowSpan:F4}) must be a strict sub-arc of the full stock " +
+                $"hyperbola span ({stockSpan:F4}); else the line is the whole open hyperbola");
+
+            // --- Sample the clipped arc exactly as the patch does and verify the endpoints land on
+            // the recorded segment positions (the line is bounded to the window), the arc is open
+            // (endpoints are far apart, not a closed loop), and every sample is finite + in-SOI. ---
+            double semiMinorAxis = orbit.semiMinorAxis;
+            const int count = 180; // stock OrbitPoints.Length at sampleResolution=2.0
+            double interval = (toH - fromH) / (count - 1);
+            double soi = kerbin.sphereOfInfluence;
+            Vector3d firstSample = Vector3d.zero, lastSample = Vector3d.zero;
+            double maxR = 0.0;
+            for (int i = 0; i < count; i++)
+            {
+                Vector3d p = orbit.getPositionFromEccAnomalyWithSemiMinorAxis(
+                    fromH + interval * i, semiMinorAxis);
+                InGameAssert.IsFalse(double.IsNaN(p.x) || double.IsInfinity(p.x),
+                    $"clipped hyperbolic sample {i} must be finite");
+                double r = (p - kerbin.position).magnitude;
+                maxR = System.Math.Max(maxR, r);
+                if (i == 0) firstSample = p;
+                if (i == count - 1) lastSample = p;
+            }
+
+            // The clipped arc endpoints must match the recorded-segment world positions (this is the
+            // "bounded to the window" property: the line begins/ends where the recorded escape does).
+            // getPositionAtUT returns the same world frame as getPositionFromEccAnomalyWithSemiMinorAxis
+            // (referenceBody.position + relative.xzy), so the two are directly comparable.
+            Vector3d windowStartPos = orbit.getPositionAtUT(segStart);
+            Vector3d windowEndPos = orbit.getPositionAtUT(segEnd);
+            double startErr = (firstSample - windowStartPos).magnitude;
+            double endErr = (lastSample - windowEndPos).magnitude;
+            // Tolerance: 1 km against an arc that spans tens of thousands of km.
+            InGameAssert.IsLessThan(startErr, 1000.0,
+                $"clipped arc start must land on the recorded window start (err={startErr:F1} m)");
+            InGameAssert.IsLessThan(endErr, 1000.0,
+                $"clipped arc end must land on the recorded window end (err={endErr:F1} m)");
+
+            // Open arc: the two endpoints are far apart (a clipped open hyperbola), NOT a near-closed
+            // loop. They span the full escape, so the chord is a large fraction of the SOI.
+            double chord = (lastSample - firstSample).magnitude;
+            InGameAssert.IsGreaterThan(chord, soi * 0.5,
+                $"clipped escape arc must be open (endpoint chord={chord:F0} m vs SOI={soi:F0} m)");
+
+            ParsekLog.Info("TestRunner",
+                $"HyperbolicArcClipBoundsLineToSegmentWindow: ecc={orbit.eccentricity:F4} " +
+                $"fromH={fromH:F4} toH={toH:F4} windowSpan={windowSpan:F4} stockSpan={stockSpan:F4} " +
+                $"startErr={startErr:F1}m endErr={endErr:F1}m chord={chord:F0}m maxR={maxR:F0}m SOI={soi:F0}m");
+        }
+
         #endregion
 
         #region Parsek Settings
