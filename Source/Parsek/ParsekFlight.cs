@@ -1143,6 +1143,9 @@ namespace Parsek
             engine.ResolvePlaybackDistanceOverride = ResolvePlaybackDistanceForEngine;
             engine.ResolvePlaybackActiveVesselDistanceOverride = ResolvePlaybackActiveVesselDistanceForEngine;
             policy = new ParsekPlaybackPolicy(engine, this);
+            // Phase 8d.0: route the per-frame map-presence tick through the scene adapter. The seam
+            // delegates verbatim to policy.CheckPendingMapVessels; relocating the body is Phase 8d.1.
+            mapViewScene.SetPresenceDriver(policy);
 
             // Clean up any orphaned toolbar from rapid scene transitions (e.g. rewind)
             if (toolbarControl != null)
@@ -18523,8 +18526,11 @@ namespace Parsek
             // waiting for a blocked/deferred spawn to resolve
             policy.RetryHeldGhostSpawns();
 
-            // Create deferred ghost map ProtoVessels when ghosts enter orbital segments
-            policy.CheckPendingMapVessels(Planetarium.GetUniversalTime());
+            // Create deferred ghost map ProtoVessels when ghosts enter orbital segments.
+            // Phase 8d.0: routed through the scene adapter; MapViewScene.DriveMapPresence delegates
+            // VERBATIM to policy.CheckPendingMapVessels(currentUT) with the identical argument. Pure
+            // indirection — same method, same arg, same slot, same surrounding guard/try-catch.
+            mapViewScene.DriveMapPresence(Planetarium.GetUniversalTime());
 
             // Phase 4 decision-only shadow: run the new map-render pipeline (chain -> sample -> intent)
             // over the live map ghosts and reconcile each intent against the OLD path's rendered truth

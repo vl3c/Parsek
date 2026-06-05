@@ -269,6 +269,31 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
   to run:** s15 "Duna One" looped re-aim + a non-looped Mun mission through landing with
   `mapRenderDirectorDrive` on: marker present and riding the line on owned legs, no double marker, no blank
   frame at the TracedPath<->StockConic seam; toggle the gate OFF -> byte-identical to the legacy marker paths.
+- **Phase 8d - map-presence migration into the scene adapter (in progress).** Full sub-plan:
+  `docs/dev/plans/maprender-8d-presence-extraction.md`. Migrates the last big autonomous surface, the
+  ghost MAP-PRESENCE lifecycle (`ParsekPlaybackPolicy.CheckPendingMapVessels`, ~660 lines + 6 presence
+  dictionaries), into `GhostMapPresence` behind the same gate so 8e can delete the legacy path. **HARD
+  CONSTRAINT:** presence must NOT gate on `IsDirectorDriveActive` - the Director deliberately skips
+  re-aim / overlap members, which still need presence created + torn down every frame; the gate selects
+  only WHERE the identical work runs, never WHETHER it runs.
+  - **8d.0 - DONE (no behavior change).** Routed the flight per-frame presence tick through the scene
+    adapter instead of the direct policy call. New `IGhostMapScene.DriveMapPresence(double currentUT)`,
+    `abstract` on `GhostMapSceneBase`; `MapViewScene` overrides it as `policy?.CheckPendingMapVessels(
+    currentUT)` with the policy injected once at init via `SetPresenceDriver(policy)` (same style as
+    `SetFrameInputs`); `TrackingStationScene` overrides it for compile symmetry (delegating to
+    `UpdateTrackingStationGhostLifecycle(LoopUnits)`), NOT yet routed from any TS caller. `ParsekFlight`
+    now calls `mapViewScene.DriveMapPresence(Planetarium.GetUniversalTime())` in the SAME per-frame slot
+    the direct call used (between `RetryHeldGhostSpawns()` and the shadow-driver block). Byte-identical:
+    same method, same argument, same slot; `policy?.` cannot diverge from the old unconditional `policy.`
+    because `SetPresenceDriver` runs unconditionally at init before any frame; no director gate added.
+    The `CheckPendingMapVessels` body + the 6 dictionaries are UNTOUCHED (that is 8d.1). Source-gate test
+    `MapPresenceSeamTests` (4) locks the host off the direct call. Build clean; full suite green (13412).
+  - **8d.1 (next, single PR) - relocate the body.** Move `CheckPendingMapVessels` + the 6 dictionaries
+    into `GhostMapPresence.UpdateFlightMapGhostLifecycle`, gate ON -> migrated body, gate OFF -> legacy
+    in-policy body (verbatim fallback, deleted in 8e). Riskiest slice; multiple in-game validation cycles
+    (looped re-aim "Duna One" + a non-looped Mun mission through landing).
+  - **8d.2** - enqueue + scene-change teardown ownership (gated, legacy fallback).
+  - **8d.3** - decompose into named sub-passes + pure-extract predicates with unit tests.
 - **Phase 8** per-surface cutover (8a-8e) - deletes the scattered gates; in-game per sub-phase.
 - **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3
   `TransferConic` frame-agnostic return - touch the in-game-validated re-aim path.
