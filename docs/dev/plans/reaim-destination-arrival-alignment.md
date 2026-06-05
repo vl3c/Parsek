@@ -1010,21 +1010,35 @@ additive; non-re-aim callers stay byte-identical. Steps:
    `ArrivalHoldAtUT` at `:6796` / `:6800`), populated in `MissionLoopUnitBuilder.cs` from the
    `bodyInfo.RotationPeriod(plan.TargetBody)` value already fetched there for
    `ArrivalHoldPlanner` (`ArrivalHoldPlanner.ComputeArrivalHold` reads it at
-   `ArrivalHoldPlanner.cs:70`). Default 0 / NaN so a unit with no destination hold carries no
-   period.
+   `ArrivalHoldPlanner.cs:70`). Default the field to NaN as the "no period" sentinel (matching
+   the `ArrivalHoldAtUT` NaN-sentinel convention), so a unit with no destination hold carries no
+   period; the `> 0` / non-NaN guard in step 3 treats NaN (and any non-positive value) as "no
+   per-loop adjustment".
 
 2. Thread the period into the clock. Add an `arrivalHoldRotationPeriod` parameter (default
-   0 / NaN) to `TryComputeSpanLoopUT` (`GhostPlaybackLogic.cs:7014`) and to
+   NaN) to `TryComputeSpanLoopUT` (`GhostPlaybackLogic.cs:7014`) and to
    `DecideUnitMemberRender` (`:7233`), threaded from `unit.DestRotationPeriodSeconds` at every
-   call site: `GhostPlaybackEngine.cs:359` and `:1877` (the engine clock reads), the
-   `DecideUnitMemberRender` wrapper at `GhostPlaybackLogic.cs:7302` (and its caller at
-   `GhostPlaybackEngine.cs:2278`), and `ParsekKSC.cs:1121`. The default keeps every non-re-aim
-   caller byte-identical.
+   call site that consumes the hold-affected `loopUT`: `GhostPlaybackEngine.cs:359` and `:1877`
+   (the engine clock reads), the `DecideUnitMemberRender` wrapper at `GhostPlaybackLogic.cs:7302`
+   (and its caller at `GhostPlaybackEngine.cs:2278`), and `ParsekKSC.cs:1121`. The default keeps
+   every non-re-aim caller byte-identical.
 
-3. Compute `W_N` at the injection point. Inside `TryComputeSpanLoopUT`, right after `cycleIndex`
-   is computed (`:7066`) and BEFORE `hold` is consumed (the `hold` read at `:7086`, used by
-   `ApplyArrivalHoldToPhase` at `:7122`), when `arrivalHoldSeconds > 0` and `T_rot` is valid
-   (positive, finite), replace the constant hold with
+   Two additional direct callers are correctly left UNCHANGED (they do not consume the
+   hold-affected `loopUT`):
+   - `ReaimPlaybackResolver.cs:110` calls `TryComputeSpanLoopUT` directly but consumes ONLY
+     `cycleIndex` (the synodic window index, computed before any hold is applied), discarding
+     `loopUT`, so it is intentionally NOT threaded and stays byte-identical.
+   - `InGameTests/RuntimeTests.cs` (around `:5323-5351`) calls `DecideUnitMemberRender` with
+     named args ending at `schedule`; because the new parameter is a trailing optional, these
+     compile unchanged and need no edit.
+
+3. Compute `W_N` at the injection point. Inside `TryComputeSpanLoopUT`, line `:7086` is where
+   the base `hold` (= `W_0`) is established (`double hold = arrivalHoldSeconds > 0 ? ... : 0`).
+   The injection is AFTER the base `hold` / `W_0` is established at `:7086` (override
+   `hold = W_N`) and BEFORE the defense clamp at `:7091`. `cycleIndex` is already computed at
+   `:7066`, before the base `hold` read. When `arrivalHoldSeconds > 0` and `T_rot` is valid
+   (`!double.IsNaN(T_rot) && !double.IsInfinity(T_rot) && T_rot > 0`, the house pattern used by
+   `ComputeArrivalAlignHoldSeconds`), replace the constant hold with
    `W_N = ((W_0 - cycleIndex * (cadence % T_rot)) % T_rot + T_rot) % T_rot`, where
    `W_0 = arrivalHoldSeconds` and `cadence = cycleDuration` (the per-loop advance, `:7059`). Gate
    strictly on `W_0 > 0` so Off (Drop, `W_0 = 0`) stays byte-identical (13b regression fence).
@@ -1128,7 +1142,10 @@ hold to.
 - The recording format (nothing new persisted; the alignment is fully derived from the
   recording's parking / arrival / surface segments + live bodies + the existing
   `BuildSignature`).
-- The playback engine, `IPlaybackTrajectory`, the orbit-segment renderer, the loop span clock.
+- The playback engine, `IPlaybackTrajectory`, the orbit-segment renderer, and the loop span
+  clock's behavior when alignment is OFF (the `W_0 > 0` gate from 13c guarantees byte-identical
+  behavior when alignment is off; the clock itself gains the per-loop hold under 13c when
+  alignment is on).
 
 ---
 
