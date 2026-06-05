@@ -204,6 +204,42 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
   decision-vs-old-truth in BOTH scenes. **Phase 7b (next, NEEDS IN-GAME)**: make-before-break +
   cold-start-mid-segment (§10.19) + per-scene patched-conic divergence (§10.20), gated on the §15.2 probe
   (possible stop-point - if stock re-solves the patch chain materially differently per scene, escalate).
+- **Phase 8b - TracedPath polyline ownership (in progress).**
+  - **8b.0 - DONE.** Extracted the per-leg polyline draw into the scene-agnostic
+    `GhostTrajectoryPolylineRenderer.TryDrawLeg` (verbatim old inlined body, byte-identical output) so
+    the treatment can draw a single leg through the SAME mechanics.
+  - **8b.1 - DONE.** When `mapRenderDirectorDrive` is on and the Director decides Visible+TracedPath for
+    a ghost pid, the Driver routes that leg's draw through `TracedPathTreatment.TryDrawOwnedLeg` (the same
+    `TryDrawLeg`) and stands down on its own direct call (single `if/else` on
+    `ShadowRenderDriver.IsDirectorTracedPathActive(pid, frame)`), so the leg is never drawn twice and the
+    stock proto is suppressed exactly when the treatment draws. The ownership signal stayed driven by the
+    actual draw (`anyDrawn -> activeLegRecordings`, published on either path).
+  - **8b.2 - DONE (this branch).** Made the Director/treatment the AUTHORITATIVE source of the "polyline
+    owns this phase" ownership signal. **Fork resolved -> Option B (treatment publishes the ACTUAL draw),
+    NOT Option A (repoint to the raw decision).** Option A was ruled UNSAFE: the Director's TracedPath
+    decision is built from `traj.Points` (via `ChainAssembler.AppendTracedRuns`), while the polyline draw
+    is built from `TrackSections.bodyFixedFrames`/`frames` + flat `Points`-outside-sections (via
+    `BuildLegsForRecording`) and gated per-leg on the head UT + `m>=2` - two independent data pipelines
+    that demonstrably read different source collections, so a decision-vs-draw mismatch (Director decides
+    TracedPath but no drawable leg this frame -> proto hidden with nothing drawn, an invisible gap) cannot
+    be ruled out. Option B preserves "proto hidden IFF a leg actually drew" for the
+    `IsRenderingNonOrbitalLeg` / `IsPolylineOwningGhostPhase` signal this phase owns. (A SEPARATE,
+    decision-based proto-line suppression in `GhostOrbitLinePatch.cs:130/552` (on
+    `IsDirectorTracedPathActive`) can still set `line.active=false` on a decision-without-draw frame,
+    but it also sets `ghostsWithSuppressedIcon`, which draws the non-proto marker, so the ghost is
+    never left blank; retiring that line-level path is deferred, out of 8b.2 scope.) Mechanism: a new
+    `directorOwnedLegRecordings` set is published by the OWNED draw path ONLY when `TryDrawOwnedLeg`
+    actually returns drawn=true; `IsRenderingNonOrbitalLeg` dispatches (pure `ResolveNonOrbitalLegOwnership`)
+    - gate ON -> the UNION of the director-owned set and the legacy `activeLegRecordings` (the legacy set
+    still covers pid-0 / re-aim / overlap ghosts the shadow does not own, which still take the Driver-direct
+    path under the gate); gate OFF -> the legacy set ONLY (byte-identical to pre-8b.2). The Driver's
+    autonomous-walk publish is retired as the AUTHORITATIVE source for owned legs but kept as the gate-off
+    fallback; its deletion is 8e. Tests: pure dispatch + seam-driven end-to-end gate read in
+    `GhostTrajectoryPolylineBuildTests`; in-game `OwnershipSignal_DispatchesOnLiveGate_NoNewGap`
+    (RuntimeTests, GhostMap, TRACKSTATION) covers the live-gate read + no-new-gap. **In-game gate to run:**
+    s15 "Duna One" looped re-aim + a non-looped Mun mission through landing with `mapRenderDirectorDrive` on,
+    watching the TracedPath<->StockConic seam: no orbit-line blink, no icon teleport, and crucially NO
+    invisible gap (proto must never be hidden with nothing drawn).
 - **Phase 8** per-surface cutover (8a-8e) - deletes the scattered gates; in-game per sub-phase.
 - **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3
   `TransferConic` frame-agnostic return - touch the in-game-validated re-aim path.
