@@ -877,13 +877,14 @@ Bug 2 fixed.
 
 ## 13b. Discovered defect: the arrival hold is loop-independent (per-loop rotation drift)
 
-Status: ROOT CAUSE CONFIRMED (code + math + log), FIX DESIGNED, NOT IMPLEMENTED. The dynamic
-per-loop hold is the next implementation step for Bug 2. This documents a confirmed defect in
-the arrival hold this plan already describes (sections 1, 13, Appendix A.1 / A.2): the hold
-correctly aligns ONE reference loop but is constant across every replayed loop, so a per-loop
-rotation offset accumulates. It does not change the hold-vs-tof framing established above (the
-tof is still not the lever); it refines the hold from a fixed scalar to a function of the
-playback loop index.
+Status: ROOT CAUSE CONFIRMED (code + math + log), FIX VERIFIED against the live clock code (a
+rigorous read-only derivation, below), NOT IMPLEMENTED. The dynamic per-loop hold is the next
+implementation step for Bug 2; its implementation plan is section 13c. This documents a
+confirmed defect in the arrival hold this plan already describes (sections 1, 13,
+Appendix A.1 / A.2): the hold correctly aligns ONE reference loop but is constant across every
+replayed loop, so a per-loop rotation offset accumulates. It does not change the hold-vs-tof
+framing established above (the tof is still not the lever); it refines the hold from a fixed
+scalar to a function of the playback loop index.
 
 ### Root cause, three independent confirmations
 
@@ -920,7 +921,7 @@ the inertial-conic-to-body-fixed JOIN drifts. This also rules out the two earlie
 sparse-sample chording (sub-pixel here) and NOT `TryAnchorLegToConicSeam` (the descent leg is
 correctly one-sided and left body-fixed).
 
-### Designed fix: the dynamic (per-loop) hold
+### Designed fix: the dynamic (per-loop) hold (VERIFIED against the clock code)
 
 Make the hold a function of the playback loop index N:
 
@@ -937,15 +938,51 @@ time and does not move the synodic launch schedule. `W_N` stays in `[0, T_rot)` 
 still fits the window (`compressedSpan + W_N` maxes at `compressedSpan + T_rot`, far below one
 cadence, the same bound `TryComputeSpanLoopUT`'s existing clamp enforces).
 
-Implementation seam: apply it in `TryComputeSpanLoopUT` / `ApplyArrivalHoldToPhase`, which
-already compute `cycleIndex`; carry `W_0`, `cadence`, and `T_rot` into the loop unit and compute
-`W_N` for the current `cycleIndex` before applying. Both render paths (the OrbitSegment director
-and the autonomous body-fixed polyline) read this one clock, so both inherit the per-loop hold
-(the same shared-clock invariant the hold already relies on, section 12).
+This is no longer a candidate sketch. A read-only derivation against the actual loop clock
+(`Source/Parsek/GhostPlaybackLogic.cs`) and the body-fixed renderer confirms the formula, its
+sign, and its non-interference. The code-grounded facts:
 
-Regression fence: when alignment is Off (Drop mode) `W_0` = 0 so every `W_N` = 0, byte-identical
-to today; the launch-to-SOI-entry pipeline is untouched (the hold acts only after SOI entry); a
-zero hold stays byte-identical.
+- The per-loop live-time advance (the drift quantum) is
+  `cycleDuration = Math.Max(cadenceSeconds, MinCycleDuration)`
+  (`GhostPlaybackLogic.cs:7059`), and `cadenceSeconds` = `unit.CadenceSeconds` = the
+  pad-quantized synodic period (a whole multiple of the LAUNCH sidereal day, NOT the
+  destination rotation period, which is exactly why it drifts). For Duna One this is
+  19,653,075.77 s, matching the synodic value in the log.
+- `cycleIndex = (long)(elapsed / cycleDuration)` (`:7066`) enters only through
+  `phaseInCycle = elapsed - cycleIndex*cycleDuration` (`:7067`). N in the formula is this
+  `cycleIndex`.
+- The hold is inserted by `ApplyArrivalHoldToPhase` (`:6968-6978`), which defers post-boundary
+  phase by exactly `hold`. So the live UT at which the head reaches the deorbit on loop N is
+  `currentUT_deorbit,N = phaseAnchorUT + N*cadence + holdPhasePos + D_phase + W_N`, where the
+  hold appears with a single +1 coefficient (no feedback term), so the alignment condition is a
+  closed-form solve for `W_N`, not a fixed point.
+- The body-fixed descent renders via `CelestialBody.GetWorldSurfacePosition(lat,lon,alt)` with
+  NO UT argument (`Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs`, the per-frame
+  Driver loop at `Planetarium.GetUniversalTime()`), so it uses the body's LIVE rotation at the
+  live clock. The alignment condition is therefore `currentUT_deorbit,N` congruent to
+  `RecordedDeorbitUT` mod `T_rot`, and solving gives the verified result
+  `W_N = (W_0 - N*(cadence mod T_rot)) mod T_rot` (sign confirmed correct: the +N*cadence live
+  advance must be cancelled, so the hold subtracts N*(cadence mod T_rot)).
+- No self-perturbation. `cycleDuration` is independent of the hold (the cadence is finalized in
+  the builder before `ComputeArrivalHold`, and `cycleIndex` / `phaseInCycle` are computed at
+  `:7066-7067` BEFORE `hold` is read at `:7086`), so later loops are unaffected by the hold
+  applied on any loop. The recurrence is open-loop in N.
+
+Implementation seam: apply it in `TryComputeSpanLoopUT` (where `ApplyArrivalHoldToPhase` is
+called), which already computes `cycleIndex`; carry `W_0`, `cadence`, and `T_rot` into the loop
+unit and compute `W_N` for the current `cycleIndex` before the hold is consumed. Both render
+paths (the OrbitSegment director and the autonomous body-fixed polyline) read this one clock, so
+both inherit the per-loop hold (the same shared-clock invariant the hold already relies on,
+section 12). The concrete plumbing is section 13c.
+
+Regression fence (real but NOT automatic). When alignment is Off (Drop mode) `W_0` = 0 and a
+zero hold must stay byte-identical to today. But the bare formula is NONZERO at `W_0 = 0` (it
+reduces to `(-N*(cadence mod T_rot)) mod T_rot`, a per-loop sawtooth), so the per-loop
+computation MUST be gated on `hold > 0` (i.e. `W_0 > 0`), exactly like the existing `hold > 0`
+gates at `:7086`, `:7091`, `:7093`. With that gate, alignment Off (Drop mode, `W_0 = 0`) stays
+byte-identical, and the launch-to-SOI-entry pipeline is untouched (the hold acts only after SOI
+entry). The defense clamp at `:7091` (`compressedSpan + hold > cycleDuration`) is inert here
+because `T_rot << cadence`, so `W_N` never approaches the cadence.
 
 ### Residual caveat (be honest)
 
@@ -959,6 +996,61 @@ separately, cosmetically minor next to the 0-to-180-degree per-loop drift.
 
 Retiring the transfer proto that keeps orbiting past the deorbit (the proto-overshoot), and the
 Ike orbital-phase alignment lever, both stay deferred.
+
+---
+
+## 13c. Implementation plan for the dynamic per-loop hold
+
+The verified fix (13b) is confined to the loop clock and `LoopUnit`. The plumbing is small and
+additive; non-re-aim callers stay byte-identical. Steps:
+
+1. Thread the destination rotation period onto the loop unit. Add a
+   `DestRotationPeriodSeconds` field to `LoopUnit` (`GhostPlaybackLogic.cs`, the `LoopUnit`
+   constructor at `:6657` plus a read-only property next to `ArrivalHoldSeconds` /
+   `ArrivalHoldAtUT` at `:6796` / `:6800`), populated in `MissionLoopUnitBuilder.cs` from the
+   `bodyInfo.RotationPeriod(plan.TargetBody)` value already fetched there for
+   `ArrivalHoldPlanner` (`ArrivalHoldPlanner.ComputeArrivalHold` reads it at
+   `ArrivalHoldPlanner.cs:70`). Default 0 / NaN so a unit with no destination hold carries no
+   period.
+
+2. Thread the period into the clock. Add an `arrivalHoldRotationPeriod` parameter (default
+   0 / NaN) to `TryComputeSpanLoopUT` (`GhostPlaybackLogic.cs:7014`) and to
+   `DecideUnitMemberRender` (`:7233`), threaded from `unit.DestRotationPeriodSeconds` at every
+   call site: `GhostPlaybackEngine.cs:359` and `:1877` (the engine clock reads), the
+   `DecideUnitMemberRender` wrapper at `GhostPlaybackLogic.cs:7302` (and its caller at
+   `GhostPlaybackEngine.cs:2278`), and `ParsekKSC.cs:1121`. The default keeps every non-re-aim
+   caller byte-identical.
+
+3. Compute `W_N` at the injection point. Inside `TryComputeSpanLoopUT`, right after `cycleIndex`
+   is computed (`:7066`) and BEFORE `hold` is consumed (the `hold` read at `:7086`, used by
+   `ApplyArrivalHoldToPhase` at `:7122`), when `arrivalHoldSeconds > 0` and `T_rot` is valid
+   (positive, finite), replace the constant hold with
+   `W_N = ((W_0 - cycleIndex * (cadence % T_rot)) % T_rot + T_rot) % T_rot`, where
+   `W_0 = arrivalHoldSeconds` and `cadence = cycleDuration` (the per-loop advance, `:7059`). Gate
+   strictly on `W_0 > 0` so Off (Drop, `W_0 = 0`) stays byte-identical (13b regression fence).
+   The double-mod-plus-`T_rot` form keeps `W_N` in `[0, T_rot)` for any sign of the inner term.
+
+4. Tests (follow the existing pure-static-internal + log-capture patterns).
+   - A pure unit test of the `W_N` recurrence: `W_0 = 0` yields 0 for every N (the byte-identical
+     gate), the mod wrap is correct at a loop boundary, and a multi-loop case where the deorbit
+     rotation phase recurs to its recorded value across several N (the alignment property).
+   - A byte-identical-when-Off assertion on `TryComputeSpanLoopUT`: with `arrivalHoldSeconds = 0`
+     (and/or an invalid `T_rot`), the returned `loopUT` / `cycleIndex` match the pre-change clock
+     for a swept range of `currentUT`.
+   - A log-assertion test (if a per-unit summary line is emitted) per the batch-counting
+     convention.
+
+5. Post-fix verification (live KSP). Log the `overshootGap` field
+   (`EmitOneSidedBracketDiagnostic` in `GhostTrajectoryPolylineRenderer.cs`) across several loops
+   in game. If it stays roughly constant (about 17 km, NOT growing with N) the per-loop term is
+   working and the residual is the separate conic-fit matter (the 13b residual caveat). If it
+   still grows with N, the term is mis-applied (wrong sign, ungated, or `cadence`/`T_rot`
+   swapped).
+
+Scope fence: this change is confined to the loop clock and `LoopUnit`. The
+launch-to-SOI-entry pipeline, the OrbitSegment director, and the body-fixed polyline all inherit
+it through the single shared clock (`TryComputeSpanLoopUT`, section 12), so neither render path
+needs its own change.
 
 ---
 
