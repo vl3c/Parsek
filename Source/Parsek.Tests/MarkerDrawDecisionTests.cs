@@ -114,5 +114,53 @@ namespace Parsek.Tests
                 Assert.True(!gateOff || gateOn);
             }
         }
+
+        // --- Marker-decision tracer: TS skip-reason -> shared MarkerOutcome mapping ---
+
+        [Fact]
+        public void MapSkipReasonToMarkerOutcome_NativeIcon_MapsToProtoIcon()
+        {
+            Assert.Equal(MapRenderTrace.MarkerOutcome.DrawnProtoIcon,
+                ParsekTrackingStation.MapSkipReasonToMarkerOutcome(
+                    ParsekTrackingStation.AtmosphericMarkerSkipReason.NativeIconActive));
+        }
+
+        [Fact]
+        public void MapSkipReasonToMarkerOutcome_Debris_MapsToSkippedDebris()
+        {
+            Assert.Equal(MapRenderTrace.MarkerOutcome.SkippedDebris,
+                ParsekTrackingStation.MapSkipReasonToMarkerOutcome(
+                    ParsekTrackingStation.AtmosphericMarkerSkipReason.Debris));
+        }
+
+        [Fact]
+        public void MapSkipReasonToMarkerOutcome_None_MapsToDrawnNonProto()
+        {
+            // None = eligible to draw; the caller upgrades to SkippedPositionFail only if the
+            // subsequent position resolve fails.
+            Assert.Equal(MapRenderTrace.MarkerOutcome.DrawnNonProto,
+                ParsekTrackingStation.MapSkipReasonToMarkerOutcome(
+                    ParsekTrackingStation.AtmosphericMarkerSkipReason.None));
+        }
+
+        [Fact]
+        public void MapSkipReasonToMarkerOutcome_DecisionSkips_MapToSkippedDecisionFalse()
+        {
+            // NullRecording / NoTrajectoryPoints / OutsideTimeRange / SuppressedByChainFilter /
+            // OrbitSegmentActive all collapse to "the decision said do not draw this marker".
+            // (A [Theory] with InlineData would expose the internal enum on a public method
+            // signature -> CS0051, so these are asserted inline in one Fact.)
+            var skips = new[]
+            {
+                ParsekTrackingStation.AtmosphericMarkerSkipReason.NullRecording,
+                ParsekTrackingStation.AtmosphericMarkerSkipReason.NoTrajectoryPoints,
+                ParsekTrackingStation.AtmosphericMarkerSkipReason.OutsideTimeRange,
+                ParsekTrackingStation.AtmosphericMarkerSkipReason.SuppressedByChainFilter,
+                ParsekTrackingStation.AtmosphericMarkerSkipReason.OrbitSegmentActive,
+            };
+            foreach (var reason in skips)
+                Assert.Equal(MapRenderTrace.MarkerOutcome.SkippedDecisionFalse,
+                    ParsekTrackingStation.MapSkipReasonToMarkerOutcome(reason));
+        }
     }
 }

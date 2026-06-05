@@ -148,6 +148,182 @@ namespace Parsek
             }
         }
 
+        // ---- Marker-decision observability (per-ghost WHY a marker drew / was skipped) ----
+
+        /// <summary>
+        /// The terminal OUTCOME of one ghost's per-recording marker-decision pass in
+        /// <c>ParsekUI.DrawMapMarkers</c> / <c>ParsekTrackingStation.DrawAtmosphericMarkers</c>.
+        /// Every branch in those loops maps to exactly one of these so a single per-pid trace
+        /// line says, in one token, WHY this ghost's marker drew or did not this frame.
+        /// </summary>
+        internal enum MarkerOutcome : byte
+        {
+            /// <summary>Default / not yet decided.</summary>
+            Unknown = 0,
+
+            /// <summary>The Parsek non-proto labeled marker drew (proto icon hidden).</summary>
+            DrawnNonProto = 1,
+
+            /// <summary>
+            /// The stock proto vessel icon is the visible indicator, so the non-proto
+            /// marker was correctly skipped (no gap).
+            /// </summary>
+            DrawnProtoIcon = 2,
+
+            /// <summary>Skipped: the recording is debris.</summary>
+            SkippedDebris = 3,
+
+            /// <summary>Skipped: a non-tip chain member (the tip draws the marker).</summary>
+            SkippedChainNonTip = 4,
+
+            /// <summary>
+            /// Skipped: the ghost mesh is hidden and we are not in map view, so its
+            /// stale transform would project to the wrong place (#245/#247).
+            /// </summary>
+            SkippedNotOnMap = 5,
+
+            /// <summary>
+            /// Skipped: the marker-draw decision (<c>ShouldDrawNonProtoMarkerForGhost</c>)
+            /// returned false with no proto icon, or another classify-skip fired
+            /// (no trajectory points / outside time range / chain filter / orbit segment).
+            /// </summary>
+            SkippedDecisionFalse = 6,
+
+            /// <summary>Skipped: the world position could not be resolved this frame.</summary>
+            SkippedPositionFail = 7,
+
+            /// <summary>Skipped: a loop member is outside its render window this cycle.</summary>
+            SkippedLoopHidden = 8,
+        }
+
+        internal static string MarkerOutcomeToken(MarkerOutcome outcome)
+        {
+            switch (outcome)
+            {
+                case MarkerOutcome.DrawnNonProto: return "drawn-non-proto";
+                case MarkerOutcome.DrawnProtoIcon: return "drawn-proto-icon";
+                case MarkerOutcome.SkippedDebris: return "skipped-debris";
+                case MarkerOutcome.SkippedChainNonTip: return "skipped-chain-non-tip";
+                case MarkerOutcome.SkippedNotOnMap: return "skipped-not-on-map";
+                case MarkerOutcome.SkippedDecisionFalse: return "skipped-decision-false";
+                case MarkerOutcome.SkippedPositionFail: return "skipped-position-fail";
+                case MarkerOutcome.SkippedLoopHidden: return "skipped-loop-hidden";
+                default: return "unknown";
+            }
+        }
+
+        /// <summary>
+        /// Why the non-proto marker did (or did not) ride the trajectory polyline this frame.
+        /// Surfaces the previously-opaque bool return of
+        /// <c>GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline</c> without changing
+        /// its ride logic - the caller maps the new <c>out</c> reason straight into the trace line.
+        /// </summary>
+        internal enum MarkerRideReason : byte
+        {
+            /// <summary>Default / the marker path did not attempt a ride this frame.</summary>
+            NotAttempted = 0,
+
+            /// <summary>Rode a drawn leg (the leg index + interpolation t are logged alongside).</summary>
+            RodeLeg = 1,
+
+            /// <summary>Fallback: the head's leg was not drawn THIS frame (stale scratch).</summary>
+            FallbackLegNotDrawnThisFrame = 2,
+
+            /// <summary>Fallback: the head UT falls outside every leg's [start,end].</summary>
+            FallbackHeadOutsideLegs = 3,
+
+            /// <summary>Fallback: the leg is missing its recorded-UT / scratch arrays.</summary>
+            FallbackMissingRecordedUTs = 4,
+
+            /// <summary>Fallback: no polyline cache entry for this recording id.</summary>
+            FallbackNoCache = 5,
+        }
+
+        internal static string MarkerRideReasonToken(MarkerRideReason reason, int legIndex)
+        {
+            switch (reason)
+            {
+                case MarkerRideReason.RodeLeg: return "rode-leg" + legIndex.ToString(CultureInfo.InvariantCulture);
+                case MarkerRideReason.FallbackLegNotDrawnThisFrame: return "fallback-leg-not-drawn-this-frame";
+                case MarkerRideReason.FallbackHeadOutsideLegs: return "fallback-head-outside-legs";
+                case MarkerRideReason.FallbackMissingRecordedUTs: return "fallback-missing-recordedUTs";
+                case MarkerRideReason.FallbackNoCache: return "fallback-no-cache";
+                default: return "not-attempted";
+            }
+        }
+
+        /// <summary>
+        /// Pure builder for the per-pid marker-decision SIGNATURE (the change-detection key) AND
+        /// the human-readable detail tail (they are the same <c>key=value</c> string here, so one
+        /// build serves both: identical signature =&gt; identical line =&gt; suppressed). Carries the
+        /// four decision disjuncts from <c>ResolveMarkerDrawDecision</c>, the resolved
+        /// <c>shouldDrawNonProto</c> bool, the terminal outcome, and (for a drawn non-proto marker)
+        /// the polyline ride reason + the fallback position source actually used. Kept pure (no Unity
+        /// reads) so the schema is unit-testable. <paramref name="legIndex"/> is only meaningful when
+        /// <paramref name="rideReason"/> is <see cref="MarkerRideReason.RodeLeg"/>.
+        /// </summary>
+        internal static string BuildMarkerDecisionSignature(
+            int recordingIndex,
+            string vesselName,
+            bool gateOn,
+            bool directorTracedPathActive,
+            bool polylineOwning,
+            bool iconSuppressed,
+            bool shouldDrawNonProto,
+            MarkerOutcome outcome,
+            MarkerRideReason rideReason,
+            int legIndex,
+            string posSource)
+        {
+            string s = "rec=" + recordingIndex.ToString(CultureInfo.InvariantCulture)
+                + " vessel=" + Token(vesselName)
+                + " gateOn=" + Bool(gateOn)
+                + " directorTracedPathActive=" + Bool(directorTracedPathActive)
+                + " polylineOwning=" + Bool(polylineOwning)
+                + " iconSuppressed=" + Bool(iconSuppressed)
+                + " shouldDrawNonProto=" + Bool(shouldDrawNonProto)
+                + " outcome=" + MarkerOutcomeToken(outcome);
+            if (outcome == MarkerOutcome.DrawnNonProto)
+                s += " ride=" + MarkerRideReasonToken(rideReason, legIndex)
+                    + " posSource=" + Token(posSource);
+            return s;
+        }
+
+        // Per-pid (here pid = recordingId; the marker surfaces are recordingId-keyed, carried in the
+        // prefix pid= slot to match EmitMarker) last-emitted signature. CALLER-OWNED change detection:
+        // EmitMarkerDecisionOnChange emits only when the composed signature differs from the last one
+        // for that key. Cleared in Reset() (driven by MapRenderProbe's scene-switch hook), mirroring
+        // lineIntentByPid / detailedUntilByKey so a stale signature never suppresses the first
+        // post-re-entry transition.
+        private static readonly Dictionary<string, string> lastMarkerDecisionSignatureByPid =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Change-based per-pid marker-decision emit (Tier-B, routed to Verbose via
+        /// <see cref="EmitOnChange"/>). Owns the per-pid last-signature dict so the call sites stay
+        /// thin: pass the pre-built <paramref name="signature"/> (from
+        /// <see cref="BuildMarkerDecisionSignature"/>) and this emits ONE line only when that ghost's
+        /// signature changed since its last emit, capturing sub-second transitions without per-frame
+        /// spam. No-op when disabled (gate short-circuits before any dict touch, so a closed tracer
+        /// pays nothing beyond the caller's own <see cref="IsEnabled"/> guard).
+        /// </summary>
+        internal static void EmitMarkerDecisionOnChange(
+            RenderSurface surface, string pidKey, double currentUT, string signature)
+        {
+            if (!IsEnabled)
+                return;
+            if (string.IsNullOrEmpty(pidKey))
+                return;
+
+            string last;
+            if (lastMarkerDecisionSignatureByPid.TryGetValue(pidKey, out last)
+                && string.Equals(last, signature, StringComparison.Ordinal))
+                return; // unchanged outcome for this ghost -> suppress
+
+            lastMarkerDecisionSignatureByPid[pidKey] = signature;
+            EmitOnChange("MarkerDecision", surface, pidKey, currentUT, currentUT, signature);
+        }
+
         // MVP: detailed windows are keyed by pid.ToString(). recordingId keying
         // (and the shared registry with GhostRenderTrace) is a later cut.
         private static readonly Dictionary<string, double> detailedUntilByKey =
@@ -172,6 +348,7 @@ namespace Parsek
             detailedUntilByKey.Clear();
             lineIntentByPid.Clear();
             renderIntentByPid.Clear();
+            lastMarkerDecisionSignatureByPid.Clear();
         }
 
         private static int CurrentFrameCount()

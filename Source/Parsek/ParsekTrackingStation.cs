@@ -380,10 +380,31 @@ namespace Parsek
             // Update, never rebuilt here). Empty => the substitution below is inert.
             var loopUnits = cachedLoopUnits;
 
+            bool traceOn = MapRenderTrace.IsEnabled;
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
                 summary.Candidates++;
+
+                // ---- Marker-decision tracer state (per-pid, change-based; gated, off in normal play) ----
+                // Mirrors the flight-map DrawMapMarkers tracer: one change-based line per ghost saying
+                // WHY its atmospheric marker drew or was skipped, carrying the four
+                // ResolveMarkerDrawDecision disjuncts (resolved only when a proto ghost vessel exists,
+                // false otherwise). The TS path never rides the polyline, so the ride reason stays
+                // NotAttempted and the position source is always "traj".
+                bool decGateOn = false, decDirectorTraced = false, decPolylineOwning = false,
+                    decIconSuppressed = false, decShouldDraw = false;
+                void EmitMarkerDecision(MapRenderTrace.MarkerOutcome outcome)
+                {
+                    if (!traceOn || rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                        return;
+                    MapRenderTrace.EmitMarkerDecisionOnChange(
+                        MapRenderTrace.RenderSurface.AtmosphericMarker, rec.RecordingId, currentUT,
+                        MapRenderTrace.BuildMarkerDecisionSignature(
+                            i, rec.VesselName, decGateOn, decDirectorTraced, decPolylineOwning,
+                            decIconSuppressed, decShouldDraw, outcome,
+                            MapRenderTrace.MarkerRideReason.NotAttempted, -1, "traj"));
+                }
 
                 // Phase F: substitute the shared Mission span-clock loopUT for the live UT when this
                 // committed index is a loop-unit member. A member outside its loop window this cycle
@@ -395,7 +416,20 @@ namespace Parsek
                 if (renderHidden)
                 {
                     summary.LoopMemberHidden++;
+                    EmitMarkerDecision(MapRenderTrace.MarkerOutcome.SkippedLoopHidden);
                     continue;
+                }
+
+                // Tracer: surface the decision disjuncts when a proto ghost vessel exists (the only
+                // case ShouldDrawNonProtoMarkerForGhost is consulted). Behavior-identical to the
+                // bare predicate ClassifyAtmosphericMarkerSkip already calls; this only reads them out.
+                if (traceOn && GhostMapPresence.HasGhostVesselForRecording(i))
+                {
+                    uint ghostPidTrace = GhostMapPresence.GetGhostVesselPidForRecording(i);
+                    if (ghostPidTrace != 0)
+                        decShouldDraw = GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(
+                            ghostPidTrace, out decGateOn, out decDirectorTraced,
+                            out decPolylineOwning, out decIconSuppressed);
                 }
 
                 AtmosphericMarkerSkipReason skipReason =
@@ -403,6 +437,7 @@ namespace Parsek
                 if (skipReason != AtmosphericMarkerSkipReason.None)
                 {
                     CountAtmosphericMarkerSkip(ref summary, skipReason);
+                    EmitMarkerDecision(MapSkipReasonToMarkerOutcome(skipReason));
                     continue;
                 }
 
@@ -422,6 +457,7 @@ namespace Parsek
                         summary.MissingBody++;
                     else
                         summary.BracketMiss++;
+                    EmitMarkerDecision(MapRenderTrace.MarkerOutcome.SkippedPositionFail);
                     continue;
                 }
                 atmosCachedIndices[i] = cached;
@@ -438,6 +474,9 @@ namespace Parsek
                     vtype,
                     context => OnAtmosphericMarkerClicked(recordingIndex, markerRecording, context));
                 summary.Drawn++;
+
+                // Tracer: the atmospheric (non-proto) marker drew.
+                EmitMarkerDecision(MapRenderTrace.MarkerOutcome.DrawnNonProto);
 
                 ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
                     $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
@@ -529,6 +568,33 @@ namespace Parsek
         {
             return ClassifyAtmosphericMarkerSkip(rec, recordingIndex, currentUT, suppressedIds)
                 == AtmosphericMarkerSkipReason.None;
+        }
+
+        /// <summary>
+        /// Pure: map an <see cref="AtmosphericMarkerSkipReason"/> to the shared
+        /// <see cref="MapRenderTrace.MarkerOutcome"/> the marker tracer logs, so the TS marker path
+        /// and the flight-map path emit one common outcome vocabulary. <c>None</c> means the marker
+        /// will draw (the caller upgrades it to <see cref="MapRenderTrace.MarkerOutcome.DrawnNonProto"/>
+        /// after a successful position resolve, or to
+        /// <see cref="MapRenderTrace.MarkerOutcome.SkippedPositionFail"/> if the resolve fails).
+        /// </summary>
+        internal static MapRenderTrace.MarkerOutcome MapSkipReasonToMarkerOutcome(
+            AtmosphericMarkerSkipReason skipReason)
+        {
+            switch (skipReason)
+            {
+                case AtmosphericMarkerSkipReason.None:
+                    // Eligible to draw; the caller finalizes after the position resolve.
+                    return MapRenderTrace.MarkerOutcome.DrawnNonProto;
+                case AtmosphericMarkerSkipReason.NativeIconActive:
+                    return MapRenderTrace.MarkerOutcome.DrawnProtoIcon;
+                case AtmosphericMarkerSkipReason.Debris:
+                    return MapRenderTrace.MarkerOutcome.SkippedDebris;
+                // NullRecording / NoTrajectoryPoints / OutsideTimeRange / SuppressedByChainFilter /
+                // OrbitSegmentActive all collapse to "the decision said do not draw this marker".
+                default:
+                    return MapRenderTrace.MarkerOutcome.SkippedDecisionFalse;
+            }
         }
 
         internal static AtmosphericMarkerSkipReason ClassifyAtmosphericMarkerSkip(
