@@ -311,7 +311,23 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     `ClearFlightMapPresenceState()` (8d.1). `ShouldDeferLoopShiftedMapPresence` stays in the policy
     (`RuntimePolicyTests` callers), called cross-class. Faithful copy (empty code-only diff on both moved
     blocks), no behavior change. Source-gate tests added; build clean; full suite green (13418).
-  - **8d.3** - decompose into named sub-passes + pure-extract predicates with unit tests.
+  - **8d.3 - DONE (behavior-preserving).** Decomposed `UpdateFlightMapGhostLifecycle` into three named
+    `private static void` pass methods (`RunFlightMapDeferredCreatePass`, `RunFlightMapOrbitReseedPass`,
+    `RunFlightMapStateVectorUpdatePass`) + an orchestrator that keeps the reseed gate + both early-returns
+    + preamble INLINE (so they still skip Pass 2+3). Each pass body line-for-line identical to HEAD. Most
+    predicates were already extracted, so the new pure surface was small: two trivial predicates extracted
+    + unit-tested (`IsMapCreateAcceptedSource`, `IsSegmentBearingGhostSource`), correct sites verified. No
+    behavior change. Build clean; full suite green (13431). **This completes the 8d presence migration**:
+    the flight map-presence lifecycle now lives entirely in `GhostMapPresence`, policy is the thin
+    engine-event subscriber.
+- **Phase 8d - all sub-slices DONE (8d.0-8d.3).** The ghost map-presence lifecycle (seam, per-frame body
+  + 6 dicts, lifecycle handlers, decomposition) is fully migrated from `ParsekPlaybackPolicy` into
+  `GhostMapPresence`, no behavior change. Remaining cutover work is Phase 8e (delete the 8a/8b/8c legacy
+  draw-side fallbacks + the autonomous Driver walk + grace fields, then drop the `mapRenderDirectorDrive`
+  gate). NOTE: 8e legacy DELETION is still gated on closing the coverage gap (cutover Step 2: the
+  re-aim / overlap members + the hyperbolic-escape segment that fall back to the legacy draw path); that
+  needs its own scoping before deletion. Presence (8d) is independent of that gap (presence was never
+  gated and always runs).
 - **Phase 8** per-surface cutover (8a-8e) - deletes the scattered gates; in-game per sub-phase.
 - **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3
   `TransferConic` frame-agnostic return - touch the in-game-validated re-aim path.

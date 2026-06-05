@@ -121,10 +121,29 @@ Faithful copy (empty code-only diff on both moved blocks under the permitted edi
 `ShouldDeferLoopShiftedMapPresence` qualification). No behavior change, no gate. Source-gate tests added.
 Build clean; full suite green (13418).
 
-### 8d.3 - decompose + pure-extract
-Once the body lives in the render layer, split it into named sub-passes and extract the pure decision
-predicates (eligibility, retire, state-vector refresh) as `internal static` helpers with unit tests, so
-the migrated body is covered the way the rest of the pipeline is.
+### 8d.3 - decompose + pure-extract (DONE - behavior-preserving)
+Decomposed `UpdateFlightMapGhostLifecycle` (~655 lines) into three named `private static void` pass
+methods + an orchestrator, and extracted the trivial pure predicates. Note: most decision logic was
+ALREADY delegated to extracted pure helpers (`ResolveMapPresenceSampleUT`,
+`IsTerminalOrbitSynthesisSafeForLoopMember`, `ResolveMapPresenceGhostSource`, `IsStateVectorGhostSource`,
+`TryGetMapOrbitKey`, `ShouldRunMapOrbitReseed`, `ShouldDeferLoopShiftedMapPresence`, etc.), so the new
+pure-test surface was small; the main deliverable was the structural decomposition.
+
+- Orchestrator: `RunFlightMapDeferredCreatePass(currentUT, loopUnits)` (Pass 1, always); then the gate +
+  preamble stay INLINE (the `mapReseedTimerElapsed`/`mapReseedHeadLeftSegment` computation, the
+  `ShouldRunMapOrbitReseed` early-return, `nextMapOrbitUpdateTime`, the `committed == null` early-return,
+  `PruneTerminalMapRetentionLogKeys`) so BOTH early-returns still skip Pass 2 AND Pass 3; then
+  `RunFlightMapOrbitReseedPass(currentUT, loopUnits, committed)` (Pass 2 body) and
+  `RunFlightMapStateVectorUpdatePass(currentUT, loopUnits, committed)` (Pass 3 body).
+- Each pass body is line-for-line identical to its original location (verified against HEAD).
+- Two pure predicates extracted (`internal static bool`, unit-tested): `IsMapCreateAcceptedSource`
+  (Pass-1 create-accept: `Segment || IsStateVectorGhostSource || TerminalOrbit || EndpointTail`) and
+  `IsSegmentBearingGhostSource` (Pass-3: `Segment || TerminalOrbit || EndpointTail`). Correct sites
+  verified (the state-vector-inclusive one at create-accept, the segment-bearing-only one in Pass 3).
+
+No behavior change, no gate. Source-gate decomposition test + predicate truth-table tests added. Build
+clean; full suite green (13431). This completes the 8d presence migration; the flight map-presence
+lifecycle now lives entirely in `GhostMapPresence` with the policy as the thin engine-event subscriber.
 
 ### 8e - delete legacy + drop the gate (final, shared with the rest of the cutover)
 Delete the legacy in-policy presence body, the autonomous Driver walk, the
