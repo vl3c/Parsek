@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- Fixed map ghost trajectory surface lines (launch and descent paths) either showing a doubled, warp-dependent duplicate copy or not appearing at all under time warp until you dropped to 1x speed. They now draw once, stay glued to the surface, and stay visible at every warp rate.
 - Fixed a brief wrong-position flash of a looped interplanetary mission's map icon at a staging/separation seam. A parking-orbit coast the recorder stored as several fragments is now drawn as one continuous orbit during looped playback, so the icon no longer jumps for a few frames before settling onto the escape trajectory.
 - Fixed a brief stale ghost orbit-line and icon flash when a looping recording first appears on the flight map (the loop time-shift was applied one frame late on initial map creation).
 - Fixed a brief flash of the previous orbit circle on the map at the moment a looped mission's next orbit was about to appear (the old orbit line was redrawn for a fraction of a second before the new one loaded).

@@ -128,14 +128,12 @@ namespace Parsek.Display
             /// <summary>
             /// M recorded body-fixed latitudes (degrees). Paired index-wise
             /// with <see cref="lons"/> / <see cref="alts"/>. Each (lat, lon, alt)
-            /// triple is converted ONCE to a scaled-body-LOCAL position
-            /// (<see cref="localScaled"/>) via <c>CelestialBody.GetWorldSurfacePosition</c>
-            /// (the same call ParsekTrackingStation.cs:1199 uses for the
-            /// atmospheric marker, so the polyline lands exactly where a marker
-            /// would), then re-projected through the render-stable
-            /// <c>body.scaledBody.transform</c> each frame. See
-            /// <see cref="localScaled"/> for why the per-frame
-            /// <c>GetWorldSurfacePosition</c> call was removed.
+            /// triple is converted to a scaled-space position each frame via
+            /// <c>CelestialBody.GetWorldSurfacePosition</c> (the same call
+            /// ParsekTrackingStation.cs:1199 uses for the atmospheric marker, so the
+            /// polyline lands exactly where a marker would), built relative to the
+            /// scaled body centre so it stays strobe-free under time warp - see the
+            /// "warp-strobe fix" geometry comment in the draw loop for the full rationale.
             /// </summary>
             public double[] lats;
 
@@ -153,33 +151,6 @@ namespace Parsek.Display
             /// to index-fraction interpolation.
             /// </summary>
             public double[] recordedUTs;
-
-            /// <summary>
-            /// M scaled-body-LOCAL positions (in <c>body.scaledBody.transform</c>
-            /// local space), captured ONCE on the first draw from
-            /// <c>scaledBody.transform.InverseTransformPoint(LocalToScaledSpace(GetWorldSurfacePosition(...)))</c>.
-            /// Null until that first capture (and reset to null whenever the leg
-            /// cache is rebuilt, e.g. on a scene change, so it recaptures against
-            /// the new scene's scaled body).
-            /// <para>
-            /// Why this exists: calling <c>GetWorldSurfacePosition</c> every frame
-            /// produced a per-frame two-position jitter under time warp that grew
-            /// with the warp multiplier. <c>GetWorldSurfacePosition</c> resolves
-            /// through <c>BodyFrame</c> (decompiled: <c>BodyFrame.LocalToWorld(...) +
-            /// position</c>), which KSP updates on the physics/warp cadence, so under
-            /// warp consecutive RENDER frames sampled body orientations ~one warp
-            /// step apart and oscillated between them. The body CENTRE (position) and
-            /// the lat/lon direction are stable; only the orientation jittered. The
-            /// scaled planet you see in the map (<c>scaledBody.transform</c>) rotates
-            /// smoothly per render frame, so re-projecting a body-fixed local point
-            /// through it each frame keeps the polyline glued to the rendered surface
-            /// with zero jitter while still following the body's rotation. The
-            /// one-time capture still uses <c>GetWorldSurfacePosition</c> so the
-            /// position is exactly correct; any BodyFrame-vs-scaledBody discrepancy at
-            /// capture time is a fixed sub-degree offset, not a per-frame oscillation.
-            /// </para>
-            /// </summary>
-            public Vector3[] localScaled;
 
             /// <summary>
             /// M-element scratch buffer for per-frame ScaledSpace output
@@ -1499,60 +1470,45 @@ namespace Parsek.Display
                         lineXform.rotation = Quaternion.identity;
                         lineXform.localScale = Vector3.one;
 
-                        // CRITICAL geometry. The points must follow the body's
-                        // rotation (a launch path stays glued to its surface site as
-                        // the planet spins), but calling GetWorldSurfacePosition every
-                        // frame jittered under time warp: it resolves through BodyFrame
-                        // (BodyFrame.LocalToWorld(...) + position), which KSP updates on
-                        // the physics/warp cadence, so consecutive render frames sampled
-                        // orientations ~one warp step apart and oscillated between two
-                        // positions (gap proportional to the warp multiplier, zero at
-                        // 1x). Instead: capture each point ONCE in the scaled planet's
-                        // LOCAL frame (via KSP's own GetWorldSurfacePosition, so the
-                        // position is exactly right), then re-project through the
-                        // render-stable body.scaledBody.transform each frame. The scaled
-                        // planet in the map rotates smoothly per render frame (no
-                        // BodyFrame jitter), so the line follows the body's spin without
-                        // oscillating. Falls back to the live per-frame path only when
-                        // the scaled body is not available (the points then jitter under
-                        // warp exactly as before, but at least render).
+                        // CRITICAL geometry (warp-strobe fix, take 2 - strobe-free AND never invisible).
+                        // A body-fixed surface point must follow the planet's spin. Two failed approaches and
+                        // why, from the strobe probe:
+                        //   (a) ABSOLUTE: scratchScaledSpace[i] = LocalToScaledSpace(GetWorldSurfacePosition(.))
+                        //       STROBES under warp into a parallel duplicate - ScaledSpace.totalOffset (the
+                        //       scaled-origin recentering) oscillates every RENDER frame and our non-registered
+                        //       VectorLine inherits it (|dPlive| up to ~750 scaled units, alternating with 0).
+                        //   (b) FREEZE: capture each point in scaledBody-local once and re-project - kills the
+                        //       strobe but goes INVISIBLE under warp, because a capture taken at a strobe phase
+                        //       bakes a bad totalOffset into the local and lands the line off-screen until a
+                        //       clean 1x recapture.
+                        // The probe shows GetWorldSurfacePosition is frame-stable (|dWorld|=0) and
+                        // scaledBody.transform is a registered ScaledSpace object whose position is frame-stable
+                        // (|dPfrozen|~0). So build the point from the STABLE pieces only: the scaled body centre
+                        // (scaledXform.position) plus the body-relative surface offset (world - body.position) *
+                        // invScale. That offset is totalOffset- AND floating-origin-free (both terms live in the
+                        // same frame, so it cancels), and equals LocalToScaledSpace(world) exactly when
+                        // scaledXform.position == LocalToScaledSpace(body.position) - but it never touches the
+                        // strobing totalOffset. Recomputed LIVE every frame: strobe-free at all warps, and with
+                        // no capture it can never go stale / invisible. scaledXform also feeds the conic anchor.
                         var scaledBody = body.scaledBody;
                         Transform scaledXform = scaledBody != null ? scaledBody.transform : null;
                         if (scaledXform != null)
                         {
-                            // (Re)capture the scaled-body-LOCAL positions from the
-                            // accurate live surface position whenever the leg is fresh
-                            // OR whenever warp is at the 1x baseline (where there is no
-                            // BodyFrame jitter, so the capture is exact). Under time warp
-                            // we FREEZE the captured local positions and only re-project
-                            // them through the smooth scaledBody transform below, which is
-                            // what removes the jitter. At 1x the round-trip
-                            // TransformPoint(InverseTransformPoint(x)) == x, so behaviour
-                            // is identical to the old direct path; under warp the frozen
-                            // body-fixed locals stay glued to the spinning planet.
-                            bool lowWarp = TimeWarp.CurrentRate <= 1.0001f;
-                            if (leg.localScaled == null
-                                || leg.localScaled.Length != m
-                                || lowWarp)
-                            {
-                                if (leg.localScaled == null || leg.localScaled.Length != m)
-                                    leg.localScaled = new Vector3[m];
-                                for (int i = 0; i < m; i++)
-                                {
-                                    Vector3d world = body.GetWorldSurfacePosition(
-                                        leg.lats[i], leg.lons[i], leg.alts[i]);
-                                    Vector3 worldScaled =
-                                        (Vector3)ScaledSpace.LocalToScaledSpace(world);
-                                    leg.localScaled[i] =
-                                        scaledXform.InverseTransformPoint(worldScaled);
-                                }
-                            }
+                            Vector3 bodyCentreScaled = scaledXform.position;
+                            double invScale = ScaledSpace.InverseScaleFactor;
+                            Vector3d bodyPos = body.position;
                             for (int i = 0; i < m; i++)
-                                leg.scratchScaledSpace[i] =
-                                    scaledXform.TransformPoint(leg.localScaled[i]);
+                            {
+                                Vector3d world = body.GetWorldSurfacePosition(
+                                    leg.lats[i], leg.lons[i], leg.alts[i]);
+                                leg.scratchScaledSpace[i] = bodyCentreScaled
+                                    + (Vector3)((world - bodyPos) * invScale);
+                            }
                         }
                         else
                         {
+                            // No scaled body available (should not happen in map view): fall back to the
+                            // direct absolute path. Strobes under warp, but at least renders on the surface.
                             for (int i = 0; i < m; i++)
                             {
                                 Vector3d world = body.GetWorldSurfacePosition(
