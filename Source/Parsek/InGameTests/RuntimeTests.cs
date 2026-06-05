@@ -1739,7 +1739,7 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(orbit.eccentricity > 1.0,
                 $"test orbit must be hyperbolic (ecc={orbit.eccentricity:F3})");
             InGameAssert.IsTrue(double.IsInfinity(orbit.period) || double.IsNaN(orbit.period),
-                $"a hyperbolic orbit must NOT have a finite period (period={orbit.period}) — the " +
+                $"a hyperbolic orbit must NOT have a finite period (period={orbit.period}), the " +
                 $"full-period early-return must never fire for it");
 
             // NOTE: this MIRRORS GhostOrbitArcPatch.Prefix's hyperbolic path rather than invoking the
@@ -1752,14 +1752,14 @@ namespace Parsek.InGameTests
             double toH = orbit.EccentricAnomalyAtUT(segEnd);
             InGameAssert.IsFalse(double.IsNaN(fromH) || double.IsNaN(toH),
                 $"hyperbolic eccentric anomaly bounds must be finite (fromH={fromH}, toH={toH})");
-            // Hyperbola is monotonic in H — no periapsis wraparound. The window must be a forward,
+            // Hyperbola is monotonic in H, no periapsis wraparound. The window must be a forward,
             // non-degenerate sweep (toH strictly past fromH).
             InGameAssert.IsGreaterThan(toH - fromH, 1e-6,
                 $"hyperbolic anomaly window must be a forward sweep (fromH={fromH:F4}, toH={toH:F4})");
 
             // The FULL stock hyperbolic sweep (OrbitRendererBase.UpdateSpline else-branch):
             // st = -acos(-1/ecc) .. end = +acos(-1/ecc). The clipped window must be a STRICT
-            // subset of that — i.e. the line stops short of the asymptotes, not the whole hyperbola.
+            // subset of that, i.e. the line stops short of the asymptotes, not the whole hyperbola.
             double stockHalfSweep = System.Math.Acos(-1.0 / orbit.eccentricity);
             InGameAssert.IsGreaterThan(fromH, -stockHalfSweep,
                 $"clipped start H ({fromH:F4}) must be inside the stock sweep start (-{stockHalfSweep:F4})");
@@ -1769,7 +1769,7 @@ namespace Parsek.InGameTests
             double stockSpan = 2.0 * stockHalfSweep;
             InGameAssert.IsLessThan(windowSpan, stockSpan,
                 $"clipped window span ({windowSpan:F4}) must be a strict sub-arc of the full stock " +
-                $"hyperbola span ({stockSpan:F4}) — else the line is the whole open hyperbola");
+                $"hyperbola span ({stockSpan:F4}); else the line is the whole open hyperbola");
 
             // --- Sample the clipped arc exactly as the patch does and verify the endpoints land on
             // the recorded segment positions (the line is bounded to the window), the arc is open
@@ -1793,7 +1793,7 @@ namespace Parsek.InGameTests
             }
 
             // The clipped arc endpoints must match the recorded-segment world positions (this is the
-            // "bounded to the window" property — the line begins/ends where the recorded escape does).
+            // "bounded to the window" property: the line begins/ends where the recorded escape does).
             // getPositionAtUT returns the same world frame as getPositionFromEccAnomalyWithSemiMinorAxis
             // (referenceBody.position + relative.xzy), so the two are directly comparable.
             Vector3d windowStartPos = orbit.getPositionAtUT(segStart);

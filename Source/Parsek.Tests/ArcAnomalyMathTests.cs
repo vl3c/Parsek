@@ -89,7 +89,7 @@ namespace Parsek.Tests
         public void EndpointRadius_HyperbolicGrowsWithAnomalyMagnitude()
         {
             // Moving away from periapsis along a hyperbola (|H| increasing) the radius grows
-            // without bound — the cosh form must reflect that, unlike the bounded elliptical cos.
+            // without bound; the cosh form must reflect that, unlike the bounded elliptical cos.
             double sma = -3818300.0, ecc = 1.1916;
             double rNear = ArcAnomalyMath.EndpointRadius(sma, ecc, 0.5, hyperbolic: true);
             double rFar = ArcAnomalyMath.EndpointRadius(sma, ecc, 2.0, hyperbolic: true);

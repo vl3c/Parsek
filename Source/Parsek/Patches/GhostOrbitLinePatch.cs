@@ -149,6 +149,10 @@ namespace Parsek.Patches
             // passes the period<=0 degeneracy guard; NaN/zero periods still defer.)
             if (orbit == null || double.IsNaN(orbit.period) || orbit.period <= 0.0)
                 return true;
+            // ecc==1 (exactly parabolic) counts as hyperbolic here so the icon still drives it
+            // (deferring an open orbit to stock flings the icon out, per the comment above); the
+            // arc-clip LINE instead defers exactly-parabolic to stock (its sampler returns the origin
+            // for ecc==1). The split is moot in practice: KSP never produces an exactly-parabolic orbit.
             bool hyperbolic = orbit.eccentricity >= 1.0;
 
             double currentUT = Planetarium.GetUniversalTime();
@@ -1022,7 +1026,7 @@ namespace Parsek.Patches
             // degenerate edge the stock sampler returns the origin for; route it to stock instead.
             bool hyperbolic = orbit.eccentricity > 1.0;
             if (orbit.eccentricity >= 1.0 && !hyperbolic)
-                return true; // exactly-parabolic — let stock handle
+                return true; // exactly-parabolic, let stock handle
 
             // Full orbit or more — let stock draw the complete ellipse. The span is
             // shift-invariant, so the stored live-frame bounds give the correct test. Gated to the
@@ -1054,11 +1058,11 @@ namespace Parsek.Patches
             // NaN guard — degenerate orbits or UT outside validity
             if (double.IsNaN(fromE) || double.IsNaN(toE)) return true;
 
-            // Handle wraparound (periapsis crossing) — ELLIPTICAL ONLY, same logic as
+            // Handle wraparound (periapsis crossing), ELLIPTICAL ONLY, same logic as
             // Trajectory.UpdateFromOrbit. GetTrueAnomaly returns [0, 2pi] for E in [0, 2pi). When
             // fromV > toV, the arc wraps through periapsis (V=0). Making fromE negative creates a
             // monotonically increasing range that crosses E=0. A hyperbola is monotonic in
-            // (eccentric) anomaly H and never wraps, so it MUST NOT get this correction — applying
+            // (eccentric) anomaly H and never wraps, so it MUST NOT get this correction; applying
             // it would fabricate a bogus reversed range. (fromV/toV computed for the diagnostic
             // log either way; only the ellipse uses them to adjust fromE.)
             double fromV = orbit.GetTrueAnomaly(fromE);
