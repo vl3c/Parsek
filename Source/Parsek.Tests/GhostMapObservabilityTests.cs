@@ -665,6 +665,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveEffectiveMapOrbitSegments_WindowOverload_NonReaim_ReturnsRecordedRefAndWindowMinusOne()
+        {
+            // The window-exposing overload (Step 2) must preserve the reference-equality contract: a
+            // non-re-aim member returns the recorded list UNCHANGED with windowIndex = -1 (the ShadowRenderDriver
+            // keys its chainHasReaimedSegments flag on ReferenceEquals(effective, recorded), and its cache on
+            // the window token).
+            var recorded = new List<OrbitSegment> { HelioSeg() };
+
+            List<OrbitSegment> effective = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                0, "rec-x", recorded, 5000.0, GhostPlaybackLogic.LoopUnitSet.Empty, out long windowIndex);
+
+            Assert.Same(recorded, effective);
+            Assert.Equal(-1L, windowIndex);
+        }
+
+        [Fact]
+        public void ResolveEffectiveMapOrbitSegments_WindowOverload_NullRecordingIdOrUnits_ReturnsRecordedAndMinusOne()
+        {
+            var recorded = new List<OrbitSegment> { HelioSeg() };
+
+            Assert.Same(recorded, GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                0, null, recorded, 5000.0, GhostPlaybackLogic.LoopUnitSet.Empty, out long w1));
+            Assert.Equal(-1L, w1);
+
+            Assert.Same(recorded, GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                0, "rec-x", recorded, 5000.0, null, out long w2));
+            Assert.Equal(-1L, w2);
+        }
+
+        [Fact]
         public void TryResolveReaimedCoveringSegment_FaithfulMember_ReturnsTrueWithRecordedSegment()
         {
             var recorded = new List<OrbitSegment> { HelioSeg() };

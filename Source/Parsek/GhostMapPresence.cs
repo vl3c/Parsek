@@ -6218,7 +6218,22 @@ namespace Parsek
         internal static List<OrbitSegment> ResolveEffectiveMapOrbitSegments(
             int committedIndex, string recordingId, List<OrbitSegment> recorded,
             double liveCurrentUT, GhostPlaybackLogic.LoopUnitSet loopUnits)
+            => ResolveEffectiveMapOrbitSegments(
+                committedIndex, recordingId, recorded, liveCurrentUT, loopUnits, out long _);
+
+        // Window-exposing overload (Phase 8d re-aim Director wiring): forwards the resolver's synodic
+        // WINDOW INDEX so the MapRender ShadowRenderDriver can key its chain cache on it (a window advance
+        // changes the re-aimed geometry without changing the RECORDED OrbitSegments.Count, so the window is
+        // the load-bearing cache discriminator). Reference-equality contract preserved exactly: a non-re-aim
+        // member / declined window / pre-first-window returns the RECORDED list UNCHANGED (Same reference)
+        // with windowIndex = -1 (the caller's ReferenceEquals(effective, recorded) test at :6260 and the
+        // ShadowRenderDriver's chainHasReaimedSegments flag both rely on this). A re-aimed window returns the
+        // synthesized list with windowIndex set to the resolver's cycle index.
+        internal static List<OrbitSegment> ResolveEffectiveMapOrbitSegments(
+            int committedIndex, string recordingId, List<OrbitSegment> recorded,
+            double liveCurrentUT, GhostPlaybackLogic.LoopUnitSet loopUnits, out long windowIndex)
         {
+            windowIndex = -1;
             if (string.IsNullOrEmpty(recordingId) || loopUnits == null)
                 return recorded;
             if (!loopUnits.TryGetUnitForMember(committedIndex, out GhostPlaybackLogic.LoopUnit unit))
@@ -6228,13 +6243,14 @@ namespace Parsek
             if (Parsek.Reaim.ReaimPlaybackResolver.Shared.TryResolveWindowSegments(
                     recordingId, recorded, unit.ReaimPlan.Value, unit.ReaimSchedule.Value,
                     unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
-                    liveCurrentUT, out List<OrbitSegment> reaimed, out long _))
+                    liveCurrentUT, out List<OrbitSegment> reaimed, out long resolvedWindow))
             {
+                windowIndex = resolvedWindow;
                 LogMapEffectiveSegments(committedIndex, "RE-AIMED", reaimed, unit.ReaimPlan.Value.CommonAncestor);
                 return reaimed;
             }
             LogMapEffectiveSegments(committedIndex, "RECORDED-resolver-miss", recorded, unit.ReaimPlan.Value.CommonAncestor);
-            return recorded; // no heliocentric leg / window miss / pre-first-window -> faithful
+            return recorded; // no heliocentric leg / window miss / pre-first-window -> faithful (windowIndex = -1)
         }
 
         // Re-aim covering-segment substitution for the FLIGHT create paths: when a Segment-source map

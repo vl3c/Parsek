@@ -68,29 +68,129 @@ namespace Parsek.Tests
                 ShadowRenderDriver.ClassifyScope(memberIsHeliocentric: false, hasUnit: true, overlapCadenceSeconds: 5, spanSeconds: 0));
         }
 
-        // ---- ShouldSkipReaimSegment (re-aim decided PER ACTIVE SEGMENT, not per whole trajectory) ----
+        // ---- ShouldSkipReaimSegment (COVERAGE-AWARE skip-lift, the critical fix from review) ----
+        // skip = intentVisible && frameBodyIsStar && memberIsReaimOwner
+        //        && !(chainHasReaimedSegments && sampleInSegment)
 
         [Fact]
-        public void ShouldSkipReaimSegment_HeliocentricLeg_Skips()
+        public void ShouldSkipReaimSegment_ReaimedWindow_OnHeliocentricLeg_Draws()
         {
-            // Flying the re-synthesized Sun-relative transfer leg → skip (raw conic points where the
-            // target used to be).
-            Assert.True(ShadowRenderDriver.ShouldSkipReaimSegment(intentVisible: true, frameBodyIsStar: true));
+            // THE FIX: a re-aim owner ON its re-aimed heliocentric leg (chainHasReaimedSegments &&
+            // sampleInSegment) must DRAW the re-aimed conic, not skip to legacy. Killing icon-off-orbit.
+            Assert.False(ShadowRenderDriver.ShouldSkipReaimSegment(
+                intentVisible: true, frameBodyIsStar: true, memberIsReaimOwner: true,
+                chainHasReaimedSegments: true, sampleInSegment: true));
+        }
+
+        [Fact]
+        public void ShouldSkipReaimSegment_ReaimedWindow_InTrimGap_Skips()
+        {
+            // THE REVIEW'S BUG CASE: re-aimed window but the sample is NOT in a covering segment (a trim gap
+            // between the recorded escape/capture legs and the trimmed transfer, OR a held interior gap). The
+            // held intent is still Visible and star-bodied, but with sampleInSegment=false the Director must
+            // SKIP (hide), matching the legacy hide-in-gap contract; without this term a held stale Sun conic
+            // would be driven across the gap.
+            Assert.True(ShadowRenderDriver.ShouldSkipReaimSegment(
+                intentVisible: true, frameBodyIsStar: true, memberIsReaimOwner: true,
+                chainHasReaimedSegments: true, sampleInSegment: false));
+        }
+
+        [Fact]
+        public void ShouldSkipReaimSegment_DeclinedWindow_Skips()
+        {
+            // Resolver declined the window (chainHasReaimedSegments=false): the chain carries the RECORDED
+            // wrong-aimed Sun leg of a re-aim owner -> SKIP (fall to legacy), even on a covering segment.
+            Assert.True(ShadowRenderDriver.ShouldSkipReaimSegment(
+                intentVisible: true, frameBodyIsStar: true, memberIsReaimOwner: true,
+                chainHasReaimedSegments: false, sampleInSegment: true));
+        }
+
+        [Fact]
+        public void ShouldSkipReaimSegment_FaithfulNonOwner_StarLeg_Draws()
+        {
+            // A real NON-looped interplanetary recording (memberIsReaimOwner=false) on its Sun leg is
+            // faithful and intentionally rendered (the widening): DO NOT skip.
+            Assert.False(ShadowRenderDriver.ShouldSkipReaimSegment(
+                intentVisible: true, frameBodyIsStar: true, memberIsReaimOwner: false,
+                chainHasReaimedSegments: false, sampleInSegment: true));
         }
 
         [Fact]
         public void ShouldSkipReaimSegment_FaithfulKerbinLeg_DoesNotSkip()
         {
-            // The same interplanetary recording's FAITHFUL Kerbin escape / destination arrival legs must
-            // render (the "Kerbal X" hyperbolic escape icon-off-orbit regression when they were dropped).
-            Assert.False(ShadowRenderDriver.ShouldSkipReaimSegment(intentVisible: true, frameBodyIsStar: false));
+            // A re-aim owner's FAITHFUL Kerbin-escape / destination-arrival leg has frameBodyIsStar=false,
+            // so it is never matched and always renders (the "Kerbal X" hyperbolic escape would otherwise
+            // be dropped -> icon-off-orbit regression).
+            Assert.False(ShadowRenderDriver.ShouldSkipReaimSegment(
+                intentVisible: true, frameBodyIsStar: false, memberIsReaimOwner: true,
+                chainHasReaimedSegments: true, sampleInSegment: true));
         }
 
         [Fact]
-        public void ShouldSkipReaimSegment_HiddenIntent_DoesNotSkip()
+        public void ShouldSkipReaimSegment_HiddenIntent_NeverSkips()
         {
-            // A hidden intent has no active segment to classify; nothing to skip.
-            Assert.False(ShadowRenderDriver.ShouldSkipReaimSegment(intentVisible: false, frameBodyIsStar: true));
+            // A hidden intent has no active segment to classify; nothing to skip, for every combination of
+            // the remaining flags.
+            Assert.False(ShadowRenderDriver.ShouldSkipReaimSegment(
+                intentVisible: false, frameBodyIsStar: true, memberIsReaimOwner: true,
+                chainHasReaimedSegments: true, sampleInSegment: false));
+            Assert.False(ShadowRenderDriver.ShouldSkipReaimSegment(
+                intentVisible: false, frameBodyIsStar: true, memberIsReaimOwner: true,
+                chainHasReaimedSegments: false, sampleInSegment: true));
+        }
+
+        // ---- BuildChainSignature (window token is the load-bearing cache discriminator under re-aim) ----
+
+        [Fact]
+        public void BuildChainSignature_DifferentWindowIndex_ProducesDifferentSignature()
+        {
+            // A synodic-window advance changes the re-aimed geometry but NOT the recorded OrbitSegments.Count
+            // (re-aim replaces one heliocentric leg, count is stable), so without the |w{window} token the
+            // cache would NOT invalidate and the stale prior-window chain would keep rendering.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-win",
+                Points = new List<TrajectoryPoint> { Pt(0, "Kerbin"), Pt(2, "Kerbin") },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Sun" },
+                },
+            };
+            string sig0 = ShadowRenderDriver.BuildChainSignature(traj, 0, 40, windowIndex: 0);
+            string sig1 = ShadowRenderDriver.BuildChainSignature(traj, 0, 40, windowIndex: 1);
+            Assert.NotEqual(sig0, sig1);
+        }
+
+        [Fact]
+        public void BuildChainSignature_SameWindowIndex_IsStable()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-win",
+                Points = new List<TrajectoryPoint> { Pt(0, "Kerbin"), Pt(2, "Kerbin") },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Sun" },
+                },
+            };
+            Assert.Equal(
+                ShadowRenderDriver.BuildChainSignature(traj, 0, 40, windowIndex: 3),
+                ShadowRenderDriver.BuildChainSignature(traj, 0, 40, windowIndex: 3));
+        }
+
+        [Fact]
+        public void BuildChainSignature_NonReaim_WindowMinusOne_StaysUniquePerMember()
+        {
+            // windowIndex = -1 for every non-re-aim member; two different members still produce distinct
+            // signatures via the recording id, and the same member's signature is stable.
+            var a = new MockTrajectory { RecordingId = "rec-a", Points = new List<TrajectoryPoint> { Pt(0, "Kerbin"), Pt(2, "Kerbin") } };
+            var b = new MockTrajectory { RecordingId = "rec-b", Points = new List<TrajectoryPoint> { Pt(0, "Kerbin"), Pt(2, "Kerbin") } };
+            Assert.NotEqual(
+                ShadowRenderDriver.BuildChainSignature(a, 0, 40, windowIndex: -1),
+                ShadowRenderDriver.BuildChainSignature(b, 0, 40, windowIndex: -1));
+            Assert.Equal(
+                ShadowRenderDriver.BuildChainSignature(a, 0, 40, windowIndex: -1),
+                ShadowRenderDriver.BuildChainSignature(a, 0, 40, windowIndex: -1));
         }
 
         // ---- DecideForGhost composition (faithful, Empty units = identity span clock, null surface) ----
