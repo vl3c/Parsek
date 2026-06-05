@@ -1613,7 +1613,16 @@ namespace Parsek
                 };
             }
             GUILayout.Space(SpacingSmall);
+            // Nest the header label inside a skin box so the section-subtitle cell carries
+            // the SAME dark "box-on-box" background the column-header row has. The column
+            // header draws its box-styled cells INSIDE a BeginVertical(GUI.skin.box)
+            // container (two box layers, reading as a solid dark bar); a bare full-width
+            // box-label sits on only the window background (one layer) and looks lighter.
+            // Wrapping the label in a box horizontal adds the second box layer so the
+            // subtitle matches the table-header shade.
+            GUILayout.BeginHorizontal(GUI.skin.box);
             GUILayout.Label(text, sectionHeaderCenteredStyle, GUILayout.ExpandWidth(true));
+            GUILayout.EndHorizontal();
         }
         private GUIStyle sectionHeaderCenteredStyle;
 
