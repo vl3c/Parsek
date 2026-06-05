@@ -98,7 +98,7 @@ One Supply-Route cycle, viewed as a funds ledger (Career, KSC origin):
 ## 5. Decisions
 
 ### D1. What the ledger charges per cycle (economy) vs. what we display
-Recommended for this plan: **display-only.** Show net (launch - recovered) as the headline, but do NOT change what the orchestrator charges or what the funds gate checks. Rationale:
+DECIDED (author, 2026-06-05): **display-only.** Show net (launch - recovered) as the headline, but do NOT change what the orchestrator charges or what the funds gate checks. Rationale:
 - Realistically you need the FULL build cost up front; recovery comes back at the end of the cycle. So the existing gross charge at dispatch and the gross `KscFundsAvailable` gate are defensible as-is.
 - Crediting recovery per cycle in the ledger touches `GameActionType` epoch-isolation / rollback contracts (design section 6.6 and the route ledger modules) and is a much bigger, riskier change.
 - This plan therefore leaves [Route.KscDispatchFundsCost](../../../Source/Parsek/Logistics/Route.cs:77) and `EmitDispatchDebit` untouched and only ADDS display.
@@ -111,7 +111,7 @@ Consequence to call out in the UI tooltip: today the per-cycle charge is the GRO
 Show the cost line/block only when `IsCareer && route.IsKscOrigin`. Reuse the career probe shape from [LiveRouteRuntimeEnvironment.IsCareer](../../../Source/Parsek/Logistics/LiveRouteRuntimeEnvironment.cs:50) (`HighLogic.CurrentGame.Mode == Game.Modes.CAREER`, defensively wrapped). For the route-creation summary the route object does not exist yet, so gate on `IsCareer && analysis-implies-KSC-origin`. Caution: the existing `Dispatch cost: TBD` line is gated on `mode == Game.Modes.CAREER` ONLY ([RouteCreationFormatters.cs:193](../../../Source/Parsek/Logistics/RouteCreationFormatters.cs:193)), with NO KSC-origin check, so a Career non-KSC route prints TBD today. The new block must ADD the KSC-origin gate (see Phase 3.2); do not assume the Career non-KSC path is already cost-free.
 
 ### D3. UI footprint
-Recommended: a **detail-panel line plus tooltip**, the **creation-summary block**, and a **candidate-row tooltip/suffix**. Do NOT add a sortable "Cost/run" column in the first cut: the route table is already 1410px wide ([MinWindowWidth](../../../Source/Parsek/UI/LogisticsWindowUI.cs:244)) and a column costs horizontal space and a sort key. Add the column later only if at-a-glance comparison across routes is wanted.
+DECIDED (author, 2026-06-05): a **detail-panel line plus tooltip**, the **creation-summary block**, and a **candidate-row tooltip/suffix**. Do NOT add a sortable "Cost/run" column in this cut: the route table is already 1410px wide ([MinWindowWidth](../../../Source/Parsek/UI/LogisticsWindowUI.cs:244)) and a column costs horizontal space and a sort key. Add the column later only if at-a-glance comparison across routes is wanted.
 
 ---
 
@@ -201,8 +201,11 @@ Keep tree-membership resolution (treeId -> recording-id set) in a small helper. 
 
 ---
 
-## 9. Open questions for the author
+## 9. Decisions and remaining questions
 
-1. D1: confirm display-only (recommended) vs. also crediting recovery per cycle in the ledger (bigger, separate design).
-2. D3: detail line + tooltip only (recommended) vs. also a sortable Cost/run column now.
-3. No-recovery wording: is "transport not recovered in the recording" the right phrasing, plus a one-line hint that recovering the transport at the end of the recorded flight lowers the route cost?
+Resolved by the author (2026-06-05):
+1. D1: **display-only net.** Do not credit recovery per cycle in the ledger; the per-cycle charge stays gross, only the displayed cost is net.
+2. D3: **detail line + tooltip only.** No sortable Cost/run column in this cut.
+
+Remaining minor question for the implementer:
+3. No-recovery wording: is "transport not recovered in the recording" the right phrasing, plus a one-line hint that recovering the transport at the end of the recorded flight lowers the route cost? Default to that phrasing unless a playtest suggests better.
