@@ -481,12 +481,37 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// PURE diagnostic helper: the body-fixed longitude (deg) to pass to
+        /// <see cref="CelestialBody.GetWorldSurfacePosition"/> so the resulting world point sits where the
+        /// surface point at <paramref name="recordedLon"/> actually WAS at <paramref name="legStartUT"/>,
+        /// not where the LIVE body rotation places it now. GetWorldSurfacePosition applies the body's
+        /// CURRENT spin; counter-rotating the longitude by the spin accumulated between legStartUT and
+        /// liveUT cancels that drift, so a fixed-UT conic seam (<c>getPositionAtUT(legStartUT)</c>) and this
+        /// body-fixed point are compared on ONE rotation basis. The shift is self-consistent with
+        /// GetWorldSurfacePosition's own eastward (= prograde) longitude convention (world azimuth =
+        /// longitude + rotationAngle(t), with rotationAngle advancing prograde over time), so the constant
+        /// offset and absolute sign cancel in the difference and no explicit spin-axis / rotationAngle
+        /// lookup is needed. A non-rotating body (<paramref name="rotationPeriod"/> == 0 / non-finite)
+        /// returns <paramref name="recordedLon"/> unchanged - no spin drift to undo. xUnit-testable (no
+        /// Unity).
+        /// </summary>
+        internal static double BodyFixedLongitudeAtUT(
+            double recordedLon, double legStartUT, double liveUT, double rotationPeriod)
+        {
+            if (double.IsNaN(rotationPeriod) || double.IsInfinity(rotationPeriod)
+                || System.Math.Abs(rotationPeriod) <= 1e-9)
+                return recordedLon;
+            return recordedLon + (legStartUT - liveUT) * 360.0 / rotationPeriod;
+        }
+
+        /// <summary>
         /// Diagnostic (Bug 2 / Root B): a polyline leg bracketed by an orbit on only ONE side stays
         /// body-fixed (launch ascent = after-only; descent-from-orbit = before-only). For the descent case
-        /// this logs the world gap + body-relative longitude delta between the leg's body-fixed start and
-        /// the preceding orbit's seam at that UT - i.e. how far the INERTIAL orbit's deorbit point
-        /// overshoots the BODY-FIXED landing track under the loop shift, the overshoot the proto icon rides
-        /// before it teleports onto this body-fixed descent. Rate-limited per rec; render-neutral.
+        /// this logs the TRUE geometric world gap + body-relative longitudes between the leg's body-fixed
+        /// start and the preceding orbit's seam, BOTH evaluated at leg.startUT (the conic via its fixed-UT
+        /// getPositionAtUT, the body-fixed point via <see cref="BodyFixedLongitudeAtUT"/> so live planet
+        /// rotation does not inflate the value - it reads ~0 km when the orbit-to-descent seam is geometrically
+        /// continuous, as at the s15 "Duna One" re-aim landing). Rate-limited per rec; render-neutral.
         /// </summary>
         private static void EmitOneSidedBracketDiagnostic(
             Recording rec, LegPolyline leg, CelestialBody body, int beforeIdx, int afterIdx)
@@ -503,16 +528,25 @@ namespace Parsek.Display
                     if (beforeIdx >= 0
                         && TryConicWorldAtUT(rec.OrbitSegments[beforeIdx], body, leg.startUT, out Vector3d cBefore))
                     {
-                        Vector3d bf = body.GetWorldSurfacePosition(leg.lats[0], leg.lons[0], leg.alts[0]);
-                        double gapKm = Vector3d.Distance(bf, cBefore) / 1000.0;
+                        // Evaluate the body-fixed deorbit point on the SAME UT/rotation basis as the conic
+                        // (leg.startUT), NOT the live body rotation. A raw GetWorldSurfacePosition uses the
+                        // body's CURRENT spin, so it drifts away from the fixed-UT conic seam as the planet
+                        // turns while this leg stays the active drawn leg - inflating the logged gap (s15
+                        // "Duna One": 0 km at the aligned instant -> ~8 km a few seconds later, purely from
+                        // Duna's spin) and overstating the true ~0 km geometric seam. BodyFixedLongitudeAtUT
+                        // counter-rotates the longitude so the gap reads the real orbit-to-descent seam.
+                        double lonAtStartUT = BodyFixedLongitudeAtUT(
+                            leg.lons[0], leg.startUT, Planetarium.GetUniversalTime(), body.rotationPeriod);
+                        Vector3d bf = body.GetWorldSurfacePosition(leg.lats[0], lonAtStartUT, leg.alts[0]);
+                        double seamGapKm = Vector3d.Distance(bf, cBefore) / 1000.0;
                         Vector3d relBf = bf - body.position;
                         Vector3d relC = cBefore - body.position;
                         double lonBf = System.Math.Atan2(relBf.z, relBf.x) * (180.0 / System.Math.PI);
                         double lonSeam = System.Math.Atan2(relC.z, relC.x) * (180.0 / System.Math.PI);
                         var s = rec.OrbitSegments[beforeIdx];
                         seamInfo = string.Format(ic,
-                            "before=seg{0}(ecc={1:F3} sma={2:F0}) overshootGap={3:F0}km lonBodyFixed={4:F1} lonOrbitSeam={5:F1}",
-                            beforeIdx, s.eccentricity, s.semiMajorAxis, gapKm, lonBf, lonSeam);
+                            "before=seg{0}(ecc={1:F3} sma={2:F0}) seamGap={3:F0}km@startUT lonBodyFixed={4:F1} lonOrbitSeam={5:F1}",
+                            beforeIdx, s.eccentricity, s.semiMajorAxis, seamGapKm, lonBf, lonSeam);
                     }
                     return string.Format(ic,
                         "Anchor leg SKIPPED (one-sided): rec={0} leg=[{1:F1},{2:F1}] body={3} anchored=false " +
@@ -558,11 +592,10 @@ namespace Parsek.Display
             {
                 // One-sided bracket -> leg stays body-fixed (correct: a launch ascent off the rotating pad
                 // = after-only; a descent-to-surface = before-only). Bug 2 / Root B diagnostic: for the
-                // descent case (an orbit BEFORE, surface after) log the world gap + body-relative longitude
-                // delta between the leg's body-fixed start and the preceding orbit's seam = how far the
-                // INERTIAL orbit's deorbit point overshoots the BODY-FIXED landing track under the loop
-                // shift (the overshoot the proto icon rides before it teleports onto this body-fixed
-                // descent). Render-neutral.
+                // descent case (an orbit BEFORE, surface after) log the TRUE geometric seam gap +
+                // body-relative longitudes between the leg's body-fixed start and the preceding orbit's
+                // seam, BOTH on the leg.startUT rotation basis (so the value reads the real orbit-to-descent
+                // continuity, ~0 km when geometrically continuous, NOT live-rotation drift). Render-neutral.
                 EmitOneSidedBracketDiagnostic(rec, leg, body, beforeIdx, afterIdx);
                 return false;
             }
