@@ -83,20 +83,6 @@ namespace Parsek.Display
             new Dictionary<string, LegPolylineSet>(StringComparer.Ordinal);
 
         /// <summary>
-        /// Recordings whose non-orbital polyline leg is being drawn THIS frame
-        /// (head-UT inside a leg). Published for <c>GhostMapPresence</c> so it can
-        /// hide that ghost's proto-vessel orbit LINE while the polyline owns the
-        /// phase (otherwise the lingering orbit and the polyline overlap, and the
-        /// orbit churns under warp). Cleared at the top of every <c>LateUpdate</c>,
-        /// so it is empty whenever the polyline is not actively drawing (feature
-        /// off, not in map view, other scene) and the stock orbit behaviour is
-        /// left untouched. The orbit updater is throttled (~0.5 s), far slower
-        /// than this per-frame publish, so no double-buffering is needed.
-        /// </summary>
-        private static readonly HashSet<string> activeLegRecordings =
-            new HashSet<string>(StringComparer.Ordinal);
-
-        /// <summary>
         /// Phase 8b.2 / 8e S3a.1 (actual-draw ownership): recordings whose non-orbital polyline leg
         /// actually DREW this frame - on EITHER the OWNED <c>TracedPathTreatment.TryDrawOwnedLeg</c> path
         /// (Director decided Visible+TracedPath) OR the Driver-direct path (the Director classified the
@@ -106,12 +92,11 @@ namespace Parsek.Display
         /// <c>IsDirectorTracedPathActive</c> (8e S3a.1). Populated only on an ACTUAL draw (preserving
         /// 8b.1's "proto hidden iff a leg drew" robustness), so it can never report ownership for a frame
         /// where nothing drew (the degenerate-leg / head-in-gap / traj.Points-vs-TrackSections divergence
-        /// gap - see <see cref="ResolveNonOrbitalLegOwnership"/>). Published on the SAME condition as
-        /// <see cref="activeLegRecordings"/> (the per-recording <c>if (anyDrawn)</c> block), so it is
-        /// byte-identical to that set; the gate-on union (drew OR activeLeg) is therefore an OR over
-        /// identical sets and live render behavior is UNCHANGED. <see cref="activeLegRecordings"/> stays
-        /// the gate-off fallback until its S3b deletion. Cleared alongside
-        /// <see cref="activeLegRecordings"/> at the top of every <c>LateUpdate</c>.
+        /// gap - see <see cref="ResolveNonOrbitalLegOwnership"/>). 8e S3b: this is now the SOLE ownership
+        /// source - the legacy gate-off fallback set was DELETED after the S3a gate + an in-game re-fly
+        /// proved this drew-set byte-identical + a superset, so <see cref="ResolveNonOrbitalLegOwnership"/>
+        /// returns drew-set membership GATE-INDEPENDENTLY. Published on the per-recording
+        /// <c>if (anyDrawn)</c> block and cleared at the top of every <c>LateUpdate</c>.
         /// </summary>
         private static readonly HashSet<string> drewNonOrbitalLegRecordings =
             new HashSet<string>(StringComparer.Ordinal);
@@ -215,34 +200,29 @@ namespace Parsek.Display
             => TryHoldLastGood(recordingId, headUT, frame, out worldPos, out legIndex);
 
         /// <summary>
-        /// PURE ownership dispatch (8b.2): which published set is authoritative for "the polyline owns
-        /// this recording's non-orbital phase". Unit-testable without Unity (the gate + both membership
-        /// bits are passed in).
-        /// <list type="bullet">
-        /// <item>Gate OFF -> the legacy <see cref="activeLegRecordings"/> membership ONLY, so the
-        /// gate-off path is byte-identical to pre-8b.2 (the drew set is never consulted).</item>
-        /// <item>Gate ON -> the UNION of the drew set and the legacy set. The drew set
-        /// (<see cref="drewNonOrbitalLegRecordings"/>) records every recording whose polyline leg actually
-        /// drew this frame, on EITHER the owned-treatment path OR the Driver-direct path (8e S3a.1: the
-        /// draw is the authoritative signal, decoupled from the Director's StockConic/TracedPath
-        /// classification). It is published on the SAME per-recording condition as the legacy set, so the
-        /// two are byte-identical and the union is an OR over identical sets - UNCHANGED vs the legacy set
-        /// alone. Both are populated ONLY on an actual draw, so the union is true iff SOME leg actually
-        /// drew -> proto hidden iff polyline drew, no new gap.</item>
-        /// </list>
+        /// PURE ownership dispatch (8b.2 / 8e S3b): is the polyline the authoritative owner of this
+        /// recording's non-orbital phase? Returns the actual-draw drew-set membership
+        /// (<paramref name="inDrewSet"/>) GATE-INDEPENDENTLY. 8e S3b DELETED the legacy ownership
+        /// set and the gate-on-union / gate-off-only branches: the S3a gate +
+        /// an in-game re-fly proved <see cref="drewNonOrbitalLegRecordings"/> byte-identical + a superset
+        /// of the legacy set, so it is the SOLE ownership source. The drew set is populated on the
+        /// per-recording <c>if (anyDrawn)</c> condition unconditionally (gate-independent), so gate-off
+        /// still observes the correct membership. <paramref name="directorDriveGateOn"/> is retained for
+        /// caller-signature stability + future use but no longer affects the result. The drew set is
+        /// actual-draw-only, so this is true iff SOME leg actually drew -> proto hidden iff polyline drew.
+        /// Unit-testable without Unity (the gate + the membership bit are passed in).
         /// </summary>
         internal static bool ResolveNonOrbitalLegOwnership(
-            bool directorDriveGateOn, bool inDrewSet, bool inLegacySet)
-            => directorDriveGateOn ? (inDrewSet || inLegacySet) : inLegacySet;
+            bool directorDriveGateOn, bool inDrewSet)
+            => inDrewSet;
 
         /// <summary>
         /// True when the trajectory polyline is currently drawing a non-orbital
         /// leg for <paramref name="recordingId"/>. Read by <c>GhostMapPresence</c> to
         /// suppress the overlapping proto-vessel orbit line for that phase.
-        /// 8b.2 / 8e S3a.1: behind the director-drive gate the source is the actual-draw-published
-        /// <see cref="drewNonOrbitalLegRecordings"/> unioned with the legacy
-        /// <see cref="activeLegRecordings"/> (byte-identical sets); gate-off falls back to the legacy set
-        /// byte-for-byte. See <see cref="ResolveNonOrbitalLegOwnership"/>.
+        /// 8b.2 / 8e S3b: the SOLE source is the actual-draw-published
+        /// <see cref="drewNonOrbitalLegRecordings"/> (the legacy ownership set was deleted in S3b);
+        /// <see cref="ResolveNonOrbitalLegOwnership"/> returns its membership gate-independently.
         /// </summary>
         internal static bool IsRenderingNonOrbitalLeg(string recordingId)
         {
@@ -250,39 +230,24 @@ namespace Parsek.Display
             bool gateOn = ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive;
             return ResolveNonOrbitalLegOwnership(
                 gateOn,
-                drewNonOrbitalLegRecordings.Contains(recordingId),
-                activeLegRecordings.Contains(recordingId));
+                drewNonOrbitalLegRecordings.Contains(recordingId));
         }
 
         /// <summary>
-        /// Test-only seam (8b.2 / 8e S3a.1): stamps the two per-frame ownership publish sets the Driver's
-        /// <c>LateUpdate</c> populates (Unity-coupled, not reachable from xUnit), so the gate-read +
-        /// dispatch in <see cref="IsRenderingNonOrbitalLeg"/> can be exercised end-to-end. Mirrors the
+        /// Test-only seam (8b.2 / 8e S3b): stamps the per-frame actual-draw ownership publish set the
+        /// Driver's <c>LateUpdate</c> populates (Unity-coupled, not reachable from xUnit), so the gate-read
+        /// + dispatch in <see cref="IsRenderingNonOrbitalLeg"/> can be exercised end-to-end. Mirrors the
         /// real publish: <paramref name="inDrewSet"/> models the actual-draw publish (any leg drew, owned
-        /// or Driver-direct), <paramref name="inLegacySet"/> the legacy autonomous-Driver publish. Cleared
-        /// by <see cref="Clear"/>.
+        /// or Driver-direct). 8e S3b deleted the legacy set, so the second parameter is gone. Cleared by
+        /// <see cref="Clear"/>.
         /// </summary>
         internal static void SetOwnershipPublishForTesting(
-            string recordingId, bool inDrewSet, bool inLegacySet)
+            string recordingId, bool inDrewSet)
         {
             if (string.IsNullOrEmpty(recordingId)) return;
             if (inDrewSet) drewNonOrbitalLegRecordings.Add(recordingId);
             else drewNonOrbitalLegRecordings.Remove(recordingId);
-            if (inLegacySet) activeLegRecordings.Add(recordingId);
-            else activeLegRecordings.Remove(recordingId);
         }
-
-        /// <summary>
-        /// Phase 8e S3a / S3a.1: a read-only view of this frame's actual-draw leg set
-        /// (<see cref="drewNonOrbitalLegRecordings"/> - every recording whose polyline leg drew this frame,
-        /// owned-treatment OR Driver-direct), consumed by
-        /// <c>GhostMapPresence.AssertLegacyOwnedLegsCovered</c> to prove every legacy-owned leg is either
-        /// drew-set-owned OR proto-less before the S3b deletion of <see cref="activeLegRecordings"/>.
-        /// Already RecordingId-keyed, so the gate needs NO pid bridge. The set is populated + cleared by
-        /// the Driver's per-frame decide walk on the same lifecycle as the legacy-owned set, so a
-        /// same-frame read pairs correctly. Diagnostic-only; this accessor adds NO live render behavior.
-        /// </summary>
-        internal static ICollection<string> DrewNonOrbitalLegRecordingsThisFrame => drewNonOrbitalLegRecordings;
 
         /// <summary>
         /// Test-only accessor: returns the live cache dictionary so the
@@ -496,10 +461,9 @@ namespace Parsek.Display
         /// </summary>
         internal static void Clear()
         {
-            // Drop the per-frame ownership publish sets first (before the empty-cache early-return), so a
-            // cross-save flush / test reset never leaves a stale ownership behind. They are re-cleared
+            // Drop the per-frame ownership publish set first (before the empty-cache early-return), so a
+            // cross-save flush / test reset never leaves a stale ownership behind. It is re-cleared
             // every LateUpdate, so this is belt-and-suspenders in normal play and the reset hook in tests.
-            activeLegRecordings.Clear();
             drewNonOrbitalLegRecordings.Clear();
             // Drop the marker hold cache on the same cross-save / test-reset lifecycle as the ownership
             // sets so a stale held on-line point never survives a save load or a scene switch.
@@ -1703,7 +1667,7 @@ namespace Parsek.Display
         /// scene other than TRACKSTATION / FLIGHT.
         /// </summary>
         // Run this Driver's LateUpdate BEFORE stock components (OrbitRendererBase is
-        // at default execution order 0). The Driver publishes activeLegRecordings in
+        // at default execution order 0). The Driver publishes drewNonOrbitalLegRecordings in
         // its LateUpdate and GhostOrbitLinePatch (on OrbitRendererBase.LateUpdate)
         // reads it; without a forced order the orbit patch ran first and read the
         // PREVIOUS frame's set, so at a burn's first frame it still showed the prior
@@ -1872,11 +1836,9 @@ namespace Parsek.Display
                 // Publish-set for GhostMapPresence orbit suppression: clear FIRST,
                 // before any early return, so it reflects only recordings whose
                 // non-orbital leg actually draws this frame (empty when the
-                // polyline is off / not in map view / wrong scene). 8b.2 / 8e S3a.1:
-                // the actual-draw set is cleared on the same lifecycle so a stale
-                // ownership can never leak a hidden proto into the next phase (both
-                // sets repopulate only on an actual draw this frame).
-                activeLegRecordings.Clear();
+                // polyline is off / not in map view / wrong scene). 8b.2 / 8e S3b:
+                // the actual-draw set repopulates only on an actual draw this frame,
+                // so a stale ownership can never leak a hidden proto into the next phase.
                 drewNonOrbitalLegRecordings.Clear();
 
                 // Phase 8e S0 (PURELY ADDITIVE diagnostics): clear this frame's coverage-closure sets on
@@ -2192,22 +2154,15 @@ namespace Parsek.Display
                     if (anyDrawn)
                     {
                         frameDrawn++;
-                        // Tell GhostMapPresence the polyline owns this recording's
-                        // current phase so it hides the overlapping orbit line.
-                        activeLegRecordings.Add(rec.RecordingId);
-
-                        // 8e S3a.1 (DECOUPLED ownership publish): a leg actually drew this frame, so the
-                        // polyline owns this non-orbital phase - regardless of whether the Director
-                        // classified the span TracedPath (owned-by-treatment) or StockConic (Driver-direct
-                        // "bridge" leg). The DRAW is the authoritative ownership signal (8b.2 actual-draw
-                        // principle); the Director's StockConic/TracedPath classification is irrelevant to
-                        // whether the proto line/icon must be hidden. Published on EITHER path (same
-                        // condition as activeLegRecordings.Add directly above), so this set is byte-identical
-                        // to activeLegRecordings -> the gate-on union (drew OR activeLeg) is UNCHANGED (an OR
-                        // over identical sets) and gate-off never reads this set. Net live behavior change:
-                        // ZERO. The only changed reader is the S3a deletion-safety gate, which now sees the
-                        // StockConic bridge legs accounted (they were already in activeLegRecordings) and
-                        // stops firing the false uncovered-legacy-owned-leg anomaly.
+                        // 8e S3b (SOLE ownership publish): a leg actually drew this frame, so the polyline
+                        // owns this non-orbital phase - regardless of whether the Director classified the
+                        // span TracedPath (owned-by-treatment) or StockConic (Driver-direct "bridge" leg).
+                        // The DRAW is the authoritative ownership signal (8b.2 actual-draw principle); the
+                        // Director's StockConic/TracedPath classification is irrelevant to whether the proto
+                        // line/icon must be hidden. Tell GhostMapPresence the polyline owns this recording's
+                        // current phase so it hides the overlapping orbit line. This is the ONLY ownership
+                        // set since S3b deleted the legacy publish; published gate-independently on the
+                        // per-recording if (anyDrawn) condition, so gate-off reads correct membership.
                         drewNonOrbitalLegRecordings.Add(rec.RecordingId);
 
                         // Phase 8e S0 Instrument 1 (PURELY ADDITIVE): record this recording into the
@@ -2219,11 +2174,6 @@ namespace Parsek.Display
                         if (MapRenderTrace.IsEnabled)
                         {
                             GhostMapPresence.NoteDrawnRecordingCoverage(rec.RecordingId, ghostPid);
-                            // Phase 8e S3a (PURELY ADDITIVE): mirror the LEGACY ownership-publish (the
-                            // activeLegRecordings.Add directly above) so the S3a gate can prove S3b's
-                            // deletion of activeLegRecordings drops nothing. Same IsEnabled gate; no
-                            // render/draw effect.
-                            GhostMapPresence.NoteLegacyOwnedLeg(rec.RecordingId);
                         }
                     }
                 }
@@ -2257,7 +2207,7 @@ namespace Parsek.Display
                     // Key on the cheap drawn-COUNT (the Bug-3 signal is 1<->2); build the rec list lazily so
                     // the steady state (drawn unchanged) pays no per-frame List/Join/Format allocation.
                     int drawnCount = frameDrawn;
-                    var legRecs = activeLegRecordings;
+                    var legRecs = drewNonOrbitalLegRecordings;
                     var sceneForLog = scene;
                     ParsekLog.VerboseOnChange(DriverTag, "polyline.drawset",
                         drawnCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
