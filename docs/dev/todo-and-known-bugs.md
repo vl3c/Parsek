@@ -89,6 +89,30 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Post-cutover map/TS render backlog (next version)
+
+The map/TS render cutover is COMPLETE (see the DONE entry above): the modular Director pipeline is the single render path; `known-bugs.md` has no open map/TS render bugs. This is the consolidated list of what remains in this area for a future version. NOTHING here blocks the current release.
+
+**1. Re-aim destination phase-lock for looped INTERPLANETARY missions (the one substantial piece).** Re-aim aligns the launch body but not the destination body's rotation/phase across the loop shift, so a looped interplanetary arrival drifts. "Duna One" is closed; the generalization (non-synchronous moons, destination loiter, 2+ moons, atmo-direct entry) is the deferred Phase 4 - see the "DUNA ONE CLOSED ... Phase-4 GENERALIZATION still deferred" entry immediately below. WARNING: this sits on the re-aim seam, a known high-cost area - build the failing multi-moon test and measure before any knob math, and treat "the faithful render is good enough" as a valid outcome (do not stack speculative fixes on a working baseline).
+
+**2. Robustness / needs-in-game confirms (deferred during the cutover, non-blocking).**
+- Tracer second cut: the decision-side inc/LAN/argPe-vs-transform reconciliation layer (the reconciler core exists; see the "In progress ... tracer SECOND CUT" entry at the top of this file).
+- Sec 15.1 proto re-seed latency and Sec 15.2 per-scene patched-conic divergence (deferred, need in-game characterization; details in `docs/dev/plans/maprender-rewrite-status.md`).
+- Phase 7b make-before-break swap-settle: the proto-vessel swap timing on scene/treatment swaps (a brief reseed window, ~0.5s).
+- Tracking-Station render-delay confirm: the 1-2s TS proto-vessel gap fix (the same-body intra-block carry) is believed working; wants a TS playtest to confirm.
+
+**3. Minor polish (low value, all currently suppressed or sub-visual).**
+- icon-off-orbit residual ~1-3 deg on looped re-aim (the core ~96.5 deg bug is fixed; this is the leftover).
+- no-fresh-seed create-frame transient: 1 frame, the proto is suppressed that frame so it is invisible; the fix touches the re-aim seam, so it was skipped during the closeout.
+- polyline-orbit-overlap grace transient: the OrbitLineGrace debounce, cosmetic.
+- cosmetic test-name cleanup: a couple of in-game test methods still read "...LiveGate..." after the `mapRenderDirectorDrive` gate was dropped.
+
+**4. Architectural / cleanliness (nice-to-have, not needed for function).**
+- Modularize the no-conic fallback as a proper Director "fallback treatment" instead of the kept patch-level path in `GhostOrbitLinePatch` (the icon floor + `ghostsWithSuppressedIcon` + `IsIconSuppressed`). The current kept fallback is correct and working; this is purity, not function.
+- Standalone ghost-mod readiness for the render side (the `IPlaybackTrajectory` boundary).
+
+---
+
 ## ~~OPEN~~ DUNA ONE CLOSED (per-loop arrival hold SHIPPED in PR #1030, validated 2026-06-05); Phase-4 GENERALIZATION still deferred - v0.10.0 Looped re-aimed interplanetary LANDING: destination rotation-alignment across the loop shift (Bug 2, s15 "Duna One")
 
 - **STATUS (2026-06-06): Duna One CLOSED.** PR #1030 shipped the destination-SOI arrival HOLD (base: `GhostPlaybackLogic.ComputeArrivalAlignHoldSeconds` / `ApplyArrivalHoldToPhase` threaded through `TryComputeSpanLoopUT`, built by `ArrivalHoldPlanner.ComputeArrivalHold` from `MissionLoopUnitBuilder`) AND the dynamic PER-LOOP hold `W_N` (`ComputePerLoopArrivalHoldSeconds`) that cancels the per-loop rotation drift, plus the descent-icon polyline-ride fix; validated end-to-end on s15 "Duna One." The "design, no code yet" and "FIX DESIGNED, NOT IMPLEMENTED" notes below are SUPERSEDED (kept for design history). STILL DEFERRED (the Phase-4 generalization beyond Duna One, parked pending a real multi-moon playtest): destination parking loiter, 2+ moon destinations, atmo-direct entry, and a non-tidally-locked inner moon's orbital-phase lever.
