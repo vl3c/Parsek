@@ -261,6 +261,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Check_GapVsRetire_SuppressedFrame_StillRefreshesDetailedWindow()
+        {
+            // The line limiter is wall-clock but the detailed window is UT (drives phase=Snapshot).
+            // Under time warp, UT can advance past the 5 s window between two sub-1 s heartbeats, so a
+            // frame whose LINE is rate-limited must STILL refresh the window or the snapshots would gap.
+            // Onset at UT=100 -> window open until UT 105.
+            GhostRenderReconciler.NoteIntent(Pid, VisibleIntent(Treatment.StockConic));
+            GhostRenderReconciler.CheckIntentAgainstOldTruth(
+                Pid, PidKey, Frame, currentUT: 100.0, effUT: 100.0,
+                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: false, realtime: 1000.0);
+
+            // Next frame: realtime barely advanced (line suppressed) but UT jumped (warp) -> window
+            // must extend to UT 106.
+            GhostRenderReconciler.NoteIntent(Pid, VisibleIntent(Treatment.StockConic));
+            GhostRenderReconciler.CheckIntentAgainstOldTruth(
+                Pid, PidKey, Frame, currentUT: 101.0, effUT: 101.0,
+                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: false, realtime: 1000.1);
+
+            Assert.Equal(1, AnomalyCount("gap-vs-retire")); // 2nd line suppressed by the wall-clock limiter
+            // UT 105.5 is PAST the onset window end (105) but inside the refreshed end (106): true only
+            // if the suppressed frame still re-opened the window.
+            Assert.True(MapRenderTrace.IsDetailedWindowOpen(PidKey, 105.5));
+        }
+
+        [Fact]
         public void Check_RateLimit_IsPerPid_OtherPidNotSuppressed()
         {
             // Two distinct pids diverging on the same frame must each emit; the limiter is keyed per pid.
