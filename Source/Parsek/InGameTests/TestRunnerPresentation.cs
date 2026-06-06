@@ -80,6 +80,20 @@ namespace Parsek.InGameTests
             return label;
         }
 
+        /// <summary>
+        /// True for "[single]" tests: scenarios that are skipped by Run All /
+        /// Run category and must be launched by hand from the row play button.
+        /// Used to highlight manual-only checks so they are easy to find.
+        /// [isolated] tests are excluded because they can still run through
+        /// Run All + Isolated / Run+ (see <see cref="BuildTestLabel"/>).
+        /// </summary>
+        internal static bool IsManualOnly(InGameTestInfo test)
+        {
+            return test != null
+                && !test.RestoreBatchFlightBaselineAfterExecution
+                && !test.AllowBatchExecution;
+        }
+
         internal static string BuildBatchModeNotice(
             IReadOnlyList<InGameTestInfo> tests,
             GameScenes loadedScene)

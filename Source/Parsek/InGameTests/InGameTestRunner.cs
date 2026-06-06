@@ -925,7 +925,7 @@ namespace Parsek.InGameTests
             // always reflects the latest state. Multi-scene history lives in
             // InGameTestInfo.ResultsByScene, which ResetResults preserves, so
             // the file accumulates across KSC / Flight / Tracking Station runs.
-            ExportResultsFile(auto: true);
+            ExportResultsFile();
         }
 
         private IEnumerator RestoreBatchFlightBaselineAfterExecution(InGameTestInfo test)
@@ -1855,14 +1855,11 @@ namespace Parsek.InGameTests
         private const string ResultsFileName = "parsek-test-results.txt";
 
         /// <summary>
-        /// Public entry point (manual Export button).
+        /// Writes the results report to the KSP root. Called automatically at
+        /// the end of every batch run (see <see cref="RunBatch"/>), so the file
+        /// always reflects the latest run; there is no manual export button.
         /// </summary>
-        internal void ExportResultsFile()
-        {
-            ExportResultsFile(auto: false);
-        }
-
-        private void ExportResultsFile(bool auto)
+        private void ExportResultsFile()
         {
             try
             {
@@ -1872,7 +1869,7 @@ namespace Parsek.InGameTests
                     exportScene: HighLogic.LoadedScene);
                 File.WriteAllText(path, string.Join("\n", lines) + "\n");
                 ParsekLog.Info(Tag,
-                    $"Test results written to {path} ({(auto ? "auto after run" : "manual export")})");
+                    $"Test results written to {path} (auto after run)");
             }
             catch (Exception ex)
             {

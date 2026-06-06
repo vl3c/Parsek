@@ -23,13 +23,18 @@ namespace Parsek
         private readonly HashSet<string> expandedTestCategories = new HashSet<string>();
         private List<KeyValuePair<string, List<InGameTestInfo>>> cachedTestGroups;
         private bool testRunnerWasRunning;
+        private bool isResizingTestRunnerWindow;
         private GUIStyle zeroHeightLabelStyle;
         private GUIStyle wrappedErrorLabelStyle;
         private GUIStyle wrappedTooltipStyle;
 
         private const float SpacingSmall = 3f;
         private const float DefaultWindowWidth = 440f;
-        private const float DefaultWindowHeight = 500f;
+        private const float DefaultWindowHeight = 600f;
+        private const float MinWindowWidth = 320f;
+        // Default height is also the minimum: the window opens at this height
+        // and will not shrink below it (matches the Logistics window).
+        private const float MinWindowHeight = DefaultWindowHeight;
         private const float ErrorIndent = 40f;
         private const float ErrorMaxWidth = 380f;
 
@@ -69,6 +74,9 @@ namespace Parsek
                     DefaultWindowWidth, DefaultWindowHeight);
             }
 
+            ParsekUI.HandleResizeDrag(ref testRunnerWindowRect, ref isResizingTestRunnerWindow,
+                MinWindowWidth, MinWindowHeight, "TestRunner window");
+
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
             if (opaqueWindowStyle == null)
                 return;
@@ -81,7 +89,8 @@ namespace Parsek
                     DrawTestRunnerWindow,
                     "Parsek - Test Runner",
                     opaqueWindowStyle,
-                    GUILayout.Width(DefaultWindowWidth)
+                    GUILayout.Width(testRunnerWindowRect.width),
+                    GUILayout.Height(testRunnerWindowRect.height)
                 );
             }
             finally
@@ -196,13 +205,18 @@ namespace Parsek
                     GUILayout.Label(icon, GUILayout.Width(20));
                     GUI.contentColor = prevColor;
 
-                    // Test name (dimmed if wrong scene)
+                    // Test name (dimmed if wrong scene). Manual-only [single]
+                    // scenarios are tinted yellow so they are easy to find.
                     if (!eligible) GUI.enabled = false;
                     string testLabel = TestRunnerPresentation.BuildTestLabel(test);
+                    var prevLabelColor = GUI.contentColor;
+                    if (TestRunnerPresentation.IsManualOnly(test))
+                        GUI.contentColor = Color.yellow;
                     GUILayout.Label(
                         new GUIContent(testLabel,
                             TestRunnerPresentation.BuildTestTooltip(test, eligible)),
                         GUILayout.ExpandWidth(true));
+                    GUI.contentColor = prevLabelColor;
                     GUI.enabled = true;
 
                     // Run single button
@@ -338,23 +352,20 @@ namespace Parsek
                 RebuildTestGroupCache();
             testRunnerWasRunning = running;
 
-            // --- Test list ---
+            // --- Test list (fills the resizable window) ---
             GUILayout.Space(SpacingSmall);
             testRunnerScrollPos = GUILayout.BeginScrollView(testRunnerScrollPos,
-                GUILayout.MinHeight(200), GUILayout.MaxHeight(500));
+                GUILayout.MinHeight(120), GUILayout.ExpandHeight(true));
 
             DrawTestCategoryList();
 
             GUILayout.EndScrollView();
 
             // --- Bottom bar ---
+            // Results auto-export after every run, so there is no manual export
+            // button (the file always reflects the latest run).
             GUILayout.Space(SpacingSmall);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Export Results"))
-            {
-                testRunner.ExportResultsFile();
-                ParsekLog.Info("UI", "Test runner: manually exported results file");
-            }
             if (GUILayout.Button("Close"))
             {
                 showTestRunnerWindow = false;
@@ -371,6 +382,9 @@ namespace Parsek
                 tooltip.Length > 0 ? tooltip : string.Empty,
                 tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
                 tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
+
+            ParsekUI.DrawResizeHandle(testRunnerWindowRect, ref isResizingTestRunnerWindow,
+                "TestRunner window");
 
             GUI.DragWindow();
         }
