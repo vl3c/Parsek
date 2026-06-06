@@ -361,8 +361,23 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     + tracing-on: re-aim ghost's icon rides its heliocentric line (`angleIconVsOrbitEff` -> ~0, was
     >45deg), `decision-vs-truth` parity, trim-gap frames stay hidden, no SOI-seam blink; toggle gate-off
     -> byte-identical.
-  - **Integration 2 - overlap rendering. TWO parts: 2a FOUNDATION (DONE, PR #1051), 2b PER-INSTANCE
-    (planned, multi-PR - the real goal).** Full plan for 2b: `docs/dev/plans/maprender-overlap-per-instance.md`.
+  - **Integration 2 - overlap rendering. COMPLETE + MERGED 2026-06-06.** 2a FOUNDATION (PR #1051), 2b
+    PER-INSTANCE (PRs #1053 slice i, #1058 slice iii flight-map, #1060 TS, #1063 warp-spam + CHANGELOG,
+    #1064 logging gaps). Full plan for 2b: `docs/dev/plans/maprender-overlap-per-instance.md`.
+    - **FINALIZATION (2026-06-06):** the per-instance overlap feature is DONE and in main. The flight MAP
+      and the Tracking Station now render one orbit icon (orbital missions) or one polyline marker
+      (suborbital/ascent) PER LIVE OVERLAP INSTANCE, matching flight. Slice (ii) instanceKey was SKIPPED
+      (proven a no-op for the per-pid icon path). FLIGHT in-game VALIDATED (drawn=11/11, gate multi-cycle,
+      engine count tracked, zero ProtoVessel churn, 0 exceptions). Warp validation surfaced log spam, fixed
+      in #1063 (the overlap markers) + #1064 (the pre-existing per-cycle engine/policy/audio floods, all now
+      VerboseRateLimited with warp-stable keys + a #1063-regression test); #1064 also closed the TS
+      render-tracer coverage gaps (GAP-1 real ride field, GAP-2 Polyline-surface trace, C-1 finer TS skip
+      reason, + a 4096-entry cap on the decision-signature dict). The "awaiting in-game gate" notes in the
+      per-slice entries below are SUPERSEDED by this validation. Two ADVISORY (non-blocking) re-tests
+      remain: a TS-view visual confirm (this session had 0 ghosts live in TS) and an ORBITAL-overlap
+      ProtoVessel-churn check at warp (the validated mission was suborbital). **Remaining map-render cutover
+      work = ONLY Phase 8e** (legacy deletion + drop the `mapRenderDirectorDrive` gate); Integration #3
+      shared-host DEFERRED, its minimal pid-0 coverage folded into 8e.
     - **2a (DONE, PR #1051, validated):** removed the conservative `SkipOverlap` early-skip in
       `ShadowRenderDriver.RunFrame` so an overlap member flows through the normal assemble->sample->decide->
       seed/stamp path instead of falling back to legacy. It renders ONE ghost at the newest (selected)
