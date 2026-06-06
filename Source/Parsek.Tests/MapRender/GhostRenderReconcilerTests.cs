@@ -283,6 +283,11 @@ namespace Parsek.Tests
             // UT 105.5 is PAST the onset window end (105) but inside the refreshed end (106): true only
             // if the suppressed frame still re-opened the window.
             Assert.True(MapRenderTrace.IsDetailedWindowOpen(PidKey, 105.5));
+            // The behavior the window protects: a per-frame snapshot still flows at UT 105.5. Without the
+            // suppressed-frame refresh the window would have closed at 105 and this would emit nothing.
+            MapRenderTrace.EmitWindowSnapshot(
+                MapRenderTrace.RenderSurface.ProtoOrbitLine, PidKey, 105.5, 105.5, "drawIcons=NONE");
+            Assert.Contains(logLines, l => l.Contains("[MapRenderTrace]") && l.Contains("phase=Snapshot"));
         }
 
         [Fact]
