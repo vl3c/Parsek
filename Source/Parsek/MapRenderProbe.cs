@@ -132,6 +132,9 @@ namespace Parsek
             // Also flush MapRenderTrace's pid-keyed stores (detailed windows + line/render intents) so they
             // do not grow unbounded across the AppDomain lifetime; mirrors this probe's own per-pid reset.
             MapRenderTrace.Reset();
+            // Drop the reconciler's per-pid intent-reconcile rate-limit timestamps too, so a stale entry
+            // cannot suppress the first gap-vs-retire / decision-vs-old-truth divergence after re-entry.
+            Parsek.MapRender.GhostRenderReconciler.ClearRateLimitState();
             // Phase 8e S0: drop any S0 coverage state straddling the scene switch (per-frame-cleared by its
             // producer, so this is belt-and-suspenders against a switch landing mid-frame). Diagnostic-only.
             GhostMapPresence.ClearFrameCoverageSets();
@@ -371,7 +374,7 @@ namespace Parsek
             // No fresh intent → no-op, so this is dormant until the Phase 4 shadow scene calls
             // GhostRenderReconciler.NoteIntent. Reuses the same old-path truth read as above.
             Parsek.MapRender.GhostRenderReconciler.CheckIntentAgainstOldTruth(
-                pid, pidKey, frame, currentUT, currentUT, lineActive, drawIcons, polylineOwns);
+                pid, pidKey, frame, currentUT, currentUT, lineActive, drawIcons, polylineOwns, realtime);
 
             // --- Tier-C line-blink anomaly (line.active toggled within N frames) ---
             // A toggle is line.active != the previous sample's value. The blink

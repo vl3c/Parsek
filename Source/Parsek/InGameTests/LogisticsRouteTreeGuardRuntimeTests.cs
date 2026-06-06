@@ -19,7 +19,8 @@ namespace Parsek.InGameTests
     {
         [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
-            BatchSkipReason = "Mutates RouteStore, MissionStore, and the committed-tree list; runs out of band so a parallel batch test cannot observe partial state.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - mutates RouteStore, MissionStore, and the committed-tree list; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "A committed route binds its source tree; ForceClearManualLoopForRouteTree turns off the mission loop AND the per-recording loop on that tree, leaving a non-route tree's loops untouched")]
         public void RouteTreeGuard_BindsTreeAndClearsBothLoopSurfaces()
         {

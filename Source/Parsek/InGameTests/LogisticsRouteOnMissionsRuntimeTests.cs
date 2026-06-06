@@ -35,7 +35,8 @@ namespace Parsek.InGameTests
     {
         [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
-            BatchSkipReason = "Mutates RouteStore + the committed-tree list under live KSP statics; runs out of band so a parallel batch test cannot observe partial state.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - mutates RouteStore and the committed-tree list under live KSP statics; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "A ghost-driving route is selected, its backing mission yields one loop unit trimmed to [launch..undock], the loop clock crosses the recorded dock UT, mutual exclusion binds the route tree, and a manual loop on another tree renders in parallel (disjoint owners)")]
         public void RouteOnMissions_RendersTrimmedLoop_FiresAtDock_AndMutuallyExcludes()
         {
@@ -245,7 +246,8 @@ namespace Parsek.InGameTests
         /// </summary>
         [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
-            BatchSkipReason = "Mutates RouteStore + Ledger + RecordingStore committed trees + the RouteOrchestrator.LoopUnitResolverForTesting seam + live PartResource.amount under live KSP statics; runs out of band so a parallel batch test cannot observe partial state or the seam window.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - mutates RouteStore, Ledger, RecordingStore committed trees, the RouteOrchestrator.LoopUnitResolverForTesting seam, and live PartResource.amount under live KSP statics; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "A loop-route crossing through RouteOrchestrator.Tick (IsLoopRoute true) fires EmitLoopCycle -> live ApplyDelivery: the destination LiquidFuel tank increases by the manifest amount and a RouteCargoDelivered (+ RouteDispatched) ledger row is emitted")]
         public IEnumerator LoopFire_RendersAndDelivers_AtDockCrossing()
         {

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek.MapRender
@@ -144,6 +145,50 @@ namespace Parsek.MapRender
             return divergence > System.Math.Max(0.0, divergenceToleranceMeters);
         }
 
+        // Soft rate-limit on the intent-vs-old-truth anomaly LINES. Both the gap-vs-retire (visibility)
+        // and decision-vs-old-truth (treatment) classes are PERSISTENT conditions: a sustained
+        // divergence re-emits the byte-identical line every frame for the pid (this was the dominant
+        // map-tracer log volume - ~2800 lines / 3 pids in a 3-minute session, one per frame). Throttle
+        // the LINE to one per pid per class per second of WALL CLOCK (realtime), mirroring
+        // MapRenderProbe's off-orbit / polyline-overlap limiters (the other persistent-condition
+        // anomalies). Keyed per (pid, class) - separate dict per class - so a class transition still
+        // emits immediately.
+        //
+        // The detailed window that drives the per-frame phase=Snapshot detail is refreshed SEPARATELY
+        // (OpenDetailedWindow, on EVERY divergent frame - not only on emit frames). This matters because
+        // the window is measured in UT while the line limiter is wall-clock: under time warp a 5 UT-second
+        // window would lapse between 1 wall-second heartbeats and the snapshots would gap. Refreshing it
+        // every frame the condition holds keeps the snapshot stream continuous at any warp (matching the
+        // pre-fix every-frame EmitAnomaly), so no debugging signal is lost - only the redundant duplicate
+        // LINES are dropped. Cleared on scene switch via the probe (and for tests); never populated at all
+        // when tracing is off (CheckIntentAgainstOldTruth early-returns first).
+        private const double IntentReconcileAnomalyMinIntervalSeconds = 1.0;
+        private static readonly Dictionary<uint, double> lastGapVsRetireEmitRealtime =
+            new Dictionary<uint, double>();
+        private static readonly Dictionary<uint, double> lastDecisionVsOldTruthEmitRealtime =
+            new Dictionary<uint, double>();
+
+        private static bool PassesReconcileRateLimit(
+            Dictionary<uint, double> store, uint pid, double realtime)
+        {
+            double last;
+            if (store.TryGetValue(pid, out last)
+                && realtime - last < IntentReconcileAnomalyMinIntervalSeconds)
+                return false;
+            store[pid] = realtime;
+            return true;
+        }
+
+        /// <summary>Clear the per-pid intent-reconcile rate-limit timestamps. Called by
+        /// <see cref="MapRenderProbe"/> on a scene switch (alongside its own per-pid clear) so a stale
+        /// timestamp cannot suppress the first divergence after a TS &lt;-&gt; flight re-entry, and by
+        /// tests to isolate the limiter between cases.</summary>
+        internal static void ClearRateLimitState()
+        {
+            lastGapVsRetireEmitRealtime.Clear();
+            lastDecisionVsOldTruthEmitRealtime.Clear();
+        }
+
         /// <summary>
         /// Wiring (called by the end-of-frame <see cref="MapRenderProbe"/>): if a fresh new-pipeline
         /// intent was recorded for <paramref name="pid"/> THIS frame (decision-only shadow producer),
@@ -152,10 +197,14 @@ namespace Parsek.MapRender
         /// the <c>decision-vs-old-truth</c> class. No fresh intent → no-op (nothing recorded the
         /// shadow intent this frame, e.g. before Phase 4 wiring is live). Gated by the
         /// <see cref="MapRenderTrace.TryGetFreshRenderIntent"/> store, itself off when tracing is off.
+        /// Each anomaly LINE is soft-rate-limited per (pid, class) via <paramref name="realtime"/>
+        /// (see <see cref="IntentReconcileAnomalyMinIntervalSeconds"/>) so a persistent divergence does
+        /// not flood the log one line per frame; the detailed window driving the per-frame snapshots is
+        /// refreshed every divergent frame regardless, so no snapshot detail is lost under time warp.
         /// </summary>
         internal static void CheckIntentAgainstOldTruth(
             uint pid, string pidKey, int currentFrame, double currentUT, double effUT,
-            string actualLineActive, string actualDrawIcons, bool polylineOwns)
+            string actualLineActive, string actualDrawIcons, bool polylineOwns, double realtime)
         {
             if (!MapRenderTrace.TryGetFreshRenderIntent(pidKey, currentFrame, out var rec))
                 return;
@@ -163,13 +212,19 @@ namespace Parsek.MapRender
             string visMismatch = ReconcileVisibility(rec.Visible, actualLineActive, actualDrawIcons, polylineOwns);
             if (!string.IsNullOrEmpty(visMismatch))
             {
-                MapRenderTrace.EmitAnomaly(
-                    MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, effUT,
-                    "gap-vs-retire",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "{0} intentTreatment={1} intentDriveUT={2}",
-                        visMismatch, rec.TreatmentToken,
-                        MapRenderTrace.FormatDouble(rec.DriveUT, "F3")));
+                // Keep the detailed window open every divergent frame (cheap UT-keyed dict write, no log)
+                // so the per-frame phase=Snapshot detail keeps flowing even under time warp; only the
+                // anomaly LINE below is wall-clock rate-limited (one per pid per class per second).
+                MapRenderTrace.OpenDetailedWindow(
+                    pidKey, currentUT, MapRenderTrace.AnomalyWindowSeconds, "gap-vs-retire");
+                if (PassesReconcileRateLimit(lastGapVsRetireEmitRealtime, pid, realtime))
+                    MapRenderTrace.EmitAnomaly(
+                        MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, effUT,
+                        "gap-vs-retire",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "{0} intentTreatment={1} intentDriveUT={2}",
+                            visMismatch, rec.TreatmentToken,
+                            MapRenderTrace.FormatDouble(rec.DriveUT, "F3")));
                 return;
             }
 
@@ -178,12 +233,18 @@ namespace Parsek.MapRender
 
             string trMismatch = ReconcileTreatment(rec.TreatmentToken, actualLineActive, actualDrawIcons, polylineOwns);
             if (!string.IsNullOrEmpty(trMismatch))
-                MapRenderTrace.EmitAnomaly(
-                    MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, effUT,
-                    "decision-vs-old-truth",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "{0} intentDriveUT={1}",
-                        trMismatch, MapRenderTrace.FormatDouble(rec.DriveUT, "F3")));
+            {
+                // Same window-refresh / line-rate-limit split as the gap-vs-retire branch above.
+                MapRenderTrace.OpenDetailedWindow(
+                    pidKey, currentUT, MapRenderTrace.AnomalyWindowSeconds, "decision-vs-old-truth");
+                if (PassesReconcileRateLimit(lastDecisionVsOldTruthEmitRealtime, pid, realtime))
+                    MapRenderTrace.EmitAnomaly(
+                        MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, effUT,
+                        "decision-vs-old-truth",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "{0} intentDriveUT={1}",
+                            trMismatch, MapRenderTrace.FormatDouble(rec.DriveUT, "F3")));
+            }
         }
     }
 }

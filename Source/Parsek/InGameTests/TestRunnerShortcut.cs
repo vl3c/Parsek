@@ -21,6 +21,7 @@ namespace Parsek.InGameTests
         private Vector2 scrollPos;
         private InGameTestRunner runner;
         private bool windowHasInputLock;
+        private bool isResizingWindow;
         private const string InputLockId = "Parsek_TestRunnerGlobal";
         private readonly HashSet<string> expandedCategories = new HashSet<string>();
         private List<KeyValuePair<string, List<InGameTestInfo>>> cachedGroups;
@@ -35,7 +36,11 @@ namespace Parsek.InGameTests
         private bool shortcutHeld;
         private static TestRunnerShortcut instance;
         private const float DefaultWindowWidth = 440f;
-        private const float DefaultWindowHeight = 500f;
+        private const float DefaultWindowHeight = 600f;
+        private const float MinWindowWidth = 320f;
+        // Default height is also the minimum: the window opens at this height
+        // and will not shrink below it (matches the Logistics window).
+        private const float MinWindowHeight = DefaultWindowHeight;
         private const float ErrorIndent = 40f;
         private const float ErrorMaxWidth = 380f;
 
@@ -113,6 +118,9 @@ namespace Parsek.InGameTests
             if (!EnsureOpaqueStyle(GUI.skin))
                 return;
 
+            ParsekUI.HandleResizeDrag(ref windowRect, ref isResizingWindow,
+                MinWindowWidth, MinWindowHeight, "TestRunner global window");
+
             windowRect = RunWindowWithNormalizedGuiColors(() =>
                 GUILayout.Window(
                     "ParsekTestRunnerGlobal".GetHashCode(),
@@ -120,7 +128,8 @@ namespace Parsek.InGameTests
                     DrawWindow,
                     "Parsek - Test Runner",
                     opaqueStyle,
-                    GUILayout.Width(DefaultWindowWidth)));
+                    GUILayout.Width(windowRect.width),
+                    GUILayout.Height(windowRect.height)));
 
             if (windowRect.Contains(Event.current.mousePosition))
             {
@@ -326,7 +335,7 @@ namespace Parsek.InGameTests
             }
 
             scrollPos = GUILayout.BeginScrollView(scrollPos,
-                GUILayout.MinHeight(200), GUILayout.MaxHeight(500));
+                GUILayout.MinHeight(120), GUILayout.ExpandHeight(true));
 
             foreach (var group in cachedGroups)
             {
@@ -375,11 +384,17 @@ namespace Parsek.InGameTests
                     GUILayout.Label(GetStatusIcon(test.Status), GUILayout.Width(20));
                     GUI.contentColor = prevColor;
 
+                    // Manual-only [single] scenarios are tinted yellow so they
+                    // are easy to find (dimmed when the scene is ineligible).
                     if (!eligible) GUI.enabled = false;
                     string label = TestRunnerPresentation.BuildTestLabel(test);
+                    var prevLabelColor = GUI.contentColor;
+                    if (TestRunnerPresentation.IsManualOnly(test))
+                        GUI.contentColor = Color.yellow;
                     GUILayout.Label(
                         new GUIContent(label, TestRunnerPresentation.BuildTestTooltip(test, eligible)),
                         GUILayout.ExpandWidth(true));
+                    GUI.contentColor = prevLabelColor;
                     GUI.enabled = true;
 
                     GUI.enabled = !running && eligible;
@@ -410,12 +425,10 @@ namespace Parsek.InGameTests
 
             GUILayout.EndScrollView();
 
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button(new GUIContent("Export Results",
-                "Auto-exported after every Run All / Run Category / row-play — click to re-write now.")))
-                runner.ExportResultsFile();
+            // Results auto-export after every run, so there is no manual export
+            // button (the file always reflects the latest run). Full-width Close
+            // (matches the Logistics / Kerbals / Settings windows).
             if (GUILayout.Button("Close")) showWindow = false;
-            GUILayout.EndHorizontal();
             GUILayout.Label("Results file auto-updates after each run. Multi-scene runs accumulate.",
                 GUI.skin.label);
             GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
@@ -427,6 +440,8 @@ namespace Parsek.InGameTests
                 tooltip.Length > 0 ? tooltip : string.Empty,
                 tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
                 tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
+
+            ParsekUI.DrawResizeHandle(windowRect, ref isResizingWindow, "TestRunner global window");
 
             GUI.DragWindow();
         }

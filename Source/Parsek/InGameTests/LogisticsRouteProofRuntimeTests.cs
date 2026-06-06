@@ -106,7 +106,8 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
             Description = "Moving a stock cargo item between live ModuleInventoryPart containers preserves logistics payload identity",
             AllowBatchExecution = false,
-            BatchSkipReason = "Manual stock-inventory mutation test. Run from the row play button on a disposable flight scene with two cargo containers.")]
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - moves a stock cargo item between live ModuleInventoryPart containers; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session with two cargo containers.")]
         public IEnumerator InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity()
         {
             Vessel vessel = FlightGlobals.ActiveVessel;
