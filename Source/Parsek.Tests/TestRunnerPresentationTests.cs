@@ -88,6 +88,49 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsManualOnly_SingleTest_ReturnsTrue()
+        {
+            // [single]: excluded from batch and not isolated -> must run by hand.
+            var test = new InGameTestInfo
+            {
+                AllowBatchExecution = false,
+                RestoreBatchFlightBaselineAfterExecution = false
+            };
+
+            Assert.True(TestRunnerPresentation.IsManualOnly(test));
+        }
+
+        [Fact]
+        public void IsManualOnly_IsolatedTest_ReturnsFalse()
+        {
+            // [isolated]: can run via Run All + Isolated / Run+, so not manual-only.
+            var test = new InGameTestInfo
+            {
+                AllowBatchExecution = false,
+                RestoreBatchFlightBaselineAfterExecution = true
+            };
+
+            Assert.False(TestRunnerPresentation.IsManualOnly(test));
+        }
+
+        [Fact]
+        public void IsManualOnly_BatchSafeTest_ReturnsFalse()
+        {
+            var test = new InGameTestInfo
+            {
+                AllowBatchExecution = true
+            };
+
+            Assert.False(TestRunnerPresentation.IsManualOnly(test));
+        }
+
+        [Fact]
+        public void IsManualOnly_NullTest_ReturnsFalse()
+        {
+            Assert.False(TestRunnerPresentation.IsManualOnly(null));
+        }
+
+        [Fact]
         public void BuildBatchModeNotice_FiltersOutIneligibleTests()
         {
             var tests = new List<InGameTestInfo>

@@ -64,6 +64,9 @@ All notable changes to Parsek are documented here.
 - The Logistics window now keeps its size and position across scene changes (for example KSC to flight) instead of resetting to the default each time.
 - The route detail panel, the Create Route summary, and the Candidate row now show the per-run funds cost (net launch cost minus recovered credits) in Career for KSC-origin routes. Recovering the transport at the end of the recorded flight lowers the shown cost; an unrecovered transport shows the full launch cost.
 - Career KSC-origin supply routes now actually pay back the recovered transport cost. The gross launch cost is still charged at dispatch (you front the full build cost), and the recovered amount is credited back one cycle later, so the net funds effect of a steady-state cycle matches the displayed net. The credit reverses correctly on rewind and re-fly.
+- The in-game test runner window is now resizable: drag the bottom-right corner handle like the other Parsek windows. It also opens 100 px taller and will not shrink below that opening height.
+- Manual-only tests (the [single] scenarios you run by hand from the row play button) now show in yellow in the test runner, so they are easy to spot.
+- Removed the test runner's Export Results button. Results already auto-export to parsek-test-results.txt after every run, so the button was redundant.
 
 ### Bug Fixes
 
