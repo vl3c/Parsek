@@ -387,9 +387,26 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
       `MaxOverlapGhostsPerRecording=20`) - reuse it, do not reinvent. FULL per-instance (not icon-only:
       N icons on one shared line is visibly wrong for non-orbital ascent/descent instances). Stacks on 2a
       (instance 0 = newest cycle = today's single ghost). Slices: **(i) map presence N-per-overlapping-
-      recording lifecycle [the bulk] - DONE (awaiting in-game gate)**, (ii) Director per-instance
-      enumeration + the existing `instanceKey` wiring (caches are already pid-keyed), (iii) polyline +
-      marker per-instance. Efficiency: overlap-ONLY gate so non-overlap recordings stay EXACTLY
+      recording lifecycle [the bulk] - DONE+MERGED (PR #1053, gate fix incl.)**, **(ii) Director
+      per-instance enumeration + instanceKey - NOT NEEDED (slice (i) review proved instanceKey is a no-op
+      for the per-pid icon path; slice (iii) confirmed it needs nothing from (ii)) - SKIPPED**, **(iii) N
+      markers on the ONE shared polyline - DONE (awaiting in-game gate)**: for an overlapping recording
+      rendered via the POLYLINE (suborbital/ascent, e.g. "Kerbal X #2", a sub-2km hop with zero orbit -
+      slice (i) creates NO ProtoVessels for it), `ParsekUI.DrawMapMarkers` draws N markers (one per live
+      overlap cycle) riding the SINGLE shared polyline at each cycle's head UT. New
+      `GhostMapPresence.TryGetLiveOverlapHeadUTs` (reuses `ResolveOverlapSchedule` + `GetActiveCycles` +
+      `ComputeOverlapCyclePlaybackUT`; head UT direct, not span-clock-collapsed) + the per-instance branch
+      (hoisted ABOVE the newest-only 8c proto gate so a MIXED orbital/non-orbital overlap doesn't drop the
+      non-newest markers - review-caught) + per-cycle no-double rule (`TryGetOverlapInstancePidForCycle` +
+      `ShouldDrawNonProtoMarkerForGhost`: a cycle with a visible proto icon skips its polyline marker;
+      pid-0/suppressed draws it) + per-instance marker key `recId#cycle`. The polyline GEOMETRY is
+      untouched (one draw, keyed by RecordingId - the maintainer's "ride a single polyline" steer).
+      Flight-map only (TS per-instance markers deferred). Needs slice (ii)? NO. Gate-off + non-overlap
+      byte-identical (pure short-circuit, additive diff). Two clean reviews (plan + code SHIP-with-the-
+      hoist-fix-applied). Build clean; suite green (13519). **In-game gate:** "Kerbal X #2" (suborbital,
+      Missions-tab loop period<length, director-drive ON), map view past a relaunch: N markers on the ONE
+      shared ascent line matching the N flight ghosts; gate-off / non-overlap = one marker. Efficiency:
+      overlap-ONLY gate so non-overlap recordings stay EXACTLY
       one-per-recording (zero new cost); reuse the engine's cycles; throttle per-instance ProtoVessel
       create/destroy (the biggest risk = warp-time cycle churn); cap at 20. Gate-OFF stays legacy
       one-per-recording.

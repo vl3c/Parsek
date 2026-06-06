@@ -11112,6 +11112,73 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Slice (iii): resolve the per-instance playback head UTs that the flight-map marker path
+        /// should ride for an OVERLAP recording this frame - one entry per live overlap cycle, each
+        /// at its own <see cref="GhostPlaybackLogic.ComputeOverlapCyclePlaybackUT"/> head (NOT the
+        /// span-clock collapse of <see cref="GhostPlaybackLogic.ResolveTrackingStationSampleUT"/>).
+        /// The cycle SET is byte-identical to the slice-(i) <see cref="OverlapCyclesForTesting"/> /
+        /// <see cref="EnsureOverlapInstances"/> set (same gate + same schedule + same GetActiveCycles
+        /// call), so the N markers on the shared polyline match the N flight meshes.
+        ///
+        /// Returns false (so the caller's legacy single-marker tail runs byte-identically) when the
+        /// recording is not driven by the per-instance path (gate off / non-overlap), the schedule is
+        /// unresolvable, or <paramref name="currentUT"/> precedes the first launch. On true,
+        /// <paramref name="outBuffer"/> holds (cycle, headUT) for each live cycle in
+        /// [firstCycle, lastCycle].
+        /// </summary>
+        internal static bool TryGetLiveOverlapHeadUTs(
+            Recording rec, int recIdx, IReadOnlyList<Recording> committed,
+            GhostPlaybackLogic.LoopUnitSet loopUnits, double currentUT,
+            List<(long cycle, double headUT)> outBuffer)
+        {
+            if (outBuffer == null)
+                return false;
+            outBuffer.Clear();
+
+            if (!ShouldDriveOverlapPerInstance(rec, recIdx, committed, loopUnits))
+                return false;
+
+            if (!ResolveOverlapSchedule(
+                    rec, recIdx, committed, loopUnits,
+                    out double playbackStartUT, out double scheduleStartUT,
+                    out double duration, out double effectiveCadence, out double cycleDuration))
+                return false;
+
+            if (currentUT < scheduleStartUT)
+                return false;
+
+            GhostPlaybackLogic.GetActiveCycles(
+                currentUT, scheduleStartUT, scheduleStartUT + duration,
+                effectiveCadence, GhostPlayback.MaxOverlapGhostsPerRecording,
+                out long firstCycle, out long lastCycle);
+
+            for (long cycle = firstCycle; cycle <= lastCycle; cycle++)
+            {
+                double headUT = GhostPlaybackLogic.ComputeOverlapCyclePlaybackUT(
+                    currentUT, scheduleStartUT, playbackStartUT,
+                    duration, cycleDuration, cycle);
+                outBuffer.Add((cycle, headUT));
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Slice (iii) orbital-interaction join: resolve the live per-instance ProtoVessel pid for a
+        /// specific overlap (recIdx, cycle), or 0 when no instance exists for that cycle (the
+        /// pure-suborbital case - <see cref="overlapInstanceVessels"/> never holds a state-vector cycle
+        /// - or a cycle not yet materialized this frame). Lets the marker path decide per-cycle whether
+        /// the polyline marker is redundant with a live proto icon (skip) or is the sole indicator
+        /// (draw).
+        /// </summary>
+        internal static uint TryGetOverlapInstancePidForCycle(int recIdx, long cycle)
+        {
+            if (overlapInstanceVessels.TryGetValue((recIdx, cycle), out Vessel inst) && inst != null)
+                return inst.persistentId;
+            return 0u;
+        }
+
+        /// <summary>
         /// Build a per-instance overlap map ProtoVessel from a recorded state-vector point (physics-only
         /// suborbital ascent cycle), without the per-index <see cref="TrackRecordingGhostVessel"/> write
         /// or the Re-Fly suppression machinery in <see cref="CreateGhostVesselFromStateVectors"/> (which

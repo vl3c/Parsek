@@ -576,5 +576,170 @@ namespace Parsek.Tests
                 && l.Contains("autoIsOverlapLoop=True")
                 && l.Contains("isMember=False"));
         }
+
+        // =================================================================
+        //  Slice (iii): per-instance head-UT resolution (the marker ride set)
+        // =================================================================
+
+        [Fact]
+        public void TryGetLiveOverlapHeadUTs_SameCycleSetAsOverlapCyclesForTesting()
+        {
+            // The N markers that ride the shared polyline must be the SAME live cycle set slice (i)
+            // materializes (and the flight engine drives): TryGetLiveOverlapHeadUTs's cycle set ==
+            // OverlapCyclesForTesting's [firstCycle, lastCycle].
+            var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
+            double currentUT = 250.0;
+
+            GhostMapPresence.OverlapCyclesForTesting(
+                committed[0], 0, committed, NoUnits, currentUT,
+                out long expectedFirst, out long expectedLast);
+
+            var buffer = new List<(long cycle, double headUT)>();
+            bool ok = GhostMapPresence.TryGetLiveOverlapHeadUTs(
+                committed[0], 0, committed, NoUnits, currentUT, buffer);
+
+            Assert.True(ok);
+            var cycles = buffer.Select(e => e.cycle).ToList();
+            // Contiguous [first, last] set, byte-identical to OverlapCyclesForTesting.
+            var expected = new List<long>();
+            for (long c = expectedFirst; c <= expectedLast; c++) expected.Add(c);
+            Assert.Equal(expected, cycles);
+        }
+
+        [Theory]
+        [InlineData(130.0)]
+        [InlineData(250.0)]
+        [InlineData(400.0)]
+        public void TryGetLiveOverlapHeadUTs_CycleSetMatchesGetActiveCycles(double currentUT)
+        {
+            // 5s period over a 200s duration -> up to 40 cycles, capped at 20: exercises the cap clamp,
+            // mirroring OverlapCyclesForTesting_MatchesGetActiveCycles but on the slice-(iii) head path.
+            var committed = new List<Recording> { MakeLoopRec(100, 300, 5) };
+            GhostMapPresence.ResolveOverlapSchedule(
+                committed[0], 0, committed, NoUnits,
+                out _, out double scheduleStartUT,
+                out double duration, out double effectiveCadence, out _);
+
+            GhostPlaybackLogic.GetActiveCycles(
+                currentUT, scheduleStartUT, scheduleStartUT + duration,
+                effectiveCadence, GhostPlayback.MaxOverlapGhostsPerRecording,
+                out long engineFirst, out long engineLast);
+
+            var buffer = new List<(long cycle, double headUT)>();
+            bool ok = GhostMapPresence.TryGetLiveOverlapHeadUTs(
+                committed[0], 0, committed, NoUnits, currentUT, buffer);
+
+            Assert.True(ok);
+            Assert.Equal(engineLast - engineFirst + 1, buffer.Count);
+            Assert.Equal(engineFirst, buffer[0].cycle);
+            Assert.Equal(engineLast, buffer[buffer.Count - 1].cycle);
+            Assert.True(buffer.Count <= GhostPlayback.MaxOverlapGhostsPerRecording);
+        }
+
+        [Fact]
+        public void TryGetLiveOverlapHeadUTs_PerCycleHeadEqualsComputeOverlapCyclePlaybackUT()
+        {
+            // Each instance's head UT must be ComputeOverlapCyclePlaybackUT(cycle) DIRECTLY (NOT routed
+            // through the span-clock collapse), and the heads must be DISTINCT across cycles.
+            var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
+            double currentUT = 250.0;
+
+            GhostMapPresence.ResolveOverlapSchedule(
+                committed[0], 0, committed, NoUnits,
+                out double playbackStartUT, out double scheduleStartUT,
+                out double duration, out _, out double cycleDuration);
+
+            var buffer = new List<(long cycle, double headUT)>();
+            bool ok = GhostMapPresence.TryGetLiveOverlapHeadUTs(
+                committed[0], 0, committed, NoUnits, currentUT, buffer);
+            Assert.True(ok);
+            Assert.True(buffer.Count >= 2, "expected several overlapping cycles for distinctness check");
+
+            var seen = new HashSet<double>();
+            foreach (var (cycle, headUT) in buffer)
+            {
+                double expected = GhostPlaybackLogic.ComputeOverlapCyclePlaybackUT(
+                    currentUT, scheduleStartUT, playbackStartUT, duration, cycleDuration, cycle);
+                Assert.Equal(expected, headUT, 6);
+                // Distinct heads across cycles (staggered launches sit at different playback phases).
+                Assert.True(seen.Add(headUT), $"duplicate head UT {headUT} for cycle {cycle}");
+            }
+        }
+
+        [Fact]
+        public void TryGetLiveOverlapHeadUTs_MissionUnit_PerCycleHeadEqualsComputeUT()
+        {
+            // Source (b): a self-overlapping Mission member (rec.LoopPlayback=false). The head set must
+            // still be ComputeOverlapCyclePlaybackUT per cycle off the unit tuple.
+            var committed = new List<Recording> { MakeMemberRec(1000, 1200) };
+            var units = MakeOverlapUnitSet(
+                0, spanStartUT: 1000, spanEndUT: 1200, overlapCadenceSeconds: 20, phaseAnchorUT: 5000);
+            double currentUT = 5130.0;
+
+            GhostMapPresence.ResolveOverlapSchedule(
+                committed[0], 0, committed, units,
+                out double playbackStartUT, out double scheduleStartUT,
+                out double duration, out _, out double cycleDuration);
+
+            var buffer = new List<(long cycle, double headUT)>();
+            bool ok = GhostMapPresence.TryGetLiveOverlapHeadUTs(
+                committed[0], 0, committed, units, currentUT, buffer);
+            Assert.True(ok);
+            Assert.NotEmpty(buffer);
+
+            foreach (var (cycle, headUT) in buffer)
+            {
+                double expected = GhostPlaybackLogic.ComputeOverlapCyclePlaybackUT(
+                    currentUT, scheduleStartUT, playbackStartUT, duration, cycleDuration, cycle);
+                Assert.Equal(expected, headUT, 6);
+            }
+        }
+
+        [Fact]
+        public void TryGetLiveOverlapHeadUTs_GateOff_FalseAndClears()
+        {
+            // Gate off -> false -> the caller's legacy single-marker tail runs byte-identically.
+            ParsekSettings.CurrentOverrideForTesting.mapRenderDirectorDrive = false;
+            var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
+            var buffer = new List<(long cycle, double headUT)> { (99L, 1.0) }; // pre-populated
+            bool ok = GhostMapPresence.TryGetLiveOverlapHeadUTs(
+                committed[0], 0, committed, NoUnits, 250.0, buffer);
+            Assert.False(ok);
+            Assert.Empty(buffer); // cleared even on the false return
+        }
+
+        [Fact]
+        public void TryGetLiveOverlapHeadUTs_NonOverlap_False()
+        {
+            // A looping-but-NON-overlapping recording (period > duration) is single-instance: false.
+            var committed = new List<Recording> { MakeLoopRec(100, 300, 500) };
+            var buffer = new List<(long cycle, double headUT)>();
+            bool ok = GhostMapPresence.TryGetLiveOverlapHeadUTs(
+                committed[0], 0, committed, NoUnits, 250.0, buffer);
+            Assert.False(ok);
+            Assert.Empty(buffer);
+        }
+
+        [Fact]
+        public void TryGetLiveOverlapHeadUTs_BeforeScheduleStart_False()
+        {
+            // currentUT before the first launch: no live instances yet -> false (legacy tail).
+            var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
+            var buffer = new List<(long cycle, double headUT)>();
+            bool ok = GhostMapPresence.TryGetLiveOverlapHeadUTs(
+                committed[0], 0, committed, NoUnits, 50.0, buffer);
+            Assert.False(ok);
+            Assert.Empty(buffer);
+        }
+
+        [Fact]
+        public void TryGetOverlapInstancePidForCycle_EmptyStore_ReturnsZero()
+        {
+            // Pure-suborbital case: overlapInstanceVessels is empty for the recording, so every cycle's
+            // proto lookup is 0 -> the marker path draws every polyline marker (the maintainer's mission).
+            Assert.Equal(0u, GhostMapPresence.TryGetOverlapInstancePidForCycle(0, 0));
+            Assert.Equal(0u, GhostMapPresence.TryGetOverlapInstancePidForCycle(0, 5));
+            Assert.Equal(0u, GhostMapPresence.TryGetOverlapInstancePidForCycle(3, 2));
+        }
     }
 }

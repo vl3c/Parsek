@@ -274,6 +274,64 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "Slice (iii): flight-map per-instance overlap marker head count matches flight overlap ghost count + 1 (capped)")]
+        public void OverlapMarkerHeadCountMatchesFlight()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            // Slice (iii) requires the director drive ON; off the gate TryGetLiveOverlapHeadUTs returns
+            // false (-> legacy single marker) and there is no per-instance marker set to assert on.
+            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
+                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance marker path inactive");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
+            double currentUT = Planetarium.GetUniversalTime();
+            var loopUnits = flight.Engine.CurrentLoopUnits;
+            var headBuffer = new List<(long cycle, double headUT)>();
+            int checkedRecordings = 0;
+            int mismatches = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (!flight.Engine.TryGetOverlapGhosts(i, out var overlaps) || overlaps == null)
+                    continue;
+                // The marker head set is what the flight-map per-instance branch rides; it must equal
+                // the engine's live overlap mesh count (overlapGhosts[i] + the primary ghost), capped.
+                if (!GhostMapPresence.TryGetLiveOverlapHeadUTs(
+                        committed[i], i, committed, loopUnits, currentUT, headBuffer))
+                    continue;
+
+                int flightInstances = overlaps.Count + 1; // primary (newest) + staggered list
+                int expected = System.Math.Min(flightInstances, cap);
+                int headCount = headBuffer.Count;
+
+                checkedRecordings++;
+                // Allow a +/-1 transient (the flight spawn throttle can be one frame ahead/behind the
+                // pure head recompute); never above the cap.
+                if (headCount > cap || System.Math.Abs(headCount - expected) > 1)
+                {
+                    mismatches++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Overlap marker head count mismatch rec=#{i}: heads={headCount} " +
+                        $"flightMeshes={flightInstances} expected~={expected} cap={cap}");
+                }
+            }
+
+            if (checkedRecordings == 0)
+                InGameAssert.Skip("No overlap recordings active");
+
+            ParsekLog.Info("TestRunner",
+                $"Overlap marker head count: {checkedRecordings - mismatches}/{checkedRecordings} recordings match flight (cap={cap})");
+            InGameAssert.AreEqual(0, mismatches,
+                $"{mismatches} overlap recording(s) have marker head count mismatched vs flight meshes");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
             Description = "Loop phase offsets are all finite (no NaN/Infinity)")]
         public void LoopPhaseOffsetsFinite()
         {
