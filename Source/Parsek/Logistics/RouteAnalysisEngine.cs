@@ -151,11 +151,11 @@ namespace Parsek.Logistics
                 };
             }
 
-            if (HasMixedPickupDelivery(window))
+            if (HasMixedPickupDelivery(window, out string pickupReason))
             {
                 Diag(logMode,
                     $"RouteAnalysis rejected: mixed pickup/delivery source={source?.RecordingId ?? "<none>"} " +
-                    $"window={window.WindowId ?? "<none>"}");
+                    $"window={window.WindowId ?? "<none>"} {pickupReason}");
                 return new RouteAnalysisResult
                 {
                     Status = RouteAnalysisStatus.MixedPickupDelivery,
@@ -235,13 +235,34 @@ namespace Parsek.Logistics
                 && window.TransferEndpointSituation >= 0;
         }
 
-        private static bool HasMixedPickupDelivery(RouteConnectionWindow window)
+        private static bool HasMixedPickupDelivery(RouteConnectionWindow window, out string reason)
         {
-            return HasResourcePickup(window) || HasInventoryPickup(window);
+            // || short-circuits, but both helpers assign reason unconditionally,
+            // so reason is definitely assigned on every path: the resource
+            // culprit when the left side trips, the inventory culprit when the
+            // right side trips, and null when neither does.
+            return HasResourcePickup(window, out reason)
+                || HasInventoryPickup(window, out reason);
         }
 
-        private static bool HasResourcePickup(RouteConnectionWindow window)
+        // ElectricCharge and IntakeAir are environmental noise, never meaningful
+        // supply cargo: a docked transport recharges its batteries from the depot
+        // and its IntakeAir reading drifts between the dock and undock snapshots,
+        // so either can show a spurious per-resource delta on an otherwise clean
+        // delivery-only run. Design section 5.3 rule 7 ("after EC/IntakeAir
+        // filtering") and section 6 ("EC-only delivery ... remains excluded")
+        // filter them out of BOTH the pickup gate and the delivery manifest,
+        // matching VesselSpawner.ExtractResourceManifest. These two are the only
+        // always-ignored resources the design names.
+        private static bool IsIgnoredResource(string name)
         {
+            return name == "ElectricCharge" || name == "IntakeAir";
+        }
+
+        private static bool HasResourcePickup(RouteConnectionWindow window, out string reason)
+        {
+            reason = null;
+
             var keys = new Dictionary<string, double>();
             AddResourceDeliveryKeys(keys, window.DockEndpointResources);
             AddResourceDeliveryKeys(keys, window.UndockEndpointResources);
@@ -250,6 +271,9 @@ namespace Parsek.Logistics
 
             foreach (string name in keys.Keys)
             {
+                if (IsIgnoredResource(name))
+                    continue;
+
                 double endpointLoss =
                     GetResourceAmount(window.DockEndpointResources, name) -
                     GetResourceAmount(window.UndockEndpointResources, name);
@@ -258,14 +282,22 @@ namespace Parsek.Logistics
                     GetResourceAmount(window.DockTransportResources, name);
 
                 if (endpointLoss > ResourceEpsilon || transportGain > ResourceEpsilon)
+                {
+                    reason =
+                        $"pickup resource={name} " +
+                        $"endpointLoss={endpointLoss.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"transportGain={transportGain.ToString("R", CultureInfo.InvariantCulture)}";
                     return true;
+                }
             }
 
             return false;
         }
 
-        private static bool HasInventoryPickup(RouteConnectionWindow window)
+        private static bool HasInventoryPickup(RouteConnectionWindow window, out string reason)
         {
+            reason = null;
+
             Dictionary<string, InventoryPayloadItem> identities =
                 BuildInventoryMap(window.DockEndpointInventory);
             AddInventoryKeys(identities, window.UndockEndpointInventory);
@@ -282,7 +314,13 @@ namespace Parsek.Logistics
                     GetInventoryQuantity(window.DockTransportInventory, identity);
 
                 if (endpointLoss > 0 || transportGain > 0)
+                {
+                    reason =
+                        $"pickup inventory={identity} " +
+                        $"endpointLoss={endpointLoss.ToString(CultureInfo.InvariantCulture)} " +
+                        $"transportGain={transportGain.ToString(CultureInfo.InvariantCulture)}";
                     return true;
+                }
             }
 
             return false;
@@ -303,6 +341,15 @@ namespace Parsek.Logistics
             for (int i = 0; i < names.Count; i++)
             {
                 string name = names[i];
+
+                // EC/IntakeAir are environmental noise (see IsIgnoredResource):
+                // never list them as delivered cargo, so an EC-only "delivery"
+                // (transport charges the depot's batteries) yields an empty
+                // manifest and the candidate is rejected as no-delivery rather
+                // than treated as an EC supply run (design section 6).
+                if (IsIgnoredResource(name))
+                    continue;
+
                 double endpointGain =
                     GetResourceAmount(window.UndockEndpointResources, name) -
                     GetResourceAmount(window.DockEndpointResources, name);

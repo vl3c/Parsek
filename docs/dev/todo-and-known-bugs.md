@@ -351,11 +351,17 @@ asserts only 2 emits total.
 
 ---
 
+## Done - Logistics supply-route EC/IntakeAir pickup filter
+
+- ~~`RouteAnalysisEngine.HasResourcePickup` tripped `MixedPickupDelivery` on ANY per-resource `transportGain` / `endpointLoss`, including ElectricCharge and IntakeAir, even though the design (section 5.3 rule 7, section 6) filters those two out as environmental noise. A clean delivery-only run that recharged its batteries from the docked depot, or whose IntakeAir reading drifted between the dock and undock snapshots, was falsely rejected at creation as a mixed pickup/delivery transfer.~~ DONE. Added `RouteAnalysisEngine.IsIgnoredResource` (ElectricCharge + IntakeAir, matching `VesselSpawner.ExtractResourceManifest`, the only two always-ignored resources the design names) and skip them in both `HasResourcePickup` (the pickup gate) and `BuildResourceDeliveryManifest` (so EC/IntakeAir never appear as delivered cargo, and an EC-only "delivery" where the transport charges the depot's batteries is rejected as no-delivery rather than treated as an EC supply run, per design section 6). The mixed-pickup rejection diagnostic now names the tripping resource/identity and its deltas. Pinned by `RouteAnalysisEngineTests` (`AnalyzeRecording_TransportRechargesEC_StillEligible`, `AnalyzeRecording_IntakeAirDrift_StillEligible`, `AnalyzeRecording_ElectricChargeDelivery_ExcludedFromManifest`, `AnalyzeRecording_ElectricChargeOnly_RejectsNoDelivery`, and the `_DiagnosticNamesResource` log-assertion). Distinct from the post-couple crossfeed limitation below, which still trips on genuine same-resource equalisation (LiquidFuel/Ore), not EC/IntakeAir.
+
+---
+
 ## Open - Logistics route window dock-side baseline is post-couple
 
 - The `RouteConnectionWindow.DockTransportResources` / `DockEndpointResources` manifests captured in `ParsekFlight.CreateMergeBranch` come from the merged vessel's `mergedSnapshot` (built from the live merged vessel taken inside `onPartCouple`). By the time the snapshot is taken the parts are physically joined, so any same-frame stock crossfeed equalisation between transport and endpoint tanks of the same resource lands on the dock-side baseline, not the undock-side delta. The strict `RouteAnalysisEngine.HasMixedPickupDelivery` gate then sees `transportGain > 0` on a resource the player never intended to move and rejects the run as `MixedPickupDelivery`.
 
-**Workaround:** Re-record without crossfed same-resource tanks on both sides of the dock, or disable flow on the affected transport tanks before docking. The route-analyzer rejection logs at `Info` ("RouteAnalysis rejected: mixed pickup/delivery") so the cause is visible in `KSP.log` without raising the verbosity dial.
+**Workaround:** Re-record without crossfed same-resource tanks on both sides of the dock, or disable flow on the affected transport tanks before docking. The route-analyzer rejection logs at `Info` ("RouteAnalysis rejected: mixed pickup/delivery") and now names the tripping resource (`pickup resource=<name> ...`) so the affected tank's resource is visible in `KSP.log` without raising the verbosity dial. (ElectricCharge and IntakeAir are filtered out and never trip this gate; see the EC/IntakeAir filter item above.)
 
 **Fix candidates (not yet attempted):**
 
