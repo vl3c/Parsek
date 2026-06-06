@@ -783,10 +783,33 @@ namespace Parsek.Display
         internal static bool TryAnchorMarkerToPolyline(
             string recordingId, double headUT, out Vector3 worldPos)
         {
+            // Thin wrapper preserving the original 3-arg contract; the reason/leg out-params are
+            // only consumed by the marker tracer. Behavior is byte-identical to the diagnostics
+            // overload below (same control flow, same returns).
+            return TryAnchorMarkerToPolyline(
+                recordingId, headUT, out worldPos, out _, out _);
+        }
+
+        /// <summary>
+        /// Diagnostics overload of <see cref="TryAnchorMarkerToPolyline(string,double,out Vector3)"/>
+        /// that ALSO reports WHY the ride did or did not happen (<paramref name="rideReason"/>) and,
+        /// on a successful ride, the leg index (<paramref name="legIndex"/>). The ride LOGIC is
+        /// unchanged - every branch sets the reason then takes the exact same return path as before -
+        /// so the marker still rides or falls back identically; only the explanation is surfaced.
+        /// </summary>
+        internal static bool TryAnchorMarkerToPolyline(
+            string recordingId, double headUT, out Vector3 worldPos,
+            out MapRenderTrace.MarkerRideReason rideReason, out int legIndex)
+        {
             worldPos = Vector3.zero;
+            rideReason = MapRenderTrace.MarkerRideReason.FallbackNoCache;
+            legIndex = -1;
             if (string.IsNullOrEmpty(recordingId)) return false;
             if (!polylineCache.TryGetValue(recordingId, out var set) || set.legs == null) return false;
 
+            // A cache entry exists; the default now becomes "head fell outside every leg" unless a
+            // leg matches below.
+            rideReason = MapRenderTrace.MarkerRideReason.FallbackHeadOutsideLegs;
             int frame = Time.frameCount;
             for (int li = 0; li < set.legs.Length; li++)
             {
@@ -794,9 +817,16 @@ namespace Parsek.Display
                 if (headUT < leg.startUT || headUT > leg.endUT) continue;
                 int m = leg.PointCount;
                 if (m < 2 || leg.scratchScaledSpace == null
-                    || leg.recordedUTs == null || leg.recordedUTs.Length != m
-                    || leg.lastDrawnFrame != frame)
+                    || leg.recordedUTs == null || leg.recordedUTs.Length != m)
+                {
+                    rideReason = MapRenderTrace.MarkerRideReason.FallbackMissingRecordedUTs;
+                    return false; // missing recorded-UT / scratch arrays -> cannot bracket
+                }
+                if (leg.lastDrawnFrame != frame)
+                {
+                    rideReason = MapRenderTrace.MarkerRideReason.FallbackLegNotDrawnThisFrame;
                     return false; // not drawn this frame -> scratch is stale -> keep the body-fixed head
+                }
 
                 // Bracket headUT between two recorded sample UTs and lerp the drawn (anchored) points.
                 int idx = m - 2;
@@ -810,6 +840,8 @@ namespace Parsek.Display
                 Vector3 scaled = Vector3.Lerp(
                     leg.scratchScaledSpace[idx], leg.scratchScaledSpace[idx + 1], frac);
                 worldPos = (Vector3)ScaledSpace.ScaledToLocalSpace(scaled);
+                rideReason = MapRenderTrace.MarkerRideReason.RodeLeg;
+                legIndex = li;
                 return true;
             }
             return false;

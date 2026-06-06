@@ -1074,13 +1074,35 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldDrawNonProtoMarkerForGhost(uint ghostPid)
         {
-            bool gateOn = ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive;
+            return ShouldDrawNonProtoMarkerForGhost(
+                ghostPid, out _, out _, out _, out _);
+        }
+
+        /// <summary>
+        /// Diagnostics overload of <see cref="ShouldDrawNonProtoMarkerForGhost(uint)"/> that ALSO
+        /// surfaces the four decision inputs the marker tracer logs (the
+        /// <see cref="ResolveMarkerDrawDecision"/> disjuncts) WITHOUT changing the decision: the
+        /// parameterless overload above delegates here, so the returned bool is byte-identical. The
+        /// <c>out</c> values let the call site emit a per-pid change-based trace line explaining WHY
+        /// the marker drew or was skipped.
+        /// </summary>
+        internal static bool ShouldDrawNonProtoMarkerForGhost(
+            uint ghostPid,
+            out bool gateOn,
+            out bool directorTracedPathActive,
+            out bool polylineOwning,
+            out bool iconSuppressed)
+        {
+            gateOn = ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive;
+            directorTracedPathActive = Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(
+                ghostPid, UnityEngine.Time.frameCount);
+            polylineOwning = IsPolylineOwningGhostPhase(ghostPid);
+            iconSuppressed = IsIconSuppressed(ghostPid);
             return ResolveMarkerDrawDecision(
                 gateOn,
-                Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(
-                    ghostPid, UnityEngine.Time.frameCount),
-                IsPolylineOwningGhostPhase(ghostPid),
-                IsIconSuppressed(ghostPid));
+                directorTracedPathActive,
+                polylineOwning,
+                iconSuppressed);
         }
 
         /// <summary>
