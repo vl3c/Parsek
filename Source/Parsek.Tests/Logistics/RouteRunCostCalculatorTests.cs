@@ -11,7 +11,7 @@ namespace Parsek.Tests.Logistics
     /// ledger and the source-tree member-id set are injected as deterministic
     /// data, so these tests never touch the live ELS, ERS, or RecordingStore.
     /// They cover the Phase 4 matrix in
-    /// docs/dev/plans/logistics-run-cost-display.md, including the gotcha-G1
+    /// docs/dev/done/plans/logistics-run-cost-display.md, including the gotcha-G1
     /// tree-scope guard and the gotcha-G7 unhydrated-snapshot suppression.
     /// </summary>
     [Collection("Sequential")]

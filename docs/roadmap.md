@@ -360,23 +360,70 @@ map-view and Tracking-Station ghost render path. Designs:
   (no jitter or doubled lines), escape and flyby lines clip to the part actually flown, and a
   self-overlapping looped mission shows one icon or marker per live replay in both the map and
   the Tracking Station, matching flight.
+- **Logistics (Supply Routes) v0** - the Phase 13 logistics feature shipped in 0.10.0. Fly a
+  cargo run once (launch from KSC, dock at a destination, transfer stock
+  resources or inventory, undock) and commit it; a sealed run with one complete
+  dock-deliver-undock window then surfaces as a Candidate in the new Logistics window, where one
+  click turns it into a recurring Supply Route. The route replays the recorded run as a looped
+  mission segment and delivers the same cargo at the dock each cycle, with a UT-driven scheduler,
+  adjustable dispatch cadence, endpoint resolution (orbital by PID, surface with a nearest-vessel
+  fallback), and a route ledger that participates in rewind / re-fly. Career KSC-origin routes
+  charge a stock-realistic per-run funds cost and credit the recovered transport cost back one
+  cycle later. Only KSC-origin routes dispatch in v0: a non-KSC (vessel) origin route can be
+  created (its origin proof is captured) but the per-cycle origin-cargo debit is stubbed, so it
+  holds without dispatching. The v0 cut is deliberately narrow (docking-only, delivery-only,
+  single-stop, same-body, KSC-origin); pickup, mixed pickup/delivery, multi-stop, round-trip,
+  non-docking connections, non-KSC origin cargo debit (docked and undocked), and inter-body
+  re-aimed routes are future work. Full design:
+  [`docs/parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md).
 
 ---
 
-## Phase 13: Logistics (Supply Routes)
+## Phase 13: Logistics (Supply Routes) - shipped in v0.10.0
 
-Stock-first automated cargo delivery from proven player-flown Supply Runs. Full design: [`docs/parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md). Fly a cargo run once, dock, transfer stock cargo, undock, commit, then confirm the prompt to create a recurring Supply Route.
+Stock-first automated cargo delivery from proven player-flown Supply Runs. Shipped in 0.10.0; summarized under Completed (v0.10) above. Full design: [`docs/parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md). Fly a cargo run once, dock, transfer stock cargo, undock, commit, then create a recurring Supply Route from the eligible Candidate in the Logistics window.
 
-- **v1 route shape** — docking-only, delivery-only, single-stop Supply Routes created from complete dock/transfer/undock Supply Runs. Claw/grapple/crossfeed, pickup routes, crew delivery, multi-stop routes, and round-trip linking are deferred.
+- **v0 route shape**: docking-only, delivery-only, single-stop Supply Routes created from complete dock/transfer/undock Supply Runs. Claw/grapple/crossfeed, pickup routes, crew delivery, multi-stop routes, and round-trip linking are deferred (future work).
 - **Stock proof-of-work** — route creation derives the delivery manifest from connection-scoped snapshots: cargo must leave the transport-side part set and appear on the endpoint-side part set during the docking window. Aggregate merged-vessel totals are not enough proof.
-- **Origin cost model** — KSC-origin Career routes charge a stock-realistic funds cost for the source vessel parts plus used/delivered cargo. Non-KSC v1 origins require the Supply Run to start docked to a real depot vessel so recurring cargo can be debited from a stock vessel.
+- **Origin cost model**: KSC-origin Career routes charge a stock-realistic funds cost for the source vessel parts plus used/delivered cargo, and credit the recovered transport cost back one cycle later. Only KSC-origin routes dispatch in v0. A non-KSC (vessel) origin route can be created (its start-docked origin proof is captured), but the per-cycle origin-cargo debit is intentionally stubbed, so the route holds in WaitingForResources and never dispatches; non-KSC origin support is post-v0.
 - **UT-driven scheduler** — route progress, delivery, pause behavior, save/load catch-up, and time-warp behavior are driven by universal time in `ParsekScenario`, with ghost playback treated as visual evidence rather than authoritative timing.
 - **Endpoint resolution** — orbital endpoints use recorded vessel PID only. Surface endpoints prefer the recorded PID and may fall back to one nearest compatible stock vessel near the recorded coordinates, never to an abstract area warehouse.
-- **Visual presence** — ghost supply vessels replay the recorded chain when visuals are available, but route execution is pure math: deduct at origin, wait, add to destination. No physical vessel is spawned during transit.
+- **Visual presence**: ghost supply vessels replay the recorded run as a looped mission segment, but route execution is pure math: deduct at origin, wait, add to destination. No physical vessel is spawned during transit.
 
-**Logistics prerequisites added to Phase 13:** Phase 11 provides base vessel-level resource and inventory manifests. Supply Routes also require connection-scoped capture extensions: dock/undock resource and inventory manifests by transport/endpoint part PID set, `TransferTargetVesselPid`, `TransferKind`, `TransferEndpointSituation`, `StartDockedOriginVesselPid`, and exact `InventoryPayloadItem` snapshots from canonical `STOREDPART` data so inventory deliveries preserve per-item state.
+**Logistics prerequisites delivered for Phase 13:** Phase 11 provides base vessel-level resource and inventory manifests. Supply Routes also required connection-scoped capture extensions: dock/undock resource and inventory manifests by transport/endpoint part PID set, `TransferTargetVesselPid`, `TransferKind`, `TransferEndpointSituation`, `StartDockedOriginVesselPid`, and exact `InventoryPayloadItem` snapshots from canonical `STOREDPART` data so inventory deliveries preserve per-item state.
 
-Every supply ship remains a replay of a real mission the player flew, but v1 deliberately keeps the mechanics narrow so the first implementation is reliable and stock-realistic.
+Every supply ship remains a replay of a real mission the player flew, but v0 deliberately keeps the mechanics narrow so the first implementation is reliable and stock-realistic.
+
+### Logistics: remaining work toward feature-complete (post-0.10.0)
+
+This is the path from the shipped v0 to a feature-complete logistics system. Every item below traces to a deferred item in the design doc (section 17 and the Status line, plus the crew limitation in sections 11-12) or an open known limitation in `docs/dev/todo-and-known-bugs.md`. Tiers are roughly in priority order (a mix of player value, effort, and dependencies); these are NOT committed version numbers, just "post-0.10.0, roughly in this order". Size tags are S/M/L estimates. For the NEW supporting systems each item requires (and the two shared foundations that change the sequencing), see "17.1 Supporting systems required for future work" in `docs/parsek-logistics-supply-routes-design.md`.
+
+**Tier 1: quick wins and polish** (small, self-contained, no new gameplay model)
+
+- **Mission / route structure list window (M):** a popup (one per mission, one per route) that lists the run's structure as an ordered list of its segments and intermediary points, each with its time and location. For a mission: launch, staging / separation events, dock, undock, and the terminal / landing. For a route: origin, the connection / dock point, the delivery point, undock, and any stops. A readable "what is this run, step by step" view that complements the Missions tab's composition view, and more useful to players than a map visual. (Player-facing usability.)
+- **"Dispatch now" action (S):** a UI button to fire one cycle immediately, with its own affordability/capacity checks, setting `CurrentCycleStartUT` from the action UT instead of waiting for `NextDispatchUT`. (Section 17, "Force dispatch now".)
+- **Dispatch priority for competing routes (S/M):** replace the v0 FIFO-by-`NextDispatchUT` ordering with a player-set or value-based priority when several routes are due at once. (Section 17, "Dispatch priority for competing routes".)
+- **Candidate intent helper (S):** an optional "mark this run as a Supply Run" affordance to disambiguate or suppress unrelated candidate detection. The shipped Candidates list already auto-detects eligible runs, so this is a UX refinement, not required for correctness. (Section 17, "Record Supply Run helper", reframed around the shipped Candidates model.)
+- **Dock-side-baseline eligibility edge case (S/M):** a clean delivery run that crossfeeds the same resource between transport and endpoint tanks during the docked window can be falsely rejected as `MixedPickupDelivery`, because the dock-side baseline is snapshotted post-couple (after stock equalisation). Capture a pre-couple transport snapshot, or detect the approximate-equalisation pattern. (Open item: "Logistics route window dock-side baseline is post-couple".)
+- **Precise per-run recovery-landing (M):** the recovery credit is currently a constant deferred amount (exact in steady state, an approximation of each run's physical recovery-landing UT). Map each run's recovery into the cycle it physically lands in, with overlap bookkeeping. (Section 17, "KSC cost tuning"; recovery-credit plan OQ1.)
+
+**Tier 2: core gameplay extensions** (new cargo directions; mostly sequential)
+
+- **Pickup routes (M):** v0 is delivery-only. Add resource and inventory pickup (cargo leaves the endpoint and arrives at the origin), which needs separate stock-slot and part-identity tests. Prerequisite for mixed routes. (Section 17, "Pickup routes".)
+- **Mixed pickup/delivery windows (M):** load-and-deliver runs where the same docking window both drops off and picks up cargo. Depends on pickup landing first. (Status line, "mixed pickup/delivery windows".)
+- **Non-KSC origin cargo debit, docked + undocked (M/L):** v0 stubs ALL non-KSC origin debit (`OriginHasCargo` returns false, holding the route in WaitingForResources), so EVERY non-KSC route is blocked, including the start-docked case whose origin proof is already captured. First build the origin-debit primitive so a docked non-KSC route can dispatch; then support undocked-start origins (a tanker that launches from a surface base, drives or flies away undocked, then docks at a destination) once origin ownership can be proven without inventing a warehouse. (Section 17, "Non-KSC undocked-start origins"; v0 stub in `LiveRouteRuntimeEnvironment.OriginHasCargo`.)
+
+**Tier 3: larger / architectural** (multi-window or new connection mechanics)
+
+- **Multi-stop routes (L):** a single run that delivers to more than one endpoint. The data model already keeps a `Stops` list for this; v0 rejects multi-window runs. (Status line + section 17.)
+- **Round-trip linking (M/L):** pair two one-way routes so they alternate (A completes, then B dispatches, then A again). `LinkedRouteId` is already a reserved serialization field, ignored by v0 dispatch. (Status line, "round-trip linking".)
+- **Inter-body re-aimed routes (M/L):** same-body only in v0. Wire the existing `MissionPeriodicity` / re-aim seam so an interplanetary route dispatches at the synodic transfer window and the delivery clock phase-locks to the re-aimed launch. The seam exists (`RouteLoopClock` threads the backing unit's schedule); it just is not enabled. (Status line, "inter-body re-aimed routes".)
+- **Non-docking connection producers (L, needs KSP API investigation):** claw / grapple and stock crossfeed / fuel-line transfer paths as alternative proof-of-work. Needs API work for endpoint PID, connection start/end, and cargo delta. Deferred until docking routes are reliable. (Section 17, "Non-docking stock connection producers".)
+- **Crew delivery (L):** deliver kerbals along a route. Deferred until it can use named roster / crew-reservation semantics instead of generic kerbal generation; depends on the crew-reservation system. (Design doc section 11 ("v1 Limitations", Crew delivery bullet) and section 12 ("What Doesn't Change", Crew reservation bullet).)
+
+**Tier 4: infrastructure** (not player-facing)
+
+- **Scenario-lifecycle test hardening (M):** the route `ParsekScenario` OnSave / OnLoad hookups are pinned only by source-text grep gates, because xUnit cannot drive those lifecycle methods end-to-end (unguarded `Planetarium` + Unity `GameEvents` / `MonoBehaviour` dependencies). Build a Unity test harness (stubbed `Planetarium.fetch`, a `GameEvents` mock, a `MonoBehaviour` shim), ideally alongside the in-flight logging audit. (Open item: "Logistics scenario-lifecycle coverage relies on source-text gates".)
 
 ---
 
@@ -480,8 +527,9 @@ Phase 12.5: Stable Leaves + Re-Fly Hardening (v0.9.1 ✓)
     │  quickload/visibility/relative-playback hardening
     │
     ▼
-Phase 13: Logistics (Supply Routes)
+Phase 13: Logistics (Supply Routes) (v0.10.0 ✓)
     │  Stock-first Supply Routes from proven dock/transfer/undock Supply Runs
+    │  (v0: docking/delivery/single-stop/same-body; pickup/multi-stop/round-trip deferred)
     │
     ▼
 Gloops Extraction ─── Extract ghost engine to separate assembly,

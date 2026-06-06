@@ -1,6 +1,6 @@
 # Logistics Window UI Improvement Plan
 
-Status: REVIEWED, ready for implementation (two review+fix passes against the code; all symbol/line claims verified)
+Status: IMPLEMENTED (all five phases shipped in 0.10.0 on `logistics-v0-implementation`, PRs #1021/#1023/#1025/#1027/#1028; archived to `docs/dev/done/plans/`)
 Branch base: `logistics-v0-implementation` (this plan authored on `logistics-ui-plan`, base commit `b1d2611e`)
 Scope: the Logistics window (`Source/Parsek/UI/LogisticsWindowUI.cs`) and its creation dialog (`Source/Parsek/UI/RouteCreationDialog.cs`), plus small shared-style touch-ups and two new accessors in the allowlisted Logistics layer (H1, see below). No changes to route runtime/model semantics unless a work item says so explicitly.
 
