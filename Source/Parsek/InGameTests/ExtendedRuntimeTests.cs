@@ -2118,7 +2118,7 @@ namespace Parsek.InGameTests
 
     /// <summary>
     /// Exercises the S3a deletion-safety gate under the LIVE KSP runtime/JIT (the pure helper logic is
-    /// covered by xUnit; this proves the static gate + the same-frame director-owned view from
+    /// covered by xUnit; this proves the static gate + the same-frame drew (actual-draw) view from
     /// GhostTrajectoryPolylineRenderer run end-to-end in-game). Drives the seam DETERMINISTICALLY via the
     /// test stamps - no live ghost / no full Driver frame needed - so it is robust regardless of what is on
     /// the map. Restores the coverage + ownership state on exit. A full scene-driven assertion (live ghosts
@@ -2128,7 +2128,7 @@ namespace Parsek.InGameTests
     public class MapRenderS3CoverageInGameTests
     {
         [InGameTest(Category = "GhostMapOrbits", Scene = GameScenes.FLIGHT,
-            Description = "S3a: the deletion gate covers director-owned + proto-less legacy legs; fires for a proto-bearing-not-owned blocker")]
+            Description = "S3a: the deletion gate covers drew-set + proto-less legacy legs; fires for a proto-bearing-not-drawn blocker")]
         public void DeletionGateCoversLegacyOwnedSet()
         {
             // Snapshot live coverage + ownership state so the synthetic stamps below do not perturb a real
@@ -2136,23 +2136,23 @@ namespace Parsek.InGameTests
             GhostMapPresence.ResetCoverageSetsForTesting();
             try
             {
-                // A director-owned legacy leg: covered (the director-owned set still grants suppression).
+                // A drew-set legacy leg: covered (the drew set still grants suppression).
                 GhostMapPresence.SetLegacyOwnedForTesting("s3-ingame-director", legacyOwned: true);
                 Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
-                    "s3-ingame-director", inDirectorOwnedSet: true, inLegacySet: true);
+                    "s3-ingame-director", inDrewSet: true, inLegacySet: true);
                 // A proto-less legacy leg: covered (nothing to suppress; the kept walk draws it anyway).
                 GhostMapPresence.SetLegacyOwnedForTesting("s3-ingame-atmo", legacyOwned: true);
                 GhostMapPresence.SetFrameCoverageForTesting("s3-ingame-atmo", drawn: true, protoLess: true);
-                // A blocker: legacy-owned, proto-BEARING (NOT in the proto-less set), NOT director-owned.
+                // A blocker: legacy-owned, proto-BEARING (NOT in the proto-less set), did NOT draw.
                 GhostMapPresence.SetLegacyOwnedForTesting("s3-ingame-blocker", legacyOwned: true);
 
-                // Direct predicate exercise under the live JIT (the same-frame director-owned view).
-                var directorOwned =
-                    Parsek.Display.GhostTrajectoryPolylineRenderer.DirectorOwnedLegRecordingsThisFrame;
+                // Direct predicate exercise under the live JIT (the same-frame drew (actual-draw) view).
+                var drew =
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.DrewNonOrbitalLegRecordingsThisFrame;
                 InGameAssert.IsTrue(
                     GhostMapPresence.IsLegacyOwnedLegCoveredByDeletion(
-                        "s3-ingame-director", directorOwned, null),
-                    "director-owned legacy leg is covered");
+                        "s3-ingame-director", drew, null),
+                    "drew-set legacy leg is covered");
 
                 var uncovered = new List<string>();
                 GhostMapPresence.AssertLegacyOwnedLegsCovered(
@@ -2162,18 +2162,18 @@ namespace Parsek.InGameTests
                     $"S3a gate in-game: uncovered=[{string.Join(",", uncovered)}]");
 
                 InGameAssert.IsFalse(uncovered.Contains("s3-ingame-director"),
-                    "director-owned legacy leg must not fire");
+                    "drew-set legacy leg must not fire");
                 InGameAssert.IsFalse(uncovered.Contains("s3-ingame-atmo"),
                     "proto-less legacy leg must not fire");
                 InGameAssert.IsTrue(uncovered.Contains("s3-ingame-blocker"),
-                    "a proto-bearing-not-owned legacy leg must fire (non-vacuity)");
+                    "a proto-bearing-not-drawn legacy leg must fire (non-vacuity)");
                 InGameAssert.AreEqual(1, uncovered.Count,
                     "exactly the blocker is uncovered");
             }
             finally
             {
                 Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
-                    "s3-ingame-director", inDirectorOwnedSet: false, inLegacySet: false);
+                    "s3-ingame-director", inDrewSet: false, inLegacySet: false);
                 GhostMapPresence.ResetCoverageSetsForTesting();
             }
         }

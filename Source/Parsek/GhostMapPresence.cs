@@ -964,12 +964,14 @@ namespace Parsek
         /// Phase 8e S3a (PURELY ADDITIVE diagnostics): every committed recording the autonomous polyline
         /// walk published into <c>activeLegRecordings</c> (the LEGACY ownership-publish) THIS frame. S3b
         /// deletes <c>activeLegRecordings</c>, collapsing
-        /// <c>GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership</c> to the director-owned set
-        /// only. The DRAW is not at risk (the kept walk draws a pid-0 leg regardless of ownership); the
-        /// only exposure is a PROTO-BEARING leg owned via the legacy set but NOT director-owned, which
-        /// would lose its proto-line/icon SUPPRESSION (a double-draw artifact). This set lets the probe
-        /// PROVE, before the deletion, that every legacy-owned recording is EITHER director-owned OR pid-0
-        /// (proto-less, nothing to suppress). Populated by <see cref="NoteLegacyOwnedLeg"/> from the
+        /// <c>GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership</c> to the drew set
+        /// (<c>drewNonOrbitalLegRecordings</c> - every recording whose polyline leg actually drew this
+        /// frame, owned-treatment OR Driver-direct) only. The DRAW is not at risk (the kept walk draws a
+        /// pid-0 leg regardless of ownership); the only exposure is a PROTO-BEARING leg owned via the
+        /// legacy set but NOT in the drew set, which would lose its proto-line/icon SUPPRESSION (a
+        /// double-draw artifact). This set lets the probe PROVE, before the deletion, that every
+        /// legacy-owned recording is EITHER in the drew set OR pid-0 (proto-less, nothing to suppress).
+        /// Populated by <see cref="NoteLegacyOwnedLeg"/> from the
         /// polyline Driver's decide walk at the <c>activeLegRecordings.Add</c> site, gated by the Driver
         /// on <see cref="MapRenderTrace.IsEnabled"/>; cleared by <see cref="ClearFrameCoverageSets"/> on
         /// the same per-frame lifecycle as the S0 sets. Diagnostic-only; nothing in the live render path
@@ -1121,8 +1123,8 @@ namespace Parsek
         /// <para>Gate ON -> the Director is the AUTHORITATIVE source: proto suppressed when the
         /// Director's TracedPath DECISION owns the leg (<paramref name="directorTracedPathActive"/>,
         /// repointing the context-(a) icon-suppression that previously rode <c>ghostsWithSuppressedIcon</c>)
-        /// OR the polyline actually owns the phase (<paramref name="polylineOwning"/>, already
-        /// Director-sourced via 8b.2's actual-draw set) OR the legacy <paramref name="iconSuppressedLegacy"/>
+        /// OR the polyline actually owns the phase (<paramref name="polylineOwning"/>, sourced from 8b.2's
+        /// / 8e S3a.1's actual-draw set, any leg that drew) OR the legacy <paramref name="iconSuppressedLegacy"/>
         /// is set. The legacy disjunct is KEPT as the fallback so the Director-no-bounds transient
         /// (context (b)), below-atmosphere, and off-arc clamp - none of which the Director owns yet -
         /// still draw the marker; it is retired only as the AUTHORITATIVE source for the director-owned
@@ -9277,26 +9279,27 @@ namespace Parsek
         /// PURE S3a gate predicate: is a LEGACY-owned leg (a recording the autonomous walk published into
         /// <c>activeLegRecordings</c> this frame) COVERED by the planned S3b deletion of that legacy
         /// publish? S3b collapses
-        /// <c>GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership</c> to the director-owned set
-        /// only. A legacy-owned leg survives the deletion iff it is EITHER in
-        /// <paramref name="directorOwnedRecIds"/> (the same-frame director-owned set still grants the
-        /// proto-line/icon SUPPRESSION the legacy set granted) OR pid-0 / proto-less (in
+        /// <c>GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership</c> to the drew set only. A
+        /// legacy-owned leg survives the deletion iff it is EITHER in
+        /// <paramref name="drewRecIds"/> (the same-frame actual-draw set - every recording whose polyline
+        /// leg actually drew, owned-treatment OR Driver-direct - still grants the proto-line/icon
+        /// SUPPRESSION the legacy set granted) OR pid-0 / proto-less (in
         /// <paramref name="protoLessRecIds"/> - there is NO proto to suppress, and the kept walk draws it
         /// regardless of ownership, so dropping the legacy ownership is invisible). A legacy-owned leg in
-        /// NEITHER set is proto-BEARING AND not director-owned: deleting the legacy ownership would lose
-        /// its suppression and produce the double-draw artifact - the deletion BLOCKER. Expressed entirely
-        /// in the RecordingId domain (both the director-owned set and the legacy set are RecordingId-keyed,
-        /// so NO pid bridge is needed). Unit-testable (all three inputs passed in), so it FIRES for a real
-        /// blocker and PASSES for a covered leg.
+        /// NEITHER set is proto-BEARING AND did not draw: deleting the legacy ownership would lose its
+        /// suppression and produce the double-draw artifact - the deletion BLOCKER. Expressed entirely in
+        /// the RecordingId domain (both the drew set and the legacy set are RecordingId-keyed, so NO pid
+        /// bridge is needed). Unit-testable (all three inputs passed in), so it FIRES for a real blocker
+        /// and PASSES for a covered leg.
         /// </summary>
         internal static bool IsLegacyOwnedLegCoveredByDeletion(
             string legacyOwnedRecId,
-            ICollection<string> directorOwnedRecIds,
+            ICollection<string> drewRecIds,
             ICollection<string> protoLessRecIds)
         {
             if (string.IsNullOrEmpty(legacyOwnedRecId))
                 return true; // a null/empty id is not a real legacy-owned leg; never flag it
-            if (directorOwnedRecIds != null && directorOwnedRecIds.Contains(legacyOwnedRecId))
+            if (drewRecIds != null && drewRecIds.Contains(legacyOwnedRecId))
                 return true;
             if (protoLessRecIds != null && protoLessRecIds.Contains(legacyOwnedRecId))
                 return true;
@@ -9305,14 +9308,15 @@ namespace Parsek
 
         /// <summary>
         /// Runs the S3a deletion-safety assertion over this frame's legacy-owned set, invoking
-        /// <paramref name="onUncovered"/> once per legacy-owned recording that is NEITHER director-owned
-        /// (this frame, via <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.DirectorOwnedLegRecordingsThisFrame"/>
-        /// - already RecordingId-keyed, no pid bridge) NOR in the proto-less coverage set. Each such
-        /// recording is the deletion BLOCKER: deleting <c>activeLegRecordings</c> (S3b) would drop its
-        /// proto-line/icon suppression. A CLEAN run (zero of these) is the S3b green-light. The callback
-        /// receives <c>(recordingId, directorOwnedCount, protoLessCount, legacyOwnedCount)</c> for the
-        /// anomaly line. Diagnostic-only; the caller gates on <see cref="MapRenderTrace.IsEnabled"/>.
-        /// No-ops when nothing was legacy-owned this frame.
+        /// <paramref name="onUncovered"/> once per legacy-owned recording that is NEITHER in the drew set
+        /// (this frame, via <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.DrewNonOrbitalLegRecordingsThisFrame"/>
+        /// - the recordings whose polyline leg actually drew, owned-treatment OR Driver-direct, already
+        /// RecordingId-keyed, no pid bridge) NOR in the proto-less coverage set. Each such recording is
+        /// the deletion BLOCKER: deleting <c>activeLegRecordings</c> (S3b) would drop its proto-line/icon
+        /// suppression. A CLEAN run (zero of these) is the S3b green-light. The callback receives
+        /// <c>(recordingId, drewCount, protoLessCount, legacyOwnedCount)</c> for the anomaly line.
+        /// Diagnostic-only; the caller gates on <see cref="MapRenderTrace.IsEnabled"/>. No-ops when nothing
+        /// was legacy-owned this frame.
         /// </summary>
         internal static void AssertLegacyOwnedLegsCovered(
             System.Action<string, int, int, int> onUncovered)
@@ -9320,21 +9324,21 @@ namespace Parsek
             if (legacyOwnedRecordingIdsThisFrame.Count == 0)
                 return;
 
-            // The same-frame director-owned set is ALREADY RecordingId-keyed (no pid bridge needed - the
-            // S3a deletion-safety question is purely "is this legacy-owned RecordingId also director-owned
-            // this frame?"). Read it as a read-only view.
-            ICollection<string> directorOwned =
-                Parsek.Display.GhostTrajectoryPolylineRenderer.DirectorOwnedLegRecordingsThisFrame;
-            int directorOwnedCount = directorOwned != null ? directorOwned.Count : 0;
+            // The same-frame drew set is ALREADY RecordingId-keyed (no pid bridge needed - the S3a
+            // deletion-safety question is purely "is this legacy-owned RecordingId also in the actual-draw
+            // set this frame?"). Read it as a read-only view.
+            ICollection<string> drew =
+                Parsek.Display.GhostTrajectoryPolylineRenderer.DrewNonOrbitalLegRecordingsThisFrame;
+            int drewCount = drew != null ? drew.Count : 0;
 
             foreach (string recId in legacyOwnedRecordingIdsThisFrame)
             {
                 if (IsLegacyOwnedLegCoveredByDeletion(
-                        recId, directorOwned, protoLessCoverageRecordingIdsThisFrame))
+                        recId, drew, protoLessCoverageRecordingIdsThisFrame))
                     continue;
                 onUncovered?.Invoke(
                     recId,
-                    directorOwnedCount,
+                    drewCount,
                     protoLessCoverageRecordingIdsThisFrame.Count,
                     legacyOwnedRecordingIdsThisFrame.Count);
             }

@@ -227,12 +227,13 @@ namespace Parsek
             // --- Phase 8e S3a gate: legacy-ownership deletion-safety assertion ---
             // For EVERY recording the autonomous walk published into the LEGACY ownership set
             // (activeLegRecordings) this frame, confirm it is COVERED by S3b's planned deletion of that
-            // set: it is EITHER director-owned this frame (the director-owned set still grants the
-            // proto-line/icon suppression) OR proto-less / pid-0 (nothing to suppress; the kept walk draws
-            // it regardless of ownership). A legacy-owned recording in NEITHER is the deletion BLOCKER (a
-            // proto-bearing leg that would lose suppression -> double-draw). A CLEAN run is the S3b
-            // green-light. The whole LateUpdate is IsEnabled-gated; the per-recId soft rate-limit below
-            // keeps a persistent blocker from flooding the log.
+            // set: it is EITHER in the drew set this frame (the actual-draw set - any leg drew,
+            // owned-treatment OR Driver-direct - still grants the proto-line/icon suppression) OR
+            // proto-less / pid-0 (nothing to suppress; the kept walk draws it regardless of ownership). A
+            // legacy-owned recording in NEITHER is the deletion BLOCKER (a proto-bearing leg that would
+            // lose suppression -> double-draw). A CLEAN run is the S3b green-light. The whole LateUpdate is
+            // IsEnabled-gated; the per-recId soft rate-limit below keeps a persistent blocker from flooding
+            // the log.
             AssertLegacyOwnedLegsCovered(currentUT, realtime);
         }
 
@@ -272,7 +273,7 @@ namespace Parsek
         private void AssertLegacyOwnedLegsCovered(double currentUT, double realtime)
         {
             GhostMapPresence.AssertLegacyOwnedLegsCovered(
-                (recId, directorOwnedCount, protoLessCount, legacyOwnedCount) =>
+                (recId, drewCount, protoLessCount, legacyOwnedCount) =>
                 {
                     if (!PassesUncoveredRateLimit(recId, realtime))
                         return;
@@ -280,15 +281,15 @@ namespace Parsek
                     // RecordingId (carried in the prefix pid= slot, the marker-surface convention).
                     // WARP-STABLE key: recId ONLY - the frame / UT / leg detail lives in the BODY, never
                     // the key (#1063). A CLEAN run (zero of these) is the S3b deletion green-light: every
-                    // legacy-owned leg is either director-owned or proto-less, so deleting
+                    // legacy-owned leg is either in the drew set or proto-less, so deleting
                     // activeLegRecordings drops no suppression.
                     MapRenderTrace.EmitAnomaly(
                         MapRenderTrace.RenderSurface.Polyline, recId, currentUT, currentUT,
                         "uncovered-legacy-owned-leg",
                         string.Format(ic,
-                            "recId={0} legacyOwned=true directorOwned=false protoLess=false "
-                            + "| directorOwnedRecs={1} protoLessRecs={2} legacyOwnedRecs={3}",
-                            recId, directorOwnedCount, protoLessCount, legacyOwnedCount));
+                            "recId={0} legacyOwned=true drew=false protoLess=false "
+                            + "| drewRecs={1} protoLessRecs={2} legacyOwnedRecs={3}",
+                            recId, drewCount, protoLessCount, legacyOwnedCount));
                 });
         }
 

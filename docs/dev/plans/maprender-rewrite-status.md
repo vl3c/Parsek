@@ -233,13 +233,15 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     decision-based proto-line suppression in `GhostOrbitLinePatch.cs:130/552` (on
     `IsDirectorTracedPathActive`) can still set `line.active=false` on a decision-without-draw frame,
     but it also sets `ghostsWithSuppressedIcon`, which draws the non-proto marker, so the ghost is
-    never left blank; retiring that line-level path is deferred, out of 8b.2 scope.) Mechanism: a new
-    `directorOwnedLegRecordings` set is published by the OWNED draw path ONLY when `TryDrawOwnedLeg`
-    actually returns drawn=true; `IsRenderingNonOrbitalLeg` dispatches (pure `ResolveNonOrbitalLegOwnership`)
-    - gate ON -> the UNION of the director-owned set and the legacy `activeLegRecordings` (the legacy set
-    still covers pid-0 / re-aim / overlap ghosts the shadow does not own, which still take the Driver-direct
-    path under the gate); gate OFF -> the legacy set ONLY (byte-identical to pre-8b.2). The Driver's
-    autonomous-walk publish is retired as the AUTHORITATIVE source for owned legs but kept as the gate-off
+    never left blank; retiring that line-level path is deferred, out of 8b.2 scope.) Mechanism: a
+    `drewNonOrbitalLegRecordings` set (named `directorOwnedLegRecordings` in 8b.2, renamed + DECOUPLED in
+    8e S3a.1) is published whenever a leg ACTUALLY draws - on EITHER the OWNED `TryDrawOwnedLeg` path OR
+    the Driver-direct path (8e S3a.1: the draw is the authoritative signal, decoupled from the StockConic /
+    TracedPath classification, on the same `if (anyDrawn)` condition as the legacy publish so the drew set
+    is byte-identical to `activeLegRecordings`); `IsRenderingNonOrbitalLeg` dispatches (pure
+    `ResolveNonOrbitalLegOwnership`) - gate ON -> the UNION of the drew set and the legacy
+    `activeLegRecordings` (an OR over identical sets, so live behavior is unchanged); gate OFF -> the legacy
+    set ONLY (byte-identical to pre-8b.2). The Driver's autonomous-walk publish is kept as the gate-off
     fallback; its deletion is 8e. Tests: pure dispatch + seam-driven end-to-end gate read in
     `GhostTrajectoryPolylineBuildTests`; in-game `OwnershipSignal_DispatchesOnLiveGate_NoNewGap`
     (RuntimeTests, GhostMap, TRACKSTATION) covers the live-gate read + no-new-gap. **In-game gate to run:**
