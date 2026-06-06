@@ -31,6 +31,7 @@ All notable changes to Parsek are documented here.
 - Supply routes now render as a looping mission segment from launch to undock. Creating a route plays the recorded run as a repeating ghost over just the outbound launch-to-undock stretch (the post-undock return tail is trimmed), with the destination delivery firing once each time the loop reaches the recorded dock point.
 - Supply route dispatch interval is now clamped to at least the run duration. An interval shorter than the launch-to-undock span is raised to the span so each loop is exactly one dispatch cycle (one delivery per crossing).
 - Supply routes now have an adjustable dispatch cadence, defaulting to the fastest the run allows. The route detail panel has a stepper to launch every Nth run (1x is the floor); raise it to dispatch less often.
+- Supply route creation no longer falsely rejects a clean delivery run as "mixed pickup and delivery" when the transport recharges its batteries from the docked depot or its intake-air reading drifts across the dock/undock snapshots. ElectricCharge and IntakeAir are now ignored as environmental noise (matching resource snapshots), and the rejection log names the resource that actually tripped it.
 
 ### UI
 

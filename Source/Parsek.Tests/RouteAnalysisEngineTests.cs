@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Parsek.Logistics;
@@ -6,8 +7,28 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class RouteAnalysisEngineTests
+    public class RouteAnalysisEngineTests : IDisposable
     {
+        // Capture ParsekLog output so the pickup-rejection diagnostic can be
+        // asserted on. Following the canonical RewindLoggingTests pattern:
+        // SuppressLogging is a global flag toggled by every static-touching
+        // test, so it must be forced false before capture and restored after,
+        // otherwise this test inherits a stale true and the sink stays empty.
+        private readonly List<string> logLines = new List<string>();
+
+        public RouteAnalysisEngineTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
         [Fact]
         public void AnalyzeRecording_CompletedWindow_ExtractsDeliveryManifest()
         {
@@ -267,6 +288,193 @@ namespace Parsek.Tests
             Assert.Equal(1, result.InventoryDeliveryManifest[0].Quantity);
             Assert.Equal("1", result.InventoryDeliveryManifest[0]
                 .StoredPartSnapshot.GetValue("quantity"));
+        }
+
+        // ---------------------------------------------------------------
+        // EC / IntakeAir filtering — design section 5.3 rule 7 and section 6
+        // ---------------------------------------------------------------
+        // ElectricCharge and IntakeAir are environmental noise, never cargo.
+        // They must be filtered out of BOTH the pickup gate (HasResourcePickup)
+        // and the delivery manifest (BuildResourceDeliveryManifest) so a clean
+        // delivery-only run whose batteries recharge from the depot, or whose
+        // IntakeAir reading drifts across the dock/undock snapshots, is not
+        // falsely rejected as a mixed pickup/delivery transfer.
+
+        [Fact]
+        public void AnalyzeRecording_TransportRechargesEC_StillEligible()
+        {
+            // Transport recharges its batteries from the docked depot: EC climbs
+            // from dock to undock (transportGain > 0). Pre-fix this tripped the
+            // pickup gate and rejected an otherwise clean LiquidFuel delivery.
+            RouteConnectionWindow window = BuildDeliveryWindow();
+            window.DockTransportResources["ElectricCharge"] =
+                new ResourceAmount { amount = 100.0, maxAmount = 1000.0 };
+            window.UndockTransportResources["ElectricCharge"] =
+                new ResourceAmount { amount = 800.0, maxAmount = 1000.0 };
+            Recording rec = new Recording
+            {
+                RecordingId = "ec-recharge",
+                RouteConnectionWindows = new List<RouteConnectionWindow> { window }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.True(result.IsEligible,
+                $"EC recharge must not trip the pickup gate, got {result.Status}");
+            Assert.Equal(50.0, result.ResourceDeliveryManifest["LiquidFuel"]);
+            Assert.False(result.ResourceDeliveryManifest.ContainsKey("ElectricCharge"));
+        }
+
+        [Fact]
+        public void AnalyzeRecording_IntakeAirDrift_StillEligible()
+        {
+            // IntakeAir reads differently across the dock/undock snapshots
+            // (atmosphere dependent). The endpoint shows a loss; pre-fix this
+            // tripped the pickup gate.
+            RouteConnectionWindow window = BuildDeliveryWindow();
+            window.DockEndpointResources["IntakeAir"] =
+                new ResourceAmount { amount = 5.0, maxAmount = 5.0 };
+            window.UndockEndpointResources["IntakeAir"] =
+                new ResourceAmount { amount = 0.0, maxAmount = 5.0 };
+            Recording rec = new Recording
+            {
+                RecordingId = "intakeair-drift",
+                RouteConnectionWindows = new List<RouteConnectionWindow> { window }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.True(result.IsEligible,
+                $"IntakeAir drift must not trip the pickup gate, got {result.Status}");
+            Assert.Equal(50.0, result.ResourceDeliveryManifest["LiquidFuel"]);
+            Assert.False(result.ResourceDeliveryManifest.ContainsKey("IntakeAir"));
+        }
+
+        [Fact]
+        public void AnalyzeRecording_ElectricChargeDelivery_ExcludedFromManifest()
+        {
+            // EC flows transport -> endpoint (transport drains, endpoint gains)
+            // alongside the real LiquidFuel cargo. It must not appear as a
+            // delivered resource in the manifest (design section 6).
+            RouteConnectionWindow window = BuildDeliveryWindow();
+            window.DockTransportResources["ElectricCharge"] =
+                new ResourceAmount { amount = 500.0, maxAmount = 1000.0 };
+            window.UndockTransportResources["ElectricCharge"] =
+                new ResourceAmount { amount = 100.0, maxAmount = 1000.0 };
+            window.DockEndpointResources["ElectricCharge"] =
+                new ResourceAmount { amount = 0.0, maxAmount = 1000.0 };
+            window.UndockEndpointResources["ElectricCharge"] =
+                new ResourceAmount { amount = 400.0, maxAmount = 1000.0 };
+            Recording rec = new Recording
+            {
+                RecordingId = "ec-delivery",
+                RouteConnectionWindows = new List<RouteConnectionWindow> { window }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.True(result.IsEligible);
+            Assert.Equal(50.0, result.ResourceDeliveryManifest["LiquidFuel"]);
+            Assert.False(result.ResourceDeliveryManifest.ContainsKey("ElectricCharge"),
+                "ElectricCharge must never appear as delivered cargo");
+        }
+
+        [Fact]
+        public void AnalyzeRecording_ElectricChargeOnly_RejectsNoDelivery()
+        {
+            // EC is the only resource that moves and there is no inventory cargo:
+            // after filtering, the manifest is empty so the candidate is rejected
+            // as no-delivery, not treated as an EC supply run (design section 6:
+            // "EC-only Supply Runs are not route-eligible in v1").
+            var window = new RouteConnectionWindow
+            {
+                WindowId = "ec-only",
+                DockUT = 10.0,
+                UndockUT = 20.0,
+                TransferTargetVesselPid = 9001,
+                TransferKind = RouteConnectionKind.DockingPort,
+                EndpointAtDock = Endpoint(),
+                TransferEndpointSituation = 4,
+                DockTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["ElectricCharge"] = new ResourceAmount { amount = 500.0, maxAmount = 1000.0 }
+                },
+                UndockTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["ElectricCharge"] = new ResourceAmount { amount = 100.0, maxAmount = 1000.0 }
+                },
+                DockEndpointResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["ElectricCharge"] = new ResourceAmount { amount = 0.0, maxAmount = 1000.0 }
+                },
+                UndockEndpointResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["ElectricCharge"] = new ResourceAmount { amount = 400.0, maxAmount = 1000.0 }
+                }
+            };
+            Recording rec = new Recording
+            {
+                RecordingId = "ec-only",
+                RouteConnectionWindows = new List<RouteConnectionWindow> { window }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.False(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.NoDeliveryManifest, result.Status);
+        }
+
+        [Fact]
+        public void AnalyzeRecording_NonIgnoredResourcePickup_DiagnosticNamesResource()
+        {
+            // A genuine (non-ignored) pickup still rejects, and the rejection
+            // diagnostic names the culprit resource so a confusing "mixed
+            // pickup/delivery" rejection is debuggable from the log. logLines is
+            // captured by the constructor sink.
+            RouteConnectionWindow window = BuildDeliveryWindow();
+            window.DockEndpointResources["Ore"] =
+                new ResourceAmount { amount = 10.0, maxAmount = 50.0 };
+            window.UndockEndpointResources["Ore"] =
+                new ResourceAmount { amount = 0.0, maxAmount = 50.0 };
+            Recording rec = new Recording
+            {
+                RecordingId = "ore-pickup",
+                RouteConnectionWindows = new List<RouteConnectionWindow> { window }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.Equal(RouteAnalysisStatus.MixedPickupDelivery, result.Status);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("mixed pickup/delivery") &&
+                l.Contains("resource=Ore"));
+        }
+
+        [Fact]
+        public void AnalyzeRecording_InventoryPickup_DiagnosticNamesIdentity()
+        {
+            // The inventory branch of the pickup gate also names its culprit (the
+            // payload identity) in the rejection diagnostic. logLines is captured
+            // by the constructor sink.
+            RouteConnectionWindow window = BuildDeliveryWindow();
+            InventoryPayloadItem pickup =
+                Payload("ore-container", "smallCargoContainer", 1, slotsTaken: 1);
+            window.DockEndpointInventory = new List<InventoryPayloadItem> { pickup.DeepClone() };
+            window.UndockTransportInventory = new List<InventoryPayloadItem> { pickup.DeepClone() };
+            Recording rec = new Recording
+            {
+                RecordingId = "mixed-inventory-diag",
+                RouteConnectionWindows = new List<RouteConnectionWindow> { window }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.Equal(RouteAnalysisStatus.MixedPickupDelivery, result.Status);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("mixed pickup/delivery") &&
+                l.Contains("inventory=ore-container"));
         }
 
         private static RouteConnectionWindow BuildDeliveryWindow(string id = "window")
