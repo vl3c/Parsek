@@ -51,7 +51,8 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
-            BatchSkipReason = "Mutates RouteStore + Ledger + live PartResource.amount under live KSP statics; runs out of band so a parallel batch test cannot observe a partially-mutated route list or the pre-drain/restore window on the active vessel's LiquidFuel tank.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - mutates RouteStore, Ledger, and live PartResource.amount under live KSP statics; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "RouteOrchestrator.Tick applies a pending delivery to the active vessel: the route returns to Active with CompletedCycles=1, LiquidFuel is topped up by the manifest amount, and a RouteCargoDelivered ledger row is emitted")]
         public IEnumerator Delivery_LoadedVessel_AppliesResourceTransfer()
         {

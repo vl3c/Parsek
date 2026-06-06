@@ -32,7 +32,8 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
-            BatchSkipReason = "Mutates RouteStore + writes a disposable save slot; runs out of band so a parallel batch test cannot read a partially-mutated route list.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - mutates RouteStore and writes a disposable save slot; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "Adding a route, saving via KSP's GamePersistence, then loading the persisted SCENARIO node through RouteStore.LoadRoutesFrom reads the route back from the .sfs")]
         public IEnumerator RouteStore_AddRoute_SurvivesKspSaveLoadRoundTrip()
         {
