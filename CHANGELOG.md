@@ -188,6 +188,7 @@ All notable changes to Parsek are documented here.
 - A re-aimed interplanetary mission's final descent to the destination planet now draws a map trajectory again. The descent's recorded orbit segments dive below the surface, where the orbit line cannot be drawn, and the trajectory polyline was skipping those samples as orbit-covered, leaving a gap with no line at all; the polyline now picks up the descent that the orbit line abandons.
 - Parsek's internal quicksaves (rewind, re-fly, and the career-start snapshot) no longer leave stray ".loadmeta" files cluttering your save folder. Each quicksave is moved into Parsek's own subfolder, but its sidecar metadata file used to be left behind in the save root; that leftover is now cleaned up.
 - Re-flying a mission and then relaunching the same craft is less likely to file the new flight under the old mission. Committing a flight after a re-fly could re-stamp the old mission's recordings with a spawned-vessel ID that no longer pointed at any live ship, which a later relaunch of the same craft could then match; that stale ID is now dropped during the commit when its vessel is gone.
+- Clearing all recordings (or removing the last one) while sitting in the Space Center no longer leaves a ghost frozen above the launch pad with its engines still running. The Space Center ghost was orphaned the moment its recording disappeared and only got cleaned up at the next scene change; it is now removed immediately.
 
 ### Log Hygiene
 

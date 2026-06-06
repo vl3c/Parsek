@@ -30,6 +30,10 @@ namespace Parsek
         private Dictionary<int, List<GhostPlaybackState>> kscOverlapGhosts =
             new Dictionary<int, List<GhostPlaybackState>>();
 
+        // Reusable scratch buffer for ReapOrphanedKscGhosts so the per-frame
+        // reconciliation does not allocate in the steady (nothing-to-reap) state.
+        private readonly List<int> orphanGhostScratch = new List<int>();
+
         // Cached body lookup to avoid per-frame lambda allocations
         private Dictionary<string, CelestialBody> bodyCache;
 
@@ -349,6 +353,16 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             double currentUT = Planetarium.GetUniversalTime();
             AdvanceCareerLedgerForKscUT(currentUT);
+
+            // Reconcile already-spawned ghosts against the (possibly shrunk) committed
+            // list before any early-out. kscGhosts / kscOverlapGhosts are keyed by
+            // committed-recording index, so when CommittedRecordings empties or shrinks
+            // while a KSC ghost is live (Wipe All in Data Management, a recording removed
+            // while sitting in the Space Center, a test tearing down its committed tree),
+            // the per-index loop below never revisits the now out-of-range keys. Without
+            // this reap the ghost hangs frozen above the pad with engines / audio running
+            // until the next scene change destroys it.
+            ReapOrphanedKscGhosts(committed.Count);
 
             if (committed.Count == 0) return;
 
@@ -1525,6 +1539,92 @@ namespace Parsek
                 ref state.kscPlaybackFrameSourceKey,
                 endpointUT);
         }
+
+        /// <summary>
+        /// Destroys any already-spawned KSC ghost (primary or overlap) whose committed-index
+        /// key no longer maps to a committed recording, i.e. orphaned by a shrink of the
+        /// committed list. Runs every frame from <see cref="Update"/> before the empty-list
+        /// early-return; the actual GameObject teardown reuses the same
+        /// <see cref="DestroyKscGhost"/> / <see cref="DestroyAllKscOverlapGhosts"/> paths the
+        /// per-recording loop uses, so engine FX and audio are stopped here too.
+        /// </summary>
+        void ReapOrphanedKscGhosts(int committedCount)
+        {
+            // Reconcile every index-keyed collection, not just the ghost dicts: the
+            // per-index log-dedup state (lastLoggedKscCadence / lastUnitSelection) is
+            // written during ghost updates but is never pruned by the inactive /
+            // ineligible / disabled cleanup paths, so an orphaned index can leave a
+            // stale tuple even after its ghost is gone.
+            if (kscGhosts.Count == 0 && kscOverlapGhosts.Count == 0
+                && lastLoggedKscCadence.Count == 0 && lastUnitSelection.Count == 0)
+                return;
+
+            // Iterate the concrete Dictionary.KeyCollection (struct enumerator, no
+            // boxing) into the reusable scratch list, then mutate the dictionary in a
+            // separate pass so we never modify it mid-enumeration.
+            orphanGhostScratch.Clear();
+            foreach (int key in kscGhosts.Keys)
+                if (IsOrphanedGhostIndex(key, committedCount))
+                    orphanGhostScratch.Add(key);
+            int reapedPrimary = orphanGhostScratch.Count;
+            for (int i = 0; i < orphanGhostScratch.Count; i++)
+            {
+                int idx = orphanGhostScratch[i];
+                DestroyKscGhost(kscGhosts[idx], idx);
+                kscGhosts.Remove(idx);
+                loggedGhostSpawn.Remove(idx);
+                loggedReshow.Remove(idx);
+            }
+
+            orphanGhostScratch.Clear();
+            foreach (int key in kscOverlapGhosts.Keys)
+                if (IsOrphanedGhostIndex(key, committedCount))
+                    orphanGhostScratch.Add(key);
+            int reapedOverlapSets = orphanGhostScratch.Count;
+            for (int i = 0; i < orphanGhostScratch.Count; i++)
+            {
+                int idx = orphanGhostScratch[i];
+                DestroyAllKscOverlapGhosts(idx);
+                kscOverlapGhosts.Remove(idx);
+            }
+
+            // Stale per-index log-dedup tuples (no GameObjects/FX): prune independently
+            // of ghost presence so the corner case "ghost already destroyed, then its
+            // recording removed" does not leave the entry until the next scene change.
+            PruneOrphanedIndexKeys(lastLoggedKscCadence, committedCount);
+            PruneOrphanedIndexKeys(lastUnitSelection, committedCount);
+
+            if (reapedPrimary > 0 || reapedOverlapSets > 0)
+                ParsekLog.Info("KSCGhost",
+                    "Reaped orphaned KSC ghost(s) after committed-list shrink: " +
+                    $"primary={reapedPrimary} overlapSets={reapedOverlapSets} committedCount={committedCount}");
+        }
+
+        /// <summary>
+        /// Removes every index-keyed entry whose key is orphaned for a committed list of
+        /// <paramref name="committedCount"/> entries (see <see cref="IsOrphanedGhostIndex"/>).
+        /// Allocation-free: scans the concrete <c>Dictionary.KeyCollection</c> into the
+        /// reusable scratch buffer, then removes in a separate pass.
+        /// </summary>
+        private void PruneOrphanedIndexKeys<TValue>(Dictionary<int, TValue> map, int committedCount)
+        {
+            if (map.Count == 0) return;
+            orphanGhostScratch.Clear();
+            foreach (int key in map.Keys)
+                if (IsOrphanedGhostIndex(key, committedCount))
+                    orphanGhostScratch.Add(key);
+            for (int i = 0; i < orphanGhostScratch.Count; i++)
+                map.Remove(orphanGhostScratch[i]);
+        }
+
+        /// <summary>
+        /// Whether a ghost-dictionary index key is orphaned for a committed list of
+        /// <paramref name="committedCount"/> entries: any key outside the half-open range
+        /// [0, committedCount). Pure; <see cref="ReapOrphanedKscGhosts"/> applies it per
+        /// key to know which index-keyed ghosts to destroy after CommittedRecordings shrinks.
+        /// </summary>
+        internal static bool IsOrphanedGhostIndex(int key, int committedCount)
+            => key < 0 || key >= committedCount;
 
         /// <summary>
         /// Destroy all overlap ghosts for a recording.
@@ -2951,6 +3051,8 @@ namespace Parsek
             loggedKscRelativeAnchorNotFound.Clear();
             kscSpawnAttempted.Clear();
             loggedPlaybackDisabledPastEndSpawnAttempts.Clear();
+            lastLoggedKscCadence.Clear();
+            lastUnitSelection.Clear();
 
             ParsekLog.Info("KSC", "ParsekKSC destroyed");
             ui?.Cleanup();

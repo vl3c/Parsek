@@ -1715,5 +1715,32 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Orphaned-ghost reap (committed-list shrink)
+
+        // ReapOrphanedKscGhosts destroys any KSC ghost whose committed-index key falls
+        // outside the half-open range [0, committedCount). These pin that boundary
+        // contract: the cases that drive the reap (empty list, shrink-from-end, sparse
+        // live set) and the edges (index == count, negative).
+        [Theory]
+        // Committed list emptied (Wipe All / removed last recording): every ghost orphaned.
+        [InlineData(0, 0, true)]
+        [InlineData(1, 0, true)]
+        // Backed by a committed recording (in range, including the last valid index): kept.
+        [InlineData(0, 2, false)]
+        [InlineData(1, 2, false)]
+        // List shrank from 4 to 2: trailing indices orphaned (index == count and beyond).
+        [InlineData(2, 2, true)]
+        [InlineData(3, 2, true)]
+        // Sparse live set (index 2 live) with one committed recording: past the end, reaped.
+        [InlineData(2, 1, true)]
+        // Defensive: a negative key is always orphaned.
+        [InlineData(-1, 1, true)]
+        public void IsOrphanedGhostIndex_BoundaryContract(int key, int committedCount, bool expected)
+        {
+            Assert.Equal(expected, ParsekKSC.IsOrphanedGhostIndex(key, committedCount));
+        }
+
+        #endregion
     }
 }
