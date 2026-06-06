@@ -334,8 +334,13 @@ namespace Parsek.InGameTests
                 GUILayout.Label(batchModeNotice, GUI.skin.label);
             }
 
+            // Bare ExpandHeight (no MinHeight) so the scroll view stretches to
+            // fill the fixed-height window, pinning the Close button + info
+            // labels to the bottom. A MinHeight option clears stretchHeight and
+            // leaves the footer floating with dead space below it. Matches the
+            // Kerbals / Real Spawn Control / Logistics windows.
             scrollPos = GUILayout.BeginScrollView(scrollPos,
-                GUILayout.MinHeight(120), GUILayout.ExpandHeight(true));
+                GUILayout.ExpandHeight(true));
 
             foreach (var group in cachedGroups)
             {
@@ -384,13 +389,14 @@ namespace Parsek.InGameTests
                     GUILayout.Label(GetStatusIcon(test.Status), GUILayout.Width(20));
                     GUI.contentColor = prevColor;
 
-                    // Manual-only [single] scenarios are tinted yellow so they
+                    // Manual-only [single] scenarios are tinted blue so they
                     // are easy to find (dimmed when the scene is ineligible).
+                    // Readable light blue: Color.blue is too dark on KSP's dark window.
                     if (!eligible) GUI.enabled = false;
                     string label = TestRunnerPresentation.BuildTestLabel(test);
                     var prevLabelColor = GUI.contentColor;
                     if (TestRunnerPresentation.IsManualOnly(test))
-                        GUI.contentColor = Color.yellow;
+                        GUI.contentColor = new Color(0.45f, 0.65f, 1f);
                     GUILayout.Label(
                         new GUIContent(label, TestRunnerPresentation.BuildTestTooltip(test, eligible)),
                         GUILayout.ExpandWidth(true));
