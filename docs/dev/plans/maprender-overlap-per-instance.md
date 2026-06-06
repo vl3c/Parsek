@@ -55,7 +55,7 @@ distinct ProtoVessel with a distinct pid, the Director / seed patches / icon "ju
 
 Must become per-(recording, cycle): the presence store (`vesselsByRecordingIndex`), the create/destroy
 lifecycle funnel, `GetGhostVesselPidForRecording`, the polyline cache + active-leg sets + marker-hold
-(`polylineCache`, `activeLegRecordings`, `directorOwnedLegRecordings`, `lastGoodOnLine` - keyed by
+(`polylineCache`, `activeLegRecordings`, `drewNonOrbitalLegRecordings`, `lastGoodOnLine` - keyed by
 `RecordingId` today), and the polyline Driver's single-head-UT walk.
 
 ## Slices

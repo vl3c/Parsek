@@ -16,12 +16,15 @@ namespace Parsek.Tests
     /// produce a double-draw artifact - the deletion BLOCKER the gate surfaces.
     /// <list type="bullet">
     /// <item>the pure <see cref="GhostMapPresence.IsLegacyOwnedLegCoveredByDeletion"/> predicate: FIRES for
-    /// a proto-bearing legacy-owned recId in NEITHER set (the blocker), PASSES for a director-owned one,
+    /// a proto-bearing legacy-owned recId in NEITHER set (the blocker), PASSES for a drew-set one,
     /// PASSES for a pid-0 one in the proto-less set, never flags null/empty.</item>
     /// <item>the end-to-end <see cref="GhostMapPresence.AssertLegacyOwnedLegsCovered"/> seam, driving the
-    /// legacy-owned set (GhostMapPresence) + the director-owned view
-    /// (<see cref="GhostTrajectoryPolylineRenderer.DirectorOwnedLegRecordingsThisFrame"/> via
+    /// legacy-owned set (GhostMapPresence) + the drew (actual-draw) view
+    /// (<see cref="GhostTrajectoryPolylineRenderer.DrewNonOrbitalLegRecordingsThisFrame"/> via
     /// <c>SetOwnershipPublishForTesting</c>).</item>
+    /// <item>the 8e S3a.1 BRIDGE-LEG regression: a recording that is legacy-owned AND drew-set-owned (via
+    /// the any-draw publish, even when the Director classified the span StockConic) AND proto-bearing must
+    /// NOT fire - the direct lock for the re-aim StockConic bridge-leg coverage gap S3a.1 closes.</item>
     /// <item>a WARP-STABLE-key guard on the new anomaly's per-recId rate-limit
     /// (<see cref="MapRenderProbe.PassesPerRecIdRateLimit"/>): vary the UT/leg content every frame, hold the
     /// wall clock -&gt; ONE pass per recId per window (the recId is the KEY; UT lives in the body). Mirrors
@@ -64,15 +67,15 @@ namespace Parsek.Tests
         // =====================================================================
 
         [Fact]
-        public void IsLegacyOwnedLegCoveredByDeletion_DirectorOwned_Covered()
+        public void IsLegacyOwnedLegCoveredByDeletion_DrewSet_Covered()
         {
-            // A legacy-owned recording also in the director-owned set keeps its proto-line/icon suppression
-            // after the legacy publish is deleted (the director-owned set still grants it). Covered.
-            var directorOwned = new HashSet<string>(StringComparer.Ordinal) { "rec-director" };
+            // A legacy-owned recording also in the drew (actual-draw) set keeps its proto-line/icon
+            // suppression after the legacy publish is deleted (the drew set still grants it). Covered.
+            var drew = new HashSet<string>(StringComparer.Ordinal) { "rec-director" };
             var protoLess = new HashSet<string>(StringComparer.Ordinal);
 
             Assert.True(GhostMapPresence.IsLegacyOwnedLegCoveredByDeletion(
-                "rec-director", directorOwned, protoLess));
+                "rec-director", drew, protoLess));
         }
 
         [Fact]
@@ -80,24 +83,24 @@ namespace Parsek.Tests
         {
             // A pid-0 / proto-less legacy-owned recording has NO proto to suppress, and the kept walk draws
             // it independent of ownership, so dropping the legacy ownership is invisible. Covered.
-            var directorOwned = new HashSet<string>(StringComparer.Ordinal);
+            var drew = new HashSet<string>(StringComparer.Ordinal);
             var protoLess = new HashSet<string>(StringComparer.Ordinal) { "rec-atmo" };
 
             Assert.True(GhostMapPresence.IsLegacyOwnedLegCoveredByDeletion(
-                "rec-atmo", directorOwned, protoLess));
+                "rec-atmo", drew, protoLess));
         }
 
         [Fact]
-        public void IsLegacyOwnedLegCoveredByDeletion_ProtoBearingNotDirectorOwned_FIRES()
+        public void IsLegacyOwnedLegCoveredByDeletion_ProtoBearingNotDrawn_FIRES()
         {
-            // NON-VACUITY: a legacy-owned recording in NEITHER set is proto-BEARING (not pid-0) AND not
-            // director-owned -> deleting the legacy ownership loses its suppression (double-draw). The
-            // deletion BLOCKER the gate exists to surface.
-            var directorOwned = new HashSet<string>(StringComparer.Ordinal) { "rec-other-director" };
+            // NON-VACUITY: a legacy-owned recording in NEITHER set is proto-BEARING (not pid-0) AND did
+            // NOT draw -> deleting the legacy ownership loses its suppression (double-draw). The deletion
+            // BLOCKER the gate exists to surface.
+            var drew = new HashSet<string>(StringComparer.Ordinal) { "rec-other-director" };
             var protoLess = new HashSet<string>(StringComparer.Ordinal) { "rec-other-atmo" };
 
             Assert.False(GhostMapPresence.IsLegacyOwnedLegCoveredByDeletion(
-                "rec-blocker", directorOwned, protoLess));
+                "rec-blocker", drew, protoLess));
         }
 
         [Fact]
@@ -113,12 +116,12 @@ namespace Parsek.Tests
         // =====================================================================
 
         [Fact]
-        public void AssertLegacyOwnedLegsCovered_ProtoBearingNotDirectorOwned_FIRES()
+        public void AssertLegacyOwnedLegsCovered_ProtoBearingNotDrawn_FIRES()
         {
-            // A legacy-owned recording that is NOT director-owned and NOT proto-less must fire: the
+            // A legacy-owned recording that is NOT in the drew set and NOT proto-less must fire: the
             // deletion-blocker case where the legacy publish granted suppression nothing else covers.
             GhostMapPresence.SetLegacyOwnedForTesting("rec-blocker", legacyOwned: true);
-            // No director-owned publish, no proto-less coverage for rec-blocker.
+            // No drew-set publish, no proto-less coverage for rec-blocker.
 
             var uncovered = new List<string>();
             GhostMapPresence.AssertLegacyOwnedLegsCovered(
@@ -128,18 +131,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AssertLegacyOwnedLegsCovered_DirectorOwned_DoesNotFire()
+        public void AssertLegacyOwnedLegsCovered_DrewSet_DoesNotFire()
         {
-            // A legacy-owned recording ALSO published into the director-owned set (the same-frame view from
-            // GhostTrajectoryPolylineRenderer) is covered - no fire.
+            // A legacy-owned recording ALSO published into the drew (actual-draw) set (the same-frame view
+            // from GhostTrajectoryPolylineRenderer) is covered - no fire.
             GhostMapPresence.SetLegacyOwnedForTesting("rec-director", legacyOwned: true);
             GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
-                "rec-director", inDirectorOwnedSet: true, inLegacySet: true);
+                "rec-director", inDrewSet: true, inLegacySet: true);
 
             var uncovered = new List<string>();
             GhostMapPresence.AssertLegacyOwnedLegsCovered(
                 (recId, doCount, plCount, loCount) => uncovered.Add(recId));
 
+            Assert.Empty(uncovered);
+        }
+
+        [Fact]
+        public void AssertLegacyOwnedLegsCovered_BridgeLeg_ProtoBearingDrewSetOwned_DoesNotFire()
+        {
+            // 8e S3a.1 BRIDGE-LEG REGRESSION (the direct lock for the re-aim StockConic bridge gap):
+            // the re-aim "bridge" leg DRAWS a brief body-fixed segment that lies on the conic, but the
+            // Director classified that UT span StockConic (NOT TracedPath), so before S3a.1 the drew-set
+            // publish (gated on ownedByTreatment) was SKIPPED - the leg was legacy-owned + proto-BEARING
+            // but NOT drew-set-owned -> the gate FIRED a false uncovered-legacy-owned-leg anomaly. After
+            // S3a.1 the publish is DECOUPLED: the leg drew, so it lands in the drew set on the any-draw
+            // path regardless of the StockConic classification. Model it: legacy-owned + drew-set-owned
+            // (inDrewSet:true) + proto-BEARING (NO proto-less coverage stamped). The gate must NOT fire.
+            const string recBridge = "rec-stockconic-bridge";
+            GhostMapPresence.SetLegacyOwnedForTesting(recBridge, legacyOwned: true);
+            // The any-draw publish (StockConic bridge leg drew) -> drew set, NOT proto-less.
+            GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                recBridge, inDrewSet: true, inLegacySet: true);
+            // Intentionally NO SetFrameCoverageForTesting(protoLess:true): this leg is proto-BEARING, so the
+            // ONLY thing that can cover it is the drew set - exactly what S3a.1 fixes.
+
+            var uncovered = new List<string>();
+            GhostMapPresence.AssertLegacyOwnedLegsCovered(
+                (recId, doCount, plCount, loCount) => uncovered.Add(recId));
+
+            Assert.DoesNotContain(recBridge, uncovered);
             Assert.Empty(uncovered);
         }
 
@@ -160,11 +190,11 @@ namespace Parsek.Tests
         [Fact]
         public void AssertLegacyOwnedLegsCovered_MixedFrame_FiresOnlyForTheBlocker()
         {
-            // A realistic frame: a director-owned leg, a proto-less leg, and one proto-bearing-not-owned
+            // A realistic frame: a drew-set leg, a proto-less leg, and one proto-bearing-not-drawn
             // blocker - all three legacy-owned. Only the blocker fires.
             GhostMapPresence.SetLegacyOwnedForTesting("rec-director", legacyOwned: true);
             GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
-                "rec-director", inDirectorOwnedSet: true, inLegacySet: true);
+                "rec-director", inDrewSet: true, inLegacySet: true);
 
             GhostMapPresence.SetLegacyOwnedForTesting("rec-atmo", legacyOwned: true);
             GhostMapPresence.SetFrameCoverageForTesting("rec-atmo", drawn: true, protoLess: true);
@@ -182,11 +212,11 @@ namespace Parsek.Tests
         [Fact]
         public void AssertLegacyOwnedLegsCovered_CountsReportSetSizes()
         {
-            // The callback's counts feed the anomaly body. directorOwned=1, protoLess=1, legacyOwned=3
+            // The callback's counts feed the anomaly body. drew=1, protoLess=1, legacyOwned=3
             // (the three legacy-owned recordings stamped below).
             GhostMapPresence.SetLegacyOwnedForTesting("rec-director", legacyOwned: true);
             GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
-                "rec-director", inDirectorOwnedSet: true, inLegacySet: true);
+                "rec-director", inDrewSet: true, inLegacySet: true);
             GhostMapPresence.SetLegacyOwnedForTesting("rec-atmo", legacyOwned: true);
             GhostMapPresence.SetFrameCoverageForTesting("rec-atmo", drawn: true, protoLess: true);
             GhostMapPresence.SetLegacyOwnedForTesting("rec-blocker", legacyOwned: true);
@@ -195,7 +225,7 @@ namespace Parsek.Tests
             GhostMapPresence.AssertLegacyOwnedLegsCovered(
                 (recId, d, p, l) => { doCount = d; plCount = p; loCount = l; });
 
-            Assert.Equal(1, doCount);   // director-owned set
+            Assert.Equal(1, doCount);   // drew (actual-draw) set
             Assert.Equal(1, plCount);   // proto-less coverage set
             Assert.Equal(3, loCount);   // legacy-owned set
         }
