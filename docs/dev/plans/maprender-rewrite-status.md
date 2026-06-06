@@ -361,23 +361,37 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     + tracing-on: re-aim ghost's icon rides its heliocentric line (`angleIconVsOrbitEff` -> ~0, was
     >45deg), `decision-vs-truth` parity, trim-gap frames stay hidden, no SOI-seam blink; toggle gate-off
     -> byte-identical.
-  - **Integration 2 - overlap rendering (DONE, awaiting in-game gate).** No per-instance MAP model exists
-    (`GhostMapPresence` is one-vessel-per-recording); an overlapping mission renders as ONE ProtoVessel +
-    one polyline head at the selected cycle. Fix: removed the conservative `SkipOverlap` early-skip in
-    `ShadowRenderDriver.RunFrame` so an overlap member flows through the normal assemble->sample->decide->
-    seed/stamp path. The sampler-parity precondition is CONFIRMED (clean review): `ChainSampler.Sample`
-    maps live->assembled UT via the SAME `GhostPlaybackLogic.ResolveTrackingStationSampleUT` the legacy
-    single-head uses, driven by `unit.CadenceSeconds` (span-raised single-instance), NOT
-    `unit.OverlapCadenceSeconds` (the short relaunch cadence consumed only by the flight MESH engine), so
-    the Director lands on the SAME selected-cycle head-UT as legacy. `ShadowScope.SkipOverlap` enum +
-    `ClassifyScope`/`ClassifyOverlapForMember` retained (classifier + its tests stay; production just stops
-    skipping; counter renamed `skipOverlap`->`overlapShadowed`). Gate-OFF byte-identical (skip lived only
-    in the gate/tracing-gated `RunFrame`; the new seed/stamp is consumed only under `IsDirectorDriveActive`
-    /`IsDirectorTracedPathActive`). No per-instance model / InstanceKey added. Build clean; suite green
-    (13477); clean review SHIP. **In-game gate:** a LAUNCH-TO-ORBIT mission looped with period < length so
-    it overlaps (interplanetary can't - pinned to its transfer window), map view + tracing on: the single
-    overlap map icon rides its line at the selected cycle, hides cleanly in inter-cycle gaps; gate-off
-    byte-identical. (The N staggered instances are flight-MESH-only; the map shows one at the live cycle.)
+  - **Integration 2 - overlap rendering. TWO parts: 2a FOUNDATION (DONE, PR #1051), 2b PER-INSTANCE
+    (planned, multi-PR - the real goal).** Full plan for 2b: `docs/dev/plans/maprender-overlap-per-instance.md`.
+    - **2a (DONE, PR #1051, validated):** removed the conservative `SkipOverlap` early-skip in
+      `ShadowRenderDriver.RunFrame` so an overlap member flows through the normal assemble->sample->decide->
+      seed/stamp path instead of falling back to legacy. It renders ONE ghost at the newest (selected)
+      cycle. Sampler-parity CONFIRMED (clean review + in-game): `ChainSampler.Sample` maps live->assembled
+      UT via the SAME `GhostPlaybackLogic.ResolveTrackingStationSampleUT` the legacy single-head uses,
+      driven by `unit.CadenceSeconds` (span-raised single-instance), NOT `unit.OverlapCadenceSeconds` (the
+      short relaunch cadence consumed only by the flight MESH engine), so the Director lands on the same
+      selected-cycle head-UT as legacy. `ShadowScope.SkipOverlap` enum + `ClassifyScope`/
+      `ClassifyOverlapForMember` retained (classifier + tests stay; production stops skipping; counter
+      `skipOverlap`->`overlapShadowed`). Gate-OFF byte-identical. Build clean; suite green (13477).
+      In-game validated 2026-06-06 (flight-map, save s16, "Kerbal X" self-overlap): single icon rode its
+      line, 1112/1112 `drawn-non-proto`, no blink, clean teardown of 17 live overlap meshes / 8 recordings.
+    - **2b - PER-INSTANCE (decided 2026-06-06; the accurate end state):** 2a's single icon MISREPRESENTS
+      reality - flight shows N staggered overlap meshes, the map shows ONE. The goal (maintainer's call:
+      "render an icon for every ghost, make it accurate") is ONE map icon + orbit line + polyline PER LIVE
+      overlap INSTANCE, so the map matches flight. **This is a real per-instance build-out, multi-PR**
+      (comparable to 8c/8d), because N icons require N ProtoVessels (the icon is the stock orbit-driver's
+      icon, one per vessel) and the whole map layer (~12 keyed maps + the presence lifecycle) is
+      one-per-recording and must become per-(recording, cycleIndex). The flight engine ALREADY has the
+      per-instance model to MIRROR (`overlapGhosts`, `GhostPlaybackLogic.GetActiveCycles` /
+      `ComputeOverlapCyclePlaybackUT`, the `(recording, cycleIndex)` identity, cap
+      `MaxOverlapGhostsPerRecording=20`) - reuse it, do not reinvent. FULL per-instance (not icon-only:
+      N icons on one shared line is visibly wrong for non-orbital ascent/descent instances). Stacks on 2a
+      (instance 0 = newest cycle = today's single ghost). Slices: (i) map presence N-per-overlapping-
+      recording lifecycle [the bulk], (ii) Director per-instance enumeration + the existing `instanceKey`
+      wiring (caches are already pid-keyed), (iii) polyline + marker per-instance. Efficiency: overlap-ONLY
+      gate so non-overlap recordings stay EXACTLY one-per-recording (zero new cost); reuse the engine's
+      cycles; throttle per-instance ProtoVessel create/destroy (the biggest risk = warp-time cycle churn);
+      cap at 20. Gate-OFF stays legacy one-per-recording.
   - **Rendering polish - polyline + marker pan-stability (DONE, gated-neutral).** Fixed map polylines +
     yellow label markers jittering / flickering when panning the camera (pre-existing, NOT from the
     cutover). Root cause: the polyline draw ran at `[DefaultExecutionOrder(-50)]`, BEFORE the map camera
