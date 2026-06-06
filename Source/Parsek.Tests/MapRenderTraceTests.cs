@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using Xunit;
 
@@ -18,6 +19,8 @@ namespace Parsek.Tests
     {
         private readonly List<string> logLines = new List<string>();
 
+        private double clock = 1000.0;
+
         public MapRenderTraceTests()
         {
             MapRenderTrace.Reset();
@@ -25,9 +28,11 @@ namespace Parsek.Tests
             MapRenderTrace.FrameCounterOverrideForTesting = () => 42;
             ParsekSettings.CurrentOverrideForTesting = null;
             ParsekLog.ResetTestOverrides();
+            ParsekLog.ResetRateLimitsForTesting();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.ClockOverrideForTesting = () => clock;
             ParsekSettingsPersistence.ResetForTesting();
         }
 
@@ -39,6 +44,7 @@ namespace Parsek.Tests
             ParsekSettings.CurrentOverrideForTesting = null;
             ParsekSettingsPersistence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
+            ParsekLog.ResetRateLimitsForTesting();
             ParsekLog.SuppressLogging = true;
         }
 
@@ -656,6 +662,30 @@ namespace Parsek.Tests
             Assert.False(MapRenderTrace.TryGetFreshLineIntent("7", 101, out _));
         }
 
+        // ---- warp safeguard: per-cycle marker-decision keys do not grow the dict unbounded ----
+
+        [Fact]
+        public void EmitMarkerDecisionOnChange_PerCycleKeysAtWarp_DictStaysBounded()
+        {
+            // GAP-1's per-instance overlap decision key is recordingId#cycle; at high warp the cycle
+            // index advances without bound WITHIN a scene (Reset only fires on scene switch), minting a
+            // fresh key every cycle. The MaxTrackedMarkerDecisionKeys cap must keep the change-detection
+            // dict bounded so a long tracing session at warp does not leak. Push far past the cap.
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            for (int i = 0; i < 12000; i++)
+                MapRenderTrace.EmitMarkerDecisionOnChange(
+                    MapRenderTrace.RenderSurface.AtmosphericMarker,
+                    "recA#" + i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    1000.0 + i,
+                    "outcome=DrawnNonProto ride=rode-leg0 posSource=polyline");
+
+            // Bounded by the cap (<= 4096), never approaching the unbounded 12000.
+            Assert.True(MapRenderTrace.MarkerDecisionSignatureCountForTesting <= 4096,
+                "marker-decision dict grew to "
+                    + MapRenderTrace.MarkerDecisionSignatureCountForTesting + " (cap 4096)");
+        }
+
         // ---- polyline-orbit-overlap anomaly ----
 
         [Fact]
@@ -721,6 +751,86 @@ namespace Parsek.Tests
             MapRenderTrace.EmitMarker(
                 MapRenderTrace.RenderSurface.AtmosphericMarker, "rec-marker-disabled", 100.0, "vessel=X");
             Assert.Empty(logLines);
+        }
+
+        // ---- GAP-2: first-class Polyline-surface trace at the shared Driver's per-leg draw site ----
+
+        [Fact]
+        public void EmitMarker_Polyline_EmitsMarkerDrawWithPolylineSurface()
+        {
+            // GAP-2: the polyline leg draw now emits a first-class MapRenderTrace line so the
+            // surface=Polyline slot is greppable in BOTH scenes (the insertion lives in the shared
+            // Driver). Phase is MarkerDraw (EmitMarker's phase).
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitMarker(
+                MapRenderTrace.RenderSurface.Polyline, "rec-polyline", 500.0,
+                "scene=TRACKSTATION leg=2 body=Kerbin pts=40 owned=False");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE]")
+                && l.Contains("[MapRenderTrace]")
+                && l.Contains("phase=MarkerDraw")
+                && l.Contains("surface=Polyline")
+                && l.Contains("pid=rec-polyline")
+                && l.Contains("body=Kerbin"));
+        }
+
+        [Fact]
+        public void EmitMarker_Polyline_SameKeyWithinInterval_CollapsesToOneLine()
+        {
+            // GAP-2 warp-stability: the rate-limit KEY is (Polyline, recId) only - warp-stable per the
+            // #1063 rule. Two draws of the SAME recording inside the interval (the per-leg index / UT
+            // advance every frame and live in the BODY, never the key) collapse to a single emitted
+            // line. Clock held fixed via ClockOverrideForTesting so both calls fall in one window.
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitMarker(
+                MapRenderTrace.RenderSurface.Polyline, "rec-warp", 1000.0,
+                "scene=FLIGHT leg=0 body=Kerbin pts=12 owned=True");
+            // Same (Polyline, recId) key, DIFFERENT leg + UT in the body, clock unchanged.
+            MapRenderTrace.EmitMarker(
+                MapRenderTrace.RenderSurface.Polyline, "rec-warp", 1001.0,
+                "scene=FLIGHT leg=5 body=Kerbin pts=18 owned=True");
+
+            int polylineLines = logLines.Count(l =>
+                l.Contains("[MapRenderTrace]")
+                && l.Contains("surface=Polyline")
+                && l.Contains("pid=rec-warp"));
+            Assert.Equal(1, polylineLines);
+        }
+
+        [Fact]
+        public void EmitMarker_Polyline_DifferentRecordings_TrackedIndependently()
+        {
+            // Two distinct recordingIds => two distinct (Polyline, recId) keys => one emit each
+            // (recording A does not throttle recording B inside the same window).
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitMarker(
+                MapRenderTrace.RenderSurface.Polyline, "rec-A", 1000.0, "scene=FLIGHT leg=0");
+            MapRenderTrace.EmitMarker(
+                MapRenderTrace.RenderSurface.Polyline, "rec-B", 1000.0, "scene=FLIGHT leg=0");
+
+            Assert.Contains(logLines, l => l.Contains("surface=Polyline") && l.Contains("pid=rec-A"));
+            Assert.Contains(logLines, l => l.Contains("surface=Polyline") && l.Contains("pid=rec-B"));
+        }
+
+        [Fact]
+        public void EmitMarker_Polyline_AfterIntervalElapses_EmitsAgain()
+        {
+            // Advancing the wall clock past the 2 s interval re-opens the gate for the same key.
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitMarker(
+                MapRenderTrace.RenderSurface.Polyline, "rec-interval", 1000.0, "scene=FLIGHT leg=0");
+            clock += 2.5; // past the default 2 s interval
+            MapRenderTrace.EmitMarker(
+                MapRenderTrace.RenderSurface.Polyline, "rec-interval", 1001.0, "scene=FLIGHT leg=3");
+
+            int polylineLines = logLines.Count(l =>
+                l.Contains("surface=Polyline") && l.Contains("pid=rec-interval"));
+            Assert.Equal(2, polylineLines);
         }
 
         // ---- Marker-decision observability (per-pid WHY a marker drew / was skipped) ----

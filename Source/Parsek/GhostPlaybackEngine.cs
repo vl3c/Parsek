@@ -6247,17 +6247,22 @@ namespace Parsek
                     $"Chain-seam spawn: vessel='{state.vesselName}' rec={shortRecId} UT={playbackUT:F2}: force-immediate-build + skip activation-settle (predecessor pose is continuous)"));
             }
 
+            string pendingSpawnRecId = state.recordingId ?? string.Empty;
             if (TryResolvePendingPlaybackInterpolation(traj, playbackUT, out InterpolationResult initialPlayback))
             {
                 state.SetInterpolated(initialPlayback);
                 string seededBodyName = initialPlayback.bodyName ?? "(null)";
-                ParsekLog.Verbose("Engine", FormattableString.Invariant(
-                    $"Pending spawn interpolation seed: vessel='{state.vesselName}' lifecycle={lifecycle} UT={playbackUT:F1} body='{seededBodyName}' altitude={initialPlayback.altitude:F1}"));
+                ParsekLog.VerboseRateLimited("Engine", "pending-spawn-seed-" + pendingSpawnRecId,
+                    FormattableString.Invariant(
+                        $"Pending spawn interpolation seed: vessel='{state.vesselName}' lifecycle={lifecycle} UT={playbackUT:F1} body='{seededBodyName}' altitude={initialPlayback.altitude:F1}"),
+                    2.0);
             }
             else
             {
-                ParsekLog.Verbose("Engine", FormattableString.Invariant(
-                    $"Pending spawn interpolation seed unavailable: vessel='{state.vesselName}' lifecycle={lifecycle} UT={playbackUT:F1}"));
+                ParsekLog.VerboseRateLimited("Engine", "pending-spawn-seed-unavail-" + pendingSpawnRecId,
+                    FormattableString.Invariant(
+                        $"Pending spawn interpolation seed unavailable: vessel='{state.vesselName}' lifecycle={lifecycle} UT={playbackUT:F1}"),
+                    2.0);
             }
 
             return state;
@@ -6320,8 +6325,9 @@ namespace Parsek
                         $"(loop cycle={state.loopCycleIndex})");
                     if (retired)
                     {
-                        ParsekLog.Verbose("Engine",
-                            $"finalize-spawn retire: suppressing RetargetToNewGhost (anchor retired on first spawn) ghost #{index} \"{vesselName}\" lifecycle=LoopEnter cycle={state.loopCycleIndex}");
+                        ParsekLog.VerboseRateLimited("Engine", $"finalize-retire-loop-{index}",
+                            $"finalize-spawn retire: suppressing RetargetToNewGhost (anchor retired on first spawn) ghost #{index} \"{vesselName}\" lifecycle=LoopEnter cycle={state.loopCycleIndex}",
+                            3.0);
                         break;
                     }
                     OnLoopCameraAction?.Invoke(new CameraActionEvent
@@ -6341,8 +6347,9 @@ namespace Parsek
                         $"at UT {playbackUT:F1} (overlap)");
                     if (retired)
                     {
-                        ParsekLog.Verbose("Engine",
-                            $"finalize-spawn retire: suppressing RetargetToNewGhost (anchor retired on first spawn) ghost #{index} \"{vesselName}\" lifecycle=OverlapPrimaryEnter cycle={state.loopCycleIndex}");
+                        ParsekLog.VerboseRateLimited("Engine", $"finalize-retire-overlap-{index}",
+                            $"finalize-spawn retire: suppressing RetargetToNewGhost (anchor retired on first spawn) ghost #{index} \"{vesselName}\" lifecycle=OverlapPrimaryEnter cycle={state.loopCycleIndex}",
+                            3.0);
                         break;
                     }
                     OnOverlapCameraAction?.Invoke(new CameraActionEvent
@@ -7709,15 +7716,21 @@ namespace Parsek
                 if (surfaceSkip && canUseOrbitPrecedence)
                 {
                     string vesselName = traj.VesselName ?? "Unknown";
-                    ParsekLog.Verbose("Engine", FormattableString.Invariant(
-                        $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} surface track section active, skipping orbit precedence"));
+                    string branchRecId = traj.RecordingId ?? string.Empty;
+                    ParsekLog.VerboseRateLimited("Engine", "pending-playback-branch-1-" + branchRecId,
+                        FormattableString.Invariant(
+                            $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} surface track section active, skipping orbit precedence"),
+                        2.0);
                 }
 
                 if (!surfaceSkip && authoredGapHasShadow && canUseOrbitPrecedence)
                 {
                     string vesselName = traj.VesselName ?? "Unknown";
-                    ParsekLog.Verbose("Engine", FormattableString.Invariant(
-                        $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} skipping orbit precedence: authored-frame gap body-fixed primary available"));
+                    string branchRecId = traj.RecordingId ?? string.Empty;
+                    ParsekLog.VerboseRateLimited("Engine", "pending-playback-branch-2-" + branchRecId,
+                        FormattableString.Invariant(
+                            $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} skipping orbit precedence: authored-frame gap body-fixed primary available"),
+                        2.0);
                 }
 
                 if (!surfaceSkip && !authoredGapHasShadow && canUseOrbitPrecedence)
@@ -7746,8 +7759,11 @@ namespace Parsek
                 else
                 {
                     string vesselName = traj.VesselName ?? "Unknown";
-                    ParsekLog.Verbose("Engine", FormattableString.Invariant(
-                        $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} relative section active with no body-fixed primary, skipping flat relative point metadata"));
+                    string branchRecId = traj.RecordingId ?? string.Empty;
+                    ParsekLog.VerboseRateLimited("Engine", "pending-playback-branch-3-" + branchRecId,
+                        FormattableString.Invariant(
+                            $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} relative section active with no body-fixed primary, skipping flat relative point metadata"),
+                        2.0);
                 }
             }
 
@@ -7909,8 +7925,11 @@ namespace Parsek
         {
             string vesselName = traj?.VesselName ?? "Unknown";
             string bodyName = result.bodyName ?? "(null)";
-            ParsekLog.Verbose("Engine", FormattableString.Invariant(
-                $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} resolved from {source} body='{bodyName}' altitude={result.altitude:F1}"));
+            string recId = traj?.RecordingId ?? string.Empty;
+            ParsekLog.VerboseRateLimited("Engine", "pending-playback-interp-" + recId + "-" + source,
+                FormattableString.Invariant(
+                    $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} resolved from {source} body='{bodyName}' altitude={result.altitude:F1}"),
+                2.0);
             return true;
         }
 
@@ -7918,8 +7937,11 @@ namespace Parsek
             IPlaybackTrajectory traj, double playbackUT, string reason)
         {
             string vesselName = traj?.VesselName ?? "Unknown";
-            ParsekLog.Verbose("Engine", FormattableString.Invariant(
-                $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} unresolved ({reason})"));
+            string recId = traj?.RecordingId ?? string.Empty;
+            ParsekLog.VerboseRateLimited("Engine", "pending-playback-interp-unres-" + recId + "-" + reason,
+                FormattableString.Invariant(
+                    $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} unresolved ({reason})"),
+                2.0);
             return false;
         }
 
@@ -8026,23 +8048,29 @@ namespace Parsek
 
             // #375: was Info, demoted to Verbose after the #258 fix (first-visible-frame
             // activation) was field-validated. High-volume with many debris ghosts.
-            ParsekLog.Verbose("GhostAppearance",
-                $"Ghost #{index} \"{traj?.VesselName ?? state.vesselName ?? "unknown"}\" " +
-                $"appearance#{state.appearanceCount} reason={reason} " +
-                $"ut={playbackUT.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"requestedUT={requestedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"firstFrameClamped={(firstFrameClamped ? "T" : "F")} " +
-                $"activationStart={activationStartUT.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"activationLead={(playbackUT - activationStartUT).ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"zone={state.currentZone} dist={FormatPlaybackDistanceForLog(state.lastDistance)} " +
-                $"{activeSectionSummary} " +
-                $"root={FormatVector3d(rootPos)} rootRot={FormatQuaternion(rootRot)} " +
-                $"boundsCenter={FormatVector3d(boundsCenter)} bounds-root={FormatVector3d(boundsRootDelta)} " +
-                $"firstVisiblePart={firstVisiblePartLabel}:{FormatVector3d(firstVisiblePartPos)} " +
-                $"part-root={FormatVector3d(firstVisiblePartRootDelta)} " +
-                $"{recordingStartSummary} " +
-                $"snapshotCoM={(hasSnapshotCoM ? FormatVector3(snapshotCoM) : "none")} " +
-                $"{rootPartSummary}{rootPartWorldSummary} visibleRenderers={rendererCount}");
+            // The on-change gate above (state.hadVisibleRenderersLastFrame) is the inner
+            // throttle; this outer wall-clock rate limit additionally collapses the
+            // overlap-cycle-rebuild case where ResetGhostAppearanceTracking flips the
+            // flag every loop/overlap cycle (many times/sec at warp).
+            ParsekLog.VerboseRateLimited("GhostAppearance", $"ghost-appearance-{index}",
+                () =>
+                    $"Ghost #{index} \"{traj?.VesselName ?? state.vesselName ?? "unknown"}\" " +
+                    $"appearance#{state.appearanceCount} reason={reason} " +
+                    $"ut={playbackUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"requestedUT={requestedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"firstFrameClamped={(firstFrameClamped ? "T" : "F")} " +
+                    $"activationStart={activationStartUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"activationLead={(playbackUT - activationStartUT).ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"zone={state.currentZone} dist={FormatPlaybackDistanceForLog(state.lastDistance)} " +
+                    $"{activeSectionSummary} " +
+                    $"root={FormatVector3d(rootPos)} rootRot={FormatQuaternion(rootRot)} " +
+                    $"boundsCenter={FormatVector3d(boundsCenter)} bounds-root={FormatVector3d(boundsRootDelta)} " +
+                    $"firstVisiblePart={firstVisiblePartLabel}:{FormatVector3d(firstVisiblePartPos)} " +
+                    $"part-root={FormatVector3d(firstVisiblePartRootDelta)} " +
+                    $"{recordingStartSummary} " +
+                    $"snapshotCoM={(hasSnapshotCoM ? FormatVector3(snapshotCoM) : "none")} " +
+                    $"{rootPartSummary}{rootPartWorldSummary} visibleRenderers={rendererCount}",
+                2.0);
         }
 
         internal static string DescribeAppearanceActiveSection(IPlaybackTrajectory traj, double playbackUT)

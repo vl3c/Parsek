@@ -97,21 +97,23 @@ namespace Parsek.Display
             new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
-        /// Phase 8b.2 (Director-authoritative ownership): recordings whose non-orbital leg was drawn
-        /// THIS frame by the OWNED <c>TracedPathTreatment.TryDrawOwnedLeg</c> path - i.e. the Director
-        /// decided Visible+TracedPath for the ghost AND the treatment actually drew a leg (drawn=true).
-        /// Populated only on an ACTUAL draw (preserving 8b.1's "proto hidden iff a leg drew"
-        /// robustness), so it can never report ownership for a frame where the Director decided
-        /// TracedPath but the polyline produced no drawable leg (the degenerate-leg / head-in-gap /
-        /// traj.Points-vs-TrackSections divergence gap - see <see cref="ResolveNonOrbitalLegOwnership"/>).
-        /// Cleared alongside <see cref="activeLegRecordings"/> at the top of every <c>LateUpdate</c>.
-        /// This is the AUTHORITATIVE ownership source for an owned leg when the director-drive gate is
-        /// on; <see cref="activeLegRecordings"/> stays the gate-off fallback (and still covers the legs
-        /// the autonomous Driver draws directly under the gate - pid-0 / re-aim / overlap ghosts the
-        /// shadow does not own). The Driver's autonomous-walk publish is retired as the AUTHORITATIVE
-        /// source only for the owned legs; its deletion is Phase 8e.
+        /// Phase 8b.2 / 8e S3a.1 (actual-draw ownership): recordings whose non-orbital polyline leg
+        /// actually DREW this frame - on EITHER the OWNED <c>TracedPathTreatment.TryDrawOwnedLeg</c> path
+        /// (Director decided Visible+TracedPath) OR the Driver-direct path (the Director classified the
+        /// span StockConic, e.g. the re-aim "bridge" legs that lie on the conic). The DRAW is the
+        /// authoritative ownership signal; the Director's StockConic/TracedPath classification is
+        /// irrelevant to whether the proto line/icon must be hidden, so this set is DECOUPLED from
+        /// <c>IsDirectorTracedPathActive</c> (8e S3a.1). Populated only on an ACTUAL draw (preserving
+        /// 8b.1's "proto hidden iff a leg drew" robustness), so it can never report ownership for a frame
+        /// where nothing drew (the degenerate-leg / head-in-gap / traj.Points-vs-TrackSections divergence
+        /// gap - see <see cref="ResolveNonOrbitalLegOwnership"/>). Published on the SAME condition as
+        /// <see cref="activeLegRecordings"/> (the per-recording <c>if (anyDrawn)</c> block), so it is
+        /// byte-identical to that set; the gate-on union (drew OR activeLeg) is therefore an OR over
+        /// identical sets and live render behavior is UNCHANGED. <see cref="activeLegRecordings"/> stays
+        /// the gate-off fallback until its S3b deletion. Cleared alongside
+        /// <see cref="activeLegRecordings"/> at the top of every <c>LateUpdate</c>.
         /// </summary>
-        private static readonly HashSet<string> directorOwnedLegRecordings =
+        private static readonly HashSet<string> drewNonOrbitalLegRecordings =
             new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
@@ -218,28 +220,29 @@ namespace Parsek.Display
         /// bits are passed in).
         /// <list type="bullet">
         /// <item>Gate OFF -> the legacy <see cref="activeLegRecordings"/> membership ONLY, so the
-        /// gate-off path is byte-identical to pre-8b.2 (the Director set is never consulted).</item>
-        /// <item>Gate ON -> the UNION of the director-owned set and the legacy set. The director-owned
-        /// set is the authoritative source for legs the treatment actually drew; the legacy set still
-        /// covers the legs the autonomous Driver draws directly this frame (pid-0 atmospheric-only,
-        /// re-aim / overlap members the shadow skips), which under the gate still take the Driver-direct
-        /// path and publish to <see cref="activeLegRecordings"/>. Both sets are populated ONLY on an
-        /// actual draw, so the union is true iff SOME leg actually drew -> proto hidden iff polyline
-        /// drew, no new gap.</item>
+        /// gate-off path is byte-identical to pre-8b.2 (the drew set is never consulted).</item>
+        /// <item>Gate ON -> the UNION of the drew set and the legacy set. The drew set
+        /// (<see cref="drewNonOrbitalLegRecordings"/>) records every recording whose polyline leg actually
+        /// drew this frame, on EITHER the owned-treatment path OR the Driver-direct path (8e S3a.1: the
+        /// draw is the authoritative signal, decoupled from the Director's StockConic/TracedPath
+        /// classification). It is published on the SAME per-recording condition as the legacy set, so the
+        /// two are byte-identical and the union is an OR over identical sets - UNCHANGED vs the legacy set
+        /// alone. Both are populated ONLY on an actual draw, so the union is true iff SOME leg actually
+        /// drew -> proto hidden iff polyline drew, no new gap.</item>
         /// </list>
         /// </summary>
         internal static bool ResolveNonOrbitalLegOwnership(
-            bool directorDriveGateOn, bool inDirectorOwnedSet, bool inLegacySet)
-            => directorDriveGateOn ? (inDirectorOwnedSet || inLegacySet) : inLegacySet;
+            bool directorDriveGateOn, bool inDrewSet, bool inLegacySet)
+            => directorDriveGateOn ? (inDrewSet || inLegacySet) : inLegacySet;
 
         /// <summary>
         /// True when the trajectory polyline is currently drawing a non-orbital
         /// leg for <paramref name="recordingId"/>. Read by <c>GhostMapPresence</c> to
         /// suppress the overlapping proto-vessel orbit line for that phase.
-        /// 8b.2: behind the director-drive gate the AUTHORITATIVE source for an owned leg is the
-        /// treatment-published <see cref="directorOwnedLegRecordings"/> (actual-draw semantics);
-        /// gate-off falls back to the legacy <see cref="activeLegRecordings"/> byte-for-byte. See
-        /// <see cref="ResolveNonOrbitalLegOwnership"/>.
+        /// 8b.2 / 8e S3a.1: behind the director-drive gate the source is the actual-draw-published
+        /// <see cref="drewNonOrbitalLegRecordings"/> unioned with the legacy
+        /// <see cref="activeLegRecordings"/> (byte-identical sets); gate-off falls back to the legacy set
+        /// byte-for-byte. See <see cref="ResolveNonOrbitalLegOwnership"/>.
         /// </summary>
         internal static bool IsRenderingNonOrbitalLeg(string recordingId)
         {
@@ -247,26 +250,39 @@ namespace Parsek.Display
             bool gateOn = ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive;
             return ResolveNonOrbitalLegOwnership(
                 gateOn,
-                directorOwnedLegRecordings.Contains(recordingId),
+                drewNonOrbitalLegRecordings.Contains(recordingId),
                 activeLegRecordings.Contains(recordingId));
         }
 
         /// <summary>
-        /// Test-only seam (8b.2): stamps the two per-frame ownership publish sets the Driver's
+        /// Test-only seam (8b.2 / 8e S3a.1): stamps the two per-frame ownership publish sets the Driver's
         /// <c>LateUpdate</c> populates (Unity-coupled, not reachable from xUnit), so the gate-read +
         /// dispatch in <see cref="IsRenderingNonOrbitalLeg"/> can be exercised end-to-end. Mirrors the
-        /// real publish: <paramref name="inDirectorOwnedSet"/> models the treatment's actual-draw publish,
-        /// <paramref name="inLegacySet"/> the autonomous Driver's. Cleared by <see cref="Clear"/>.
+        /// real publish: <paramref name="inDrewSet"/> models the actual-draw publish (any leg drew, owned
+        /// or Driver-direct), <paramref name="inLegacySet"/> the legacy autonomous-Driver publish. Cleared
+        /// by <see cref="Clear"/>.
         /// </summary>
         internal static void SetOwnershipPublishForTesting(
-            string recordingId, bool inDirectorOwnedSet, bool inLegacySet)
+            string recordingId, bool inDrewSet, bool inLegacySet)
         {
             if (string.IsNullOrEmpty(recordingId)) return;
-            if (inDirectorOwnedSet) directorOwnedLegRecordings.Add(recordingId);
-            else directorOwnedLegRecordings.Remove(recordingId);
+            if (inDrewSet) drewNonOrbitalLegRecordings.Add(recordingId);
+            else drewNonOrbitalLegRecordings.Remove(recordingId);
             if (inLegacySet) activeLegRecordings.Add(recordingId);
             else activeLegRecordings.Remove(recordingId);
         }
+
+        /// <summary>
+        /// Phase 8e S3a / S3a.1: a read-only view of this frame's actual-draw leg set
+        /// (<see cref="drewNonOrbitalLegRecordings"/> - every recording whose polyline leg drew this frame,
+        /// owned-treatment OR Driver-direct), consumed by
+        /// <c>GhostMapPresence.AssertLegacyOwnedLegsCovered</c> to prove every legacy-owned leg is either
+        /// drew-set-owned OR proto-less before the S3b deletion of <see cref="activeLegRecordings"/>.
+        /// Already RecordingId-keyed, so the gate needs NO pid bridge. The set is populated + cleared by
+        /// the Driver's per-frame decide walk on the same lifecycle as the legacy-owned set, so a
+        /// same-frame read pairs correctly. Diagnostic-only; this accessor adds NO live render behavior.
+        /// </summary>
+        internal static ICollection<string> DrewNonOrbitalLegRecordingsThisFrame => drewNonOrbitalLegRecordings;
 
         /// <summary>
         /// Test-only accessor: returns the live cache dictionary so the
@@ -484,7 +500,7 @@ namespace Parsek.Display
             // cross-save flush / test reset never leaves a stale ownership behind. They are re-cleared
             // every LateUpdate, so this is belt-and-suspenders in normal play and the reset hook in tests.
             activeLegRecordings.Clear();
-            directorOwnedLegRecordings.Clear();
+            drewNonOrbitalLegRecordings.Clear();
             // Drop the marker hold cache on the same cross-save / test-reset lifecycle as the ownership
             // sets so a stale held on-line point never survives a save load or a scene switch.
             lastGoodOnLine.Clear();
@@ -1856,12 +1872,20 @@ namespace Parsek.Display
                 // Publish-set for GhostMapPresence orbit suppression: clear FIRST,
                 // before any early return, so it reflects only recordings whose
                 // non-orbital leg actually draws this frame (empty when the
-                // polyline is off / not in map view / wrong scene). 8b.2: the
-                // Director-authoritative owned set is cleared on the same lifecycle
-                // so a stale ownership can never leak a hidden proto into the next
-                // phase (both sets repopulate only on an actual draw this frame).
+                // polyline is off / not in map view / wrong scene). 8b.2 / 8e S3a.1:
+                // the actual-draw set is cleared on the same lifecycle so a stale
+                // ownership can never leak a hidden proto into the next phase (both
+                // sets repopulate only on an actual draw this frame).
                 activeLegRecordings.Clear();
-                directorOwnedLegRecordings.Clear();
+                drewNonOrbitalLegRecordings.Clear();
+
+                // Phase 8e S0 (PURELY ADDITIVE diagnostics): clear this frame's coverage-closure sets on
+                // the SAME pre-early-return lifecycle as the ownership sets, so they reflect only the
+                // recordings this frame's walk draws (empty when the polyline is off / not in map view /
+                // wrong scene). Only touched in tracing mode (the populate site below is IsEnabled-gated),
+                // but the clear is unconditional + cheap so a tracing toggle mid-session never leaves a
+                // stale drawn/coverage entry behind for the probe to misread.
+                GhostMapPresence.ClearFrameCoverageSets();
 
                 // Pan-stability (FIX 1): drop last frame's pending-draw handoff before any early return,
                 // so a frame that bails (wrong scene / not in map view / no controller) leaves nothing for
@@ -2088,14 +2112,6 @@ namespace Parsek.Display
                             ghostPid = ghostPid
                         });
                         anyDrawn = true;
-                        // Ownership publish on the will-draw decision (8b.2 semantics preserved: published
-                        // iff a leg will draw, which equals actual-draw for every non-degenerate leg).
-                        // The OWNED path remains the authoritative director-owned publisher; the legacy
-                        // activeLegRecordings publish (below the loop) still fires on EITHER path, so
-                        // gate-off is byte-identical and the union in ResolveNonOrbitalLegOwnership is
-                        // unchanged.
-                        if (ownedByTreatment)
-                            directorOwnedLegRecordings.Add(rec.RecordingId);
                     }
 
                     // Diagnostic (multi-leg / re-aim recordings): the head's position vs the leg windows,
@@ -2179,6 +2195,36 @@ namespace Parsek.Display
                         // Tell GhostMapPresence the polyline owns this recording's
                         // current phase so it hides the overlapping orbit line.
                         activeLegRecordings.Add(rec.RecordingId);
+
+                        // 8e S3a.1 (DECOUPLED ownership publish): a leg actually drew this frame, so the
+                        // polyline owns this non-orbital phase - regardless of whether the Director
+                        // classified the span TracedPath (owned-by-treatment) or StockConic (Driver-direct
+                        // "bridge" leg). The DRAW is the authoritative ownership signal (8b.2 actual-draw
+                        // principle); the Director's StockConic/TracedPath classification is irrelevant to
+                        // whether the proto line/icon must be hidden. Published on EITHER path (same
+                        // condition as activeLegRecordings.Add directly above), so this set is byte-identical
+                        // to activeLegRecordings -> the gate-on union (drew OR activeLeg) is UNCHANGED (an OR
+                        // over identical sets) and gate-off never reads this set. Net live behavior change:
+                        // ZERO. The only changed reader is the S3a deletion-safety gate, which now sees the
+                        // StockConic bridge legs accounted (they were already in activeLegRecordings) and
+                        // stops firing the false uncovered-legacy-owned-leg anomaly.
+                        drewNonOrbitalLegRecordings.Add(rec.RecordingId);
+
+                        // Phase 8e S0 Instrument 1 (PURELY ADDITIVE): record this recording into the
+                        // coverage-closure DRAWN set (will-draw == actual-draw here), and - when it has
+                        // NO ProtoVessel ghost (ghostPid == 0, a pid-0 atmospheric/ascent recording the
+                        // Director's ghostMapVesselPids enumeration cannot see) - into the proto-less
+                        // COVERAGE set, the Director's genuine accounting of it via this non-proto walk.
+                        // Gated on tracing so default play pays nothing; no render/draw effect.
+                        if (MapRenderTrace.IsEnabled)
+                        {
+                            GhostMapPresence.NoteDrawnRecordingCoverage(rec.RecordingId, ghostPid);
+                            // Phase 8e S3a (PURELY ADDITIVE): mirror the LEGACY ownership-publish (the
+                            // activeLegRecordings.Add directly above) so the S3a gate can prove S3b's
+                            // deletion of activeLegRecordings drops nothing. Same IsEnabled gate; no
+                            // render/draw effect.
+                            GhostMapPresence.NoteLegacyOwnedLeg(rec.RecordingId);
+                        }
                     }
                 }
 
@@ -2266,6 +2312,27 @@ namespace Parsek.Display
                     // array (set.legs is the same array reference the dict holds).
                     set.legs[p.legIndex] = leg;
                     if (legDrawn) drawn++;
+
+                    // GAP-2: first-class Polyline-surface trace at the ACTUAL draw site. The
+                    // surface=Polyline slot was previously blind under MapRenderTrace (the Driver only
+                    // emitted Verbose lines on its own tag), so a reader could not grep the polyline
+                    // draw under the tracer - exactly the TS-invisible-polyline bug class (the layer-31
+                    // fix above is "decided to draw but didn't paint where expected"). This lives in the
+                    // SHARED Driver, so the one insertion covers FLIGHT and TRACKSTATION. Rate-limit /
+                    // change KEY is (Polyline, p.recordingId) only - warp-stable per the #1063 rule;
+                    // the per-leg index / UT / draw count / frame are warp-advancing and live in the
+                    // message BODY, never the key (EmitMarker rate-limits per (surface, key) on
+                    // wall-clock). Emitted only on an ACTUAL leg draw so a skipped leg is not traced.
+                    if (legDrawn && MapRenderTrace.IsEnabled)
+                        MapRenderTrace.EmitMarker(
+                            MapRenderTrace.RenderSurface.Polyline, p.recordingId,
+                            Planetarium.GetUniversalTime(),
+                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "scene={0} leg={1} body={2} pts={3} owned={4} layer={5} startUT={6:F1} endUT={7:F1}",
+                                HighLogic.LoadedScene, p.legIndex,
+                                string.IsNullOrEmpty(leg.bodyName) ? "<none>" : leg.bodyName,
+                                leg.PointCount, p.ownedByTreatment, pendingTargetLayer,
+                                leg.startUT, leg.endUT));
                 }
                 pendingDraws.Clear();
 

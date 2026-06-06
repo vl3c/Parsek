@@ -9,6 +9,12 @@ tested.*
 *Commits are UNSIGNED (the harness SSH signer fails in a sibling worktree). Re-sign / squash at
 merge if the repo needs verified commits.*
 
+> **STATUS (2026-06-06): COMPLETE.** All phases (0-7, 8a-8f) and all three integrations landed; the
+> modular Director pipeline is the single map / Tracking-Station ghost render path (legacy fallbacks
+> deleted, `mapRenderDirectorDrive` gate dropped). The per-phase entries below are the historical build
+> log; the "in progress" / "awaiting in-game gate" / "DEFERRED" notes within them are superseded by this
+> banner.*
+
 ## Done (the pure pipeline - Phases 0-3, committed, UNBUILT)
 
 `Source/Parsek/MapRender/` (namespace `Parsek.MapRender`, all `internal`):
@@ -227,13 +233,15 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     decision-based proto-line suppression in `GhostOrbitLinePatch.cs:130/552` (on
     `IsDirectorTracedPathActive`) can still set `line.active=false` on a decision-without-draw frame,
     but it also sets `ghostsWithSuppressedIcon`, which draws the non-proto marker, so the ghost is
-    never left blank; retiring that line-level path is deferred, out of 8b.2 scope.) Mechanism: a new
-    `directorOwnedLegRecordings` set is published by the OWNED draw path ONLY when `TryDrawOwnedLeg`
-    actually returns drawn=true; `IsRenderingNonOrbitalLeg` dispatches (pure `ResolveNonOrbitalLegOwnership`)
-    - gate ON -> the UNION of the director-owned set and the legacy `activeLegRecordings` (the legacy set
-    still covers pid-0 / re-aim / overlap ghosts the shadow does not own, which still take the Driver-direct
-    path under the gate); gate OFF -> the legacy set ONLY (byte-identical to pre-8b.2). The Driver's
-    autonomous-walk publish is retired as the AUTHORITATIVE source for owned legs but kept as the gate-off
+    never left blank; retiring that line-level path is deferred, out of 8b.2 scope.) Mechanism: a
+    `drewNonOrbitalLegRecordings` set (named `directorOwnedLegRecordings` in 8b.2, renamed + DECOUPLED in
+    8e S3a.1) is published whenever a leg ACTUALLY draws - on EITHER the OWNED `TryDrawOwnedLeg` path OR
+    the Driver-direct path (8e S3a.1: the draw is the authoritative signal, decoupled from the StockConic /
+    TracedPath classification, on the same `if (anyDrawn)` condition as the legacy publish so the drew set
+    is byte-identical to `activeLegRecordings`); `IsRenderingNonOrbitalLeg` dispatches (pure
+    `ResolveNonOrbitalLegOwnership`) - gate ON -> the UNION of the drew set and the legacy
+    `activeLegRecordings` (an OR over identical sets, so live behavior is unchanged); gate OFF -> the legacy
+    set ONLY (byte-identical to pre-8b.2). The Driver's autonomous-walk publish is kept as the gate-off
     fallback; its deletion is 8e. Tests: pure dispatch + seam-driven end-to-end gate read in
     `GhostTrajectoryPolylineBuildTests`; in-game `OwnershipSignal_DispatchesOnLiveGate_NoNewGap`
     (RuntimeTests, GhostMap, TRACKSTATION) covers the live-gate read + no-new-gap. **In-game gate to run:**
@@ -322,12 +330,11 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     engine-event subscriber.
 - **Phase 8d - all sub-slices DONE (8d.0-8d.3).** The ghost map-presence lifecycle (seam, per-frame body
   + 6 dicts, lifecycle handlers, decomposition) is fully migrated from `ParsekPlaybackPolicy` into
-  `GhostMapPresence`, no behavior change. Remaining cutover work is Phase 8e (delete the 8a/8b/8c legacy
-  draw-side fallbacks + the autonomous Driver walk + grace fields, then drop the `mapRenderDirectorDrive`
-  gate). NOTE: 8e legacy DELETION is still gated on closing the coverage gap (cutover Step 2: the
-  re-aim / overlap members + the hyperbolic-escape segment that fall back to the legacy draw path); that
-  needs its own scoping before deletion. Presence (8d) is independent of that gap (presence was never
-  gated and always runs).
+  `GhostMapPresence`, no behavior change. The coverage gap (cutover Step 2: the re-aim / overlap members +
+  the hyperbolic-escape segment that fell back to the legacy draw path) was then closed by Integrations
+  1-3, after which Phase 8e deleted the 8a/8b/8c legacy draw-side fallbacks + the autonomous Driver walk +
+  grace fields and Phase 8f dropped the `mapRenderDirectorDrive` gate. Presence (8d) was independent of
+  that gap (presence was never gated and always runs).
 - **Cutover completion = INTEGRATION before deletion (decided 2026-06-06).** The 8e read-only scoping
   overturned the "delete legacy + drop the gate" premise: the legacy draw code (autonomous Driver walk,
   legacy effUT icon drive, `activeLegRecordings`, `ghostsWithSuppressedIcon`, grace fields) is NOT a
@@ -361,23 +368,121 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     + tracing-on: re-aim ghost's icon rides its heliocentric line (`angleIconVsOrbitEff` -> ~0, was
     >45deg), `decision-vs-truth` parity, trim-gap frames stay hidden, no SOI-seam blink; toggle gate-off
     -> byte-identical.
-  - **Integration 2 - overlap rendering (DONE, awaiting in-game gate).** No per-instance MAP model exists
-    (`GhostMapPresence` is one-vessel-per-recording); an overlapping mission renders as ONE ProtoVessel +
-    one polyline head at the selected cycle. Fix: removed the conservative `SkipOverlap` early-skip in
-    `ShadowRenderDriver.RunFrame` so an overlap member flows through the normal assemble->sample->decide->
-    seed/stamp path. The sampler-parity precondition is CONFIRMED (clean review): `ChainSampler.Sample`
-    maps live->assembled UT via the SAME `GhostPlaybackLogic.ResolveTrackingStationSampleUT` the legacy
-    single-head uses, driven by `unit.CadenceSeconds` (span-raised single-instance), NOT
-    `unit.OverlapCadenceSeconds` (the short relaunch cadence consumed only by the flight MESH engine), so
-    the Director lands on the SAME selected-cycle head-UT as legacy. `ShadowScope.SkipOverlap` enum +
-    `ClassifyScope`/`ClassifyOverlapForMember` retained (classifier + its tests stay; production just stops
-    skipping; counter renamed `skipOverlap`->`overlapShadowed`). Gate-OFF byte-identical (skip lived only
-    in the gate/tracing-gated `RunFrame`; the new seed/stamp is consumed only under `IsDirectorDriveActive`
-    /`IsDirectorTracedPathActive`). No per-instance model / InstanceKey added. Build clean; suite green
-    (13477); clean review SHIP. **In-game gate:** a LAUNCH-TO-ORBIT mission looped with period < length so
-    it overlaps (interplanetary can't - pinned to its transfer window), map view + tracing on: the single
-    overlap map icon rides its line at the selected cycle, hides cleanly in inter-cycle gaps; gate-off
-    byte-identical. (The N staggered instances are flight-MESH-only; the map shows one at the live cycle.)
+  - **Integration 2 - overlap rendering. COMPLETE + MERGED 2026-06-06.** 2a FOUNDATION (PR #1051), 2b
+    PER-INSTANCE (PRs #1053 slice i, #1058 slice iii flight-map, #1060 TS, #1063 warp-spam + CHANGELOG,
+    #1064 logging gaps). Full plan for 2b: `docs/dev/plans/maprender-overlap-per-instance.md`.
+    - **FINALIZATION (2026-06-06):** the per-instance overlap feature is DONE and in main. The flight MAP
+      and the Tracking Station now render one orbit icon (orbital missions) or one polyline marker
+      (suborbital/ascent) PER LIVE OVERLAP INSTANCE, matching flight. Slice (ii) instanceKey was SKIPPED
+      (proven a no-op for the per-pid icon path). FLIGHT in-game VALIDATED (drawn=11/11, gate multi-cycle,
+      engine count tracked, zero ProtoVessel churn, 0 exceptions). Warp validation surfaced log spam, fixed
+      in #1063 (the overlap markers) + #1064 (the pre-existing per-cycle engine/policy/audio floods, all now
+      VerboseRateLimited with warp-stable keys + a #1063-regression test); #1064 also closed the TS
+      render-tracer coverage gaps (GAP-1 real ride field, GAP-2 Polyline-surface trace, C-1 finer TS skip
+      reason, + a 4096-entry cap on the decision-signature dict). The "awaiting in-game gate" notes in the
+      per-slice entries below are SUPERSEDED by this validation. Two ADVISORY (non-blocking) re-tests
+      remain: a TS-view visual confirm (this session had 0 ghosts live in TS) and an ORBITAL-overlap
+      ProtoVessel-churn check at warp (the validated mission was suborbital); both are now closed.
+      **Map-render cutover COMPLETE:** Integration 3 folded the minimal pid-0 coverage into the pipeline,
+      Phase 8e deleted the legacy fallbacks, and Phase 8f dropped the `mapRenderDirectorDrive` gate -
+      single modular system.
+    - **2a (DONE, PR #1051, validated):** removed the conservative `SkipOverlap` early-skip in
+      `ShadowRenderDriver.RunFrame` so an overlap member flows through the normal assemble->sample->decide->
+      seed/stamp path instead of falling back to legacy. It renders ONE ghost at the newest (selected)
+      cycle. Sampler-parity CONFIRMED (clean review + in-game): `ChainSampler.Sample` maps live->assembled
+      UT via the SAME `GhostPlaybackLogic.ResolveTrackingStationSampleUT` the legacy single-head uses,
+      driven by `unit.CadenceSeconds` (span-raised single-instance), NOT `unit.OverlapCadenceSeconds` (the
+      short relaunch cadence consumed only by the flight MESH engine), so the Director lands on the same
+      selected-cycle head-UT as legacy. `ShadowScope.SkipOverlap` enum + `ClassifyScope`/
+      `ClassifyOverlapForMember` retained (classifier + tests stay; production stops skipping; counter
+      `skipOverlap`->`overlapShadowed`). Gate-OFF byte-identical. Build clean; suite green (13477).
+      In-game validated 2026-06-06 (flight-map, save s16, "Kerbal X" self-overlap): single icon rode its
+      line, 1112/1112 `drawn-non-proto`, no blink, clean teardown of 17 live overlap meshes / 8 recordings.
+    - **2b - PER-INSTANCE (decided 2026-06-06; the accurate end state):** 2a's single icon MISREPRESENTS
+      reality - flight shows N staggered overlap meshes, the map shows ONE. The goal (maintainer's call:
+      "render an icon for every ghost, make it accurate") is ONE map icon + orbit line + polyline PER LIVE
+      overlap INSTANCE, so the map matches flight. **This is a real per-instance build-out, multi-PR**
+      (comparable to 8c/8d), because N icons require N ProtoVessels (the icon is the stock orbit-driver's
+      icon, one per vessel) and the whole map layer (~12 keyed maps + the presence lifecycle) is
+      one-per-recording and must become per-(recording, cycleIndex). The flight engine ALREADY has the
+      per-instance model to MIRROR (`overlapGhosts`, `GhostPlaybackLogic.GetActiveCycles` /
+      `ComputeOverlapCyclePlaybackUT`, the `(recording, cycleIndex)` identity, cap
+      `MaxOverlapGhostsPerRecording=20`) - reuse it, do not reinvent. FULL per-instance (not icon-only:
+      N icons on one shared line is visibly wrong for non-orbital ascent/descent instances). Stacks on 2a
+      (instance 0 = newest cycle = today's single ghost). Slices: **(i) map presence N-per-overlapping-
+      recording lifecycle [the bulk] - DONE+MERGED (PR #1053, gate fix incl.)**, **(ii) Director
+      per-instance enumeration + instanceKey - NOT NEEDED (slice (i) review proved instanceKey is a no-op
+      for the per-pid icon path; slice (iii) confirmed it needs nothing from (ii)) - SKIPPED**, **(iii) N
+      markers on the ONE shared polyline - DONE (awaiting in-game gate)**: for an overlapping recording
+      rendered via the POLYLINE (suborbital/ascent, e.g. "Kerbal X #2", a sub-2km hop with zero orbit -
+      slice (i) creates NO ProtoVessels for it), `ParsekUI.DrawMapMarkers` draws N markers (one per live
+      overlap cycle) riding the SINGLE shared polyline at each cycle's head UT. New
+      `GhostMapPresence.TryGetLiveOverlapHeadUTs` (reuses `ResolveOverlapSchedule` + `GetActiveCycles` +
+      `ComputeOverlapCyclePlaybackUT`; head UT direct, not span-clock-collapsed) + the per-instance branch
+      (hoisted ABOVE the newest-only 8c proto gate so a MIXED orbital/non-orbital overlap doesn't drop the
+      non-newest markers - review-caught) + per-cycle no-double rule (`TryGetOverlapInstancePidForCycle` +
+      `ShouldDrawNonProtoMarkerForGhost`: a cycle with a visible proto icon skips its polyline marker;
+      pid-0/suppressed draws it) + per-instance marker key `recId#cycle`. The polyline GEOMETRY is
+      untouched (one draw, keyed by RecordingId - the maintainer's "ride a single polyline" steer).
+      Needs slice (ii)? NO. Gate-off + non-overlap byte-identical (pure short-circuit, additive diff).
+      Two clean reviews (plan + code SHIP-with-the-hoist-fix-applied). Build clean; suite green (13519).
+      **In-game gate:** "Kerbal X #2" (suborbital, Missions-tab loop period<length, director-drive ON),
+      map view past a relaunch: N markers on the ONE shared ascent line matching the N flight ghosts;
+      gate-off / non-overlap = one marker.
+    - **TS per-instance markers - DONE (this branch, awaiting in-game gate):** ported the slice-(iii)
+      flight-map branch to the Tracking Station marker path (`ParsekTrackingStation.DrawAtmosphericMarkers`)
+      so the TS renders the SAME as map view: N markers on the one shared polyline for an overlapping
+      mission (maintainer request). Reuses the scene-agnostic `TryGetLiveOverlapHeadUTs` (fed the TS
+      `cachedLoopUnits`) + `TryGetOverlapInstancePidForCycle` no-double rule + `TryAnchorMarkerToPolyline`
+      ride (the polyline Driver draws in TS too); new TS-LOCAL `DrawOneTsOverlapInstanceMarker` (TS
+      `TryResolveRecordingWorldPosition` head + `MapMarkerRenderer.DrawMarker` world-pos + the
+      `OnAtmosphericMarkerClicked` click handler so the per-instance markers stay clickable - a TS nuance).
+      Hoisted ABOVE the newest-only 8c gate (same mixed-case fix). Per-instance key `recId#cycle`. Flight
+      path + shared helpers UNTOUCHED (TS-local; no over-refactor). Gate-off + non-overlap byte-identical.
+      Clean review SHIP (no fixes). Build clean; suite green (13519). **In-game gate:** the overlap mission
+      in the TRACKING STATION view (director-drive ON) -> N markers matching flight map view; gate-off /
+      non-overlap = one marker. (Watch-item: the recording-level `lastGoodOnLine` hold is shared across the
+      N cycles - assessed cosmetic-only under warp transients, not changed; if it strobes, the fix is a
+      per-(recId,cycle) hold in the shared renderer.) Efficiency:
+      overlap-ONLY gate so non-overlap recordings stay EXACTLY
+      one-per-recording (zero new cost); reuse the engine's cycles; throttle per-instance ProtoVessel
+      create/destroy (the biggest risk = warp-time cycle churn); cap at 20. Gate-OFF stays legacy
+      one-per-recording.
+    - **Slice (i) DONE (this branch, awaiting in-game gate):** mirrors the proven `ParsekKSC`
+      per-instance overlap model (which already renders N overlap ghosts on the KSC map with NO flight
+      engine). New `overlapInstanceVessels : Dictionary<(recIdx,cycle),Vessel>` + `EnsureOverlapInstances`
+      / `RunOverlapPerInstanceSweep` / `CreateOverlapInstanceVessel` (its OWN per-instance create path, not
+      the single-slot `CreateGhostVesselFromSource` funnel); schedule via the PURE
+      `GhostPlaybackLogic.TryResolveAutoLoopLaunchSchedule` (works in flight AND TS); `GetActiveCycles` +
+      `ComputeOverlapCyclePlaybackUT` for the live-cycle set + per-instance epoch shift; gate =
+      `mapRenderDirectorDrive` AND (per-recording auto-loop `IsOverlapLoop` OR Mission-unit self-overlap
+      `loopUnits.TryGetUnitForMember && UnitMemberOverlaps`). **Mission-unit fix (playtest-caught
+      2026-06-06):** the maintainer loops via the Missions tab (a `LoopUnit` self-overlap, `Mission.
+      LoopPlayback`, NOT `rec.LoopPlayback`), so the original per-recording-only gate rejected it -> one
+      icon. The fix threads `loopUnits` through the sweep and unions the gate/schedule with the
+      Mission-unit source, sourcing `(scheduleStart, playbackStart, duration, cadence)` from the `LoopUnit`
+      exactly as the flight engine does (`GhostPlaybackEngine.cs:2163-2183` + the cadence re-clamp), so the
+      map cycles match the flight meshes 1:1. Re-aim / zero-drift units are non-overlapping by construction
+      (`UnitMemberOverlaps` false), so they stay single-ghost. A rate-limited per-recIdx
+      `overlap-gate-decision` log line now surfaces the gate inputs (directorDrive / loopPlayback / isMember
+      / unitOverlaps / schedule / cycle window) so a re-fly is self-diagnosing. **NOTE:**
+      `mapRenderDirectorDrive` is a per-save KSP custom param; an old save persisted `false` and KSP
+      restores it on load (the external override only re-asserts once toggled via the Parsek Settings
+      window), so the maintainer must toggle the setting ON for the save before validating - not a bug.
+      Each instance's icon phase comes from
+      its per-pid `ghostOrbitEpochShift` (so slice i ships WITHOUT slice ii's instanceKey, which stays 0).
+      `GetGhostVesselPidForRecording`/`HasGhostVesselForRecording` fall through to the newest-cycle
+      instance so watch / TS-Fly / UI / polyline-owner readers don't get pid 0. Legacy create/reseed/
+      state-vector passes skip overlap indices (sweep is sole authority). Teardown + the two leak-skip
+      early-returns + all 3 reset sites extended; `RemoveOverlapInstance` cleans every per-pid map.
+      State-vector overlap instances mirror the per-index state-vector contract (seed at live UT, clear
+      the segment-drive dicts) - review-caught fix. Two clean reviews (plan + code) SHIP. Build clean;
+      suite green (13498). **In-game gate:** an ORBITAL launch-to-LOW-orbit mission looped with period <
+      length, map view, run past a relaunch: N icons on N orbit lines, one per live overlap instance,
+      matching the N flight ghosts (appearing/expiring as they relaunch); gate-off / non-overlap
+      byte-identical one-per-recording. (Use an ORBITAL mission: the per-instance ASCENT polyline is slice
+      iii, so in slice i the ascent line stays single per recording - the icons-on-orbit-lines are the
+      deliverable.)
   - **Rendering polish - polyline + marker pan-stability (DONE, gated-neutral).** Fixed map polylines +
     yellow label markers jittering / flickering when panning the camera (pre-existing, NOT from the
     cutover). Root cause: the polyline draw ran at `[DefaultExecutionOrder(-50)]`, BEFORE the map camera
@@ -393,26 +498,24 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     (confirm in re-fly: fixed iff that root is ride-dropout, not leg-non-construction). Gate-off
     byte-identical (only the draw slot moved). FIX 2 is flight-map-scoped (the TS marker path does not use
     the ride; TS line stability still benefits). Two clean reviews SHIP; build clean, suite green (13470).
-  - **Integration 3 - shared polyline draw host (DEFERRED - read-only scoping verdict 2026-06-06).** Do
-    NOT do the "fold the autonomous walk under the Director" rewrite. The scoping found it is NOT worth it
-    now and NOT a true 8e prerequisite: #1050 made the `onPreCull` DRAW the sanctioned shared mechanism
-    (not legacy); the `-50` LateUpdate already does only the DECIDE + ownership publish. The ONLY piece 8e
-    genuinely needs is closing the pid-0 atmospheric-only enumeration gap (the Director enumerates
+  - **Integration 3 - shared polyline draw host (DONE - minimal pid-0 coverage folded into 8e).** The
+    read-only scoping (2026-06-06) ruled out the full "fold the autonomous walk under the Director"
+    rewrite: #1050 already made the `onPreCull` DRAW the sanctioned shared mechanism (not legacy) and the
+    `-50` LateUpdate already does only the DECIDE + ownership publish, so the rewrite was high-risk for
+    ZERO behavior change against the now-working, user-praised pan-stable host. The one piece 8e genuinely
+    needed was closing the pid-0 atmospheric-only enumeration gap (the Director enumerates
     `ghostMapVesselPids` = proto-bearing; atmospheric-only no-orbit no-terminal-state recordings are pid-0,
     reached only by the Driver's `CommittedRecordings` walk - `GetGhostVesselPidForRecording` returns 0,
-    `ghostMapVesselPids.Add` only in the proto-create funnel). That gap is NEAR-EMPTY in practice and
-    ALREADY DRAWS CORRECTLY today (a pid-0 leg always takes Driver-direct `TryDrawLeg`); it is only a
-    coverage-accounting bookkeeping item for the eventual deletion. The full rewrite is high-risk against
-    the now-working, user-praised pan-stable host for ZERO behavior change. **Recommendation: defer #3;
-    do the MINIMAL pid-0 coverage surface as PART of 8e, when the deletion actually consumes it - add a
-    proto-less-recording coverage set, leave the `-50`/`onPreCull` draw path byte-identical, prove the
-    Director's accounted set is a superset of the autonomous walk's drawn set, THEN delete.**
-  - **Then 8e (deletion LAST):** once #2 is validated + the minimal pid-0 coverage (folded from #3) lands
-    and nothing rides the legacy draw path uncovered, delete the legacy fallbacks + the autonomous
-    `CommittedRecordings` DECIDE-walk + grace fields (KEEP the `onPreCull` DRAW mechanism - it is the
-    sanctioned shared host, not legacy), grep-audit no readers, drop the `mapRenderDirectorDrive` gate ->
+    `ghostMapVesselPids.Add` only in the proto-create funnel). That MINIMAL pid-0 coverage surface was
+    added as part of 8e (a proto-less-recording coverage set, the `-50`/`onPreCull` draw path left
+    byte-identical), proving the Director's accounted set is a superset of the autonomous walk's drawn set
+    before the deletion.
+  - **8e + 8f (deletion LAST) - DONE.** With Integration 2 validated and the minimal pid-0 coverage
+    (folded from #3) in place, 8e deleted the legacy fallbacks + the autonomous `CommittedRecordings`
+    DECIDE-walk + grace fields (keeping the `onPreCull` DRAW mechanism - the sanctioned shared host, not
+    legacy) after a grep-audit confirmed no readers, and 8f dropped the `mapRenderDirectorDrive` gate ->
     single modular system.
-- **Phase 8** per-surface cutover (8a-8e) - deletes the scattered gates; in-game per sub-phase.
+- **Phase 8** per-surface cutover (8a-8f) - DONE; deleted the scattered gates, in-game gated per sub-phase.
 - **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3
   `TransferConic` frame-agnostic return - touch the in-game-validated re-aim path.
 - **Workstream C** surface-track closeout: C1 single-recording ascent, C2 descent re-stitch

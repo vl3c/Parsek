@@ -19057,8 +19057,11 @@ namespace Parsek
                     supersededByRelation,
                     rewindRetired);
 
+                bool liveSameLaunchVesselPresent =
+                    GhostPlaybackLogic.ResolveRewindSuppressionLiveLaunchPresence(rec);
                 var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                    rec, isActiveChain, chainLooping);
+                    rec, isActiveChain, chainLooping, treeContext: null,
+                    liveSameLaunchVesselPresent);
 
                 var chainSuppressed = activeGhostChains != null
                     ? GhostPlaybackLogic.ShouldSuppressSpawnForChain(activeGhostChains, rec)

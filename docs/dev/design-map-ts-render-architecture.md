@@ -19,6 +19,28 @@ superseded — see that doc's banner), `docs/dev/design-mission-abstractions.md`
 `docs/parsek-ghost-trajectory-rendering-design.md`, and
 `docs/dev/design-map-ts-render-tracer.md`.*
 
+> **IMPLEMENTATION STATUS (2026-06-06): IMPLEMENTED and COMPLETE.** The Step-3 banner
+> above ("the implementation will REPLACE...") is now historical; the rewrite is built and
+> the modular pipeline (chain assemble -> sample -> decide -> treatment -> draw) is the
+> single path that drives the map and Tracking-Station ghost render. The per-surface cutover
+> (phases 8a-8d: StockConic icon drive, hyperbolic arc clip, TracedPath polyline ownership,
+> marker / proto-icon-suppression authority, and the map-presence migration into the scene
+> adapter) and the three integrations all landed: Integration 1 (re-aim interplanetary
+> transfer / escape / arrival rendering through the pipeline), Integration 2 (overlap
+> rendering: the map and Tracking Station show one orbit icon or one polyline marker per live
+> overlap instance, matching flight), and Integration 3 (scoped down to folding the minimal
+> pid-0 atmospheric coverage surface into the pipeline; the full "fold the autonomous walk
+> under the Director" rewrite was ruled out as unnecessary, the `onPreCull` polyline draw
+> already being the sanctioned shared host). Phase 8e then deleted the now-dead 8a-8d legacy
+> render fallbacks (the autonomous Driver walk, the legacy effUT icon drive,
+> `activeLegRecordings`, `ghostsWithSuppressedIcon`, the grace fields), keeping the `onPreCull`
+> draw as the sanctioned shared host; Phase 8f dropped the
+> `mapRenderDirectorDrive` gate, leaving the single modular system this design specifies. The
+> two advisory re-tests (a Tracking-Station visual confirm and an orbital-overlap
+> ProtoVessel-churn check at high warp) are resolved. For the per-PR breakdown see
+> `docs/dev/plans/maprender-rewrite-status.md`; for the phase plan see
+> `docs/dev/plans/map-ts-render-rewrite-phases.md`. The design body below is unchanged.*
+
 > **Template map (per `development-workflow.md` §3):** Problem = §1; Terminology = §2;
 > Mental Model = §3; Data Model = §6.2 + §6.10; Behavior = §9; Edge Cases = §10; What
 > Doesn't Change = §11; Backward Compatibility = §12; Diagnostic Logging = §13; Test

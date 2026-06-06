@@ -4931,11 +4931,19 @@ namespace Parsek
                 treeContext: null);
         }
 
+        /// <param name="liveSameLaunchVesselPresent">
+        /// True when a live (non-ghost) vessel of the recording's craft is currently
+        /// in the scene. Only the flight-scene caller can evaluate this, so it defaults
+        /// to true (the conservative value that keeps the #573 same-recording block
+        /// absolute) for every other caller. It gates the standalone Rewind-to-Launch
+        /// target lift in <see cref="ShouldBlockSpawnForRewindSuppression"/>.
+        /// </param>
         internal static (bool needsSpawn, string reason) ShouldSpawnAtRecordingEnd(
             Recording rec,
             bool isActiveChainMember,
             bool isChainLooping,
-            RecordingTree treeContext)
+            RecordingTree treeContext,
+            bool liveSameLaunchVesselPresent = true)
         {
             if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId))
             {
@@ -4944,13 +4952,15 @@ namespace Parsek
                     rec.TerminalSpawnSupersededByRecordingId);
             }
 
-            // Plain Rewind-to-Launch source protection (#573) remains an absolute
-            // block for the active/source recording that was stripped during rewind.
-            // Future same-tree recordings are never marked (#589):
-            // MarkRewoundTreeRecordingsAsGhostOnly only scopes the same-recording
-            // marker, so they materialize normally when playback reaches their
-            // terminal EndUT.
-            if (ShouldBlockSpawnForRewindSuppression(rec, out string rewindSuppressionReason))
+            // Plain Rewind-to-Launch source protection (#573). The same-recording
+            // marker blocks the rewound target so its old vessel cannot respawn next
+            // to a live re-flight of that launch. The block now lifts for a STANDALONE
+            // target when no live same-craft vessel is present (the player rewound to
+            // launch and then did NOT re-fly it) so the recorded vessel still
+            // materializes at its terminal. Future same-tree recordings are never
+            // marked (#589); chain targets and active re-flights stay blocked.
+            if (ShouldBlockSpawnForRewindSuppression(
+                    rec, liveSameLaunchVesselPresent, out string rewindSuppressionReason))
             {
                 return (false, rewindSuppressionReason);
             }
@@ -5092,15 +5102,25 @@ namespace Parsek
         /// terminal end because plain Rewind-to-Launch scoped a #573 active/source
         /// suppression marker onto it. The only marker reason produced today is
         /// <see cref="ParsekScenario.RewindSpawnSuppressionReasonSameRecording"/>
-        /// (the active/source recording stripped during rewind); it is an absolute
-        /// block so the stripped vessel cannot respawn next to the player's
-        /// freshly-launched one. Any other reason is not an absolute block and is
-        /// left for the downstream gates. This is a query: it does not mutate the
-        /// recording or log — the marker is lifted only by the explicit watch-entry
-        /// path (<see cref="ParsekScenario.TryClearSpawnSuppressionOnWatchEntry"/>).
+        /// (the rewind-target recording stripped during rewind).
+        ///
+        /// The block exists so the rewound vessel cannot respawn next to a live
+        /// re-flight of the same launch (#573). It is NOT unconditional: it lifts for
+        /// a STANDALONE target (<see cref="Recording.ChainId"/> empty) when
+        /// <paramref name="liveSameLaunchVesselPresent"/> is false — i.e. the player
+        /// rewound to launch and then flew something else, so there is no re-flight to
+        /// collide with and the recorded vessel should still materialize at its
+        /// terminal. Chain targets stay blocked (a continuation tip can resurrect via
+        /// the chain-tip spawn path, which is the #573 phantom class) and any target
+        /// stays blocked while a live same-craft vessel is present (a genuine re-fly).
+        /// Other clearing paths remain: the explicit watch-entry lift
+        /// (<see cref="ParsekScenario.TryClearSpawnSuppressionOnWatchEntry"/>) and the
+        /// next rewind/revert reset. This is a query: it does not mutate the recording
+        /// or log.
         /// </summary>
         private static bool ShouldBlockSpawnForRewindSuppression(
             Recording rec,
+            bool liveSameLaunchVesselPresent,
             out string reason)
         {
             reason = "";
@@ -5111,11 +5131,123 @@ namespace Parsek
                     ParsekScenario.RewindSpawnSuppressionReasonSameRecording,
                     StringComparison.Ordinal))
             {
+                // Lift for a standalone rewind target the player did not re-fly: no
+                // live same-craft vessel exists, so spawning the recorded terminal
+                // cannot duplicate a re-flight. Fall through to the normal spawn gates.
+                bool standalone = string.IsNullOrEmpty(rec.ChainId);
+                if (standalone && !liveSameLaunchVesselPresent)
+                    return false;
+
                 reason = "spawn suppressed post-rewind (same-recording active/source protection, #573)";
                 return true;
             }
 
             return false;
+        }
+
+        // Injectable override for the scene-agnostic live-same-craft scan
+        // (AnyLiveRealVesselSharesRecordedCraft), so the Flight / KSC / Tracking-Station
+        // rewind-suppression lift is unit-testable without FlightGlobals. Pass null to
+        // restore the real scan. Deliberately separate from vesselExistsOverride /
+        // RealVesselExists: that primitive is per-frame cached and the KSC path never
+        // invalidates the cache, so the rewind lift uses an uncached fresh scan instead.
+        private static Func<Recording, bool> liveSameCraftOverride;
+
+        internal static void SetLiveSameCraftOverrideForTesting(Func<Recording, bool> finder)
+        {
+            liveSameCraftOverride = finder;
+        }
+
+        internal static void ResetLiveSameCraftOverrideForTesting()
+        {
+            liveSameCraftOverride = null;
+        }
+
+        /// <summary>
+        /// True when a live, non-ghost vessel of the recording's craft is currently in the
+        /// scene. Uses the craft-baked persistentId deliberately: this is a "would a spawn
+        /// collide with a live re-flight of this craft" check, not a same-launch identity
+        /// claim, so it must also catch a relaunch of the same craft (which carries the
+        /// baked pid but a fresh launch Guid — do NOT route this through
+        /// <see cref="VesselLaunchIdentity"/>, which is guid-gated and would wrongly lift
+        /// during an active re-fly). Parsek's own map-presence ghosts are excluded via
+        /// <see cref="GhostMapPresence.IsGhostMapVessel"/>. Scene-agnostic: it scans
+        /// <c>FlightGlobals.Vessels</c>, which lists live vessels in Flight and the
+        /// Tracking Station; at the Space Center that list may be empty or null, and the
+        /// null guard then reports no live craft (the correct outcome there, since a
+        /// genuine re-flight only exists in the flight scene and can never collide at KSC).
+        /// Deliberately an uncached fresh scan (unlike <see cref="RealVesselExists"/>); it
+        /// runs at most once per frame because
+        /// <see cref="ResolveRewindSuppressionLiveLaunchPresence"/> short-circuits before
+        /// calling it for every non-marked recording.
+        /// </summary>
+        internal static bool AnyLiveRealVesselSharesRecordedCraft(Recording rec)
+        {
+            if (rec == null)
+                return false;
+            // Consult the test seam before the pid / FlightGlobals guards so a test can
+            // assert any recording's outcome without a live Unity vessel list.
+            if (liveSameCraftOverride != null)
+                return liveSameCraftOverride(rec);
+            if (rec.VesselPersistentId == 0)
+                return false;
+            var vessels = FlightGlobals.Vessels;
+            if (vessels == null)
+                return false;
+            for (int i = 0; i < vessels.Count; i++)
+            {
+                Vessel v = vessels[i];
+                if (v == null)
+                    continue;
+                if (GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                    continue;
+                if (v.persistentId == rec.VesselPersistentId)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Scene-agnostic resolver for whether the #573 same-recording spawn-suppression
+        /// block should stay absolute for <paramref name="rec"/>. Returns true
+        /// (conservative: keep blocking) for everything except a standalone
+        /// Rewind-to-Launch target with no live same-craft vessel in the scene; for that
+        /// case it returns false to authorize the lift in
+        /// <see cref="ShouldSpawnAtRecordingEnd"/> so the recorded vessel materializes at
+        /// its terminal. The Flight, Tracking Station and Space Center spawn-at-end paths
+        /// all route through this so they behave identically (the original fix was
+        /// flight-only). The marker rides at most one recording, so the FlightGlobals scan
+        /// runs only for that recording. Never mutates the recording; emits one
+        /// VerboseRateLimited line on a lift so it is observable in every scene's KSP.log.
+        /// </summary>
+        internal static bool ResolveRewindSuppressionLiveLaunchPresence(Recording rec)
+        {
+            if (rec == null
+                || !rec.SpawnSuppressedByRewind
+                || !string.Equals(
+                        rec.SpawnSuppressedByRewindReason,
+                        ParsekScenario.RewindSpawnSuppressionReasonSameRecording,
+                        StringComparison.Ordinal)
+                || !string.IsNullOrEmpty(rec.ChainId))
+            {
+                // Not a liftable standalone same-recording target — the predicate does
+                // not consult the value (no block, or a non-liftable block), so keep it
+                // conservative without paying for a vessel scan.
+                return true;
+            }
+
+            bool present = AnyLiveRealVesselSharesRecordedCraft(rec);
+            if (!present)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Rewind",
+                    rec.RecordingId,
+                    $"same-recording spawn suppression lifted for standalone rewind target " +
+                    $"rec={rec.RecordingId} vessel=\"{rec.VesselName}\" pid={rec.VesselPersistentId} — " +
+                    "no live same-craft vessel present (plain Rewind-to-Launch not re-flown); " +
+                    "recorded terminal will materialize (#573/#589)");
+            }
+            return present;
         }
 
         /// <summary>
@@ -5158,7 +5290,13 @@ namespace Parsek
             if (RecordingStore.IsChainMidSegment(rec))
                 return (false, "intermediate chain segment (not tip)");
 
-            return ShouldSpawnAtRecordingEnd(rec, false, isChainLooping);
+            // Scene-agnostic #573 rewind lift: a standalone Rewind-to-Launch target the
+            // player did not re-fly (no live same-craft vessel present) still spawns its
+            // recorded terminal at KSC, identical to Flight and the Tracking Station.
+            return ShouldSpawnAtRecordingEnd(
+                rec, false, isChainLooping,
+                treeContext: null,
+                ResolveRewindSuppressionLiveLaunchPresence(rec));
         }
 
         /// <summary>

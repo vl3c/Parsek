@@ -342,6 +342,17 @@ namespace Parsek.MapRender
                     "shadow frame ghosts={0} shadowed={1} skipReaim={2} overlapShadowed={3} unresolved={4}",
                     pids?.Count ?? 0, shadowed, skipReaim, overlapShadowed, unresolved),
                 5.0);
+
+            // Phase 8e S0 Instrument 2 (PURELY ADDITIVE): flush the per-frame icon-floor gap counter
+            // ONCE here (RunFrame is the single once-per-frame Director entry, called from both
+            // ParsekFlight + ParsekTrackingStation). The increments happen per-FixedUpdate in
+            // GhostOrbitIconDrivePatch; this emits the rate-limited aggregate summary (warp-stable key)
+            // and resets the accumulator. Only when render tracing is on - RunFrame can also be entered
+            // with tracing OFF but the director-drive gate ON (ShadowRenderDriver.Enabled), and the
+            // increments are themselves IsEnabled-gated, so without this guard the flush would still be a
+            // no-op, but guarding it keeps the contract explicit + free.
+            if (MapRenderTrace.IsEnabled)
+                IconFloorGapCounter.FlushFrameSummary();
         }
 
         // PURE, COVERAGE-AWARE: decide whether to skip the ACTIVE heliocentric (star-relative) segment of a

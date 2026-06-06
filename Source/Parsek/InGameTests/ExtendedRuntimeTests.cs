@@ -99,6 +99,342 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "Per-instance overlap map vessel count matches flight overlap ghost count + 1 (capped)")]
+        public void OverlapMapInstanceCountMatchesFlight()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            // Slice (i) requires the director drive ON; off the gate the per-instance path is
+            // unreachable and the map stays one-per-recording (nothing to assert here).
+            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
+                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance overlap path inactive");
+
+            int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
+            var ghostGOs = flight.Engine.GetGhostGameObjects();
+            int checkedRecordings = 0;
+            int mismatches = 0;
+
+            foreach (var kvp in ghostGOs)
+            {
+                int recIdx = kvp.Key;
+                if (!flight.Engine.TryGetOverlapGhosts(recIdx, out var overlaps) || overlaps == null)
+                    continue;
+
+                // Flight: primary ghost (ghostStates[recIdx]) + the staggered overlap list = N meshes.
+                int flightInstances = overlaps.Count + 1;
+                int expected = System.Math.Min(flightInstances, cap);
+                int mapInstances = GhostMapPresence.GetOverlapInstanceCount(recIdx);
+
+                checkedRecordings++;
+                // Allow a +/-1 transient: the map sweep is throttled (MaxSpawnsPerFrame) so a brand-new
+                // cycle can be one frame behind the flight mesh; never above the cap.
+                if (mapInstances > cap || System.Math.Abs(mapInstances - expected) > 1)
+                {
+                    mismatches++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Overlap map instance count mismatch rec=#{recIdx}: map={mapInstances} " +
+                        $"flightMeshes={flightInstances} expected~={expected} cap={cap}");
+                }
+            }
+
+            if (checkedRecordings == 0)
+                InGameAssert.Skip("No overlap recordings active");
+
+            ParsekLog.Info("TestRunner",
+                $"Overlap map instance count: {checkedRecordings - mismatches}/{checkedRecordings} recordings match flight (cap={cap})");
+            InGameAssert.AreEqual(0, mismatches,
+                $"{mismatches} overlap recording(s) have map instance count mismatched vs flight meshes");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "Mission-loop overlap member: map instance count matches flight overlap ghost count + 1 (capped)")]
+        public void OverlapMapInstanceCountMatchesFlightMissionLoop()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
+                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance overlap path inactive");
+
+            // Source (b): a looped Mission unit that self-overlaps. The flight engine renders the
+            // staggered instances through overlapGhosts[memberIdx] (the SAME pure cycle math the map
+            // per-instance sweep uses), so the map count must match the flight mesh count even though
+            // the member's own rec.LoopPlayback is false.
+            var loopUnits = flight.Engine.CurrentLoopUnits;
+            if (loopUnits == null || loopUnits.Count == 0)
+                InGameAssert.Skip("No Mission loop units active (load a looped Mission to exercise source b)");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
+            int checkedMembers = 0;
+            int mismatches = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                // Only Mission-unit overlap members (source b), not standalone loops (covered above).
+                if (!loopUnits.TryGetUnitForMember(i, out var unit)
+                    || !GhostPlaybackLogic.UnitMemberOverlaps(unit))
+                    continue;
+                if (!GhostMapPresence.IsOverlapRecording(committed[i], i, committed, loopUnits))
+                    continue;
+                if (!flight.Engine.TryGetOverlapGhosts(i, out var overlaps) || overlaps == null)
+                    continue;
+
+                int flightInstances = overlaps.Count + 1; // primary (newest) + staggered list
+                int expected = System.Math.Min(flightInstances, cap);
+                int mapInstances = GhostMapPresence.GetOverlapInstanceCount(i);
+
+                checkedMembers++;
+                if (mapInstances > cap || System.Math.Abs(mapInstances - expected) > 1)
+                {
+                    mismatches++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Mission-loop overlap map instance count mismatch member=#{i}: map={mapInstances} " +
+                        $"flightMeshes={flightInstances} expected~={expected} cap={cap}");
+                }
+            }
+
+            if (checkedMembers == 0)
+                InGameAssert.Skip("No self-overlapping Mission loop members active");
+
+            ParsekLog.Info("TestRunner",
+                $"Mission-loop overlap map instance count: {checkedMembers - mismatches}/{checkedMembers} members match flight (cap={cap})");
+            InGameAssert.AreEqual(0, mismatches,
+                $"{mismatches} Mission-loop overlap member(s) have map instance count mismatched vs flight meshes");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.TRACKSTATION,
+            Description = "TS per-instance overlap map vessel count matches the pure GetActiveCycles size")]
+        public void OverlapMapInstanceCountMatchesScheduleTS()
+        {
+            // The flight engine does not exist in the Tracking Station; the map per-instance count must
+            // equal the PURE recomputed active-cycle set for each overlap recording.
+            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
+                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance overlap path inactive");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            // Rebuild the TS span-clock loop-unit set exactly as ParsekTrackingStation.DriveMissionLoopUnits
+            // does, so a Mission-tab loop (source b) is recognized identically to the live scene.
+            double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                             ?? LoopTiming.DefaultLoopIntervalSeconds;
+            var loopUnits = MissionLoopUnitBuilder.Build(
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed,
+                autoLoopIntervalSeconds, FlightGlobalsBodyInfo.Instance,
+                ParsekSettings.Current?.TransitedBodyRotationMode ?? TransitedBodyRotationMode.Loose);
+
+            int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
+            double currentUT = Planetarium.GetUniversalTime();
+            int checkedRecordings = 0;
+            int mismatches = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (!GhostMapPresence.IsOverlapRecording(rec, i, committed, loopUnits))
+                    continue;
+                if (!GhostMapPresence.ResolveOverlapSchedule(
+                        rec, i, committed, loopUnits,
+                        out _, out double scheduleStartUT,
+                        out double duration, out double effectiveCadence, out _))
+                    continue;
+                if (currentUT < scheduleStartUT)
+                    continue;
+
+                GhostPlaybackLogic.GetActiveCycles(
+                    currentUT, scheduleStartUT, scheduleStartUT + duration,
+                    effectiveCadence, cap, out long firstCycle, out long lastCycle);
+                int expected = (int)System.Math.Min(cap, lastCycle - firstCycle + 1);
+                int mapInstances = GhostMapPresence.GetOverlapInstanceCount(i);
+
+                checkedRecordings++;
+                // +/-MaxSpawnsPerFrame transient for newly-relaunching cycles; never above the cap.
+                if (mapInstances > cap
+                    || System.Math.Abs(mapInstances - expected) > GhostPlayback.MaxSpawnsPerFrame)
+                {
+                    mismatches++;
+                    ParsekLog.Warn("TestRunner",
+                        $"TS overlap map instance count mismatch rec=#{i}: map={mapInstances} " +
+                        $"expectedCycles={expected} cap={cap}");
+                }
+            }
+
+            if (checkedRecordings == 0)
+                InGameAssert.Skip("No overlap recordings active");
+
+            ParsekLog.Info("TestRunner",
+                $"TS overlap map instance count: {checkedRecordings - mismatches}/{checkedRecordings} recordings match GetActiveCycles (cap={cap})");
+            InGameAssert.AreEqual(0, mismatches,
+                $"{mismatches} overlap recording(s) have TS map instance count mismatched vs GetActiveCycles");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.TRACKSTATION,
+            Description = "Slice (iii) TS port: per-instance overlap marker head count matches the pure GetActiveCycles size; no-double disjunction coherent")]
+        public void OverlapMarkerHeadCountMatchesScheduleTS()
+        {
+            // TS analogue of OverlapMarkerHeadCountMatchesFlight: the flight engine does not exist in the
+            // Tracking Station, so the per-instance marker HEAD set (what DrawAtmosphericMarkers'
+            // per-instance branch rides via DrawOneTsOverlapInstanceMarker) must equal the PURE recomputed
+            // active-cycle set for each overlap recording. Slice (iii) requires the director drive ON; off
+            // the gate TryGetLiveOverlapHeadUTs returns false (-> legacy single marker), so there is no
+            // per-instance head set to assert on.
+            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
+                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance marker path inactive");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            // Rebuild the TS span-clock loop-unit set exactly as ParsekTrackingStation.DriveMissionLoopUnits
+            // does (the SAME set DrawAtmosphericMarkers' per-instance branch passes as cachedLoopUnits), so a
+            // Mission-tab loop (source b) is recognized identically to the live scene.
+            double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                             ?? LoopTiming.DefaultLoopIntervalSeconds;
+            var loopUnits = MissionLoopUnitBuilder.Build(
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed,
+                autoLoopIntervalSeconds, FlightGlobalsBodyInfo.Instance,
+                ParsekSettings.Current?.TransitedBodyRotationMode ?? TransitedBodyRotationMode.Loose);
+
+            int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
+            double currentUT = Planetarium.GetUniversalTime();
+            var headBuffer = new List<(long cycle, double headUT)>();
+            int checkedRecordings = 0;
+            int mismatches = 0;
+            int doubleViolations = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                // The head set is what the TS per-instance branch rides; it is produced by the SAME
+                // TryGetLiveOverlapHeadUTs the branch calls, gated identically (ShouldDriveOverlapPerInstance).
+                if (!GhostMapPresence.TryGetLiveOverlapHeadUTs(
+                        rec, i, committed, loopUnits, currentUT, headBuffer))
+                    continue;
+
+                // Independent pure recompute of the expected cycle count via GetActiveCycles (the schedule),
+                // matching OverlapMapInstanceCountMatchesScheduleTS.
+                if (!GhostMapPresence.ResolveOverlapSchedule(
+                        rec, i, committed, loopUnits,
+                        out _, out double scheduleStartUT,
+                        out double duration, out double effectiveCadence, out _))
+                    continue;
+                if (currentUT < scheduleStartUT)
+                    continue;
+
+                GhostPlaybackLogic.GetActiveCycles(
+                    currentUT, scheduleStartUT, scheduleStartUT + duration,
+                    effectiveCadence, cap, out long firstCycle, out long lastCycle);
+                int expected = (int)System.Math.Min(cap, lastCycle - firstCycle + 1);
+                int headCount = headBuffer.Count;
+
+                checkedRecordings++;
+                // The head count is the SAME GetActiveCycles span, so it must equal expected exactly
+                // (never above the cap).
+                if (headCount > cap || headCount != expected)
+                {
+                    mismatches++;
+                    ParsekLog.Warn("TestRunner",
+                        $"TS overlap marker head count mismatch rec=#{i}: heads={headCount} " +
+                        $"expectedCycles={expected} cap={cap}");
+                }
+
+                // No-double-marker disjunction coherence: for every live cycle, the per-cycle decision is
+                // exactly one of {proto icon owns it} XOR {polyline marker is the sole indicator}. pid 0
+                // (no proto for the cycle) MUST take the draw branch; pid != 0 routes through
+                // ShouldDrawNonProtoMarkerForGhost (true -> polyline marker draws, false -> proto owns).
+                // Either way the disjunction is total and unambiguous, so this never throws — it asserts the
+                // pid lookup + decision predicate stay callable/coherent for each head the branch will draw.
+                for (int hi = 0; hi < headBuffer.Count; hi++)
+                {
+                    long cycle = headBuffer[hi].cycle;
+                    uint pid = GhostMapPresence.TryGetOverlapInstancePidForCycle(i, cycle);
+                    bool protoOwns = pid != 0
+                        && !GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pid);
+                    bool polylineDraws = !protoOwns;
+                    if (protoOwns == polylineDraws) // impossible by construction; guards a future regression
+                    {
+                        doubleViolations++;
+                        ParsekLog.Warn("TestRunner",
+                            $"TS overlap no-double disjunction incoherent rec=#{i} cycle={cycle} pid={pid}");
+                    }
+                }
+            }
+
+            if (checkedRecordings == 0)
+                InGameAssert.Skip("No overlap recordings active");
+
+            ParsekLog.Info("TestRunner",
+                $"TS overlap marker head count: {checkedRecordings - mismatches}/{checkedRecordings} recordings match GetActiveCycles (cap={cap}); doubleViolations={doubleViolations}");
+            InGameAssert.AreEqual(0, mismatches,
+                $"{mismatches} overlap recording(s) have TS marker head count mismatched vs GetActiveCycles");
+            InGameAssert.AreEqual(0, doubleViolations,
+                $"{doubleViolations} TS overlap cycle(s) have an incoherent no-double disjunction");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "Slice (iii): flight-map per-instance overlap marker head count matches flight overlap ghost count + 1 (capped)")]
+        public void OverlapMarkerHeadCountMatchesFlight()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            // Slice (iii) requires the director drive ON; off the gate TryGetLiveOverlapHeadUTs returns
+            // false (-> legacy single marker) and there is no per-instance marker set to assert on.
+            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
+                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance marker path inactive");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
+            double currentUT = Planetarium.GetUniversalTime();
+            var loopUnits = flight.Engine.CurrentLoopUnits;
+            var headBuffer = new List<(long cycle, double headUT)>();
+            int checkedRecordings = 0;
+            int mismatches = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (!flight.Engine.TryGetOverlapGhosts(i, out var overlaps) || overlaps == null)
+                    continue;
+                // The marker head set is what the flight-map per-instance branch rides; it must equal
+                // the engine's live overlap mesh count (overlapGhosts[i] + the primary ghost), capped.
+                if (!GhostMapPresence.TryGetLiveOverlapHeadUTs(
+                        committed[i], i, committed, loopUnits, currentUT, headBuffer))
+                    continue;
+
+                int flightInstances = overlaps.Count + 1; // primary (newest) + staggered list
+                int expected = System.Math.Min(flightInstances, cap);
+                int headCount = headBuffer.Count;
+
+                checkedRecordings++;
+                // Allow a +/-1 transient (the flight spawn throttle can be one frame ahead/behind the
+                // pure head recompute); never above the cap.
+                if (headCount > cap || System.Math.Abs(headCount - expected) > 1)
+                {
+                    mismatches++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Overlap marker head count mismatch rec=#{i}: heads={headCount} " +
+                        $"flightMeshes={flightInstances} expected~={expected} cap={cap}");
+                }
+            }
+
+            if (checkedRecordings == 0)
+                InGameAssert.Skip("No overlap recordings active");
+
+            ParsekLog.Info("TestRunner",
+                $"Overlap marker head count: {checkedRecordings - mismatches}/{checkedRecordings} recordings match flight (cap={cap})");
+            InGameAssert.AreEqual(0, mismatches,
+                $"{mismatches} overlap recording(s) have marker head count mismatched vs flight meshes");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
             Description = "Loop phase offsets are all finite (no NaN/Infinity)")]
         public void LoopPhaseOffsetsFinite()
         {
@@ -1686,6 +2022,160 @@ namespace Parsek.InGameTests
                 $"Spawned/ghost PID check: {checked_} spawned vessels, {conflicts} ghost conflicts");
             InGameAssert.AreEqual(0, conflicts,
                 $"{conflicts} spawned vessel PID(s) conflict with ghost map vessels");
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Phase 8e S0 coverage-closure instruments (PURELY ADDITIVE)
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Exercises the S0 Instrument 1 accounted-vs-drawn seam under the LIVE KSP runtime/JIT (the pure
+    /// helper logic is covered by xUnit; this proves the static accounting + the RecordingId-domain pid
+    /// bridge run end-to-end in-game). Drives the seam DETERMINISTICALLY via the test stamps - no live
+    /// ghost / no full Driver frame needed - so it is robust regardless of what is on the map. Restores
+    /// the coverage state on exit. A full scene-driven assertion (live ghosts through the polyline walk)
+    /// is left as a manual tracing-on playtest, noted in the S0 report.
+    /// </summary>
+    public class MapRenderS0CoverageInGameTests
+    {
+        [InGameTest(Category = "GhostMapOrbits", Scene = GameScenes.FLIGHT,
+            Description = "S0 Instrument 1: the accounted set covers proto-bearing + proto-less drawn recordings; fires for an orphan")]
+        public void AccountedSetCoversDrawnSet()
+        {
+            // Snapshot live coverage state so the synthetic stamps below do not perturb a real frame's
+            // accounting. ResetCoverageSetsForTesting clears the two frame sets + the scratch; we only add
+            // synthetic ids and clear them again, leaving the live pid bridge untouched except for the one
+            // synthetic pid we add and remove.
+            GhostMapPresence.ResetCoverageSetsForTesting();
+            const uint syntheticPid = 999001u;
+            try
+            {
+                // A proto-bearing draw (pid != 0, NOT in the coverage set) - accounted via the pid bridge.
+                GhostMapPresence.SetProtoBearingPidForTesting(syntheticPid, "s0-ingame-proto");
+                GhostMapPresence.NoteDrawnRecordingCoverage("s0-ingame-proto", syntheticPid);
+                // A proto-less draw (pid 0) - folded into the coverage set, accounted via the non-proto path.
+                GhostMapPresence.NoteDrawnRecordingCoverage("s0-ingame-atmo", 0u);
+                // An orphan: drawn, proto-less-looking, but withheld from the coverage set (simulating a
+                // draw path that bypassed the fold) and with no pid bridge - must be flagged.
+                GhostMapPresence.SetFrameCoverageForTesting("s0-ingame-orphan", drawn: true, protoLess: false);
+
+                var unaccounted = new List<string>();
+                GhostMapPresence.AssertDrawnRecordingsAccounted(
+                    (recId, pb, plc, drawn) => unaccounted.Add(recId));
+
+                ParsekLog.Info("TestRunner",
+                    $"S0 accounting in-game: unaccounted=[{string.Join(",", unaccounted)}]");
+
+                InGameAssert.IsFalse(unaccounted.Contains("s0-ingame-proto"),
+                    "proto-bearing drawn recording must be accounted via the RecordingId-domain pid bridge");
+                InGameAssert.IsFalse(unaccounted.Contains("s0-ingame-atmo"),
+                    "proto-less drawn recording must be accounted via the coverage set");
+                InGameAssert.IsTrue(unaccounted.Contains("s0-ingame-orphan"),
+                    "an unaccounted drawn recording must fire (non-vacuity)");
+                InGameAssert.AreEqual(1, unaccounted.Count,
+                    "exactly the orphan is unaccounted");
+            }
+            finally
+            {
+                GhostMapPresence.SetProtoBearingPidForTesting(syntheticPid, null);
+                GhostMapPresence.ResetCoverageSetsForTesting();
+            }
+        }
+
+        [InGameTest(Category = "GhostMapOrbits", Scene = GameScenes.FLIGHT,
+            Description = "S0 Instrument 2: the icon-floor classifier maps the live branch inputs to the right reason in-game")]
+        public void IconFloorClassifierMapsLiveBranches()
+        {
+            // The classifier is Unity-free, but running it in-game proves the JIT path the icon-drive
+            // Prefix actually hits. Mirror the four live branch shapes.
+            InGameAssert.AreEqual(
+                Parsek.MapRender.IconFloorGapCounter.FloorReason.NoBounds,
+                Parsek.MapRender.IconFloorGapCounter.Classify(
+                    gateOn: true, hasBounds: false, freshSeed: false, seedBodyResolved: false),
+                "no recorded bounds => NoBounds");
+            InGameAssert.AreEqual(
+                Parsek.MapRender.IconFloorGapCounter.FloorReason.NoFreshSeed,
+                Parsek.MapRender.IconFloorGapCounter.Classify(
+                    gateOn: true, hasBounds: true, freshSeed: false, seedBodyResolved: false),
+                "bounds but no fresh seed => NoFreshSeed");
+            InGameAssert.AreEqual(
+                Parsek.MapRender.IconFloorGapCounter.FloorReason.UnresolvableSeedBody,
+                Parsek.MapRender.IconFloorGapCounter.Classify(
+                    gateOn: true, hasBounds: true, freshSeed: true, seedBodyResolved: false),
+                "fresh seed but body unresolved => UnresolvableSeedBody");
+            InGameAssert.AreEqual(
+                Parsek.MapRender.IconFloorGapCounter.FloorReason.None,
+                Parsek.MapRender.IconFloorGapCounter.Classify(
+                    gateOn: true, hasBounds: true, freshSeed: true, seedBodyResolved: true),
+                "director drove the icon => None (not a floor frame)");
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Phase 8e S3a legacy-ownership deletion gate (PURELY ADDITIVE)
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Exercises the S3a deletion-safety gate under the LIVE KSP runtime/JIT (the pure helper logic is
+    /// covered by xUnit; this proves the static gate + the same-frame drew (actual-draw) view from
+    /// GhostTrajectoryPolylineRenderer run end-to-end in-game). Drives the seam DETERMINISTICALLY via the
+    /// test stamps - no live ghost / no full Driver frame needed - so it is robust regardless of what is on
+    /// the map. Restores the coverage + ownership state on exit. A full scene-driven assertion (live ghosts
+    /// through the polyline walk, watching for the uncovered-legacy-owned-leg anomaly) is left as a manual
+    /// tracing-on playtest, noted in the S3a report.
+    /// </summary>
+    public class MapRenderS3CoverageInGameTests
+    {
+        [InGameTest(Category = "GhostMapOrbits", Scene = GameScenes.FLIGHT,
+            Description = "S3a: the deletion gate covers drew-set + proto-less legacy legs; fires for a proto-bearing-not-drawn blocker")]
+        public void DeletionGateCoversLegacyOwnedSet()
+        {
+            // Snapshot live coverage + ownership state so the synthetic stamps below do not perturb a real
+            // frame. We add synthetic ids and clear them again on exit.
+            GhostMapPresence.ResetCoverageSetsForTesting();
+            try
+            {
+                // A drew-set legacy leg: covered (the drew set still grants suppression).
+                GhostMapPresence.SetLegacyOwnedForTesting("s3-ingame-director", legacyOwned: true);
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                    "s3-ingame-director", inDrewSet: true, inLegacySet: true);
+                // A proto-less legacy leg: covered (nothing to suppress; the kept walk draws it anyway).
+                GhostMapPresence.SetLegacyOwnedForTesting("s3-ingame-atmo", legacyOwned: true);
+                GhostMapPresence.SetFrameCoverageForTesting("s3-ingame-atmo", drawn: true, protoLess: true);
+                // A blocker: legacy-owned, proto-BEARING (NOT in the proto-less set), did NOT draw.
+                GhostMapPresence.SetLegacyOwnedForTesting("s3-ingame-blocker", legacyOwned: true);
+
+                // Direct predicate exercise under the live JIT (the same-frame drew (actual-draw) view).
+                var drew =
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.DrewNonOrbitalLegRecordingsThisFrame;
+                InGameAssert.IsTrue(
+                    GhostMapPresence.IsLegacyOwnedLegCoveredByDeletion(
+                        "s3-ingame-director", drew, null),
+                    "drew-set legacy leg is covered");
+
+                var uncovered = new List<string>();
+                GhostMapPresence.AssertLegacyOwnedLegsCovered(
+                    (recId, doCount, plCount, loCount) => uncovered.Add(recId));
+
+                ParsekLog.Info("TestRunner",
+                    $"S3a gate in-game: uncovered=[{string.Join(",", uncovered)}]");
+
+                InGameAssert.IsFalse(uncovered.Contains("s3-ingame-director"),
+                    "drew-set legacy leg must not fire");
+                InGameAssert.IsFalse(uncovered.Contains("s3-ingame-atmo"),
+                    "proto-less legacy leg must not fire");
+                InGameAssert.IsTrue(uncovered.Contains("s3-ingame-blocker"),
+                    "a proto-bearing-not-drawn legacy leg must fire (non-vacuity)");
+                InGameAssert.AreEqual(1, uncovered.Count,
+                    "exactly the blocker is uncovered");
+            }
+            finally
+            {
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                    "s3-ingame-director", inDrewSet: false, inLegacySet: false);
+                GhostMapPresence.ResetCoverageSetsForTesting();
+            }
         }
     }
 }
