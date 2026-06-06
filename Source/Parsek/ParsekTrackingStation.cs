@@ -809,9 +809,13 @@ namespace Parsek
                 vtype,
                 context => OnAtmosphericMarkerClicked(recordingIndexForClick, markerRecording, context));
 
+            // Throttle key is per-RECORDING (rec.RecordingId), NOT the per-cycle markerKey: at high
+            // time warp the overlap cycle index advances every frame, so a per-cycle key yields a fresh
+            // key each frame and defeats VerboseRateLimited (a per-marker flood). The cycle stays in the
+            // detail; the per-recording `ts-overlap-instance-markers` summary carries the drawn count.
             if (MapRenderTrace.IsEnabled)
                 MapRenderTrace.EmitMarker(
-                    MapRenderTrace.RenderSurface.AtmosphericMarker, markerKey, headUT,
+                    MapRenderTrace.RenderSurface.AtmosphericMarker, rec.RecordingId, headUT,
                     string.Format(CultureInfo.InvariantCulture,
                         "vessel={0} cycle={1} markerPos={2} overlapInstance=True",
                         label, cycle, MapRenderTrace.FormatVector3(onLinePos)));

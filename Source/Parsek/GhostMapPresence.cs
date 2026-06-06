@@ -10870,8 +10870,13 @@ namespace Parsek
 
             if (!IsMapCreateAcceptedSource(source))
             {
+                // Throttle key is per-RECORDING, NOT per-cycle: at high time warp the overlap cycle
+                // index advances every frame, so a per-cycle key yields a fresh key each frame and
+                // defeats VerboseRateLimited (a per-frame flood). Every cycle of a non-orbital recording
+                // skips for the same reason, so one line per recording per interval suffices; the cycle
+                // stays in the message for context.
                 ParsekLog.VerboseRateLimited(Tag,
-                    string.Format(ic, "overlap-instance-no-source-{0}-{1}", recIdx, cycle),
+                    string.Format(ic, "overlap-instance-no-source-{0}", recIdx),
                     string.Format(ic,
                         "Overlap per-instance create skipped rec=#{0} \"{1}\" cycle={2} effUT={3:F1} " +
                         "source={4} reason={5} (no map-visible orbit this cycle yet)",
