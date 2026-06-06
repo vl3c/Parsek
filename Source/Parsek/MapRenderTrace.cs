@@ -270,6 +270,14 @@ namespace Parsek
         /// the polyline ride reason + the fallback position source actually used. Kept pure (no Unity
         /// reads) so the schema is unit-testable. <paramref name="legIndex"/> is only meaningful when
         /// <paramref name="rideReason"/> is <see cref="MarkerRideReason.RodeLeg"/>.
+        ///
+        /// <para>C-1: the optional <paramref name="tsSkipReason"/> carries the finer
+        /// tracking-station <c>AtmosphericMarkerSkipReason</c> token that the shared
+        /// <see cref="MarkerOutcome"/> folds away (several distinct TS reasons collapse to
+        /// <see cref="MarkerOutcome.SkippedDecisionFalse"/> / <see cref="MarkerOutcome.SkippedPositionFail"/>).
+        /// When non-null/non-empty it appends a trailing <c> tsSkip={token}</c> field; when
+        /// null/empty the field is omitted entirely, so FLIGHT signatures (which pass nothing) stay
+        /// byte-identical. The token is appended LAST so it never shifts the existing field order.</para>
         /// </summary>
         internal static string BuildMarkerDecisionSignature(
             int recordingIndex,
@@ -282,7 +290,8 @@ namespace Parsek
             MarkerOutcome outcome,
             MarkerRideReason rideReason,
             int legIndex,
-            string posSource)
+            string posSource,
+            string tsSkipReason = null)
         {
             string s = "rec=" + recordingIndex.ToString(CultureInfo.InvariantCulture)
                 + " vessel=" + Token(vesselName)
@@ -295,6 +304,8 @@ namespace Parsek
             if (outcome == MarkerOutcome.DrawnNonProto)
                 s += " ride=" + MarkerRideReasonToken(rideReason, legIndex)
                     + " posSource=" + Token(posSource);
+            if (!string.IsNullOrEmpty(tsSkipReason))
+                s += " tsSkip=" + tsSkipReason;
             return s;
         }
 
@@ -306,6 +317,17 @@ namespace Parsek
         // post-re-entry transition.
         private static readonly Dictionary<string, string> lastMarkerDecisionSignatureByPid =
             new Dictionary<string, string>(StringComparer.Ordinal);
+
+        // Warp safeguard: the per-instance overlap decision key (recordingId#cycle) mints a FRESH key
+        // every loop/overlap cycle, and at high time warp cycles advance without bound WITHIN a scene
+        // (Reset() only fires on scene switch), so this dict would grow unbounded in tracing mode. Cap
+        // it - clearing is correctness-neutral (each active ghost simply re-emits its current signature
+        // on its next change). 4096 covers any realistic live-ghost/instance count many times over.
+        private const int MaxTrackedMarkerDecisionKeys = 4096;
+
+        /// <summary>Test-only: current size of the marker-decision change-detection dict (to assert the
+        /// warp cap bounds it).</summary>
+        internal static int MarkerDecisionSignatureCountForTesting => lastMarkerDecisionSignatureByPid.Count;
 
         /// <summary>
         /// Change-based per-pid marker-decision emit (Tier-B, routed to Verbose via
@@ -328,6 +350,13 @@ namespace Parsek
             if (lastMarkerDecisionSignatureByPid.TryGetValue(pidKey, out last)
                 && string.Equals(last, signature, StringComparison.Ordinal))
                 return; // unchanged outcome for this ghost -> suppress
+
+            // Warp safeguard (see MaxTrackedMarkerDecisionKeys): bound the dict before inserting a NEW
+            // per-cycle key. This key's change was already decided above, so clearing here only drops
+            // OTHER ghosts' cached signatures (harmless - they re-emit on their next change).
+            if (!lastMarkerDecisionSignatureByPid.ContainsKey(pidKey)
+                && lastMarkerDecisionSignatureByPid.Count >= MaxTrackedMarkerDecisionKeys)
+                lastMarkerDecisionSignatureByPid.Clear();
 
             lastMarkerDecisionSignatureByPid[pidKey] = signature;
             EmitOnChange("MarkerDecision", surface, pidKey, currentUT, currentUT, signature);

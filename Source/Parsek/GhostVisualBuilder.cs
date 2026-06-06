@@ -2474,10 +2474,12 @@ namespace Parsek
             if (loopSourceCount > 0)
             {
                 string ghostName = result.root != null ? result.root.name : "<null-root>";
-                ParsekLog.Verbose("GhostAudio",
+                ParsekLog.VerboseRateLimited("GhostAudio",
+                    "watch-pivot-audio-" + ghostName,
                     $"Attached watch-pivot ghost audio on '{ghostName}' to '{cameraPivot.name}' " +
                     $"(loop={loopSourceCount}, " +
-                    $"spatialBlend={GhostAudioSpatialBlend:0.##}, panStereo=0)");
+                    $"spatialBlend={GhostAudioSpatialBlend:0.##}, panStereo=0)",
+                    2.0);
             }
         }
 

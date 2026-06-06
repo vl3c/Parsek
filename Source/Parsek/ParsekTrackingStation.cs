@@ -397,11 +397,21 @@ namespace Parsek
                 // Mirrors the flight-map DrawMapMarkers tracer: one change-based line per ghost saying
                 // WHY its atmospheric marker drew or was skipped, carrying the four
                 // ResolveMarkerDrawDecision disjuncts (resolved only when a proto ghost vessel exists,
-                // false otherwise). The TS path never rides the polyline, so the ride reason stays
-                // NotAttempted and the position source is always "traj".
+                // false otherwise). This NON-OVERLAP single-marker path does NOT ride the polyline today
+                // (it draws at the body-fixed head), so the ride reason stays NotAttempted and the
+                // position source is "traj" - honest. The OVERLAP instance path
+                // (DrawOneTsOverlapInstanceMarker) DOES ride the shared polyline and emits its OWN
+                // per-instance decision line carrying the real ride reason + posSource=polyline (GAP-1),
+                // so this closure is correct ONLY for the single-marker tail below.
+                //
+                // C-1: this path also threads the raw AtmosphericMarkerSkipReason token as a tsSkip=
+                // field so the finer TS taxonomy (which MapSkipReasonToMarkerOutcome folds into the
+                // shared MarkerOutcome) survives on the per-ghost decision line, not just the aggregate
+                // summary. Pass tsSkipReason=None on the draw path -> the optional field is omitted.
                 bool decGateOn = false, decDirectorTraced = false, decPolylineOwning = false,
                     decIconSuppressed = false, decShouldDraw = false;
-                void EmitMarkerDecision(MapRenderTrace.MarkerOutcome outcome)
+                void EmitMarkerDecision(MapRenderTrace.MarkerOutcome outcome,
+                    AtmosphericMarkerSkipReason tsSkipReason = AtmosphericMarkerSkipReason.None)
                 {
                     if (!traceOn || rec == null || string.IsNullOrEmpty(rec.RecordingId))
                         return;
@@ -410,7 +420,10 @@ namespace Parsek
                         MapRenderTrace.BuildMarkerDecisionSignature(
                             i, rec.VesselName, decGateOn, decDirectorTraced, decPolylineOwning,
                             decIconSuppressed, decShouldDraw, outcome,
-                            MapRenderTrace.MarkerRideReason.NotAttempted, -1, "traj"));
+                            MapRenderTrace.MarkerRideReason.NotAttempted, -1, "traj",
+                            tsSkipReason: tsSkipReason == AtmosphericMarkerSkipReason.None
+                                ? null
+                                : AtmosphericMarkerSkipReasonToken(tsSkipReason)));
                 }
 
                 // ---- Slice (iii) TS port: per-instance overlap markers riding the ONE shared polyline ----
@@ -499,7 +512,9 @@ namespace Parsek
                 if (skipReason != AtmosphericMarkerSkipReason.None)
                 {
                     CountAtmosphericMarkerSkip(ref summary, skipReason);
-                    EmitMarkerDecision(MapSkipReasonToMarkerOutcome(skipReason));
+                    // C-1: pass the RAW skip reason so the finer TS taxonomy (folded away by
+                    // MapSkipReasonToMarkerOutcome) survives as the tsSkip= field on this ghost's line.
+                    EmitMarkerDecision(MapSkipReasonToMarkerOutcome(skipReason), skipReason);
                     continue;
                 }
 
@@ -659,6 +674,30 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// C-1: stable lowercase-token name for the FINER <see cref="AtmosphericMarkerSkipReason"/>,
+        /// appended verbatim as the optional <c>tsSkip=</c> field on the TS marker-decision line so the
+        /// distinct reasons that <see cref="MapSkipReasonToMarkerOutcome"/> folds into a single shared
+        /// <see cref="MapRenderTrace.MarkerOutcome"/> survive per-ghost (not just in the aggregate
+        /// summary). Pure; unit-testable. <c>None</c> maps to <c>none</c> but the call site omits the
+        /// field entirely for <c>None</c>, so this token is only emitted for an actual skip reason.
+        /// </summary>
+        internal static string AtmosphericMarkerSkipReasonToken(AtmosphericMarkerSkipReason reason)
+        {
+            switch (reason)
+            {
+                case AtmosphericMarkerSkipReason.None: return "none";
+                case AtmosphericMarkerSkipReason.NativeIconActive: return "native-icon-active";
+                case AtmosphericMarkerSkipReason.NullRecording: return "null-recording";
+                case AtmosphericMarkerSkipReason.Debris: return "debris";
+                case AtmosphericMarkerSkipReason.NoTrajectoryPoints: return "no-trajectory-points";
+                case AtmosphericMarkerSkipReason.OutsideTimeRange: return "outside-time-range";
+                case AtmosphericMarkerSkipReason.SuppressedByChainFilter: return "suppressed-by-chain-filter";
+                case AtmosphericMarkerSkipReason.OrbitSegmentActive: return "orbit-segment-active";
+                default: return "unknown";
+            }
+        }
+
         internal static AtmosphericMarkerSkipReason ClassifyAtmosphericMarkerSkip(
             Recording rec, int recordingIndex, double currentUT,
             HashSet<string> suppressedIds)
@@ -786,9 +825,15 @@ namespace Parsek
                     rec, headUT, ref cached, out Vector3d worldPos, out _, out _, out _))
                 return false;
 
-            // Ride the SINGLE shared polyline at this instance's head; never draw off-line.
+            // Ride the SINGLE shared polyline at this instance's head; never draw off-line. GAP-1: use
+            // the DIAGNOSTIC overload so we capture the REAL ride reason + leg index for THIS instance,
+            // then thread them into this instance's marker-decision line below. The ride LOGIC is
+            // byte-identical to the 3-arg wrapper (the wrapper just discards the out-params), so this is
+            // pure instrumentation - no second anchor call, no control-flow change beyond capturing the
+            // out-params the diagnostic overload already computes.
             if (!Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
-                    rec.RecordingId, headUT, out Vector3 onLinePos))
+                    rec.RecordingId, headUT, out Vector3 onLinePos,
+                    out MapRenderTrace.MarkerRideReason rideReason, out int rideLegIndex))
                 return false;
 
             // Per-instance key (hover-collision fix): distinct keys, identical labels are fine
@@ -808,6 +853,33 @@ namespace Parsek
                 markerColor,
                 vtype,
                 context => OnAtmosphericMarkerClicked(recordingIndexForClick, markerRecording, context));
+
+            // GAP-1: per-INSTANCE marker-decision line, keyed by the SAME per-instance markerKey
+            // (recId#cycle) the EmitMarker call below uses - NOT the bare recordingId. The overlap path
+            // runs N instances under ONE recordingId; keying the change-detection signature on the bare
+            // recordingId would let the N instances thrash a single signature (false "changed" churn /
+            // masking). This is the TS analogue the flight overlap path lacks: the flight branch emits
+            // one per-RECORDING decision line with ride=not-attempted, so its ride field cannot
+            // represent a specific instance. Here each instance's line carries ITS OWN real ride reason
+            // + posSource=polyline (it just rode a leg above), finally answering the canonical TS debug
+            // question "did this icon ride its line or fall off?" per instance.
+            if (MapRenderTrace.IsEnabled && !string.IsNullOrEmpty(markerKey))
+                MapRenderTrace.EmitMarkerDecisionOnChange(
+                    MapRenderTrace.RenderSurface.AtmosphericMarker, markerKey, headUT,
+                    MapRenderTrace.BuildMarkerDecisionSignature(
+                        recordingIndex, label,
+                        // gateOn = the mapRenderDirectorDrive gate that makes this per-instance overlap
+                        // path reachable at all (IsOverlapPerInstanceGateOn); polylineOwning + shouldDraw
+                        // are true because this instance just rode the shared polyline above.
+                        gateOn: GhostMapPresence.IsOverlapPerInstanceGateOn(),
+                        directorTracedPathActive: false,
+                        polylineOwning: true,
+                        iconSuppressed: false,
+                        shouldDrawNonProto: true,
+                        outcome: MapRenderTrace.MarkerOutcome.DrawnNonProto,
+                        rideReason: rideReason,
+                        legIndex: rideLegIndex,
+                        posSource: "polyline"));
 
             // Throttle key is per-RECORDING (rec.RecordingId), NOT the per-cycle markerKey: at high
             // time warp the overlap cycle index advances every frame, so a per-cycle key yields a fresh

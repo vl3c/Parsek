@@ -10672,12 +10672,13 @@ namespace Parsek
 
             if (created > 0 || destroyed > 0)
             {
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag, "overlap-lifecycle-" + recIdx,
                     string.Format(ic,
                         "Overlap per-instance lifecycle rec=#{0} \"{1}\" cycles=[{2}..{3}] " +
                         "created={4} destroyed={5} liveNow={6} currentUT={7:F1}",
                         recIdx, rec.VesselName ?? "(null)", firstCycle, lastCycle,
-                        created, destroyed, GetOverlapInstanceCount(recIdx), currentUT));
+                        created, destroyed, GetOverlapInstanceCount(recIdx), currentUT),
+                    2.0);
             }
 
             return created;
@@ -11006,10 +11007,11 @@ namespace Parsek
             overlapInstanceVessels.Remove((recIdx, cycle));
             lifecycleDestroyedThisTick++;
 
-            ParsekLog.Verbose(Tag,
+            ParsekLog.VerboseRateLimited(Tag, "overlap-remove-" + recIdx,
                 string.Format(ic,
                     "Removed overlap per-instance map vessel rec=#{0} cycle={1} pid={2} reason={3}",
-                    recIdx, cycle, ghostPid, reason ?? "(none)"));
+                    recIdx, cycle, ghostPid, reason ?? "(none)"),
+                2.0);
         }
 
         /// <summary>
@@ -12084,8 +12086,9 @@ namespace Parsek
             if (evt.Trajectory == null || evt.Trajectory.IsDebris)
             {
                 if (evt.Trajectory?.IsDebris == true)
-                    ParsekLog.Verbose("Policy",
-                        $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory?.VesselName}\" - debris");
+                    ParsekLog.VerboseRateLimited("Policy", $"skip-map-debris-{evt.Index}",
+                        $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory?.VesselName}\" - debris",
+                        3.0);
                 return;
             }
 
@@ -12115,11 +12118,12 @@ namespace Parsek
                 if (committedForOverlap != null && evt.Index >= 0 && evt.Index < committedForOverlap.Count
                     && ShouldDriveOverlapPerInstance(committedForOverlap[evt.Index], evt.Index, committedForOverlap, loopUnits))
                 {
-                    ParsekLog.Verbose("Policy",
+                    ParsekLog.VerboseRateLimited("Policy", $"defer-overlap-sweep-{evt.Index}",
                         string.Format(CultureInfo.InvariantCulture,
                             "Ghost map for #{0} \"{1}\" deferred to per-instance overlap sweep " +
                             "(looped overlap recording / Mission-unit overlap member, director-drive on)",
-                            evt.Index, evt.Trajectory.VesselName ?? "(null)"));
+                            evt.Index, evt.Trajectory.VesselName ?? "(null)"),
+                        3.0);
                     return;
                 }
             }
@@ -12209,7 +12213,7 @@ namespace Parsek
                     evt.Trajectory,
                     allowSoiGapStateVectorFallback: false,
                     expectedSoiGapBody: null);
-                ParsekLog.Verbose("Policy",
+                ParsekLog.VerboseRateLimited("Policy", $"defer-map-{evt.Index}",
                     string.Format(CultureInfo.InvariantCulture,
                         "Deferred ghost map vessel for #{0} \"{1}\": {2} (source={3} loopShift={4:F2} renderHidden={5})",
                         evt.Index,
@@ -12219,7 +12223,8 @@ namespace Parsek
                             : "recording starts pre-orbital",
                         source,
                         initialLoopShift,
-                        initialRenderHidden));
+                        initialRenderHidden),
+                    3.0);
             }
         }
 

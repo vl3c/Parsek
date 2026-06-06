@@ -162,5 +162,119 @@ namespace Parsek.Tests
                 Assert.Equal(MapRenderTrace.MarkerOutcome.SkippedDecisionFalse,
                     ParsekTrackingStation.MapSkipReasonToMarkerOutcome(reason));
         }
+
+        // --- GAP-1: TS overlap instance can now carry a REAL ride field on its decision line ---
+
+        [Fact]
+        public void BuildMarkerDecisionSignature_TsOverlapInstance_CarriesRealRideAndPolylineSource()
+        {
+            // GAP-1 proof: the TS overlap path (DrawOneTsOverlapInstanceMarker) rode a leg and threads
+            // the real rideReason/legIndex from the diagnostic TryAnchorMarkerToPolyline overload into
+            // its per-instance decision line. Before the fix the TS path hardcoded ride=not-attempted
+            // posSource=traj, which LIED for an instance that actually rode the shared polyline.
+            string sig = MapRenderTrace.BuildMarkerDecisionSignature(
+                recordingIndex: 5,
+                vesselName: "Hopper",
+                gateOn: true,
+                directorTracedPathActive: false,
+                polylineOwning: true,
+                iconSuppressed: false,
+                shouldDrawNonProto: true,
+                outcome: MapRenderTrace.MarkerOutcome.DrawnNonProto,
+                rideReason: MapRenderTrace.MarkerRideReason.RodeLeg,
+                legIndex: 3,
+                posSource: "polyline");
+
+            Assert.Contains("ride=rode-leg3", sig);
+            Assert.Contains("posSource=polyline", sig);
+            // No tsSkip on a drawn marker (the param defaulted to null).
+            Assert.DoesNotContain("tsSkip=", sig);
+        }
+
+        // --- C-1: optional tsSkip= field appends only when set; flight stays byte-identical ---
+
+        [Fact]
+        public void BuildMarkerDecisionSignature_TsSkipParam_AppendsTokenWhenSet()
+        {
+            // A skipped TS marker carries the raw finer reason as a trailing tsSkip= field so the
+            // taxonomy the shared MarkerOutcome folds away survives on the per-ghost line.
+            string sig = MapRenderTrace.BuildMarkerDecisionSignature(
+                recordingIndex: 1,
+                vesselName: "Probe",
+                gateOn: false,
+                directorTracedPathActive: false,
+                polylineOwning: false,
+                iconSuppressed: false,
+                shouldDrawNonProto: false,
+                outcome: MapRenderTrace.MarkerOutcome.SkippedDecisionFalse,
+                rideReason: MapRenderTrace.MarkerRideReason.NotAttempted,
+                legIndex: -1,
+                posSource: "traj",
+                tsSkipReason: "outside-time-range");
+
+            Assert.Contains("outcome=skipped-decision-false", sig);
+            Assert.Contains("tsSkip=outside-time-range", sig);
+            // The new field is appended LAST so it never shifts the existing field order.
+            Assert.EndsWith("tsSkip=outside-time-range", sig);
+        }
+
+        [Fact]
+        public void BuildMarkerDecisionSignature_TsSkipParam_OmittedWhenNullOrEmpty_FlightByteIdentical()
+        {
+            // FLIGHT passes nothing for tsSkipReason (the default). The produced signature must be
+            // BYTE-IDENTICAL to the same call without the new param - so flight signatures (and the
+            // existing flight tests) are unchanged. Both null and empty omit the field.
+            string baseline = MapRenderTrace.BuildMarkerDecisionSignature(
+                4, "Munar Probe", true, true, false, false, true,
+                MapRenderTrace.MarkerOutcome.DrawnNonProto,
+                MapRenderTrace.MarkerRideReason.RodeLeg, 2, "polyline");
+
+            string withNull = MapRenderTrace.BuildMarkerDecisionSignature(
+                4, "Munar Probe", true, true, false, false, true,
+                MapRenderTrace.MarkerOutcome.DrawnNonProto,
+                MapRenderTrace.MarkerRideReason.RodeLeg, 2, "polyline",
+                tsSkipReason: null);
+
+            string withEmpty = MapRenderTrace.BuildMarkerDecisionSignature(
+                4, "Munar Probe", true, true, false, false, true,
+                MapRenderTrace.MarkerOutcome.DrawnNonProto,
+                MapRenderTrace.MarkerRideReason.RodeLeg, 2, "polyline",
+                tsSkipReason: "");
+
+            Assert.Equal(baseline, withNull);
+            Assert.Equal(baseline, withEmpty);
+            Assert.DoesNotContain("tsSkip=", baseline);
+        }
+
+        // --- C-1: AtmosphericMarkerSkipReasonToken maps each finer reason to a stable token ---
+
+        [Fact]
+        public void AtmosphericMarkerSkipReasonToken_MapsEveryReason()
+        {
+            Assert.Equal("none",
+                ParsekTrackingStation.AtmosphericMarkerSkipReasonToken(
+                    ParsekTrackingStation.AtmosphericMarkerSkipReason.None));
+            Assert.Equal("native-icon-active",
+                ParsekTrackingStation.AtmosphericMarkerSkipReasonToken(
+                    ParsekTrackingStation.AtmosphericMarkerSkipReason.NativeIconActive));
+            Assert.Equal("null-recording",
+                ParsekTrackingStation.AtmosphericMarkerSkipReasonToken(
+                    ParsekTrackingStation.AtmosphericMarkerSkipReason.NullRecording));
+            Assert.Equal("debris",
+                ParsekTrackingStation.AtmosphericMarkerSkipReasonToken(
+                    ParsekTrackingStation.AtmosphericMarkerSkipReason.Debris));
+            Assert.Equal("no-trajectory-points",
+                ParsekTrackingStation.AtmosphericMarkerSkipReasonToken(
+                    ParsekTrackingStation.AtmosphericMarkerSkipReason.NoTrajectoryPoints));
+            Assert.Equal("outside-time-range",
+                ParsekTrackingStation.AtmosphericMarkerSkipReasonToken(
+                    ParsekTrackingStation.AtmosphericMarkerSkipReason.OutsideTimeRange));
+            Assert.Equal("suppressed-by-chain-filter",
+                ParsekTrackingStation.AtmosphericMarkerSkipReasonToken(
+                    ParsekTrackingStation.AtmosphericMarkerSkipReason.SuppressedByChainFilter));
+            Assert.Equal("orbit-segment-active",
+                ParsekTrackingStation.AtmosphericMarkerSkipReasonToken(
+                    ParsekTrackingStation.AtmosphericMarkerSkipReason.OrbitSegmentActive));
+        }
     }
 }
