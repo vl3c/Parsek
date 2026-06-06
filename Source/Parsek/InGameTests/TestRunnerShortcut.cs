@@ -119,7 +119,7 @@ namespace Parsek.InGameTests
                 return;
 
             ParsekUI.HandleResizeDrag(ref windowRect, ref isResizingWindow,
-                MinWindowWidth, MinWindowHeight, "TestRunner window");
+                MinWindowWidth, MinWindowHeight, "TestRunner global window");
 
             windowRect = RunWindowWithNormalizedGuiColors(() =>
                 GUILayout.Window(
@@ -442,7 +442,7 @@ namespace Parsek.InGameTests
                 tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
                 tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
 
-            ParsekUI.DrawResizeHandle(windowRect, ref isResizingWindow, "TestRunner window");
+            ParsekUI.DrawResizeHandle(windowRect, ref isResizingWindow, "TestRunner global window");
 
             GUI.DragWindow();
         }
