@@ -85,9 +85,14 @@ namespace Parsek.Logistics
                     continue;
 
                 route = r;
-                ParsekLog.Verbose(Tag,
+                // Rate-limited (per tree): RouteBindingFor is called many times per frame
+                // (UI table render + per-tree recording-visibility checks), so a plain
+                // Verbose on every successful bind floods the log (~2k lines in a few-second
+                // window). A per-tree, 5s real-time key keeps each binding explainable from
+                // the log without the storm.
+                ParsekLog.VerboseRateLimited(Tag, "tree-bound-" + treeId,
                     $"IsTreeBoundToActiveRoute: tree={treeId} BOUND by route " +
-                    $"{ShortId(r.Id)} status={r.Status} name='{r.Name ?? "<none>"}'");
+                    $"{ShortId(r.Id)} status={r.Status} name='{r.Name ?? "<none>"}'", 5.0);
                 return true;
             }
 

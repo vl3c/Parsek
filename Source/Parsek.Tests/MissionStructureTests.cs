@@ -13,13 +13,16 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            MissionStructureBuilder.SuppressLogging = false;
         }
 
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+            MissionStructureBuilder.SuppressLogging = false;
         }
 
         // --- Helpers ---
@@ -83,6 +86,39 @@ namespace Parsek.Tests
         }
 
         // --- Tests ---
+
+        // Regression guard for the route-pipeline log flood: the per-build
+        // "BuildMissionStructure:" Verbose summary must be silenceable, because the
+        // route delivery clock (RouteOrchestrator.ResolveLoopUnit) rebuilds the
+        // structure on every tick / Logistics-window frame and would otherwise flood
+        // the log. Build still returns the same structure; only the line is gated.
+        [Fact]
+        public void Build_SuppressLogging_SilencesBuildMissionStructureLine()
+        {
+            var tree = Tree("t-suppress", new[] { Leg("a", "C", 0, 1000, 2000) });
+
+            // Default (flag off): the summary line fires.
+            MissionStructureBuilder.SuppressLogging = false;
+            var sLogged = MissionStructureBuilder.Build(tree);
+            Assert.Contains(logLines, l => l.Contains("BuildMissionStructure:") && l.Contains("t-suppress"));
+            Assert.Single(sLogged.LegsById);
+
+            logLines.Clear();
+
+            // Flag on: the structure is still built, but no line is emitted.
+            MissionStructureBuilder.SuppressLogging = true;
+            MissionStructure sSilent;
+            try
+            {
+                sSilent = MissionStructureBuilder.Build(tree);
+            }
+            finally
+            {
+                MissionStructureBuilder.SuppressLogging = false;
+            }
+            Assert.DoesNotContain(logLines, l => l.Contains("BuildMissionStructure:"));
+            Assert.Single(sSilent.LegsById);
+        }
 
         [Fact]
         public void SingleVesselRun_LinksEnvSplitLegsInChainIndexOrder()

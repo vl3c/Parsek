@@ -110,6 +110,32 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("route-A"));
         }
 
+        // catches: a regression where the BOUND line logs UNCONDITIONALLY. RouteBindingFor
+        // is called many times per frame (UI table + per-tree visibility checks), so a
+        // successful bind floods the log (~2k lines in a few-second window in one playtest).
+        // The BOUND line must be rate-limited per tree: one line, then quiet until the
+        // window passes.
+        [Fact]
+        public void IsBound_BoundLog_IsRateLimitedPerTree()
+        {
+            double clock = 1000.0;
+            ParsekLog.ClockOverrideForTesting = () => clock;
+            ParsekLog.ResetRateLimitsForTesting();
+            RouteStore.AddRoute(RouteOnTree("route-A", "tree-X"));
+
+            // Many same-instant bind checks: exactly one BOUND line.
+            for (int i = 0; i < 20; i++)
+                Assert.True(RouteTreeGuard.IsTreeBoundToActiveRoute("tree-X"));
+            Assert.Single(logLines, l =>
+                l.Contains("BOUND by route") && l.Contains("tree-X"));
+
+            // After the 5s window the next bind check logs again.
+            clock += 6.0;
+            Assert.True(RouteTreeGuard.IsTreeBoundToActiveRoute("tree-X"));
+            Assert.Equal(2, logLines.FindAll(l =>
+                l.Contains("BOUND by route") && l.Contains("tree-X")).Count);
+        }
+
         [Fact]
         public void IsBound_FalseForUnboundTree()
         {
