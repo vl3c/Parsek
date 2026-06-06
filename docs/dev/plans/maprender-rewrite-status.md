@@ -366,11 +366,27 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     one polyline head at the selected cycle. So integration = delete the conservative `SkipOverlap` gate
     in `ShadowRenderDriver` after a reconciler parity check (`ChainSampler` already shares the loop clock).
     Needs an overlapping-loop save (period < span) to validate; s15/Mun don't overlap.
-  - **Integration 3 - shared polyline draw host (planned, structural).** The polyline draw MUST stay in
-    the ordered LateUpdate host (timing invariants: `-50` order, LateUpdate-not-Update, publish-before-
-    orbit-patch-read), so "Director drives the polyline" = the Director owns the iteration/ownership
-    DECISION while the draw stays put; plus close the pid-0 atmospheric-only enumeration gap (Director
-    enumerates `ghostMapVesselPids`; the Driver walks `CommittedRecordings`). Medium-large.
+  - **Rendering polish - polyline + marker pan-stability (DONE, gated-neutral).** Fixed map polylines +
+    yellow label markers jittering / flickering when panning the camera (pre-existing, NOT from the
+    cutover). Root cause: the polyline draw ran at `[DefaultExecutionOrder(-50)]`, BEFORE the map camera
+    commits its pan, so the Vectrosity mesh lagged one frame; and `TryAnchorMarkerToPolyline` dropped the
+    marker ride on transient leg-gap / not-drawn-this-frame frames, snapping the label to the frozen
+    ghost mesh. Fix: SPLIT the Driver - the decide pass + ownership publish + head-UT gating STAY at -50
+    (publish now on a `WillLegDraw` predicate that exactly mirrors `TryDrawLeg`'s non-degenerate early
+    returns, so will-draw == actual-draw, no decision-without-draw gap), but the point-recompute +
+    `Draw3D` + deactivation sweep move to a `Camera.onPreCull` pass filtered to the map camera (fires
+    after every LateUpdate, so the mesh bakes against the COMMITTED pan). Plus a per-recordingId
+    last-good-on-line cache holds the marker through transient gaps (bounded 8 frames + 5s UT, falls
+    through on a genuine orbital exit), which ALSO targets the connector/deorbit-leg-loses-icon bug
+    (confirm in re-fly: fixed iff that root is ride-dropout, not leg-non-construction). Gate-off
+    byte-identical (only the draw slot moved). FIX 2 is flight-map-scoped (the TS marker path does not use
+    the ride; TS line stability still benefits). Two clean reviews SHIP; build clean, suite green (13470).
+  - **Integration 3 - shared polyline draw host (planned, structural).** The ownership DECISION +
+    publish stay at `-50` (publish-before-orbit-patch-read); the per-leg DRAW now runs in the map
+    camera's `onPreCull` (LANDED with the pan-stability fix above, so the "draw must stay in LateUpdate"
+    constraint is superseded). Remaining: fold the autonomous `CommittedRecordings` walk's ITERATION
+    under the Director and close the pid-0 atmospheric-only enumeration gap (Director enumerates
+    `ghostMapVesselPids`; the Driver walks `CommittedRecordings`). Medium.
   - **Then 8e (deletion LAST):** once 1-3 land and nothing rides the legacy draw path, delete the legacy
     fallbacks + autonomous walk + grace fields, grep-audit no readers, drop the `mapRenderDirectorDrive`
     gate -> single modular system.

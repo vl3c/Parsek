@@ -1355,5 +1355,149 @@ namespace Parsek.Tests
                 GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(50.0, 1000.0, 9999.0, period),
                 10);
         }
+
+        // --- Pan-stability: WillLegDraw (FIX 1 decide-pass will-draw predicate) ---
+
+        [Fact]
+        public void WillLegDraw_ResolvedBodyTwoPoints_WillDraw()
+        {
+            // Mirrors TryDrawLeg's only non-degenerate early returns: body resolved + m>=2.
+            Assert.True(GhostTrajectoryPolylineRenderer.WillLegDraw(2, true));
+            Assert.True(GhostTrajectoryPolylineRenderer.WillLegDraw(200, true));
+        }
+
+        [Fact]
+        public void WillLegDraw_FewerThanTwoPoints_WontDraw()
+        {
+            // Matches TryDrawLeg's `if (m < 2) return false`.
+            Assert.False(GhostTrajectoryPolylineRenderer.WillLegDraw(1, true));
+            Assert.False(GhostTrajectoryPolylineRenderer.WillLegDraw(0, true));
+        }
+
+        [Fact]
+        public void WillLegDraw_BodyNotResolved_WontDraw()
+        {
+            // Matches the decide-pass body-null skip (the call site continues before reaching the draw).
+            Assert.False(GhostTrajectoryPolylineRenderer.WillLegDraw(2, false));
+            Assert.False(GhostTrajectoryPolylineRenderer.WillLegDraw(200, false));
+        }
+
+        // --- Pan-stability: IsHeadInInterLegGap (FIX 2 gap-vs-orbital-exit classifier) ---
+
+        [Fact]
+        public void IsHeadInInterLegGap_HeadInsideOverallSpan_True()
+        {
+            // Head between the first leg's start and the last leg's end (e.g. a connector/deorbit gap).
+            Assert.True(GhostTrajectoryPolylineRenderer.IsHeadInInterLegGap(100.0, 500.0, 300.0));
+        }
+
+        [Fact]
+        public void IsHeadInInterLegGap_HeadOnSpanBoundaries_True()
+        {
+            Assert.True(GhostTrajectoryPolylineRenderer.IsHeadInInterLegGap(100.0, 500.0, 100.0));
+            Assert.True(GhostTrajectoryPolylineRenderer.IsHeadInInterLegGap(100.0, 500.0, 500.0));
+        }
+
+        [Fact]
+        public void IsHeadInInterLegGap_HeadPastLastLeg_False()
+        {
+            // Genuine orbital-phase exit past the recorded legs: must fall through to the deep fallback.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsHeadInInterLegGap(100.0, 500.0, 600.0));
+        }
+
+        [Fact]
+        public void IsHeadInInterLegGap_HeadBeforeFirstLeg_False()
+        {
+            Assert.False(GhostTrajectoryPolylineRenderer.IsHeadInInterLegGap(100.0, 500.0, 50.0));
+        }
+
+        // --- Pan-stability: TryHoldLastGood (FIX 2 held-position freshness bounds) ---
+
+        [Fact]
+        public void TryHoldLastGood_FreshNearUT_HoldsCachedPosition()
+        {
+            var pos = new Vector3(1f, 2f, 3f);
+            GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                "rec-hold", pos, headUT: 1000.0, frame: 100, legIndex: 2);
+
+            // 1 frame later, head advanced 0.5s: within both bounds -> held.
+            bool held = GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-hold", headUT: 1000.5, frame: 101, out Vector3 outPos, out int outLeg);
+
+            Assert.True(held);
+            Assert.Equal(pos, outPos);
+            Assert.Equal(2, outLeg);
+        }
+
+        [Fact]
+        public void TryHoldLastGood_NoCacheEntry_DeepFallback()
+        {
+            bool held = GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-absent", headUT: 1000.0, frame: 100, out _, out _);
+            Assert.False(held);
+        }
+
+        [Fact]
+        public void TryHoldLastGood_StaleByFrame_DeepFallback()
+        {
+            GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                "rec-stale-frame", new Vector3(1f, 1f, 1f), headUT: 1000.0, frame: 100, legIndex: 0);
+
+            // Just past the frame-age bound (MaxFrameAge + 1).
+            int staleFrame = 100 + GhostTrajectoryPolylineRenderer.LastGoodMaxFrameAge + 1;
+            bool held = GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-stale-frame", headUT: 1000.0, frame: staleFrame, out _, out _);
+            Assert.False(held);
+
+            // Exactly at the bound is still held.
+            int edgeFrame = 100 + GhostTrajectoryPolylineRenderer.LastGoodMaxFrameAge;
+            Assert.True(GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-stale-frame", headUT: 1000.0, frame: edgeFrame, out _, out _));
+        }
+
+        [Fact]
+        public void TryHoldLastGood_StaleByHeadUT_DeepFallback()
+        {
+            GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                "rec-stale-ut", new Vector3(1f, 1f, 1f), headUT: 1000.0, frame: 100, legIndex: 0);
+
+            // Head advanced just past the UT-delta bound.
+            double staleUT = 1000.0 + GhostTrajectoryPolylineRenderer.LastGoodMaxHeadUtDeltaSeconds + 0.1;
+            bool held = GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-stale-ut", headUT: staleUT, frame: 101, out _, out _);
+            Assert.False(held);
+
+            // Exactly at the bound is still held (and works backwards in UT too).
+            double edgeUT = 1000.0 + GhostTrajectoryPolylineRenderer.LastGoodMaxHeadUtDeltaSeconds;
+            Assert.True(GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-stale-ut", headUT: edgeUT, frame: 101, out _, out _));
+            Assert.True(GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-stale-ut", headUT: 1000.0 - GhostTrajectoryPolylineRenderer.LastGoodMaxHeadUtDeltaSeconds,
+                frame: 101, out _, out _));
+        }
+
+        [Fact]
+        public void TryHoldLastGood_ClearedByClear_DeepFallback()
+        {
+            GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                "rec-cleared", new Vector3(1f, 1f, 1f), headUT: 1000.0, frame: 100, legIndex: 0);
+            GhostTrajectoryPolylineRenderer.Clear();
+
+            bool held = GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-cleared", headUT: 1000.0, frame: 100, out _, out _);
+            Assert.False(held);
+        }
+
+        [Fact]
+        public void TryHoldLastGood_ClearedByReleaseForRecording_DeepFallback()
+        {
+            GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                "rec-released", new Vector3(1f, 1f, 1f), headUT: 1000.0, frame: 100, legIndex: 0);
+            GhostTrajectoryPolylineRenderer.ReleaseForRecording("rec-released");
+
+            bool held = GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-released", headUT: 1000.0, frame: 100, out _, out _);
+            Assert.False(held);
+        }
     }
 }
