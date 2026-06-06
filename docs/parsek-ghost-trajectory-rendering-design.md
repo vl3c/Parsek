@@ -13,6 +13,8 @@
 
 No `.sfs` save-file shape changes beyond the reset generation stamp. Pre-reset recordings and trajectory sidecars are not compatibility targets; older format notes below describe historical contracts, not accepted load input.
 
+> **MAP / TRACKING-STATION RENDER POINTER (2026-06-06):** the map-view and Tracking-Station ghost render path described here is now driven by the modular Director pipeline (chain assemble -> sample -> decide -> treatment -> draw), which replaced the legacy Harmony-patch + OnGUI + lifecycle-tick smear. That render architecture is complete: it is the single render path (the legacy render fallbacks were deleted and the `mapRenderDirectorDrive` gate dropped). See `docs/dev/design-map-ts-render-architecture.md` for the design and `docs/dev/plans/maprender-rewrite-status.md` for the per-PR status. This document remains the trajectory-rendering (ghost geometry / anchor-correction) design; the Director pipeline consumes that output for the map/TS layer.
+
 ---
 
 ## 1. Introduction
