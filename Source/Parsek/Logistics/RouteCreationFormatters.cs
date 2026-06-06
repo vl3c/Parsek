@@ -13,14 +13,105 @@ namespace Parsek.Logistics
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
+        /// <summary>How a route's origin was classified by <see cref="ResolveOriginIdentity"/>.</summary>
+        internal enum RouteOriginKind
+        {
+            /// <summary>Neither a KSC launch nor a captured start-docked depot proof.</summary>
+            Unknown = 0,
+            /// <summary>Launched from a Kerbin launch site (funds origin).</summary>
+            Ksc = 1,
+            /// <summary>Started docked to an origin depot (start-route proof present).</summary>
+            Depot = 2
+        }
+
+        /// <summary>
+        /// Origin identity resolved once for all three display surfaces (the dialog
+        /// summary origin line, the default route name, and the candidate table
+        /// origin cell) so they cannot diverge on origin classification.
+        /// </summary>
+        internal struct RouteOriginIdentity
+        {
+            public RouteOriginKind Kind;
+            /// <summary>Origin body (tree-root <c>StartBodyName</c>, else the source recording's).</summary>
+            public string BodyName;
+            /// <summary>Launch site of the tree root (set only when <see cref="Kind"/> is <c>Ksc</c>).</summary>
+            public string LaunchSiteName;
+            /// <summary>Start-docked origin partner pid (set only when <see cref="Kind"/> is <c>Depot</c>).</summary>
+            public uint DepotVesselPid;
+        }
+
+        /// <summary>
+        /// Resolve the route's origin identity from the tree ROOT recording (the
+        /// launch carries <c>LaunchSiteName</c> / <c>StartBodyName</c>), falling
+        /// back to the dock-child <see cref="RouteAnalysisResult.SourceRecording"/>
+        /// only when the tree has no resolvable root (the legacy single-recording
+        /// case where the source IS the root).
+        /// </summary>
+        /// <remarks>
+        /// The bug this fixes: on the common multi-recording docking flight the
+        /// analysis source is the DOCK CHILD, which started mid-flight at the dock
+        /// and therefore has <c>LaunchSiteName == null</c>. Reading the origin off
+        /// the source made every origin branch fall through to the "unknown"
+        /// placeholder even for a correctly KSC-classified route. Resolving the
+        /// root (mirroring <see cref="RouteRunCostCalculator.IsCandidateKscOrigin"/>
+        /// and <see cref="RouteCreationDialog.ComputeRootToUndockSpan"/>) keeps the
+        /// three origin labels consistent with the built <see cref="Route.IsKscOrigin"/>.
+        /// The depot proof, by contrast, lives on the dock-child source recording
+        /// (the recording that started docked), so it is read from
+        /// <paramref name="analysis"/>'s source, not the root.
+        /// </remarks>
+        internal static RouteOriginIdentity ResolveOriginIdentity(
+            RouteAnalysisResult analysis, RecordingTree tree)
+        {
+            var id = new RouteOriginIdentity { Kind = RouteOriginKind.Unknown };
+            if (analysis == null) return id;
+
+            Recording source = analysis.SourceRecording;
+
+            Recording originRec = source;
+            if (tree?.Recordings != null
+                && !string.IsNullOrEmpty(tree.RootRecordingId)
+                && tree.Recordings.TryGetValue(tree.RootRecordingId, out Recording rootRec)
+                && rootRec != null)
+            {
+                originRec = rootRec;
+            }
+
+            id.BodyName = originRec != null
+                ? originRec.StartBodyName
+                : (source != null ? source.StartBodyName : null);
+
+            if (originRec != null
+                && !string.IsNullOrEmpty(originRec.LaunchSiteName)
+                && string.Equals(originRec.StartBodyName, "Kerbin", System.StringComparison.Ordinal))
+            {
+                id.Kind = RouteOriginKind.Ksc;
+                id.LaunchSiteName = originRec.LaunchSiteName;
+                return id;
+            }
+
+            if (source != null
+                && source.RouteOriginProof != null
+                && source.RouteOriginProof.StartDockedOriginVesselPid != 0)
+            {
+                id.Kind = RouteOriginKind.Depot;
+                id.DepotVesselPid = source.RouteOriginProof.StartDockedOriginVesselPid;
+                return id;
+            }
+
+            return id;
+        }
+
         /// <summary>
         /// Format a resource line for the dialog body. Returns
-        /// <c>"&lt;name&gt;: &lt;amount&gt;"</c> with one fractional digit, e.g.
-        /// <c>"LiquidFuel: 150.0"</c>.
+        /// <c>"name: amount"</c> with one fractional digit, e.g.
+        /// <c>"LiquidFuel: 150.0"</c>. The empty-name fallback is bracket-free
+        /// (<c>"unknown"</c>) so it renders as readable text in the TMP-backed
+        /// PopupDialog body instead of being parsed as a bogus rich-text tag.
         /// </summary>
         internal static string FormatResourceLine(string name, double amount)
         {
-            string displayName = string.IsNullOrEmpty(name) ? "<unknown>" : name;
+            string displayName = string.IsNullOrEmpty(name) ? "unknown" : name;
             return displayName + ": " + amount.ToString("F1", IC);
         }
 
@@ -31,9 +122,11 @@ namespace Parsek.Logistics
         /// </summary>
         internal static string FormatInventoryLine(InventoryPayloadItem item)
         {
-            if (item == null) return "<null>";
+            // Bracket-free fallbacks ("unknown"): this text feeds the TMP-backed
+            // PopupDialog body, which parses "<...>" as rich-text markup.
+            if (item == null) return "unknown";
 
-            string partLabel = string.IsNullOrEmpty(item.PartName) ? "<unknown>" : item.PartName;
+            string partLabel = string.IsNullOrEmpty(item.PartName) ? "unknown" : item.PartName;
             string variant = item.VariantName;
             if (!string.IsNullOrEmpty(variant))
                 partLabel = partLabel + " (" + variant + ")";
@@ -45,12 +138,13 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Format a <see cref="RouteEndpoint"/> as
-        /// <c>"&lt;body&gt; (lat°, lon°, altm)"</c>. Empty body falls back to
-        /// <c>"&lt;unknown&gt;"</c>.
+        /// <c>"body (lat, lon, alt)"</c>. Empty body falls back to the
+        /// bracket-free <c>"unknown"</c> (this string renders into the TMP-backed
+        /// PopupDialog body, where <c>"&lt;...&gt;"</c> is parsed as markup).
         /// </summary>
         internal static string FormatEndpoint(RouteEndpoint ep)
         {
-            string body = string.IsNullOrEmpty(ep.BodyName) ? "<unknown>" : ep.BodyName;
+            string body = string.IsNullOrEmpty(ep.BodyName) ? "unknown" : ep.BodyName;
             string lat = ep.Latitude.ToString("F3", IC);
             string lon = ep.Longitude.ToString("F3", IC);
             string alt = ep.Altitude.ToString("F0", IC);
@@ -137,26 +231,29 @@ namespace Parsek.Logistics
             }
 
             Recording source = analysis.SourceRecording;
+            // Origin identity is resolved from the tree ROOT (the launch), not the
+            // dock-child source. Bracket-free fallbacks ("unknown") so a genuine
+            // miss renders as text in the TMP-backed PopupDialog body rather than
+            // being parsed as a bogus "<...>" rich-text tag.
+            RouteOriginIdentity origin = ResolveOriginIdentity(analysis, tree);
             string originLabel;
-            if (source != null
-                && !string.IsNullOrEmpty(source.LaunchSiteName)
-                && source.StartBodyName == "Kerbin")
+            switch (origin.Kind)
             {
-                originLabel = "Kerbin (" + source.LaunchSiteName + ")";
-            }
-            else if (source != null
-                && source.RouteOriginProof != null
-                && source.RouteOriginProof.StartDockedOriginVesselPid != 0)
-            {
-                originLabel =
-                    (source.StartBodyName ?? "<unknown>")
-                    + " (vessel #"
-                    + source.RouteOriginProof.StartDockedOriginVesselPid.ToString(IC)
-                    + ")";
-            }
-            else
-            {
-                originLabel = "<unknown>";
+                case RouteOriginKind.Ksc:
+                    originLabel =
+                        (string.IsNullOrEmpty(origin.BodyName) ? "Kerbin" : origin.BodyName)
+                        + " (" + origin.LaunchSiteName + ")";
+                    break;
+                case RouteOriginKind.Depot:
+                    originLabel =
+                        (string.IsNullOrEmpty(origin.BodyName) ? "unknown" : origin.BodyName)
+                        + " (vessel #"
+                        + origin.DepotVesselPid.ToString(IC)
+                        + ")";
+                    break;
+                default:
+                    originLabel = "unknown";
+                    break;
             }
             sb.Append("Origin: ").Append(originLabel).Append('\n');
 
@@ -164,7 +261,7 @@ namespace Parsek.Logistics
             if (analysis.ConnectionWindow != null && analysis.ConnectionWindow.EndpointAtDock.HasValue)
                 sb.Append(FormatEndpoint(analysis.ConnectionWindow.EndpointAtDock.Value));
             else
-                sb.Append("<unknown>");
+                sb.Append("unknown");
             sb.Append('\n');
 
             sb.Append("Resources:\n");
@@ -220,28 +317,25 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Generate a default route name when the player leaves the name
-        /// field empty. Format: <c>"Route: &lt;origin&gt; → &lt;endpoint-body&gt;"</c>,
-        /// trimmed to ~40 characters.
+        /// field empty. Format: <c>"Route: origin -> endpoint-body"</c>,
+        /// trimmed to ~40 characters. The <paramref name="tree"/> is plumbed
+        /// through to <see cref="ResolveOriginIdentity"/> so a KSC origin resolves
+        /// to <c>"KSC"</c> off the tree ROOT rather than the dock-child body; a
+        /// null tree falls back to the source recording (legacy single-recording).
         /// </summary>
-        internal static string GenerateDefaultRouteName(RouteAnalysisResult analysis)
+        internal static string GenerateDefaultRouteName(
+            RouteAnalysisResult analysis, RecordingTree tree = null)
         {
             string origin = "?";
             string endpoint = "?";
             if (analysis != null)
             {
-                Recording source = analysis.SourceRecording;
-                if (source != null)
-                {
-                    if (!string.IsNullOrEmpty(source.LaunchSiteName)
-                        && source.StartBodyName == "Kerbin")
-                    {
-                        origin = "KSC";
-                    }
-                    else if (!string.IsNullOrEmpty(source.StartBodyName))
-                    {
-                        origin = source.StartBodyName;
-                    }
-                }
+                RouteOriginIdentity id = ResolveOriginIdentity(analysis, tree);
+                if (id.Kind == RouteOriginKind.Ksc)
+                    origin = "KSC";
+                else if (!string.IsNullOrEmpty(id.BodyName))
+                    origin = id.BodyName;
+
                 if (analysis.ConnectionWindow != null
                     && analysis.ConnectionWindow.EndpointAtDock.HasValue
                     && !string.IsNullOrEmpty(analysis.ConnectionWindow.EndpointAtDock.Value.BodyName))

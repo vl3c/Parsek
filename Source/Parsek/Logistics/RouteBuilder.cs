@@ -372,7 +372,7 @@ namespace Parsek.Logistics
             string routeId = (idFactory ?? DefaultIdFactory)();
             string routeName = !string.IsNullOrEmpty(inputs.Name)
                 ? inputs.Name
-                : RouteCreationFormatters.GenerateDefaultRouteName(analysis);
+                : RouteCreationFormatters.GenerateDefaultRouteName(analysis, committedTree);
 
             // CostManifest / InventoryCostManifest mirror what each cycle
             // delivers — items debit what they deliver in v0. Future cost

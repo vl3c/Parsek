@@ -1101,7 +1101,7 @@ namespace Parsek
             string rowKey = "cand:" + treeId;
             bool expanded = expandedRows.Contains(rowKey);
 
-            string name = RouteCreationFormatters.GenerateDefaultRouteName(candidate.Analysis);
+            string name = RouteCreationFormatters.GenerateDefaultRouteName(candidate.Analysis, candidate.Tree);
 
             GUILayout.BeginHorizontal();
 
@@ -1111,7 +1111,7 @@ namespace Parsek
             if (GUILayout.Button($"{arrow} {name}", GUI.skin.label, GUILayout.ExpandWidth(true)))
                 ToggleExpanded(rowKey, name);
 
-            GUILayout.Label(FormatCandidateOrigin(candidate.Analysis), GUILayout.Width(ColW_Origin));
+            GUILayout.Label(FormatCandidateOrigin(candidate.Analysis, candidate.Tree), GUILayout.Width(ColW_Origin));
             GUILayout.Label(FormatEndpointShort(candidate.Analysis.ConnectionWindow?.EndpointAtDock), GUILayout.Width(ColW_Destination));
             // L3: Would-deliver cell. The per-cycle manifest text comes from the shared
             // pure LogisticsDeliveryPresentation.FormatWouldDeliver, the same formatter
@@ -2669,16 +2669,24 @@ namespace Parsek
             return "-";
         }
 
-        private static string FormatCandidateOrigin(RouteAnalysisResult analysis)
+        internal static string FormatCandidateOrigin(RouteAnalysisResult analysis, RecordingTree tree)
         {
-            Recording src = analysis?.SourceRecording;
-            if (src != null && !string.IsNullOrEmpty(src.LaunchSiteName)
-                && string.Equals(src.StartBodyName, "Kerbin", System.StringComparison.Ordinal))
-                return "KSC (funds)";
-            if (src != null && src.RouteOriginProof != null
-                && src.RouteOriginProof.StartDockedOriginVesselPid != 0)
-                return "depot pid=" + src.RouteOriginProof.StartDockedOriginVesselPid.ToString(CultureInfo.InvariantCulture);
-            return "-";
+            // Resolve origin off the tree ROOT (the launch) via the shared helper,
+            // not the dock-child source: the source started mid-flight at the dock
+            // and has no LaunchSiteName, so reading it directly mis-reports a KSC
+            // route as "-". Keeps this cell in step with the dialog summary, the
+            // default name, and the built Route.IsKscOrigin.
+            RouteCreationFormatters.RouteOriginIdentity id =
+                RouteCreationFormatters.ResolveOriginIdentity(analysis, tree);
+            switch (id.Kind)
+            {
+                case RouteCreationFormatters.RouteOriginKind.Ksc:
+                    return "KSC (funds)";
+                case RouteCreationFormatters.RouteOriginKind.Depot:
+                    return "depot pid=" + id.DepotVesselPid.ToString(CultureInfo.InvariantCulture);
+                default:
+                    return "-";
+            }
         }
 
         private static string FormatEndpointShort(RouteEndpoint? ep)
