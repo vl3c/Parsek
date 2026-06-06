@@ -13,6 +13,36 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - Promoted the manual logistics + staging in-game tests into the Isolated batch
+
+The eight in-game tests that previously had to be run by hand via the test-runner row play button (they were `AllowBatchExecution = false` with no restore flag, so both `Run All` and `Run All + Isolated` skipped them as manual-only) now carry `RestoreBatchFlightBaselineAfterExecution = true`, so `Run All + Isolated` runs them automatically and quickloads the captured FLIGHT baseline afterward. Each test already had a full try/finally teardown (snapshot + restore of RouteStore / Ledger / MissionStore / committed trees / live `PartResource.amount` / the `RouteOrchestrator.LoopUnitResolverForTesting` static seam, plus disposable-slot deletion); the baseline quickload is the belt-and-suspenders net on top (and the only reset for the static seam, which a quickload does not touch, so the in-finally disarm still matters). They stay `AllowBatchExecution = false` (out of the lightweight `Run All`, which has no restore) and self-skip gracefully on the wrong vessel shape (no LF tank, fewer than two cargo containers, fewer than two command pods).
+
+Promoted tests:
+- `CaptureRPOnStagingTest.CaptureRPOnStaging` (Rewind) - was the lone staging test missing the restore flag its siblings `SavePathRootThenMove` / `WarpZeroedDuringSave` already carried.
+- `LogisticsRouteStoreRuntimeTests.RouteStore_AddRoute_SurvivesKspSaveLoadRoundTrip`
+- `LogisticsRouteDispatchRuntimeTests.RouteOrchestrator_Tick_ProcessesSyntheticRoute`
+- `LogisticsDeliveryRuntimeTests.Delivery_LoadedVessel_AppliesResourceTransfer`
+- `LogisticsRouteOnMissionsRuntimeTests.RouteOnMissions_RendersTrimmedLoop_FiresAtDock_AndMutuallyExcludes`
+- `LogisticsRouteOnMissionsRuntimeTests.LoopFire_RendersAndDelivers_AtDockCrossing`
+- `LogisticsRouteTreeGuardRuntimeTests.RouteTreeGuard_BindsTreeAndClearsBothLoopSurfaces`
+- `LogisticsRouteProofRuntimeTests.InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity`
+
+Each test's `BatchSkipReason` was rewritten to the standard "Isolated-run only ... Use Run All + Isolated or the row play button" wording (the old "runs out of band so a parallel batch test cannot observe partial state" rationale no longer holds: the runner is sequential and the post-test baseline quickload closes the partial-state window). The runner self-tests (`InGameTestRunnerTests`, `TestRunnerPresentationTests`) use synthetic `InGameTestInfo` fixtures, not the attribute scan, so they are unaffected; full xUnit suite green (14496).
+
+### Open - `RouteOrchestrator_Tick_ProcessesSyntheticRoute` is RED under live statics
+
+This dispatch-tick test was already failing when run by hand (collected in-game results 2026-06-06, save "test run"): `RouteOrchestrator.Tick` neither transitioned the synthetic KSC-origin route's `Status` away from `Active` nor emitted a ledger row attributed to its id, so the tick body did not process the route. The test's own comment names the failure mode it is built to catch: the live `LiveRouteRuntimeEnvironment` builder returning early / NRE-ing under real KSP statics. Promoting it to `Run All + Isolated` makes that red visible in the batch (intentional - it was invisible before, only reachable via the row play button). Not investigated here (out of scope for the test-runner promotion); flagged for a logistics dispatch follow-up.
+
+### Open - test-runner Cancel mid-test does not run the test `finally` (pre-existing runner machinery)
+
+Surfaced by the clean review of the batch-promotion above; pre-existing, not introduced by it. `InGameTestRunner.Cancel` (`InGameTestRunner.cs:414`) calls `StopCoroutine` on the Unity `Coroutine` handles (`activeInnerCoroutine` / `activeTestCoroutine` / `activeCoroutine`) but the runner holds only those Unity handles, NOT the underlying suspended `IEnumerator`s. Unity's `StartCoroutine` flattens the nested chain (`RunOneTest` -> `SafeEnumerator` -> `RunCoroutineSafely(testBody)`, `InGameTestRunner.cs:1694-1702`) and drives it itself; `StopCoroutine` does not `Dispose` any of those iterators, so a Cancel issued mid-test never unwinds the test body's `try/finally`. For a test that arms a process-static seam (e.g. `RouteOrchestrator.LoopUnitResolverForTesting` in `LoopFire_RendersAndDelivers_AtDockCrossing`, disarmed only in its finally) a Cancel during its single-frame `yield` would leak the armed seam into the rest of the session. Low probability (one-frame window, requires a user-initiated Cancel) and it affects every coroutine in-game test that mutates statics, not just the promoted ones. A correct fix is a focused runner refactor: store the IEnumerator chain (or the outermost `RunCoroutineSafely` iterator) so `Cancel` can `Dispose` it (cascading the test-body finally), validated in-game (cancel-path behavior is not headless-reachable). Deliberately NOT bundled into the test-attribute promotion PR.
+
+### Open - background `RouteOrchestrator.Tick` can re-enter a logistics test's synthetic route (pre-existing)
+
+Also surfaced by the review; pre-existing. `ParsekScenario.Update` fires `RouteOrchestrator.Tick(currentUT)` every `TickIntervalSec = 1.0` UT-second (`RouteOrchestrator.cs`). While a logistics in-game test's synthetic route is in `RouteStore.CommittedRoutes` (and, for `LoopFire`, the resolver seam is armed), a background tick during the test's single-frame `yield return null` could process the synthetic route if game UT advanced >= 1s that frame (only under time warp). Extremely low probability at normal rate; the tests use unique synthetic route ids and remove them in finally. Unchanged by the promotion (the same exposure existed on the row-play-button path). Flagged for completeness; a real fix would gate the orchestrator tick during a runner-driven test or namespace test routes out of the live tick.
+
+---
+
 ## Done - Map-render director-shadow `ArgumentNullException(key)` on null body name (`GhostMapSceneBase` / `FlightGlobals.GetBodyByName`)
 
 - ~~Single suppressed occurrence in the 2026-06-06 "orbital supply route DELIVERY test" playtest (13:58:33): `[VERBOSE][MapRender] shadow RunFrame threw (suppressed): ArgumentNullException: Value cannot be null. Parameter name: key`. Caught + swallowed by the try/catch around `MapRender.ShadowRenderDriver.RunFrame` in `ParsekFlight.cs:19314` (and the mirror in `ParsekTrackingStation.cs:264`), rate-limited, so it fired once.~~ FIXED (this branch, `GhostMapSceneBase.cs`).

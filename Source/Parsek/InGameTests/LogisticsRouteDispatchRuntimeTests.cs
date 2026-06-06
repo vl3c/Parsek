@@ -41,7 +41,8 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
-            BatchSkipReason = "Mutates RouteStore + emits ledger rows under live KSP statics; runs out of band so a parallel batch test cannot read a partially-mutated route list or stray dispatched/endpoint-lost ledger rows.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - mutates RouteStore and may emit ledger rows under live KSP statics; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "RouteOrchestrator.Tick processes a synthetic KSC-origin route under live KSP statics without throwing, and the route's state advances away from the pre-tick Active baseline")]
         public IEnumerator RouteOrchestrator_Tick_ProcessesSyntheticRoute()
         {

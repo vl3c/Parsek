@@ -17,7 +17,7 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "Rewind", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
-            BatchSkipReason = "Isolated-run only — drives stock staging which permanently mutates the vessel; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            BatchSkipReason = "Isolated-run only - drives stock staging which permanently mutates the vessel; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "RewindPoint quicksave ends up in Parsek/RewindPoints/, no leftover Parsek_TempRP_*.sfs or .loadmeta in save root")]
         public IEnumerator SavePathRootThenMove()
         {

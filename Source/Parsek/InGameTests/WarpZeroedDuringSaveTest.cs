@@ -14,7 +14,7 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "Rewind", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
-            BatchSkipReason = "Isolated-run only — drives stock staging which permanently mutates the vessel; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            BatchSkipReason = "Isolated-run only - drives stock staging which permanently mutates the vessel; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "High physics warp is dropped for the RP save and restored afterward")]
         public IEnumerator WarpZeroedDuringSave()
         {
