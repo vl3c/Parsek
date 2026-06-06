@@ -9788,65 +9788,60 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Phase 8b.2 ownership-signal authority, end-to-end through the LIVE gate
+        /// Phase 8b.2 / 8e S3b ownership-signal authority, end-to-end through the LIVE gate
         /// (<see cref="ParsekSettings.Current"/>) which xUnit cannot read. Asserts that
         /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg"/> - the
         /// source <c>GhostMapPresence.IsPolylineOwningGhostPhase</c> (proto orbit-line / icon suppression
-        /// + marker handoff) reads - dispatches to the treatment-published actual-draw set under the gate
-        /// and the legacy autonomous-Driver set with the gate off, AND that the no-new-gap invariant
-        /// holds: an unpublished recording (decision-without-draw) is NEVER reported owned, so the proto
-        /// is hidden IFF a leg actually drew. The publish sets are populated via the test seam (the live
-        /// Driver LateUpdate that normally populates them needs a full shadow + ghost), but the gate read
-        /// is the real one.
+        /// + marker handoff) reads - dispatches to the SOLE actual-draw set on BOTH the gate-on and
+        /// gate-off paths (S3b deleted the legacy autonomous-Driver set; the drew set was a proven
+        /// superset), AND that the no-new-gap invariant holds: an unpublished recording
+        /// (decision-without-draw) is NEVER reported owned, so the proto is hidden IFF a leg actually drew.
+        /// The publish set is populated via the test seam (the live Driver LateUpdate that normally
+        /// populates it needs a full shadow + ghost), but the gate read is the real one.
         /// </summary>
         [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
-            Description = "IsRenderingNonOrbitalLeg dispatches on the live director-drive gate, no-new-gap (Phase 8b.2)")]
+            Description = "IsRenderingNonOrbitalLeg reads the sole drew set on both gate paths, no-new-gap (Phase 8b.2 / 8e S3b)")]
         public void OwnershipSignal_DispatchesOnLiveGate_NoNewGap()
         {
-            var renderer = typeof(Parsek.Display.GhostTrajectoryPolylineRenderer);
-            const string recOwned = "ingame-8b2-director-owned";
-            const string recLegacy = "ingame-8b2-legacy-only";
+            const string recDrew = "ingame-8b2-drew";
+            const string recNotDrawn = "ingame-8b2-not-drawn";
             const string recUnpublished = "ingame-8b2-unpublished";
 
             bool? priorGate = ParsekSettings.Current != null
                 ? (bool?)ParsekSettings.Current.mapRenderDirectorDrive : null;
             try
             {
-                // Model the two real publishers: the actual-draw set (drew - any leg drew, owned or
-                // Driver-direct) and the autonomous Driver's (legacy). recUnpublished is in NEITHER
-                // (decision-without-draw).
+                // The SOLE real publisher post-S3b: the actual-draw set (drew - any leg drew, owned or
+                // Driver-direct). recNotDrawn / recUnpublished are NOT in it (decision-without-draw / never
+                // published), so neither is owned under either gate.
                 Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
-                    recOwned, inDrewSet: true, inLegacySet: false);
-                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
-                    recLegacy, inDrewSet: false, inLegacySet: true);
+                    recDrew, inDrewSet: true);
 
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.mapRenderDirectorDrive = true;
                 InGameAssert.IsTrue(
-                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recOwned),
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recDrew),
                     "gate ON: drew-set-published recording must be reported owned");
-                InGameAssert.IsTrue(
-                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recLegacy),
-                    "gate ON: legacy-published recording stays owned via the union");
+                InGameAssert.IsFalse(
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recNotDrawn),
+                    "gate ON: a recording not in the drew set is NOT owned");
                 InGameAssert.IsFalse(
                     Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recUnpublished),
                     "gate ON no-new-gap: an unpublished recording (decision-without-draw) is NEVER owned");
 
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.mapRenderDirectorDrive = false;
-                InGameAssert.IsFalse(
-                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recOwned),
-                    "gate OFF: drew-set-only recording is NOT owned (byte-identical to pre-8b.2)");
                 InGameAssert.IsTrue(
-                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recLegacy),
-                    "gate OFF: legacy-published recording is owned (the legacy source)");
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recDrew),
+                    "gate OFF: drew-set recording is owned (S3b: the drew set is the sole source on both gates)");
+                InGameAssert.IsFalse(
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recNotDrawn),
+                    "gate OFF: a recording not in the drew set is NOT owned");
             }
             finally
             {
                 Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
-                    recOwned, inDrewSet: false, inLegacySet: false);
-                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
-                    recLegacy, inDrewSet: false, inLegacySet: false);
+                    recDrew, inDrewSet: false);
                 if (ParsekSettings.Current != null && priorGate.HasValue)
                     ParsekSettings.Current.mapRenderDirectorDrive = priorGate.Value;
             }
@@ -9884,7 +9879,7 @@ namespace Parsek.InGameTests
                 GhostMapPresence.ghostsWithSuppressedIcon.Add(pidSuppressed);
                 GhostMapPresence.TrackRecordingGhostIdentityForTesting(pidPolyline, 0, recPolyline);
                 Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
-                    recPolyline, inDrewSet: true, inLegacySet: true);
+                    recPolyline, inDrewSet: true);
 
                 // --- Gate ON ---
                 if (ParsekSettings.Current != null)
@@ -9907,7 +9902,7 @@ namespace Parsek.InGameTests
                     "gate OFF: legacy icon-suppressed still draws our marker");
                 InGameAssert.IsTrue(
                     GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidPolyline),
-                    "gate OFF: polyline-owns still draws our marker (legacy set is consulted gate-off)");
+                    "gate OFF: polyline-owns still draws our marker (drew set is the sole source on both gates)");
                 InGameAssert.IsFalse(
                     GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidVisible),
                     "gate OFF: no signal -> skip our marker");
@@ -9917,7 +9912,7 @@ namespace Parsek.InGameTests
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pidSuppressed);
                 GhostMapPresence.TrackRecordingGhostIdentityForTesting(pidPolyline, 0, null);
                 Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
-                    recPolyline, inDrewSet: false, inLegacySet: false);
+                    recPolyline, inDrewSet: false);
                 if (ParsekSettings.Current != null && priorGate.HasValue)
                     ParsekSettings.Current.mapRenderDirectorDrive = priorGate.Value;
             }

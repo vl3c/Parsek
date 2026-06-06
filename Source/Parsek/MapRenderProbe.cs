@@ -97,13 +97,6 @@ namespace Parsek
         private const double UnaccountedAnomalyMinIntervalSeconds = 1.0;
         private readonly Dictionary<string, double> lastUnaccountedEmitRealtime =
             new Dictionary<string, double>(System.StringComparer.Ordinal);
-        // Phase 8e S3a: soft rate-limit timestamps for the per-RECORDING uncovered-legacy-owned-leg
-        // anomaly (the S3b deletion-safety gate). Keyed by RecordingId (the legacy-owned set is
-        // RecordingId-keyed). A PERSISTENT condition (would fire every frame), so throttled to one line
-        // per recording per second; cleared on scene change. Sibling of lastUnaccountedEmitRealtime.
-        private const double UncoveredAnomalyMinIntervalSeconds = 1.0;
-        private readonly Dictionary<string, double> lastUncoveredEmitRealtime =
-            new Dictionary<string, double>(System.StringComparer.Ordinal);
         // Pids that have already had their Tier-A FirstPosition event emitted on
         // the first end-of-frame truth read for that pid. Cleared on scene change
         // alongside the other per-pid state, so re-entering a scene re-emits a
@@ -165,7 +158,6 @@ namespace Parsek
             lastPolylineOverlapEmitRealtime.Clear();
             firstPositionEmittedPids.Clear();
             lastUnaccountedEmitRealtime.Clear();
-            lastUncoveredEmitRealtime.Clear();
         }
 
         void LateUpdate()
@@ -223,18 +215,6 @@ namespace Parsek
             // LateUpdate is already IsEnabled-gated; the per-recId soft rate-limit below keeps a
             // persistent unaccounted recording from flooding the log (the condition holds every frame).
             AssertDrawnRecordingsAccounted(currentUT, realtime);
-
-            // --- Phase 8e S3a gate: legacy-ownership deletion-safety assertion ---
-            // For EVERY recording the autonomous walk published into the LEGACY ownership set
-            // (activeLegRecordings) this frame, confirm it is COVERED by S3b's planned deletion of that
-            // set: it is EITHER in the drew set this frame (the actual-draw set - any leg drew,
-            // owned-treatment OR Driver-direct - still grants the proto-line/icon suppression) OR
-            // proto-less / pid-0 (nothing to suppress; the kept walk draws it regardless of ownership). A
-            // legacy-owned recording in NEITHER is the deletion BLOCKER (a proto-bearing leg that would
-            // lose suppression -> double-draw). A CLEAN run is the S3b green-light. The whole LateUpdate is
-            // IsEnabled-gated; the per-recId soft rate-limit below keeps a persistent blocker from flooding
-            // the log.
-            AssertLegacyOwnedLegsCovered(currentUT, realtime);
         }
 
         private void AssertDrawnRecordingsAccounted(double currentUT, double realtime)
@@ -267,58 +247,6 @@ namespace Parsek
                 && realtime - last < UnaccountedAnomalyMinIntervalSeconds)
                 return false;
             lastUnaccountedEmitRealtime[recId] = realtime;
-            return true;
-        }
-
-        private void AssertLegacyOwnedLegsCovered(double currentUT, double realtime)
-        {
-            GhostMapPresence.AssertLegacyOwnedLegsCovered(
-                (recId, drewCount, protoLessCount, legacyOwnedCount) =>
-                {
-                    if (!PassesUncoveredRateLimit(recId, realtime))
-                        return;
-                    // Tier-C anomaly (S3a). Keyed (surface=Polyline) by the uncovered legacy-owned
-                    // RecordingId (carried in the prefix pid= slot, the marker-surface convention).
-                    // WARP-STABLE key: recId ONLY - the frame / UT / leg detail lives in the BODY, never
-                    // the key (#1063). A CLEAN run (zero of these) is the S3b deletion green-light: every
-                    // legacy-owned leg is either in the drew set or proto-less, so deleting
-                    // activeLegRecordings drops no suppression.
-                    MapRenderTrace.EmitAnomaly(
-                        MapRenderTrace.RenderSurface.Polyline, recId, currentUT, currentUT,
-                        "uncovered-legacy-owned-leg",
-                        string.Format(ic,
-                            "recId={0} legacyOwned=true drew=false protoLess=false "
-                            + "| drewRecs={1} protoLessRecs={2} legacyOwnedRecs={3}",
-                            recId, drewCount, protoLessCount, legacyOwnedCount));
-                });
-        }
-
-        private bool PassesUncoveredRateLimit(string recId, double realtime)
-            => PassesPerRecIdRateLimit(
-                lastUncoveredEmitRealtime, recId, realtime, UncoveredAnomalyMinIntervalSeconds);
-
-        /// <summary>
-        /// PURE per-RecordingId soft rate-limit (S3a): returns true at most once per
-        /// <paramref name="minIntervalSeconds"/> wall-clock window for a given
-        /// <paramref name="recId"/>, stamping <paramref name="lastEmitRealtime"/> when it passes. The KEY
-        /// is the RecordingId only - WARP-STABLE: across N frames where the UT / leg detail advance (those
-        /// live in the anomaly BODY), the held wall clock keeps a persistent blocker to ONE line per
-        /// window (#1063). Unit-testable (the dict + clock are passed in), so the warp-stable-key guard
-        /// can be exercised without the Unity probe. Mirrors the S0 PassesUnaccountedRateLimit semantics.
-        /// </summary>
-        internal static bool PassesPerRecIdRateLimit(
-            Dictionary<string, double> lastEmitRealtime,
-            string recId,
-            double realtime,
-            double minIntervalSeconds)
-        {
-            if (lastEmitRealtime == null || string.IsNullOrEmpty(recId))
-                return false;
-            double last;
-            if (lastEmitRealtime.TryGetValue(recId, out last)
-                && realtime - last < minIntervalSeconds)
-                return false;
-            lastEmitRealtime[recId] = realtime;
             return true;
         }
 
