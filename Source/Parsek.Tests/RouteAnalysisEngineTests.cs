@@ -451,6 +451,32 @@ namespace Parsek.Tests
                 l.Contains("resource=Ore"));
         }
 
+        [Fact]
+        public void AnalyzeRecording_InventoryPickup_DiagnosticNamesIdentity()
+        {
+            // The inventory branch of the pickup gate also names its culprit (the
+            // payload identity) in the rejection diagnostic. logLines is captured
+            // by the constructor sink.
+            RouteConnectionWindow window = BuildDeliveryWindow();
+            InventoryPayloadItem pickup =
+                Payload("ore-container", "smallCargoContainer", 1, slotsTaken: 1);
+            window.DockEndpointInventory = new List<InventoryPayloadItem> { pickup.DeepClone() };
+            window.UndockTransportInventory = new List<InventoryPayloadItem> { pickup.DeepClone() };
+            Recording rec = new Recording
+            {
+                RecordingId = "mixed-inventory-diag",
+                RouteConnectionWindows = new List<RouteConnectionWindow> { window }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.Equal(RouteAnalysisStatus.MixedPickupDelivery, result.Status);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("mixed pickup/delivery") &&
+                l.Contains("inventory=ore-container"));
+        }
+
         private static RouteConnectionWindow BuildDeliveryWindow(string id = "window")
         {
             InventoryPayloadItem item = Payload("payload-hash", "evaJetpack", 1, slotsTaken: 1);
