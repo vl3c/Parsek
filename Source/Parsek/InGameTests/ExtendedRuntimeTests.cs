@@ -2111,4 +2111,71 @@ namespace Parsek.InGameTests
                 "director drove the icon => None (not a floor frame)");
         }
     }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Phase 8e S3a legacy-ownership deletion gate (PURELY ADDITIVE)
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Exercises the S3a deletion-safety gate under the LIVE KSP runtime/JIT (the pure helper logic is
+    /// covered by xUnit; this proves the static gate + the same-frame director-owned view from
+    /// GhostTrajectoryPolylineRenderer run end-to-end in-game). Drives the seam DETERMINISTICALLY via the
+    /// test stamps - no live ghost / no full Driver frame needed - so it is robust regardless of what is on
+    /// the map. Restores the coverage + ownership state on exit. A full scene-driven assertion (live ghosts
+    /// through the polyline walk, watching for the uncovered-legacy-owned-leg anomaly) is left as a manual
+    /// tracing-on playtest, noted in the S3a report.
+    /// </summary>
+    public class MapRenderS3CoverageInGameTests
+    {
+        [InGameTest(Category = "GhostMapOrbits", Scene = GameScenes.FLIGHT,
+            Description = "S3a: the deletion gate covers director-owned + proto-less legacy legs; fires for a proto-bearing-not-owned blocker")]
+        public void DeletionGateCoversLegacyOwnedSet()
+        {
+            // Snapshot live coverage + ownership state so the synthetic stamps below do not perturb a real
+            // frame. We add synthetic ids and clear them again on exit.
+            GhostMapPresence.ResetCoverageSetsForTesting();
+            try
+            {
+                // A director-owned legacy leg: covered (the director-owned set still grants suppression).
+                GhostMapPresence.SetLegacyOwnedForTesting("s3-ingame-director", legacyOwned: true);
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                    "s3-ingame-director", inDirectorOwnedSet: true, inLegacySet: true);
+                // A proto-less legacy leg: covered (nothing to suppress; the kept walk draws it anyway).
+                GhostMapPresence.SetLegacyOwnedForTesting("s3-ingame-atmo", legacyOwned: true);
+                GhostMapPresence.SetFrameCoverageForTesting("s3-ingame-atmo", drawn: true, protoLess: true);
+                // A blocker: legacy-owned, proto-BEARING (NOT in the proto-less set), NOT director-owned.
+                GhostMapPresence.SetLegacyOwnedForTesting("s3-ingame-blocker", legacyOwned: true);
+
+                // Direct predicate exercise under the live JIT (the same-frame director-owned view).
+                var directorOwned =
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.DirectorOwnedLegRecordingsThisFrame;
+                InGameAssert.IsTrue(
+                    GhostMapPresence.IsLegacyOwnedLegCoveredByDeletion(
+                        "s3-ingame-director", directorOwned, null),
+                    "director-owned legacy leg is covered");
+
+                var uncovered = new List<string>();
+                GhostMapPresence.AssertLegacyOwnedLegsCovered(
+                    (recId, doCount, plCount, loCount) => uncovered.Add(recId));
+
+                ParsekLog.Info("TestRunner",
+                    $"S3a gate in-game: uncovered=[{string.Join(",", uncovered)}]");
+
+                InGameAssert.IsFalse(uncovered.Contains("s3-ingame-director"),
+                    "director-owned legacy leg must not fire");
+                InGameAssert.IsFalse(uncovered.Contains("s3-ingame-atmo"),
+                    "proto-less legacy leg must not fire");
+                InGameAssert.IsTrue(uncovered.Contains("s3-ingame-blocker"),
+                    "a proto-bearing-not-owned legacy leg must fire (non-vacuity)");
+                InGameAssert.AreEqual(1, uncovered.Count,
+                    "exactly the blocker is uncovered");
+            }
+            finally
+            {
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                    "s3-ingame-director", inDirectorOwnedSet: false, inLegacySet: false);
+                GhostMapPresence.ResetCoverageSetsForTesting();
+            }
+        }
+    }
 }

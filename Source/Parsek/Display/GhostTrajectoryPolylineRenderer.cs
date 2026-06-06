@@ -269,6 +269,17 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// Phase 8e S3a: a read-only view of this frame's director-owned leg set
+        /// (<see cref="directorOwnedLegRecordings"/>), consumed by
+        /// <c>GhostMapPresence.AssertLegacyOwnedLegsCovered</c> to prove every legacy-owned leg is either
+        /// director-owned OR proto-less before the S3b deletion of <see cref="activeLegRecordings"/>.
+        /// Already RecordingId-keyed, so the gate needs NO pid bridge. The set is populated + cleared by
+        /// the Driver's per-frame decide walk on the same lifecycle as the legacy-owned set, so a
+        /// same-frame read pairs correctly. Diagnostic-only; this accessor adds NO live render behavior.
+        /// </summary>
+        internal static ICollection<string> DirectorOwnedLegRecordingsThisFrame => directorOwnedLegRecordings;
+
+        /// <summary>
         /// Test-only accessor: returns the live cache dictionary so the
         /// xUnit suite can assert on cache contents after a refresh.
         /// </summary>
@@ -2195,7 +2206,14 @@ namespace Parsek.Display
                         // COVERAGE set, the Director's genuine accounting of it via this non-proto walk.
                         // Gated on tracing so default play pays nothing; no render/draw effect.
                         if (MapRenderTrace.IsEnabled)
+                        {
                             GhostMapPresence.NoteDrawnRecordingCoverage(rec.RecordingId, ghostPid);
+                            // Phase 8e S3a (PURELY ADDITIVE): mirror the LEGACY ownership-publish (the
+                            // activeLegRecordings.Add directly above) so the S3a gate can prove S3b's
+                            // deletion of activeLegRecordings drops nothing. Same IsEnabled gate; no
+                            // render/draw effect.
+                            GhostMapPresence.NoteLegacyOwnedLeg(rec.RecordingId);
+                        }
                     }
                 }
 
