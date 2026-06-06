@@ -436,6 +436,146 @@ namespace Parsek.Tests
             Assert.Null(prior.TerminalSpawnSupersededByRecordingId);
         }
 
+        // Phantom-rover fix: a committed landed leaf that adopted its own live vessel, then had a
+        // transport dock INTO it (logistics delivery), gets its pid absorbed into the surviving
+        // merged vessel. Its terminal spawn must be superseded by the merged continuation so
+        // KSCSpawn does not later materialise a duplicate at the runway.
+        [Fact]
+        public void MarkTerminalSpawnSupersededByDockMerge_SupersedesAdoptedAbsorbedLeaf()
+        {
+            var prior = MakeRecording("landed-leaf", null,
+                vesselName: "rover fuel 0",
+                pid: 2899379747u,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot());
+            prior.VesselSpawned = true;
+            prior.SpawnedVesselPersistentId = 2899379747u;          // adoption stamp == baked pid
+            prior.RecordedVesselGuid = "4a7550b023534326b424f8c2440b1b3c";
+            RecordingStore.AddRecordingWithTreeForTesting(prior, "rover fuel 0");
+
+            int marked = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
+                absorbedPid: 2899379747u,
+                absorbedLaunchGuid: "4a7550b023534326b424f8c2440b1b3c",  // same launch as prior
+                mergedPid: 1603439995u,                                  // transport survived
+                mergedContinuationRecordingId: "merged-transport");
+
+            Assert.Equal(1, marked);
+            Assert.Equal("merged-transport", prior.TerminalSpawnSupersededByRecordingId);
+            Assert.False(prior.VesselSpawned);
+            Assert.Equal(0u, prior.SpawnedVesselPersistentId);
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                prior, isActiveChainMember: false, isChainLooping: false);
+            Assert.False(needsSpawn);
+            Assert.Contains("terminal spawn superseded", reason);
+        }
+
+        // #976-class guard: an adoption-stamped leaf (SpawnedVesselPersistentId == craft-baked
+        // VesselPersistentId) must NOT be superseded when a DIFFERENT launch of the same craft
+        // reused the baked pid and was the vessel docked into.
+        [Fact]
+        public void MarkTerminalSpawnSupersededByDockMerge_GuidGate_DoesNotSupersedeRelaunchCollision()
+        {
+            var prior = MakeRecording("old-landing", null,
+                vesselName: "rover fuel 0",
+                pid: 2899379747u,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot());
+            prior.VesselSpawned = true;
+            prior.SpawnedVesselPersistentId = 2899379747u;
+            prior.RecordedVesselGuid = "4a7550b023534326b424f8c2440b1b3c";
+            RecordingStore.AddRecordingWithTreeForTesting(prior, "rover fuel 0");
+
+            int marked = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
+                absorbedPid: 2899379747u,
+                absorbedLaunchGuid: "a424011b746440baae6030e225c9de31",  // conclusively different launch
+                mergedPid: 1603439995u,
+                mergedContinuationRecordingId: "merged-transport");
+
+            Assert.Equal(0, marked);
+            Assert.Null(prior.TerminalSpawnSupersededByRecordingId);
+            Assert.True(prior.VesselSpawned);
+            Assert.Equal(2899379747u, prior.SpawnedVesselPersistentId);
+        }
+
+        // When the dock target's pid SURVIVED as the merged vessel, its terminal spawn is owned by
+        // the live merged continuation, not lost: nothing to supersede.
+        [Fact]
+        public void MarkTerminalSpawnSupersededByDockMerge_TargetSurvivedAsMergedVessel_NoOp()
+        {
+            var prior = MakeRecording("survivor-leaf", null,
+                vesselName: "station",
+                pid: 2899379747u,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot());
+            prior.VesselSpawned = true;
+            prior.SpawnedVesselPersistentId = 2899379747u;
+            prior.RecordedVesselGuid = "4a7550b023534326b424f8c2440b1b3c";
+            RecordingStore.AddRecordingWithTreeForTesting(prior, "station");
+
+            int marked = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
+                absorbedPid: 2899379747u,
+                absorbedLaunchGuid: "4a7550b023534326b424f8c2440b1b3c",
+                mergedPid: 2899379747u,                  // target survived AS the merged vessel
+                mergedContinuationRecordingId: "merged");
+
+            Assert.Equal(0, marked);
+            Assert.Null(prior.TerminalSpawnSupersededByRecordingId);
+            Assert.True(prior.VesselSpawned);
+        }
+
+        // A genuine Parsek spawn carries a KSP-unique spawn pid (distinct from the craft-baked
+        // VesselPersistentId); a unique spawn pid cannot collide across relaunches, so it is matched
+        // pid-only with no guid gate.
+        [Fact]
+        public void MarkTerminalSpawnSupersededByDockMerge_UniqueSpawnPid_SupersedesWithoutGuid()
+        {
+            var prior = MakeRecording("spawned-leaf", null,
+                vesselName: "probe",
+                pid: 111u,                               // craft-baked pid
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot());
+            prior.VesselSpawned = true;
+            prior.SpawnedVesselPersistentId = 909090u;   // KSP-unique spawn pid
+            prior.RecordedVesselGuid = "4a7550b023534326b424f8c2440b1b3c";
+            RecordingStore.AddRecordingWithTreeForTesting(prior, "probe");
+
+            int marked = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
+                absorbedPid: 909090u,
+                absorbedLaunchGuid: "a424011b746440baae6030e225c9de31",  // differs, but ignored for unique spawn pid
+                mergedPid: 222u,
+                mergedContinuationRecordingId: "merged");
+
+            Assert.Equal(1, marked);
+            Assert.Equal("merged", prior.TerminalSpawnSupersededByRecordingId);
+            Assert.False(prior.VesselSpawned);
+            Assert.Equal(0u, prior.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
+        public void MarkTerminalSpawnSupersededByDockMerge_AlreadySuperseded_Skipped()
+        {
+            var prior = MakeRecording("already", null,
+                vesselName: "rover fuel 0",
+                pid: 2899379747u,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot());
+            prior.VesselSpawned = true;
+            prior.SpawnedVesselPersistentId = 2899379747u;
+            prior.RecordedVesselGuid = "4a7550b023534326b424f8c2440b1b3c";
+            prior.TerminalSpawnSupersededByRecordingId = "earlier-continuation";
+            RecordingStore.AddRecordingWithTreeForTesting(prior, "rover fuel 0");
+
+            int marked = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
+                absorbedPid: 2899379747u,
+                absorbedLaunchGuid: "4a7550b023534326b424f8c2440b1b3c",
+                mergedPid: 1603439995u,
+                mergedContinuationRecordingId: "merged-transport");
+
+            Assert.Equal(0, marked);
+            Assert.Equal("earlier-continuation", prior.TerminalSpawnSupersededByRecordingId);
+        }
+
         [Fact]
         public void CommitTree_MarksPriorSpawnEndpointSupersededByPidMatchAfterRename()
         {

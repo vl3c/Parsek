@@ -1523,6 +1523,110 @@ namespace Parsek
             return marked;
         }
 
+        /// <summary>
+        /// Dock-merge terminal-spawn supersession (phantom-rover fix). When a dock/board
+        /// merge absorbs a Parsek-spawned or adopted vessel that has a committed terminal
+        /// leaf (e.g. a landed rover a logistics transport docked into), that leaf's live
+        /// vessel disappears from FlightGlobals (its pid is absorbed into the surviving
+        /// merged vessel) WITHOUT dying. The pid-equality / name+UT branches of
+        /// <see cref="ShouldMarkSupersededTerminalSpawn"/> never link the two because the
+        /// merged continuation carries the SURVIVOR's pid, not the absorbed one. Left
+        /// unmarked, the per-frame spawn-death check resets the leaf for re-spawn and
+        /// KSCSpawn later materialises a duplicate "out of thin air" at the runway.
+        ///
+        /// Mark the absorbed leaf's terminal spawn superseded by the merged continuation so
+        /// neither the flight nor the KSC spawn path re-materialises it, and clear its spawn
+        /// state so the spawn-death loop goes quiet.
+        ///
+        /// Identity is keyed on the absorbed live vessel's pid (<paramref name="absorbedPid"/>,
+        /// the dock branch point's TargetVesselPersistentId):
+        ///   - a genuine Parsek spawn carries a KSP-unique spawn pid
+        ///     (SpawnedVesselPersistentId != VesselPersistentId) -> pid-only match, collision-free;
+        ///   - an adopted / originally-recorded leaf carries the craft-baked VesselPersistentId,
+        ///     which a relaunch of the same craft reuses, so that route is guid-gated against the
+        ///     absorbed vessel's live launch guid (#976-class).
+        /// The VesselPersistentId route is durable: it does NOT depend on the spawn-death check
+        /// having not yet zeroed SpawnedVesselPersistentId earlier in the same frame.
+        ///
+        /// Two accepted limitations:
+        ///   - When the absorbed vessel's launch guid is unknown (e.g. snapshot guid backfill
+        ///     failed) the baked-pid route falls back to pid-only, so several committed leaves
+        ///     that share the same craft-baked pid could all be superseded by one dock. This is
+        ///     benign over-suppression of historical duplicates and only arises in the abnormal
+        ///     no-guid state; with guids present the gate disambiguates to the one launch.
+        ///   - The unique-spawn-pid route is durable only while the merge runs before the same-
+        ///     frame spawn-death reset (the normal one-frame-deferred dock ordering). The
+        ///     reported bug is the adoption / baked-pid case, which is durable regardless.
+        /// </summary>
+        internal static int MarkTerminalSpawnSupersededByDockMerge(
+            uint absorbedPid,
+            string absorbedLaunchGuid,
+            uint mergedPid,
+            string mergedContinuationRecordingId,
+            string logContext = "DockMerge")
+        {
+            // 0 = no resolvable target; == merged means the "target" survived AS the merged
+            // vessel (its terminal spawn is owned by the live merged continuation, not lost).
+            if (absorbedPid == 0 || absorbedPid == mergedPid)
+                return 0;
+            if (string.IsNullOrEmpty(mergedContinuationRecordingId))
+                return 0;
+            if (committedRecordings == null || committedRecordings.Count == 0)
+                return 0;
+
+            int marked = 0;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                Recording prior = committedRecordings[i];
+                if (prior == null || string.IsNullOrEmpty(prior.RecordingId))
+                    continue;
+                if (string.Equals(prior.RecordingId, mergedContinuationRecordingId,
+                        StringComparison.Ordinal))
+                    continue;
+                if (!string.IsNullOrEmpty(prior.TerminalSpawnSupersededByRecordingId))
+                    continue;
+
+                bool uniqueSpawnMatch = prior.SpawnedVesselPersistentId != 0
+                    && prior.SpawnedVesselPersistentId == absorbedPid
+                    && prior.SpawnedVesselPersistentId != prior.VesselPersistentId;
+                bool bakedPidMatch = prior.VesselPersistentId != 0
+                    && prior.VesselPersistentId == absorbedPid;
+                if (!uniqueSpawnMatch && !bakedPidMatch)
+                    continue;
+
+                // Guid-gate the craft-baked-pid identity (reusable across relaunches of the
+                // same craft); a unique spawn pid cannot collide so it stays pid-only. A
+                // null/unknown guid is not conclusive -> falls back to pid-only.
+                if (!uniqueSpawnMatch
+                    && VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                        prior.RecordedVesselGuid, absorbedLaunchGuid))
+                    continue;
+
+                prior.TerminalSpawnSupersededByRecordingId = mergedContinuationRecordingId;
+                prior.VesselSpawned = false;
+                prior.SpawnedVesselPersistentId = 0;
+                prior.FilesDirty = true;
+                marked++;
+                ParsekLog.Info("RecordingStore",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "{0}: terminal spawn for recording '{1}' vessel='{2}' superseded by " +
+                        "dock-merge continuation '{3}' absorbedPid={4} mergedPid={5} " +
+                        "match={6} guid={7}",
+                        logContext ?? "DockMerge",
+                        prior.RecordingId,
+                        prior.VesselName ?? "<unnamed>",
+                        mergedContinuationRecordingId,
+                        absorbedPid,
+                        mergedPid,
+                        uniqueSpawnMatch ? "spawn-pid" : "baked-pid",
+                        absorbedLaunchGuid ?? "<unknown>"));
+            }
+
+            if (marked > 0)
+                BumpStateVersion();
+            return marked;
+        }
+
         private static bool ShouldMarkSupersededTerminalSpawn(
             Recording prior,
             Recording continued,
@@ -6739,6 +6843,66 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resolves a committed recording id to its display fields for the Logistics
+        /// window (H5: names instead of 8-char GUID fragments). Returns false when the
+        /// id is null/empty or not in the committed store; on success
+        /// <paramref name="recordingName"/> is the recording's display name
+        /// ("Untitled" when the vessel name is empty, matching the Recordings table),
+        /// <paramref name="treeName"/> is the owning tree/mission name (null for a
+        /// standalone recording with no tree), and <paramref name="treeOrder"/> is the
+        /// 0-based persisted position within the tree (-1 when unassigned).
+        /// <para>
+        /// This is the literal-free by-id accessor the Logistics window calls so it
+        /// never references <c>committedRecordings</c> directly and the ERS/ELS grep
+        /// gate stays green: the raw-list reads stay behind
+        /// <see cref="TryFindCommittedRecordingById"/> and
+        /// <see cref="TryResolveTreeById"/> in this already-allowlisted file. Reading
+        /// <see cref="RecordingTree.TreeName"/> for the mission name does not touch any
+        /// Missions file (MissionGroupLink keeps TreeName synced with the main mission
+        /// name).
+        /// </para>
+        /// </summary>
+        internal static bool TryResolveRecordingDisplayInfo(
+            string recordingId,
+            out string recordingName,
+            out string treeName,
+            out int treeOrder)
+        {
+            recordingName = null;
+            treeName = null;
+            treeOrder = -1;
+
+            Recording rec = TryFindCommittedRecordingById(recordingId);
+            if (rec == null)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"Logistics display resolve id={Shorten(recordingId)} resolved=false (not committed)");
+                return false;
+            }
+
+            recordingName = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
+            treeOrder = rec.TreeOrder;
+
+            if (!string.IsNullOrEmpty(rec.TreeId)
+                && TryResolveTreeById(rec.TreeId, out RecordingTree tree, out _)
+                && tree != null)
+            {
+                treeName = tree.TreeName;
+            }
+
+            ParsekLog.Verbose("RecordingStore",
+                $"Logistics display resolve id={Shorten(recordingId)} resolved=true "
+                + $"name='{recordingName}' tree='{treeName ?? "<none>"}' order={treeOrder.ToString(CultureInfo.InvariantCulture)}");
+            return true;
+        }
+
+        private static string Shorten(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "<none>";
+            return id.Length > 8 ? id.Substring(0, 8) : id;
+        }
+
+        /// <summary>
         /// Re-applies the rewind-time supersede drop after <see cref="ParsekScenario.OnLoad"/>
         /// has reloaded <see cref="ParsekScenario.RecordingSupersedes"/> from the scenario
         /// node. Without this, the in-memory drop performed in <see cref="InitiateRewind"/>
@@ -7952,6 +8116,16 @@ namespace Parsek
         internal static void DeserializeCrewManifest(ConfigNode parent, Recording rec)
         {
             RecordingManifestCodec.DeserializeCrewManifest(parent, rec);
+        }
+
+        internal static void SerializeRouteProofMetadata(ConfigNode parent, Recording rec)
+        {
+            RouteProofCodec.SerializeRouteProofMetadata(parent, rec);
+        }
+
+        internal static void DeserializeRouteProofMetadata(ConfigNode parent, Recording rec)
+        {
+            RouteProofCodec.DeserializeRouteProofMetadata(parent, rec);
         }
 
         #endregion

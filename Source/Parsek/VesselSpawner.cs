@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using UnityEngine;
 
 namespace Parsek
@@ -308,6 +310,103 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Gathers (lat, lon) for every existing same-body landed/splashed vessel — loaded
+        /// AND on-rails proto — that could be a stacking blocker for a new surface spawn.
+        /// At KSC / Tracking Station nothing is loaded, so the loaded-only collision check
+        /// (<see cref="SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels"/>) sees no
+        /// blockers and lets duplicate deliveries of the same craft stack on top of each
+        /// other (then explode when the player loads them into physics). This proto-aware
+        /// gather feeds <see cref="SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn"/>
+        /// so the new spawn is nudged clear before materialization.
+        ///
+        /// Excludes: the recording's own already-adopted source vessel (<paramref name="excludePid"/>),
+        /// ghost-map vessels, and Debris/EVA/Flag/SpaceObject types. Only same-body surface
+        /// vessels are returned — orbital/flying vessels do not constrain a ground footprint.
+        /// </summary>
+        internal static List<(double lat, double lon)> GatherExistingLandedVesselPositions(
+            CelestialBody body, uint excludePid)
+        {
+            var result = new List<(double lat, double lon)>();
+            if (body == null)
+                return result;
+
+            int loadedCount = 0;
+            int protoCount = 0;
+            try
+            {
+                var vessels = FlightGlobals.Vessels;
+                if (vessels != null)
+                {
+                    for (int i = 0; i < vessels.Count; i++)
+                    {
+                        Vessel v = vessels[i];
+                        if (v == null) continue;
+                        if (v.persistentId == excludePid) continue;
+                        if (v.mainBody != body) continue;
+                        if (!(v.Landed || v.Splashed)) continue;
+                        if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
+                        if (SpawnCollisionDetector.ShouldSkipVesselType(v.vesselType)) continue;
+                        result.Add((v.latitude, v.longitude));
+                        loadedCount++;
+                    }
+                }
+
+                var protoVessels = HighLogic.CurrentGame?.flightState?.protoVessels;
+                if (protoVessels != null)
+                {
+                    for (int i = 0; i < protoVessels.Count; i++)
+                    {
+                        ProtoVessel pv = protoVessels[i];
+                        if (pv == null) continue;
+                        if (pv.persistentId == excludePid) continue;
+                        // Skip protos already represented by a loaded Vessel (counted above).
+                        if (pv.vesselRef != null && pv.vesselRef.loaded) continue;
+                        if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) continue;
+                        if (SpawnCollisionDetector.ShouldSkipVesselType(pv.vesselType)) continue;
+                        if (!ProtoVesselIsOnSameBodySurface(pv, body)) continue;
+                        result.Add((pv.latitude, pv.longitude));
+                        protoCount++;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessKspAccessFailure(ex))
+                    throw;
+                ParsekLog.Verbose("Spawner",
+                    $"GatherExistingLandedVesselPositions: KSP unavailable for body={body?.name} — returning {result.Count} so far");
+            }
+
+            ParsekLog.Verbose("Spawner",
+                $"GatherExistingLandedVesselPositions: body={body.name} excludePid={excludePid} " +
+                $"loaded={loadedCount} proto={protoCount} total={result.Count}");
+            return result;
+        }
+
+        /// <summary>
+        /// True when a proto vessel is landed/splashed (or its persisted situation is a
+        /// surface situation) on the given body. Surface situation gates the de-overlap
+        /// gather so an orbiting proto sharing the body does not constrain the footprint.
+        /// </summary>
+        private static bool ProtoVesselIsOnSameBodySurface(ProtoVessel pv, CelestialBody body)
+        {
+            if (pv == null || body == null)
+                return false;
+
+            int refBodyIndex = pv.orbitSnapShot != null
+                ? pv.orbitSnapShot.ReferenceBodyIndex
+                : -1;
+            if (refBodyIndex >= 0 && refBodyIndex != body.flightGlobalsIndex)
+                return false;
+
+            return pv.landed
+                || pv.splashed
+                || pv.situation == Vessel.Situations.LANDED
+                || pv.situation == Vessel.Situations.SPLASHED
+                || pv.situation == Vessel.Situations.PRELAUNCH;
+        }
+
         private static bool IsHeadlessKspAccessFailure(Exception ex)
         {
             for (Exception current = ex; current != null; current = current.InnerException)
@@ -402,53 +501,34 @@ namespace Parsek
         /// </summary>
         internal static Dictionary<string, ResourceAmount> ExtractResourceManifest(ConfigNode vesselSnapshot)
         {
+            return ExtractResourceManifest(vesselSnapshot, null);
+        }
+
+        internal static Dictionary<string, ResourceAmount> ExtractResourceManifest(
+            ConfigNode vesselSnapshot,
+            ICollection<uint> partPersistentIds)
+        {
             if (vesselSnapshot == null) return null;
 
             var parts = vesselSnapshot.GetNodes("PART");
             if (parts.Length == 0) return null;
 
             var manifest = new Dictionary<string, ResourceAmount>();
-            int partCount = parts.Length;
+            int includedPartCount = 0;
 
             for (int i = 0; i < parts.Length; i++)
             {
-                var resources = parts[i].GetNodes("RESOURCE");
-                for (int j = 0; j < resources.Length; j++)
-                {
-                    string name = resources[j].GetValue("name");
-                    if (string.IsNullOrEmpty(name)) continue;
-                    if (name == "ElectricCharge" || name == "IntakeAir") continue;
+                if (!ShouldIncludePartByPersistentId(parts[i], partPersistentIds))
+                    continue;
 
-                    double amount = 0;
-                    double maxAmount = 0;
-                    string amountStr = resources[j].GetValue("amount");
-                    string maxStr = resources[j].GetValue("maxAmount");
-                    if (amountStr != null)
-                        double.TryParse(amountStr, System.Globalization.NumberStyles.Float,
-                            CultureInfo.InvariantCulture, out amount);
-                    if (maxStr != null)
-                        double.TryParse(maxStr, System.Globalization.NumberStyles.Float,
-                            CultureInfo.InvariantCulture, out maxAmount);
-
-                    if (manifest.ContainsKey(name))
-                    {
-                        // Struct — indexer returns a copy. Read-modify-write.
-                        var ra = manifest[name];
-                        ra.amount += amount;
-                        ra.maxAmount += maxAmount;
-                        manifest[name] = ra;
-                    }
-                    else
-                    {
-                        manifest[name] = new ResourceAmount { amount = amount, maxAmount = maxAmount };
-                    }
-                }
+                includedPartCount++;
+                AddResourceNodesToManifest(parts[i].GetNodes("RESOURCE"), manifest);
             }
 
             if (manifest.Count == 0) return null;
 
             ParsekLog.Verbose("Spawner",
-                $"ExtractResourceManifest: {manifest.Count} resource type(s) from {partCount} part(s)");
+                $"ExtractResourceManifest: {manifest.Count} resource type(s) from {includedPartCount} part(s)");
 
             return manifest;
         }
@@ -532,6 +612,324 @@ namespace Parsek
                 $"ExtractInventoryManifest: {manifest.Count} item type(s), {totalInventorySlots} total slot(s) across {moduleCount} inventory module(s)");
 
             return manifest;
+        }
+
+        internal static List<InventoryPayloadItem> ExtractInventoryPayloadItems(
+            ConfigNode vesselSnapshot,
+            ICollection<uint> partPersistentIds = null)
+        {
+            if (vesselSnapshot == null) return null;
+
+            ConfigNode[] parts = vesselSnapshot.GetNodes("PART");
+            if (parts.Length == 0) return null;
+
+            var byIdentity = new Dictionary<string, InventoryPayloadItem>();
+            int moduleCount = 0;
+            int storedPartCount = 0;
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (!ShouldIncludePartByPersistentId(parts[i], partPersistentIds))
+                    continue;
+
+                ConfigNode[] modules = parts[i].GetNodes("MODULE");
+                for (int j = 0; j < modules.Length; j++)
+                {
+                    if (modules[j].GetValue("name") != "ModuleInventoryPart") continue;
+                    moduleCount++;
+
+                    ConfigNode storedPartsNode = modules[j].GetNode("STOREDPARTS");
+                    if (storedPartsNode == null) continue;
+
+                    ConfigNode[] storedParts = storedPartsNode.GetNodes("STOREDPART");
+                    for (int k = 0; k < storedParts.Length; k++)
+                    {
+                        InventoryPayloadItem item = BuildInventoryPayloadItem(storedParts[k]);
+                        if (item == null)
+                            continue;
+
+                        storedPartCount++;
+                        if (byIdentity.TryGetValue(item.IdentityHash, out InventoryPayloadItem existing))
+                        {
+                            existing.Quantity += item.Quantity;
+                            existing.SlotsTaken += item.SlotsTaken;
+                        }
+                        else
+                        {
+                            byIdentity[item.IdentityHash] = item;
+                        }
+                    }
+                }
+            }
+
+            if (byIdentity.Count == 0) return null;
+
+            var items = new List<InventoryPayloadItem>(byIdentity.Values);
+            items.Sort((a, b) => string.Compare(a.IdentityHash, b.IdentityHash, StringComparison.Ordinal));
+
+            ParsekLog.Verbose("Spawner",
+                $"ExtractInventoryPayloadItems: {items.Count} payload identity(s), " +
+                $"{storedPartCount} stored part node(s) across {moduleCount} inventory module(s)");
+
+            return items;
+        }
+
+        // PART-level value names only. Module-level state (e.g. ModuleCargoPart.payloadMode,
+        // ModuleScienceExperiment rerun storage, nested ModuleInventoryPart contents) IS part
+        // of the payload identity by design -- two cargo items with different module state are
+        // not interchangeable for delivery. The in-game test
+        // InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity verifies that a live
+        // stock cargo move does not perturb module state; if KSP starts rewriting module
+        // values on inventory transfer, the contract changes and that test will fail.
+        private static readonly HashSet<string> TransientStoredPartProtoValueNames =
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "cid",
+                "uid",
+                "mid",
+                "persistentId",
+                "launchID",
+                "parent",
+                "position",
+                "rotation",
+                "mirror",
+                "symMethod",
+                "istg",
+                "resPri",
+                "dstg",
+                "sqor",
+                "sepI",
+                "sidx",
+                "attm",
+                "sameVesselCollision",
+                "srfN",
+                "attN",
+                "mass",
+                "shielded",
+                "temp",
+                "tempExt",
+                "tempExtUnexp",
+                "staticPressureAtm",
+                "expt",
+                "state",
+                "PreFailState",
+                "attached",
+                "autostrutMode",
+                "rigidAttachment",
+                "flag",
+                "rTrf",
+                "modCost",
+                "modMass"
+            };
+
+        internal static string ComputeInventoryPayloadIdentityHash(ConfigNode storedPart)
+        {
+            if (storedPart == null)
+                return null;
+
+            StringBuilder canonical = new StringBuilder();
+            AppendCanonicalConfigNode(storedPart, canonical, ignoreStoredPartSlotAndQuantity: true);
+
+            using (SHA256 sha = SHA256.Create())
+            {
+                byte[] bytes = Encoding.UTF8.GetBytes(canonical.ToString());
+                byte[] hash = sha.ComputeHash(bytes);
+                StringBuilder hex = new StringBuilder(hash.Length * 2);
+                for (int i = 0; i < hash.Length; i++)
+                    hex.Append(hash[i].ToString("x2", CultureInfo.InvariantCulture));
+                return hex.ToString();
+            }
+        }
+
+        private static bool ShouldIncludePartByPersistentId(
+            ConfigNode partNode,
+            ICollection<uint> partPersistentIds)
+        {
+            if (partPersistentIds == null || partPersistentIds.Count == 0)
+                return true;
+
+            return TryGetPartPersistentId(partNode, out uint pid)
+                && partPersistentIds.Contains(pid);
+        }
+
+        internal static bool TryGetPartPersistentId(ConfigNode partNode, out uint pid)
+        {
+            pid = 0;
+            if (partNode == null)
+                return false;
+
+            string pidStr = partNode.GetValue("persistentId");
+            return pidStr != null
+                && uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out pid)
+                && pid != 0;
+        }
+
+        private static InventoryPayloadItem BuildInventoryPayloadItem(ConfigNode storedPart)
+        {
+            if (storedPart == null)
+                return null;
+
+            string partName = storedPart.GetValue("partName");
+            if (string.IsNullOrEmpty(partName))
+                return null;
+
+            int quantity = 1;
+            string qtyStr = storedPart.GetValue("quantity");
+            if (qtyStr != null
+                && int.TryParse(qtyStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedQty))
+            {
+                quantity = parsedQty;
+            }
+
+            ConfigNode snapshot = storedPart.CreateCopy();
+            snapshot.name = "STOREDPART";
+
+            return new InventoryPayloadItem
+            {
+                IdentityHash = ComputeInventoryPayloadIdentityHash(snapshot),
+                PartName = partName,
+                VariantName = storedPart.GetValue("variantName") ?? storedPart.GetValue("variant"),
+                Quantity = quantity,
+                SlotsTaken = 1,
+                StoredResources = ExtractStoredPartResourceManifest(storedPart),
+                StoredPartSnapshot = snapshot
+            };
+        }
+
+        private static Dictionary<string, ResourceAmount> ExtractStoredPartResourceManifest(
+            ConfigNode storedPart)
+        {
+            if (storedPart == null)
+                return null;
+
+            var manifest = new Dictionary<string, ResourceAmount>();
+            AddResourceNodesToManifest(storedPart.GetNodes("RESOURCE"), manifest);
+
+            ConfigNode[] partNodes = storedPart.GetNodes("PART");
+            for (int i = 0; i < partNodes.Length; i++)
+                AddResourceNodesToManifest(partNodes[i].GetNodes("RESOURCE"), manifest);
+
+            return manifest.Count > 0 ? manifest : null;
+        }
+
+        private static void AddResourceNodesToManifest(
+            ConfigNode[] resourceNodes,
+            Dictionary<string, ResourceAmount> manifest)
+        {
+            if (resourceNodes == null || manifest == null)
+                return;
+
+            for (int j = 0; j < resourceNodes.Length; j++)
+            {
+                string name = resourceNodes[j].GetValue("name");
+                if (string.IsNullOrEmpty(name)) continue;
+                if (name == "ElectricCharge" || name == "IntakeAir") continue;
+
+                double amount = 0;
+                double maxAmount = 0;
+                string amountStr = resourceNodes[j].GetValue("amount");
+                string maxStr = resourceNodes[j].GetValue("maxAmount");
+                if (amountStr != null)
+                    double.TryParse(amountStr, NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out amount);
+                if (maxStr != null)
+                    double.TryParse(maxStr, NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out maxAmount);
+
+                if (manifest.ContainsKey(name))
+                {
+                    var ra = manifest[name];
+                    ra.amount += amount;
+                    ra.maxAmount += maxAmount;
+                    manifest[name] = ra;
+                }
+                else
+                {
+                    manifest[name] = new ResourceAmount { amount = amount, maxAmount = maxAmount };
+                }
+            }
+        }
+
+        private static void AppendCanonicalConfigNode(
+            ConfigNode node,
+            StringBuilder output,
+            bool ignoreStoredPartSlotAndQuantity = false,
+            bool insideStoredPart = false)
+        {
+            if (node == null || output == null)
+                return;
+
+            bool isStoredPart = string.Equals(node.name, "STOREDPART", StringComparison.Ordinal);
+            bool isInsideStoredPart = insideStoredPart || isStoredPart;
+
+            output.Append("node=").Append(node.name ?? "").Append('\n');
+
+            var values = new List<string>();
+            if (node.values != null)
+            {
+                for (int i = 0; i < node.values.Count; i++)
+                {
+                    ConfigNode.Value value = node.values[i];
+                    if (ShouldSkipStoredPartIdentityValue(
+                            node,
+                            value.name,
+                            ignoreStoredPartSlotAndQuantity,
+                            isInsideStoredPart))
+                    {
+                        continue;
+                    }
+
+                    values.Add((value.name ?? "") + "\x1F" + (value.value ?? ""));
+                }
+            }
+            values.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < values.Count; i++)
+                output.Append("value=").Append(values[i]).Append('\n');
+
+            var children = new List<string>();
+            if (node.nodes != null)
+            {
+                for (int i = 0; i < node.nodes.Count; i++)
+                {
+                    StringBuilder child = new StringBuilder();
+                    AppendCanonicalConfigNode(
+                        node.nodes[i],
+                        child,
+                        ignoreStoredPartSlotAndQuantity,
+                        isInsideStoredPart);
+                    children.Add(child.ToString());
+                }
+            }
+            children.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < children.Count; i++)
+                output.Append(children[i]);
+        }
+
+        private static bool ShouldSkipStoredPartIdentityValue(
+            ConfigNode node,
+            string valueName,
+            bool ignoreStoredPartSlotAndQuantity,
+            bool insideStoredPart)
+        {
+            if (!ignoreStoredPartSlotAndQuantity ||
+                node == null ||
+                string.IsNullOrEmpty(valueName))
+            {
+                return false;
+            }
+
+            if (string.Equals(node.name, "STOREDPART", StringComparison.Ordinal))
+            {
+                return string.Equals(valueName, "slotIndex", StringComparison.Ordinal)
+                    || string.Equals(valueName, "quantity", StringComparison.Ordinal);
+            }
+
+            // Stock rewrites these vessel-local ProtoPartSnapshot fields when a stored
+            // part moves between inventories. Keep payload-defining child MODULE and
+            // RESOURCE nodes in the hash, but ignore container-placement noise.
+            return insideStoredPart
+                && string.Equals(node.name, "PART", StringComparison.Ordinal)
+                && TransientStoredPartProtoValueNames.Contains(valueName);
         }
 
         /// <summary>

@@ -257,6 +257,18 @@ namespace Parsek
         // PID of vessel docked to at this segment's boundary (0 = not a dock segment)
         public uint DockTargetVesselPid;
 
+        // Route-facing connection metadata. TransferTargetVesselPid is the
+        // connected endpoint vessel PID at a logistics-relevant boundary;
+        // TransferKind identifies the producer contract (DockingPort only in v0).
+        public uint TransferTargetVesselPid;
+        internal RouteConnectionKind TransferKind;
+
+        // Logistics proof metadata. RouteConnectionWindows are completed
+        // dock/undock windows with transport- and endpoint-scoped manifests;
+        // RouteOriginProof proves non-KSC origin debit authority.
+        internal List<RouteConnectionWindow> RouteConnectionWindows;
+        internal RouteOriginProof RouteOriginProof;
+
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
 
@@ -625,6 +637,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Adopts the captured start-location fields (body / biome / situation / launch site),
+        /// each only when this recording does not already carry that field. Mirrors
+        /// <see cref="AdoptStartCrewIfEmpty"/>'s no-overwrite contract: the StartRecording backstop
+        /// forwards the just-captured location onto the always-tree-root recording. Without this the
+        /// root of a multi-recording tree (launch, then dock / continue) keeps NO LaunchSiteName /
+        /// StartBodyName, because the OnSave flush forwards those to whichever recording is active at
+        /// save time (a mid-flight child), not the root. That left KSC-origin supply routes
+        /// unresolvable ("origin unresolvable") even though the launch site WAS captured at launch.
+        /// Each field is set independently so a mid-flight child (launchSite == null) still adopts
+        /// its body without claiming a launch site it never had. Returns true if any field changed.
+        /// </summary>
+        internal bool AdoptStartLocationIfEmpty(string body, string biome, string situation, string launchSite)
+        {
+            bool changed = false;
+            if (string.IsNullOrEmpty(StartBodyName) && !string.IsNullOrEmpty(body))
+            {
+                StartBodyName = body;
+                changed = true;
+            }
+            if (string.IsNullOrEmpty(StartBiome) && !string.IsNullOrEmpty(biome))
+            {
+                StartBiome = biome;
+                changed = true;
+            }
+            if (string.IsNullOrEmpty(StartSituation) && !string.IsNullOrEmpty(situation))
+            {
+                StartSituation = situation;
+                changed = true;
+            }
+            if (string.IsNullOrEmpty(LaunchSiteName) && !string.IsNullOrEmpty(launchSite))
+            {
+                LaunchSiteName = launchSite;
+                changed = true;
+            }
+            return changed;
+        }
+
+        /// <summary>
         /// Centralized "mark this recording as destroyed at <paramref name="terminalUT"/>"
         /// hygiene helper. Sets the terminal verdict (<see cref="TerminalStateValue"/>,
         /// <see cref="VesselDestroyed"/>, <see cref="ExplicitEndUT"/>) AND clears every
@@ -770,6 +820,10 @@ namespace Parsek
             StartCrew = source.StartCrew;
             EndCrew = source.EndCrew;
             DockTargetVesselPid = source.DockTargetVesselPid;
+            TransferTargetVesselPid = source.TransferTargetVesselPid;
+            TransferKind = source.TransferKind;
+            RouteConnectionWindows = RouteProofMetadata.CloneConnectionWindows(source.RouteConnectionWindows);
+            RouteOriginProof = source.RouteOriginProof != null ? source.RouteOriginProof.DeepClone() : null;
             CrewEndStatesResolved = source.CrewEndStatesResolved;
             TerminalSpawnSupersededByRecordingId = source.TerminalSpawnSupersededByRecordingId;
 
@@ -863,6 +917,12 @@ namespace Parsek
                 : null;
             clone.EndCrew = source.EndCrew != null
                 ? new Dictionary<string, int>(source.EndCrew)
+                : null;
+            clone.TransferTargetVesselPid = source.TransferTargetVesselPid;
+            clone.TransferKind = source.TransferKind;
+            clone.RouteConnectionWindows = RouteProofMetadata.CloneConnectionWindows(source.RouteConnectionWindows);
+            clone.RouteOriginProof = source.RouteOriginProof != null
+                ? source.RouteOriginProof.DeepClone()
                 : null;
             clone.FilesDirty = source.FilesDirty;
             clone.SidecarEpoch = source.SidecarEpoch;

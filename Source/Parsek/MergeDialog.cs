@@ -33,10 +33,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Fired after a tree is committed via the merge dialog.
-        /// ParsekFlight subscribes to re-evaluate ghost chains.
+        /// Fired after a tree is committed via the merge dialog. Subscribers
+        /// receive the just-committed <see cref="RecordingTree"/> so they can
+        /// inspect it (e.g. route-creation eligibility) without having to
+        /// re-derive which tree was the subject of the commit.
+        /// ParsekFlight subscribes to re-evaluate ghost chains; the route
+        /// creation dialog subscribes to offer route creation when the
+        /// committed tree carries a completed route proof.
         /// </summary>
-        internal static System.Action OnTreeCommitted;
+        internal static System.Action<RecordingTree> OnTreeCommitted;
 
         /// <summary>
         /// Clears the deferred merge dialog flag and removes the input lock.
@@ -1400,7 +1405,7 @@ namespace Parsek
             }
 
             ClearPendingFlag("merge dialog commit button");
-            OnTreeCommitted?.Invoke();
+            OnTreeCommitted?.Invoke(tree);
             if (spawnCount > 0)
                 ParsekLog.ScreenMessage(
                     $"Merged - {spawnCount} vessel(s) will appear after ghost playback", 3f);

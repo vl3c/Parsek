@@ -72,6 +72,18 @@ namespace Parsek.Tests
         [InlineData(GameActionType.FundsInitial,         false)]
         [InlineData(GameActionType.ScienceInitial,       false)]
         [InlineData(GameActionType.ReputationInitial,    false)]
+        // Route funds (logistics-recovery-credit, Option A): FundsModule now consumes
+        // BOTH the gross dispatch debit (RouteCargoDebited, a spending) and the
+        // deferred recovery credit (RouteRecoveryCredited, an earning), so both move
+        // the funds pool and classify true. The remaining route types track only
+        // scheduler state (dispatch decision / delivery record / pause / endpoint
+        // lost) and move no resource pool, so they stay false.
+        [InlineData(GameActionType.RouteDispatched,      false)]
+        [InlineData(GameActionType.RouteCargoDebited,    true)]
+        [InlineData(GameActionType.RouteCargoDelivered,  false)]
+        [InlineData(GameActionType.RoutePaused,          false)]
+        [InlineData(GameActionType.RouteEndpointLost,    false)]
+        [InlineData(GameActionType.RouteRecoveryCredited, true)]
         public void IsResourceImpactingAction_Theory(GameActionType type, bool expected)
         {
             Assert.Equal(expected, LedgerOrchestrator.IsResourceImpactingAction(type));

@@ -215,6 +215,36 @@ namespace Parsek.Tests
             };
         }
 
+        // logistics-recovery-credit Option A: the gross dispatch debit is a fund
+        // SPENDING in the recalc walk (FundsModule.ProcessRouteCargoDebited).
+        private static GameAction RouteCargoDebited(double ut, float kscCost,
+            string routeId = "route-rewind", string cycleId = "cycle-0")
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.RouteCargoDebited,
+                RouteId = routeId,
+                RouteCycleId = cycleId,
+                RouteKscFundsCost = kscCost // positive magnitude; type carries the sign
+            };
+        }
+
+        // logistics-recovery-credit: the deferred recovery credit is a fund EARNING
+        // in the recalc walk (FundsModule.ProcessRouteRecoveryCredited).
+        private static GameAction RouteRecoveryCredited(double ut, float recovered,
+            string routeId = "route-rewind", string cycleId = "cycle-0")
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.RouteRecoveryCredited,
+                RouteId = routeId,
+                RouteCycleId = cycleId,
+                RouteKscFundsCost = recovered // positive magnitude; type carries the sign
+            };
+        }
+
         private static GameAction FacilityUpgrade(double ut, string facilityId, float cost, int toLevel = 2)
         {
             return new GameAction
@@ -1663,6 +1693,158 @@ namespace Parsek.Tests
                 a.Type == GameActionType.ScienceInitial && Math.Abs(a.InitialScience - 11.04f) < 0.001f);
             Assert.DoesNotContain(Ledger.Actions, a =>
                 a.Type == GameActionType.ReputationInitial && Math.Abs(a.InitialReputation - 1f) < 0.001f);
+        }
+
+        // ================================================================
+        // T-REWIND (logistics-recovery-credit, section 8 "Rewind reversal, the
+        // safety-critical path"): the deferred route recovery CREDIT is a stock
+        // funds mutation (LiveCreditFunds -> Funding.AddFunds(+amount)); its
+        // rollback on a Parsek timeline rewind MUST be proven by a cutoff walk, not
+        // assumed from a forward-only deferral test. These drive the real engine +
+        // patch path (LedgerOrchestrator.RecalculateAndPatch(utCutoff)) so the
+        // cutoff excludes the future credit, GetRunningBalance drops by exactly the
+        // credit, and Option A's gross debit cutoff behaves symmetrically.
+        //
+        // GetRunningBalance is the deterministic decision quantity (seed + earnings
+        // - spendings up to the cutoff). GetAvailableFunds layers cashflow
+        // projection over FUTURE spendings on top, so the running balance is the
+        // faithful "what PatchFunds reconciles live funds to" target here.
+        // ================================================================
+
+        [Fact]
+        public void RouteRecoveryCredit_CutoffBeforeCredit_UnCreditsExactlyTheCreditAmount()
+        {
+            // Initial 25000, gross debit 12500 at dispatch (UT=100), recovery credit
+            // 7300 at the NEXT crossing (UT=400). A rewind to UT=200 (after the
+            // debit, before the credit) must drop the credit only.
+            AddAll(
+                FundsSeed(25000f),
+                RouteCargoDebited(100.0, 12500f, cycleId: "cycle-0"),
+                RouteRecoveryCredited(400.0, 7300f, cycleId: "cycle-0"));
+
+            // Full walk (cutoff past the credit): 25000 - 12500 + 7300 = 19800.
+            LedgerOrchestrator.RecalculateAndPatch(500.0);
+            Assert.Equal(19800.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+
+            // Rewind cutoff at UT=200: the credit at UT=400 is EXCLUDED, the debit at
+            // UT=100 still counts. Balance rises back by exactly the credit amount:
+            // 25000 - 12500 = 12500 (i.e. 19800 - 7300, the credit un-applied).
+            LedgerOrchestrator.RecalculateAndPatch(200.0);
+            Assert.Equal(12500.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            AssertLogHasCutoffSummary(logLines, 3, 2, "200");
+        }
+
+        [Fact]
+        public void RouteCargoDebit_CutoffBeforeDebit_RestoresGross_OptionASymmetry()
+        {
+            // Option A symmetry: the gross debit ALSO flows through FundsModule, so a
+            // rewind to before the dispatch UT un-charges the gross too. Cutoff at
+            // UT=50 excludes both the debit (UT=100) and the credit (UT=400): the
+            // balance returns to the seeded initial.
+            AddAll(
+                FundsSeed(25000f),
+                RouteCargoDebited(100.0, 12500f, cycleId: "cycle-0"),
+                RouteRecoveryCredited(400.0, 7300f, cycleId: "cycle-0"));
+
+            LedgerOrchestrator.RecalculateAndPatch(50.0);
+
+            // Only the seed survives: both the gross debit and the credit are excluded.
+            Assert.Equal(25000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            // The gross debit is no longer a committed spending after the rewind.
+            Assert.Equal(0.0, LedgerOrchestrator.Funds.GetTotalCommittedSpendings(), 1);
+            AssertLogHasCutoffSummary(logLines, 3, 1, "50");
+        }
+
+        [Fact]
+        public void RouteRecoveryCredit_CutoffBetweenDebitAndCredit_DropsCreditKeepsGrossSpending()
+        {
+            // Pin the asymmetry that proves the credit (not the debit) is the only
+            // row reversed by a mid-interval rewind: cutoff at UT=200 keeps the
+            // gross debit in the committed-spendings aggregate but drops the credit
+            // earning. This is the exact frame a rewind-past-a-recovery lands on.
+            AddAll(
+                FundsSeed(25000f),
+                RouteCargoDebited(100.0, 12500f, cycleId: "cycle-0"),
+                RouteRecoveryCredited(400.0, 7300f, cycleId: "cycle-0"));
+
+            LedgerOrchestrator.RecalculateAndPatch(200.0);
+
+            Assert.Equal(12500.0, LedgerOrchestrator.Funds.GetTotalCommittedSpendings(), 1);
+            // No route credit counted in earnings after the cutoff.
+            Assert.Equal(0.0, LedgerOrchestrator.Funds.GetTotalEarnings(), 1);
+        }
+
+        // ================================================================
+        // T-REWIND-RESERVATION (logistics-recovery-credit, section 6.3 BRANCH (b)):
+        // the cutoff-walk / reservation-floor branch. This is the branch the LIVE
+        // route emit actually triggers (RecalculateAndPatchForLiveTimelineEvent /
+        // ...IfFutureActions) whenever ANY committed action exists after the recalc
+        // UT. On that branch GetAvailableFunds() returns the RESERVATION MINIMUM
+        // from RecalculationEngine.ProjectAvailability (the projected floor), NOT
+        // runningBalance. The credit's reversibility must hold against the FLOOR:
+        // the future +credit raises it, the gross -debit and a future FundsSpending
+        // lower it. The prior T-REWIND tests assert GetRunningBalance (the full-walk
+        // quantity) and deliberately sidestep the projection; this test seeds a
+        // committed future FundsSpending so hasProjectedAvailableFunds == true and
+        // asserts the floor.
+        //
+        // Numbers: initial 25000, gross debit 12500 (UT=100), recovery credit 7300
+        // (UT=400), committed future FundsSpending 5000 (UT=700).
+        // ================================================================
+
+        [Fact]
+        public void RouteRecoveryCredit_LiveEventRecalcAtCreditUT_FloorIncludesCredit()
+        {
+            AddAll(
+                FundsSeed(25000f),
+                RouteCargoDebited(100.0, 12500f, cycleId: "cycle-0"),
+                RouteRecoveryCredited(400.0, 7300f, cycleId: "cycle-0"),
+                FundsSpending(700.0, 5000f, "rec-reserve"));
+
+            // Live-event recalc AT the credit UT (cutoff=400): the credit and debit
+            // are IN the walk (UT <= 400). runningBalance = 25000 - 12500 + 7300 =
+            // 19800. The future FundsSpending at UT=700 drives the projection branch:
+            // the floor projects 19800 -> 14800, so GetAvailableFunds() == 14800,
+            // STRICTLY LESS than runningBalance (this is the reservation system
+            // holding funds back for the committed spending), and the credit is part
+            // of the 19800 the floor is computed from.
+            LedgerOrchestrator.RecalculateAndPatch(400.0);
+            Assert.Equal(19800.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(14800.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
+            // The floor is NOT the running balance: the projection branch is active.
+            Assert.NotEqual(
+                LedgerOrchestrator.Funds.GetRunningBalance(),
+                LedgerOrchestrator.Funds.GetAvailableFunds());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Funds]") && l.Contains("Projected availability"));
+        }
+
+        [Fact]
+        public void RouteRecoveryCredit_CutoffBeforeCredit_LowersReservationFloor()
+        {
+            AddAll(
+                FundsSeed(25000f),
+                RouteCargoDebited(100.0, 12500f, cycleId: "cycle-0"),
+                RouteRecoveryCredited(400.0, 7300f, cycleId: "cycle-0"),
+                FundsSpending(700.0, 5000f, "rec-reserve"));
+
+            // Cutoff BEFORE the credit UT (cutoff=200): the credit at UT=400 is
+            // EXCLUDED from the in-walk balance, so runningBalance = 25000 - 12500 =
+            // 12500. The projection now walks the credit (+7300 at UT=400) and the
+            // spending (-5000 at UT=700) as FUTURE deltas: 12500 -> 19800 -> 14800.
+            // The reservation minimum is the STARTING balance 12500 (the credit no
+            // longer pre-raises the in-walk balance), so the floor DROPS from 14800
+            // (credit in walk) to 12500. The +credit projection delta is excluded
+            // from the in-walk seed, which is exactly the reversibility property on
+            // the projection branch: a cutoff past the credit UT drops the credit's
+            // contribution to the in-walk balance and lowers the floor.
+            LedgerOrchestrator.RecalculateAndPatch(200.0);
+            Assert.Equal(12500.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(12500.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
+            // The floor is strictly LOWER than the live-event-at-credit-UT floor
+            // (14800): excluding the credit from the in-walk balance lowered it.
+            Assert.True(LedgerOrchestrator.Funds.GetAvailableFunds() < 14800.0,
+                "floor must drop below the credit-in-walk floor when the credit is cut off");
         }
 
         // ================================================================

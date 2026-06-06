@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Parsek.Logistics;
+using Parsek.Tests.Generators;
 using UnityEngine;
 using Xunit;
 
@@ -45,6 +47,7 @@ namespace Parsek.Tests
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             RecalculationEngine.ClearModules();
+            RouteStore.ResetForTesting();
             KspStatePatcher.SuppressUnityCallsForTesting = true;
         }
 
@@ -61,6 +64,7 @@ namespace Parsek.Tests
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             RecalculationEngine.ClearModules();
+            RouteStore.ResetForTesting();
             KspStatePatcher.ResetForTesting();
         }
 
@@ -148,6 +152,19 @@ namespace Parsek.Tests
             yield return new object[] { GameActionType.FundsInitial, false, false };
             yield return new object[] { GameActionType.ScienceInitial, false, false };
             yield return new object[] { GameActionType.ReputationInitial, false, false };
+            // Route types (design doc section 6): scheduler-emitted under a RouteId, not
+            // flight-recorder output, so they never strict-block or retry-block an
+            // auto-seal. This holds even though FundsModule now consumes the funds
+            // route rows (logistics-recovery-credit, Option A): their FUNDS effect is
+            // reversed through the cutoff walk / tombstone path, NOT through the
+            // recording-scoped supersede block. RouteRecoveryCredited inherits the
+            // same exclusion (section 6.5).
+            yield return new object[] { GameActionType.RouteDispatched, false, false };
+            yield return new object[] { GameActionType.RouteCargoDebited, false, false };
+            yield return new object[] { GameActionType.RouteCargoDelivered, false, false };
+            yield return new object[] { GameActionType.RoutePaused, false, false };
+            yield return new object[] { GameActionType.RouteEndpointLost, false, false };
+            yield return new object[] { GameActionType.RouteRecoveryCredited, false, false };
         }
 
         [Fact]
@@ -2430,6 +2447,78 @@ namespace Parsek.Tests
             Assert.DoesNotContain("rec_inside", idsAfter);
             Assert.Contains("rec_outside", idsAfter);
             Assert.Contains("rec_provisional", idsAfter);
+        }
+
+        // Catches: re-fly supersede committing mid-session leaving routes
+        // pointed at the just-superseded recording stuck on RouteStatus.Active
+        // until the next save/load. Without the
+        // RouteStore.RevalidateSources("Supersede") hook inside
+        // FlipMergeStateAndClearTransient, the future item-5 dispatch scheduler
+        // would iterate CommittedRoutes per tick and dispatch against
+        // source-refs whose recording is no longer in ERS.
+        [Fact]
+        public void Commit_RevalidatesRouteSources_SupersededSourceFlipsRouteToMissing()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside",
+                originTerminal: TerminalState.Destroyed);
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            // Route is initially Active and points at rec_origin. Use a
+            // fingerprint matching the recording's current default-zero shape
+            // (no RouteConnectionWindows / RouteOriginProof => NoRouteProofSentinel
+            // on both sides) so the route would only transition if the
+            // source-ref recording id drops out of ERS — which is exactly what
+            // CommitSupersede does.
+            var rec_origin = RecordingStore.CommittedRecordings.First(r => r.RecordingId == "rec_origin");
+            var sourceRef = new RouteSourceRef
+            {
+                RecordingId = rec_origin.RecordingId,
+                TreeId = rec_origin.TreeId,
+                TreeOrder = rec_origin.TreeOrder,
+                RecordingFormatVersion = rec_origin.RecordingFormatVersion,
+                RecordingSchemaGeneration = rec_origin.RecordingSchemaGeneration,
+                SidecarEpoch = rec_origin.SidecarEpoch,
+                StartUT = rec_origin.StartUT,
+                EndUT = rec_origin.EndUT,
+                RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(rec_origin)
+            };
+            var route = new RouteFixtureBuilder()
+                .WithId("route-superseded-origin")
+                .WithName("Test Route")
+                .WithStatus(RouteStatus.Active)
+                .WithRecordingId(rec_origin.RecordingId)
+                .WithSourceRef(sourceRef)
+                .Build();
+            RouteStore.AddRoute(route);
+
+            // Sanity: route is Active before commit.
+            Assert.True(RouteStore.TryGetRoute("route-superseded-origin", out Route preCommit));
+            Assert.Equal(RouteStatus.Active, preCommit.Status);
+
+            // Drive a real synchronous supersede commit. Do NOT call
+            // RouteStore.RevalidateSources or ParsekScenario.OnLoad explicitly
+            // — the in-session reactivity hook inside
+            // FlipMergeStateAndClearTransient must do it.
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.True(RouteStore.TryGetRoute("route-superseded-origin", out Route postCommit));
+            Assert.Equal(RouteStatus.MissingSourceRecording, postCommit.Status);
+            // RevalidateSources is now driven by the central seam inside
+            // ParsekScenario.BumpSupersedeStateVersion, so the audit reason
+            // is "SupersedeStateVersion-bump" (not the prior explicit
+            // "Supersede" reason). The per-route transition line names the
+            // same reason, prefixed onto the MissingSourceRecording cause.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("RevalidateSources")
+                && l.Contains("reason=SupersedeStateVersion-bump"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("Active")
+                && l.Contains("MissingSourceRecording")
+                && l.Contains("SupersedeStateVersion-bump/MissingSourceRecording/source-not-in-ers"));
         }
 
         // ---------- Idempotence + edge cases --------------------------------

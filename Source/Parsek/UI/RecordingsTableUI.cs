@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using ClickThroughFix;
+using Parsek.Logistics;
 using UnityEngine;
 
 namespace Parsek
@@ -986,18 +987,35 @@ namespace Parsek
             // Select-all loop header + checkbox. Debris recordings are excluded
             // from both the aggregate and the bulk write; see ComputeLoopAggregate
             // and BulkSetLoopPlayback.
+            //
+            // Mutual exclusion (design §0.6): the select-all loop greys OFF when ANY
+            // committed recording lives on a route-bound tree (safe default: a bulk
+            // control spanning a route-bound recording never partially applies). The
+            // commit guard below blocks the bulk write even if the wrap is dropped.
+            bool headerRouteBound = AnyRecordingRouteBound(committed, indices: null);
             var headerLoopAgg = ComputeLoopAggregate(committed);
             GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Loop), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Loop", boldHeaderInnerLabel);
+            bool prevAllLoopEnabled = GUI.enabled;
+            if (headerRouteBound) GUI.enabled = false;
             bool newAllLoop = GUILayout.Toggle(headerLoopAgg.AllLoop, "");
+            GUI.enabled = prevAllLoopEnabled;
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrLoop");
             if (newAllLoop != headerLoopAgg.AllLoop)
             {
-                int written = BulkSetLoopPlayback(committed, indices: null, value: newAllLoop, applyAutoRange: false);
-                ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop} ({written} recordings)");
+                if (headerRouteBound)
+                {
+                    ParsekLog.Info("RouteGuard",
+                        $"Recordings-tab select-all Loop blocked (a committed recording is on a route-bound tree); request={newAllLoop} ignored");
+                }
+                else
+                {
+                    int written = BulkSetLoopPlayback(committed, indices: null, value: newAllLoop, applyAutoRange: false);
+                    ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop} ({written} recordings)");
+                }
             }
 
             GUILayout.Label(new GUIContent("Period",
@@ -1600,18 +1618,39 @@ namespace Parsek
             }
             else
             {
+                // Mutual exclusion (design §0.6): grey the per-recording Loop toggle OFF when
+                // this recording's tree is bound to a supply route, and block the commit (this
+                // toggle writes Recording.LoopPlayback directly, bypassing MissionStore, so the
+                // commit guard is the ONLY thing preventing a per-recording loop on a route tree).
+                bool rowRouteBound = IsRecordingRouteBound(rec);
                 GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
                 GUILayout.FlexibleSpace();
-                bool loop = GUILayout.Toggle(rec.LoopPlayback, "");
+                bool prevRowLoopEnabled = GUI.enabled;
+                if (rowRouteBound) GUI.enabled = false;
+                bool loop = GUILayout.Toggle(
+                    rec.LoopPlayback,
+                    rowRouteBound
+                        ? new GUIContent("", $"Looped by route: {RouteBindingTooltipName(rec)}")
+                        : GUIContent.none);
+                GUI.enabled = prevRowLoopEnabled;
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
                 if (loop != rec.LoopPlayback)
                 {
-                    rec.LoopPlayback = loop;
-                    ApplyAutoLoopRange(rec, loop);
-                    if (!loop && loopPeriodFocusedRi == ri)
-                        loopPeriodFocusedRi = -1;
-                    ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
+                    if (rowRouteBound)
+                    {
+                        ParsekLog.Info("RouteGuard",
+                            $"Recordings-tab per-recording Loop blocked for '{rec.VesselName}' " +
+                            $"(tree={rec.TreeId} bound by route); request={loop} ignored");
+                    }
+                    else
+                    {
+                        rec.LoopPlayback = loop;
+                        ApplyAutoLoopRange(rec, loop);
+                        if (!loop && loopPeriodFocusedRi == ri)
+                            loopPeriodFocusedRi = -1;
+                        ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
+                    }
                 }
             }
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowLoop");
@@ -2137,6 +2176,11 @@ namespace Parsek
             // Aggregate Loop toggle. Group writes do not call ApplyAutoLoopRange
             // (so a user-customized LoopStartUT/LoopEndUT survives off/on toggle);
             // see BulkSetLoopPlayback.
+            //
+            // Mutual exclusion (design §0.6): grey OFF + block the group loop when ANY
+            // descendant lives on a route-bound tree (safe default: a group spanning a
+            // route-bound recording never partially applies).
+            bool grpRouteBound = AnyRecordingRouteBound(committed, descendants);
             var grpLoopAgg = ComputeLoopAggregate(committed, descendants);
             if (grpLoopAgg.SuppressToggle)
             {
@@ -2146,13 +2190,28 @@ namespace Parsek
             {
                 GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
                 GUILayout.FlexibleSpace();
-                bool newLoop = GUILayout.Toggle(grpLoopAgg.AllLoop, "");
+                bool prevGrpLoopEnabled = GUI.enabled;
+                if (grpRouteBound) GUI.enabled = false;
+                bool newLoop = GUILayout.Toggle(
+                    grpLoopAgg.AllLoop,
+                    grpRouteBound
+                        ? new GUIContent("", "Looped by route")
+                        : GUIContent.none);
+                GUI.enabled = prevGrpLoopEnabled;
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
                 if (newLoop != grpLoopAgg.AllLoop)
                 {
-                    int written = BulkSetLoopPlayback(committed, descendants, newLoop, applyAutoRange: false);
-                    ParsekLog.Info("UI", $"Group '{groupName}' loop set to {newLoop} ({written} recordings)");
+                    if (grpRouteBound)
+                    {
+                        ParsekLog.Info("RouteGuard",
+                            $"Recordings-tab group Loop blocked for '{groupName}' (a descendant is on a route-bound tree); request={newLoop} ignored");
+                    }
+                    else
+                    {
+                        int written = BulkSetLoopPlayback(committed, descendants, newLoop, applyAutoRange: false);
+                        ParsekLog.Info("UI", $"Group '{groupName}' loop set to {newLoop} ({written} recordings)");
+                    }
                 }
             }
 
@@ -3664,6 +3723,10 @@ namespace Parsek
             // Aggregate Loop toggle. Chain/block writes call ApplyAutoLoopRange
             // (auto-narrow on enable, clear on disable), matching the per-row
             // toggle; see BulkSetLoopPlayback.
+            //
+            // Mutual exclusion (design §0.6): grey OFF + block the chain/block loop when
+            // ANY member lives on a route-bound tree (safe default).
+            bool blockRouteBound = AnyRecordingRouteBound(committed, members);
             var blockLoopAgg = ComputeLoopAggregate(committed, members);
             if (blockLoopAgg.SuppressToggle)
             {
@@ -3673,13 +3736,28 @@ namespace Parsek
             {
                 GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
                 GUILayout.FlexibleSpace();
-                bool blockNewLoop = GUILayout.Toggle(blockLoopAgg.AllLoop, "");
+                bool prevBlockLoopEnabled = GUI.enabled;
+                if (blockRouteBound) GUI.enabled = false;
+                bool blockNewLoop = GUILayout.Toggle(
+                    blockLoopAgg.AllLoop,
+                    blockRouteBound
+                        ? new GUIContent("", "Looped by route")
+                        : GUIContent.none);
+                GUI.enabled = prevBlockLoopEnabled;
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
                 if (blockNewLoop != blockLoopAgg.AllLoop)
                 {
-                    int blockWritten = BulkSetLoopPlayback(committed, members, blockNewLoop, applyAutoRange: true);
-                    ParsekLog.Info("UI", $"{logKind} '{logId}' loop set to {blockNewLoop} ({blockWritten} recordings)");
+                    if (blockRouteBound)
+                    {
+                        ParsekLog.Info("RouteGuard",
+                            $"Recordings-tab {logKind} Loop blocked for '{logId}' (a member is on a route-bound tree); request={blockNewLoop} ignored");
+                    }
+                    else
+                    {
+                        int blockWritten = BulkSetLoopPlayback(committed, members, blockNewLoop, applyAutoRange: true);
+                        ParsekLog.Info("UI", $"{logKind} '{logId}' loop set to {blockNewLoop} ({blockWritten} recordings)");
+                    }
                 }
             }
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
@@ -5077,6 +5155,63 @@ namespace Parsek
             return written;
         }
 
+        // --- Route mutual-exclusion (design §0.6) helpers ---
+        //
+        // A tree is EITHER a supply route OR a manually looped recording, never both.
+        // Every Recordings-tab loop control (per-recording / group / chain / bulk) that
+        // affects a recording whose tree is bound to a route is greyed OFF and its commit
+        // is blocked. The Recordings-tab loop bypasses MissionStore entirely (it writes
+        // Recording.LoopPlayback directly), so the commit guard here is load-bearing.
+
+        // True when the recording's tree is bound to a committed supply route. Null
+        // recordings / empty tree ids are never bound (returns false).
+        private static bool IsRecordingRouteBound(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.TreeId))
+                return false;
+            return RouteTreeGuard.IsTreeBoundToActiveRoute(rec.TreeId);
+        }
+
+        // True when ANY recording at the given committed indices lives on a route-bound
+        // tree. A bulk / group / chain control spanning even one route-bound recording
+        // greys (safe default per the confirmed decision: "keep it safe") rather than
+        // partially applying. A null indices set means "all committed" (the select-all
+        // header path).
+        private static bool AnyRecordingRouteBound(
+            IReadOnlyList<Recording> committed, IEnumerable<int> indices)
+        {
+            if (committed == null)
+                return false;
+            if (indices == null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                    if (IsRecordingRouteBound(committed[i]))
+                        return true;
+                return false;
+            }
+            foreach (int idx in indices)
+            {
+                if (idx < 0 || idx >= committed.Count)
+                    continue;
+                if (IsRecordingRouteBound(committed[idx]))
+                    return true;
+            }
+            return false;
+        }
+
+        // Resolves the binding route's display name for the greyed "Looped by route: <name>"
+        // tooltip on a single recording's row. Falls back to "route" when unresolved.
+        private static string RouteBindingTooltipName(Recording rec)
+        {
+            if (rec != null && !string.IsNullOrEmpty(rec.TreeId)
+                && RouteTreeGuard.RouteBindingFor(rec.TreeId, out Route r)
+                && r != null && !string.IsNullOrEmpty(r.Name))
+            {
+                return r.Name;
+            }
+            return "route";
+        }
+
         internal static string UnitSuffix(LoopTimeUnit unit)
             => unit == LoopTimeUnit.Min ? "m"
              : unit == LoopTimeUnit.Hour ? "h"
@@ -5464,8 +5599,13 @@ namespace Parsek
             statusStyleStatic = new GUIStyle(GUI.skin.label) { padding = statusPadding };
             statusStyleStatic.normal.textColor = new Color(1f, 0.72f, 0.25f);
 
+            // L4: only the Stationary cyan matches the shared house palette
+            // (0.65, 0.85, 1); pull it from the centralized ParsekUI source. The other
+            // four recording-lifecycle colors above (white / green / 0.5 grey / orange)
+            // are a separate semantic set and stay local literals so the Recordings
+            // window colors do not shift.
             statusStyleStationary = new GUIStyle(GUI.skin.label) { padding = statusPadding };
-            statusStyleStationary.normal.textColor = new Color(0.65f, 0.85f, 1f);
+            statusStyleStationary.normal.textColor = parentUI.GetStatusColor(ParsekUI.StatusColorKind.Cyan);
         }
 
         /// <summary>

@@ -13,13 +13,18 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            MissionStructureBuilder.SuppressLogging = false;
+            MissionPeriodicity.SuppressLogging = false;
         }
 
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+            MissionStructureBuilder.SuppressLogging = false;
+            MissionPeriodicity.SuppressLogging = false;
         }
 
         // --- Helpers ---
@@ -83,6 +88,77 @@ namespace Parsek.Tests
         }
 
         // --- Tests ---
+
+        // Regression guard for the route-pipeline log flood: the per-build
+        // "BuildMissionStructure:" Verbose summary must be silenceable, because the
+        // route delivery clock (RouteOrchestrator.ResolveLoopUnit) AND the Missions
+        // window (MissionsWindowUI.GetMissionView / GetLoopUnitSet) rebuild the
+        // structure on every tick / OnGUI frame and would otherwise flood the log.
+        // Build still returns the same structure; only the line is gated.
+        [Fact]
+        public void Build_SuppressLogging_SilencesBuildMissionStructureLine()
+        {
+            var tree = Tree("t-suppress", new[] { Leg("a", "C", 0, 1000, 2000) });
+
+            // Default (flag off): the summary line fires.
+            MissionStructureBuilder.SuppressLogging = false;
+            var sLogged = MissionStructureBuilder.Build(tree);
+            Assert.Contains(logLines, l => l.Contains("BuildMissionStructure:") && l.Contains("t-suppress"));
+            Assert.Single(sLogged.LegsById);
+
+            logLines.Clear();
+
+            // Flag on: the structure is still built, but no line is emitted.
+            MissionStructureBuilder.SuppressLogging = true;
+            MissionStructure sSilent;
+            try
+            {
+                sSilent = MissionStructureBuilder.Build(tree);
+            }
+            finally
+            {
+                MissionStructureBuilder.SuppressLogging = false;
+            }
+            Assert.DoesNotContain(logLines, l => l.Contains("BuildMissionStructure:"));
+            Assert.Single(sSilent.LegsById);
+        }
+
+        // Pins the exact flag PAIR the Missions window's GetMissionView wrap sets
+        // (MissionStructureBuilder + MissionPeriodicity), the sibling of the route-pipeline
+        // flood fix. The per-frame display rebuild must (a) emit no "BuildMissionStructure:"
+        // line, (b) still build the structure, and (c) RESTORE both flags to their prior
+        // values afterwards - leaking a true would silence legitimate one-shot logs on later
+        // frames. (MissionStructureBuilder.Build emits no periodicity lines today, so the
+        // periodicity flag here is defensive parity with GetLoopUnitSet / ResolveLoopUnit.)
+        [Fact]
+        public void Build_DisplayMirrorSuppressFlagPair_SilencesLineAndRestoresFlags()
+        {
+            var tree = Tree("t-missions-window", new[] { Leg("a", "C", 0, 1000, 2000) });
+
+            // Prior values (false from the fixture) must be restored after the wrap.
+            bool prevStruct = MissionStructureBuilder.SuppressLogging;
+            bool prevPeriodicity = MissionPeriodicity.SuppressLogging;
+            MissionStructureBuilder.SuppressLogging = true;
+            MissionPeriodicity.SuppressLogging = true;
+            MissionStructure structure;
+            try
+            {
+                structure = MissionStructureBuilder.Build(tree);
+            }
+            finally
+            {
+                MissionStructureBuilder.SuppressLogging = prevStruct;
+                MissionPeriodicity.SuppressLogging = prevPeriodicity;
+            }
+
+            Assert.DoesNotContain(logLines, l => l.Contains("BuildMissionStructure:"));
+            Assert.Single(structure.LegsById);
+            // The wrap left no suppression state behind for the next frame.
+            Assert.Equal(prevStruct, MissionStructureBuilder.SuppressLogging);
+            Assert.Equal(prevPeriodicity, MissionPeriodicity.SuppressLogging);
+            Assert.False(MissionStructureBuilder.SuppressLogging);
+            Assert.False(MissionPeriodicity.SuppressLogging);
+        }
 
         [Fact]
         public void SingleVesselRun_LinksEnvSplitLegsInChainIndexOrder()

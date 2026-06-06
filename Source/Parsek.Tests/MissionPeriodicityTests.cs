@@ -19,7 +19,11 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
+            // PhaseLock SKIPPED is now VerboseRateLimited (was Info), so the assertion that
+            // it fired needs verbose explicitly enabled.
+            ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            MissionStructureBuilder.SuppressLogging = false;
             MissionPeriodicity.SuppressLogging = false;
             MissionLoopUnitBuilder.SuppressLogging = false;
         }
@@ -28,6 +32,7 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+            MissionStructureBuilder.SuppressLogging = false;
             MissionPeriodicity.SuppressLogging = false;
             MissionLoopUnitBuilder.SuppressLogging = false;
         }
@@ -1271,10 +1276,58 @@ namespace Parsek.Tests
             Assert.Equal(todayUnit.PhaseAnchorUT, lockedUnit.PhaseAnchorUT);
             Assert.Equal(todayUnit.CadenceSeconds, lockedUnit.CadenceSeconds);
             Assert.Equal(todayUnit.OverlapCadenceSeconds, lockedUnit.OverlapCadenceSeconds);
-            // The skipped Info line fired with the unsupported reason.
+            // The skipped verdict line fired with the unsupported reason (now
+            // VerboseRateLimited, demoted from Info so it never spams with verbose off).
             Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE]") &&
                 l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock SKIPPED") &&
                 l.Contains("UnsupportedCrossParent"));
+            // Regression guard for the route log flood: the verdict must NEVER be Info
+            // (Info bypasses the verbose-off setting and spammed ~4.2k lines per playtest).
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[INFO]") && l.Contains("PhaseLock SKIPPED"));
+        }
+
+        // Mirrors the contract RouteOrchestrator.ResolveLoopUnit relies on: with the three
+        // builder SuppressLogging flags set, a Build emits NONE of the pure-derivation
+        // diagnostic lines (BuildMissionStructure / ExtractConstraints / Solve / ReaimDiag /
+        // MissionLoopUnit / PhaseLock) - yet still builds the unit. This is what stops the
+        // per-tick / per-frame route resolve from flooding the log under time warp.
+        [Fact]
+        public void Build_AllSuppressFlags_EmitsNoPipelineDiagnostics()
+        {
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 5000, "Kerbin");
+            WithSoiEntry(transfer, 5000, 6000, "Duna");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", 123456.0);
+
+            MissionStructureBuilder.SuppressLogging = true;
+            MissionPeriodicity.SuppressLogging = true;
+            MissionLoopUnitBuilder.SuppressLogging = true;
+            GhostPlaybackLogic.LoopUnitSet set;
+            try
+            {
+                set = MissionLoopUnitBuilder.Build(
+                    new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
+            }
+            finally
+            {
+                MissionStructureBuilder.SuppressLogging = false;
+                MissionPeriodicity.SuppressLogging = false;
+                MissionLoopUnitBuilder.SuppressLogging = false;
+            }
+
+            // Suppression is logging-only: the unit is still built.
+            Assert.True(set.TryGetUnitForMember(0, out _));
+            // No pipeline diagnostics leaked.
+            Assert.DoesNotContain(logLines, l => l.Contains("BuildMissionStructure:"));
+            Assert.DoesNotContain(logLines, l => l.Contains("[MissionPeriodicity]"));
+            Assert.DoesNotContain(logLines, l => l.Contains("MissionLoopUnit:"));
+            Assert.DoesNotContain(logLines, l => l.Contains("[ReaimDiag]"));
         }
 
         [Fact]

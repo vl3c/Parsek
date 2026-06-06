@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using ClickThroughFix;
+using Parsek.Logistics;
 using UnityEngine;
 
 namespace Parsek
@@ -86,6 +87,9 @@ namespace Parsek
         // Gloops Flight Recorder window (extracted to GloopsRecorderUI)
         private GloopsRecorderUI gloopsUI;
 
+        // Logistics window (v0 — Supply Routes tab + Send Once button)
+        private LogisticsWindowUI logisticsUI;
+
         private static readonly string VersionLabel = "v" +
             System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
@@ -130,6 +134,7 @@ namespace Parsek
             this.careerStateUI = new CareerStateWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
+            this.logisticsUI = new LogisticsWindowUI(this);
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
         }
 
@@ -146,6 +151,7 @@ namespace Parsek
             this.careerStateUI = new CareerStateWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
+            this.logisticsUI = new LogisticsWindowUI(this);
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
         }
 
@@ -219,6 +225,42 @@ namespace Parsek
             // lives as a second tab inside this same window (no separate button).
             if (GUILayout.Button("Recordings"))
                 ToggleRecordingsWindow();
+
+            // --- Logistics (v0, available in both Flight and KSC) ---
+            // Grouped with Timeline + Recordings as the primary navigation set.
+            // The whole button tints red when any route is hard-broken (EndpointLost /
+            // MissingSourceRecording / SourceChanged) so a problem is visible without
+            // opening the window. The label is just "Logistics" (no live count); the
+            // route count is still computed for the broken-tint diagnostic log only.
+            IReadOnlyList<Route> logisticsRoutes = RouteStore.CommittedRoutes;
+            int logisticsRouteCount = logisticsRoutes != null ? logisticsRoutes.Count : 0;
+            bool anyLogisticsBroken = LogisticsButtonState.AnyRouteHardBroken(
+                logisticsRoutes != null
+                    ? logisticsRoutes.Select(r => r.Status)
+                    : Enumerable.Empty<RouteStatus>());
+            if (anyLogisticsBroken)
+            {
+                ParsekLog.VerboseRateLimited("UI", "logistics-button-broken-tint",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Logistics button broken-state tint applied (routeCount={0})",
+                        logisticsRouteCount));
+            }
+            Color prevLogisticsColor = GUI.color;
+            if (anyLogisticsBroken)
+                GUI.color = new Color(0.95f, 0.45f, 0.45f);
+            try
+            {
+                if (GUILayout.Button("Logistics"))
+                {
+                    logisticsUI.IsOpen = !logisticsUI.IsOpen;
+                    ParsekLog.Verbose("UI",
+                        $"Logistics window toggled: {(logisticsUI.IsOpen ? "open" : "closed")}");
+                }
+            }
+            finally
+            {
+                GUI.color = prevLogisticsColor;
+            }
 
             GUILayout.Space(SpacingLarge);
 
@@ -354,6 +396,11 @@ namespace Parsek
         public void DrawCareerStateWindowIfOpen(Rect mainWindowRect)
         {
             careerStateUI.DrawIfOpen(mainWindowRect);
+        }
+
+        public void DrawLogisticsWindowIfOpen(Rect mainWindowRect)
+        {
+            logisticsUI.DrawIfOpen(mainWindowRect);
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -724,6 +771,67 @@ namespace Parsek
         {
             EnsureSharedHeaderStyles();
             return sharedColumnHeaderStyle;
+        }
+
+        // ============================================================
+        //  Shared status-text color palette (L4)
+        // ============================================================
+
+        /// <summary>
+        /// The canonical status-text color slots shared across windows that color
+        /// status labels (the house palette). Windows keep their own GUIStyle objects
+        /// (padding / wordWrap differ) but pull the text color from one source so the
+        /// literals live in a single place.
+        /// </summary>
+        public enum StatusColorKind
+        {
+            /// <summary>Good / delivering / active (0.55, 1, 0.55).</summary>
+            Green = 0,
+
+            /// <summary>Caution / flying-but-not-delivering (1, 1, 0.4).</summary>
+            Yellow = 1,
+
+            /// <summary>Broken / hard error (1, 0.4, 0.4).</summary>
+            Red = 2,
+
+            /// <summary>Inert / paused (0.7, 0.7, 0.7).</summary>
+            Grey = 3,
+
+            /// <summary>New / informational / eligible (0.65, 0.85, 1).</summary>
+            Cyan = 4,
+        }
+
+        /// <summary>
+        /// The single source of truth for the house status-text palette. Pure (no GUI
+        /// side effects), so it is unit-testable directly and both windows resolve the
+        /// same RGBA. Values are taken verbatim from the prior Logistics palette so no
+        /// rendered color changes when the windows route through here.
+        /// </summary>
+        internal static Color StatusColor(StatusColorKind kind)
+        {
+            switch (kind)
+            {
+                case StatusColorKind.Green:
+                    return new Color(0.55f, 1f, 0.55f);
+                case StatusColorKind.Yellow:
+                    return new Color(1f, 1f, 0.4f);
+                case StatusColorKind.Red:
+                    return new Color(1f, 0.4f, 0.4f);
+                case StatusColorKind.Cyan:
+                    return new Color(0.65f, 0.85f, 1f);
+                case StatusColorKind.Grey:
+                default:
+                    return new Color(0.7f, 0.7f, 0.7f);
+            }
+        }
+
+        /// <summary>
+        /// Public accessor for the shared status-text palette. Windows assign the
+        /// returned color to their own GUIStyle's <c>normal.textColor</c> during draw.
+        /// </summary>
+        public Color GetStatusColor(StatusColorKind kind)
+        {
+            return StatusColor(kind);
         }
 
         // ════════════════════════════════════════════════════════════════

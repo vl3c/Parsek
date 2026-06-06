@@ -118,6 +118,16 @@ namespace Parsek
                 case GameActionType.StrategyActivate:      // SetupCost
                     return true;
 
+                // Supply-route per-cycle funds (logistics-recovery-credit, Option A):
+                // FundsModule now consumes BOTH the gross dispatch debit
+                // (RouteCargoDebited, as a spending) and the deferred recovery credit
+                // (RouteRecoveryCredited, as an earning), so both move the funds pool
+                // and are resource-impacting. The other route types below stay
+                // non-impacting (no resource module consumes them).
+                case GameActionType.RouteCargoDebited:     // RouteKscFundsCost (spending)
+                case GameActionType.RouteRecoveryCredited: // RouteKscFundsCost (earning)
+                    return true;
+
                 // Non-resource action types: roster changes, stateful facility/strategy flips,
                 // and the immutable seed rows. These are intentionally ignored by the
                 // coverage probe — see class summary for the false-positive this guards.
@@ -129,6 +139,20 @@ namespace Parsek
                 case GameActionType.FundsInitial:
                 case GameActionType.ScienceInitial:
                 case GameActionType.ReputationInitial:
+                    return false;
+
+                // Route skeleton (design doc section 6): these route types carry no funds /
+                // science / reputation movement that any resource module consumes.
+                // RouteDispatched is a scheduler-decision marker; RouteCargoDelivered
+                // records the delivery (its funds effect is on the paired
+                // RouteCargoDebited, not on the delivered row's own FundsModule case);
+                // RoutePaused / RouteEndpointLost are scheduler state flips. The
+                // funds-moving route rows (RouteCargoDebited, RouteRecoveryCredited)
+                // are classified true above.
+                case GameActionType.RouteDispatched:
+                case GameActionType.RouteCargoDelivered:
+                case GameActionType.RoutePaused:
+                case GameActionType.RouteEndpointLost:
                     return false;
 
                 default:
