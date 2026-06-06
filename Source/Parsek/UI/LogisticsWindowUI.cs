@@ -33,6 +33,15 @@ namespace Parsek
 
         private bool showWindow;
         private Rect windowRect;
+        // Persist the window rect (position + size) across scene changes. ParsekUI
+        // and all its sub-windows are re-instantiated per scene (the two ParsekUI
+        // constructors each do `new LogisticsWindowUI(this)`), so an instance-only
+        // rect would reset to the first-open default on every KSC <-> flight
+        // transition. A static survives the re-instantiation for the whole KSP
+        // session, so a window the player resized or moved reappears unchanged after
+        // a scene change. Stays default-zero until the window is drawn once, which
+        // keeps the first-open default-init intact.
+        private static Rect sessionWindowRect;
         private bool windowHasInputLock;
         private const string InputLockId = "Parsek_LogisticsWindow";
 
@@ -258,7 +267,7 @@ namespace Parsek
         // for a further fold in a later pass; this L2 step does a conservative one-column
         // compression that is safe without in-game validation.
         private const float MinWindowWidth = 1410f;
-        private const float MinWindowHeight = 220f;
+        private const float MinWindowHeight = 500f;
 
         public bool IsOpen
         {
@@ -269,6 +278,10 @@ namespace Parsek
         internal LogisticsWindowUI(ParsekUI parentUI)
         {
             this.parentUI = parentUI;
+            // Restore the rect saved before the last scene change. If the window has
+            // never been drawn this session, sessionWindowRect is default-zero
+            // (width < 1) so the first-open default-init in DrawIfOpen still runs.
+            windowRect = sessionWindowRect;
         }
 
         public void DrawIfOpen(Rect mainWindowRect)
@@ -282,7 +295,7 @@ namespace Parsek
             if (windowRect.width < 1f)
             {
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, 1360, 340);
+                windowRect = new Rect(x, mainWindowRect.y, 1360, 500);
                 ParsekLog.Verbose("UI",
                     $"Logistics window initial position: x={windowRect.x.ToString("F0", CultureInfo.InvariantCulture)} y={windowRect.y.ToString("F0", CultureInfo.InvariantCulture)}");
             }
@@ -310,6 +323,9 @@ namespace Parsek
                 ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
             }
             parentUI.LogWindowPosition("Logistics", ref lastWindowRect, windowRect);
+            // Capture the (possibly moved or resized) rect so it survives the next
+            // scene change and is restored by the constructor of the next instance.
+            sessionWindowRect = windowRect;
 
             if (windowRect.Contains(Event.current.mousePosition))
             {
