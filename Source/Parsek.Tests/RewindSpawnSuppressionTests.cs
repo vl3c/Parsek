@@ -117,6 +117,104 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldSpawnAtRecordingEnd_SameRecordingMarker_StandaloneNoLiveLaunch_LiftsAndSpawns()
+        {
+            // The fix: a STANDALONE Rewind-to-Launch target the player did not re-fly
+            // (no live same-craft vessel present) must still materialize its recorded
+            // terminal. The same-recording block lifts and the recording falls through
+            // to the normal spawn gates (Landed terminal + snapshot → needsSpawn=true).
+            // The decision stays pure: the marker is preserved, not mutated.
+            var rec = MakeRecording(
+                "standalone-target-lift",
+                "Kerbal X",
+                3620499050u,
+                "tree-lift",
+                startUT: 0.0,
+                endUT: 182.766);
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 50.0;
+
+            var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec,
+                isActiveChainMember: false,
+                isChainLooping: false,
+                treeContext: null,
+                liveSameLaunchVesselPresent: false);
+
+            Assert.True(result.needsSpawn,
+                $"Standalone abandoned rewind target must spawn at its terminal. " +
+                $"Got reason='{result.reason}'.");
+            // Marker preserved — the predicate did not mutate the recording.
+            Assert.True(rec.SpawnSuppressedByRewind);
+            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonSameRecording,
+                rec.SpawnSuppressedByRewindReason);
+            Assert.Equal(50.0, rec.SpawnSuppressedByRewindUT);
+        }
+
+        [Fact]
+        public void ShouldSpawnAtRecordingEnd_SameRecordingMarker_StandaloneLiveLaunchPresent_StaysBlocked()
+        {
+            // A live same-craft vessel IS present (a genuine re-fly / relaunch in
+            // progress). The block must stay absolute so the rewound vessel cannot
+            // respawn next to the re-flight (the original #573 protection).
+            var rec = MakeRecording(
+                "standalone-target-reflight",
+                "Kerbal X",
+                3620499050u,
+                "tree-reflight",
+                startUT: 0.0,
+                endUT: 182.766);
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 50.0;
+
+            var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec,
+                isActiveChainMember: false,
+                isChainLooping: false,
+                treeContext: null,
+                liveSameLaunchVesselPresent: true);
+
+            Assert.False(result.needsSpawn);
+            Assert.Contains("#573", result.reason);
+            Assert.True(rec.SpawnSuppressedByRewind);
+        }
+
+        [Fact]
+        public void ShouldSpawnAtRecordingEnd_SameRecordingMarker_ChainTarget_StaysBlockedWithoutLiveLaunch()
+        {
+            // A CHAIN rewind target stays blocked even with no live same-craft vessel:
+            // a continuation tip can resurrect via the chain-tip spawn path, which is
+            // the #573 phantom class. Only standalone targets are liftable.
+            var rec = MakeRecording(
+                "chain-target-blocked",
+                "Kerbal X",
+                3620499050u,
+                "tree-chain",
+                startUT: 0.0,
+                endUT: 182.766);
+            rec.ChainId = "chain-abc";
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 50.0;
+
+            var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec,
+                isActiveChainMember: false,
+                isChainLooping: false,
+                treeContext: null,
+                liveSameLaunchVesselPresent: false);
+
+            Assert.False(result.needsSpawn);
+            Assert.Contains("#573", result.reason);
+            Assert.True(rec.SpawnSuppressedByRewind);
+        }
+
+        [Fact]
         public void ShouldSpawnAtRecordingEnd_NonSameRecordingMarker_AllowsWithoutMutatingMarker()
         {
             // Defensive: a flag-true marker whose reason is NOT same-recording is not
