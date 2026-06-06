@@ -289,10 +289,11 @@ namespace Parsek.Tests.Logistics
 
     /// <summary>
     /// Pins <see cref="LogisticsWindowUI.ResolveTooltipEcho"/>, the pure decision
-    /// (QW6) behind the bottom tooltip echo box: render the box only when a control
-    /// is hovered (GUI.tooltip non-empty), otherwise signal the zero-height
-    /// placeholder branch so the IMGUI control count stays stable. Unity-free, so
-    /// exercised directly.
+    /// (QW6) behind the bottom tooltip echo box: report whether a control is hovered
+    /// (GUI.tooltip non-empty) so the box renders boxed help text, or collapses to
+    /// zero height. The boolean drives the box's spacing / content / style only; the
+    /// control count emitted by DrawTooltipEchoBox is invariant across the IMGUI
+    /// Layout and Repaint passes. Unity-free, so exercised directly.
     /// </summary>
     public class LogisticsWindowUITooltipEchoTests
     {

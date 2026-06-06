@@ -13,6 +13,12 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - Logistics window tooltip-echo IMGUI control-count storm
+
+- ~~Hovering any tooltip-bearing control in the Logistics (Supply Routes) window threw a continuous `ArgumentException: Getting control N's position in a group with only N controls when doing repaint` at the Close button (256 times over ~45s in the 2026-06-06 orbital-route playtest log), aborting the rest of the window's draw every frame.~~ FIXED (branch `fix-logistics-tooltip-echo`). Root cause: the QW6 bottom tooltip-echo block (`LogisticsWindowUI.DrawWindow`) emitted a different GUILayout control count between the Layout pass and the Repaint pass. When `GUI.tooltip` was empty it drew 1 control (a zero-height Label); when populated it drew 2 (a `GUILayout.Space` plus a Label). `GUI.tooltip` is empty during Layout and only populated during Repaint, so the count diverged and the trailing Close button overran its layout group. Fix: extracted the emit into `DrawTooltipEchoBox(string guiTooltip)`, which now always emits exactly one `GUILayout.Space` plus one `GUILayout.Label` (varying only spacing/content/style by hover state), matching the invariant-count pattern in `SettingsWindowUI`. The pure decision `ResolveTooltipEcho` is unchanged and still unit-tested; added an in-game probe test (`LogisticsTooltipEchoImguiTest`) that drives a real IMGUI Layout+Repaint cycle with the same tooltip divergence and a trailing button, asserting no exception. (Note: `SpawnControlUI` carries the same conditional-Space shape but does not throw because nothing in its layout group follows the echo box; only Logistics has a trailing control.)
+
+---
+
 ## In progress - v0.10.0 Map/TS render tracer SECOND CUT: recordingId keying + decision-vs-truth reconciliation
 
 - Branch `maprender-second-cut` (off origin/main, which has the probe-only MVP from PR #1005). Design: `docs/dev/design-map-ts-render-tracer.md` (the second-cut sections). Builds the deferred reconciliation / shared-window / reverse-map work on top of the merged MVP.

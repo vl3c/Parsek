@@ -98,6 +98,7 @@ All notable changes to Parsek are documented here.
 - Fixed a looped re-aimed mission's map orbit icon sitting rotated far around the planet from its own orbit line (the icon was drawn at the live time while the line was time-shifted for the loop). A rebuilt map and Tracking-Station ghost render path, now on by default, drives each ghost's orbit line and icon from one source so the icon rides its line; you can turn it off in Settings (Map/TS director render drive) to use the old path.
 - Fixed map ghost trajectory lines (ascent, burn, transfer, descent) and their labels jittering or drifting when you pan the camera. The lines now draw against the committed camera view each frame and the labels hold their position on the line, so both stay glued in place during a pan.
 - Removed two spurious "Script error: OnLevelWasLoaded" messages printed to the log at startup. Two internal scene-load handlers collided with a deprecated Unity method name; renaming them clears the errors with no behavior change.
+- Fixed a continuous error spam in the log when hovering controls in the Logistics window. The bottom tooltip echo box drew a different number of UI controls when a tooltip was showing than when it was empty, which threw an IMGUI layout error every frame and aborted the rest of the window's draw; it now draws a fixed layout either way.
 
 ### UI
 
