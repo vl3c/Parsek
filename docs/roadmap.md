@@ -393,7 +393,7 @@ Every supply ship remains a replay of a real mission the player flew, but v0 del
 
 ### Logistics: remaining work toward feature-complete (post-0.10.0)
 
-This is the path from the shipped v0 to a feature-complete logistics system. Every item below traces to a deferred item in the design doc (section 17 and the Status line) or an open known limitation in `docs/dev/todo-and-known-bugs.md`. Tiers are roughly in priority order (a mix of player value, effort, and dependencies); these are NOT committed version numbers, just "post-0.10.0, roughly in this order". Size tags are S/M/L estimates.
+This is the path from the shipped v0 to a feature-complete logistics system. Every item below traces to a deferred item in the design doc (section 17 and the Status line) or an open known limitation in `docs/dev/todo-and-known-bugs.md`. Tiers are roughly in priority order (a mix of player value, effort, and dependencies); these are NOT committed version numbers, just "post-0.10.0, roughly in this order". Size tags are S/M/L estimates. For the NEW supporting systems each item requires (and the two shared foundations that change the sequencing), see "17.1 Supporting systems required for future work" in `docs/parsek-logistics-supply-routes-design.md`.
 
 **Tier 1: quick wins and polish** (small, self-contained, no new gameplay model)
 
