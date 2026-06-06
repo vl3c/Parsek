@@ -426,5 +426,112 @@ namespace Parsek.Tests.Logistics
             Assert.DoesNotContain("<", block);
             Assert.DoesNotContain(">", block);
         }
+
+        /// <summary>
+        /// Depot-origin fixture: the start-docked depot proof lives on the tree
+        /// ROOT (the recording that started docked to the depot), while the
+        /// dock-child source recording carries no proof. The formatters must read
+        /// the proof off the root - mirroring RouteBuilder's
+        /// originRec.RouteOriginProof - so a real depot route does not render as an
+        /// unknown origin.
+        /// </summary>
+        private static RouteAnalysisResult DepotOriginViaTreeRootAnalysis(out RecordingTree tree)
+        {
+            Recording root = new Recording
+            {
+                RecordingId = "depot-root",
+                TreeId = "tree-depot",
+                TreeOrder = 0,
+                StartBodyName = "Mun",
+                LaunchSiteName = null,   // not a KSC launch
+                RouteOriginProof = new RouteOriginProof
+                {
+                    StartDockedOriginVesselPid = 4242u
+                },
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 300.0
+            };
+            Recording dockChild = new Recording
+            {
+                RecordingId = "depot-dock-child",
+                TreeId = "tree-depot",
+                TreeOrder = 7,
+                StartBodyName = "Mun",
+                LaunchSiteName = null,
+                RouteOriginProof = null,   // proof is on the ROOT, not the dock child
+                ExplicitStartUT = 300.0,
+                ExplicitEndUT = 600.0,
+                RouteConnectionWindows = new List<RouteConnectionWindow>()
+            };
+            RouteConnectionWindow window = new RouteConnectionWindow
+            {
+                TransferTargetVesselPid = 7007,
+                TransferKind = RouteConnectionKind.DockingPort,
+                EndpointAtDock = new RouteEndpoint
+                {
+                    BodyName = "Mun",
+                    Latitude = 1.0,
+                    Longitude = 2.0,
+                    Altitude = 5000.0
+                }
+            };
+            dockChild.RouteConnectionWindows.Add(window);
+
+            tree = new RecordingTree
+            {
+                Id = "tree-depot",
+                RootRecordingId = root.RecordingId,
+                ActiveRecordingId = dockChild.RecordingId
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(dockChild);
+
+            return new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = dockChild,
+                ConnectionWindow = window,
+                ResourceDeliveryManifest = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 25.0 }
+                },
+                InventoryDeliveryManifest = new List<InventoryPayloadItem>()
+            };
+        }
+
+        [Fact]
+        public void ResolveOriginIdentity_DepotProofOnRoot_ResolvesDepotFromRoot()
+        {
+            // catches: reading the depot proof off the dock-child source (which has
+            // none) instead of the tree root. Mirrors RouteBuilder, which reads
+            // originRec.RouteOriginProof from the resolved root.
+            RouteAnalysisResult analysis = DepotOriginViaTreeRootAnalysis(out RecordingTree tree);
+            RouteCreationFormatters.RouteOriginIdentity id =
+                RouteCreationFormatters.ResolveOriginIdentity(analysis, tree);
+            Assert.Equal(RouteCreationFormatters.RouteOriginKind.Depot, id.Kind);
+            Assert.Equal(4242u, id.DepotVesselPid);
+            Assert.Equal("Mun", id.BodyName);
+        }
+
+        [Fact]
+        public void BuildSummaryBlock_DepotProofOnRoot_OriginLineShowsDepotVessel()
+        {
+            // catches: the dialog origin line falling to "unknown" for a depot route
+            // because the proof was read off the proof-less dock-child source.
+            RouteAnalysisResult analysis = DepotOriginViaTreeRootAnalysis(out RecordingTree tree);
+            string block = RouteCreationFormatters.BuildSummaryBlock(
+                analysis, Game.Modes.SANDBOX, tree);
+            Assert.Contains("Origin: Mun (vessel #4242)", block);
+            Assert.DoesNotContain("Origin: unknown", block);
+        }
+
+        [Fact]
+        public void FormatCandidateOrigin_DepotProofOnRoot_ShowsDepotPid()
+        {
+            // catches: the candidate-table cell showing "-" for a depot route.
+            RouteAnalysisResult analysis = DepotOriginViaTreeRootAnalysis(out RecordingTree tree);
+            Assert.Equal("depot pid=4242",
+                LogisticsWindowUI.FormatCandidateOrigin(analysis, tree));
+        }
     }
 }

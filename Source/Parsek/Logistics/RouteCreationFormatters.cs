@@ -52,13 +52,15 @@ namespace Parsek.Logistics
         /// analysis source is the DOCK CHILD, which started mid-flight at the dock
         /// and therefore has <c>LaunchSiteName == null</c>. Reading the origin off
         /// the source made every origin branch fall through to the "unknown"
-        /// placeholder even for a correctly KSC-classified route. Resolving the
-        /// root (mirroring <see cref="RouteRunCostCalculator.IsCandidateKscOrigin"/>
-        /// and <see cref="RouteCreationDialog.ComputeRootToUndockSpan"/>) keeps the
-        /// three origin labels consistent with the built <see cref="Route.IsKscOrigin"/>.
-        /// The depot proof, by contrast, lives on the dock-child source recording
-        /// (the recording that started docked), so it is read from
-        /// <paramref name="analysis"/>'s source, not the root.
+        /// placeholder even for a correctly KSC-classified route. Both the launch
+        /// site (KSC) AND the start-docked depot proof are read from the resolved
+        /// origin recording (the tree root, source fallback), matching the
+        /// authoritative <see cref="RouteBuilder"/> (which reads
+        /// <c>originRec.RouteOriginProof</c>) and
+        /// <see cref="RouteRunCostCalculator.IsCandidateKscOrigin"/> /
+        /// <see cref="RouteCreationDialog.ComputeRootToUndockSpan"/>, so the three
+        /// origin labels stay consistent with the built
+        /// <see cref="Route.IsKscOrigin"/> / <see cref="Route.Origin"/>.
         /// </remarks>
         internal static RouteOriginIdentity ResolveOriginIdentity(
             RouteAnalysisResult analysis, RecordingTree tree)
@@ -66,9 +68,11 @@ namespace Parsek.Logistics
             var id = new RouteOriginIdentity { Kind = RouteOriginKind.Unknown };
             if (analysis == null) return id;
 
-            Recording source = analysis.SourceRecording;
-
-            Recording originRec = source;
+            // Resolve the ORIGIN recording: the tree ROOT (the launch / the
+            // recording that started the flight, which carries the launch site and
+            // the start-docked depot proof) when it resolves, else the analysis
+            // source (the legacy single-recording case where the source IS the root).
+            Recording originRec = analysis.SourceRecording;
             if (tree?.Recordings != null
                 && !string.IsNullOrEmpty(tree.RootRecordingId)
                 && tree.Recordings.TryGetValue(tree.RootRecordingId, out Recording rootRec)
@@ -77,12 +81,11 @@ namespace Parsek.Logistics
                 originRec = rootRec;
             }
 
-            id.BodyName = originRec != null
-                ? originRec.StartBodyName
-                : (source != null ? source.StartBodyName : null);
+            if (originRec == null) return id;
 
-            if (originRec != null
-                && !string.IsNullOrEmpty(originRec.LaunchSiteName)
+            id.BodyName = originRec.StartBodyName;
+
+            if (!string.IsNullOrEmpty(originRec.LaunchSiteName)
                 && string.Equals(originRec.StartBodyName, "Kerbin", System.StringComparison.Ordinal))
             {
                 id.Kind = RouteOriginKind.Ksc;
@@ -90,12 +93,11 @@ namespace Parsek.Logistics
                 return id;
             }
 
-            if (source != null
-                && source.RouteOriginProof != null
-                && source.RouteOriginProof.StartDockedOriginVesselPid != 0)
+            if (originRec.RouteOriginProof != null
+                && originRec.RouteOriginProof.StartDockedOriginVesselPid != 0)
             {
                 id.Kind = RouteOriginKind.Depot;
-                id.DepotVesselPid = source.RouteOriginProof.StartDockedOriginVesselPid;
+                id.DepotVesselPid = originRec.RouteOriginProof.StartDockedOriginVesselPid;
                 return id;
             }
 
