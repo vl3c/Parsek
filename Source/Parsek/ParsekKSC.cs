@@ -1550,7 +1550,14 @@ namespace Parsek
         /// </summary>
         void ReapOrphanedKscGhosts(int committedCount)
         {
-            if (kscGhosts.Count == 0 && kscOverlapGhosts.Count == 0) return;
+            // Reconcile every index-keyed collection, not just the ghost dicts: the
+            // per-index log-dedup state (lastLoggedKscCadence / lastUnitSelection) is
+            // written during ghost updates but is never pruned by the inactive /
+            // ineligible / disabled cleanup paths, so an orphaned index can leave a
+            // stale tuple even after its ghost is gone.
+            if (kscGhosts.Count == 0 && kscOverlapGhosts.Count == 0
+                && lastLoggedKscCadence.Count == 0 && lastUnitSelection.Count == 0)
+                return;
 
             // Iterate the concrete Dictionary.KeyCollection (struct enumerator, no
             // boxing) into the reusable scratch list, then mutate the dictionary in a
@@ -1581,10 +1588,33 @@ namespace Parsek
                 kscOverlapGhosts.Remove(idx);
             }
 
+            // Stale per-index log-dedup tuples (no GameObjects/FX): prune independently
+            // of ghost presence so the corner case "ghost already destroyed, then its
+            // recording removed" does not leave the entry until the next scene change.
+            PruneOrphanedIndexKeys(lastLoggedKscCadence, committedCount);
+            PruneOrphanedIndexKeys(lastUnitSelection, committedCount);
+
             if (reapedPrimary > 0 || reapedOverlapSets > 0)
                 ParsekLog.Info("KSCGhost",
                     "Reaped orphaned KSC ghost(s) after committed-list shrink: " +
                     $"primary={reapedPrimary} overlapSets={reapedOverlapSets} committedCount={committedCount}");
+        }
+
+        /// <summary>
+        /// Removes every index-keyed entry whose key is orphaned for a committed list of
+        /// <paramref name="committedCount"/> entries (see <see cref="IsOrphanedGhostIndex"/>).
+        /// Allocation-free: scans the concrete <c>Dictionary.KeyCollection</c> into the
+        /// reusable scratch buffer, then removes in a separate pass.
+        /// </summary>
+        private void PruneOrphanedIndexKeys<TValue>(Dictionary<int, TValue> map, int committedCount)
+        {
+            if (map.Count == 0) return;
+            orphanGhostScratch.Clear();
+            foreach (int key in map.Keys)
+                if (IsOrphanedGhostIndex(key, committedCount))
+                    orphanGhostScratch.Add(key);
+            for (int i = 0; i < orphanGhostScratch.Count; i++)
+                map.Remove(orphanGhostScratch[i]);
         }
 
         /// <summary>
@@ -3021,6 +3051,8 @@ namespace Parsek
             loggedKscRelativeAnchorNotFound.Clear();
             kscSpawnAttempted.Clear();
             loggedPlaybackDisabledPastEndSpawnAttempts.Clear();
+            lastLoggedKscCadence.Clear();
+            lastUnitSelection.Clear();
 
             ParsekLog.Info("KSC", "ParsekKSC destroyed");
             ui?.Cleanup();
