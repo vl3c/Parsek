@@ -297,7 +297,9 @@ namespace Parsek
             // trip RouteBuilder's interval-below-transit reject. rootLaunchUT comes
             // from the tree ROOT (the launch), not the mid-flight dock child.
             double defaultInterval = ComputeRootToUndockSpan(result, tree);
-            string defaultName = RouteCreationFormatters.GenerateDefaultRouteName(result);
+            // Pass the tree so the default name resolves a KSC origin off the tree
+            // ROOT (the launch), not the dock-child source (which has no launch site).
+            string defaultName = RouteCreationFormatters.GenerateDefaultRouteName(result, tree);
 
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),

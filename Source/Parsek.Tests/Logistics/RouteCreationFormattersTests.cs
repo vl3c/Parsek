@@ -261,5 +261,277 @@ namespace Parsek.Tests.Logistics
                 EligibleAnalysis(), Game.Modes.CAREER, null, cost);
             Assert.DoesNotContain("Cost per run", block);
         }
+
+        // -----------------------------------------------------------------
+        // Origin identity: resolve off the tree ROOT, not the dock child
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// The bug fixture: a KSC-origin docking flight is recorded as a tree
+        /// whose ROOT carries the launch (LaunchSiteName="Launch Pad",
+        /// StartBodyName="Kerbin") and whose dock-child source recording (the
+        /// analysis source) started mid-flight at the dock, so it has
+        /// LaunchSiteName=null. Reading origin off the source mis-reports this as
+        /// an unknown origin; the formatters must resolve it off the root.
+        /// </summary>
+        private static RouteAnalysisResult KscOriginDockChildAnalysis(out RecordingTree tree)
+        {
+            Recording root = new Recording
+            {
+                RecordingId = "root",
+                TreeId = "tree-ksc",
+                TreeOrder = 0,
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "Launch Pad",
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 300.0
+            };
+            Recording dockChild = new Recording
+            {
+                RecordingId = "dock-child",
+                TreeId = "tree-ksc",
+                TreeOrder = 9,
+                StartBodyName = "Kerbin",   // started Orbiting Kerbin at the dock
+                LaunchSiteName = null,      // no launch site - started mid-flight
+                ExplicitStartUT = 300.0,
+                ExplicitEndUT = 600.0,
+                RouteConnectionWindows = new List<RouteConnectionWindow>()
+            };
+            RouteConnectionWindow window = new RouteConnectionWindow
+            {
+                TransferTargetVesselPid = 9001,
+                TransferKind = RouteConnectionKind.DockingPort,
+                EndpointAtDock = new RouteEndpoint
+                {
+                    BodyName = "Kerbin",
+                    Latitude = 0.0,
+                    Longitude = 0.0,
+                    Altitude = 80000.0
+                }
+            };
+            dockChild.RouteConnectionWindows.Add(window);
+
+            tree = new RecordingTree
+            {
+                Id = "tree-ksc",
+                RootRecordingId = root.RecordingId,
+                ActiveRecordingId = dockChild.RecordingId
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(dockChild);
+
+            return new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = dockChild,
+                ConnectionWindow = window,
+                ResourceDeliveryManifest = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 50.0 }
+                },
+                InventoryDeliveryManifest = new List<InventoryPayloadItem>()
+            };
+        }
+
+        [Fact]
+        public void ResolveOriginIdentity_KscOriginViaTreeRoot_ResolvesKscFromRoot()
+        {
+            // catches: the origin resolver reading the dock-child source instead of
+            // the tree root. The source has LaunchSiteName=null, so a source-only
+            // resolver returns Unknown even though the route is KSC origin.
+            RouteAnalysisResult analysis = KscOriginDockChildAnalysis(out RecordingTree tree);
+            RouteCreationFormatters.RouteOriginIdentity id =
+                RouteCreationFormatters.ResolveOriginIdentity(analysis, tree);
+            Assert.Equal(RouteCreationFormatters.RouteOriginKind.Ksc, id.Kind);
+            Assert.Equal("Launch Pad", id.LaunchSiteName);
+            Assert.Equal("Kerbin", id.BodyName);
+        }
+
+        [Fact]
+        public void ResolveOriginIdentity_NullTree_FallsBackToSource()
+        {
+            // catches: the fallback path breaking. With no resolvable tree root the
+            // resolver must fall back to the analysis source. The single-recording
+            // EligibleAnalysis() source IS its own root and carries the launch site,
+            // so it still resolves KSC even with a null tree.
+            RouteCreationFormatters.RouteOriginIdentity id =
+                RouteCreationFormatters.ResolveOriginIdentity(EligibleAnalysis(), null);
+            Assert.Equal(RouteCreationFormatters.RouteOriginKind.Ksc, id.Kind);
+            Assert.Equal("LaunchPad", id.LaunchSiteName);
+        }
+
+        [Fact]
+        public void BuildSummaryBlock_KscOriginViaTreeRoot_OriginLineShowsLaunchSite()
+        {
+            // catches: the regression the user reported - the Origin line rendering
+            // the "unknown" placeholder (seen in game as "????") for a KSC-origin
+            // route because origin was read off the launch-site-less dock child.
+            RouteAnalysisResult analysis = KscOriginDockChildAnalysis(out RecordingTree tree);
+            string block = RouteCreationFormatters.BuildSummaryBlock(
+                analysis, Game.Modes.SANDBOX, tree);
+            Assert.Contains("Origin: Kerbin (Launch Pad)", block);
+            Assert.DoesNotContain("Origin: unknown", block);
+        }
+
+        [Fact]
+        public void GenerateDefaultRouteName_KscOriginViaTreeRoot_UsesKscNotDockChildBody()
+        {
+            // catches: the auto-generated name resolving origin off the dock-child
+            // body ("Route: Kerbin -> Kerbin") instead of the KSC root
+            // ("Route: KSC -> Kerbin").
+            RouteAnalysisResult analysis = KscOriginDockChildAnalysis(out RecordingTree tree);
+            string name = RouteCreationFormatters.GenerateDefaultRouteName(analysis, tree);
+            Assert.Equal("Route: KSC → Kerbin", name);
+            Assert.DoesNotContain("Route: Kerbin", name);
+        }
+
+        [Fact]
+        public void FormatCandidateOrigin_KscOriginViaTreeRoot_ShowsKscLabel()
+        {
+            // catches: the candidate-table origin cell showing "-" for a KSC route
+            // because it read the dock-child source instead of the tree root.
+            RouteAnalysisResult analysis = KscOriginDockChildAnalysis(out RecordingTree tree);
+            Assert.Equal("KSC (funds)",
+                LogisticsWindowUI.FormatCandidateOrigin(analysis, tree));
+        }
+
+        [Fact]
+        public void BuildSummaryBlock_DialogBody_HasNoAngleBracketPlaceholders()
+        {
+            // catches: a fallback placeholder regressing back to angle-bracket form
+            // ("<unknown>" / "<none>"). The PopupDialog body is rendered by
+            // TextMeshPro with rich text enabled, so "<...>" is parsed as a bogus
+            // markup tag and renders as garbage ("????"). A genuine fallback must use
+            // bracket-free wording. Build the body from a maximally-empty eligible
+            // analysis (no origin / endpoint / resources / inventory) so every
+            // fallback branch fires.
+            Recording bareSource = new Recording
+            {
+                RecordingId = "bare",
+                RouteConnectionWindows = new List<RouteConnectionWindow>()
+            };
+            RouteAnalysisResult bare = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = bareSource,
+                ConnectionWindow = null,
+                ResourceDeliveryManifest = new Dictionary<string, double>
+                {
+                    { string.Empty, 1.0 }
+                },
+                InventoryDeliveryManifest = new List<InventoryPayloadItem> { null }
+            };
+            string block = RouteCreationFormatters.BuildSummaryBlock(
+                bare, Game.Modes.SANDBOX, null);
+            Assert.DoesNotContain("<", block);
+            Assert.DoesNotContain(">", block);
+        }
+
+        /// <summary>
+        /// Depot-origin fixture: the start-docked depot proof lives on the tree
+        /// ROOT (the recording that started docked to the depot), while the
+        /// dock-child source recording carries no proof. The formatters must read
+        /// the proof off the root - mirroring RouteBuilder's
+        /// originRec.RouteOriginProof - so a real depot route does not render as an
+        /// unknown origin.
+        /// </summary>
+        private static RouteAnalysisResult DepotOriginViaTreeRootAnalysis(out RecordingTree tree)
+        {
+            Recording root = new Recording
+            {
+                RecordingId = "depot-root",
+                TreeId = "tree-depot",
+                TreeOrder = 0,
+                StartBodyName = "Mun",
+                LaunchSiteName = null,   // not a KSC launch
+                RouteOriginProof = new RouteOriginProof
+                {
+                    StartDockedOriginVesselPid = 4242u
+                },
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 300.0
+            };
+            Recording dockChild = new Recording
+            {
+                RecordingId = "depot-dock-child",
+                TreeId = "tree-depot",
+                TreeOrder = 7,
+                StartBodyName = "Mun",
+                LaunchSiteName = null,
+                RouteOriginProof = null,   // proof is on the ROOT, not the dock child
+                ExplicitStartUT = 300.0,
+                ExplicitEndUT = 600.0,
+                RouteConnectionWindows = new List<RouteConnectionWindow>()
+            };
+            RouteConnectionWindow window = new RouteConnectionWindow
+            {
+                TransferTargetVesselPid = 7007,
+                TransferKind = RouteConnectionKind.DockingPort,
+                EndpointAtDock = new RouteEndpoint
+                {
+                    BodyName = "Mun",
+                    Latitude = 1.0,
+                    Longitude = 2.0,
+                    Altitude = 5000.0
+                }
+            };
+            dockChild.RouteConnectionWindows.Add(window);
+
+            tree = new RecordingTree
+            {
+                Id = "tree-depot",
+                RootRecordingId = root.RecordingId,
+                ActiveRecordingId = dockChild.RecordingId
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(dockChild);
+
+            return new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = dockChild,
+                ConnectionWindow = window,
+                ResourceDeliveryManifest = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 25.0 }
+                },
+                InventoryDeliveryManifest = new List<InventoryPayloadItem>()
+            };
+        }
+
+        [Fact]
+        public void ResolveOriginIdentity_DepotProofOnRoot_ResolvesDepotFromRoot()
+        {
+            // catches: reading the depot proof off the dock-child source (which has
+            // none) instead of the tree root. Mirrors RouteBuilder, which reads
+            // originRec.RouteOriginProof from the resolved root.
+            RouteAnalysisResult analysis = DepotOriginViaTreeRootAnalysis(out RecordingTree tree);
+            RouteCreationFormatters.RouteOriginIdentity id =
+                RouteCreationFormatters.ResolveOriginIdentity(analysis, tree);
+            Assert.Equal(RouteCreationFormatters.RouteOriginKind.Depot, id.Kind);
+            Assert.Equal(4242u, id.DepotVesselPid);
+            Assert.Equal("Mun", id.BodyName);
+        }
+
+        [Fact]
+        public void BuildSummaryBlock_DepotProofOnRoot_OriginLineShowsDepotVessel()
+        {
+            // catches: the dialog origin line falling to "unknown" for a depot route
+            // because the proof was read off the proof-less dock-child source.
+            RouteAnalysisResult analysis = DepotOriginViaTreeRootAnalysis(out RecordingTree tree);
+            string block = RouteCreationFormatters.BuildSummaryBlock(
+                analysis, Game.Modes.SANDBOX, tree);
+            Assert.Contains("Origin: Mun (vessel #4242)", block);
+            Assert.DoesNotContain("Origin: unknown", block);
+        }
+
+        [Fact]
+        public void FormatCandidateOrigin_DepotProofOnRoot_ShowsDepotPid()
+        {
+            // catches: the candidate-table cell showing "-" for a depot route.
+            RouteAnalysisResult analysis = DepotOriginViaTreeRootAnalysis(out RecordingTree tree);
+            Assert.Equal("depot pid=4242",
+                LogisticsWindowUI.FormatCandidateOrigin(analysis, tree));
+        }
     }
 }
