@@ -3934,6 +3934,8 @@ namespace Parsek
             string message = $"Rewind to \"{owner.VesselName}\" launch at {launchDate}?" +
                 branchNote +
                 futureText +
+                "\n\nThis flight replays as a ghost; its recorded vessel reappears at the end" +
+                " if you do not re-fly it. Watch the ghost to bring it back." +
                 "\n\nAny uncommitted progress will be lost.";
 
             var capturedOwner = owner;
