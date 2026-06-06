@@ -386,12 +386,48 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
       `ComputeOverlapCyclePlaybackUT`, the `(recording, cycleIndex)` identity, cap
       `MaxOverlapGhostsPerRecording=20`) - reuse it, do not reinvent. FULL per-instance (not icon-only:
       N icons on one shared line is visibly wrong for non-orbital ascent/descent instances). Stacks on 2a
-      (instance 0 = newest cycle = today's single ghost). Slices: (i) map presence N-per-overlapping-
-      recording lifecycle [the bulk], (ii) Director per-instance enumeration + the existing `instanceKey`
-      wiring (caches are already pid-keyed), (iii) polyline + marker per-instance. Efficiency: overlap-ONLY
-      gate so non-overlap recordings stay EXACTLY one-per-recording (zero new cost); reuse the engine's
-      cycles; throttle per-instance ProtoVessel create/destroy (the biggest risk = warp-time cycle churn);
-      cap at 20. Gate-OFF stays legacy one-per-recording.
+      (instance 0 = newest cycle = today's single ghost). Slices: **(i) map presence N-per-overlapping-
+      recording lifecycle [the bulk] - DONE (awaiting in-game gate)**, (ii) Director per-instance
+      enumeration + the existing `instanceKey` wiring (caches are already pid-keyed), (iii) polyline +
+      marker per-instance. Efficiency: overlap-ONLY gate so non-overlap recordings stay EXACTLY
+      one-per-recording (zero new cost); reuse the engine's cycles; throttle per-instance ProtoVessel
+      create/destroy (the biggest risk = warp-time cycle churn); cap at 20. Gate-OFF stays legacy
+      one-per-recording.
+    - **Slice (i) DONE (this branch, awaiting in-game gate):** mirrors the proven `ParsekKSC`
+      per-instance overlap model (which already renders N overlap ghosts on the KSC map with NO flight
+      engine). New `overlapInstanceVessels : Dictionary<(recIdx,cycle),Vessel>` + `EnsureOverlapInstances`
+      / `RunOverlapPerInstanceSweep` / `CreateOverlapInstanceVessel` (its OWN per-instance create path, not
+      the single-slot `CreateGhostVesselFromSource` funnel); schedule via the PURE
+      `GhostPlaybackLogic.TryResolveAutoLoopLaunchSchedule` (works in flight AND TS); `GetActiveCycles` +
+      `ComputeOverlapCyclePlaybackUT` for the live-cycle set + per-instance epoch shift; gate =
+      `mapRenderDirectorDrive` AND (per-recording auto-loop `IsOverlapLoop` OR Mission-unit self-overlap
+      `loopUnits.TryGetUnitForMember && UnitMemberOverlaps`). **Mission-unit fix (playtest-caught
+      2026-06-06):** the maintainer loops via the Missions tab (a `LoopUnit` self-overlap, `Mission.
+      LoopPlayback`, NOT `rec.LoopPlayback`), so the original per-recording-only gate rejected it -> one
+      icon. The fix threads `loopUnits` through the sweep and unions the gate/schedule with the
+      Mission-unit source, sourcing `(scheduleStart, playbackStart, duration, cadence)` from the `LoopUnit`
+      exactly as the flight engine does (`GhostPlaybackEngine.cs:2163-2183` + the cadence re-clamp), so the
+      map cycles match the flight meshes 1:1. Re-aim / zero-drift units are non-overlapping by construction
+      (`UnitMemberOverlaps` false), so they stay single-ghost. A rate-limited per-recIdx
+      `overlap-gate-decision` log line now surfaces the gate inputs (directorDrive / loopPlayback / isMember
+      / unitOverlaps / schedule / cycle window) so a re-fly is self-diagnosing. **NOTE:**
+      `mapRenderDirectorDrive` is a per-save KSP custom param; an old save persisted `false` and KSP
+      restores it on load (the external override only re-asserts once toggled via the Parsek Settings
+      window), so the maintainer must toggle the setting ON for the save before validating - not a bug.
+      Each instance's icon phase comes from
+      its per-pid `ghostOrbitEpochShift` (so slice i ships WITHOUT slice ii's instanceKey, which stays 0).
+      `GetGhostVesselPidForRecording`/`HasGhostVesselForRecording` fall through to the newest-cycle
+      instance so watch / TS-Fly / UI / polyline-owner readers don't get pid 0. Legacy create/reseed/
+      state-vector passes skip overlap indices (sweep is sole authority). Teardown + the two leak-skip
+      early-returns + all 3 reset sites extended; `RemoveOverlapInstance` cleans every per-pid map.
+      State-vector overlap instances mirror the per-index state-vector contract (seed at live UT, clear
+      the segment-drive dicts) - review-caught fix. Two clean reviews (plan + code) SHIP. Build clean;
+      suite green (13498). **In-game gate:** an ORBITAL launch-to-LOW-orbit mission looped with period <
+      length, map view, run past a relaunch: N icons on N orbit lines, one per live overlap instance,
+      matching the N flight ghosts (appearing/expiring as they relaunch); gate-off / non-overlap
+      byte-identical one-per-recording. (Use an ORBITAL mission: the per-instance ASCENT polyline is slice
+      iii, so in slice i the ascent line stays single per recording - the icons-on-orbit-lines are the
+      deliverable.)
   - **Rendering polish - polyline + marker pan-stability (DONE, gated-neutral).** Fixed map polylines +
     yellow label markers jittering / flickering when panning the camera (pre-existing, NOT from the
     cutover). Root cause: the polyline draw ran at `[DefaultExecutionOrder(-50)]`, BEFORE the map camera

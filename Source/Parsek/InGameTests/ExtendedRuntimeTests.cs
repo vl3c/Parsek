@@ -99,6 +99,181 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "Per-instance overlap map vessel count matches flight overlap ghost count + 1 (capped)")]
+        public void OverlapMapInstanceCountMatchesFlight()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            // Slice (i) requires the director drive ON; off the gate the per-instance path is
+            // unreachable and the map stays one-per-recording (nothing to assert here).
+            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
+                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance overlap path inactive");
+
+            int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
+            var ghostGOs = flight.Engine.GetGhostGameObjects();
+            int checkedRecordings = 0;
+            int mismatches = 0;
+
+            foreach (var kvp in ghostGOs)
+            {
+                int recIdx = kvp.Key;
+                if (!flight.Engine.TryGetOverlapGhosts(recIdx, out var overlaps) || overlaps == null)
+                    continue;
+
+                // Flight: primary ghost (ghostStates[recIdx]) + the staggered overlap list = N meshes.
+                int flightInstances = overlaps.Count + 1;
+                int expected = System.Math.Min(flightInstances, cap);
+                int mapInstances = GhostMapPresence.GetOverlapInstanceCount(recIdx);
+
+                checkedRecordings++;
+                // Allow a +/-1 transient: the map sweep is throttled (MaxSpawnsPerFrame) so a brand-new
+                // cycle can be one frame behind the flight mesh; never above the cap.
+                if (mapInstances > cap || System.Math.Abs(mapInstances - expected) > 1)
+                {
+                    mismatches++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Overlap map instance count mismatch rec=#{recIdx}: map={mapInstances} " +
+                        $"flightMeshes={flightInstances} expected~={expected} cap={cap}");
+                }
+            }
+
+            if (checkedRecordings == 0)
+                InGameAssert.Skip("No overlap recordings active");
+
+            ParsekLog.Info("TestRunner",
+                $"Overlap map instance count: {checkedRecordings - mismatches}/{checkedRecordings} recordings match flight (cap={cap})");
+            InGameAssert.AreEqual(0, mismatches,
+                $"{mismatches} overlap recording(s) have map instance count mismatched vs flight meshes");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "Mission-loop overlap member: map instance count matches flight overlap ghost count + 1 (capped)")]
+        public void OverlapMapInstanceCountMatchesFlightMissionLoop()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
+                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance overlap path inactive");
+
+            // Source (b): a looped Mission unit that self-overlaps. The flight engine renders the
+            // staggered instances through overlapGhosts[memberIdx] (the SAME pure cycle math the map
+            // per-instance sweep uses), so the map count must match the flight mesh count even though
+            // the member's own rec.LoopPlayback is false.
+            var loopUnits = flight.Engine.CurrentLoopUnits;
+            if (loopUnits == null || loopUnits.Count == 0)
+                InGameAssert.Skip("No Mission loop units active (load a looped Mission to exercise source b)");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
+            int checkedMembers = 0;
+            int mismatches = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                // Only Mission-unit overlap members (source b), not standalone loops (covered above).
+                if (!loopUnits.TryGetUnitForMember(i, out var unit)
+                    || !GhostPlaybackLogic.UnitMemberOverlaps(unit))
+                    continue;
+                if (!GhostMapPresence.IsOverlapRecording(committed[i], i, committed, loopUnits))
+                    continue;
+                if (!flight.Engine.TryGetOverlapGhosts(i, out var overlaps) || overlaps == null)
+                    continue;
+
+                int flightInstances = overlaps.Count + 1; // primary (newest) + staggered list
+                int expected = System.Math.Min(flightInstances, cap);
+                int mapInstances = GhostMapPresence.GetOverlapInstanceCount(i);
+
+                checkedMembers++;
+                if (mapInstances > cap || System.Math.Abs(mapInstances - expected) > 1)
+                {
+                    mismatches++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Mission-loop overlap map instance count mismatch member=#{i}: map={mapInstances} " +
+                        $"flightMeshes={flightInstances} expected~={expected} cap={cap}");
+                }
+            }
+
+            if (checkedMembers == 0)
+                InGameAssert.Skip("No self-overlapping Mission loop members active");
+
+            ParsekLog.Info("TestRunner",
+                $"Mission-loop overlap map instance count: {checkedMembers - mismatches}/{checkedMembers} members match flight (cap={cap})");
+            InGameAssert.AreEqual(0, mismatches,
+                $"{mismatches} Mission-loop overlap member(s) have map instance count mismatched vs flight meshes");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.TRACKSTATION,
+            Description = "TS per-instance overlap map vessel count matches the pure GetActiveCycles size")]
+        public void OverlapMapInstanceCountMatchesScheduleTS()
+        {
+            // The flight engine does not exist in the Tracking Station; the map per-instance count must
+            // equal the PURE recomputed active-cycle set for each overlap recording.
+            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
+                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance overlap path inactive");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            // Rebuild the TS span-clock loop-unit set exactly as ParsekTrackingStation.DriveMissionLoopUnits
+            // does, so a Mission-tab loop (source b) is recognized identically to the live scene.
+            double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                             ?? LoopTiming.DefaultLoopIntervalSeconds;
+            var loopUnits = MissionLoopUnitBuilder.Build(
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed,
+                autoLoopIntervalSeconds, FlightGlobalsBodyInfo.Instance,
+                ParsekSettings.Current?.TransitedBodyRotationMode ?? TransitedBodyRotationMode.Loose);
+
+            int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
+            double currentUT = Planetarium.GetUniversalTime();
+            int checkedRecordings = 0;
+            int mismatches = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (!GhostMapPresence.IsOverlapRecording(rec, i, committed, loopUnits))
+                    continue;
+                if (!GhostMapPresence.ResolveOverlapSchedule(
+                        rec, i, committed, loopUnits,
+                        out _, out double scheduleStartUT,
+                        out double duration, out double effectiveCadence, out _))
+                    continue;
+                if (currentUT < scheduleStartUT)
+                    continue;
+
+                GhostPlaybackLogic.GetActiveCycles(
+                    currentUT, scheduleStartUT, scheduleStartUT + duration,
+                    effectiveCadence, cap, out long firstCycle, out long lastCycle);
+                int expected = (int)System.Math.Min(cap, lastCycle - firstCycle + 1);
+                int mapInstances = GhostMapPresence.GetOverlapInstanceCount(i);
+
+                checkedRecordings++;
+                // +/-MaxSpawnsPerFrame transient for newly-relaunching cycles; never above the cap.
+                if (mapInstances > cap
+                    || System.Math.Abs(mapInstances - expected) > GhostPlayback.MaxSpawnsPerFrame)
+                {
+                    mismatches++;
+                    ParsekLog.Warn("TestRunner",
+                        $"TS overlap map instance count mismatch rec=#{i}: map={mapInstances} " +
+                        $"expectedCycles={expected} cap={cap}");
+                }
+            }
+
+            if (checkedRecordings == 0)
+                InGameAssert.Skip("No overlap recordings active");
+
+            ParsekLog.Info("TestRunner",
+                $"TS overlap map instance count: {checkedRecordings - mismatches}/{checkedRecordings} recordings match GetActiveCycles (cap={cap})");
+            InGameAssert.AreEqual(0, mismatches,
+                $"{mismatches} overlap recording(s) have TS map instance count mismatched vs GetActiveCycles");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
             Description = "Loop phase offsets are all finite (no NaN/Infinity)")]
         public void LoopPhaseOffsetsFinite()
         {

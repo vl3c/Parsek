@@ -71,11 +71,20 @@ lifecycle funnel, `GetGhostVesselPidForRecording`, the polyline cache + active-l
   instance pid once they are real ProtoVessels, so `RunFrame` enumerates them unchanged. Feed
   `ChainAssembler.Build` the instance's `cycle` as `instanceKey` instead of `0` (resolve pid->cycle via
   the per-instance store). Per-pid seed/epoch-shift flow through the existing pid-keyed paths.
-- **(iii) Polyline + marker per-instance.** Re-key `polylineCache` (geometry shared by RecordingId; only
-  the head-UT / active-leg / hold STATE goes per-(RecordingId, cycle)), `activeLegRecordings` /
-  `directorOwnedLegRecordings`, `lastGoodOnLine`. The Driver's LateUpdate walk enumerates the recording's
-  live cycles and draws one leg per cycle at each `ComputeOverlapCyclePlaybackUT`. Preserve the #1050
-  timing invariants (decide+publish at -50, draw at `onPreCull`).
+- **(iii) ONE shared polyline + N markers riding it (NOT N polylines) - maintainer steer 2026-06-06.**
+  The recorded non-orbital geometry (ascent / descent / burn) is IDENTICAL for all N overlap instances
+  (same recorded path, replayed at staggered times), so drawing N overlapping polylines would be
+  redundant + costly ("do not draw 100 overlapping polylines"). Keep the polyline SINGLE per recording
+  (the `polylineCache` geometry is already keyed by RecordingId - one draw, as slice (i) already does),
+  and instead draw N MARKERS that RIDE that single shared polyline, each at its instance's current
+  position (`ComputeOverlapCyclePlaybackUT(cycle)` head along the leg). So slice (iii) = the MARKER path
+  becomes per-instance (N labels on the one shared line), NOT the polyline geometry. Today the marker
+  rides via `lastGoodOnLine` / `GetNewestOverlapInstancePidForRecording` (newest instance only); slice
+  (iii) makes ALL live instances' markers ride the single drawn leg at their own head positions. Do NOT
+  re-key `polylineCache` geometry or draw one leg per cycle. (Same logic for the ORBIT phase is already
+  satisfied by slice (i): the N ProtoVessels' orbit lines are identical and overlap exactly, so the
+  player sees one orbit line with N icons - no extra work.) Preserve the #1050 timing invariants
+  (decide+publish at -50, draw at `onPreCull`).
 
 ## Efficiency + safety
 
