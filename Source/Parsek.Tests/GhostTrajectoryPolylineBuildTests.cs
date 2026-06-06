@@ -33,6 +33,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             GhostTrajectoryPolylineRenderer.Clear();
+            ParsekSettings.CurrentOverrideForTesting = null;
         }
 
         // --- BuildLegsForRecording: per-section dispatch ---
@@ -749,6 +750,81 @@ namespace Parsek.Tests
                 Parsek.MapRender.TracedPathTreatment.ShouldOwnLeg(directorActive));
         }
 
+        // --- Phase 8b.2: ownership-signal authority (Director/treatment-sourced vs legacy) ---
+
+        [Fact]
+        public void ResolveOwnership_GateOff_UsesLegacySetOnly()
+        {
+            // Gate OFF: byte-identical to pre-8b.2 - the legacy autonomous-Driver set is the ONLY
+            // source; the director-owned set is never consulted (true OR false on it changes nothing).
+            Assert.True(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
+                directorDriveGateOn: false, inDirectorOwnedSet: false, inLegacySet: true));
+            Assert.False(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
+                directorDriveGateOn: false, inDirectorOwnedSet: false, inLegacySet: false));
+            // Director set is IGNORED gate-off: present-in-director-only is NOT ownership.
+            Assert.False(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
+                directorDriveGateOn: false, inDirectorOwnedSet: true, inLegacySet: false));
+        }
+
+        [Fact]
+        public void ResolveOwnership_GateOn_TreatmentSourcedIsAuthoritative()
+        {
+            // Gate ON: the treatment-published director-owned set is authoritative for the legs the
+            // treatment actually drew (this is the 8b.2 repoint).
+            Assert.True(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
+                directorDriveGateOn: true, inDirectorOwnedSet: true, inLegacySet: false));
+        }
+
+        [Fact]
+        public void ResolveOwnership_GateOn_LegacySetStillCoversNonDirectorOwnedGhosts()
+        {
+            // Gate ON: a ghost the shadow does NOT own (pid-0 atmospheric-only / re-aim / overlap) still
+            // takes the Driver-direct path and publishes to the legacy set; the union keeps it owned, so
+            // its proto is still suppressed and the marker handoff is unchanged.
+            Assert.True(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
+                directorDriveGateOn: true, inDirectorOwnedSet: false, inLegacySet: true));
+        }
+
+        [Fact]
+        public void ResolveOwnership_GateOn_NeitherSet_NoOwnership_NoNewGap()
+        {
+            // THE no-new-gap invariant: when NO leg actually drew (neither set has the recording), the
+            // signal is FALSE, so the proto orbit line / icon is NOT hidden. Both sets are populated only
+            // on an actual draw, so "Director decided TracedPath but nothing drew" can never report
+            // ownership (the Option-A gap this phase deliberately avoids). proto hidden IFF a leg drew.
+            Assert.False(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
+                directorDriveGateOn: true, inDirectorOwnedSet: false, inLegacySet: false));
+        }
+
+        [Fact]
+        public void IsRenderingNonOrbitalLeg_EndToEnd_ReadsTheGateAndDispatches()
+        {
+            // End-to-end (the gate read + dispatch IsPolylineOwningGhostPhase ultimately calls): with the
+            // gate ON the treatment-sourced (director-owned) publish is authoritative; with the gate OFF
+            // only the legacy autonomous-Driver publish counts.
+            const string recDir = "rec-director-owned";
+            const string recLegacy = "rec-legacy-only";
+            GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                recDir, inDirectorOwnedSet: true, inLegacySet: false);
+            GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                recLegacy, inDirectorOwnedSet: false, inLegacySet: true);
+
+            // Gate ON: director-owned recording is owned (treatment-sourced), legacy recording stays owned
+            // via the union (covers the non-director-owned ghost under the gate).
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings { mapRenderDirectorDrive = true };
+            Assert.True(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recDir));
+            Assert.True(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recLegacy));
+
+            // Gate OFF: only the legacy publish is consulted - the director-owned-only recording is NOT
+            // owned (byte-identical to pre-8b.2), the legacy-set recording still is.
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings { mapRenderDirectorDrive = false };
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recDir));
+            Assert.True(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recLegacy));
+
+            // Null recordingId is never owned.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(null));
+        }
+
         // --- FIX #27: below-SURFACE degenerate-segment cover exclusion ---
         //
         // Duna-like geometry: radius 320000, atmosphere top 50000 above radius.
@@ -1278,6 +1354,150 @@ namespace Parsek.Tests
                 50.0,
                 GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(50.0, 1000.0, 9999.0, period),
                 10);
+        }
+
+        // --- Pan-stability: WillLegDraw (FIX 1 decide-pass will-draw predicate) ---
+
+        [Fact]
+        public void WillLegDraw_ResolvedBodyTwoPoints_WillDraw()
+        {
+            // Mirrors TryDrawLeg's only non-degenerate early returns: body resolved + m>=2.
+            Assert.True(GhostTrajectoryPolylineRenderer.WillLegDraw(2, true));
+            Assert.True(GhostTrajectoryPolylineRenderer.WillLegDraw(200, true));
+        }
+
+        [Fact]
+        public void WillLegDraw_FewerThanTwoPoints_WontDraw()
+        {
+            // Matches TryDrawLeg's `if (m < 2) return false`.
+            Assert.False(GhostTrajectoryPolylineRenderer.WillLegDraw(1, true));
+            Assert.False(GhostTrajectoryPolylineRenderer.WillLegDraw(0, true));
+        }
+
+        [Fact]
+        public void WillLegDraw_BodyNotResolved_WontDraw()
+        {
+            // Matches the decide-pass body-null skip (the call site continues before reaching the draw).
+            Assert.False(GhostTrajectoryPolylineRenderer.WillLegDraw(2, false));
+            Assert.False(GhostTrajectoryPolylineRenderer.WillLegDraw(200, false));
+        }
+
+        // --- Pan-stability: IsHeadInInterLegGap (FIX 2 gap-vs-orbital-exit classifier) ---
+
+        [Fact]
+        public void IsHeadInInterLegGap_HeadInsideOverallSpan_True()
+        {
+            // Head between the first leg's start and the last leg's end (e.g. a connector/deorbit gap).
+            Assert.True(GhostTrajectoryPolylineRenderer.IsHeadInInterLegGap(100.0, 500.0, 300.0));
+        }
+
+        [Fact]
+        public void IsHeadInInterLegGap_HeadOnSpanBoundaries_True()
+        {
+            Assert.True(GhostTrajectoryPolylineRenderer.IsHeadInInterLegGap(100.0, 500.0, 100.0));
+            Assert.True(GhostTrajectoryPolylineRenderer.IsHeadInInterLegGap(100.0, 500.0, 500.0));
+        }
+
+        [Fact]
+        public void IsHeadInInterLegGap_HeadPastLastLeg_False()
+        {
+            // Genuine orbital-phase exit past the recorded legs: must fall through to the deep fallback.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsHeadInInterLegGap(100.0, 500.0, 600.0));
+        }
+
+        [Fact]
+        public void IsHeadInInterLegGap_HeadBeforeFirstLeg_False()
+        {
+            Assert.False(GhostTrajectoryPolylineRenderer.IsHeadInInterLegGap(100.0, 500.0, 50.0));
+        }
+
+        // --- Pan-stability: TryHoldLastGood (FIX 2 held-position freshness bounds) ---
+
+        [Fact]
+        public void TryHoldLastGood_FreshNearUT_HoldsCachedPosition()
+        {
+            var pos = new Vector3(1f, 2f, 3f);
+            GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                "rec-hold", pos, headUT: 1000.0, frame: 100, legIndex: 2);
+
+            // 1 frame later, head advanced 0.5s: within both bounds -> held.
+            bool held = GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-hold", headUT: 1000.5, frame: 101, out Vector3 outPos, out int outLeg);
+
+            Assert.True(held);
+            Assert.Equal(pos, outPos);
+            Assert.Equal(2, outLeg);
+        }
+
+        [Fact]
+        public void TryHoldLastGood_NoCacheEntry_DeepFallback()
+        {
+            bool held = GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-absent", headUT: 1000.0, frame: 100, out _, out _);
+            Assert.False(held);
+        }
+
+        [Fact]
+        public void TryHoldLastGood_StaleByFrame_DeepFallback()
+        {
+            GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                "rec-stale-frame", new Vector3(1f, 1f, 1f), headUT: 1000.0, frame: 100, legIndex: 0);
+
+            // Just past the frame-age bound (MaxFrameAge + 1).
+            int staleFrame = 100 + GhostTrajectoryPolylineRenderer.LastGoodMaxFrameAge + 1;
+            bool held = GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-stale-frame", headUT: 1000.0, frame: staleFrame, out _, out _);
+            Assert.False(held);
+
+            // Exactly at the bound is still held.
+            int edgeFrame = 100 + GhostTrajectoryPolylineRenderer.LastGoodMaxFrameAge;
+            Assert.True(GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-stale-frame", headUT: 1000.0, frame: edgeFrame, out _, out _));
+        }
+
+        [Fact]
+        public void TryHoldLastGood_StaleByHeadUT_DeepFallback()
+        {
+            GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                "rec-stale-ut", new Vector3(1f, 1f, 1f), headUT: 1000.0, frame: 100, legIndex: 0);
+
+            // Head advanced just past the UT-delta bound.
+            double staleUT = 1000.0 + GhostTrajectoryPolylineRenderer.LastGoodMaxHeadUtDeltaSeconds + 0.1;
+            bool held = GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-stale-ut", headUT: staleUT, frame: 101, out _, out _);
+            Assert.False(held);
+
+            // Exactly at the bound is still held (and works backwards in UT too).
+            double edgeUT = 1000.0 + GhostTrajectoryPolylineRenderer.LastGoodMaxHeadUtDeltaSeconds;
+            Assert.True(GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-stale-ut", headUT: edgeUT, frame: 101, out _, out _));
+            Assert.True(GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-stale-ut", headUT: 1000.0 - GhostTrajectoryPolylineRenderer.LastGoodMaxHeadUtDeltaSeconds,
+                frame: 101, out _, out _));
+        }
+
+        [Fact]
+        public void TryHoldLastGood_ClearedByClear_DeepFallback()
+        {
+            GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                "rec-cleared", new Vector3(1f, 1f, 1f), headUT: 1000.0, frame: 100, legIndex: 0);
+            GhostTrajectoryPolylineRenderer.Clear();
+
+            bool held = GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-cleared", headUT: 1000.0, frame: 100, out _, out _);
+            Assert.False(held);
+        }
+
+        [Fact]
+        public void TryHoldLastGood_ClearedByReleaseForRecording_DeepFallback()
+        {
+            GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                "rec-released", new Vector3(1f, 1f, 1f), headUT: 1000.0, frame: 100, legIndex: 0);
+            GhostTrajectoryPolylineRenderer.ReleaseForRecording("rec-released");
+
+            bool held = GhostTrajectoryPolylineRenderer.TryHoldLastGoodForTesting(
+                "rec-released", headUT: 1000.0, frame: 100, out _, out _);
+            Assert.False(held);
         }
     }
 }

@@ -204,6 +204,214 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
   decision-vs-old-truth in BOTH scenes. **Phase 7b (next, NEEDS IN-GAME)**: make-before-break +
   cold-start-mid-segment (§10.19) + per-scene patched-conic divergence (§10.20), gated on the §15.2 probe
   (possible stop-point - if stock re-solves the patch chain materially differently per scene, escalate).
+- **Phase 8b - TracedPath polyline ownership (in progress).**
+  - **8b.0 - DONE.** Extracted the per-leg polyline draw into the scene-agnostic
+    `GhostTrajectoryPolylineRenderer.TryDrawLeg` (verbatim old inlined body, byte-identical output) so
+    the treatment can draw a single leg through the SAME mechanics.
+  - **8b.1 - DONE.** When `mapRenderDirectorDrive` is on and the Director decides Visible+TracedPath for
+    a ghost pid, the Driver routes that leg's draw through `TracedPathTreatment.TryDrawOwnedLeg` (the same
+    `TryDrawLeg`) and stands down on its own direct call (single `if/else` on
+    `ShadowRenderDriver.IsDirectorTracedPathActive(pid, frame)`), so the leg is never drawn twice and the
+    stock proto is suppressed exactly when the treatment draws. The ownership signal stayed driven by the
+    actual draw (`anyDrawn -> activeLegRecordings`, published on either path).
+  - **8b.2 - DONE (this branch).** Made the Director/treatment the AUTHORITATIVE source of the "polyline
+    owns this phase" ownership signal. **Fork resolved -> Option B (treatment publishes the ACTUAL draw),
+    NOT Option A (repoint to the raw decision).** Option A was ruled UNSAFE: the Director's TracedPath
+    decision is built from `traj.Points` (via `ChainAssembler.AppendTracedRuns`), while the polyline draw
+    is built from `TrackSections.bodyFixedFrames`/`frames` + flat `Points`-outside-sections (via
+    `BuildLegsForRecording`) and gated per-leg on the head UT + `m>=2` - two independent data pipelines
+    that demonstrably read different source collections, so a decision-vs-draw mismatch (Director decides
+    TracedPath but no drawable leg this frame -> proto hidden with nothing drawn, an invisible gap) cannot
+    be ruled out. Option B preserves "proto hidden IFF a leg actually drew" for the
+    `IsRenderingNonOrbitalLeg` / `IsPolylineOwningGhostPhase` signal this phase owns. (A SEPARATE,
+    decision-based proto-line suppression in `GhostOrbitLinePatch.cs:130/552` (on
+    `IsDirectorTracedPathActive`) can still set `line.active=false` on a decision-without-draw frame,
+    but it also sets `ghostsWithSuppressedIcon`, which draws the non-proto marker, so the ghost is
+    never left blank; retiring that line-level path is deferred, out of 8b.2 scope.) Mechanism: a new
+    `directorOwnedLegRecordings` set is published by the OWNED draw path ONLY when `TryDrawOwnedLeg`
+    actually returns drawn=true; `IsRenderingNonOrbitalLeg` dispatches (pure `ResolveNonOrbitalLegOwnership`)
+    - gate ON -> the UNION of the director-owned set and the legacy `activeLegRecordings` (the legacy set
+    still covers pid-0 / re-aim / overlap ghosts the shadow does not own, which still take the Driver-direct
+    path under the gate); gate OFF -> the legacy set ONLY (byte-identical to pre-8b.2). The Driver's
+    autonomous-walk publish is retired as the AUTHORITATIVE source for owned legs but kept as the gate-off
+    fallback; its deletion is 8e. Tests: pure dispatch + seam-driven end-to-end gate read in
+    `GhostTrajectoryPolylineBuildTests`; in-game `OwnershipSignal_DispatchesOnLiveGate_NoNewGap`
+    (RuntimeTests, GhostMap, TRACKSTATION) covers the live-gate read + no-new-gap. **In-game gate to run:**
+    s15 "Duna One" looped re-aim + a non-looped Mun mission through landing with `mapRenderDirectorDrive` on,
+    watching the TracedPath<->StockConic seam: no orbit-line blink, no icon teleport, and crucially NO
+    invisible gap (proto must never be hidden with nothing drawn).
+- **Phase 8c - Marker / proto-icon-suppression decision (DONE - this branch, NEEDS IN-GAME).** Made the
+  Director/treatment the AUTHORITATIVE source of the MARKER-draw + proto-ICON-suppression decision for the
+  two marker call sites, behind the gate; kept the legacy `ghostsWithSuppressedIcon` / `IsIconSuppressed` /
+  `ClassifyAtmosphericMarkerSkip` as the gate-OFF fallback (NOT deleted - that is 8e). **Fork resolved:**
+  both `ParsekUI.DrawMapMarkers` and `ParsekTrackingStation.ClassifyAtmosphericMarkerSkip` previously
+  decided "draw our non-proto marker" from `IsIconSuppressed(pid) || IsPolylineOwningGhostPhase(pid)`. The
+  `IsPolylineOwningGhostPhase` half is ALREADY Director-sourced (8b.2 actual-draw set). The `IsIconSuppressed`
+  half is written in two distinct contexts: **(a)** the Director TracedPath DECISION suppress
+  (`GhostOrbitLinePatch.cs:132/556` on `IsDirectorTracedPathActive`) and **(b)** the no-bounds legacy
+  transient (`:172/882` on `IsDirectorTracking`) plus the legacy below-atmosphere / off-arc clamp. 8c repoints
+  the marker decision for context (a) onto the Director-sourced `IsDirectorTracedPathActive` directly, and
+  KEEPS the legacy `IsIconSuppressed` disjunct as the fallback for context (b) + below-atmosphere + off-arc
+  (none of which the Director owns yet). Mechanism: a single pure `GhostMapPresence.ResolveMarkerDrawDecision`
+  (gate ON -> `directorTracedPathActive || polylineOwning || iconSuppressedLegacy`; gate OFF ->
+  `iconSuppressedLegacy || polylineOwning`, byte-identical) + the Unity wrapper
+  `ShouldDrawNonProtoMarkerForGhost` both call sites route through. **No marker gap:** the gate-ON decision
+  is a SUPERSET of the legacy decision (adds only the `directorTracedPathActive` disjunct), so it is never
+  FALSE on a frame the proto is hidden; whenever `IsDirectorTracedPathActive` is true the line Postfix's
+  first branch (`:552`) has set `drawIcons=NONE` + added to `ghostsWithSuppressedIcon`, so the proto icon is
+  not co-drawn (no double marker). **Marker rides the line** unchanged: `TryAnchorMarkerToPolyline` still
+  anchors the marker to the drawn polyline when a leg drew this frame, falling back to the trajectory head
+  otherwise (visible). The decision-based proto-LINE suppression in `GhostOrbitLinePatch.cs:130/552` is the
+  line-level hide MECHANISM and is untouched (its retirement is 8e). Tests: pure `ResolveMarkerDrawDecision`
+  (`MarkerDrawDecisionTests`, 6, incl. the exhaustive superset/no-gap proof); in-game
+  `MarkerDrawDecision_DispatchesOnLiveGate_NoGap` (RuntimeTests, GhostMap, TRACKSTATION) covers the live-gate
+  dispatch + fallback + no-double-marker. Build clean; full suite green (13408); GrepAudit OK. **In-game gate
+  to run:** s15 "Duna One" looped re-aim + a non-looped Mun mission through landing with
+  `mapRenderDirectorDrive` on: marker present and riding the line on owned legs, no double marker, no blank
+  frame at the TracedPath<->StockConic seam; toggle the gate OFF -> byte-identical to the legacy marker paths.
+- **Phase 8d - map-presence migration into the scene adapter (in progress).** Full sub-plan:
+  `docs/dev/plans/maprender-8d-presence-extraction.md`. Migrates the last big autonomous surface, the
+  ghost MAP-PRESENCE lifecycle (`ParsekPlaybackPolicy.CheckPendingMapVessels`, ~660 lines + 6 presence
+  dictionaries), into `GhostMapPresence` behind the same gate so 8e can delete the legacy path. **HARD
+  CONSTRAINT:** presence must NOT gate on `IsDirectorDriveActive` - the Director deliberately skips
+  re-aim / overlap members, which still need presence created + torn down every frame; the gate selects
+  only WHERE the identical work runs, never WHETHER it runs.
+  - **8d.0 - DONE (no behavior change).** Routed the flight per-frame presence tick through the scene
+    adapter instead of the direct policy call. New `IGhostMapScene.DriveMapPresence(double currentUT)`,
+    `abstract` on `GhostMapSceneBase`; `MapViewScene` overrides it as `policy?.CheckPendingMapVessels(
+    currentUT)` with the policy injected once at init via `SetPresenceDriver(policy)` (same style as
+    `SetFrameInputs`); `TrackingStationScene` overrides it for compile symmetry (delegating to
+    `UpdateTrackingStationGhostLifecycle(LoopUnits)`), NOT yet routed from any TS caller. `ParsekFlight`
+    now calls `mapViewScene.DriveMapPresence(Planetarium.GetUniversalTime())` in the SAME per-frame slot
+    the direct call used (between `RetryHeldGhostSpawns()` and the shadow-driver block). Byte-identical:
+    same method, same argument, same slot; `policy?.` cannot diverge from the old unconditional `policy.`
+    because `SetPresenceDriver` runs unconditionally at init before any frame; no director gate added.
+    The `CheckPendingMapVessels` body + the 6 dictionaries are UNTOUCHED (that is 8d.1). Source-gate test
+    `MapPresenceSeamTests` (4) locks the host off the direct call. Build clean; full suite green (13412).
+  - **8d.1 (next, single PR) - relocate the body (PURE MOVE, no gate).** Move `CheckPendingMapVessels`
+    + the 6 dictionaries (+ `terminalMapRetentionLoggedIds` + `nextMapOrbitUpdateTime` + the
+    `PendingMapVessel` struct) into `GhostMapPresence.UpdateFlightMapGhostLifecycle(currentUT,
+    loopUnits)`; the seam ALWAYS calls it, `CheckPendingMapVessels` deleted from the policy. **Decision
+    (2026-06-05):** the body is a thin orchestrator over `GhostMapPresence.*` statics (every proto/KSP
+    mutation already routes through them; only engine read is `CurrentLoopUnits`; the 6 dicts are touched
+    ONLY in `ParsekPlaybackPolicy.cs`), so the relocation is a FAITHFUL COPY with no logic change; a gate
+    would toggle two identical paths and duplicate ~655 lines, so 8d.1 is a no-behavior-change move (like
+    8d.0 / 8b.0). `loopUnits` MUST be `engine.CurrentLoopUnits` (NOT the scene's cached `LoopUnits`,
+    a different source). The 6 dicts become `internal static` on `GhostMapPresence` (the still-in-policy
+    enqueue tail + teardowns reach them directly until 8d.2 moves them). Riskiest slice (655-line cut),
+    so it ships on a HARD clean-context review + green tests; maintainer playtests the merged build
+    (Duna One looped re-aim + a non-looped Mun mission through landing) as the standard post-merge check.
+  - **8d.2 - DONE (PURE MOVE, no gate).** Extracted the PRESENCE portions of the two mixed-concern
+    engine-event handlers out of the policy into `GhostMapPresence`: `HandleGhostCreated`'s enqueue ->
+    `GhostMapPresence.HandleFlightGhostCreatedMapPresence(evt, loopUnits)` (the policy handler keeps the
+    camera `TryAutoFollowChainSeamSpawn`), `HandleGhostDestroyed`'s teardown ->
+    `GhostMapPresence.HandleFlightGhostDestroyedMapPresence(index)` (the policy handler keeps the log +
+    `heldGhosts.Remove`). The policy stays the engine-event subscriber (subscription wiring + non-presence
+    concerns stay); `HandleAllGhostsDestroying` / `Dispose` already delegated via
+    `ClearFlightMapPresenceState()` (8d.1). `ShouldDeferLoopShiftedMapPresence` stays in the policy
+    (`RuntimePolicyTests` callers), called cross-class. Faithful copy (empty code-only diff on both moved
+    blocks), no behavior change. Source-gate tests added; build clean; full suite green (13418).
+  - **8d.3 - DONE (behavior-preserving).** Decomposed `UpdateFlightMapGhostLifecycle` into three named
+    `private static void` pass methods (`RunFlightMapDeferredCreatePass`, `RunFlightMapOrbitReseedPass`,
+    `RunFlightMapStateVectorUpdatePass`) + an orchestrator that keeps the reseed gate + both early-returns
+    + preamble INLINE (so they still skip Pass 2+3). Each pass body line-for-line identical to HEAD. Most
+    predicates were already extracted, so the new pure surface was small: two trivial predicates extracted
+    + unit-tested (`IsMapCreateAcceptedSource`, `IsSegmentBearingGhostSource`), correct sites verified. No
+    behavior change. Build clean; full suite green (13431). **This completes the 8d presence migration**:
+    the flight map-presence lifecycle now lives entirely in `GhostMapPresence`, policy is the thin
+    engine-event subscriber.
+- **Phase 8d - all sub-slices DONE (8d.0-8d.3).** The ghost map-presence lifecycle (seam, per-frame body
+  + 6 dicts, lifecycle handlers, decomposition) is fully migrated from `ParsekPlaybackPolicy` into
+  `GhostMapPresence`, no behavior change. Remaining cutover work is Phase 8e (delete the 8a/8b/8c legacy
+  draw-side fallbacks + the autonomous Driver walk + grace fields, then drop the `mapRenderDirectorDrive`
+  gate). NOTE: 8e legacy DELETION is still gated on closing the coverage gap (cutover Step 2: the
+  re-aim / overlap members + the hyperbolic-escape segment that fall back to the legacy draw path); that
+  needs its own scoping before deletion. Presence (8d) is independent of that gap (presence was never
+  gated and always runs).
+- **Cutover completion = INTEGRATION before deletion (decided 2026-06-06).** The 8e read-only scoping
+  overturned the "delete legacy + drop the gate" premise: the legacy draw code (autonomous Driver walk,
+  legacy effUT icon drive, `activeLegRecordings`, `ghostsWithSuppressedIcon`, grace fields) is NOT a
+  gate-off-only fallback - it is the gate-ON DEFAULT path today for the ~34% of decisions (83/242)
+  covering re-aim members, overlap members, and unseeded ghosts the Director architecturally cannot yet
+  own; the autonomous Driver is also the single structural polyline draw host. So the design-doc end
+  state (a single modular system) is reached by INTEGRATING those in-use legacy responsibilities INTO the
+  Director pipeline, THEN deleting the now-dead legacy + dropping the gate (deletion LAST). Three
+  integration pieces: (1) re-aim rendering, (2) overlap rendering, (3) the shared polyline draw host.
+  - **Integration 1 - re-aim rendering (DONE, gated, awaiting in-game gate).** The re-aim TRAJECTORY
+    workstream is confirmed READY (PR #1030 shipped the destination-SOI arrival hold; the re-aimed
+    transfer+arrival geometry is computed per loop, cached, and already exposed via
+    `GhostMapPresence.ResolveEffectiveMapOrbitSegments` / `ReaimPlaybackResolver.Shared`, and consumed by
+    the legacy renderer every frame). The Director skipped re-aim only because it read the RAW recording.
+    Fix (branch `maprender-reaim-render`): `ChainAssembler.Build` gains an `orbitSegmentsOverride` (fed the
+    re-aimed list, while `traj.Points` still feeds the body-relative TracedPath legs - do NOT wrap in
+    `ReaimedTrajectory`, its Points are empty by design); `ShadowRenderDriver.GetOrBuildChain` resolves the
+    effective segments + window via a new `ResolveEffectiveMapOrbitSegments(out windowIndex)` overload,
+    passes the override, caches by `|w{windowIndex}` (synodic-window advance invalidates), and records
+    `chainHasReaimedSegments = !ReferenceEquals(effective, recorded)` on the cache entry; the skip becomes
+    the coverage-aware `ShouldSkipReaimSegment(intentVisible, frameBodyIsStar, memberIsReaimOwner,
+    chainHasReaimedSegments, sampleInSegment)` => skip = `intentVisible && frameBodyIsStar &&
+    memberIsReaimOwner && !(chainHasReaimedSegments && sampleInSegment)`. The `sampleInSegment`
+    (`sample.Coverage == InSegment`) term is LOAD-BEARING (plan-review catch): without it the Director
+    would drive a held stale Sun conic across a trim gap where the legacy path hides. Once re-aim produces
+    a StockConic seed, the 8a epoch-bake icon drive, Cat-1 hyperbolic arc clip, and 8c marker all apply
+    unchanged via `IsDirectorDriveActive`, so the icon-off-orbit fix (CHANGELOG 0.10.0) is finally TRUE
+    for the re-aim heliocentric leg (it was falling back to legacy, where the icon stayed live-clock =
+    the residual >45deg anomalies). Gate-OFF byte-identical (all logic inside `RunFrame`, seeds consumed
+    only under the gate). Two clean reviews (plan + code) SHIP. **In-game gate:** s15 "Duna One", gate-on
+    + tracing-on: re-aim ghost's icon rides its heliocentric line (`angleIconVsOrbitEff` -> ~0, was
+    >45deg), `decision-vs-truth` parity, trim-gap frames stay hidden, no SOI-seam blink; toggle gate-off
+    -> byte-identical.
+  - **Integration 2 - overlap rendering (DONE, awaiting in-game gate).** No per-instance MAP model exists
+    (`GhostMapPresence` is one-vessel-per-recording); an overlapping mission renders as ONE ProtoVessel +
+    one polyline head at the selected cycle. Fix: removed the conservative `SkipOverlap` early-skip in
+    `ShadowRenderDriver.RunFrame` so an overlap member flows through the normal assemble->sample->decide->
+    seed/stamp path. The sampler-parity precondition is CONFIRMED (clean review): `ChainSampler.Sample`
+    maps live->assembled UT via the SAME `GhostPlaybackLogic.ResolveTrackingStationSampleUT` the legacy
+    single-head uses, driven by `unit.CadenceSeconds` (span-raised single-instance), NOT
+    `unit.OverlapCadenceSeconds` (the short relaunch cadence consumed only by the flight MESH engine), so
+    the Director lands on the SAME selected-cycle head-UT as legacy. `ShadowScope.SkipOverlap` enum +
+    `ClassifyScope`/`ClassifyOverlapForMember` retained (classifier + its tests stay; production just stops
+    skipping; counter renamed `skipOverlap`->`overlapShadowed`). Gate-OFF byte-identical (skip lived only
+    in the gate/tracing-gated `RunFrame`; the new seed/stamp is consumed only under `IsDirectorDriveActive`
+    /`IsDirectorTracedPathActive`). No per-instance model / InstanceKey added. Build clean; suite green
+    (13477); clean review SHIP. **In-game gate:** a LAUNCH-TO-ORBIT mission looped with period < length so
+    it overlaps (interplanetary can't - pinned to its transfer window), map view + tracing on: the single
+    overlap map icon rides its line at the selected cycle, hides cleanly in inter-cycle gaps; gate-off
+    byte-identical. (The N staggered instances are flight-MESH-only; the map shows one at the live cycle.)
+  - **Rendering polish - polyline + marker pan-stability (DONE, gated-neutral).** Fixed map polylines +
+    yellow label markers jittering / flickering when panning the camera (pre-existing, NOT from the
+    cutover). Root cause: the polyline draw ran at `[DefaultExecutionOrder(-50)]`, BEFORE the map camera
+    commits its pan, so the Vectrosity mesh lagged one frame; and `TryAnchorMarkerToPolyline` dropped the
+    marker ride on transient leg-gap / not-drawn-this-frame frames, snapping the label to the frozen
+    ghost mesh. Fix: SPLIT the Driver - the decide pass + ownership publish + head-UT gating STAY at -50
+    (publish now on a `WillLegDraw` predicate that exactly mirrors `TryDrawLeg`'s non-degenerate early
+    returns, so will-draw == actual-draw, no decision-without-draw gap), but the point-recompute +
+    `Draw3D` + deactivation sweep move to a `Camera.onPreCull` pass filtered to the map camera (fires
+    after every LateUpdate, so the mesh bakes against the COMMITTED pan). Plus a per-recordingId
+    last-good-on-line cache holds the marker through transient gaps (bounded 8 frames + 5s UT, falls
+    through on a genuine orbital exit), which ALSO targets the connector/deorbit-leg-loses-icon bug
+    (confirm in re-fly: fixed iff that root is ride-dropout, not leg-non-construction). Gate-off
+    byte-identical (only the draw slot moved). FIX 2 is flight-map-scoped (the TS marker path does not use
+    the ride; TS line stability still benefits). Two clean reviews SHIP; build clean, suite green (13470).
+  - **Integration 3 - shared polyline draw host (DEFERRED - read-only scoping verdict 2026-06-06).** Do
+    NOT do the "fold the autonomous walk under the Director" rewrite. The scoping found it is NOT worth it
+    now and NOT a true 8e prerequisite: #1050 made the `onPreCull` DRAW the sanctioned shared mechanism
+    (not legacy); the `-50` LateUpdate already does only the DECIDE + ownership publish. The ONLY piece 8e
+    genuinely needs is closing the pid-0 atmospheric-only enumeration gap (the Director enumerates
+    `ghostMapVesselPids` = proto-bearing; atmospheric-only no-orbit no-terminal-state recordings are pid-0,
+    reached only by the Driver's `CommittedRecordings` walk - `GetGhostVesselPidForRecording` returns 0,
+    `ghostMapVesselPids.Add` only in the proto-create funnel). That gap is NEAR-EMPTY in practice and
+    ALREADY DRAWS CORRECTLY today (a pid-0 leg always takes Driver-direct `TryDrawLeg`); it is only a
+    coverage-accounting bookkeeping item for the eventual deletion. The full rewrite is high-risk against
+    the now-working, user-praised pan-stable host for ZERO behavior change. **Recommendation: defer #3;
+    do the MINIMAL pid-0 coverage surface as PART of 8e, when the deletion actually consumes it - add a
+    proto-less-recording coverage set, leave the `-50`/`onPreCull` draw path byte-identical, prove the
+    Director's accounted set is a superset of the autonomous walk's drawn set, THEN delete.**
+  - **Then 8e (deletion LAST):** once #2 is validated + the minimal pid-0 coverage (folded from #3) lands
+    and nothing rides the legacy draw path uncovered, delete the legacy fallbacks + the autonomous
+    `CommittedRecordings` DECIDE-walk + grace fields (KEEP the `onPreCull` DRAW mechanism - it is the
+    sanctioned shared host, not legacy), grep-audit no readers, drop the `mapRenderDirectorDrive` gate ->
+    single modular system.
 - **Phase 8** per-surface cutover (8a-8e) - deletes the scattered gates; in-game per sub-phase.
 - **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3
   `TransferConic` frame-agnostic return - touch the in-game-validated re-aim path.

@@ -1243,6 +1243,11 @@ namespace Parsek
             // mesh is hidden by zone distance so every ghost is visible on the map.
             double currentUT = isMapView ? Planetarium.GetUniversalTime() : 0;
 
+            // Marker-decision tracer timestamp: currentUT is 0 in flight view (only map view needs
+            // it for positioning), so use the live UT for the trace line so it is meaningful in
+            // both views. Only read when tracing is enabled.
+            double traceUT = MapRenderTrace.IsEnabled ? Planetarium.GetUniversalTime() : 0.0;
+
             foreach (var kvp in flight.Engine.ghostStates)
             {
                 var state = kvp.Value;
@@ -1250,10 +1255,38 @@ namespace Parsek
                 summary.Candidates++;
                 bool meshActive = state.ghost != null && state.ghost.activeSelf;
 
+                // ---- Marker-decision tracer state (per-pid, change-based; gated, off in normal play) ----
+                // Carries the four ResolveMarkerDrawDecision disjuncts (resolved only at the proto-gate
+                // branch below; false elsewhere because no proto vessel exists / the gate was not
+                // consulted), the resolved shouldDrawNonProto bool, the terminal outcome, and (for a
+                // drawn non-proto marker) the polyline ride reason + the fallback position source. A
+                // single change-based line per ghost is emitted via EmitMarkerDecision() at each exit.
+                bool decGateOn = false, decDirectorTraced = false, decPolylineOwning = false,
+                    decIconSuppressed = false, decShouldDraw = false;
+                var decOutcome = MapRenderTrace.MarkerOutcome.Unknown;
+                var decRideReason = MapRenderTrace.MarkerRideReason.NotAttempted;
+                int decRideLeg = -1;
+                string decPosSource = "?";
+                string traceRecId = kvp.Key < committed.Count ? committed[kvp.Key].RecordingId : null;
+                string traceVessel = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
+                void EmitMarkerDecision()
+                {
+                    if (!MapRenderTrace.IsEnabled || string.IsNullOrEmpty(traceRecId))
+                        return;
+                    MapRenderTrace.EmitMarkerDecisionOnChange(
+                        MapRenderTrace.RenderSurface.ImguiLabeledMarker, traceRecId, traceUT,
+                        MapRenderTrace.BuildMarkerDecisionSignature(
+                            kvp.Key, traceVessel, decGateOn, decDirectorTraced, decPolylineOwning,
+                            decIconSuppressed, decShouldDraw, decOutcome, decRideReason, decRideLeg,
+                            decPosSource));
+                }
+
                 // In flight view, skip hidden ghosts (stale positions cause wrong markers #245/#247)
                 if (!meshActive && !isMapView)
                 {
                     summary.HiddenInFlight++;
+                    decOutcome = MapRenderTrace.MarkerOutcome.SkippedNotOnMap;
+                    EmitMarkerDecision();
                     continue;
                 }
 
@@ -1264,20 +1297,38 @@ namespace Parsek
                 {
                     uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(kvp.Key);
                     // Skip our marker only when the native proto icon is actually
-                    // visible. It is NOT visible when the icon is suppressed
-                    // (below-atmosphere clamp) OR when the trajectory polyline owns
-                    // this recording's current non-orbital phase (GhostOrbitLinePatch
-                    // hides the proto icon then). In the polyline case our marker is
-                    // the sole position indicator, so it must draw — otherwise an
-                    // airless descent (e.g. the Mun) shows the polyline with no ghost
-                    // icon. (IsPolylineOwningGhostPhase is checked directly, not via
-                    // the icon-suppressed flag, which GhostOrbitIconDrivePatch can
-                    // clear on-arc.)
-                    if (ghostPid == 0
-                        || (!GhostMapPresence.IsIconSuppressed(ghostPid)
-                            && !GhostMapPresence.IsPolylineOwningGhostPhase(ghostPid)))
+                    // visible. The marker-draw decision (proto hidden -> draw our
+                    // marker) is owned by GhostMapPresence.ShouldDrawNonProtoMarkerForGhost
+                    // (Phase 8c): gate ON the Director's TracedPath decision +
+                    // polyline-owns (8b.2 actual-draw) are authoritative, with the legacy
+                    // icon-suppressed flag (below-atmosphere clamp / off-arc / Director
+                    // no-bounds transient) kept as the fallback; gate OFF it is the
+                    // legacy IsIconSuppressed || IsPolylineOwningGhostPhase predicate,
+                    // byte-identical. In the polyline / suppressed case our marker is the
+                    // sole position indicator, so it must draw - otherwise an airless
+                    // descent (e.g. the Mun) shows the polyline with no ghost icon.
+                    //
+                    // Tracer: resolve the decision through the diagnostics overload to surface the
+                    // four disjuncts (behavior-identical to the parameterless overload). ghostPid==0
+                    // means no resolvable proto pid -> proto icon assumed active, decShouldDraw stays
+                    // false.
+                    bool decision;
+                    if (ghostPid == 0)
+                    {
+                        decision = false;
+                    }
+                    else
+                    {
+                        decision = GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(
+                            ghostPid, out decGateOn, out decDirectorTraced,
+                            out decPolylineOwning, out decIconSuppressed);
+                    }
+                    decShouldDraw = decision;
+                    if (ghostPid == 0 || !decision)
                     {
                         summary.NativeIcon++;
+                        decOutcome = MapRenderTrace.MarkerOutcome.DrawnProtoIcon;
+                        EmitMarkerDecision();
                         continue; // native icon is active — skip our marker
                     }
                 }
@@ -1286,6 +1337,8 @@ namespace Parsek
                     if (committed[kvp.Key].IsDebris)
                     {
                         summary.Debris++;
+                        decOutcome = MapRenderTrace.MarkerOutcome.SkippedDebris;
+                        EmitMarkerDecision();
                         continue;
                     }
                     string chainId = committed[kvp.Key].ChainId;
@@ -1293,6 +1346,8 @@ namespace Parsek
                         && chainTipIndexBuffer.TryGetValue(chainId, out int tip) && kvp.Key != tip)
                     {
                         summary.ChainNonTip++;
+                        decOutcome = MapRenderTrace.MarkerOutcome.SkippedChainNonTip;
+                        EmitMarkerDecision();
                         continue; // not the tip — skip duplicate
                     }
                 }
@@ -1365,9 +1420,11 @@ namespace Parsek
                 if (meshPositioned)
                 {
                     markerPos = state.ghost.transform.position;
+                    decPosSource = "mesh";
                 }
                 else
                 {
+                    decPosSource = "traj";
                     // A looped-mission member's recorded trajectory points sit at the ORIGINAL
                     // (past) recorded UTs, so sampling at the LIVE UT is always OutsideTimeRange and
                     // the custom icon never draws (the engine positions the mesh at the shared
@@ -1386,6 +1443,8 @@ namespace Parsek
                         if (loopHidden)
                         {
                             summary.LoopHidden++;
+                            decOutcome = MapRenderTrace.MarkerOutcome.SkippedLoopHidden;
+                            EmitMarkerDecision();
                             continue;
                         }
                         sampleUT = effUT;
@@ -1401,6 +1460,8 @@ namespace Parsek
                         summary.PositionFailure++;
                         if (failureReason == MapMarkerPositionFailureReason.MissingBody)
                             summary.MissingBody++;
+                        decOutcome = MapRenderTrace.MarkerOutcome.SkippedPositionFail;
+                        EmitMarkerDecision();
                         continue;
                     }
 
@@ -1409,12 +1470,15 @@ namespace Parsek
                     // head, which is ~96 deg off the loiter/hyperbola conics under the loop shift. Samples
                     // the same per-frame drawn points the line uses, so it matches exactly; a no-op outside
                     // an anchored leg or when the leg was not drawn this frame.
-                    if (polylinePhase && kvp.Key < committed.Count
+                    bool rideAttempted = polylinePhase && kvp.Key < committed.Count;
+                    if (rideAttempted
                         && Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
-                            committed[kvp.Key].RecordingId, sampleUT, out Vector3 onLineMarkerPos))
+                            committed[kvp.Key].RecordingId, sampleUT, out Vector3 onLineMarkerPos,
+                            out decRideReason, out decRideLeg))
                     {
                         markerPos = onLineMarkerPos;
                         markerRidesPolyline = true;
+                        decPosSource = "polyline";
                         if (ghostPidForPhase == 0)
                             ParsekLog.VerboseRateLimited(
                                 "GhostMap",
@@ -1434,6 +1498,11 @@ namespace Parsek
                 Color markerColor = GetGhostMarkerColorForType(vtype);
                 DrawMapMarkerAt(markerPos, markerKey, ghostName, markerColor, vtype);
                 summary.Drawn++;
+
+                // Tracer: the non-proto labeled marker drew. Emit the per-pid change-based decision
+                // line carrying WHY (the disjuncts), the ride reason + leg, and the position source.
+                decOutcome = MapRenderTrace.MarkerOutcome.DrawnNonProto;
+                EmitMarkerDecision();
 
                 // Comprehensive per-marker DRAW log (always available, rate-limited, NOT tracing-gated):
                 // EVERY non-proto labelled marker logs WHERE it drew + its position SOURCE - mesh-ridden

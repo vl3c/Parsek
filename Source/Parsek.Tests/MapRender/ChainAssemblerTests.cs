@@ -180,5 +180,124 @@ namespace Parsek.Tests
             Assert.Equal(351.0, chain.Segments[0].EndUT, 3);    // last parking fragment's end (spans gaps)
             Assert.Equal(-380000.0, chain.Segments[1].Payload.Conic.semiMajorAxis, 0); // escape kept separate
         }
+
+        // ---- Re-aim OrbitSegments override (CANDIDATE (a): re-aimed conic, recorded Points for TracedPath) ----
+
+        [Fact]
+        public void Build_OrbitSegmentsOverride_UsesOverrideConic_StillTracesRecordedPoints()
+        {
+            // FullChain's recorded orbit is the Sun-bodied heliocentric leg (sma 9e9); the override re-aims
+            // it (different sma, aimed at the target's current position). The StockConic must come from the
+            // OVERRIDE, while the recorded Kerbin-ascent / Mun-arrival Points still source the TracedPath legs
+            // (the whole point of (a): a ReaimedTrajectory pass-through would have EMPTY Points and drop those).
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-reaim",
+                Points = new List<TrajectoryPoint>
+                {
+                    Pt(0, "Kerbin"), Pt(2, "Kerbin"), Pt(4, "Kerbin"),
+                    Pt(32, "Mun"), Pt(34, "Mun"), Pt(36, "Mun"),
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Sun", semiMajorAxis = 9000000000, eccentricity = 0.2 },
+                },
+            };
+            var reaimed = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Sun", semiMajorAxis = 7777000000, eccentricity = 0.5, isPredicted = false },
+            };
+
+            var chain = ChainAssembler.Build(
+                traj, committedIndex: 0, instanceKey: 0, windowStartUT: 0, windowEndUT: 40,
+                orbitSegmentsOverride: reaimed, reaimAncestorBody: "Sun");
+
+            // StockConic carries the OVERRIDE's elements, not the recorded ones.
+            var conicSeg = Assert.Single(chain.Segments, s => s.Treatment == Treatment.StockConic);
+            Assert.Equal(7777000000.0, conicSeg.Payload.Conic.semiMajorAxis, 0);
+            Assert.Equal("Sun", conicSeg.FrameBodyName);
+
+            // Recorded body-relative Points still produce TracedPath legs (Kerbin ascent + Mun arrival).
+            Assert.Contains(chain.Segments, s => s.Treatment == Treatment.TracedPath && s.FrameBodyName == "Kerbin");
+            Assert.Contains(chain.Segments, s => s.Treatment == Treatment.TracedPath && s.FrameBodyName == "Mun");
+        }
+
+        [Fact]
+        public void Build_OrbitSegmentsOverride_MarksInWindowHeliocentricSegment_TransferIsGenerated()
+        {
+            // The re-aim marking (Step 1): the synthesized heliocentric segment carries isPredicted=false
+            // (so it is not trimmed below-surface), so the isPredicted heuristic alone would label it Loiter.
+            // With an override + matching ancestor body, mark it Transfer / isGenerated.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-reaim-mark",
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Sun", semiMajorAxis = 9000000000, eccentricity = 0.2 },
+                },
+            };
+            var reaimed = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Sun", semiMajorAxis = 7777000000, eccentricity = 0.5, isPredicted = false },
+            };
+
+            var chain = ChainAssembler.Build(
+                traj, 0, 0, 0, 40, orbitSegmentsOverride: reaimed, reaimAncestorBody: "Sun");
+
+            var seg = Assert.Single(chain.Segments);
+            Assert.Equal(Treatment.StockConic, seg.Treatment);
+            Assert.Equal(SegmentKind.Transfer, seg.Kind);
+            Assert.True(seg.IsGenerated);
+        }
+
+        [Fact]
+        public void Build_NullOverride_IsByteIdenticalToToday()
+        {
+            // Null override (and null ancestor) => byte-identical structure to the legacy single-arg build:
+            // same segment count, treatments, frames, kinds, and IsGenerated flags.
+            var legacy = ChainAssembler.Build(FullChain(), committedIndex: 5, instanceKey: 0,
+                windowStartUT: 0, windowEndUT: 40);
+            var withNulls = ChainAssembler.Build(FullChain(), committedIndex: 5, instanceKey: 0,
+                windowStartUT: 0, windowEndUT: 40, orbitSegmentsOverride: null, reaimAncestorBody: null);
+
+            Assert.Equal(legacy.SegmentCount, withNulls.SegmentCount);
+            for (int i = 0; i < legacy.SegmentCount; i++)
+            {
+                Assert.Equal(legacy.Segments[i].Treatment, withNulls.Segments[i].Treatment);
+                Assert.Equal(legacy.Segments[i].FrameBodyName, withNulls.Segments[i].FrameBodyName);
+                Assert.Equal(legacy.Segments[i].Kind, withNulls.Segments[i].Kind);
+                Assert.Equal(legacy.Segments[i].IsGenerated, withNulls.Segments[i].IsGenerated);
+                Assert.Equal(legacy.Segments[i].StartUT, withNulls.Segments[i].StartUT, 6);
+                Assert.Equal(legacy.Segments[i].EndUT, withNulls.Segments[i].EndUT, 6);
+            }
+        }
+
+        [Fact]
+        public void Build_OrbitSegmentsOverride_NoAncestorMatch_DoesNotMarkTransfer()
+        {
+            // An override whose heliocentric body does NOT match reaimAncestorBody (or a null ancestor) must
+            // NOT mark the segment Transfer via the re-aim path (only the isPredicted heuristic applies).
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-reaim-nomatch",
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Sun", semiMajorAxis = 9000000000, eccentricity = 0.2 },
+                },
+            };
+            var reaimed = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Sun", semiMajorAxis = 7777000000, eccentricity = 0.5, isPredicted = false },
+            };
+
+            var chain = ChainAssembler.Build(
+                traj, 0, 0, 0, 40, orbitSegmentsOverride: reaimed, reaimAncestorBody: "Kerbin");
+
+            var seg = Assert.Single(chain.Segments);
+            Assert.Equal(SegmentKind.Loiter, seg.Kind); // isPredicted=false + no ancestor match => Loiter
+            Assert.False(seg.IsGenerated);
+        }
     }
 }

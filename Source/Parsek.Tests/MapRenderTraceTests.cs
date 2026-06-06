@@ -722,5 +722,194 @@ namespace Parsek.Tests
                 MapRenderTrace.RenderSurface.AtmosphericMarker, "rec-marker-disabled", 100.0, "vessel=X");
             Assert.Empty(logLines);
         }
+
+        // ---- Marker-decision observability (per-pid WHY a marker drew / was skipped) ----
+
+        [Fact]
+        public void MarkerOutcomeToken_MapsEveryBranch()
+        {
+            Assert.Equal("drawn-non-proto",
+                MapRenderTrace.MarkerOutcomeToken(MapRenderTrace.MarkerOutcome.DrawnNonProto));
+            Assert.Equal("drawn-proto-icon",
+                MapRenderTrace.MarkerOutcomeToken(MapRenderTrace.MarkerOutcome.DrawnProtoIcon));
+            Assert.Equal("skipped-debris",
+                MapRenderTrace.MarkerOutcomeToken(MapRenderTrace.MarkerOutcome.SkippedDebris));
+            Assert.Equal("skipped-chain-non-tip",
+                MapRenderTrace.MarkerOutcomeToken(MapRenderTrace.MarkerOutcome.SkippedChainNonTip));
+            Assert.Equal("skipped-not-on-map",
+                MapRenderTrace.MarkerOutcomeToken(MapRenderTrace.MarkerOutcome.SkippedNotOnMap));
+            Assert.Equal("skipped-decision-false",
+                MapRenderTrace.MarkerOutcomeToken(MapRenderTrace.MarkerOutcome.SkippedDecisionFalse));
+            Assert.Equal("skipped-position-fail",
+                MapRenderTrace.MarkerOutcomeToken(MapRenderTrace.MarkerOutcome.SkippedPositionFail));
+            Assert.Equal("skipped-loop-hidden",
+                MapRenderTrace.MarkerOutcomeToken(MapRenderTrace.MarkerOutcome.SkippedLoopHidden));
+            Assert.Equal("unknown",
+                MapRenderTrace.MarkerOutcomeToken(MapRenderTrace.MarkerOutcome.Unknown));
+        }
+
+        [Fact]
+        public void MarkerRideReasonToken_RodeLeg_CarriesIndex()
+        {
+            Assert.Equal("rode-leg3",
+                MapRenderTrace.MarkerRideReasonToken(MapRenderTrace.MarkerRideReason.RodeLeg, 3));
+            Assert.Equal("fallback-leg-not-drawn-this-frame",
+                MapRenderTrace.MarkerRideReasonToken(
+                    MapRenderTrace.MarkerRideReason.FallbackLegNotDrawnThisFrame, -1));
+            Assert.Equal("fallback-head-outside-legs",
+                MapRenderTrace.MarkerRideReasonToken(
+                    MapRenderTrace.MarkerRideReason.FallbackHeadOutsideLegs, -1));
+            Assert.Equal("fallback-missing-recordedUTs",
+                MapRenderTrace.MarkerRideReasonToken(
+                    MapRenderTrace.MarkerRideReason.FallbackMissingRecordedUTs, -1));
+            Assert.Equal("fallback-no-cache",
+                MapRenderTrace.MarkerRideReasonToken(
+                    MapRenderTrace.MarkerRideReason.FallbackNoCache, -1));
+            Assert.Equal("not-attempted",
+                MapRenderTrace.MarkerRideReasonToken(
+                    MapRenderTrace.MarkerRideReason.NotAttempted, -1));
+        }
+
+        [Fact]
+        public void BuildMarkerDecisionSignature_DrawnNonProto_CarriesDisjunctsRideAndSource()
+        {
+            string sig = MapRenderTrace.BuildMarkerDecisionSignature(
+                recordingIndex: 4,
+                vesselName: "Munar Probe",
+                gateOn: true,
+                directorTracedPathActive: true,
+                polylineOwning: false,
+                iconSuppressed: false,
+                shouldDrawNonProto: true,
+                outcome: MapRenderTrace.MarkerOutcome.DrawnNonProto,
+                rideReason: MapRenderTrace.MarkerRideReason.RodeLeg,
+                legIndex: 2,
+                posSource: "polyline");
+
+            Assert.Contains("rec=4", sig);
+            Assert.Contains("vessel=Munar_Probe", sig);
+            Assert.Contains("gateOn=true", sig);
+            Assert.Contains("directorTracedPathActive=true", sig);
+            Assert.Contains("polylineOwning=false", sig);
+            Assert.Contains("iconSuppressed=false", sig);
+            Assert.Contains("shouldDrawNonProto=true", sig);
+            Assert.Contains("outcome=drawn-non-proto", sig);
+            Assert.Contains("ride=rode-leg2", sig);
+            Assert.Contains("posSource=polyline", sig);
+        }
+
+        [Fact]
+        public void BuildMarkerDecisionSignature_SkipOutcome_OmitsRideAndSource()
+        {
+            // A non-draw outcome carries no ride / posSource tokens (they are only meaningful
+            // for a drawn non-proto marker), so the signature stays compact and stable.
+            string sig = MapRenderTrace.BuildMarkerDecisionSignature(
+                recordingIndex: 1,
+                vesselName: "Probe",
+                gateOn: false,
+                directorTracedPathActive: false,
+                polylineOwning: false,
+                iconSuppressed: false,
+                shouldDrawNonProto: false,
+                outcome: MapRenderTrace.MarkerOutcome.SkippedDebris,
+                rideReason: MapRenderTrace.MarkerRideReason.NotAttempted,
+                legIndex: -1,
+                posSource: "?");
+
+            Assert.Contains("outcome=skipped-debris", sig);
+            Assert.DoesNotContain("ride=", sig);
+            Assert.DoesNotContain("posSource=", sig);
+        }
+
+        [Fact]
+        public void EmitMarkerDecisionOnChange_NoOpWhenDisabled()
+        {
+            MapRenderTrace.ForceEnabledForTesting = false;
+
+            MapRenderTrace.EmitMarkerDecisionOnChange(
+                MapRenderTrace.RenderSurface.ImguiLabeledMarker, "rec-1", 100.0, "outcome=drawn-non-proto");
+
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void EmitMarkerDecisionOnChange_FirstSignatureEmits()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitMarkerDecisionOnChange(
+                MapRenderTrace.RenderSurface.ImguiLabeledMarker, "rec-1", 100.0,
+                "rec=1 outcome=drawn-non-proto");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MapRenderTrace]")
+                && l.Contains("phase=MarkerDecision")
+                && l.Contains("surface=ImguiLabeledMarker")
+                && l.Contains("pid=rec-1")
+                && l.Contains("outcome=drawn-non-proto"));
+        }
+
+        [Fact]
+        public void EmitMarkerDecisionOnChange_RepeatSignatureSuppressed()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitMarkerDecisionOnChange(
+                MapRenderTrace.RenderSurface.ImguiLabeledMarker, "rec-1", 100.0, "outcome=drawn-non-proto");
+            int afterFirst = logLines.Count;
+            // Same signature, later UT -> suppressed (no new line).
+            MapRenderTrace.EmitMarkerDecisionOnChange(
+                MapRenderTrace.RenderSurface.ImguiLabeledMarker, "rec-1", 101.0, "outcome=drawn-non-proto");
+
+            Assert.Equal(afterFirst, logLines.Count);
+        }
+
+        [Fact]
+        public void EmitMarkerDecisionOnChange_ChangedSignatureReEmits()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitMarkerDecisionOnChange(
+                MapRenderTrace.RenderSurface.ImguiLabeledMarker, "rec-1", 100.0, "outcome=drawn-non-proto");
+            int afterFirst = logLines.Count;
+            // A transition (different outcome) re-emits, capturing the sub-second change.
+            MapRenderTrace.EmitMarkerDecisionOnChange(
+                MapRenderTrace.RenderSurface.ImguiLabeledMarker, "rec-1", 100.5, "outcome=skipped-position-fail");
+
+            Assert.True(logLines.Count > afterFirst);
+            Assert.Contains(logLines, l => l.Contains("outcome=skipped-position-fail"));
+        }
+
+        [Fact]
+        public void EmitMarkerDecisionOnChange_PerPidIndependent()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            // Two different ghosts with the same signature each emit once (change detection is per-pid).
+            MapRenderTrace.EmitMarkerDecisionOnChange(
+                MapRenderTrace.RenderSurface.ImguiLabeledMarker, "rec-1", 100.0, "outcome=drawn-non-proto");
+            MapRenderTrace.EmitMarkerDecisionOnChange(
+                MapRenderTrace.RenderSurface.ImguiLabeledMarker, "rec-2", 100.0, "outcome=drawn-non-proto");
+
+            Assert.Contains(logLines, l => l.Contains("pid=rec-1"));
+            Assert.Contains(logLines, l => l.Contains("pid=rec-2"));
+        }
+
+        [Fact]
+        public void EmitMarkerDecisionOnChange_ReEmitsAfterReset()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitMarkerDecisionOnChange(
+                MapRenderTrace.RenderSurface.ImguiLabeledMarker, "rec-1", 100.0, "outcome=drawn-non-proto");
+            // Reset() (driven by the scene-switch hook) clears the per-pid signature dict, so the
+            // SAME signature emits again on re-entry rather than being silently suppressed.
+            MapRenderTrace.Reset();
+            int afterReset = logLines.Count;
+            MapRenderTrace.EmitMarkerDecisionOnChange(
+                MapRenderTrace.RenderSurface.ImguiLabeledMarker, "rec-1", 200.0, "outcome=drawn-non-proto");
+
+            Assert.True(logLines.Count > afterReset);
+        }
     }
 }

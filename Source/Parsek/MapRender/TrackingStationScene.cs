@@ -17,5 +17,15 @@ namespace Parsek.MapRender
     internal sealed class TrackingStationScene : GhostMapSceneBase
     {
         public override bool IsActive => HighLogic.LoadedScene == GameScenes.TRACKSTATION;
+
+        // TS presence-drive seam for symmetry with MapViewScene (Phase 8d.0). Delegates to the TS
+        // lifecycle pass, sampling the same per-frame loop units the base already carries
+        // (SetFrameInputs). NOT yet routed from ParsekTrackingStation — its existing direct
+        // UpdateTrackingStationGhostLifecycle(cachedLoopUnits) calls are untouched in 8d.0; routing
+        // the TS host through this seam is a later phase. Byte-identical to that direct call.
+        public override void DriveMapPresence(double currentUT)
+        {
+            GhostMapPresence.UpdateTrackingStationGhostLifecycle(LoopUnits);
+        }
     }
 }

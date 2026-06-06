@@ -9723,6 +9723,204 @@ namespace Parsek.InGameTests
                     Vectrosity.VectorLine.Destroy(ref line);
             }
         }
+
+        /// <summary>
+        /// Marker pan-stability (FIX 2): a TRANSIENT ride dropout (the head's leg matched but was not
+        /// drawn THIS frame - the dominant case while the map camera is actively panning) holds the last
+        /// on-line position instead of snapping to the body-fixed head. Seeds the polyline cache for a
+        /// recording (a fresh refresh leaves every leg's lastDrawnFrame=0, so a query at the live frame
+        /// takes the not-drawn-this-frame branch) plus a fresh last-good entry, then asserts
+        /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(string,double,out UnityEngine.Vector3,out MapRenderTrace.MarkerRideReason,out int)"/>
+        /// returns the held position with reason HeldLastGood. xUnit cannot reach this end-to-end
+        /// (Time.frameCount + the live cache); the freshness bounds are covered by the pure unit tests.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "TryAnchorMarkerToPolyline holds last-good on-line position across a transient dropout (FIX 2)")]
+        public void GhostTrajectoryPolyline_MarkerHoldsLastGoodAcrossDropout()
+        {
+            const string recId = "ingame-marker-hold-1";
+            Parsek.Display.GhostTrajectoryPolylineRenderer.ReleaseForRecording(recId);
+
+            var rec = new Recording { RecordingId = recId };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 600.0,
+                frames = new System.Collections.Generic.List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = -0.1, longitude = -74.5, altitude = 70.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                    new TrajectoryPoint { ut = 200.0, latitude = -0.05, longitude = -74.5, altitude = 20000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                    new TrajectoryPoint { ut = 600.0, latitude = 0.0, longitude = -74.5, altitude = 100000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                },
+                checkpoints = new System.Collections.Generic.List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 10f,
+            });
+
+            try
+            {
+                // Populate the cache (fresh refresh -> every leg lastDrawnFrame=0, so a live-frame query
+                // hits the not-drawn-this-frame branch with a head inside the leg span).
+                Parsek.Display.GhostTrajectoryPolylineRenderer.RefreshForRecording(rec);
+
+                double headUT = 300.0; // inside the leg [100,600]
+                var heldPos = new Vector3(11f, 22f, 33f);
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                    recId, heldPos, headUT, Time.frameCount, /*legIndex*/ 0);
+
+                bool rode = Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                    recId, headUT, out Vector3 outPos,
+                    out MapRenderTrace.MarkerRideReason reason, out int legIndex);
+
+                InGameAssert.IsTrue(rode, "marker must ride (held) when a fresh last-good exists and the leg was not drawn this frame");
+                InGameAssert.IsTrue(reason == MapRenderTrace.MarkerRideReason.HeldLastGood,
+                    "ride reason must be HeldLastGood on a transient dropout, not a fallback");
+                InGameAssert.AreEqual(0, legIndex, "held leg index must be the cached one");
+                InGameAssert.IsTrue(outPos == heldPos, "held marker position must be the cached on-line position");
+            }
+            finally
+            {
+                Parsek.Display.GhostTrajectoryPolylineRenderer.ReleaseForRecording(recId);
+            }
+        }
+
+        /// <summary>
+        /// Phase 8b.2 ownership-signal authority, end-to-end through the LIVE gate
+        /// (<see cref="ParsekSettings.Current"/>) which xUnit cannot read. Asserts that
+        /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg"/> - the
+        /// source <c>GhostMapPresence.IsPolylineOwningGhostPhase</c> (proto orbit-line / icon suppression
+        /// + marker handoff) reads - dispatches to the treatment-published actual-draw set under the gate
+        /// and the legacy autonomous-Driver set with the gate off, AND that the no-new-gap invariant
+        /// holds: an unpublished recording (decision-without-draw) is NEVER reported owned, so the proto
+        /// is hidden IFF a leg actually drew. The publish sets are populated via the test seam (the live
+        /// Driver LateUpdate that normally populates them needs a full shadow + ghost), but the gate read
+        /// is the real one.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "IsRenderingNonOrbitalLeg dispatches on the live director-drive gate, no-new-gap (Phase 8b.2)")]
+        public void OwnershipSignal_DispatchesOnLiveGate_NoNewGap()
+        {
+            var renderer = typeof(Parsek.Display.GhostTrajectoryPolylineRenderer);
+            const string recOwned = "ingame-8b2-director-owned";
+            const string recLegacy = "ingame-8b2-legacy-only";
+            const string recUnpublished = "ingame-8b2-unpublished";
+
+            bool? priorGate = ParsekSettings.Current != null
+                ? (bool?)ParsekSettings.Current.mapRenderDirectorDrive : null;
+            try
+            {
+                // Model the two real publishers: the treatment's actual-draw set (director-owned) and the
+                // autonomous Driver's (legacy). recUnpublished is in NEITHER (decision-without-draw).
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                    recOwned, inDirectorOwnedSet: true, inLegacySet: false);
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                    recLegacy, inDirectorOwnedSet: false, inLegacySet: true);
+
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.mapRenderDirectorDrive = true;
+                InGameAssert.IsTrue(
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recOwned),
+                    "gate ON: treatment-published (director-owned) recording must be reported owned");
+                InGameAssert.IsTrue(
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recLegacy),
+                    "gate ON: legacy-published (non-director-owned) recording stays owned via the union");
+                InGameAssert.IsFalse(
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recUnpublished),
+                    "gate ON no-new-gap: an unpublished recording (decision-without-draw) is NEVER owned");
+
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.mapRenderDirectorDrive = false;
+                InGameAssert.IsFalse(
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recOwned),
+                    "gate OFF: director-owned-only recording is NOT owned (byte-identical to pre-8b.2)");
+                InGameAssert.IsTrue(
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recLegacy),
+                    "gate OFF: legacy-published recording is owned (the legacy source)");
+            }
+            finally
+            {
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                    recOwned, inDirectorOwnedSet: false, inLegacySet: false);
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                    recLegacy, inDirectorOwnedSet: false, inLegacySet: false);
+                if (ParsekSettings.Current != null && priorGate.HasValue)
+                    ParsekSettings.Current.mapRenderDirectorDrive = priorGate.Value;
+            }
+        }
+
+        /// <summary>
+        /// Phase 8c marker-draw / proto-icon-suppression decision, end-to-end through the LIVE gate
+        /// (<see cref="ParsekSettings.Current"/>) that xUnit cannot read. Asserts the Unity-coupled
+        /// wrapper <see cref="GhostMapPresence.ShouldDrawNonProtoMarkerForGhost"/> - the SINGLE source
+        /// both marker call sites (flight-map <c>DrawMapMarkers</c> + TS <c>ClassifyAtmosphericMarkerSkip</c>)
+        /// route through - dispatches correctly: the legacy icon-suppressed flag is the fallback under the
+        /// gate AND the byte-identical gate-off source, and polyline-owns (8b.2 actual-draw) drives the
+        /// marker under the gate. Drives the two directly-controllable signals (the
+        /// <c>ghostsWithSuppressedIcon</c> set and the polyline-owns publish + pid map); the third input
+        /// (the Director TracedPath DECISION) is covered by the pure <c>ResolveMarkerDrawDecision</c> xUnit
+        /// tests. The no-double-marker / no-gap invariant is asserted: marker drawn IFF a signal hides the
+        /// proto icon.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "ShouldDrawNonProtoMarkerForGhost dispatches on the live gate, no-gap (Phase 8c)")]
+        public void MarkerDrawDecision_DispatchesOnLiveGate_NoGap()
+        {
+            const uint pidSuppressed = 8_030_001u;   // legacy ghostsWithSuppressedIcon only
+            const uint pidPolyline = 8_030_002u;      // polyline-owns only
+            const uint pidVisible = 8_030_003u;       // no signal -> proto icon visible
+            const string recPolyline = "ingame-8c-polyline-owns";
+
+            bool? priorGate = ParsekSettings.Current != null
+                ? (bool?)ParsekSettings.Current.mapRenderDirectorDrive : null;
+            try
+            {
+                // pidSuppressed: legacy below-atmosphere / off-arc clamp signal (the fallback the phase
+                // KEEPS). pidPolyline: a recording whose polyline owns the phase (8b.2 actual-draw set),
+                // mapped to its pid so IsPolylineOwningGhostPhase resolves. pidVisible: nothing set.
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pidSuppressed);
+                GhostMapPresence.TrackRecordingGhostIdentityForTesting(pidPolyline, 0, recPolyline);
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                    recPolyline, inDirectorOwnedSet: true, inLegacySet: true);
+
+                // --- Gate ON ---
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.mapRenderDirectorDrive = true;
+                InGameAssert.IsTrue(
+                    GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidSuppressed),
+                    "gate ON: legacy icon-suppressed is the kept fallback -> draw our marker (no gap)");
+                InGameAssert.IsTrue(
+                    GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidPolyline),
+                    "gate ON: polyline-owns (8b.2 actual-draw) -> draw our marker");
+                InGameAssert.IsFalse(
+                    GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidVisible),
+                    "gate ON: no signal -> proto icon visible, skip our marker (no double marker)");
+
+                // --- Gate OFF (byte-identical to the legacy IsIconSuppressed || IsPolylineOwning) ---
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.mapRenderDirectorDrive = false;
+                InGameAssert.IsTrue(
+                    GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidSuppressed),
+                    "gate OFF: legacy icon-suppressed still draws our marker");
+                InGameAssert.IsTrue(
+                    GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidPolyline),
+                    "gate OFF: polyline-owns still draws our marker (legacy set is consulted gate-off)");
+                InGameAssert.IsFalse(
+                    GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pidVisible),
+                    "gate OFF: no signal -> skip our marker");
+            }
+            finally
+            {
+                GhostMapPresence.ghostsWithSuppressedIcon.Remove(pidSuppressed);
+                GhostMapPresence.TrackRecordingGhostIdentityForTesting(pidPolyline, 0, null);
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                    recPolyline, inDirectorOwnedSet: false, inLegacySet: false);
+                if (ParsekSettings.Current != null && priorGate.HasValue)
+                    ParsekSettings.Current.mapRenderDirectorDrive = priorGate.Value;
+            }
+        }
     }
 
     /// <summary>

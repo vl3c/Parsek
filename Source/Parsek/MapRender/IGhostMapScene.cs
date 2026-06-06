@@ -66,5 +66,16 @@ namespace Parsek.MapRender
 
         /// <summary>Resolve a body by name against the live bodies (null when unknown).</summary>
         CelestialBody ResolveBody(string bodyName);
+
+        /// <summary>
+        /// Drive this scene's per-frame ghost map-presence (proto-vessel) lifecycle at
+        /// <paramref name="currentUT"/>. The FLIGHT scene delegates to the pending-queue model
+        /// (<c>ParsekPlaybackPolicy.CheckPendingMapVessels</c>); the Tracking Station drives
+        /// <c>GhostMapPresence.UpdateTrackingStationGhostLifecycle</c>. This is the seam (Phase 8d.0)
+        /// that routes the host scene's presence tick through the scene adapter so the body can be
+        /// relocated behind the adapter later (Phase 8d.1); the override is byte-identical to the
+        /// direct host call today.
+        /// </summary>
+        void DriveMapPresence(double currentUT);
     }
 }
