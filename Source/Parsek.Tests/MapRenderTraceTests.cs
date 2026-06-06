@@ -886,7 +886,6 @@ namespace Parsek.Tests
             string sig = MapRenderTrace.BuildMarkerDecisionSignature(
                 recordingIndex: 4,
                 vesselName: "Munar Probe",
-                gateOn: true,
                 directorTracedPathActive: true,
                 polylineOwning: false,
                 iconSuppressed: false,
@@ -898,7 +897,6 @@ namespace Parsek.Tests
 
             Assert.Contains("rec=4", sig);
             Assert.Contains("vessel=Munar_Probe", sig);
-            Assert.Contains("gateOn=true", sig);
             Assert.Contains("directorTracedPathActive=true", sig);
             Assert.Contains("polylineOwning=false", sig);
             Assert.Contains("iconSuppressed=false", sig);
@@ -916,7 +914,6 @@ namespace Parsek.Tests
             string sig = MapRenderTrace.BuildMarkerDecisionSignature(
                 recordingIndex: 1,
                 vesselName: "Probe",
-                gateOn: false,
                 directorTracedPathActive: false,
                 polylineOwning: false,
                 iconSuppressed: false,

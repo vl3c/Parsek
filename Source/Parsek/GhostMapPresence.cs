@@ -1096,70 +1096,60 @@ namespace Parsek
         /// This is the dual of "proto icon hidden", so it preserves the no-double-marker / no-gap
         /// invariant: exactly one of {proto icon, our marker} draws per ghost per frame.
         ///
-        /// <para>Gate OFF -> the legacy predicate ONLY (<paramref name="iconSuppressedLegacy"/> ||
-        /// <paramref name="polylineOwning"/>), byte-identical to the pre-8c marker-skip paths. The
-        /// Director DECISION input is never consulted.</para>
+        /// <para>The Director is the AUTHORITATIVE source (8e S4 dropped the director-drive gate, so this
+        /// is now unconditional): proto suppressed when the Director's TracedPath DECISION owns the leg
+        /// (<paramref name="directorTracedPathActive"/>, repointing the context-(a) icon-suppression that
+        /// previously rode <c>ghostsWithSuppressedIcon</c>) OR the polyline actually owns the phase
+        /// (<paramref name="polylineOwning"/>, sourced from 8b.2's / 8e S3a.1's actual-draw set, any leg that
+        /// drew) OR the legacy <paramref name="iconSuppressedLegacy"/> is set. The legacy disjunct is KEPT as
+        /// the fallback so the Director-no-bounds transient (context (b)), below-atmosphere, and off-arc clamp
+        /// - none of which the Director owns yet - still draw the marker; retiring it is Phase 8f.</para>
         ///
-        /// <para>Gate ON -> the Director is the AUTHORITATIVE source: proto suppressed when the
-        /// Director's TracedPath DECISION owns the leg (<paramref name="directorTracedPathActive"/>,
-        /// repointing the context-(a) icon-suppression that previously rode <c>ghostsWithSuppressedIcon</c>)
-        /// OR the polyline actually owns the phase (<paramref name="polylineOwning"/>, sourced from 8b.2's
-        /// / 8e S3a.1's actual-draw set, any leg that drew) OR the legacy <paramref name="iconSuppressedLegacy"/>
-        /// is set. The legacy disjunct is KEPT as the fallback so the Director-no-bounds transient
-        /// (context (b)), below-atmosphere, and off-arc clamp - none of which the Director owns yet -
-        /// still draw the marker; it is retired only as the AUTHORITATIVE source for the director-owned
-        /// (TracedPath) leg, not deleted (that is Phase 8e).</para>
-        ///
-        /// <para>No marker gap (gate ON): the decision is a SUPERSET of the legacy decision (it adds the
+        /// <para>No marker gap: the decision is a SUPERSET of the legacy decision (it adds the
         /// <paramref name="directorTracedPathActive"/> disjunct), so it can never be false on a frame the
         /// proto icon is hidden. No double marker: whenever <paramref name="directorTracedPathActive"/> is
         /// true the orbit-line Postfix's first branch has set the proto <c>drawIcons=NONE</c>, so the proto
         /// icon is not also drawn.</para>
         /// </summary>
         internal static bool ResolveMarkerDrawDecision(
-            bool directorDriveGateOn,
             bool directorTracedPathActive,
             bool polylineOwning,
             bool iconSuppressedLegacy)
-            => directorDriveGateOn
-                ? (directorTracedPathActive || polylineOwning || iconSuppressedLegacy)
-                : (iconSuppressedLegacy || polylineOwning);
+            => directorTracedPathActive || polylineOwning || iconSuppressedLegacy;
 
         /// <summary>
         /// Unity-coupled wrapper over <see cref="ResolveMarkerDrawDecision"/> (Phase 8c): resolves the
-        /// director-drive gate + the three per-pid signals and returns whether the Parsek non-proto
-        /// marker must draw for <paramref name="ghostPid"/> this frame (proto icon hidden). Both marker
-        /// call sites (<c>ParsekUI.DrawMapMarkers</c> flight-map, <c>ParsekTrackingStation
+        /// three per-pid signals and returns whether the Parsek non-proto marker must draw for
+        /// <paramref name="ghostPid"/> this frame (proto icon hidden). Both marker call sites
+        /// (<c>ParsekUI.DrawMapMarkers</c> flight-map, <c>ParsekTrackingStation
         /// .ClassifyAtmosphericMarkerSkip</c> TS) route through this single source so they cannot diverge.
         /// </summary>
         internal static bool ShouldDrawNonProtoMarkerForGhost(uint ghostPid)
         {
             return ShouldDrawNonProtoMarkerForGhost(
-                ghostPid, out _, out _, out _, out _);
+                ghostPid, out _, out _, out _);
         }
 
         /// <summary>
         /// Diagnostics overload of <see cref="ShouldDrawNonProtoMarkerForGhost(uint)"/> that ALSO
-        /// surfaces the four decision inputs the marker tracer logs (the
+        /// surfaces the three decision inputs the marker tracer logs (the
         /// <see cref="ResolveMarkerDrawDecision"/> disjuncts) WITHOUT changing the decision: the
         /// parameterless overload above delegates here, so the returned bool is byte-identical. The
         /// <c>out</c> values let the call site emit a per-pid change-based trace line explaining WHY
-        /// the marker drew or was skipped.
+        /// the marker drew or was skipped. (8e S4 dropped the director-drive gate, so the former
+        /// <c>gateOn</c> out is gone.)
         /// </summary>
         internal static bool ShouldDrawNonProtoMarkerForGhost(
             uint ghostPid,
-            out bool gateOn,
             out bool directorTracedPathActive,
             out bool polylineOwning,
             out bool iconSuppressed)
         {
-            gateOn = ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive;
             directorTracedPathActive = Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(
                 ghostPid, UnityEngine.Time.frameCount);
             polylineOwning = IsPolylineOwningGhostPhase(ghostPid);
             iconSuppressed = IsIconSuppressed(ghostPid);
             return ResolveMarkerDrawDecision(
-                gateOn,
                 directorTracedPathActive,
                 polylineOwning,
                 iconSuppressed);
@@ -10490,30 +10480,27 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The director-drive gate for the per-instance overlap path. With
-        /// <c>mapRenderDirectorDrive</c> OFF the per-instance path is unreachable (we cannot bake N
-        /// correct per-cycle epochs without the director drive): the legacy one-per-recording create
-        /// runs instead (one honest icon). The legacy create early-out for overlap recordings and the
-        /// per-instance create MUST share this exact gate so gate-off does not render nothing.
+        /// The per-instance overlap path is always available (8e S4 dropped the director-drive gate that
+        /// previously made it conditional; the Director pipeline is unconditional, so the N per-cycle
+        /// epochs are always bakeable). Kept as a method for call-site stability.
         /// </summary>
         internal static bool IsOverlapPerInstanceGateOn()
         {
-            return ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive;
+            return true;
         }
 
         /// <summary>
-        /// Combined gate: should THIS recording be driven by the per-instance overlap path this frame?
-        /// True only when the director drive is ON (<see cref="IsOverlapPerInstanceGateOn"/>) AND the
-        /// recording is an overlap loop (<see cref="IsOverlapRecording"/>). When this is true the
-        /// legacy passes hand off to <see cref="EnsureOverlapInstances"/> and skip their own
-        /// single-instance create/reseed for the index.
+        /// Should THIS recording be driven by the per-instance overlap path this frame? True when the
+        /// recording is an overlap loop (<see cref="IsOverlapRecording"/>) - overlap recordings ALWAYS
+        /// take the per-instance path now (8e S4). When this is true the legacy passes hand off to
+        /// <see cref="EnsureOverlapInstances"/> and skip their own single-instance create/reseed for the
+        /// index.
         /// </summary>
         internal static bool ShouldDriveOverlapPerInstance(
             Recording rec, int recIdx, IReadOnlyList<Recording> committed,
             GhostPlaybackLogic.LoopUnitSet loopUnits)
         {
-            return IsOverlapPerInstanceGateOn()
-                && IsOverlapRecording(rec, recIdx, committed, loopUnits);
+            return IsOverlapRecording(rec, recIdx, committed, loopUnits);
         }
 
         /// <summary>

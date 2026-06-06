@@ -105,11 +105,6 @@ namespace Parsek.InGameTests
             var flight = ParsekFlight.Instance;
             if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
-            // Slice (i) requires the director drive ON; off the gate the per-instance path is
-            // unreachable and the map stays one-per-recording (nothing to assert here).
-            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
-                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance overlap path inactive");
-
             int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
             var ghostGOs = flight.Engine.GetGhostGameObjects();
             int checkedRecordings = 0;
@@ -153,8 +148,6 @@ namespace Parsek.InGameTests
         {
             var flight = ParsekFlight.Instance;
             if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
-            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
-                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance overlap path inactive");
 
             // Source (b): a looped Mission unit that self-overlaps. The flight engine renders the
             // staggered instances through overlapGhosts[memberIdx] (the SAME pure cycle math the map
@@ -212,8 +205,6 @@ namespace Parsek.InGameTests
         {
             // The flight engine does not exist in the Tracking Station; the map per-instance count must
             // equal the PURE recomputed active-cycle set for each overlap recording.
-            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
-                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance overlap path inactive");
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0)
@@ -280,11 +271,7 @@ namespace Parsek.InGameTests
             // TS analogue of OverlapMarkerHeadCountMatchesFlight: the flight engine does not exist in the
             // Tracking Station, so the per-instance marker HEAD set (what DrawAtmosphericMarkers'
             // per-instance branch rides via DrawOneTsOverlapInstanceMarker) must equal the PURE recomputed
-            // active-cycle set for each overlap recording. Slice (iii) requires the director drive ON; off
-            // the gate TryGetLiveOverlapHeadUTs returns false (-> legacy single marker), so there is no
-            // per-instance head set to assert on.
-            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
-                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance marker path inactive");
+            // active-cycle set for each overlap recording.
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0)
@@ -383,10 +370,6 @@ namespace Parsek.InGameTests
             var flight = ParsekFlight.Instance;
             if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
-            // Slice (iii) requires the director drive ON; off the gate TryGetLiveOverlapHeadUTs returns
-            // false (-> legacy single marker) and there is no per-instance marker set to assert on.
-            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
-                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance marker path inactive");
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0)

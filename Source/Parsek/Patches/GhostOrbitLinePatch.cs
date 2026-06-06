@@ -117,7 +117,7 @@ namespace Parsek.Patches
             // branch is already deferred by the null-vessel guard above).
             if (__instance.reverse) return true;
 
-            // Director TracedPath suppression (gated by mapRenderDirectorDrive): when the new pipeline's
+            // Director TracedPath suppression (unconditional since 8e S4): when the new pipeline's
             // active segment for this ghost is a non-orbital leg (ascent / burn / descent), the autonomous
             // polyline owns it and the stock proto icon must be HIDDEN. Assert it HERE, before the
             // no-bounds early-return below: during an escape-burn gap there are no segment bounds, so the
@@ -176,8 +176,7 @@ namespace Parsek.Patches
                 // not own the icon). Count it so S2 can prove the floor is dead before deleting it. Only
                 // under the gate (gate-off is the only-path case) + only in tracing mode. NO behavior
                 // change - the return true above stands.
-                if (MapRenderTrace.IsEnabled
-                    && ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive)
+                if (MapRenderTrace.IsEnabled)
                     Parsek.MapRender.IconFloorGapCounter.NoteLegacyFloor(
                         pid, Parsek.MapRender.IconFloorGapCounter.FloorReason.NoBounds);
 
@@ -243,7 +242,7 @@ namespace Parsek.Patches
                     startUT, endUT, decision.Suppressed, HighLogic.LoadedScene),
                 1.0);
 
-            // Phase 8a director-drive (gated by mapRenderDirectorDrive, default on as of 2026-06-05): the
+            // Phase 8a director-drive (unconditional since 8e S4 dropped the director-drive gate): the
             // NEW render pipeline owns this StockConic icon by baking the loop shift into the orbit
             // EPOCH and propagating at the LIVE clock - the only place a packed ghost's icon world
             // position actually resolves (KSP rebuilds CoMD = referenceBody.position + orbitDriver.pos
@@ -257,7 +256,9 @@ namespace Parsek.Patches
             // driver's reference body.
             double propagateUT = driveUT;
             bool directorDriveActive = false;
-            if (ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive)
+            // 8e S4: the director-drive gate was dropped, so this block is UNCONDITIONAL (the Director
+            // pipeline always drives). The legacy effUT floor inside (the !directorDriveActive paths) is
+            // the 8f floor mechanism and is KEPT intact.
             {
                 bool fresh = Parsek.MapRender.ShadowRenderDriver.TryGetFreshStockConicSeed(
                     pid, Time.frameCount, out OrbitSegment dirSeg, out string dirBody);
@@ -565,7 +566,7 @@ namespace Parsek.Patches
                 return;
             }
 
-            // Director TracedPath suppression (gated by mapRenderDirectorDrive), checked FIRST so it
+            // Director TracedPath suppression (unconditional since 8e S4), checked FIRST so it
             // pre-empts the polyline-owns / visible-body-frame / grace branches deterministically. When
             // the new pipeline's active segment for this ghost is a non-orbital leg, the autonomous
             // polyline owns it: kill the stock orbit line + proto icon so the legacy visible-body-frame
@@ -1066,7 +1067,7 @@ namespace Parsek.Patches
             // the SAME frame the icon is driven in — keeping the line and the marker in exact
             // lockstep on arbitrarily short arcs. shift is 0 (identity) off the loop path.
             //
-            // Director-drive (mapRenderDirectorDrive gate): GhostOrbitIconDrivePatch instead bakes the
+            // Director-drive (unconditional since 8e S4): GhostOrbitIconDrivePatch instead bakes the
             // loop shift INTO the epoch (SeedAndDriveLive) so the orbit evaluates the recorded phase at
             // the LIVE clock. In that mode the eccentric-anomaly bounds must use the LIVE UTs directly
             // (no effUT remap), so the clipped arc matches the icon's live-clock phase. Mirror the same

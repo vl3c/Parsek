@@ -44,7 +44,6 @@ namespace Parsek
         private const string BlockCommittedActionsKey = "blockCommittedActions";
         private const string GhostRenderTracingKey = "ghostRenderTracing";
         private const string MapRenderTracingKey = "mapRenderTracing";
-        private const string MapRenderDirectorDriveKey = "mapRenderDirectorDrive";
         private const string UseSmoothingSplinesKey = "useSmoothingSplines";
         private const string UseAnchorCorrectionKey = "useAnchorCorrection";
         private const string UseAnchorTaxonomyKey = "useAnchorTaxonomy";
@@ -61,7 +60,6 @@ namespace Parsek
         private static bool? storedBlockCommittedActions;
         private static bool? storedGhostRenderTracing;
         private static bool? storedMapRenderTracing;
-        private static bool? storedMapRenderDirectorDrive;
         private static bool? storedUseSmoothingSplines;
         private static bool? storedUseAnchorCorrection;
         private static bool? storedUseAnchorTaxonomy;
@@ -187,17 +185,6 @@ namespace Parsek
                 else
                 {
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {MapRenderTracingKey} — using default");
-                }
-
-                string mapRenderDirectorDriveStr = root.GetValue(MapRenderDirectorDriveKey);
-                if (!string.IsNullOrEmpty(mapRenderDirectorDriveStr)
-                    && bool.TryParse(mapRenderDirectorDriveStr, out bool mapRenderDirectorDrive))
-                {
-                    storedMapRenderDirectorDrive = mapRenderDirectorDrive;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {MapRenderDirectorDriveKey} — using default");
                 }
 
                 string useSplinesStr = root.GetValue(UseSmoothingSplinesKey);
@@ -358,15 +345,6 @@ namespace Parsek
                     $"Restored mapRenderTracing {prev} -> {storedMapRenderTracing.Value} from persistent store");
             }
 
-            if (storedMapRenderDirectorDrive.HasValue
-                && storedMapRenderDirectorDrive.Value != settings.mapRenderDirectorDrive)
-            {
-                bool prev = settings.mapRenderDirectorDrive;
-                settings.mapRenderDirectorDrive = storedMapRenderDirectorDrive.Value;
-                ParsekLog.Info(Tag,
-                    $"Restored mapRenderDirectorDrive {prev} -> {storedMapRenderDirectorDrive.Value} from persistent store");
-            }
-
             if (storedUseSmoothingSplines.HasValue
                 && storedUseSmoothingSplines.Value != settings.useSmoothingSplines)
             {
@@ -480,26 +458,6 @@ namespace Parsek
             }
         }
 
-        internal static void RecordMapRenderDirectorDrive(bool value)
-        {
-            try { LoadIfNeeded(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordMapRenderDirectorDrive: LoadIfNeeded threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
-            }
-            if (storedMapRenderDirectorDrive.HasValue && storedMapRenderDirectorDrive.Value == value) return;
-            storedMapRenderDirectorDrive = value;
-            try { Save(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordMapRenderDirectorDrive: Save threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
-            }
-        }
-
         internal static void RecordUseSmoothingSplines(bool value)
         {
             // SecurityException guard: under xUnit, KSPUtil.ApplicationRootPath
@@ -608,8 +566,6 @@ namespace Parsek
                     root.AddValue(GhostRenderTracingKey, storedGhostRenderTracing.Value.ToString());
                 if (storedMapRenderTracing.HasValue)
                     root.AddValue(MapRenderTracingKey, storedMapRenderTracing.Value.ToString());
-                if (storedMapRenderDirectorDrive.HasValue)
-                    root.AddValue(MapRenderDirectorDriveKey, storedMapRenderDirectorDrive.Value.ToString());
                 if (storedUseSmoothingSplines.HasValue)
                     root.AddValue(UseSmoothingSplinesKey, storedUseSmoothingSplines.Value.ToString());
                 if (storedUseAnchorCorrection.HasValue)
@@ -658,7 +614,6 @@ namespace Parsek
             storedBlockCommittedActions = null;
             storedGhostRenderTracing = null;
             storedMapRenderTracing = null;
-            storedMapRenderDirectorDrive = null;
             storedUseSmoothingSplines = null;
             storedUseAnchorCorrection = null;
             storedUseAnchorTaxonomy = null;

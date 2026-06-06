@@ -31,8 +31,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedTrees.Clear();
             ParsekSettings.CurrentOverrideForTesting = new ParsekSettings
             {
-                autoLoopIntervalSeconds = 30f,
-                mapRenderDirectorDrive = true
+                autoLoopIntervalSeconds = 30f
             };
             ParsekSettingsPersistence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
@@ -181,24 +180,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldDriveOverlapPerInstance_GateOff_False()
+        public void ShouldDriveOverlapPerInstance_OverlapRecording_True()
         {
-            ParsekSettings.CurrentOverrideForTesting.mapRenderDirectorDrive = false;
-            var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
-            Assert.False(GhostMapPresence.ShouldDriveOverlapPerInstance(committed[0], 0, committed, NoUnits));
-            // The recording itself IS an overlap loop; only the gate is off.
-            Assert.True(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed, NoUnits));
-        }
-
-        [Fact]
-        public void ShouldDriveOverlapPerInstance_GateOn_OverlapRecording_True()
-        {
+            // 8e S4: the director-drive gate was dropped, so overlap recordings ALWAYS take the
+            // per-instance path (this is just IsOverlapRecording now).
             var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
             Assert.True(GhostMapPresence.ShouldDriveOverlapPerInstance(committed[0], 0, committed, NoUnits));
         }
 
         [Fact]
-        public void ShouldDriveOverlapPerInstance_GateOn_NonOverlap_False()
+        public void ShouldDriveOverlapPerInstance_NonOverlap_False()
         {
             var committed = new List<Recording> { MakeLoopRec(100, 300, 30, loopPlayback: false) };
             Assert.False(GhostMapPresence.ShouldDriveOverlapPerInstance(committed[0], 0, committed, NoUnits));
@@ -241,18 +232,6 @@ namespace Parsek.Tests
             var units = MakeOverlapUnitSet(0, 1000, 1200, overlapCadenceSeconds: 20,
                 memberWindow: (1100, 1100));
             Assert.False(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed, units));
-        }
-
-        [Fact]
-        public void ShouldDriveOverlapPerInstance_MissionUnit_GateOff_False()
-        {
-            // Gate-off is preserved for source (b) too: the union only ADDS source b INSIDE the gate.
-            ParsekSettings.CurrentOverrideForTesting.mapRenderDirectorDrive = false;
-            var committed = new List<Recording> { MakeMemberRec(1000, 1200) };
-            var units = MakeOverlapUnitSet(0, 1000, 1200, overlapCadenceSeconds: 20);
-            Assert.False(GhostMapPresence.ShouldDriveOverlapPerInstance(committed[0], 0, committed, units));
-            // But the recording IS an overlap recording; only the gate is off.
-            Assert.True(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed, units));
         }
 
         [Fact]
@@ -693,19 +672,6 @@ namespace Parsek.Tests
                     currentUT, scheduleStartUT, playbackStartUT, duration, cycleDuration, cycle);
                 Assert.Equal(expected, headUT, 6);
             }
-        }
-
-        [Fact]
-        public void TryGetLiveOverlapHeadUTs_GateOff_FalseAndClears()
-        {
-            // Gate off -> false -> the caller's legacy single-marker tail runs byte-identically.
-            ParsekSettings.CurrentOverrideForTesting.mapRenderDirectorDrive = false;
-            var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
-            var buffer = new List<(long cycle, double headUT)> { (99L, 1.0) }; // pre-populated
-            bool ok = GhostMapPresence.TryGetLiveOverlapHeadUTs(
-                committed[0], 0, committed, NoUnits, 250.0, buffer);
-            Assert.False(ok);
-            Assert.Empty(buffer); // cleared even on the false return
         }
 
         [Fact]

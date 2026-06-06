@@ -282,7 +282,6 @@ namespace Parsek
         internal static string BuildMarkerDecisionSignature(
             int recordingIndex,
             string vesselName,
-            bool gateOn,
             bool directorTracedPathActive,
             bool polylineOwning,
             bool iconSuppressed,
@@ -295,7 +294,6 @@ namespace Parsek
         {
             string s = "rec=" + recordingIndex.ToString(CultureInfo.InvariantCulture)
                 + " vessel=" + Token(vesselName)
-                + " gateOn=" + Bool(gateOn)
                 + " directorTracedPathActive=" + Bool(directorTracedPathActive)
                 + " polylineOwning=" + Bool(polylineOwning)
                 + " iconSuppressed=" + Bool(iconSuppressed)
