@@ -29,9 +29,9 @@ Promoted tests:
 
 Each test's `BatchSkipReason` was rewritten to the standard "Isolated-run only ... Use Run All + Isolated or the row play button" wording (the old "runs out of band so a parallel batch test cannot observe partial state" rationale no longer holds: the runner is sequential and the post-test baseline quickload closes the partial-state window). The runner self-tests (`InGameTestRunnerTests`, `TestRunnerPresentationTests`) use synthetic `InGameTestInfo` fixtures, not the attribute scan, so they are unaffected; full xUnit suite green (14496).
 
-### Open - `RouteOrchestrator_Tick_ProcessesSyntheticRoute` is RED under live statics
+### ~~Open~~ RESOLVED 2026-06-07 (PR #1083) - `RouteOrchestrator_Tick_ProcessesSyntheticRoute` was RED under live statics (test-setup bug, not a dispatch regression)
 
-This dispatch-tick test was already failing when run by hand (collected in-game results 2026-06-06, save "test run"): `RouteOrchestrator.Tick` neither transitioned the synthetic KSC-origin route's `Status` away from `Active` nor emitted a ledger row attributed to its id, so the tick body did not process the route. The test's own comment names the failure mode it is built to catch: the live `LiveRouteRuntimeEnvironment` builder returning early / NRE-ing under real KSP statics. Promoting it to `Run All + Isolated` makes that red visible in the batch (intentional - it was invisible before, only reachable via the row play button). Not investigated here (out of scope for the test-runner promotion); flagged for a logistics dispatch follow-up.
+Root cause was an UNSATISFIABLE acceptance criterion, not a dispatch regression. The synthetic route carries an empty `SourceRefs` list, so `LiveRouteRuntimeEnvironment.RouteHasValidSourcesInErs` returns false, the evaluator yields `SourcesStale`, and `RouteOrchestrator.Tick` resolves it to a benign `Skip("sources-stale")` that correctly mutates neither `Status` (stays `Active`) nor the ledger. The old assertion required `statusChanged || ledgerRowForRoute`, which a sourceless route can never satisfy; `RouteOrchestrator.Tick` itself behaved correctly (the tick summary logged `routes=1 errored=0 skipped=1`). Fix (PR #1083, test-only): assert the benign-skip invariants instead (route still present, still `Active`, no ledger row attributed to its id), and scope the doc comment's env-NRE guarantee to env construction / pre-dispatch (the ERS / Funding probes are LAZY, inside `ProcessOneRoute`'s per-route try/catch, so a probe NRE is counted as `errored++` and would not surface here; only a construction / pre-dispatch throw fails the test). Validated in-game 2026-06-07 (PASSED, `status=Active newLedgerRows=0`).
 
 ### Open - test-runner Cancel mid-test does not run the test `finally` (pre-existing runner machinery)
 
@@ -40,6 +40,17 @@ Surfaced by the clean review of the batch-promotion above; pre-existing, not int
 ### Open - background `RouteOrchestrator.Tick` can re-enter a logistics test's synthetic route (pre-existing)
 
 Also surfaced by the review; pre-existing. `ParsekScenario.Update` fires `RouteOrchestrator.Tick(currentUT)` every `TickIntervalSec = 1.0` UT-second (`RouteOrchestrator.cs`). While a logistics in-game test's synthetic route is in `RouteStore.CommittedRoutes` (and, for `LoopFire`, the resolver seam is armed), a background tick during the test's single-frame `yield return null` could process the synthetic route if game UT advanced >= 1s that frame (only under time warp). Extremely low probability at normal rate; the tests use unique synthetic route ids and remove them in finally. Unchanged by the promotion (the same exposure existed on the row-play-button path). Flagged for completeness; a real fix would gate the orchestrator tick during a runner-driven test or namespace test routes out of the live tick.
+
+---
+
+## Open - Re-aim E2E in-game test `Reaim_KerbinToDuna_EveryWindowResolvesSaneTransfer` is FLAKY (congruent-window resolver reliability)
+
+Surfaced while fixing the five frame/anomaly in-game test models (PR #1083), where it was deliberately left untouched because it is a real product weakness, not a test-model defect like its five siblings. This SPACECENTER test (`ReaimEndToEndInGameTest`) seeds its known-good departure off the live `Planetarium.GetUniversalTime()` and drives `ReaimPlaybackResolver.TryResolveWindowSegments` across several consecutive synodic windows. It fails INTERMITTENTLY, with the failure mode varying by the live UT at run time:
+- 2026-06-06: all 5 windows resolved but the transfer orientation did not rotate across windows (`lan0=lanLast=0.00`, failed "the transfer orientation must rotate across windows").
+- 2026-06-06 (later run): `window k=2 must resolve a re-aimed transfer` (a window failed to resolve at all).
+- 2026-06-07: `window k=1 must resolve` (a different window failed).
+
+This is a reliability gap in the re-aim congruent-window resolver / synthesizer (`ReaimPlaybackResolver`, `ReaimTransferSynthesizer`), the in-game manifestation of the parked re-aim Phase-4 generalization (see the "DUNA ONE CLOSED ... Phase-4 GENERALIZATION still deferred" entry and post-cutover backlog item #1 below). PARKED / check later: per the re-aim seam guidance, build a deterministic failing case (pin the departure UT rather than seeding off live UT) and measure BEFORE any knob math, and treat "the faithful render is good enough" as a valid outcome - do not stack speculative fixes on a working baseline. A cheap first step would be to make the test deterministic (fixed seed UT) so the failure is reproducible.
 
 ---
 
