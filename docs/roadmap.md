@@ -360,23 +360,36 @@ map-view and Tracking-Station ghost render path. Designs:
   (no jitter or doubled lines), escape and flyby lines clip to the part actually flown, and a
   self-overlapping looped mission shows one icon or marker per live replay in both the map and
   the Tracking Station, matching flight.
+- **Logistics (Supply Routes) v0** - the Phase 13 logistics feature shipped in 0.10.0. Fly a
+  cargo run once (launch from KSC or an existing vessel, dock at a destination, transfer stock
+  resources or inventory, undock) and commit it; a sealed run with one complete
+  dock-deliver-undock window then surfaces as a Candidate in the new Logistics window, where one
+  click turns it into a recurring Supply Route. The route replays the recorded run as a looped
+  mission segment and delivers the same cargo at the dock each cycle, with a UT-driven scheduler,
+  adjustable dispatch cadence, endpoint resolution (orbital by PID, surface with a nearest-vessel
+  fallback), and a route ledger that participates in rewind / re-fly. Career KSC-origin routes
+  charge a stock-realistic per-run funds cost and credit the recovered transport cost back one
+  cycle later. The v0 cut is deliberately narrow (docking-only, delivery-only, single-stop,
+  same-body); pickup, mixed pickup/delivery, multi-stop, round-trip, non-docking connections,
+  non-KSC undocked-start origins, and inter-body re-aimed routes are future work. Full design:
+  [`docs/parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md).
 
 ---
 
-## Phase 13: Logistics (Supply Routes)
+## Phase 13: Logistics (Supply Routes) - shipped in v0.10.0
 
-Stock-first automated cargo delivery from proven player-flown Supply Runs. Full design: [`docs/parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md). Fly a cargo run once, dock, transfer stock cargo, undock, commit, then confirm the prompt to create a recurring Supply Route.
+Stock-first automated cargo delivery from proven player-flown Supply Runs. Shipped in 0.10.0; summarized under Completed (v0.10) above. Full design: [`docs/parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md). Fly a cargo run once, dock, transfer stock cargo, undock, commit, then create a recurring Supply Route from the eligible Candidate in the Logistics window.
 
-- **v1 route shape** — docking-only, delivery-only, single-stop Supply Routes created from complete dock/transfer/undock Supply Runs. Claw/grapple/crossfeed, pickup routes, crew delivery, multi-stop routes, and round-trip linking are deferred.
+- **v0 route shape**: docking-only, delivery-only, single-stop Supply Routes created from complete dock/transfer/undock Supply Runs. Claw/grapple/crossfeed, pickup routes, crew delivery, multi-stop routes, and round-trip linking are deferred (future work).
 - **Stock proof-of-work** — route creation derives the delivery manifest from connection-scoped snapshots: cargo must leave the transport-side part set and appear on the endpoint-side part set during the docking window. Aggregate merged-vessel totals are not enough proof.
-- **Origin cost model** — KSC-origin Career routes charge a stock-realistic funds cost for the source vessel parts plus used/delivered cargo. Non-KSC v1 origins require the Supply Run to start docked to a real depot vessel so recurring cargo can be debited from a stock vessel.
+- **Origin cost model**: KSC-origin Career routes charge a stock-realistic funds cost for the source vessel parts plus used/delivered cargo, and credit the recovered transport cost back one cycle later. Non-KSC v0 origins require the Supply Run to start docked to a real depot vessel so recurring cargo can be debited from a stock vessel.
 - **UT-driven scheduler** — route progress, delivery, pause behavior, save/load catch-up, and time-warp behavior are driven by universal time in `ParsekScenario`, with ghost playback treated as visual evidence rather than authoritative timing.
 - **Endpoint resolution** — orbital endpoints use recorded vessel PID only. Surface endpoints prefer the recorded PID and may fall back to one nearest compatible stock vessel near the recorded coordinates, never to an abstract area warehouse.
-- **Visual presence** — ghost supply vessels replay the recorded chain when visuals are available, but route execution is pure math: deduct at origin, wait, add to destination. No physical vessel is spawned during transit.
+- **Visual presence**: ghost supply vessels replay the recorded run as a looped mission segment, but route execution is pure math: deduct at origin, wait, add to destination. No physical vessel is spawned during transit.
 
-**Logistics prerequisites added to Phase 13:** Phase 11 provides base vessel-level resource and inventory manifests. Supply Routes also require connection-scoped capture extensions: dock/undock resource and inventory manifests by transport/endpoint part PID set, `TransferTargetVesselPid`, `TransferKind`, `TransferEndpointSituation`, `StartDockedOriginVesselPid`, and exact `InventoryPayloadItem` snapshots from canonical `STOREDPART` data so inventory deliveries preserve per-item state.
+**Logistics prerequisites delivered for Phase 13:** Phase 11 provides base vessel-level resource and inventory manifests. Supply Routes also required connection-scoped capture extensions: dock/undock resource and inventory manifests by transport/endpoint part PID set, `TransferTargetVesselPid`, `TransferKind`, `TransferEndpointSituation`, `StartDockedOriginVesselPid`, and exact `InventoryPayloadItem` snapshots from canonical `STOREDPART` data so inventory deliveries preserve per-item state.
 
-Every supply ship remains a replay of a real mission the player flew, but v1 deliberately keeps the mechanics narrow so the first implementation is reliable and stock-realistic.
+Every supply ship remains a replay of a real mission the player flew, but v0 deliberately keeps the mechanics narrow so the first implementation is reliable and stock-realistic.
 
 ---
 
@@ -480,8 +493,9 @@ Phase 12.5: Stable Leaves + Re-Fly Hardening (v0.9.1 ✓)
     │  quickload/visibility/relative-playback hardening
     │
     ▼
-Phase 13: Logistics (Supply Routes)
+Phase 13: Logistics (Supply Routes) (v0.10.0 ✓)
     │  Stock-first Supply Routes from proven dock/transfer/undock Supply Runs
+    │  (v0: docking/delivery/single-stop/same-body; pickup/multi-stop/round-trip deferred)
     │
     ▼
 Gloops Extraction ─── Extract ghost engine to separate assembly,

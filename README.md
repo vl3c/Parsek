@@ -25,6 +25,7 @@ Time travel paradoxes are avoided by enforcing causality: events are always proc
 - **Visual replay** with original part meshes, textures, and engine FX
 - **Looped playback** - fly missions and loop their recordings - add as many rockets, spaceships or aircraft in the sky as you want - great for in-game video recordings!
 - **Mission loops** - group a recording tree into a mission and loop the whole mission as a unit, not just one recording at a time (in flight, the Space Center, and the Tracking Station). Loop it faster than its length and it overlaps into several staggered replays; orbital and Mun / Minmus missions relaunch at the right window so the replay lines up with the live sky. Each looped or overlapping replay appears on its own orbit in Map view and the Tracking Station, matching flight.
+- **Supply routes** - fly a cargo run once (launch from KSC or an existing vessel, dock at a destination, transfer stock resources or inventory, undock), commit it, and turn that sealed run into a recurring Supply Route from the Logistics window. The route replays the recorded run on a looped mission and delivers the same cargo to the destination each cycle, charging stock-realistic funds for KSC-origin routes in Career. One-way, single-stop, same-body delivery routes (pickup, mixed, multi-stop, and round-trip routes are future work).
 - **Vessel persistence** - recorded vessels spawn with crew, or get recovered for funds
 - **Crew management** - reserved crew get temporary replacements so your roster stays full
 - **Orbital recording** - time warp segments use analytical Keplerian orbits with attitude preservation (SAS-locked orientations like retrograde, normal, radial hold correctly throughout the orbit)
@@ -74,9 +75,8 @@ Requires .NET SDK and KSP assemblies in `Kerbal Space Program/KSP_x64_Data/Manag
 
 ## Beyond Recording
 
-Parsek's infrastructure - looped playback, vessel snapshots, game state tracking, resource budgeting - forms a natural foundation to build on. These are not planned features, just ideas that the architecture makes possible:
+Parsek's infrastructure - looped playback, vessel snapshots, game state tracking, resource budgeting - forms a natural foundation to build on. The first of these has already shipped (Supply routes, above, grew out of the logistics-network idea); the rest are not planned features, just ideas that the architecture makes possible:
 
-- **Logistics network** - fly a cargo route once, Parsek records it, then that recording becomes a reusable supply route that replays automatically between bases
 - **Multiplayer-like experience** - share recording files with other players and watch their missions play out as ghosts in your game, turning single-player KSP into a shared timeline
 - **Space race** - competing space programs on Kerbin racing to objectives, with ghost replays of rival missions playing out alongside yours - multiplayer or AI-driven
 
