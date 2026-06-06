@@ -3,7 +3,7 @@
 # setting, its persistence, its UI, and every `&& ...mapRenderDirectorDrive` gate
 # clause were removed. The per-leg DECISION predicates
 # (IsDirectorTracedPathActive / IsDirectorDriveActive / IsDirectorTracking) and the
-# 8f FLOOR mechanism (ghostsWithSuppressedIcon / IconFloorGapCounter / the
+# kept no-conic / suppressed-icon FLOOR mechanism (ghostsWithSuppressedIcon / the
 # directorDriveActive local) SURVIVE - they are NOT this token. This audit enforces
 # that NO file under Source/Parsek/ resurrects the deleted `mapRenderDirectorDrive`
 # identifier (field, key, gate-clause read, doc-comment, or anything else).
