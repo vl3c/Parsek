@@ -21,6 +21,23 @@ Related: `docs/dev/observability-audit-2026-04-26.md`,
 `Source/Parsek/GhostRenderTrace.cs` (the model), `Source/Parsek/TraceSeparation.cs`
 (pre-event window prior art).
 
+> **STATUS (2026-06-06): IMPLEMENTED and instrumenting BOTH scenes.** `MapRenderTrace` /
+> `MapRenderProbe` ship behind the `mapRenderTracing` setting (off by default) and cover the
+> flight map view AND the Tracking Station: the structural / lifecycle / first-position emits,
+> the Tier-B change-based truth, the Tier-C anomaly predicates (icon-jump, line-blink,
+> icon-off-orbit), the decision-vs-truth + polyline-orbit-overlap reconciliation, and the IMGUI
+> marker-surface coverage. The Tracking-Station render-tracer coverage was completed in #1064:
+> GAP-1 (the TS overlap marker-decision line now carries the REAL `ride` field, was hardcoded
+> `ride=not-attempted`), GAP-2 (a first-class `surface=Polyline` leg-draw trace covering both
+> scenes), and C-1 (the finer TS skip reason on the per-ghost decision line), plus a 4096-entry
+> cap on the marker-decision change-detection (decision-signature) dict. All per-frame /
+> per-cycle trace and log lines use WARP-STABLE rate-limit keys (the #1063/#1064 lesson: never
+> key a rate-limit on a value that advances every frame at warp - cycle / UT / seed / frame -
+> it mints a fresh key per frame and defeats the throttle). The shared `RenderTraceWindow` /
+> recordingId-keyed window and the per-pid pre-event ring buffer stay DEFERRED (the "optional
+> second cut" notes below remain accurate for those two pieces). The design body below is
+> unchanged.*
+
 ---
 
 ## Why this exists
