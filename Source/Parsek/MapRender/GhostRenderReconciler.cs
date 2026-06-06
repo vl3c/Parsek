@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek.MapRender
@@ -144,6 +145,44 @@ namespace Parsek.MapRender
             return divergence > System.Math.Max(0.0, divergenceToleranceMeters);
         }
 
+        // Soft rate-limit on the intent-vs-old-truth anomalies. Both the gap-vs-retire (visibility)
+        // and decision-vs-old-truth (treatment) classes are PERSISTENT conditions: a sustained
+        // divergence re-emits the byte-identical line every frame for the pid (this was the dominant
+        // map-tracer log volume - ~2800 lines / 3 pids in a 3-minute session, one per frame). Throttle
+        // to one line per pid per class per second, mirroring MapRenderProbe's off-orbit / polyline-
+        // overlap limiters (those are the other persistent-condition anomalies). Keyed per (pid, class)
+        // - separate dict per class - so a class transition still emits immediately; and the 5 s anomaly
+        // detailed window (AnomalyWindowSeconds) is re-opened well within 1 s, so it stays continuously
+        // open and the per-frame phase=Snapshot truth keeps flowing: no debugging signal is lost, only
+        // the redundant duplicate anomaly lines. Cleared on scene switch via the probe (and for tests);
+        // never populated at all when tracing is off (CheckIntentAgainstOldTruth early-returns first).
+        private const double IntentReconcileAnomalyMinIntervalSeconds = 1.0;
+        private static readonly Dictionary<uint, double> lastGapVsRetireEmitRealtime =
+            new Dictionary<uint, double>();
+        private static readonly Dictionary<uint, double> lastDecisionVsOldTruthEmitRealtime =
+            new Dictionary<uint, double>();
+
+        private static bool PassesReconcileRateLimit(
+            Dictionary<uint, double> store, uint pid, double realtime)
+        {
+            double last;
+            if (store.TryGetValue(pid, out last)
+                && realtime - last < IntentReconcileAnomalyMinIntervalSeconds)
+                return false;
+            store[pid] = realtime;
+            return true;
+        }
+
+        /// <summary>Clear the per-pid intent-reconcile rate-limit timestamps. Called by
+        /// <see cref="MapRenderProbe"/> on a scene switch (alongside its own per-pid clear) so a stale
+        /// timestamp cannot suppress the first divergence after a TS &lt;-&gt; flight re-entry, and by
+        /// tests to isolate the limiter between cases.</summary>
+        internal static void ClearRateLimitState()
+        {
+            lastGapVsRetireEmitRealtime.Clear();
+            lastDecisionVsOldTruthEmitRealtime.Clear();
+        }
+
         /// <summary>
         /// Wiring (called by the end-of-frame <see cref="MapRenderProbe"/>): if a fresh new-pipeline
         /// intent was recorded for <paramref name="pid"/> THIS frame (decision-only shadow producer),
@@ -152,10 +191,13 @@ namespace Parsek.MapRender
         /// the <c>decision-vs-old-truth</c> class. No fresh intent → no-op (nothing recorded the
         /// shadow intent this frame, e.g. before Phase 4 wiring is live). Gated by the
         /// <see cref="MapRenderTrace.TryGetFreshRenderIntent"/> store, itself off when tracing is off.
+        /// Each anomaly emit is soft-rate-limited per (pid, class) via <paramref name="realtime"/>
+        /// (see <see cref="IntentReconcileAnomalyMinIntervalSeconds"/>) so a persistent divergence does
+        /// not flood the log one line per frame.
         /// </summary>
         internal static void CheckIntentAgainstOldTruth(
             uint pid, string pidKey, int currentFrame, double currentUT, double effUT,
-            string actualLineActive, string actualDrawIcons, bool polylineOwns)
+            string actualLineActive, string actualDrawIcons, bool polylineOwns, double realtime)
         {
             if (!MapRenderTrace.TryGetFreshRenderIntent(pidKey, currentFrame, out var rec))
                 return;
@@ -163,13 +205,17 @@ namespace Parsek.MapRender
             string visMismatch = ReconcileVisibility(rec.Visible, actualLineActive, actualDrawIcons, polylineOwns);
             if (!string.IsNullOrEmpty(visMismatch))
             {
-                MapRenderTrace.EmitAnomaly(
-                    MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, effUT,
-                    "gap-vs-retire",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "{0} intentTreatment={1} intentDriveUT={2}",
-                        visMismatch, rec.TreatmentToken,
-                        MapRenderTrace.FormatDouble(rec.DriveUT, "F3")));
+                // Persistent visibility divergence: emit at most once per pid per second so a sustained
+                // gap-vs-retire does not log one byte-identical line per frame. The detailed window the
+                // emit opens (5 s) keeps the per-frame snapshots flowing on the suppressed frames.
+                if (PassesReconcileRateLimit(lastGapVsRetireEmitRealtime, pid, realtime))
+                    MapRenderTrace.EmitAnomaly(
+                        MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, effUT,
+                        "gap-vs-retire",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "{0} intentTreatment={1} intentDriveUT={2}",
+                            visMismatch, rec.TreatmentToken,
+                            MapRenderTrace.FormatDouble(rec.DriveUT, "F3")));
                 return;
             }
 
@@ -177,7 +223,8 @@ namespace Parsek.MapRender
                 return; // hidden + old also nothing → consistent
 
             string trMismatch = ReconcileTreatment(rec.TreatmentToken, actualLineActive, actualDrawIcons, polylineOwns);
-            if (!string.IsNullOrEmpty(trMismatch))
+            if (!string.IsNullOrEmpty(trMismatch)
+                && PassesReconcileRateLimit(lastDecisionVsOldTruthEmitRealtime, pid, realtime))
                 MapRenderTrace.EmitAnomaly(
                     MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, effUT,
                     "decision-vs-old-truth",

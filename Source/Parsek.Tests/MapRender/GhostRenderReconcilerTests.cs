@@ -30,6 +30,7 @@ namespace Parsek.Tests
         public GhostRenderReconcilerTests()
         {
             MapRenderTrace.Reset();
+            GhostRenderReconciler.ClearRateLimitState();
             MapRenderTrace.ForceEnabledForTesting = true;
             MapRenderTrace.FrameCounterOverrideForTesting = () => Frame;
             ParsekSettings.CurrentOverrideForTesting = null;
@@ -42,6 +43,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             MapRenderTrace.Reset();
+            GhostRenderReconciler.ClearRateLimitState();
             MapRenderTrace.ForceEnabledForTesting = false;
             MapRenderTrace.FrameCounterOverrideForTesting = null;
             ParsekSettings.CurrentOverrideForTesting = null;
@@ -154,7 +156,7 @@ namespace Parsek.Tests
             GhostRenderReconciler.NoteIntent(Pid, VisibleIntent(Treatment.StockConic));
             GhostRenderReconciler.CheckIntentAgainstOldTruth(
                 Pid, PidKey, Frame, currentUT: 100.0, effUT: 100.0,
-                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: false);
+                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: false, realtime: 1000.0);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[MapRenderTrace]") && l.Contains("phase=Anomaly")
@@ -167,7 +169,7 @@ namespace Parsek.Tests
             GhostRenderReconciler.NoteIntent(Pid, VisibleIntent(Treatment.StockConic));
             GhostRenderReconciler.CheckIntentAgainstOldTruth(
                 Pid, PidKey, Frame, 100.0, 100.0,
-                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: true);
+                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: true, realtime: 1000.0);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[MapRenderTrace]") && l.Contains("phase=Anomaly")
@@ -181,7 +183,7 @@ namespace Parsek.Tests
             GhostRenderReconciler.NoteIntent(Pid, VisibleIntent(Treatment.StockConic));
             GhostRenderReconciler.CheckIntentAgainstOldTruth(
                 Pid, PidKey, Frame, 100.0, 100.0,
-                actualLineActive: "True", actualDrawIcons: "ALL", polylineOwns: false);
+                actualLineActive: "True", actualDrawIcons: "ALL", polylineOwns: false, realtime: 1000.0);
 
             Assert.DoesNotContain(logLines, l => l.Contains("phase=Anomaly")
                 && (l.Contains("reason=gap-vs-retire") || l.Contains("reason=decision-vs-old-truth")));
@@ -194,10 +196,88 @@ namespace Parsek.Tests
             // Reconcile on a LATER frame → freshness (same-frame-only) fails → no anomaly.
             GhostRenderReconciler.CheckIntentAgainstOldTruth(
                 Pid, PidKey, currentFrame: Frame + 5, currentUT: 100.0, effUT: 100.0,
-                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: false);
+                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: false, realtime: 1000.0);
 
             Assert.DoesNotContain(logLines, l => l.Contains("phase=Anomaly")
                 && (l.Contains("reason=gap-vs-retire") || l.Contains("reason=decision-vs-old-truth")));
+        }
+
+        // ---- Rate-limit: a persistent divergence emits onset + heartbeat, not one line per frame ----
+
+        private int AnomalyCount(string reason)
+            => logLines.FindAll(l => l.Contains("phase=Anomaly") && l.Contains("reason=" + reason)).Count;
+
+        [Fact]
+        public void Check_GapVsRetire_RepeatWithinInterval_SuppressesDuplicate()
+        {
+            // Same divergence on consecutive frames within 1 s: the byte-identical line must not repeat.
+            for (int i = 0; i < 5; i++)
+            {
+                GhostRenderReconciler.NoteIntent(Pid, VisibleIntent(Treatment.StockConic));
+                GhostRenderReconciler.CheckIntentAgainstOldTruth(
+                    Pid, PidKey, Frame, 100.0, 100.0,
+                    actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: false,
+                    realtime: 1000.0 + i * 0.1); // 5 frames spanning 0.4 s < 1 s interval
+            }
+
+            Assert.Equal(1, AnomalyCount("gap-vs-retire"));
+        }
+
+        [Fact]
+        public void Check_GapVsRetire_AfterInterval_EmitsAgain()
+        {
+            // Onset at t=1000, heartbeat after the 1 s interval elapses: two lines, full onset+persistence
+            // signal preserved (the suppressed frames in between still feed the open detailed window).
+            GhostRenderReconciler.NoteIntent(Pid, VisibleIntent(Treatment.StockConic));
+            GhostRenderReconciler.CheckIntentAgainstOldTruth(
+                Pid, PidKey, Frame, 100.0, 100.0,
+                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: false, realtime: 1000.0);
+
+            GhostRenderReconciler.NoteIntent(Pid, VisibleIntent(Treatment.StockConic));
+            GhostRenderReconciler.CheckIntentAgainstOldTruth(
+                Pid, PidKey, Frame, 100.0, 100.0,
+                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: false, realtime: 1001.5);
+
+            Assert.Equal(2, AnomalyCount("gap-vs-retire"));
+        }
+
+        [Fact]
+        public void Check_RateLimit_IsPerClass_ClassTransitionEmitsImmediately()
+        {
+            // gap-vs-retire at t=1000, then a DIFFERENT class (decision-vs-old-truth) 0.2 s later. The
+            // per-class keying must let the new class emit immediately rather than sharing the gap limiter.
+            GhostRenderReconciler.NoteIntent(Pid, VisibleIntent(Treatment.StockConic));
+            GhostRenderReconciler.CheckIntentAgainstOldTruth(
+                Pid, PidKey, Frame, 100.0, 100.0,
+                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: false, realtime: 1000.0);
+
+            GhostRenderReconciler.NoteIntent(Pid, VisibleIntent(Treatment.StockConic));
+            GhostRenderReconciler.CheckIntentAgainstOldTruth(
+                Pid, PidKey, Frame, 100.0, 100.0,
+                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: true, realtime: 1000.2);
+
+            Assert.Equal(1, AnomalyCount("gap-vs-retire"));
+            Assert.Equal(1, AnomalyCount("decision-vs-old-truth"));
+        }
+
+        [Fact]
+        public void Check_RateLimit_IsPerPid_OtherPidNotSuppressed()
+        {
+            // Two distinct pids diverging on the same frame must each emit; the limiter is keyed per pid.
+            const uint OtherPid = 99u;
+            string otherKey = OtherPid.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+            GhostRenderReconciler.NoteIntent(Pid, VisibleIntent(Treatment.StockConic));
+            GhostRenderReconciler.CheckIntentAgainstOldTruth(
+                Pid, PidKey, Frame, 100.0, 100.0,
+                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: false, realtime: 1000.0);
+
+            GhostRenderReconciler.NoteIntent(OtherPid, VisibleIntent(Treatment.StockConic));
+            GhostRenderReconciler.CheckIntentAgainstOldTruth(
+                OtherPid, otherKey, Frame, 100.0, 100.0,
+                actualLineActive: "False", actualDrawIcons: "NONE", polylineOwns: false, realtime: 1000.0);
+
+            Assert.Equal(2, AnomalyCount("gap-vs-retire"));
         }
     }
 }
