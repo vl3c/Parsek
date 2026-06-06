@@ -65,6 +65,13 @@ namespace Parsek
         /// <summary>Cached interpolation indices for atmospheric ghost icon rendering (per recording index).</summary>
         private readonly Dictionary<int, int> atmosCachedIndices = new Dictionary<int, int>();
 
+        // Slice (iii) TS port: reusable per-recording head-UT buffer for the per-instance overlap marker
+        // branch (mirror of ParsekUI.cs:67). Cleared (not reallocated) per overlap recording inside
+        // GhostMapPresence.TryGetLiveOverlapHeadUTs, so drawing N markers on the one shared polyline in the
+        // tracking station allocates nothing per frame.
+        private static readonly List<(long cycle, double headUT)> tsOverlapHeadUtBuffer =
+            new List<(long, double)>();
+
         /// <summary>Tracks the last known committed recording count for live-update detection.</summary>
         private int lastKnownCommittedCount;
 
@@ -406,6 +413,61 @@ namespace Parsek
                             MapRenderTrace.MarkerRideReason.NotAttempted, -1, "traj"));
                 }
 
+                // ---- Slice (iii) TS port: per-instance overlap markers riding the ONE shared polyline ----
+                // Port of the flight-map DrawMapMarkers per-instance branch (ParsekUI.cs:1191-1252) to the
+                // tracking-station marker path. For an OVERLAPPING looped mission rendered via the trajectory
+                // polyline, draw N markers - one per live overlap instance - each at its own
+                // ComputeOverlapCyclePlaybackUT head along the SINGLE shared polyline (the polyline Driver
+                // draws once keyed by RecordingId in TS too), so the tracking station shows the SAME N
+                // markers the flight scene does. Gated behind ShouldDriveOverlapPerInstance (inside
+                // TryGetLiveOverlapHeadUTs = mapRenderDirectorDrive AND overlap): non-overlap / gate-off
+                // returns false and falls straight through to the UNCHANGED span-clock effUT block + 8c proto
+                // gate (ClassifyAtmosphericMarkerSkip) + single-marker tail below, byte-identically.
+                //
+                // HOISTED above the span-clock effUT/renderHidden block AND the
+                // ClassifyAtmosphericMarkerSkip 8c proto gate (which consults ONLY the newest instance's
+                // pid). This matches the flight slice (iii) hoist: a MIXED overlap recording - newest cycle
+                // mid-orbit (visible proto icon) while OLDER cycles are simultaneously in a non-orbital
+                // reentry/descent phase - must not get pre-empted by the newest-only skip and silently drop
+                // the older instances' polyline markers. Safe to hoist because the PER-CYCLE no-double rule
+                // inside DrawOneTsOverlapInstanceMarker (TryGetOverlapInstancePidForCycle +
+                // ShouldDrawNonProtoMarkerForGhost) makes the correct per-cycle orbital-vs-polyline decision.
+                // Uses cachedLoopUnits (the SAME TS span-clock set the lifecycle + legacy marker path read)
+                // and the TS-valid currentUT = Planetarium.GetUniversalTime(). Debris is guarded here to
+                // preserve the IsDebris filter the 8c block below applies.
+                if (i < committed.Count && rec != null && !rec.IsDebris
+                    && GhostMapPresence.TryGetLiveOverlapHeadUTs(
+                        rec, i, committed, cachedLoopUnits, currentUT, tsOverlapHeadUtBuffer))
+                {
+                    int instancesDrawn = 0;
+                    int liveCycles = tsOverlapHeadUtBuffer.Count;
+                    for (int hi = 0; hi < tsOverlapHeadUtBuffer.Count; hi++)
+                    {
+                        var (cycle, headUT) = tsOverlapHeadUtBuffer[hi];
+                        if (DrawOneTsOverlapInstanceMarker(i, committed, rec, headUT, cycle))
+                            instancesDrawn++;
+                    }
+                    summary.Candidates += instancesDrawn > 1 ? instancesDrawn - 1 : 0;
+                    summary.Drawn += instancesDrawn;
+
+                    EmitMarkerDecision(MapRenderTrace.MarkerOutcome.DrawnNonProto);
+
+                    // One rate-limited per-recording summary (batch-counting convention): how many of the N
+                    // live cycles actually drew a polyline marker this frame (an instance skips when its head
+                    // is out-of-window / between legs / off-line, or its cycle is drawn by a live
+                    // non-suppressed proto icon). Mirrors the flight branch's liveCycles/drawn summary.
+                    int recIdxForLog = i;
+                    string overlapNameForLog = rec.VesselName;
+                    ParsekLog.VerboseRateLimited(Tag,
+                        "ts-overlap-instance-markers-"
+                            + recIdxForLog.ToString(CultureInfo.InvariantCulture),
+                        () => string.Format(CultureInfo.InvariantCulture,
+                            "TS overlap per-instance markers: rec={0} vessel={1} liveCycles={2} drawn={3}",
+                            recIdxForLog, overlapNameForLog ?? "Ghost", liveCycles, instancesDrawn),
+                        2.0);
+                    continue; // per-instance markers drew (or all skipped) — bypass effUT + 8c gate + tail
+                }
+
                 // Phase F: substitute the shared Mission span-clock loopUT for the live UT when this
                 // committed index is a loop-unit member. A member outside its loop window this cycle
                 // is skipped (no marker). Inert (effUT == currentUT, renderHidden false) for
@@ -670,6 +732,90 @@ namespace Parsek
                     context.Button,
                     context.ScreenPosition.x,
                     context.ScreenPosition.y));
+            return true;
+        }
+
+        /// <summary>
+        /// Slice (iii) TS port: draw ONE per-instance overlap marker for a single live overlap cycle at its
+        /// own playback head UT (<paramref name="headUT"/> = <c>ComputeOverlapCyclePlaybackUT(cycle)</c>),
+        /// riding the SINGLE shared polyline keyed by RecordingId in the tracking station. Returns true when
+        /// a marker drew, false when the instance was skipped (head out-of-window / between legs / off-line,
+        /// or the cycle is currently represented by a live non-suppressed proto icon). TS-local analogue of
+        /// the flight <c>ParsekUI.DrawOneOverlapInstanceMarker</c> using TS primitives (the TS resolver +
+        /// the world-pos <see cref="MapMarkerRenderer.DrawMarker"/> overload + the TS click handler).
+        ///
+        /// Orbital no-double-marker rule: for an ORBITAL overlap recording slice (i) creates N ProtoVessels
+        /// with orbit icons. If this cycle has a live instance proto AND its icon is NOT suppressed, the
+        /// proto icon already draws the cycle - skip the polyline marker. Otherwise (pid 0: pure-suborbital
+        /// or pre-materialize, OR the icon is suppressed for a non-orbital phase) the polyline marker is the
+        /// sole indicator - draw it.
+        ///
+        /// Position contract mirrors the TS single-marker tail: resolve the body-fixed head via
+        /// <see cref="TryResolveRecordingWorldPosition"/> at the per-cycle headUT (NOT the span-clock
+        /// effUT), skip on failure, then RIDE the shared polyline via
+        /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(string,double,out Vector3)"/>
+        /// - use the on-line position when it rides, else skip this instance (never draw off-line). The
+        /// per-instance marker key is <c>recId + "#" + cycle</c> so hover/sticky state is independent across
+        /// instances; the visible label is the shared mission name for all N (they ARE the same mission).
+        /// The click handler is the SAME <see cref="OnAtmosphericMarkerClicked"/> the single TS marker wires,
+        /// so per-instance markers stay clickable (a TS nuance: flight markers are not clickable).
+        /// </summary>
+        private bool DrawOneTsOverlapInstanceMarker(
+            int recordingIndex, IReadOnlyList<Recording> committed, Recording rec,
+            double headUT, long cycle)
+        {
+            if (rec == null || committed == null
+                || recordingIndex < 0 || recordingIndex >= committed.Count)
+                return false;
+
+            // Orbital no-double-marker join: if a live, non-suppressed proto icon already draws this cycle,
+            // skip the polyline marker. pid 0 means no proto for the cycle (pure-suborbital or not yet
+            // materialized) -> draw the polyline marker.
+            uint instancePid = GhostMapPresence.TryGetOverlapInstancePidForCycle(recordingIndex, cycle);
+            if (instancePid != 0
+                && !GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(instancePid))
+            {
+                // The proto icon owns this cycle this frame — no polyline marker (no double).
+                return false;
+            }
+
+            // Body-fixed head for the instance at the PER-CYCLE headUT; skip on failure (out-of-window /
+            // between legs). A fresh local cache index per call is fine (N <= 20 cycles).
+            int cached = -1;
+            if (!TryResolveRecordingWorldPosition(
+                    rec, headUT, ref cached, out Vector3d worldPos, out _, out _, out _))
+                return false;
+
+            // Ride the SINGLE shared polyline at this instance's head; never draw off-line.
+            if (!Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                    rec.RecordingId, headUT, out Vector3 onLinePos))
+                return false;
+
+            // Per-instance key (hover-collision fix): distinct keys, identical labels are fine
+            // (MapMarkerRenderer keys hover/sticky on markerKey, not the label).
+            string markerKey = string.IsNullOrEmpty(rec.RecordingId)
+                ? null
+                : rec.RecordingId + "#" + cycle.ToString(CultureInfo.InvariantCulture);
+            string label = rec.VesselName ?? "(unknown)";
+            VesselType vtype = ResolveVesselTypeWithFallback(committed, rec);
+            Color markerColor = MapMarkerRenderer.GetColorForType(vtype);
+            int recordingIndexForClick = recordingIndex;
+            Recording markerRecording = rec;
+            MapMarkerRenderer.DrawMarker(
+                onLinePos,
+                markerKey,
+                label,
+                markerColor,
+                vtype,
+                context => OnAtmosphericMarkerClicked(recordingIndexForClick, markerRecording, context));
+
+            if (MapRenderTrace.IsEnabled)
+                MapRenderTrace.EmitMarker(
+                    MapRenderTrace.RenderSurface.AtmosphericMarker, markerKey, headUT,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "vessel={0} cycle={1} markerPos={2} overlapInstance=True",
+                        label, cycle, MapRenderTrace.FormatVector3(onLinePos)));
+
             return true;
         }
 
