@@ -90,6 +90,13 @@ namespace Parsek
         // Soft rate-limit timestamps for the per-pid polyline-orbit-overlap anomaly (a PERSISTENT
         // condition through a whole burn, so it must not fire every frame).
         private readonly Dictionary<uint, double> lastPolylineOverlapEmitRealtime = new Dictionary<uint, double>();
+        // Phase 8e S0: soft rate-limit timestamps for the per-RECORDING unaccounted-drawn-recording
+        // anomaly (Instrument 1). Keyed by RecordingId, not pid, because the drawn set is RecordingId-
+        // keyed and a drawn recording may be proto-LESS (pid 0). A PERSISTENT condition (would fire every
+        // frame), so throttled to one line per recording per second; cleared on scene change.
+        private const double UnaccountedAnomalyMinIntervalSeconds = 1.0;
+        private readonly Dictionary<string, double> lastUnaccountedEmitRealtime =
+            new Dictionary<string, double>(System.StringComparer.Ordinal);
         // Pids that have already had their Tier-A FirstPosition event emitted on
         // the first end-of-frame truth read for that pid. Cleared on scene change
         // alongside the other per-pid state, so re-entering a scene re-emits a
@@ -125,6 +132,11 @@ namespace Parsek
             // Also flush MapRenderTrace's pid-keyed stores (detailed windows + line/render intents) so they
             // do not grow unbounded across the AppDomain lifetime; mirrors this probe's own per-pid reset.
             MapRenderTrace.Reset();
+            // Phase 8e S0: drop any S0 coverage / icon-floor state straddling the scene switch (both are
+            // per-frame-cleared by their producers, so this is belt-and-suspenders against a switch landing
+            // between accumulate and flush). Diagnostic-only.
+            GhostMapPresence.ClearFrameCoverageSets();
+            Parsek.MapRender.IconFloorGapCounter.Reset();
             ParsekLog.Verbose(MapRenderTrace.Tag,
                 string.Format(ic,
                     "probe per-pid state cleared on scene switch from={0} to={1}",
@@ -145,6 +157,7 @@ namespace Parsek
             lastOffOrbitEmitRealtime.Clear();
             lastPolylineOverlapEmitRealtime.Clear();
             firstPositionEmittedPids.Clear();
+            lastUnaccountedEmitRealtime.Clear();
         }
 
         void LateUpdate()
@@ -191,6 +204,50 @@ namespace Parsek
                     "probe frame summary frame={0} ghosts={1} sampled={2} resolveMisses={3}",
                     frame, pids.Count, sampled, resolveMisses),
                 5.0);
+
+            // --- Phase 8e S0 Instrument 1: accounted-vs-drawn coverage assertion ---
+            // Once per frame (NOT inside the per-pid loop above - a drawn recording may be PROTO-LESS,
+            // i.e. pid-0, and therefore absent from ghostMapVesselPids). For EVERY recording the
+            // autonomous polyline walk drew this frame, confirm it is ACCOUNTED: its RecordingId maps to
+            // a proto-bearing pid (the Director's enumerated set, bridged into the RecordingId domain) OR
+            // it is in the proto-less coverage set the walk populated. A drawn recording in NEITHER is a
+            // deletion-blocker - the legacy ownership cannot be deleted until this is silent. The whole
+            // LateUpdate is already IsEnabled-gated; the per-recId soft rate-limit below keeps a
+            // persistent unaccounted recording from flooding the log (the condition holds every frame).
+            AssertDrawnRecordingsAccounted(currentUT, realtime);
+        }
+
+        private void AssertDrawnRecordingsAccounted(double currentUT, double realtime)
+        {
+            GhostMapPresence.AssertDrawnRecordingsAccounted(
+                (recId, protoBearingCount, protoLessCoverageCount, drawnCount) =>
+                {
+                    if (!PassesUnaccountedRateLimit(recId, realtime))
+                        return;
+                    // Tier-C anomaly. Keyed (surface=Polyline) by the unaccounted RecordingId (carried in
+                    // the prefix pid= slot, the marker-surface convention). A CLEAN run (zero of these) is
+                    // the deletion-readiness signal: the Director's accounted set is a superset of the
+                    // autonomous walk's drawn set.
+                    MapRenderTrace.EmitAnomaly(
+                        MapRenderTrace.RenderSurface.Polyline, recId, currentUT, currentUT,
+                        "unaccounted-drawn-recording",
+                        string.Format(ic,
+                            "recId={0} drawnByAutonomousWalk=true protoBearing=false inProtoLessCoverage=false "
+                            + "| protoBearingRecs={1} protoLessCoverageRecs={2} drawnRecs={3}",
+                            recId, protoBearingCount, protoLessCoverageCount, drawnCount));
+                });
+        }
+
+        private bool PassesUnaccountedRateLimit(string recId, double realtime)
+        {
+            if (string.IsNullOrEmpty(recId))
+                return false;
+            double last;
+            if (lastUnaccountedEmitRealtime.TryGetValue(recId, out last)
+                && realtime - last < UnaccountedAnomalyMinIntervalSeconds)
+                return false;
+            lastUnaccountedEmitRealtime[recId] = realtime;
+            return true;
         }
 
         private void Sample(

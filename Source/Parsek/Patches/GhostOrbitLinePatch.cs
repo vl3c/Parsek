@@ -170,6 +170,17 @@ namespace Parsek.Patches
                 // once the Director re-establishes a StockConic drive (the hyperbolic).
                 if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(pid, Time.frameCount))
                     GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+
+                // Phase 8e S0 Instrument 2 (PURELY ADDITIVE): this proto-bearing StockConic ghost took
+                // the no-bounds legacy icon floor (stock propagates at the live clock; the Director did
+                // not own the icon). Count it so S2 can prove the floor is dead before deleting it. Only
+                // under the gate (gate-off is the only-path case) + only in tracing mode. NO behavior
+                // change - the return true above stands.
+                if (MapRenderTrace.IsEnabled
+                    && ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive)
+                    Parsek.MapRender.IconFloorGapCounter.NoteLegacyFloor(
+                        pid, Parsek.MapRender.IconFloorGapCounter.FloorReason.NoBounds);
+
                 return true;
             }
 
@@ -275,6 +286,20 @@ namespace Parsek.Patches
                         pid, fresh, directorDriveActive, Time.frameCount, liveDriveUT, driveUT, shift,
                         directorDriveActive ? dirSeg.epoch + shift : double.NaN, dirBody ?? "-"),
                     1.0);
+
+                // Phase 8e S0 Instrument 2 (PURELY ADDITIVE): gate is ON and recorded bounds exist, but
+                // the Director did NOT drive this icon (directorDriveActive == false) - so the legacy
+                // effUT floor (propagateUT = driveUT) runs below. Count it, tagged by the observable
+                // reason: a fresh seed whose body didn't resolve (UnresolvableSeedBody) vs no fresh seed
+                // at all (NoFreshSeed - a re-aim trim gap folds in here). seedBodyResolved == the
+                // directorDriveActive flag (it is the only thing that flips it true). Tracing-gated;
+                // measurement only - the legacy propagation below is unchanged.
+                if (MapRenderTrace.IsEnabled && !directorDriveActive)
+                    Parsek.MapRender.IconFloorGapCounter.NoteLegacyFloor(
+                        pid,
+                        Parsek.MapRender.IconFloorGapCounter.Classify(
+                            gateOn: true, hasBounds: true, freshSeed: fresh,
+                            seedBodyResolved: directorDriveActive));
             }
 
             // Replicate stock OrbitDriver.updateFromParameters(bool) verbatim, but propagate at the

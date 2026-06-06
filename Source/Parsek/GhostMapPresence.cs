@@ -920,6 +920,46 @@ namespace Parsek
         /// </summary>
         private static readonly Dictionary<uint, string> vesselPidToRecordingId = new Dictionary<uint, string>();
 
+        // ---- Phase 8e S0: coverage-closure accounting (PURELY ADDITIVE diagnostics) ----
+        // These two per-frame RecordingId-keyed sets let the MapRenderProbe prove, before any
+        // legacy deletion, that the Director's accounted set is a SUPERSET of what the autonomous
+        // polyline walk actually draws. Both are populated by the polyline Driver's per-frame decide
+        // walk (the ONLY producer) and cleared each frame at the top of that walk; the probe reads
+        // them at end-of-frame (exec-order 10000, same frame, after the -50 decide pass). They are
+        // purely instrumentation: nothing in the live render/draw path reads them. Gated by the
+        // Driver on MapRenderTrace.IsEnabled so default play never populates them.
+
+        /// <summary>
+        /// S0 Instrument 1 (DRAWN set, RecordingId domain): every committed recording the autonomous
+        /// polyline walk decided to draw a non-orbital leg for THIS frame (the will-draw == actual-draw
+        /// set the <c>PendingLegDraw</c> queue is built from). Populated by
+        /// <see cref="NoteDrawnRecordingCoverage"/> from the Driver's decide walk; cleared by
+        /// <see cref="ClearFrameCoverageSets"/> at the top of every Driver LateUpdate. The probe iterates
+        /// this set to assert each drawn recording is ACCOUNTED. Diagnostic-only.
+        /// </summary>
+        private static readonly HashSet<string> drawnRecordingIdsThisFrame =
+            new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// S0 Instrument 1 (proto-less COVERAGE set, RecordingId domain): the subset of
+        /// <see cref="drawnRecordingIdsThisFrame"/> whose committed recording has NO ProtoVessel ghost
+        /// (<see cref="GetGhostVesselPidForRecording"/> == 0) - i.e. the pid-0 atmospheric/ascent
+        /// recordings the Director's enumerated <see cref="ghostMapVesselPids"/> set cannot see, drawn
+        /// ONLY by the autonomous <c>CommittedRecordings</c> walk. This is the Director's GENUINE
+        /// accounting of those recordings via the non-proto path (it acknowledges "this proto-less
+        /// recording is being rendered"). NOT "all committed recordings": a proto-BEARING drawn recording
+        /// is deliberately excluded here (it is accounted via the pid bridge instead), so the assertion
+        /// stays non-vacuous. Populated + cleared on the same lifecycle as the drawn set. Diagnostic-only.
+        /// </summary>
+        private static readonly HashSet<string> protoLessCoverageRecordingIdsThisFrame =
+            new HashSet<string>(StringComparer.Ordinal);
+
+        // Scratch holding the proto-bearing RecordingId set built once per assertion pass from the live
+        // vesselPidToRecordingId values, so the per-drawn-recording check is O(1). Reused (cleared, not
+        // re-allocated) to keep the gated path allocation-light.
+        private static readonly HashSet<string> protoBearingRecordingIdScratch =
+            new HashSet<string>(StringComparer.Ordinal);
+
         /// <summary>
         /// Orbit segment time bounds per ghost vessel PID. Used by GhostOrbitArcPatch
         /// to clip the orbit line to only the visible arc (between segment startUT and endUT).
@@ -9089,6 +9129,136 @@ namespace Parsek
             return GetNewestOverlapInstancePidForRecording(recordingIndex);
         }
 
+        // ---- Phase 8e S0 Instrument 1: coverage-closure accounting (PURELY ADDITIVE) ----
+
+        /// <summary>
+        /// Clears this frame's coverage-closure sets. Called by the polyline Driver at the TOP of every
+        /// LateUpdate decide walk (the same lifecycle the ownership-publish sets clear on) so the sets
+        /// reflect ONLY the recordings the walk drew this frame. Diagnostic-only; nothing in the live
+        /// render path reads these.
+        /// </summary>
+        internal static void ClearFrameCoverageSets()
+        {
+            drawnRecordingIdsThisFrame.Clear();
+            protoLessCoverageRecordingIdsThisFrame.Clear();
+        }
+
+        /// <summary>
+        /// Records that the autonomous polyline walk decided to DRAW a non-orbital leg for
+        /// <paramref name="recordingId"/> this frame (the will-draw == actual-draw signal). When
+        /// <paramref name="ghostPid"/> is 0 the recording has NO ProtoVessel ghost (pid-0
+        /// atmospheric/ascent), so it is ALSO added to the proto-less coverage set - the Director's
+        /// genuine accounting of a recording its enumerated <see cref="ghostMapVesselPids"/> set cannot
+        /// see. Called from the Driver's decide walk, already gated by the Driver on
+        /// <see cref="MapRenderTrace.IsEnabled"/>. Diagnostic-only; no render/draw effect.
+        /// </summary>
+        internal static void NoteDrawnRecordingCoverage(string recordingId, uint ghostPid)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return;
+            drawnRecordingIdsThisFrame.Add(recordingId);
+            // pid 0 => no proto vessel => the Director's enumerated set (ghostMapVesselPids) misses it;
+            // the non-proto polyline path is the ONLY thing rendering it, so account for it here. A
+            // proto-BEARING recording is intentionally NOT added (it is accounted via the pid bridge),
+            // which keeps the assertion non-vacuous.
+            if (ghostPid == 0)
+                protoLessCoverageRecordingIdsThisFrame.Add(recordingId);
+        }
+
+        /// <summary>
+        /// PURE accounting predicate (S0 Instrument 1): is a DRAWN recording ACCOUNTED FOR by the
+        /// Director's coverage? Expressed entirely in the RecordingId domain (the draw domain). A drawn
+        /// recording is accounted when EITHER it maps to a proto-bearing ghost pid (the Director's
+        /// enumerated <see cref="ghostMapVesselPids"/> set, bridged back to RecordingIds via
+        /// <see cref="vesselPidToRecordingId"/>) OR it is in the proto-less coverage set (the non-proto
+        /// path's accounting). A drawn recording in NEITHER is the deletion-blocker: the autonomous walk
+        /// drew it but the Director's accounted set does not cover it, so deleting the legacy ownership
+        /// would silently drop it. Unit-testable (no Unity / no live state - all three inputs are
+        /// passed in), so it can FIRE for a genuinely-unaccounted recording and PASS for an accounted one.
+        /// </summary>
+        internal static bool IsDrawnRecordingAccounted(
+            string drawnRecordingId,
+            ICollection<string> protoBearingRecordingIds,
+            ICollection<string> protoLessCoverageRecordingIds)
+        {
+            if (string.IsNullOrEmpty(drawnRecordingId))
+                return true; // a null/empty id is not a real drawn recording; never flag it
+            if (protoBearingRecordingIds != null && protoBearingRecordingIds.Contains(drawnRecordingId))
+                return true;
+            if (protoLessCoverageRecordingIds != null
+                && protoLessCoverageRecordingIds.Contains(drawnRecordingId))
+                return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Runs the S0 coverage-closure assertion over this frame's drawn-recording set, invoking
+        /// <paramref name="onUnaccounted"/> once per drawn recording that is NEITHER proto-bearing NOR in
+        /// the proto-less coverage set. Builds the proto-bearing RecordingId set ONCE (from the live
+        /// <see cref="vesselPidToRecordingId"/> values - the Director's enumerated pid set bridged to the
+        /// RecordingId domain) so the per-recording check is O(1). The callback receives
+        /// <c>(recordingId, protoBearingCount, protoLessCoverageCount, drawnCount)</c> for the anomaly
+        /// line. Diagnostic-only; the caller gates on <see cref="MapRenderTrace.IsEnabled"/>. No-ops when
+        /// nothing drew this frame.
+        /// </summary>
+        internal static void AssertDrawnRecordingsAccounted(
+            System.Action<string, int, int, int> onUnaccounted)
+        {
+            if (drawnRecordingIdsThisFrame.Count == 0)
+                return;
+
+            // Bridge the proto-bearing pids back into the RecordingId DOMAIN (the draw domain). Comparing
+            // a pid-0 recording against a pid SET would always report "absent" - the task's explicit
+            // false-positive trap. The values of vesselPidToRecordingId ARE the proto-bearing RecordingIds.
+            protoBearingRecordingIdScratch.Clear();
+            foreach (var kv in vesselPidToRecordingId)
+                if (!string.IsNullOrEmpty(kv.Value))
+                    protoBearingRecordingIdScratch.Add(kv.Value);
+
+            foreach (string recId in drawnRecordingIdsThisFrame)
+            {
+                if (IsDrawnRecordingAccounted(
+                        recId, protoBearingRecordingIdScratch, protoLessCoverageRecordingIdsThisFrame))
+                    continue;
+                onUnaccounted?.Invoke(
+                    recId,
+                    protoBearingRecordingIdScratch.Count,
+                    protoLessCoverageRecordingIdsThisFrame.Count,
+                    drawnRecordingIdsThisFrame.Count);
+            }
+        }
+
+        /// <summary>Test-only seam: stamp this frame's drawn / proto-less coverage sets so
+        /// <see cref="AssertDrawnRecordingsAccounted"/> and the pid-bridge can be exercised end-to-end
+        /// from xUnit (the real producer is the Unity-coupled Driver walk). Mirrors the live
+        /// <see cref="NoteDrawnRecordingCoverage"/> semantics.</summary>
+        internal static void SetFrameCoverageForTesting(string recordingId, bool drawn, bool protoLess)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return;
+            if (drawn) drawnRecordingIdsThisFrame.Add(recordingId);
+            else drawnRecordingIdsThisFrame.Remove(recordingId);
+            if (protoLess) protoLessCoverageRecordingIdsThisFrame.Add(recordingId);
+            else protoLessCoverageRecordingIdsThisFrame.Remove(recordingId);
+        }
+
+        /// <summary>Test-only seam: stamp the proto-bearing pid bridge (pid -> recordingId) so the
+        /// assertion's RecordingId-domain bridge can be exercised from xUnit.</summary>
+        internal static void SetProtoBearingPidForTesting(uint pid, string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) vesselPidToRecordingId.Remove(pid);
+            else vesselPidToRecordingId[pid] = recordingId;
+        }
+
+        /// <summary>Test-only: clear all S0 coverage-closure state (the two frame sets + the scratch),
+        /// so a test starts from a known-empty accounting.</summary>
+        internal static void ResetCoverageSetsForTesting()
+        {
+            drawnRecordingIdsThisFrame.Clear();
+            protoLessCoverageRecordingIdsThisFrame.Clear();
+            protoBearingRecordingIdScratch.Clear();
+        }
+
         internal static bool TryGetCommittedRecordingById(
             string recordingId,
             out int recordingIndex,
@@ -9363,6 +9533,7 @@ namespace Parsek
             overlapInstanceVessels.Clear();
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
+            ResetCoverageSetsForTesting();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
             activeReFlyDeferredStateVectorGhostSessions.Clear();
