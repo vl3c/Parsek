@@ -115,6 +115,104 @@ namespace Parsek.Display
             new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
+        /// Marker ride-robustness (pan-stability): the last on-line position the marker successfully
+        /// rode for a recording, kept so a TRANSIENT ride dropout (the leg was not drawn this frame -
+        /// the dominant case during an active map-camera pan - or the head sits in an inter-leg gap
+        /// inside the recording's overall span) holds the marker on the line instead of snapping to the
+        /// body-fixed head. Stamped on every successful <c>RodeLeg</c> in
+        /// <see cref="TryAnchorMarkerToPolyline(string,double,out Vector3,out MapRenderTrace.MarkerRideReason,out int)"/>;
+        /// consumed by <see cref="TryHoldLastGood"/>, which bounds it by frame-age + head-UT delta so a
+        /// genuine orbital-phase exit (head past the last leg, or a long stall) still falls through to
+        /// the deep fallback. Cleared with the ownership sets in <see cref="Clear"/>, per-recording in
+        /// <see cref="ReleaseForRecording"/>, and on scene switch via the Driver's HandleLevelWasLoaded.
+        /// </summary>
+        private struct LastGoodOnLine
+        {
+            public Vector3 worldPos;
+            public double headUT;
+            public int frame;
+            public int legIndex;
+        }
+
+        private static readonly Dictionary<string, LastGoodOnLine> lastGoodOnLine =
+            new Dictionary<string, LastGoodOnLine>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Max frames a held last-good on-line position stays valid after the last successful ride. At
+        /// 8 frames a transient pan dropout (typically a single frame, occasionally a short run) is
+        /// covered, while a sustained stall (line genuinely stopped drawing) expires the hold and the
+        /// marker falls through to the body-fixed head.
+        /// </summary>
+        internal const int LastGoodMaxFrameAge = 8;
+
+        /// <summary>
+        /// Max head-UT delta (seconds) between the live head and the cached head for the held position
+        /// to remain valid. Bounds the spatial error of holding a stale on-line point: a head that has
+        /// advanced more than a few seconds of recorded time is no longer near the cached point, so the
+        /// hold expires rather than glue the marker to a now-distant spot.
+        /// </summary>
+        internal const double LastGoodMaxHeadUtDeltaSeconds = 5.0;
+
+        /// <summary>
+        /// Pure: does a fresh, near-UT last-good on-line position exist for this recording? Returns true
+        /// (and the held world position + leg index) when a cached entry exists, is within
+        /// <see cref="LastGoodMaxFrameAge"/> frames, and the live head is within
+        /// <see cref="LastGoodMaxHeadUtDeltaSeconds"/> of the cached head. False (deep fallback) when no
+        /// cache entry, the entry is stale by frame, or the head has moved too far in UT. xUnit-testable
+        /// (no Unity calls); the cache is seeded via the dictionary the ride path stamps.
+        /// </summary>
+        private static bool TryHoldLastGood(
+            string recordingId, double headUT, int frame, out Vector3 worldPos, out int legIndex)
+        {
+            worldPos = Vector3.zero;
+            legIndex = -1;
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            if (!lastGoodOnLine.TryGetValue(recordingId, out var lg)) return false;
+            if (frame - lg.frame > LastGoodMaxFrameAge) return false;
+            if (System.Math.Abs(headUT - lg.headUT) > LastGoodMaxHeadUtDeltaSeconds) return false;
+            worldPos = lg.worldPos;
+            legIndex = lg.legIndex;
+            return true;
+        }
+
+        /// <summary>
+        /// Pure classifier: is the head inside the recording's overall leg span (between the first leg's
+        /// start and the last leg's end) yet outside every individual leg - i.e. in an inter-leg GAP
+        /// (e.g. a connector/deorbit seam between two drawn legs)? Distinguishes the held-hold case (gap
+        /// inside the span) from a genuine orbital-phase exit (head before the first leg or past the last
+        /// leg), which must fall through to the deep fallback. xUnit-testable without Unity.
+        /// </summary>
+        internal static bool IsHeadInInterLegGap(
+            double firstStartUT, double lastEndUT, double headUT)
+            => headUT >= firstStartUT && headUT <= lastEndUT;
+
+        /// <summary>
+        /// Test-only seam: stamps the last-good on-line cache the ride path populates so
+        /// <see cref="TryHoldLastGood"/> can be exercised from xUnit (the ride itself needs Unity to
+        /// compute the world position). Cleared by <see cref="Clear"/>.
+        /// </summary>
+        internal static void SetLastGoodOnLineForTesting(
+            string recordingId, Vector3 worldPos, double headUT, int frame, int legIndex)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            lastGoodOnLine[recordingId] = new LastGoodOnLine
+            {
+                worldPos = worldPos,
+                headUT = headUT,
+                frame = frame,
+                legIndex = legIndex
+            };
+        }
+
+        /// <summary>
+        /// Test-only query of <see cref="TryHoldLastGood"/> (which is private because the live ride path
+        /// is the only caller). Lets the xUnit suite assert the frame-age + head-UT bounds.
+        /// </summary>
+        internal static bool TryHoldLastGoodForTesting(
+            string recordingId, double headUT, int frame, out Vector3 worldPos, out int legIndex)
+            => TryHoldLastGood(recordingId, headUT, frame, out worldPos, out legIndex);
+
+        /// <summary>
         /// PURE ownership dispatch (8b.2): which published set is authoritative for "the polyline owns
         /// this recording's non-orbital phase". Unit-testable without Unity (the gate + both membership
         /// bits are passed in).
@@ -361,6 +459,9 @@ namespace Parsek.Display
             if (string.IsNullOrEmpty(recordingId)) return;
             if (polylineCache.TryGetValue(recordingId, out var set))
                 DestroyLegLines(set.legs);
+            // Drop the marker hold for this recording so a reused RecordingId (supersede / delete +
+            // re-add) never inherits a stale held on-line point.
+            lastGoodOnLine.Remove(recordingId);
             if (polylineCache.Remove(recordingId))
             {
                 ParsekLog.Verbose(Tag,
@@ -384,6 +485,9 @@ namespace Parsek.Display
             // every LateUpdate, so this is belt-and-suspenders in normal play and the reset hook in tests.
             activeLegRecordings.Clear();
             directorOwnedLegRecordings.Clear();
+            // Drop the marker hold cache on the same cross-save / test-reset lifecycle as the ownership
+            // sets so a stale held on-line point never survives a save load or a scene switch.
+            lastGoodOnLine.Clear();
             if (polylineCache.Count == 0) return;
             int dropped = polylineCache.Count;
             foreach (var kvp in polylineCache)
@@ -449,6 +553,23 @@ namespace Parsek.Display
         /// </summary>
         internal static bool ShouldDrawLegOwnedByTreatment(bool directorOwnsTracedPath)
             => directorOwnsTracedPath;
+
+        /// <summary>
+        /// Pan-stability split predicate (FIX 1): WILL this leg draw this frame? The Driver's decide
+        /// pass (at <c>[DefaultExecutionOrder(-50)]</c>) publishes leg ownership BEFORE the actual point
+        /// recompute + <c>Draw3D</c> moves to the post-camera-pan <c>Camera.onPreCull</c> slot, so the
+        /// ownership publish can no longer key on the real draw return. This mirrors <see cref="TryDrawLeg"/>'s
+        /// only NON-degenerate early returns: the body must be resolved (the body-null skip lives at the
+        /// decide-pass call site, which <c>continue</c>s before reaching here) and the leg must carry at
+        /// least two points (<c>m &lt; 2</c> skip). The lazy VectorLine-inflate-failure path
+        /// (<c>BuildLegVectorLine</c> returns null) is treated as will-draw for ownership purposes: it is
+        /// effectively never hit in map view, and keeping the predicate the exact mirror of the
+        /// non-degenerate returns means will-draw == actual-draw for every real leg, so the order-0
+        /// <c>GhostOrbitLinePatch</c> still observes "polyline owns this phase iff a leg draws" with no
+        /// decision-without-draw gap. Pure; xUnit-testable without Unity.
+        /// </summary>
+        internal static bool WillLegDraw(int pointCount, bool bodyResolved)
+            => bodyResolved && pointCount >= 2;
 
         /// <summary>
         /// Diagnostic: body-relative WORLD longitude (degrees, atan2(z,x) in Y-up world axes) of a
@@ -820,12 +941,22 @@ namespace Parsek.Display
                     || leg.recordedUTs == null || leg.recordedUTs.Length != m)
                 {
                     rideReason = MapRenderTrace.MarkerRideReason.FallbackMissingRecordedUTs;
-                    return false; // missing recorded-UT / scratch arrays -> cannot bracket
+                    return false; // missing recorded-UT / scratch arrays -> cannot bracket (hard fallback)
                 }
                 if (leg.lastDrawnFrame != frame)
                 {
+                    // TRANSIENT dropout (the dominant active-pan case): the leg matched the head but was
+                    // not drawn this frame, so its scratch is stale. Instead of snapping to the body-fixed
+                    // head, hold the last on-line position if it is still fresh + near in UT. This keeps the
+                    // marker glued to the smoothly-redrawn line during a pan; a sustained stall expires the
+                    // hold (frame-age / UT bound) and falls through.
+                    if (TryHoldLastGood(recordingId, headUT, frame, out worldPos, out legIndex))
+                    {
+                        rideReason = MapRenderTrace.MarkerRideReason.HeldLastGood;
+                        return true;
+                    }
                     rideReason = MapRenderTrace.MarkerRideReason.FallbackLegNotDrawnThisFrame;
-                    return false; // not drawn this frame -> scratch is stale -> keep the body-fixed head
+                    return false;
                 }
 
                 // Bracket headUT between two recorded sample UTs and lerp the drawn (anchored) points.
@@ -842,7 +973,32 @@ namespace Parsek.Display
                 worldPos = (Vector3)ScaledSpace.ScaledToLocalSpace(scaled);
                 rideReason = MapRenderTrace.MarkerRideReason.RodeLeg;
                 legIndex = li;
+                // Stamp the last-good cache so a transient ride dropout (active pan / inter-leg gap) can
+                // hold this on-line position instead of snapping to the body-fixed head.
+                lastGoodOnLine[recordingId] = new LastGoodOnLine
+                {
+                    worldPos = worldPos,
+                    headUT = headUT,
+                    frame = frame,
+                    legIndex = li
+                };
                 return true;
+            }
+
+            // Head matched no leg's [start,end]. If it sits in an inter-leg GAP inside the recording's
+            // overall span (a connector/deorbit seam between two drawn legs - the case that otherwise
+            // starves a leg of its icon), hold the last on-line position. A head BEFORE the first leg or
+            // PAST the last leg is a genuine orbital-phase exit and must fall through to the deep fallback.
+            if (set.legs.Length > 0)
+            {
+                double firstStartUT = set.legs[0].startUT;
+                double lastEndUT = set.legs[set.legs.Length - 1].endUT;
+                if (IsHeadInInterLegGap(firstStartUT, lastEndUT, headUT)
+                    && TryHoldLastGood(recordingId, headUT, frame, out worldPos, out legIndex))
+                {
+                    rideReason = MapRenderTrace.MarkerRideReason.HeldLastGood;
+                    return true;
+                }
             }
             return false;
         }
@@ -1563,6 +1719,51 @@ namespace Parsek.Display
                 new Dictionary<string, CelestialBody>(StringComparer.Ordinal);
             private GameScenes bodyMapScene = (GameScenes)(-1);
 
+            // ----------------------------------------------------------------
+            // Pan-stability draw split (FIX 1)
+            //
+            // The polyline mesh is baked by Vectrosity's Draw3D() against
+            // PlanetariumCamera.Camera's CURRENT matrix. At [DefaultExecutionOrder(-50)]
+            // the decide pass runs BEFORE the map camera commits its pan for the
+            // frame, so a Draw3D() here lags the camera by one frame during an
+            // active pan (the line wobbles, settling when the pan stops). To fix
+            // that WITHOUT disturbing the ownership-publish-at--50 contract that
+            // GhostOrbitLinePatch (order 0) depends on, the per-frame decide
+            // (ownership publish + head-UT gate + body resolve) stays at -50 and
+            // ONLY the point-recompute + Draw3D + deactivation sweep move to a
+            // Camera.onPreCull pass filtered to the map camera (the proven repo
+            // slot - ParsekFlight.OnCameraPreCull - with a hard "after every
+            // LateUpdate" guarantee, so it sees the committed pan).
+            //
+            // The decide pass enqueues a PendingLegDraw per will-draw leg; the
+            // onPreCull pass dequeues them and runs the real TryDrawLeg /
+            // TryDrawOwnedLeg + the deactivation sweep. Both read only frame-stable
+            // cached state (polylineCache, body transforms, ScaledSpace scale),
+            // none camera-dependent, so they are safe in the later slot.
+            // ----------------------------------------------------------------
+            private struct PendingLegDraw
+            {
+                public string recordingId;   // polylineCache key
+                public int legIndex;         // index into set.legs
+                public CelestialBody body;   // resolved in the decide pass
+                public Recording rec;        // for the conic anchor
+                public bool ownedByTreatment;
+                public uint ghostPid;        // for TryDrawOwnedLeg
+            }
+            private readonly List<PendingLegDraw> pendingDraws = new List<PendingLegDraw>();
+            private int pendingDrawsFrame = -1;
+            // De-dupe: onPreCull can fire more than once per frame (multiple
+            // cameras), but the map camera filter + this frame guard keep the
+            // draw pass to exactly one run per frame.
+            private int precullDrawnFrame = -1;
+            // The target layer the decide pass resolved; carried so the onPreCull
+            // draw pass uses the identical value without re-deriving it.
+            private int pendingTargetLayer = 31;
+            // Diagnostic: legs the most recent onPreCull deactivation sweep hid.
+            // Read back by the next LateUpdate summary (the sweep no longer runs
+            // in LateUpdate).
+            private int lastSweepDeactivatedCount;
+
             void Awake()
             {
                 if (instance != null)
@@ -1574,6 +1775,10 @@ namespace Parsek.Display
                 DontDestroyOnLoad(gameObject);
                 GameEvents.onGameStateLoad.Add(OnGameStateLoad);
                 GameEvents.onLevelWasLoaded.Add(HandleLevelWasLoaded);
+                // Pan-stability (FIX 1): the actual point recompute + Draw3D run in this hook AFTER the
+                // map camera commits its pan, so the mesh no longer lags the camera by one frame. The
+                // decide pass (ownership publish + head-UT gate) stays at -50 in LateUpdate.
+                Camera.onPreCull += OnMapCameraPreCull;
                 ParsekLog.Verbose(DriverTag,
                     "GhostTrajectoryPolylineRenderer.Driver awake (DDOL singleton)");
             }
@@ -1585,6 +1790,7 @@ namespace Parsek.Display
                     instance = null;
                     GameEvents.onGameStateLoad.Remove(OnGameStateLoad);
                     GameEvents.onLevelWasLoaded.Remove(HandleLevelWasLoaded);
+                    Camera.onPreCull -= OnMapCameraPreCull;
                     ParsekLog.Verbose(DriverTag,
                         "GhostTrajectoryPolylineRenderer.Driver destroyed");
                 }
@@ -1611,6 +1817,16 @@ namespace Parsek.Display
                 cachedFlightController = null;
                 bodyMapScene = (GameScenes)(-1);
                 bodyByName.Clear();
+
+                // Flush the marker hold cache on every scene switch: a held on-line WORLD position from
+                // the previous scene must never glue a marker in the new scene. The per-frame deactivation
+                // sweep does not touch this cache (it is consumed in OnGUI, after the sweep), so flush it
+                // here on the same lifecycle as the controller / body-map drops. The pending-draw handoff
+                // is reset too so a half-decided frame from the prior scene cannot draw into the new one.
+                lastGoodOnLine.Clear();
+                pendingDraws.Clear();
+                pendingDrawsFrame = -1;
+                precullDrawnFrame = -1;
             }
 
             /// <summary>
@@ -1628,6 +1844,11 @@ namespace Parsek.Display
                 ParsekLog.Verbose(DriverTag,
                     "Polyline driver: onGameStateLoad -> Clear() (cross-save flush)");
                 Clear();
+                // Drop any half-decided draw handoff so the onPreCull pass cannot draw a freed leg into
+                // the next-loaded save before the next LateUpdate re-decides.
+                pendingDraws.Clear();
+                pendingDrawsFrame = -1;
+                precullDrawnFrame = -1;
             }
 
             void LateUpdate()
@@ -1641,6 +1862,13 @@ namespace Parsek.Display
                 // phase (both sets repopulate only on an actual draw this frame).
                 activeLegRecordings.Clear();
                 directorOwnedLegRecordings.Clear();
+
+                // Pan-stability (FIX 1): drop last frame's pending-draw handoff before any early return,
+                // so a frame that bails (wrong scene / not in map view / no controller) leaves nothing for
+                // the onPreCull pass to draw. The pending list is repopulated below only for legs that
+                // WILL draw this frame; the onPreCull pass keys on pendingDrawsFrame == Time.frameCount.
+                pendingDraws.Clear();
+                pendingDrawsFrame = -1;
 
                 // Scene gate: v1 ships TRACKSTATION + FLIGHT only (§1.1).
                 var scene = HighLogic.LoadedScene;
@@ -1827,47 +2055,45 @@ namespace Parsek.Display
                             continue;
                         }
 
-                        // Per-leg build + conic-anchor + VectorLine draw mechanics, extracted (Phase 8b.0)
-                        // into the scene-agnostic TryDrawLeg. It mutates leg in place
-                        // (line/scratch/lastDrawnFrame); the single write-back below persists that into
-                        // the cached array exactly as before.
-                        //
-                        // Phase 8b.1 (make-before-break): when the Director owns this ghost's CURRENT leg
-                        // as a TracedPath (directorOwnsTracedPath, the pid-keyed
-                        // IsDirectorTracedPathActive), route the draw through TracedPathTreatment instead
-                        // of the Driver's direct call - the treatment becomes the structural owner of the
-                        // non-orbital polyline leg. It draws via the SAME shared TryDrawLeg, so the bytes
-                        // are identical; the cutover is a routing flip, not a pixel change. The two paths
-                        // are MUTUALLY EXCLUSIVE per leg per frame (one if/else on the same shared
-                        // predicate the suppression patches read), so the leg is never drawn twice and
-                        // the stock proto is suppressed exactly when the treatment draws. Gate off / no
-                        // fresh TracedPath intent -> directorOwnsTracedPath is false -> the Driver-direct
-                        // path runs, byte-identical to today.
-                        //
-                        // Phase 8b.2 (ownership-signal authority): the OWNED path is now the AUTHORITATIVE
-                        // publisher of the "polyline owns this phase" signal for the legs it draws. When
-                        // the treatment actually draws (drawn=true), the recording is added to
-                        // directorOwnedLegRecordings (below the loop), which IsRenderingNonOrbitalLeg reads
-                        // first under the gate. CRUCIALLY the publish is keyed on the ACTUAL draw, not the
-                        // Director's decision: TryDrawOwnedLeg returns false on a degenerate leg (m<2) or a
-                        // head-in-gap frame, so the ownership signal can never claim a phase the polyline
-                        // did not actually draw (preserving 8b.1's actual-draw robustness - no invisible
-                        // gap). The legacy activeLegRecordings publish (below) still runs on EITHER path, so
-                        // gate-off is byte-identical and non-director-owned ghosts under the gate (pid-0 /
-                        // re-aim / overlap) still publish through the legacy set via the union in
-                        // ResolveNonOrbitalLegOwnership.
+                        // Phase 8b routing decision (unchanged): when the Director owns this ghost's CURRENT
+                        // leg as a TracedPath (directorOwnsTracedPath, the pid-keyed
+                        // IsDirectorTracedPathActive), the OWNED TracedPathTreatment path is the structural
+                        // owner of the leg; otherwise the Driver-direct path draws. Gate off / no fresh
+                        // TracedPath intent -> directorOwnsTracedPath is false -> Driver-direct, byte-identical.
                         bool ownedByTreatment = ShouldDrawLegOwnedByTreatment(directorOwnsTracedPath);
-                        bool legDrawn = ownedByTreatment
-                            ? Parsek.MapRender.TracedPathTreatment.TryDrawOwnedLeg(
-                                ref leg, rec, body, targetLayer, drawFrame, rec.RecordingId, li, ghostPid)
-                            : TryDrawLeg(ref leg, rec, body, targetLayer, drawFrame, rec.RecordingId, li);
-                        if (!legDrawn)
+
+                        // Pan-stability split (FIX 1): this decide pass runs at -50, BEFORE the map camera
+                        // commits its pan, so it does NOT call Draw3D here (that would lag the camera by a
+                        // frame). Instead it (a) decides will-draw via the pure WillLegDraw predicate - the
+                        // exact mirror of TryDrawLeg's non-degenerate early returns (body resolved + m>=2;
+                        // the body-null skip already continued above), (b) publishes ownership NOW on the
+                        // will-draw decision so the order-0 GhostOrbitLinePatch still sees "polyline owns
+                        // this phase" this frame, and (c) enqueues a PendingLegDraw the onPreCull pass
+                        // dequeues to run the actual point recompute + Draw3D AFTER the pan commits. The
+                        // VectorLine inflate + the set.legs[li]=leg write-back move with the draw into the
+                        // onPreCull pass (the struct is already in the array by reference; the decide pass
+                        // does not mutate it). Will-draw == actual-draw for every real leg, so there is no
+                        // decision-without-draw gap (see WillLegDraw + the single-biggest-risk note).
+                        bool willDraw = WillLegDraw(leg.PointCount, body != null);
+                        if (!willDraw)
                             continue;
-                        set.legs[li] = leg;
+
+                        pendingDraws.Add(new PendingLegDraw
+                        {
+                            recordingId = rec.RecordingId,
+                            legIndex = li,
+                            body = body,
+                            rec = rec,
+                            ownedByTreatment = ownedByTreatment,
+                            ghostPid = ghostPid
+                        });
                         anyDrawn = true;
-                        // The treatment OWNED + actually drew this leg: it is the authoritative publisher
-                        // (8b.2). Recorded once the recording's RecordingId is known; idempotent across
-                        // multiple owned legs of the same recording (HashSet).
+                        // Ownership publish on the will-draw decision (8b.2 semantics preserved: published
+                        // iff a leg will draw, which equals actual-draw for every non-degenerate leg).
+                        // The OWNED path remains the authoritative director-owned publisher; the legacy
+                        // activeLegRecordings publish (below the loop) still fires on EITHER path, so
+                        // gate-off is byte-identical and the union in ResolveNonOrbitalLegOwnership is
+                        // unchanged.
                         if (ownedByTreatment)
                             directorOwnedLegRecordings.Add(rec.RecordingId);
                     }
@@ -1956,30 +2182,15 @@ namespace Parsek.Display
                     }
                 }
 
-                // Deactivation sweep: hide any cached leg line NOT drawn this
-                // frame. Covers recording-level skips (suppressed / static /
-                // renderHidden, which continue before the per-leg draw), per-leg
-                // skips (body missing / fewer than 2 points), and recordings
-                // removed from CommittedRecordings entirely (e.g. user delete).
-                // Draw3D() is one-shot, so a line stays visible until explicitly
-                // deactivated. Only flips lines that are currently active, so the
-                // steady state where everything draws is a cheap scan.
-                int frameDeactivated = 0;
-                foreach (var kvp in polylineCache)
-                {
-                    var legs = kvp.Value.legs;
-                    if (legs == null) continue;
-                    for (int i = 0; i < legs.Length; i++)
-                    {
-                        var line = legs[i].vectorLine;
-                        if (line != null &&
-                            ShouldDeactivateLeg(line.active, legs[i].lastDrawnFrame, drawFrame))
-                        {
-                            line.active = false;
-                            frameDeactivated++;
-                        }
-                    }
-                }
+                // Pan-stability (FIX 1): hand the decided legs to the onPreCull draw pass. Stamp the
+                // frame + target layer LAST, after the full decide walk, so the onPreCull pass only fires
+                // when this LateUpdate ran to completion (early returns above leave pendingDrawsFrame=-1).
+                // The actual point recompute + Draw3D + the deactivation sweep run in OnMapCameraPreCull
+                // AFTER the map camera commits its pan. frameDeactivated below reports the PRIOR onPreCull
+                // pass's sweep count (the sweep no longer runs in LateUpdate); it is a diagnostic only.
+                pendingTargetLayer = targetLayer;
+                pendingDrawsFrame = drawFrame;
+                int frameDeactivated = lastSweepDeactivatedCount;
 
                 ParsekLog.VerboseRateLimited(DriverTag, "polyline.frame.summary",
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -2013,6 +2224,83 @@ namespace Parsek.Display
                                 sceneForLog, drawnCount, TimeWarp.CurrentRate, string.Join(",", drawnIds.ToArray()));
                         });
                 }
+            }
+
+            /// <summary>
+            /// Pan-stability draw pass (FIX 1). Runs from <c>Camera.onPreCull</c> filtered to the map
+            /// camera, AFTER every LateUpdate (so the map camera has committed its pan for the frame) and
+            /// AFTER the -50 decide pass enqueued this frame's will-draw legs. Dequeues each
+            /// <see cref="PendingLegDraw"/> and runs the actual point recompute + conic-anchor +
+            /// <c>Draw3D</c> via the SAME shared <see cref="TryDrawLeg"/> / <c>TryDrawOwnedLeg</c> the
+            /// Driver used inline before; the only change is the SLOT, so the drawn bytes are identical.
+            /// The deactivation sweep moves here too, so it observes <c>lastDrawnFrame == frame</c> for
+            /// legs drawn this frame. <c>lastDrawnFrame</c> is stamped here, still BEFORE OnGUI, so the
+            /// marker ride's "drawn this frame" guard keeps working. Reads only frame-stable cached state
+            /// (none camera-dependent), so it is safe in this later slot.
+            /// </summary>
+            private void OnMapCameraPreCull(Camera cam)
+            {
+                // Map camera filter: PlanetariumCamera.Camera is the only camera whose committed matrix
+                // Draw3D bakes against in map view. Other cameras (UI / scaled / shadow) must not trigger
+                // the draw pass, and the per-frame guard de-dupes if onPreCull fires more than once.
+                if (PlanetariumCamera.fetch == null || cam != PlanetariumCamera.Camera) return;
+                int frame = Time.frameCount;
+                if (pendingDrawsFrame != frame) return; // nothing decided this frame (early-returned LateUpdate)
+                if (precullDrawnFrame == frame) return;  // already drew this frame
+                precullDrawnFrame = frame;
+
+                int drawn = 0;
+                for (int i = 0; i < pendingDraws.Count; i++)
+                {
+                    var p = pendingDraws[i];
+                    if (string.IsNullOrEmpty(p.recordingId)) continue;
+                    if (!polylineCache.TryGetValue(p.recordingId, out var set) || set.legs == null) continue;
+                    if (p.legIndex < 0 || p.legIndex >= set.legs.Length) continue;
+                    var leg = set.legs[p.legIndex];
+                    bool legDrawn = p.ownedByTreatment
+                        ? Parsek.MapRender.TracedPathTreatment.TryDrawOwnedLeg(
+                            ref leg, p.rec, p.body, pendingTargetLayer, frame, p.recordingId, p.legIndex, p.ghostPid)
+                        : TryDrawLeg(
+                            ref leg, p.rec, p.body, pendingTargetLayer, frame, p.recordingId, p.legIndex);
+                    // Persist the lazily-inflated line + the lastDrawnFrame stamp back into the cached
+                    // array (set.legs is the same array reference the dict holds).
+                    set.legs[p.legIndex] = leg;
+                    if (legDrawn) drawn++;
+                }
+                pendingDraws.Clear();
+
+                // Deactivation sweep MOVES here so it runs in the same slot as the draws: a leg drawn
+                // this frame has lastDrawnFrame == frame and is NOT hidden, while any cached leg not
+                // drawn this frame (recording-level skip, head-UT gate, body missing, removed recording)
+                // is hidden. Draw3D() is one-shot, so a line stays visible until explicitly deactivated.
+                lastSweepDeactivatedCount = RunDeactivationSweep(frame);
+            }
+
+            /// <summary>
+            /// Hides every cached leg line NOT drawn this frame (currently active but
+            /// <c>lastDrawnFrame != frame</c>) via the pure <see cref="ShouldDeactivateLeg"/> contract.
+            /// Returns the count hidden (diagnostic). Only flips currently-active lines, so the steady
+            /// state where everything draws is a cheap scan.
+            /// </summary>
+            private int RunDeactivationSweep(int frame)
+            {
+                int deactivated = 0;
+                foreach (var kvp in polylineCache)
+                {
+                    var legs = kvp.Value.legs;
+                    if (legs == null) continue;
+                    for (int i = 0; i < legs.Length; i++)
+                    {
+                        var line = legs[i].vectorLine;
+                        if (line != null &&
+                            ShouldDeactivateLeg(line.active, legs[i].lastDrawnFrame, frame))
+                        {
+                            line.active = false;
+                            deactivated++;
+                        }
+                    }
+                }
+                return deactivated;
             }
 
             /// <summary>

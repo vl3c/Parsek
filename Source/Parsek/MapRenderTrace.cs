@@ -237,6 +237,14 @@ namespace Parsek
 
             /// <summary>Fallback: no polyline cache entry for this recording id.</summary>
             FallbackNoCache = 5,
+
+            /// <summary>
+            /// Held the last-good on-line position across a transient ride dropout (the leg was not
+            /// drawn this frame, e.g. during an active map-camera pan, or the head sits in an
+            /// inter-leg gap inside the recording's overall span). Keeps the marker glued to the line
+            /// instead of snapping to the body-fixed head; bounded by frame-age + head-UT delta.
+            /// </summary>
+            HeldLastGood = 6,
         }
 
         internal static string MarkerRideReasonToken(MarkerRideReason reason, int legIndex)
@@ -248,6 +256,7 @@ namespace Parsek
                 case MarkerRideReason.FallbackHeadOutsideLegs: return "fallback-head-outside-legs";
                 case MarkerRideReason.FallbackMissingRecordedUTs: return "fallback-missing-recordedUTs";
                 case MarkerRideReason.FallbackNoCache: return "fallback-no-cache";
+                case MarkerRideReason.HeldLastGood: return "held-last-good-leg" + legIndex.ToString(CultureInfo.InvariantCulture);
                 default: return "not-attempted";
             }
         }

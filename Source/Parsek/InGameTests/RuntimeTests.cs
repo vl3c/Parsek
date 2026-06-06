@@ -9725,6 +9725,69 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Marker pan-stability (FIX 2): a TRANSIENT ride dropout (the head's leg matched but was not
+        /// drawn THIS frame - the dominant case while the map camera is actively panning) holds the last
+        /// on-line position instead of snapping to the body-fixed head. Seeds the polyline cache for a
+        /// recording (a fresh refresh leaves every leg's lastDrawnFrame=0, so a query at the live frame
+        /// takes the not-drawn-this-frame branch) plus a fresh last-good entry, then asserts
+        /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(string,double,out UnityEngine.Vector3,out MapRenderTrace.MarkerRideReason,out int)"/>
+        /// returns the held position with reason HeldLastGood. xUnit cannot reach this end-to-end
+        /// (Time.frameCount + the live cache); the freshness bounds are covered by the pure unit tests.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "TryAnchorMarkerToPolyline holds last-good on-line position across a transient dropout (FIX 2)")]
+        public void GhostTrajectoryPolyline_MarkerHoldsLastGoodAcrossDropout()
+        {
+            const string recId = "ingame-marker-hold-1";
+            Parsek.Display.GhostTrajectoryPolylineRenderer.ReleaseForRecording(recId);
+
+            var rec = new Recording { RecordingId = recId };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 600.0,
+                frames = new System.Collections.Generic.List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = -0.1, longitude = -74.5, altitude = 70.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                    new TrajectoryPoint { ut = 200.0, latitude = -0.05, longitude = -74.5, altitude = 20000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                    new TrajectoryPoint { ut = 600.0, latitude = 0.0, longitude = -74.5, altitude = 100000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                },
+                checkpoints = new System.Collections.Generic.List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 10f,
+            });
+
+            try
+            {
+                // Populate the cache (fresh refresh -> every leg lastDrawnFrame=0, so a live-frame query
+                // hits the not-drawn-this-frame branch with a head inside the leg span).
+                Parsek.Display.GhostTrajectoryPolylineRenderer.RefreshForRecording(rec);
+
+                double headUT = 300.0; // inside the leg [100,600]
+                var heldPos = new Vector3(11f, 22f, 33f);
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                    recId, heldPos, headUT, Time.frameCount, /*legIndex*/ 0);
+
+                bool rode = Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                    recId, headUT, out Vector3 outPos,
+                    out MapRenderTrace.MarkerRideReason reason, out int legIndex);
+
+                InGameAssert.IsTrue(rode, "marker must ride (held) when a fresh last-good exists and the leg was not drawn this frame");
+                InGameAssert.IsTrue(reason == MapRenderTrace.MarkerRideReason.HeldLastGood,
+                    "ride reason must be HeldLastGood on a transient dropout, not a fallback");
+                InGameAssert.AreEqual(0, legIndex, "held leg index must be the cached one");
+                InGameAssert.IsTrue(outPos == heldPos, "held marker position must be the cached on-line position");
+            }
+            finally
+            {
+                Parsek.Display.GhostTrajectoryPolylineRenderer.ReleaseForRecording(recId);
+            }
+        }
+
+        /// <summary>
         /// Phase 8b.2 ownership-signal authority, end-to-end through the LIVE gate
         /// (<see cref="ParsekSettings.Current"/>) which xUnit cannot read. Asserts that
         /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg"/> - the
