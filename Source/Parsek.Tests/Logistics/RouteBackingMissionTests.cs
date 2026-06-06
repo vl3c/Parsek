@@ -388,5 +388,38 @@ namespace Parsek.Tests.Logistics
             Mission mission = RouteBackingMission.BuildMission(null, 100.0);
             Assert.Null(mission);
         }
+
+        // catches: a regression where BuildMission logs UNCONDITIONALLY (the cause of
+        // the ~21k-line route log flood). It is called every render frame by the
+        // ghost-driving selector (and every delivery-clock tick), so its per-build line
+        // must be rate-limited per route - one line, then quiet until the window passes.
+        [Fact]
+        public void BuildMission_RateLimitsItsPerFrameLog()
+        {
+            double clock = 1000.0;
+            ParsekLog.ClockOverrideForTesting = () => clock;
+            ParsekLog.ResetRateLimitsForTesting();
+
+            Route route = new RouteFixtureBuilder()
+                .WithId("route-flood01")
+                .WithName("Flood Test")
+                .WithBackingMissionTreeId("tree-1")
+                .WithSchedule(2000.0, 100.0)
+                .Build();
+
+            // Many per-frame builds at the SAME instant: exactly one log line.
+            for (int i = 0; i < 50; i++)
+                RouteBackingMission.BuildMission(route, clock);
+
+            Assert.Single(logLines, l =>
+                l.Contains("BuildMission: id=route-flood01-backing"));
+
+            // After the 5s real-time window, the next build logs again (a heartbeat,
+            // not silenced forever).
+            clock += 6.0;
+            RouteBackingMission.BuildMission(route, clock);
+            Assert.Equal(2, logLines.FindAll(l =>
+                l.Contains("BuildMission: id=route-flood01-backing")).Count);
+        }
     }
 }

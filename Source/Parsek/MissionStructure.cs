@@ -105,6 +105,13 @@ namespace Parsek
 
     internal static class MissionStructureBuilder
     {
+        // Set true to silence the per-build Verbose summary. Set by the per-tick /
+        // per-frame callers that rebuild the structure as a pure derivation on every
+        // call (the route delivery clock via RouteOrchestrator.ResolveLoopUnit) so the
+        // diagnostic line does not flood - mirrors MissionLoopUnitBuilder.SuppressLogging
+        // / MissionPeriodicity.SuppressLogging.
+        internal static bool SuppressLogging;
+
         /// <summary>
         /// Derives the controlled-leg fork-tree from a recording tree. Pure.
         /// Nodes = controlled recordings (debris excluded). Within-run sequence
@@ -117,8 +124,9 @@ namespace Parsek
             var structure = new MissionStructure { TreeId = tree?.Id };
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
             {
-                ParsekLog.Verbose("Mission",
-                    $"BuildMissionStructure: empty tree={tree?.Id ?? "<null>"}");
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("Mission",
+                        $"BuildMissionStructure: empty tree={tree?.Id ?? "<null>"}");
                 return structure;
             }
 
@@ -199,11 +207,12 @@ namespace Parsek
                 SortLegIds(leg.BranchParentIds, structure);
             }
 
-            ParsekLog.Verbose("Mission",
-                $"BuildMissionStructure: tree={structure.TreeId ?? "<null>"} " +
-                $"legs={structure.LegsById.Count} debrisExcluded={debrisExcluded} " +
-                $"sequenceEdges={sequenceEdges} branchEdges={branchEdges} " +
-                $"merges={merges} roots={structure.RootLegIds.Count}");
+            if (!SuppressLogging)
+                ParsekLog.Verbose("Mission",
+                    $"BuildMissionStructure: tree={structure.TreeId ?? "<null>"} " +
+                    $"legs={structure.LegsById.Count} debrisExcluded={debrisExcluded} " +
+                    $"sequenceEdges={sequenceEdges} branchEdges={branchEdges} " +
+                    $"merges={merges} roots={structure.RootLegIds.Count}");
             return structure;
         }
 

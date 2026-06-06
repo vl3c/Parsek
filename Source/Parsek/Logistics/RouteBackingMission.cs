@@ -448,12 +448,18 @@ namespace Parsek.Logistics
             mission.LoopTimeUnit = LoopTimeUnit.Sec;
             mission.LoopAnchorUT = route.LoopAnchorUT;
 
-            ParsekLog.Verbose(Tag,
+            // Rate-limited (per route): BuildMission is called UNCONDITIONALLY every
+            // render frame by the ghost-driving selector (and every delivery-clock tick /
+            // Logistics-window frame), so a plain Verbose here floods the log (~21k lines
+            // in one playtest). The output is static per route, so a per-route, 5s
+            // real-time key is enough to keep one build observable without the storm.
+            ParsekLog.VerboseRateLimited(Tag, "build-mission-" + missionId,
                 $"BuildMission: id={missionId} tree={route.BackingMissionTreeId ?? "<null>"} " +
                 $"excludedKeys={copied.ToString(ic)} " +
                 $"loopInterval={route.DispatchInterval.ToString("R", ic)} " +
                 $"loopAnchorUT={route.LoopAnchorUT.ToString("R", ic)} " +
-                $"currentUT={currentUT.ToString("R", ic)} (render phase owned by loop clock, anchor floored to spanEnd)");
+                $"currentUT={currentUT.ToString("R", ic)} (render phase owned by loop clock, anchor floored to spanEnd)",
+                5.0);
             return mission;
         }
     }
