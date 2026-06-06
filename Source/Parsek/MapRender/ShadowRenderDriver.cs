@@ -102,12 +102,10 @@ namespace Parsek.MapRender
             tracedPathByPid.Clear();
         }
 
-        /// <summary>The shadow runs when render tracing is on (for the reconciler) OR the director-drive
-        /// gate (mapRenderDirectorDrive, default on) is on, so the StockConic seed is populated for the
-        /// patch even with tracing off.</summary>
-        internal static bool Enabled =>
-            MapRenderTrace.IsEnabled
-            || (ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive);
+        /// <summary>The shadow always runs: the Director pipeline is unconditional (8e S4 dropped the
+        /// director-drive gate), so the StockConic seed is always populated for the patch (and the
+        /// reconciler reads it when render tracing is on). Kept as a property for call-site stability.</summary>
+        internal static bool Enabled => true;
 
         /// <summary>
         /// Max frame gap between the shadow recording a StockConic seed and the icon-drive patch reading
@@ -121,7 +119,8 @@ namespace Parsek.MapRender
 
         /// <summary>
         /// True when the Phase-8a director-drive is ACTIVE for <paramref name="pid"/> this frame: the
-        /// <c>mapRenderDirectorDrive</c> gate is on AND the Director recorded a fresh StockConic seed.
+        /// Director recorded a fresh StockConic seed (the gate was dropped in 8e S4; the predicate now
+        /// gates purely on seed/body freshness).
         /// This is the SINGLE source of truth shared by all three consumers (the icon-drive Prefix that
         /// bakes the epoch, the arc-clip Prefix that switches to live bounds, and the probe that measures
         /// against the live clock), so they never disagree on a frame. Keyed on the SEED (refreshed by the
@@ -140,16 +139,15 @@ namespace Parsek.MapRender
             // on an unresolvable body) for a one-frame icon/line split. A real recorded body name always
             // resolves, so this is a no-op in normal play; it only closes the degenerate null/unknown-body
             // gap deterministically.
-            return ParsekSettings.Current != null
-                && ParsekSettings.Current.mapRenderDirectorDrive
-                && TryGetFreshStockConicSeed(pid, currentFrame, out _, out string seedBody)
+            return TryGetFreshStockConicSeed(pid, currentFrame, out _, out string seedBody)
                 && FlightGlobals.GetBodyByName(seedBody) != null;
         }
 
         /// <summary>
-        /// True when the gate is on AND the Director's active segment for <paramref name="pid"/> was a
+        /// True when the Director's active segment for <paramref name="pid"/> was a
         /// TracedPath (non-orbital leg) within <see cref="SeedFreshnessFrames"/> of
-        /// <paramref name="currentFrame"/>. The icon-drive + line patches read this to HARD-SUPPRESS the
+        /// <paramref name="currentFrame"/> (the gate was dropped in 8e S4; the predicate now gates purely
+        /// on the TracedPath stamp freshness). The icon-drive + line patches read this to HARD-SUPPRESS the
         /// stock proto icon + line on those frames (the autonomous polyline owns the leg), so the legacy
         /// gap-glide can't stock-propagate a synthesized orbit and teleport the icon. Same shared-signal
         /// shape as <see cref="IsDirectorDriveActive"/> - keyed on the shadow's per-segment intent, not a
@@ -157,15 +155,14 @@ namespace Parsek.MapRender
         /// </summary>
         internal static bool IsDirectorTracedPathActive(uint pid, int currentFrame)
         {
-            return ParsekSettings.Current != null
-                && ParsekSettings.Current.mapRenderDirectorDrive
-                && tracedPathByPid.TryGetValue(pid, out int f)
+            return tracedPathByPid.TryGetValue(pid, out int f)
                 && System.Math.Abs(currentFrame - f) <= SeedFreshnessFrames;
         }
 
         /// <summary>
-        /// True when the gate is on AND the Director is TRACKING <paramref name="pid"/> this frame -
-        /// i.e. it has a fresh StockConic seed OR a fresh TracedPath stamp. Used to plug the no-bounds
+        /// True when the Director is TRACKING <paramref name="pid"/> this frame -
+        /// i.e. it has a fresh StockConic seed OR a fresh TracedPath stamp (8e S4: the gate was dropped).
+        /// Used to plug the no-bounds
         /// leak: when the legacy gap-glide clears a ghost's segment bounds at a loiter->burn transition,
         /// the icon-drive early-returns to stock and the line Postfix falls into the `terminal-visible`
         /// (full-ellipse) branch, showing the proto icon on the per-frame synthesized burn orbit BEFORE
@@ -347,8 +344,8 @@ namespace Parsek.MapRender
             // ONCE here (RunFrame is the single once-per-frame Director entry, called from both
             // ParsekFlight + ParsekTrackingStation). The increments happen per-FixedUpdate in
             // GhostOrbitIconDrivePatch; this emits the rate-limited aggregate summary (warp-stable key)
-            // and resets the accumulator. Only when render tracing is on - RunFrame can also be entered
-            // with tracing OFF but the director-drive gate ON (ShadowRenderDriver.Enabled), and the
+            // and resets the accumulator. Only when render tracing is on - RunFrame is always entered
+            // (the Director pipeline is unconditional, ShadowRenderDriver.Enabled is always true), and the
             // increments are themselves IsEnabled-gated, so without this guard the flush would still be a
             // no-op, but guarding it keeps the contract explicit + free.
             if (MapRenderTrace.IsEnabled)

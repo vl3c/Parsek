@@ -200,20 +200,17 @@ namespace Parsek.Display
             => TryHoldLastGood(recordingId, headUT, frame, out worldPos, out legIndex);
 
         /// <summary>
-        /// PURE ownership dispatch (8b.2 / 8e S3b): is the polyline the authoritative owner of this
+        /// PURE ownership dispatch (8b.2 / 8e S3b / 8e S4): is the polyline the authoritative owner of this
         /// recording's non-orbital phase? Returns the actual-draw drew-set membership
-        /// (<paramref name="inDrewSet"/>) GATE-INDEPENDENTLY. 8e S3b DELETED the legacy ownership
-        /// set and the gate-on-union / gate-off-only branches: the S3a gate +
-        /// an in-game re-fly proved <see cref="drewNonOrbitalLegRecordings"/> byte-identical + a superset
-        /// of the legacy set, so it is the SOLE ownership source. The drew set is populated on the
-        /// per-recording <c>if (anyDrawn)</c> condition unconditionally (gate-independent), so gate-off
-        /// still observes the correct membership. <paramref name="directorDriveGateOn"/> is retained for
-        /// caller-signature stability + future use but no longer affects the result. The drew set is
-        /// actual-draw-only, so this is true iff SOME leg actually drew -> proto hidden iff polyline drew.
-        /// Unit-testable without Unity (the gate + the membership bit are passed in).
+        /// (<paramref name="inDrewSet"/>). 8e S3b DELETED the legacy ownership set and the gate-on-union /
+        /// gate-off-only branches: the S3a gate + an in-game re-fly proved
+        /// <see cref="drewNonOrbitalLegRecordings"/> byte-identical + a superset of the legacy set, so it is
+        /// the SOLE ownership source. 8e S4 dropped the director-drive gate entirely (the
+        /// <c>directorDriveGateOn</c> param is gone), so this is now an identity over the membership bit.
+        /// The drew set is actual-draw-only, so this is true iff SOME leg actually drew -> proto hidden iff
+        /// polyline drew. Unit-testable without Unity (the membership bit is passed in).
         /// </summary>
-        internal static bool ResolveNonOrbitalLegOwnership(
-            bool directorDriveGateOn, bool inDrewSet)
+        internal static bool ResolveNonOrbitalLegOwnership(bool inDrewSet)
             => inDrewSet;
 
         /// <summary>
@@ -227,9 +224,7 @@ namespace Parsek.Display
         internal static bool IsRenderingNonOrbitalLeg(string recordingId)
         {
             if (recordingId == null) return false;
-            bool gateOn = ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive;
             return ResolveNonOrbitalLegOwnership(
-                gateOn,
                 drewNonOrbitalLegRecordings.Contains(recordingId));
         }
 

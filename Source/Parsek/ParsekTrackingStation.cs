@@ -98,8 +98,8 @@ namespace Parsek
         internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;
 
         // Phase 7a decision-only shadow (design §6.7): the TS scene adapter the ShadowRenderDriver runs
-        // the new pipeline against. Only touched when the shadow is enabled (mapRenderTracing OR the
-        // mapRenderDirectorDrive gate, via ShadowRenderDriver.Enabled).
+        // the new pipeline against. The shadow is always enabled (ShadowRenderDriver.Enabled is always
+        // true now that 8e S4 dropped the director-drive gate; the Director pipeline is unconditional).
         private readonly MapRender.TrackingStationScene shadowScene = new MapRender.TrackingStationScene();
 
         internal enum AtmosphericMarkerSkipReason
@@ -408,7 +408,7 @@ namespace Parsek
                 // field so the finer TS taxonomy (which MapSkipReasonToMarkerOutcome folds into the
                 // shared MarkerOutcome) survives on the per-ghost decision line, not just the aggregate
                 // summary. Pass tsSkipReason=None on the draw path -> the optional field is omitted.
-                bool decGateOn = false, decDirectorTraced = false, decPolylineOwning = false,
+                bool decDirectorTraced = false, decPolylineOwning = false,
                     decIconSuppressed = false, decShouldDraw = false;
                 void EmitMarkerDecision(MapRenderTrace.MarkerOutcome outcome,
                     AtmosphericMarkerSkipReason tsSkipReason = AtmosphericMarkerSkipReason.None)
@@ -418,7 +418,7 @@ namespace Parsek
                     MapRenderTrace.EmitMarkerDecisionOnChange(
                         MapRenderTrace.RenderSurface.AtmosphericMarker, rec.RecordingId, currentUT,
                         MapRenderTrace.BuildMarkerDecisionSignature(
-                            i, rec.VesselName, decGateOn, decDirectorTraced, decPolylineOwning,
+                            i, rec.VesselName, decDirectorTraced, decPolylineOwning,
                             decIconSuppressed, decShouldDraw, outcome,
                             MapRenderTrace.MarkerRideReason.NotAttempted, -1, "traj",
                             tsSkipReason: tsSkipReason == AtmosphericMarkerSkipReason.None
@@ -433,8 +433,8 @@ namespace Parsek
                 // ComputeOverlapCyclePlaybackUT head along the SINGLE shared polyline (the polyline Driver
                 // draws once keyed by RecordingId in TS too), so the tracking station shows the SAME N
                 // markers the flight scene does. Gated behind ShouldDriveOverlapPerInstance (inside
-                // TryGetLiveOverlapHeadUTs = mapRenderDirectorDrive AND overlap): non-overlap / gate-off
-                // returns false and falls straight through to the UNCHANGED span-clock effUT block + 8c proto
+                // TryGetLiveOverlapHeadUTs = overlap recordings only, 8e S4): non-overlap recordings
+                // return false and fall straight through to the UNCHANGED span-clock effUT block + 8c proto
                 // gate (ClassifyAtmosphericMarkerSkip) + single-marker tail below, byte-identically.
                 //
                 // HOISTED above the span-clock effUT/renderHidden block AND the
@@ -503,7 +503,7 @@ namespace Parsek
                     uint ghostPidTrace = GhostMapPresence.GetGhostVesselPidForRecording(i);
                     if (ghostPidTrace != 0)
                         decShouldDraw = GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(
-                            ghostPidTrace, out decGateOn, out decDirectorTraced,
+                            ghostPidTrace, out decDirectorTraced,
                             out decPolylineOwning, out decIconSuppressed);
                 }
 
@@ -868,10 +868,9 @@ namespace Parsek
                     MapRenderTrace.RenderSurface.AtmosphericMarker, markerKey, headUT,
                     MapRenderTrace.BuildMarkerDecisionSignature(
                         recordingIndex, label,
-                        // gateOn = the mapRenderDirectorDrive gate that makes this per-instance overlap
-                        // path reachable at all (IsOverlapPerInstanceGateOn); polylineOwning + shouldDraw
-                        // are true because this instance just rode the shared polyline above.
-                        gateOn: GhostMapPresence.IsOverlapPerInstanceGateOn(),
+                        // polylineOwning + shouldDraw are true because this instance just rode the shared
+                        // polyline above (8e S4 dropped the director-drive gate; the per-instance overlap
+                        // path is now unconditional).
                         directorTracedPathActive: false,
                         polylineOwning: true,
                         iconSuppressed: false,

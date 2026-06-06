@@ -750,77 +750,41 @@ namespace Parsek.Tests
                 Parsek.MapRender.TracedPathTreatment.ShouldOwnLeg(directorActive));
         }
 
-        // --- Phase 8b.2 / 8e S3b: ownership-signal authority (sole actual-draw set) ---
-
-        [Fact]
-        public void ResolveOwnership_GateOff_ReturnsDrewMembership()
-        {
-            // 8e S3b: the legacy set is gone. Gate OFF now returns the SAME drew membership as gate ON -
-            // the drew set is the single ownership source on both paths (it was a proven superset of the
-            // old legacy set, so collapsing to it preserves the exact pre-S3b membership).
-            Assert.True(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
-                directorDriveGateOn: false, inDrewSet: true));
-            Assert.False(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
-                directorDriveGateOn: false, inDrewSet: false));
-        }
-
-        [Fact]
-        public void ResolveOwnership_GateOn_ReturnsDrewMembership()
-        {
-            // Gate ON: the actual-draw (drew) set is authoritative for the legs that actually drew (any
-            // leg, owned-treatment OR Driver-direct - the 8e S3a.1 decouple).
-            Assert.True(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
-                directorDriveGateOn: true, inDrewSet: true));
-            Assert.False(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
-                directorDriveGateOn: true, inDrewSet: false));
-        }
+        // --- Phase 8b.2 / 8e S3b / 8e S4: ownership-signal authority (sole actual-draw set) ---
 
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
-        public void ResolveOwnership_GateOnEqualsGateOff_AfterS3bCollapse(bool inDrewSet)
+        public void ResolveOwnership_ReturnsDrewMembership(bool inDrewSet)
         {
-            // 8e S3b COLLAPSE invariant: gate-on and gate-off return the IDENTICAL drew membership (there
-            // is no longer a legacy set to differentiate the two paths). This is the byte-identical-to-
-            // pre-S3b guarantee: the old gate-on union (drew OR legacy, over byte-identical sets) and the
-            // old gate-off legacy-only read both equalled the drew membership.
-            Assert.Equal(
-                GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
-                    directorDriveGateOn: true, inDrewSet),
-                GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
-                    directorDriveGateOn: false, inDrewSet));
+            // 8e S3b: the legacy set is gone - the drew set is the single ownership source (it was a proven
+            // superset of the old legacy set, so collapsing to it preserves the exact pre-S3b membership).
+            // 8e S4: the director-drive gate param is gone too, so the predicate is now an identity over the
+            // drew membership (any leg that actually drew - owned-treatment OR Driver-direct, the 8e S3a.1
+            // decouple).
+            Assert.Equal(inDrewSet,
+                GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(inDrewSet));
         }
 
         [Fact]
-        public void ResolveOwnership_NeitherGate_NoDraw_NoOwnership_NoNewGap()
+        public void ResolveOwnership_NoDraw_NoOwnership_NoNewGap()
         {
-            // THE no-new-gap invariant: when NO leg actually drew, the signal is FALSE on both gates, so
-            // the proto orbit line / icon is NOT hidden. The drew set is populated only on an actual draw,
-            // so "Director decided TracedPath but nothing drew" can never report ownership. proto hidden
-            // IFF a leg drew.
-            Assert.False(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
-                directorDriveGateOn: true, inDrewSet: false));
-            Assert.False(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(
-                directorDriveGateOn: false, inDrewSet: false));
+            // THE no-new-gap invariant: when NO leg actually drew, the signal is FALSE, so the proto orbit
+            // line / icon is NOT hidden. The drew set is populated only on an actual draw, so "Director
+            // decided TracedPath but nothing drew" can never report ownership. proto hidden IFF a leg drew.
+            Assert.False(GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership(inDrewSet: false));
         }
 
         [Fact]
-        public void IsRenderingNonOrbitalLeg_EndToEnd_ReadsTheGateAndDispatches()
+        public void IsRenderingNonOrbitalLeg_EndToEnd_Dispatches()
         {
-            // End-to-end (the gate read + dispatch IsPolylineOwningGhostPhase ultimately calls): post-S3b
-            // the drew set is the SOLE source, so a drew-set recording is owned with BOTH the gate on and
-            // off; a non-drew recording is owned on NEITHER.
+            // End-to-end (the dispatch IsPolylineOwningGhostPhase ultimately calls): post-S3b the drew set
+            // is the SOLE source, and 8e S4 made it unconditional, so a drew-set recording is owned and a
+            // non-drew recording is not.
             const string recDrew = "rec-drew-set";
             const string recNotDrawn = "rec-not-drawn";
             GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(recDrew, inDrewSet: true);
 
-            // Gate ON.
-            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings { mapRenderDirectorDrive = true };
-            Assert.True(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recDrew));
-            Assert.False(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recNotDrawn));
-
-            // Gate OFF: same answers (the drew set is the single source on both paths).
-            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings { mapRenderDirectorDrive = false };
             Assert.True(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recDrew));
             Assert.False(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recNotDrawn));
 
@@ -841,7 +805,6 @@ namespace Parsek.Tests
             const string recBridge = "rec-stockconic-bridge";
             GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(recBridge, inDrewSet: true);
 
-            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings { mapRenderDirectorDrive = true };
             Assert.True(GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recBridge));
         }
 
