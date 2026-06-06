@@ -114,6 +114,37 @@ namespace Parsek.Tests.Logistics
             }
         }
 
+        [Fact]
+        public void FormatRejectMessage_MixedPickupDelivery_ExplainsCauseAndFix()
+        {
+            // catches: the MixedPickupDelivery copy regressing to the old terse
+            // "must be one-way in v1" line that did not map to the common
+            // destination-full playtest case. The message must (1) state plainly
+            // that the transport ended the run with more of a resource than it
+            // started (it picked up rather than only delivered) and (2) give the
+            // actionable fix (re-record, transfer back out before undocking, or
+            // disable transport-tank flow before docking).
+            string msg = RouteCreationFormatters.FormatRejectMessage(
+                RouteAnalysisStatus.MixedPickupDelivery);
+
+            // (1) plain-language cause
+            Assert.Contains("more of a resource than it started", msg);
+            Assert.Contains("picked the resource up", msg);
+            // one-way contract still stated
+            Assert.Contains("one-way", msg);
+            // (2) actionable fix: re-record without taking from the destination,
+            // and the two destination-full workarounds.
+            Assert.Contains("Re-record", msg);
+            Assert.Contains("transfer that resource back out before undocking", msg);
+            Assert.Contains("disable flow", msg);
+
+            // copy guardrail: plain ASCII only (project hard rule, no em dash or
+            // other non-ASCII unicode in player-facing copy).
+            foreach (char c in msg)
+                Assert.True(c < 128,
+                    "Reject copy must be plain ASCII (found non-ASCII char)");
+        }
+
         // -----------------------------------------------------------------
         // Summary block (Career vs. Sandbox conditional)
         // -----------------------------------------------------------------

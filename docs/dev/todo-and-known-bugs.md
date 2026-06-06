@@ -364,6 +364,8 @@ asserts only 2 emits total.
 
 **Status:** Known limitation accepted for the v0 route-proof metadata layer (groundwork only — no live route dispatch yet). Logged here so it does not surface as a "real" route-creation bug later. Filed 2026-05-16 alongside the second-pass review of the logistics-v0-implementation branch.
 
+**Message (done, 2026-06-06):** The player-facing `MixedPickupDelivery` reject copy (`RouteCreationFormatters.FormatRejectMessage`, also reused by the Logistics near-miss list via `LogisticsRejectPresentation.DescribeNearMiss`) now explains the common cause in plain language (the transport ended the run with more of a resource than it started, e.g. fuel transferred back out to undock from a full depot) and gives the actionable fix (re-record without taking resources from the destination, transfer that resource back out before undocking, or disable flow on the affected transport tanks before docking). Copy/UX only: the `HasResourcePickup` gate, the strict one-way contract, and the status enum are all unchanged.
+
 ---
 
 # Known Bugs

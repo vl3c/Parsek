@@ -85,7 +85,7 @@ namespace Parsek.Logistics
                 case RouteAnalysisStatus.NoDeliveryManifest:
                     return "No delivery payload detected - check that cargo actually moved from transport to destination.";
                 case RouteAnalysisStatus.MixedPickupDelivery:
-                    return "Mixed pickup and delivery detected - Supply Routes must be one-way in v1.";
+                    return "Mixed pickup and delivery detected - the transport ended this run with more of a resource than it started, so it picked the resource up instead of only delivering it. Supply Routes must be one-way delivery in v1. Re-record without taking any resource from the destination: if the destination was full, transfer that resource back out before undocking, or disable flow on the affected transport tanks before docking so nothing moves into the transport.";
                 case RouteAnalysisStatus.MissingEndpointProof:
                     return "Endpoint vessel could not be identified at dock time.";
                 default:
