@@ -27,13 +27,36 @@ namespace Parsek.InGameTests
     ///
     /// The synthetic route is removed in <c>finally</c> so the test
     /// leaves no residue in <see cref="RouteStore.CommittedRoutes"/> for
-    /// the next batch test or the player's save. v0 limitations
-    /// (non-KSC origin stub, capacity stub) make the route's terminal
-    /// state mode-dependent — Sandbox + KSC origin should dispatch to
-    /// <c>InTransit</c>; Career without funds will land in
-    /// <c>WaitingForFunds</c>; missing source recording will land in
-    /// <c>MissingSourceRecording</c>. Any of those terminal states is
-    /// proof the tick ran end-to-end; the assertion accepts the union.
+    /// the next batch test or the player's save.
+    ///
+    /// The synthetic route carries an EMPTY <c>SourceRefs</c> list (it is a
+    /// throwaway with no backing recording in ERS). The legacy dispatch
+    /// path therefore evaluates
+    /// <c>LiveRouteRuntimeEnvironment.RouteHasValidSourcesInErs</c> to false,
+    /// the evaluator returns the <c>SourcesStale</c> failure kind, and the
+    /// orchestrator's
+    /// <see cref="RouteOrchestrator.Tick(double)"/> resolves it to a benign
+    /// <c>Skip("sources-stale")</c>, a deliberate no-op that does NOT mutate
+    /// the route's <c>Status</c> and writes NO ledger row. (Only
+    /// <c>RouteStore.RevalidateSources</c> ever flips a route to
+    /// <c>MissingSourceRecording</c>, and Tick never calls it; that status is
+    /// not reachable from this test's tick path.) A sourceless route in a
+    /// live Sandbox save thus correctly stays Active after the tick, so this
+    /// test does NOT assert a status transition or a ledger row; those are
+    /// unsatisfiable here and asserting them would be a false negative.
+    ///
+    /// What this test DOES guard is the failure mode described above: the
+    /// production no-env overload builds a live
+    /// <c>LiveRouteRuntimeEnvironment</c> (probing
+    /// <see cref="HighLogic.CurrentGame"/> / <see cref="Funding.Instance"/> /
+    /// <c>EffectiveState.ComputeERS</c>) and iterates the route WITHOUT
+    /// throwing. An env-builder NRE under real KSP statics throws out of
+    /// <see cref="RouteOrchestrator.Tick(double)"/> before the post-tick
+    /// asserts run; the runner records that as a FAILED test (the thrown
+    /// exception surfaces from the coroutine body). The post-tick asserts
+    /// confirm the route survived the tick intact (still present, still
+    /// Active, not nulled-out) and that the benign Skip left the ledger
+    /// unchanged for this route id.
     /// </summary>
     public sealed class LogisticsRouteDispatchRuntimeTests
     {
@@ -42,7 +65,7 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
             BatchSkipReason = "Mutates RouteStore + emits ledger rows under live KSP statics; runs out of band so a parallel batch test cannot read a partially-mutated route list or stray dispatched/endpoint-lost ledger rows.",
-            Description = "RouteOrchestrator.Tick processes a synthetic KSC-origin route under live KSP statics without throwing, and the route's state advances away from the pre-tick Active baseline")]
+            Description = "RouteOrchestrator.Tick iterates a synthetic sourceless KSC-origin route under live KSP statics without throwing (guards the LiveRouteRuntimeEnvironment build path); the route survives the tick intact (still present, still Active) and the benign sources-stale Skip leaves the ledger unchanged for its id")]
         public IEnumerator RouteOrchestrator_Tick_ProcessesSyntheticRoute()
         {
             // PRECONDITION CHECKS -------------------------------------------------
@@ -118,7 +141,7 @@ namespace Parsek.InGameTests
                     $"status={fromStore.Status} nextDispatchUT={fromStore.NextDispatchUT.ToString("R", IC)} " +
                     $"beforeLedgerCount={beforeLedgerCount.ToString(IC)}");
 
-                // ACT — production no-env overload. Builds a fresh
+                // ACT: production no-env overload. Builds a fresh
                 // LiveRouteRuntimeEnvironment internally; the env probes
                 // HighLogic / Funding / EffectiveState.ComputeERS for real.
                 double currentUT = Planetarium.GetUniversalTime();
@@ -128,25 +151,27 @@ namespace Parsek.InGameTests
                 // VerboseRateLimited buffer) settles on the next FixedUpdate.
                 yield return null;
 
-                // ASSERT — the tick ran end-to-end. Acceptance criteria are
-                // intentionally broad because the v0 evaluator's exact outcome
-                // depends on game mode + ERS state at runtime:
+                // ASSERT: the tick iterated the route WITHOUT throwing.
                 //
-                //   * Sandbox / Science + KSC origin + source recordings absent
-                //     → RouteHasValidSourcesInErs() returns false → the
-                //       evaluator transitions the route to
-                //       MissingSourceRecording (no ledger row written).
-                //   * Career + no funds → WaitingForFunds (no ledger row).
-                //   * Career + funds + source ok → InTransit (RouteDispatched
-                //       + RouteCargoDebited rows written).
-                //   * Endpoint vessel resolver fails → EndpointLost
-                //       (RouteEndpointLost row written).
+                // The genuine regression this test guards is the env builder
+                // NRE-ing under real KSP statics. That exception propagates out
+                // of RouteOrchestrator.Tick(currentUT) above (it throws BEFORE
+                // the per-route try/catch in Tick, which only wraps
+                // ProcessOneRoute), so the coroutine body fails and the runner
+                // records this test as FAILED before any assert below runs.
+                // Reaching these asserts at all is therefore proof the live env
+                // built and the route was iterated.
                 //
-                // All of these are valid evidence that the orchestrator
-                // walked the dispatch chain on the synthetic route. The
-                // failure mode this test is designed to catch is the env
-                // builder NRE-ing under real KSP statics, leaving the
-                // route's Status untouched at Active.
+                // The synthetic route's SourceRefs list is EMPTY, so
+                // RouteHasValidSourcesInErs() is false, the evaluator yields
+                // the SourcesStale kind, and the orchestrator resolves it to a
+                // benign Skip("sources-stale"). That Skip is a deliberate no-op:
+                // it does NOT mutate Status (the route correctly stays Active)
+                // and writes NO ledger row. We therefore do NOT assert a status
+                // transition or a ledger row; those are unsatisfiable for a
+                // sourceless route in a live Sandbox save, and asserting them
+                // would be a false negative. (MissingSourceRecording is written
+                // ONLY by RouteStore.RevalidateSources, which Tick never calls.)
                 Route postTick;
                 InGameAssert.IsTrue(
                     RouteStore.TryGetRoute(syntheticRouteId, out postTick),
@@ -164,10 +189,19 @@ namespace Parsek.InGameTests
                     $"pendingDeliveryUT={(postTick.PendingDeliveryUT.HasValue ? postTick.PendingDeliveryUT.Value.ToString("R", IC) : "<null>")} " +
                     $"newLedgerRows={newRows.ToString(IC)}");
 
-                // Either the route transitioned status OR the ledger gained a
-                // new row attributed to this route id. Both are sufficient
-                // evidence the tick processed the synthetic route.
-                bool statusChanged = postTick.Status != RouteStatus.Active;
+                // The benign sources-stale Skip leaves the route exactly as it
+                // was: present, non-null, and still Active. A regression that
+                // silently mutates or drops the route on the Skip path (or any
+                // future change that lets a sourceless route fall through to
+                // dispatch/wait/endpoint-loss handling) trips one of these.
+                InGameAssert.AreEqual(RouteStatus.Active, postTick.Status,
+                    "Post-tick: sourceless synthetic route should remain Active after the " +
+                    "benign sources-stale Skip. A different status means the route fell " +
+                    "through to a dispatch/wait/endpoint outcome it should never reach with " +
+                    "empty SourceRefs.");
+
+                // The Skip path must emit NO ledger row attributed to this
+                // route id. Walk only the rows appended during the tick.
                 bool ledgerRowForRoute = false;
                 if (afterLedgerCount > beforeLedgerCount && Ledger.Actions != null)
                 {
@@ -183,11 +217,12 @@ namespace Parsek.InGameTests
                     }
                 }
 
-                InGameAssert.IsTrue(
-                    statusChanged || ledgerRowForRoute,
-                    "RouteOrchestrator.Tick neither transitioned the synthetic route's Status " +
-                    "nor emitted a ledger row attributed to its id — the tick body did not " +
-                    "process the route. Check LiveRouteRuntimeEnvironment build path under live KSP statics.");
+                InGameAssert.IsFalse(
+                    ledgerRowForRoute,
+                    "RouteOrchestrator.Tick emitted a ledger row attributed to the synthetic " +
+                    "route id, but a sourceless route must resolve to a benign sources-stale " +
+                    "Skip that writes nothing. A row here means the route dispatched/debited " +
+                    "without valid sources.");
             }
             finally
             {
