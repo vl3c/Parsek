@@ -13,6 +13,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - Space Center ghost orphaned (frozen above the pad, engines running) when CommittedRecordings empties/shrinks
+
+- ~~After the scene-exit merge **commit** in-game test (`ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree`) ran, a "Jumping Flea" ghost hung frozen above the launch pad with engines running and audio playing until the next scene change (~56 s later). Observed in the 2026-06-06 frozen-ghost playtest: ghost `#0` spawned at 23:43:13.05, never repositioned, finally reaped on the SPACECENTER→MAINMENU change at 23:44:09.~~ FIXED (this branch, `ParsekKSC.cs`).
+- **Root cause:** `ParsekKSC.Update` keys `kscGhosts` / `kscOverlapGhosts` by committed-recording index and early-returns at `if (committed.Count == 0) return;` (`ParsekKSC.cs`). The test commits a recording (KSC spawns a ghost for it on scene entry), then its `finally` removes the committed tree via `RemoveCommittedTreeByIdForRuntimeTest`, emptying `CommittedRecordings`. From that frame on, the per-index loop never iterates the now out-of-range key, and the empty-list early-return skips any teardown, so the already-spawned ghost is orphaned: never repositioned (frozen at its last launch pose), engine FX/audio never stopped, destroyed only when `OnDestroy` fires on the next scene change. Not test-only: any path that empties or shrinks `CommittedRecordings` while a KSC ghost is live (Wipe All in Data Management, removing the last recording) leaks the same way.
+- **Fix:** added `ReapOrphanedKscGhosts(committedCount)`, called every frame in `Update` BEFORE the empty-list early-return. It destroys (via the existing `DestroyKscGhost` / `DestroyAllKscOverlapGhosts` paths, so engine FX/audio stop) any primary or overlap ghost whose index key is now outside `[0, committedCount)`, and removes the stale `kscGhosts` / `kscOverlapGhosts` / `loggedGhostSpawn` / `loggedReshow` entries. The orphan-index decision is the pure `internal static CollectOrphanedGhostIndices(keys, committedCount, into)` (zero-alloc via a reusable scratch buffer; returns the count). Tests: 7 xUnit cases in `KscGhostPlaybackTests` (empty list reaps all, all-in-range reaps none, shrink reaps only out-of-range, sparse keys, half-open boundary `index == count`, negative key, null keys).
+
+---
+
 ## Done - Map-render director-shadow `ArgumentNullException(key)` on null body name (`GhostMapSceneBase` / `FlightGlobals.GetBodyByName`)
 
 - ~~Single suppressed occurrence in the 2026-06-06 "orbital supply route DELIVERY test" playtest (13:58:33): `[VERBOSE][MapRender] shadow RunFrame threw (suppressed): ArgumentNullException: Value cannot be null. Parameter name: key`. Caught + swallowed by the try/catch around `MapRender.ShadowRenderDriver.RunFrame` in `ParsekFlight.cs:19314` (and the mirror in `ParsekTrackingStation.cs:264`), rate-limited, so it fired once.~~ FIXED (this branch, `GhostMapSceneBase.cs`).

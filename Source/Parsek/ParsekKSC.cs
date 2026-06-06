@@ -30,6 +30,10 @@ namespace Parsek
         private Dictionary<int, List<GhostPlaybackState>> kscOverlapGhosts =
             new Dictionary<int, List<GhostPlaybackState>>();
 
+        // Reusable scratch buffer for ReapOrphanedKscGhosts so the per-frame
+        // reconciliation does not allocate in the steady (nothing-to-reap) state.
+        private readonly List<int> orphanGhostScratch = new List<int>();
+
         // Cached body lookup to avoid per-frame lambda allocations
         private Dictionary<string, CelestialBody> bodyCache;
 
@@ -349,6 +353,16 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             double currentUT = Planetarium.GetUniversalTime();
             AdvanceCareerLedgerForKscUT(currentUT);
+
+            // Reconcile already-spawned ghosts against the (possibly shrunk) committed
+            // list before any early-out. kscGhosts / kscOverlapGhosts are keyed by
+            // committed-recording index, so when CommittedRecordings empties or shrinks
+            // while a KSC ghost is live (Wipe All in Data Management, a recording removed
+            // while sitting in the Space Center, a test tearing down its committed tree),
+            // the per-index loop below never revisits the now out-of-range keys. Without
+            // this reap the ghost hangs frozen above the pad with engines / audio running
+            // until the next scene change destroys it.
+            ReapOrphanedKscGhosts(committed.Count);
 
             if (committed.Count == 0) return;
 
@@ -1524,6 +1538,62 @@ namespace Parsek
                 ref state.playbackIndex,
                 ref state.kscPlaybackFrameSourceKey,
                 endpointUT);
+        }
+
+        /// <summary>
+        /// Destroys any already-spawned KSC ghost (primary or overlap) whose committed-index
+        /// key no longer maps to a committed recording, i.e. orphaned by a shrink of the
+        /// committed list. Runs every frame from <see cref="Update"/> before the empty-list
+        /// early-return; the actual GameObject teardown reuses the same
+        /// <see cref="DestroyKscGhost"/> / <see cref="DestroyAllKscOverlapGhosts"/> paths the
+        /// per-recording loop uses, so engine FX and audio are stopped here too.
+        /// </summary>
+        void ReapOrphanedKscGhosts(int committedCount)
+        {
+            if (kscGhosts.Count == 0 && kscOverlapGhosts.Count == 0) return;
+
+            int reapedPrimary = CollectOrphanedGhostIndices(
+                kscGhosts.Keys, committedCount, orphanGhostScratch);
+            for (int i = 0; i < orphanGhostScratch.Count; i++)
+            {
+                int idx = orphanGhostScratch[i];
+                DestroyKscGhost(kscGhosts[idx], idx);
+                kscGhosts.Remove(idx);
+                loggedGhostSpawn.Remove(idx);
+                loggedReshow.Remove(idx);
+            }
+
+            int reapedOverlapSets = CollectOrphanedGhostIndices(
+                kscOverlapGhosts.Keys, committedCount, orphanGhostScratch);
+            for (int i = 0; i < orphanGhostScratch.Count; i++)
+            {
+                int idx = orphanGhostScratch[i];
+                DestroyAllKscOverlapGhosts(idx);
+                kscOverlapGhosts.Remove(idx);
+            }
+
+            if (reapedPrimary > 0 || reapedOverlapSets > 0)
+                ParsekLog.Info("KSCGhost",
+                    "Reaped orphaned KSC ghost(s) after committed-list shrink: " +
+                    $"primary={reapedPrimary} overlapSets={reapedOverlapSets} committedCount={committedCount}");
+        }
+
+        /// <summary>
+        /// Fills <paramref name="into"/> with the ghost-dictionary index keys that are
+        /// orphaned for a committed list of <paramref name="committedCount"/> entries: any
+        /// key outside the half-open range [0, committedCount). Pure (no Unity); the reap
+        /// uses it to know which index-keyed ghosts to destroy after CommittedRecordings
+        /// shrinks. Returns the number of orphaned keys collected.
+        /// </summary>
+        internal static int CollectOrphanedGhostIndices(
+            ICollection<int> ghostKeys, int committedCount, List<int> into)
+        {
+            into.Clear();
+            if (ghostKeys != null)
+                foreach (int key in ghostKeys)
+                    if (key < 0 || key >= committedCount)
+                        into.Add(key);
+            return into.Count;
         }
 
         /// <summary>
