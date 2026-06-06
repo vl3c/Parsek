@@ -430,7 +430,28 @@ namespace Parsek
 
             if (!missionViewCache.TryGetValue(tree.Id, out var cached))
             {
-                MissionStructure structure = MissionStructureBuilder.Build(tree);
+                // Per-frame display rebuild: suppress the per-build "BuildMissionStructure:"
+                // Verbose summary so the Missions window does not flood the log (a 2026-06-06
+                // orbital-route playtest logged ~5.2k of these lines from this path). The
+                // structure built is byte-identical; only the diagnostic line is gated. Mirrors
+                // the route-pipeline suppress wrap (RouteOrchestrator.ResolveLoopUnit) and
+                // GetLoopUnitSet below; MissionPeriodicity is gated too for parity (defensive -
+                // MissionStructureBuilder.Build emits no periodicity lines today). Restored in
+                // finally.
+                bool prevStructSuppress = MissionStructureBuilder.SuppressLogging;
+                bool prevPeriodicitySuppress = MissionPeriodicity.SuppressLogging;
+                MissionStructureBuilder.SuppressLogging = true;
+                MissionPeriodicity.SuppressLogging = true;
+                MissionStructure structure;
+                try
+                {
+                    structure = MissionStructureBuilder.Build(tree);
+                }
+                finally
+                {
+                    MissionStructureBuilder.SuppressLogging = prevStructSuppress;
+                    MissionPeriodicity.SuppressLogging = prevPeriodicitySuppress;
+                }
                 MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
                 cached = (structure, view);
                 missionViewCache[tree.Id] = cached;
@@ -457,7 +478,8 @@ namespace Parsek
         // RecordingStore.CommittedTrees/CommittedRecordings, with the global auto-loop interval and
         // FlightGlobalsBodyInfo.Instance). The unit the engine actually relaunches on is read off
         // this set so the T- countdown is drift-free against playback. Display-only: never pushed to
-        // the engine. Build's per-build Verbose summary is suppressed (the UI runs every frame).
+        // the engine. The build's per-call Verbose summary plus the inner structure / periodicity
+        // diagnostics are suppressed (the UI runs every frame).
         // [ERS-exempt] reason: this reads the RAW committed list to match MissionLoopUnitBuilder
         // (which keys loop members by committed RecordingId); display-only, file allowlisted.
         private GhostPlaybackLogic.LoopUnitSet GetLoopUnitSet()
@@ -473,7 +495,16 @@ namespace Parsek
                 // matches the engine's schedule (a flipped flag rebuilds via the signature).
                 TransitedBodyRotationMode tbrMode = settings?.TransitedBodyRotationMode
                                                     ?? TransitedBodyRotationMode.Loose;
-                bool prevSuppress = MissionLoopUnitBuilder.SuppressLogging;
+                // MissionLoopUnitBuilder.Build internally rebuilds the mission structure and runs
+                // the periodicity solver, so gate ALL THREE pipeline diagnostic flags - not just
+                // the loop builder's own - or the inner "BuildMissionStructure:" /
+                // MissionPeriodicity ExtractConstraints/Solve lines still flood once per frame per
+                // looping mission. Mirrors RouteOrchestrator.ResolveLoopUnit. Restored in finally.
+                bool prevStructSuppress = MissionStructureBuilder.SuppressLogging;
+                bool prevPeriodicitySuppress = MissionPeriodicity.SuppressLogging;
+                bool prevLoopSuppress = MissionLoopUnitBuilder.SuppressLogging;
+                MissionStructureBuilder.SuppressLogging = true;
+                MissionPeriodicity.SuppressLogging = true;
                 MissionLoopUnitBuilder.SuppressLogging = true;
                 try
                 {
@@ -484,7 +515,9 @@ namespace Parsek
                 }
                 finally
                 {
-                    MissionLoopUnitBuilder.SuppressLogging = prevSuppress;
+                    MissionStructureBuilder.SuppressLogging = prevStructSuppress;
+                    MissionPeriodicity.SuppressLogging = prevPeriodicitySuppress;
+                    MissionLoopUnitBuilder.SuppressLogging = prevLoopSuppress;
                 }
                 loopUnitSetCacheFrame = frame;
             }
