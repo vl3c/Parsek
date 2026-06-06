@@ -578,8 +578,11 @@ namespace Parsek
                     $"scheduled={(relaunchSchedule != null ? "yes" : "no")} " +
                     $"phaseAnchor={phaseAnchorUT.ToString("R", ic)}");
 
-                // Phase-lock applied vs skipped (design Diagnostic Logging): Info so a misbehaving
-                // config is never a silent branch.
+                // Phase-lock applied vs skipped (design Diagnostic Logging). APPLIED stays Info
+                // (a genuine, noteworthy lock). SKIPPED is VerboseRateLimited per-tree: it is a
+                // STATIC "unsupported config, keeping today's behavior" verdict that recurs on
+                // every rebuild, so it must never be Info (that spams even with verbose OFF) nor
+                // fire on every rebuild - rate-limited so verbose-on debugging still sees it.
                 if (phaseLocked)
                 {
                     string scheduleNote = relaunchSchedule != null
@@ -598,10 +601,11 @@ namespace Parsek
                 }
                 else if (bodyInfo != null)
                 {
-                    ParsekLog.Info("MissionPeriodicity",
+                    ParsekLog.VerboseRateLimited("MissionPeriodicity",
+                        "phaselock-skipped-" + (tree.Id ?? "<null>"),
                         $"PhaseLock SKIPPED: mission='{mission.Name}' tree={tree.Id} " +
                         $"support={solution.Support} keeping anchor={phaseAnchorUT.ToString("R", ic)} " +
-                        "(today's behavior)");
+                        "(today's behavior)", 10.0);
                 }
             }
 

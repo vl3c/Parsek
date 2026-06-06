@@ -788,8 +788,39 @@ namespace Parsek.Logistics
             TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
                                                 ?? TransitedBodyRotationMode.Loose;
 
-            GhostPlaybackLogic.LoopUnitSet set = MissionLoopUnitBuilder.Build(
-                new List<Mission> { mission }, trees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+            // Suppress the pure-derivation diagnostic logs the builder pipeline emits
+            // (BuildMissionStructure / ExtractConstraints / Solve / ReaimDiag /
+            // MissionLoopUnit / PhaseLock). This resolver runs on EVERY delivery-clock
+            // tick (ProcessLoopRoute) and every Logistics-window OnGUI frame
+            // (ComputeRouteLegibility -> TryComputeSecondsToNextDockCrossing); under time
+            // warp the UT-throttled tick fires many times per real second, so an
+            // un-suppressed build floods the log with a static verdict. The LoopUnit
+            // computed is byte-identical - only the diagnostic output is gated (mirrors
+            // MissionsWindowUI's display-mirror build). These flags gate Verbose/Info plus
+            // two pre-existing MissionPeriodicity diagnostic Warns (degenerate-period
+            // filter; over-constrained Tier-1 residual); the MissionLoopUnitBuilder.Build
+            // owner/member collision Warns stay un-gated. Silencing the MissionPeriodicity
+            // Warns here is intentional - at Warn they ignore verbose-off and would flood
+            // every tick, and the signature-gated render build (DriveMissionLoopUnits) plus
+            // the Missions window still surface them un-suppressed for the same config.
+            bool prevStructSuppress = MissionStructureBuilder.SuppressLogging;
+            bool prevPeriodicitySuppress = MissionPeriodicity.SuppressLogging;
+            bool prevLoopSuppress = MissionLoopUnitBuilder.SuppressLogging;
+            MissionStructureBuilder.SuppressLogging = true;
+            MissionPeriodicity.SuppressLogging = true;
+            MissionLoopUnitBuilder.SuppressLogging = true;
+            GhostPlaybackLogic.LoopUnitSet set;
+            try
+            {
+                set = MissionLoopUnitBuilder.Build(
+                    new List<Mission> { mission }, trees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+            }
+            finally
+            {
+                MissionStructureBuilder.SuppressLogging = prevStructSuppress;
+                MissionPeriodicity.SuppressLogging = prevPeriodicitySuppress;
+                MissionLoopUnitBuilder.SuppressLogging = prevLoopSuppress;
+            }
 
             if (set == null || set.Count == 0)
                 return null;
