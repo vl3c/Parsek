@@ -45,18 +45,22 @@ namespace Parsek.InGameTests
     /// test does NOT assert a status transition or a ledger row; those are
     /// unsatisfiable here and asserting them would be a false negative.
     ///
-    /// What this test DOES guard is the failure mode described above: the
-    /// production no-env overload builds a live
-    /// <c>LiveRouteRuntimeEnvironment</c> (probing
-    /// <see cref="HighLogic.CurrentGame"/> / <see cref="Funding.Instance"/> /
-    /// <c>EffectiveState.ComputeERS</c>) and iterates the route WITHOUT
-    /// throwing. An env-builder NRE under real KSP statics throws out of
-    /// <see cref="RouteOrchestrator.Tick(double)"/> before the post-tick
-    /// asserts run; the runner records that as a FAILED test (the thrown
-    /// exception surfaces from the coroutine body). The post-tick asserts
-    /// confirm the route survived the tick intact (still present, still
-    /// Active, not nulled-out) and that the benign Skip left the ledger
-    /// unchanged for this route id.
+    /// What this test DOES guard is that the production no-env overload
+    /// constructs a live <c>LiveRouteRuntimeEnvironment</c> and runs
+    /// <see cref="RouteOrchestrator.Tick(double)"/> to completion under real
+    /// KSP statics without an unhandled exception escaping the tick: a throw
+    /// from the env construction or the pre-dispatch route enumeration would
+    /// surface from the coroutine body and the runner would record FAILED.
+    /// NOTE the scope limit: the env's expensive probes
+    /// (<c>EffectiveState.ComputeERS</c> via <c>EnsureErsBuilt</c>,
+    /// <see cref="Funding.Instance"/>) are LAZY and run inside
+    /// <c>ProcessOneRoute</c>, which <c>Tick</c> wraps in a per-route
+    /// try/catch (counted as <c>errored++</c>, the route left untouched), so a
+    /// probe NRE there is swallowed and leaves the route Active with no ledger
+    /// row -- this test cannot distinguish that from the benign Skip. The
+    /// post-tick asserts confirm the route survived the tick intact (still
+    /// present, still Active, not nulled-out) and that the benign Skip left the
+    /// ledger unchanged for this route id.
     /// </summary>
     public sealed class LogisticsRouteDispatchRuntimeTests
     {
@@ -151,16 +155,19 @@ namespace Parsek.InGameTests
                 // VerboseRateLimited buffer) settles on the next FixedUpdate.
                 yield return null;
 
-                // ASSERT: the tick iterated the route WITHOUT throwing.
+                // ASSERT: the tick ran to completion WITHOUT an unhandled throw.
                 //
-                // The genuine regression this test guards is the env builder
-                // NRE-ing under real KSP statics. That exception propagates out
-                // of RouteOrchestrator.Tick(currentUT) above (it throws BEFORE
-                // the per-route try/catch in Tick, which only wraps
-                // ProcessOneRoute), so the coroutine body fails and the runner
-                // records this test as FAILED before any assert below runs.
-                // Reaching these asserts at all is therefore proof the live env
-                // built and the route was iterated.
+                // The regression this test guards is RouteOrchestrator.Tick(double)
+                // failing under real KSP statics. Reaching these asserts at all
+                // proves the no-env overload constructed a LiveRouteRuntimeEnvironment
+                // and the tick returned without an exception escaping it. SCOPE: the
+                // env's expensive probes (EffectiveState.ComputeERS via EnsureErsBuilt,
+                // Funding.Instance) are LAZY -- they run inside ProcessOneRoute, which
+                // Tick wraps in a per-route try/catch (counted as errored++, route left
+                // untouched). So a probe NRE there is swallowed and leaves the route
+                // Active with no ledger row, which this test cannot distinguish from the
+                // benign skip below; the escaping-throw guarantee covers env construction
+                // and the pre-dispatch route enumeration, not the lazy in-route probes.
                 //
                 // The synthetic route's SourceRefs list is EMPTY, so
                 // RouteHasValidSourcesInErs() is false, the evaluator yields
