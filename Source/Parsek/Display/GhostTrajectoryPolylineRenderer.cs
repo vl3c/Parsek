@@ -2266,6 +2266,27 @@ namespace Parsek.Display
                     // array (set.legs is the same array reference the dict holds).
                     set.legs[p.legIndex] = leg;
                     if (legDrawn) drawn++;
+
+                    // GAP-2: first-class Polyline-surface trace at the ACTUAL draw site. The
+                    // surface=Polyline slot was previously blind under MapRenderTrace (the Driver only
+                    // emitted Verbose lines on its own tag), so a reader could not grep the polyline
+                    // draw under the tracer - exactly the TS-invisible-polyline bug class (the layer-31
+                    // fix above is "decided to draw but didn't paint where expected"). This lives in the
+                    // SHARED Driver, so the one insertion covers FLIGHT and TRACKSTATION. Rate-limit /
+                    // change KEY is (Polyline, p.recordingId) only - warp-stable per the #1063 rule;
+                    // the per-leg index / UT / draw count / frame are warp-advancing and live in the
+                    // message BODY, never the key (EmitMarker rate-limits per (surface, key) on
+                    // wall-clock). Emitted only on an ACTUAL leg draw so a skipped leg is not traced.
+                    if (legDrawn && MapRenderTrace.IsEnabled)
+                        MapRenderTrace.EmitMarker(
+                            MapRenderTrace.RenderSurface.Polyline, p.recordingId,
+                            Planetarium.GetUniversalTime(),
+                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "scene={0} leg={1} body={2} pts={3} owned={4} layer={5} startUT={6:F1} endUT={7:F1}",
+                                HighLogic.LoadedScene, p.legIndex,
+                                string.IsNullOrEmpty(leg.bodyName) ? "<none>" : leg.bodyName,
+                                leg.PointCount, p.ownedByTreatment, pendingTargetLayer,
+                                leg.startUT, leg.endUT));
                 }
                 pendingDraws.Clear();
 
