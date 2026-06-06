@@ -8427,7 +8427,13 @@ namespace Parsek
 
             bool isChainLooping = !string.IsNullOrEmpty(rec.ChainId)
                 && RecordingStore.IsChainLooping(rec.ChainId);
-            var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(rec, false, isChainLooping);
+            // Scene-agnostic #573 rewind lift: a standalone Rewind-to-Launch target the
+            // player did not re-fly (no live same-craft vessel present) still spawns its
+            // recorded terminal in the Tracking Station, identical to Flight and KSC.
+            var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, false, isChainLooping,
+                treeContext: null,
+                GhostPlaybackLogic.ResolveRewindSuppressionLiveLaunchPresence(rec));
             if (!spawnResult.needsSpawn)
                 return spawnResult;
 

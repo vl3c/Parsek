@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
-- Fixed a flight you Rewind-to-Launch and then do not re-fly never bringing its recorded vessel back: when its replay reached the end the vessel stayed a ghost instead of becoming real. A rewound standalone flight now re-materializes its recorded vessel at the end unless you are re-flying that craft (watching the ghost still brings it back too), and the rewind dialog now explains this.
+- Fixed a flight you Rewind-to-Launch and then do not re-fly never bringing its recorded vessel back: when its replay reached the end the vessel stayed a ghost instead of becoming real. A rewound standalone flight now re-materializes its recorded vessel at the end in every scene (flight, Tracking Station, and Space Center) unless you are re-flying that craft, and the rewind dialog now explains this.
 - Fixed a looped interplanetary landing mission's orbit-to-descent join drifting further around the destination planet on each successive replay (its parking orbit and descent path lined up only on the first loop, then separated more every loop). The landing-body alignment now re-aligns the destination's rotation on every loop, not just the first.
 - Fixed a looped landing mission's map icon not sitting on its own drawn descent path. Because that final descent leg has no orbit of its own, its icon fell back to a separate position off the line. The icon now rides its descent line directly.
 - Fixed map ghost trajectory surface lines (launch and descent paths) either showing a doubled, warp-dependent duplicate copy or not appearing at all under time warp until you dropped to 1x speed. They now draw once, stay glued to the surface, and stay visible at every warp rate.
