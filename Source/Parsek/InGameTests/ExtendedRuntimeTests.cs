@@ -2066,32 +2066,5 @@ namespace Parsek.InGameTests
             }
         }
 
-        [InGameTest(Category = "GhostMapOrbits", Scene = GameScenes.FLIGHT,
-            Description = "S0 Instrument 2: the icon-floor classifier maps the live branch inputs to the right reason in-game")]
-        public void IconFloorClassifierMapsLiveBranches()
-        {
-            // The classifier is Unity-free, but running it in-game proves the JIT path the icon-drive
-            // Prefix actually hits. Mirror the four live branch shapes.
-            InGameAssert.AreEqual(
-                Parsek.MapRender.IconFloorGapCounter.FloorReason.NoBounds,
-                Parsek.MapRender.IconFloorGapCounter.Classify(
-                    gateOn: true, hasBounds: false, freshSeed: false, seedBodyResolved: false),
-                "no recorded bounds => NoBounds");
-            InGameAssert.AreEqual(
-                Parsek.MapRender.IconFloorGapCounter.FloorReason.NoFreshSeed,
-                Parsek.MapRender.IconFloorGapCounter.Classify(
-                    gateOn: true, hasBounds: true, freshSeed: false, seedBodyResolved: false),
-                "bounds but no fresh seed => NoFreshSeed");
-            InGameAssert.AreEqual(
-                Parsek.MapRender.IconFloorGapCounter.FloorReason.UnresolvableSeedBody,
-                Parsek.MapRender.IconFloorGapCounter.Classify(
-                    gateOn: true, hasBounds: true, freshSeed: true, seedBodyResolved: false),
-                "fresh seed but body unresolved => UnresolvableSeedBody");
-            InGameAssert.AreEqual(
-                Parsek.MapRender.IconFloorGapCounter.FloorReason.None,
-                Parsek.MapRender.IconFloorGapCounter.Classify(
-                    gateOn: true, hasBounds: true, freshSeed: true, seedBodyResolved: true),
-                "director drove the icon => None (not a floor frame)");
-        }
     }
 }

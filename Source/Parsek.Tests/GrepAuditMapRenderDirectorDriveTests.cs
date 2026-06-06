@@ -12,8 +12,8 @@ namespace Parsek.Tests
     /// <c>mapRenderDirectorDrive</c> setting / gate. The modular Director render pipeline is now
     /// UNCONDITIONAL - the setting, its persistence, its UI, and every <c>&amp;&amp; ...mapRenderDirectorDrive</c>
     /// gate clause were removed. The per-leg DECISION predicates (<c>IsDirectorTracedPathActive</c> /
-    /// <c>IsDirectorDriveActive</c> / <c>IsDirectorTracking</c>) and the 8f FLOOR mechanism
-    /// (<c>ghostsWithSuppressedIcon</c> / <c>IconFloorGapCounter</c> / the <c>directorDriveActive</c> local)
+    /// <c>IsDirectorDriveActive</c> / <c>IsDirectorTracking</c>) and the kept no-conic / suppressed-icon
+    /// FLOOR mechanism (<c>ghostsWithSuppressedIcon</c> / the <c>directorDriveActive</c> local)
     /// SURVIVE - none of them contain the forbidden literal substring, so they are never flagged. This test
     /// runs <c>scripts/grep-audit-map-render-director-drive.ps1</c> against the source tree and asserts
     /// exit 0 - i.e. ANY file under <c>Source/Parsek/</c> that resurrects the deleted identifier (a field, a

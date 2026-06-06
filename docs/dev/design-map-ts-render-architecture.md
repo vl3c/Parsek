@@ -32,10 +32,17 @@ superseded — see that doc's banner), `docs/dev/design-mission-abstractions.md`
 > pid-0 atmospheric coverage surface into the pipeline; the full "fold the autonomous walk
 > under the Director" rewrite was ruled out as unnecessary, the `onPreCull` polyline draw
 > already being the sanctioned shared host). Phase 8e then deleted the now-dead 8a-8d legacy
-> render fallbacks (the autonomous Driver walk, the legacy effUT icon drive,
-> `activeLegRecordings`, `ghostsWithSuppressedIcon`, the grace fields), keeping the `onPreCull`
-> draw as the sanctioned shared host; Phase 8f dropped the
-> `mapRenderDirectorDrive` gate, leaving the single modular system this design specifies. The
+> *ownership* fallbacks (the autonomous Driver DECIDE-walk + `activeLegRecordings`), keeping the
+> `onPreCull` draw as the sanctioned shared host; the S4 gate-drop dropped the
+> `mapRenderDirectorDrive` gate, leaving the single modular system this design specifies.
+> **CUTOVER COMPLETE at S4.** The original 8f deletion of the icon floor / the legacy effUT icon
+> drive / `ghostsWithSuppressedIcon` / `IsIconSuppressed` / the grace fields was REASSESSED
+> (data-backed) and NOT done: those are the ONLY marker signal for below-atmosphere descent,
+> off-arc / window-clamp, and no-bounds (loiter / terminal / atmospheric) ghosts (the Director's
+> TracedPath / polyline path does NOT own those), and the icon floor is the legitimate no-conic
+> fallback for no-bounds ghosts; deleting them would regress those to a blank icon. So the no-conic
+> suppress+marker is a KEPT permanent Director fallback, and the `IconFloorGapCounter` S0
+> instrument was RETIRED (its "floor must reach 0 before deletion" premise no longer holds). The
 > two advisory re-tests (a Tracking-Station visual confirm and an orbital-overlap
 > ProtoVessel-churn check at high warp) are resolved. For the per-PR breakdown see
 > `docs/dev/plans/maprender-rewrite-status.md`; for the phase plan see

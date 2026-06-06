@@ -132,11 +132,9 @@ namespace Parsek
             // Also flush MapRenderTrace's pid-keyed stores (detailed windows + line/render intents) so they
             // do not grow unbounded across the AppDomain lifetime; mirrors this probe's own per-pid reset.
             MapRenderTrace.Reset();
-            // Phase 8e S0: drop any S0 coverage / icon-floor state straddling the scene switch (both are
-            // per-frame-cleared by their producers, so this is belt-and-suspenders against a switch landing
-            // between accumulate and flush). Diagnostic-only.
+            // Phase 8e S0: drop any S0 coverage state straddling the scene switch (per-frame-cleared by its
+            // producer, so this is belt-and-suspenders against a switch landing mid-frame). Diagnostic-only.
             GhostMapPresence.ClearFrameCoverageSets();
-            Parsek.MapRender.IconFloorGapCounter.Reset();
             ParsekLog.Verbose(MapRenderTrace.Tag,
                 string.Format(ic,
                     "probe per-pid state cleared on scene switch from={0} to={1}",
