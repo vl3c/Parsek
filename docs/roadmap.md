@@ -361,7 +361,7 @@ map-view and Tracking-Station ghost render path. Designs:
   self-overlapping looped mission shows one icon or marker per live replay in both the map and
   the Tracking Station, matching flight.
 - **Logistics (Supply Routes) v0** - the Phase 13 logistics feature shipped in 0.10.0. Fly a
-  cargo run once (launch from KSC or an existing vessel, dock at a destination, transfer stock
+  cargo run once (launch from KSC, dock at a destination, transfer stock
   resources or inventory, undock) and commit it; a sealed run with one complete
   dock-deliver-undock window then surfaces as a Candidate in the new Logistics window, where one
   click turns it into a recurring Supply Route. The route replays the recorded run as a looped
@@ -369,9 +369,12 @@ map-view and Tracking-Station ghost render path. Designs:
   adjustable dispatch cadence, endpoint resolution (orbital by PID, surface with a nearest-vessel
   fallback), and a route ledger that participates in rewind / re-fly. Career KSC-origin routes
   charge a stock-realistic per-run funds cost and credit the recovered transport cost back one
-  cycle later. The v0 cut is deliberately narrow (docking-only, delivery-only, single-stop,
-  same-body); pickup, mixed pickup/delivery, multi-stop, round-trip, non-docking connections,
-  non-KSC undocked-start origins, and inter-body re-aimed routes are future work. Full design:
+  cycle later. Only KSC-origin routes dispatch in v0: a non-KSC (vessel) origin route can be
+  created (its origin proof is captured) but the per-cycle origin-cargo debit is stubbed, so it
+  holds without dispatching. The v0 cut is deliberately narrow (docking-only, delivery-only,
+  single-stop, same-body, KSC-origin); pickup, mixed pickup/delivery, multi-stop, round-trip,
+  non-docking connections, non-KSC origin cargo debit (docked and undocked), and inter-body
+  re-aimed routes are future work. Full design:
   [`docs/parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md).
 
 ---
@@ -382,7 +385,7 @@ Stock-first automated cargo delivery from proven player-flown Supply Runs. Shipp
 
 - **v0 route shape**: docking-only, delivery-only, single-stop Supply Routes created from complete dock/transfer/undock Supply Runs. Claw/grapple/crossfeed, pickup routes, crew delivery, multi-stop routes, and round-trip linking are deferred (future work).
 - **Stock proof-of-work** — route creation derives the delivery manifest from connection-scoped snapshots: cargo must leave the transport-side part set and appear on the endpoint-side part set during the docking window. Aggregate merged-vessel totals are not enough proof.
-- **Origin cost model**: KSC-origin Career routes charge a stock-realistic funds cost for the source vessel parts plus used/delivered cargo, and credit the recovered transport cost back one cycle later. Non-KSC v0 origins require the Supply Run to start docked to a real depot vessel so recurring cargo can be debited from a stock vessel.
+- **Origin cost model**: KSC-origin Career routes charge a stock-realistic funds cost for the source vessel parts plus used/delivered cargo, and credit the recovered transport cost back one cycle later. Only KSC-origin routes dispatch in v0. A non-KSC (vessel) origin route can be created (its start-docked origin proof is captured), but the per-cycle origin-cargo debit is intentionally stubbed, so the route holds in WaitingForResources and never dispatches; non-KSC origin support is post-v0.
 - **UT-driven scheduler** — route progress, delivery, pause behavior, save/load catch-up, and time-warp behavior are driven by universal time in `ParsekScenario`, with ghost playback treated as visual evidence rather than authoritative timing.
 - **Endpoint resolution** — orbital endpoints use recorded vessel PID only. Surface endpoints prefer the recorded PID and may fall back to one nearest compatible stock vessel near the recorded coordinates, never to an abstract area warehouse.
 - **Visual presence**: ghost supply vessels replay the recorded run as a looped mission segment, but route execution is pure math: deduct at origin, wait, add to destination. No physical vessel is spawned during transit.
@@ -408,7 +411,7 @@ This is the path from the shipped v0 to a feature-complete logistics system. Eve
 
 - **Pickup routes (M):** v0 is delivery-only. Add resource and inventory pickup (cargo leaves the endpoint and arrives at the origin), which needs separate stock-slot and part-identity tests. Prerequisite for mixed routes. (Section 17, "Pickup routes".)
 - **Mixed pickup/delivery windows (M):** load-and-deliver runs where the same docking window both drops off and picks up cargo. Depends on pickup landing first. (Status line, "mixed pickup/delivery windows".)
-- **Non-KSC undocked-start origins (M/L):** v0 non-KSC routes require the run to start docked to a real depot. Support a tanker that launches from a surface base, drives or flies away undocked, then docks at a destination, once origin ownership can be proven without inventing a warehouse. (Section 17, "Non-KSC undocked-start origins".)
+- **Non-KSC origin cargo debit, docked + undocked (M/L):** v0 stubs ALL non-KSC origin debit (`OriginHasCargo` returns false, holding the route in WaitingForResources), so EVERY non-KSC route is blocked, including the start-docked case whose origin proof is already captured. First build the origin-debit primitive so a docked non-KSC route can dispatch; then support undocked-start origins (a tanker that launches from a surface base, drives or flies away undocked, then docks at a destination) once origin ownership can be proven without inventing a warehouse. (Section 17, "Non-KSC undocked-start origins"; v0 stub in `LiveRouteRuntimeEnvironment.OriginHasCargo`.)
 
 **Tier 3: larger / architectural** (multi-window or new connection mechanics)
 
