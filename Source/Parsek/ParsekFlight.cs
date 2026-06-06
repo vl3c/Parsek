@@ -18043,70 +18043,6 @@ namespace Parsek
             return ResolveReFlySettleStability(rec, frame, out anchorRecordingId, out reason);
         }
 
-        /// <summary>
-        /// Resolves whether the #573 same-recording spawn-suppression block should stay
-        /// absolute for <paramref name="rec"/>. Returns true (conservative: keep blocking)
-        /// for everything except a standalone Rewind-to-Launch target with no live
-        /// same-craft vessel in the scene — for that case it returns false to authorize
-        /// the lift in <see cref="GhostPlaybackLogic.ShouldSpawnAtRecordingEnd"/> so the
-        /// recorded vessel materializes at its terminal. The marker rides at most one
-        /// recording, so the FlightGlobals scan runs only for that recording.
-        /// </summary>
-        private static bool ResolveRewindSuppressionLiveLaunchPresence(Recording rec)
-        {
-            if (rec == null
-                || !rec.SpawnSuppressedByRewind
-                || !string.Equals(
-                        rec.SpawnSuppressedByRewindReason,
-                        ParsekScenario.RewindSpawnSuppressionReasonSameRecording,
-                        StringComparison.Ordinal)
-                || !string.IsNullOrEmpty(rec.ChainId))
-            {
-                // Not a liftable standalone same-recording target — the predicate does
-                // not consult the value (no block, or a non-liftable block), so keep it
-                // conservative without paying for a vessel scan.
-                return true;
-            }
-
-            bool present = AnyLiveRealVesselSharesRecordedCraft(rec);
-            if (!present)
-            {
-                ParsekLog.VerboseRateLimited(
-                    "Rewind",
-                    rec.RecordingId,
-                    $"same-recording spawn suppression lifted for standalone rewind target " +
-                    $"rec={rec.RecordingId} vessel=\"{rec.VesselName}\" pid={rec.VesselPersistentId} — " +
-                    "no live same-craft vessel present (plain Rewind-to-Launch not re-flown); " +
-                    "recorded terminal will materialize (#573/#589)");
-            }
-            return present;
-        }
-
-        /// <summary>
-        /// True when a live, non-ghost vessel of the recording's craft is currently in
-        /// the scene. Uses the craft-baked persistentId deliberately: this is a "would a
-        /// spawn collide with a live re-flight of this craft" check, not a same-launch
-        /// identity claim, so it must also catch a relaunch of the same craft (which
-        /// carries the baked pid but a fresh launch Guid). Parsek's own map-presence
-        /// ghosts are excluded via <see cref="GhostMapPresence.IsGhostMapVessel"/>.
-        /// </summary>
-        private static bool AnyLiveRealVesselSharesRecordedCraft(Recording rec)
-        {
-            if (rec == null || rec.VesselPersistentId == 0 || FlightGlobals.Vessels == null)
-                return false;
-            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
-            {
-                Vessel v = FlightGlobals.Vessels[i];
-                if (v == null)
-                    continue;
-                if (GhostMapPresence.IsGhostMapVessel(v.persistentId))
-                    continue;
-                if (v.persistentId == rec.VesselPersistentId)
-                    return true;
-            }
-            return false;
-        }
-
         private static bool ResolveReFlySettleStability(
             Recording rec,
             int frame,
@@ -18351,7 +18287,7 @@ namespace Parsek
                     rewindRetired);
 
                 bool liveSameLaunchVesselPresent =
-                    ResolveRewindSuppressionLiveLaunchPresence(rec);
+                    GhostPlaybackLogic.ResolveRewindSuppressionLiveLaunchPresence(rec);
                 var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                     rec, isActiveChain, chainLooping, treeContext: null,
                     liveSameLaunchVesselPresent);
