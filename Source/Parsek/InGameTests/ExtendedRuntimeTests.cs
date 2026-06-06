@@ -2024,4 +2024,91 @@ namespace Parsek.InGameTests
                 $"{conflicts} spawned vessel PID(s) conflict with ghost map vessels");
         }
     }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Phase 8e S0 coverage-closure instruments (PURELY ADDITIVE)
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Exercises the S0 Instrument 1 accounted-vs-drawn seam under the LIVE KSP runtime/JIT (the pure
+    /// helper logic is covered by xUnit; this proves the static accounting + the RecordingId-domain pid
+    /// bridge run end-to-end in-game). Drives the seam DETERMINISTICALLY via the test stamps - no live
+    /// ghost / no full Driver frame needed - so it is robust regardless of what is on the map. Restores
+    /// the coverage state on exit. A full scene-driven assertion (live ghosts through the polyline walk)
+    /// is left as a manual tracing-on playtest, noted in the S0 report.
+    /// </summary>
+    public class MapRenderS0CoverageInGameTests
+    {
+        [InGameTest(Category = "GhostMapOrbits", Scene = GameScenes.FLIGHT,
+            Description = "S0 Instrument 1: the accounted set covers proto-bearing + proto-less drawn recordings; fires for an orphan")]
+        public void AccountedSetCoversDrawnSet()
+        {
+            // Snapshot live coverage state so the synthetic stamps below do not perturb a real frame's
+            // accounting. ResetCoverageSetsForTesting clears the two frame sets + the scratch; we only add
+            // synthetic ids and clear them again, leaving the live pid bridge untouched except for the one
+            // synthetic pid we add and remove.
+            GhostMapPresence.ResetCoverageSetsForTesting();
+            const uint syntheticPid = 999001u;
+            try
+            {
+                // A proto-bearing draw (pid != 0, NOT in the coverage set) - accounted via the pid bridge.
+                GhostMapPresence.SetProtoBearingPidForTesting(syntheticPid, "s0-ingame-proto");
+                GhostMapPresence.NoteDrawnRecordingCoverage("s0-ingame-proto", syntheticPid);
+                // A proto-less draw (pid 0) - folded into the coverage set, accounted via the non-proto path.
+                GhostMapPresence.NoteDrawnRecordingCoverage("s0-ingame-atmo", 0u);
+                // An orphan: drawn, proto-less-looking, but withheld from the coverage set (simulating a
+                // draw path that bypassed the fold) and with no pid bridge - must be flagged.
+                GhostMapPresence.SetFrameCoverageForTesting("s0-ingame-orphan", drawn: true, protoLess: false);
+
+                var unaccounted = new List<string>();
+                GhostMapPresence.AssertDrawnRecordingsAccounted(
+                    (recId, pb, plc, drawn) => unaccounted.Add(recId));
+
+                ParsekLog.Info("TestRunner",
+                    $"S0 accounting in-game: unaccounted=[{string.Join(",", unaccounted)}]");
+
+                InGameAssert.IsFalse(unaccounted.Contains("s0-ingame-proto"),
+                    "proto-bearing drawn recording must be accounted via the RecordingId-domain pid bridge");
+                InGameAssert.IsFalse(unaccounted.Contains("s0-ingame-atmo"),
+                    "proto-less drawn recording must be accounted via the coverage set");
+                InGameAssert.IsTrue(unaccounted.Contains("s0-ingame-orphan"),
+                    "an unaccounted drawn recording must fire (non-vacuity)");
+                InGameAssert.AreEqual(1, unaccounted.Count,
+                    "exactly the orphan is unaccounted");
+            }
+            finally
+            {
+                GhostMapPresence.SetProtoBearingPidForTesting(syntheticPid, null);
+                GhostMapPresence.ResetCoverageSetsForTesting();
+            }
+        }
+
+        [InGameTest(Category = "GhostMapOrbits", Scene = GameScenes.FLIGHT,
+            Description = "S0 Instrument 2: the icon-floor classifier maps the live branch inputs to the right reason in-game")]
+        public void IconFloorClassifierMapsLiveBranches()
+        {
+            // The classifier is Unity-free, but running it in-game proves the JIT path the icon-drive
+            // Prefix actually hits. Mirror the four live branch shapes.
+            InGameAssert.AreEqual(
+                Parsek.MapRender.IconFloorGapCounter.FloorReason.NoBounds,
+                Parsek.MapRender.IconFloorGapCounter.Classify(
+                    gateOn: true, hasBounds: false, freshSeed: false, seedBodyResolved: false),
+                "no recorded bounds => NoBounds");
+            InGameAssert.AreEqual(
+                Parsek.MapRender.IconFloorGapCounter.FloorReason.NoFreshSeed,
+                Parsek.MapRender.IconFloorGapCounter.Classify(
+                    gateOn: true, hasBounds: true, freshSeed: false, seedBodyResolved: false),
+                "bounds but no fresh seed => NoFreshSeed");
+            InGameAssert.AreEqual(
+                Parsek.MapRender.IconFloorGapCounter.FloorReason.UnresolvableSeedBody,
+                Parsek.MapRender.IconFloorGapCounter.Classify(
+                    gateOn: true, hasBounds: true, freshSeed: true, seedBodyResolved: false),
+                "fresh seed but body unresolved => UnresolvableSeedBody");
+            InGameAssert.AreEqual(
+                Parsek.MapRender.IconFloorGapCounter.FloorReason.None,
+                Parsek.MapRender.IconFloorGapCounter.Classify(
+                    gateOn: true, hasBounds: true, freshSeed: true, seedBodyResolved: true),
+                "director drove the icon => None (not a floor frame)");
+        }
+    }
 }

@@ -1863,6 +1863,14 @@ namespace Parsek.Display
                 activeLegRecordings.Clear();
                 directorOwnedLegRecordings.Clear();
 
+                // Phase 8e S0 (PURELY ADDITIVE diagnostics): clear this frame's coverage-closure sets on
+                // the SAME pre-early-return lifecycle as the ownership sets, so they reflect only the
+                // recordings this frame's walk draws (empty when the polyline is off / not in map view /
+                // wrong scene). Only touched in tracing mode (the populate site below is IsEnabled-gated),
+                // but the clear is unconditional + cheap so a tracing toggle mid-session never leaves a
+                // stale drawn/coverage entry behind for the probe to misread.
+                GhostMapPresence.ClearFrameCoverageSets();
+
                 // Pan-stability (FIX 1): drop last frame's pending-draw handoff before any early return,
                 // so a frame that bails (wrong scene / not in map view / no controller) leaves nothing for
                 // the onPreCull pass to draw. The pending list is repopulated below only for legs that
@@ -2179,6 +2187,15 @@ namespace Parsek.Display
                         // Tell GhostMapPresence the polyline owns this recording's
                         // current phase so it hides the overlapping orbit line.
                         activeLegRecordings.Add(rec.RecordingId);
+
+                        // Phase 8e S0 Instrument 1 (PURELY ADDITIVE): record this recording into the
+                        // coverage-closure DRAWN set (will-draw == actual-draw here), and - when it has
+                        // NO ProtoVessel ghost (ghostPid == 0, a pid-0 atmospheric/ascent recording the
+                        // Director's ghostMapVesselPids enumeration cannot see) - into the proto-less
+                        // COVERAGE set, the Director's genuine accounting of it via this non-proto walk.
+                        // Gated on tracing so default play pays nothing; no render/draw effect.
+                        if (MapRenderTrace.IsEnabled)
+                            GhostMapPresence.NoteDrawnRecordingCoverage(rec.RecordingId, ghostPid);
                     }
                 }
 
