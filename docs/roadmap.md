@@ -354,18 +354,12 @@ map-view and Tracking-Station ghost render path. Designs:
   surface mission loops continuously.
 - **Map / Tracking-Station render redesign** - the ghost map/TS render path was rebuilt as a
   clean modular pipeline (chain assemble, sample, decide, treatment, draw) that replaces the
-  prior smear of Harmony patches, OnGUI passes, and lifecycle ticks, and drives each ghost's
-  orbit line and icon from one source (on by default; toggle "Map/TS director render drive" in
-  Settings). It fixes a family of long-standing artifacts: looped and re-aimed icons now ride
-  their own orbit line, trajectory lines and labels stay glued in place when panning (no jitter
-  or warp-dependent doubled lines), escape and flyby lines clip to the part actually flown, and
-  a self-overlapping looped mission shows one orbit icon (orbital) or trajectory marker
-  (suborbital / ascent) PER LIVE OVERLAP INSTANCE in both the map and the Tracking Station,
-  matching flight. The re-aim interplanetary trajectory rendering drives through the same
-  pipeline.
-- **Status** - the render migration is integration-complete and on by default; the remaining
-  work is the final cleanup (Phase 8e): delete the now-unused legacy render fallbacks and drop
-  the compatibility gate, leaving a single modular system per the design.
+  prior smear of Harmony patches, OnGUI passes, and lifecycle ticks, driving each ghost's orbit
+  line and icon from one source. It fixes a family of long-standing artifacts: looped and
+  re-aimed icons ride their own orbit line, trajectory lines and labels stay put when panning
+  (no jitter or doubled lines), escape and flyby lines clip to the part actually flown, and a
+  self-overlapping looped mission shows one icon or marker per live replay in both the map and
+  the Tracking Station, matching flight.
 
 ---
 

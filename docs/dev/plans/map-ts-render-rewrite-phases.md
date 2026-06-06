@@ -9,20 +9,20 @@ task-level detail is created per phase by the orchestrator.*
 the StockConic surface, the reconciler is sequenced before the scene wiring it verifies, and
 the cutover is split per-surface. See "Shadow contract" and Phase 8.*
 
-> **STATUS (2026-06-06): phases 0-7 + 8a-8d DONE; Integrations 1-2 DONE; only Phase 8e
-> remains.** The new pipeline is integration-complete and ON BY DEFAULT behind the
-> `mapRenderDirectorDrive` gate (default TRUE; toggle in Settings). DONE: Phases 0-3 (pure
-> pipeline), 4-6 (scene adapter + shadow + reconciler), 7 (Tracking-Station scene), and the
-> per-surface cutover 8a (StockConic icon drive, incl. the Category-1 hyperbolic arc clip),
-> 8b (TracedPath polyline ownership), 8c (marker / proto-icon-suppression authority), 8d
-> (flight-map presence migration into the scene adapter, all sub-slices). Plus two cutover
-> integrations beyond this plan's original 8-list: Integration 1 (re-aim interplanetary
-> transfer / escape / arrival rendering through the pipeline) and Integration 2 (overlap
-> rendering: one orbit icon or one polyline marker per LIVE overlap instance, map + Tracking
-> Station, matching flight). Integration 3 (a shared polyline draw host) is DEFERRED (its
-> minimal pid-0 coverage surface folds into 8e). REMAINING: Phase 8e only - delete the now-
-> unused 8a-8d legacy render fallbacks and drop the gate, leaving the single modular system.
-> Per-PR breakdown: `docs/dev/plans/maprender-rewrite-status.md`.*
+> **STATUS (2026-06-06): COMPLETE - all phases (0-7, 8a-8f) and all three integrations
+> DONE.** The new pipeline is the single map / Tracking-Station ghost render path. DONE:
+> Phases 0-3 (pure pipeline), 4-6 (scene adapter + shadow + reconciler), 7 (Tracking-Station
+> scene), the per-surface cutover 8a (StockConic icon drive, incl. the Category-1 hyperbolic
+> arc clip), 8b (TracedPath polyline ownership), 8c (marker / proto-icon-suppression
+> authority), 8d (flight-map presence migration into the scene adapter, all sub-slices), and
+> the three cutover integrations: Integration 1 (re-aim interplanetary transfer / escape /
+> arrival rendering through the pipeline), Integration 2 (overlap rendering: one orbit icon or
+> one polyline marker per live overlap instance, map + Tracking Station, matching flight), and
+> Integration 3 (scoped down to folding the minimal pid-0 atmospheric coverage surface into the
+> pipeline; the `onPreCull` polyline draw was already the sanctioned shared host). Phase 8e then
+> deleted the now-dead 8a-8d legacy render fallbacks and Phase 8f dropped the
+> `mapRenderDirectorDrive` gate, leaving the single modular system this plan targets. Per-PR
+> breakdown: `docs/dev/plans/maprender-rewrite-status.md`.*
 
 ## Principles
 
@@ -192,13 +192,15 @@ in-game gate. **Not "mechanical" — each is a ~1–3-file rewrite of a visibili
   `ParsekPlaybackPolicy.CheckPendingMapVessels` (the ~300-line interleaved method) behind the
   Director/adapter; leave the mesh/spawn half. **Multi-session refactor; treat as its own mini-plan.**
   (All sub-slices 8d.0-8d.3 landed; the lifecycle now lives in `GhostMapPresence`, no behavior change.)
-- **8e - Cleanup. REMAINING (the only outstanding map-render work).** Delete the now-unused 8a-8d legacy
-  render fallbacks (autonomous Driver walk, legacy effUT icon drive, `activeLegRecordings`,
-  `ghostsWithSuppressedIcon`, `ghostOrbitLineGraceUntilFrame` + remaining grace fields); remove the
-  implicit -50/0 ordering contract (KEEP the `onPreCull` draw as the sanctioned shared host); fold in the
-  minimal pid-0 coverage surface from the deferred Integration 3; grep-audit that deleted flags have no
-  readers (mirror `GrepAuditNonLoopLivePidTests`); drop the `mapRenderDirectorDrive` gate; non-looped
-  regression test.
+- **8e - Legacy deletion + pid-0 coverage. DONE.** Folded in the minimal pid-0 atmospheric coverage
+  surface from Integration 3 (proving the Director's accounted set is a superset of the autonomous walk's
+  drawn set), then deleted the now-dead 8a-8d legacy render fallbacks (autonomous Driver walk, legacy effUT
+  icon drive, `activeLegRecordings`, `ghostsWithSuppressedIcon`, `ghostOrbitLineGraceUntilFrame` +
+  remaining grace fields) and removed the implicit -50/0 ordering contract, keeping the `onPreCull` draw as
+  the sanctioned shared host. Grep-audit confirmed the deleted flags have no readers (mirror
+  `GrepAuditNonLoopLivePidTests`).
+- **8f - Drop the gate + regression. DONE.** Dropped the `mapRenderDirectorDrive` gate, leaving the single
+  modular system this plan targets, with a non-looped regression test.
 - **Out of scope (untouched):** `GhostPlaybackEngine` mesh path, `IGhostPositioner`,
   `ParsekPlaybackPolicy` mesh/spawn half, recording/recorder/scheduler.
 - **Deps:** Phases 4–7 + **B and C merged**. **Review.** Full + mandatory in-game per sub-phase.
