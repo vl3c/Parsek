@@ -6084,7 +6084,8 @@ namespace Parsek
             // cycle set is identical to flight (the flight engine does not exist in this scene). The
             // per-index create loop below skips overlap indices. Run before the empty-return so a
             // gate-off transition reaps any leftover instances even when no committed recordings exist.
-            RunOverlapPerInstanceSweep(currentUT, committed);
+            // loopUnits is the TS span-clock set so a Mission-tab loop (source b) drives per-instance.
+            RunOverlapPerInstanceSweep(currentUT, committed, loopUnits);
 
             if (!hasCommittedRecordings)
             {
@@ -6114,7 +6115,7 @@ namespace Parsek
                 var rec = committed[i];
 
                 // Slice (i): overlap recordings are created by the per-instance sweep above, not here.
-                if (ShouldDriveOverlapPerInstance(rec, i, committed))
+                if (ShouldDriveOverlapPerInstance(rec, i, committed, loopUnits))
                     continue;
 
                 // Phase F: substitute the shared Mission span-clock loopUT for the live UT when this
@@ -6448,7 +6449,7 @@ namespace Parsek
                 // Slice (i): if this index became an overlap recording under the director-drive gate,
                 // it is now owned by the per-instance store. Tear down its leftover per-index ghost so
                 // there is no duplicate (the per-instance sweep created the N-per-cycle vessels).
-                if (ShouldDriveOverlapPerInstance(rec, idx, committed))
+                if (ShouldDriveOverlapPerInstance(rec, idx, committed, loopUnits))
                 {
                     if (toRemove == null) toRemove = new List<(int, string)>();
                     toRemove.Add((idx, "overlap-handoff-to-per-instance"));
@@ -10249,19 +10250,33 @@ namespace Parsek
         // =====================================================================
 
         /// <summary>
-        /// Per-recording overlap gate (slice i). Mirrors the KSC dispatch
-        /// (<c>rec.LoopPlayback &amp;&amp; IsOverlapLoop</c>, ParsekKSC.cs:454-484): true when the
-        /// recording loops AND its launch-to-launch period is shorter than its duration, so
-        /// successive launches overlap. Covers BOTH a standalone looped recording (period &lt;
-        /// duration) AND a Mission-unit overlap member that loops. Resolves the interval +
-        /// duration through the same loop helpers the flight engine + KSC use. Pure-ish (reads
-        /// settings/committed only through the shared helpers); the cycle set it implies is
-        /// recomputed by <see cref="ResolveOverlapSchedule"/>.
+        /// Per-recording overlap gate (slice i). A UNION of two overlap sources, mirroring the flight
+        /// engine's two overlap entry points exactly:
+        ///   (b) MISSION-UNIT self-overlap (checked FIRST, preferred when both apply): this index is a
+        ///       member of a looped Mission unit whose overlap cadence is shorter than its span
+        ///       (<see cref="GhostPlaybackLogic.UnitMemberOverlaps"/>), so the whole mission relaunches
+        ///       before the prior instance finishes (GhostPlaybackEngine.cs:2144-2183). A Mission member
+        ///       does NOT carry its own <c>rec.LoopPlayback</c> flag, so this branch must run regardless
+        ///       of it - the bug that cost a playtest: the maintainer loops via the Missions tab.
+        ///   (a) STANDALONE per-recording overlap: the recording itself loops (<c>rec.LoopPlayback</c>)
+        ///       and its launch-to-launch period is shorter than its duration (ParsekKSC.cs:454-484).
+        /// Returns (a)||(b). <paramref name="loopUnits"/> is the per-frame
+        /// <see cref="GhostPlaybackEngine.CurrentLoopUnits"/> threaded from the scene driver; Empty
+        /// (the common case) collapses this to source (a) only - byte-identical to pre-Missions.
         /// </summary>
         internal static bool IsOverlapRecording(
-            Recording rec, int recIdx, IReadOnlyList<Recording> committed)
+            Recording rec, int recIdx, IReadOnlyList<Recording> committed,
+            GhostPlaybackLogic.LoopUnitSet loopUnits)
         {
-            if (rec == null || !rec.LoopPlayback)
+            if (rec == null)
+                return false;
+
+            // (b) Mission-unit self-overlap — checked first, regardless of rec.LoopPlayback.
+            if (IsUnitOverlapMember(rec, recIdx, loopUnits))
+                return true;
+
+            // (a) Standalone per-recording overlap loop.
+            if (!rec.LoopPlayback)
                 return false;
             if (!GhostPlaybackEngine.ShouldLoopPlayback(rec))
                 return false;
@@ -10272,6 +10287,29 @@ namespace Parsek
 
             double intervalSeconds = ResolveOverlapLoopIntervalSeconds(rec, recIdx, committed);
             return GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration);
+        }
+
+        /// <summary>
+        /// Source (b) predicate: is <paramref name="recIdx"/> a member of a looped Mission unit that
+        /// SELF-OVERLAPS (span &gt; 0 &amp;&amp; OverlapCadenceSeconds &lt; span via
+        /// <see cref="GhostPlaybackLogic.UnitMemberOverlaps"/>) AND this member's trimmed render window
+        /// is long enough to replay? Mirrors the flight engine's unit-overlap branch entry
+        /// (GhostPlaybackEngine.cs:2163-2169 - the <c>memberDuration &gt; 0</c> guard, tightened here
+        /// to the same <see cref="LoopTiming.MinLoopDurationSeconds"/> floor the standalone path uses).
+        /// </summary>
+        private static bool IsUnitOverlapMember(
+            Recording rec, int recIdx, GhostPlaybackLogic.LoopUnitSet loopUnits)
+        {
+            if (rec == null || loopUnits == null)
+                return false;
+            if (!loopUnits.TryGetUnitForMember(recIdx, out GhostPlaybackLogic.LoopUnit unit))
+                return false;
+            if (!GhostPlaybackLogic.UnitMemberOverlaps(unit))
+                return false;
+
+            double memberStartUT = unit.MemberStartUT(recIdx, rec.StartUT);
+            double memberEndUT = unit.MemberEndUT(recIdx, rec.EndUT);
+            return memberEndUT - memberStartUT > LoopTiming.MinLoopDurationSeconds;
         }
 
         /// <summary>
@@ -10294,9 +10332,11 @@ namespace Parsek
         /// single-instance create/reseed for the index.
         /// </summary>
         internal static bool ShouldDriveOverlapPerInstance(
-            Recording rec, int recIdx, IReadOnlyList<Recording> committed)
+            Recording rec, int recIdx, IReadOnlyList<Recording> committed,
+            GhostPlaybackLogic.LoopUnitSet loopUnits)
         {
-            return IsOverlapPerInstanceGateOn() && IsOverlapRecording(rec, recIdx, committed);
+            return IsOverlapPerInstanceGateOn()
+                && IsOverlapRecording(rec, recIdx, committed, loopUnits);
         }
 
         /// <summary>
@@ -10369,14 +10409,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolve the full overlap schedule for a recording: playbackStartUT (where the replay
+        /// Resolve the full overlap schedule tuple for a recording: playbackStartUT (where the replay
         /// timeline begins), scheduleStartUT (the launch anchor), duration, the EFFECTIVE launch
         /// cadence (raised so <c>ceil(duration/cadence) &lt;= cap</c>, mirroring
         /// ParsekKSC.UpdateOverlapKsc + GhostPlaybackEngine.UpdateOverlapPlayback), and the
-        /// cycleDuration the cycle math uses. Returns false when the recording is not a loop.
+        /// cycleDuration the cycle math uses. A UNION of the two overlap sources (the unit branch is
+        /// dispatched FIRST so a Mission member uses the unit's schedule even if it also carries its
+        /// own <c>rec.LoopPlayback</c>): both converge on the SAME tuple shape, so the SAME
+        /// <see cref="EnsureOverlapInstances"/> -&gt; GetActiveCycles -&gt;
+        /// <see cref="DecideOverlapInstanceChanges"/> -&gt; ComputeOverlapCyclePlaybackUT path runs for
+        /// both (no second create path). Returns false when the recording is neither.
         /// </summary>
         internal static bool ResolveOverlapSchedule(
             Recording rec, int recIdx, IReadOnlyList<Recording> committed,
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
             out double playbackStartUT, out double scheduleStartUT,
             out double duration, out double effectiveCadence, out double cycleDuration)
         {
@@ -10385,7 +10431,18 @@ namespace Parsek
             duration = 0.0;
             effectiveCadence = 0.0;
             cycleDuration = 0.0;
-            if (rec == null || !GhostPlaybackEngine.ShouldLoopPlayback(rec))
+            if (rec == null)
+                return false;
+
+            // Source (b): Mission-unit self-overlap — dispatched first.
+            if (TryResolveUnitOverlapSchedule(
+                    rec, recIdx, loopUnits,
+                    out playbackStartUT, out scheduleStartUT,
+                    out duration, out effectiveCadence, out cycleDuration))
+                return true;
+
+            // Source (a): standalone per-recording overlap loop.
+            if (!GhostPlaybackEngine.ShouldLoopPlayback(rec))
                 return false;
 
             playbackStartUT = GhostPlaybackEngine.EffectiveLoopStartUT(rec);
@@ -10399,6 +10456,57 @@ namespace Parsek
 
             effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                 intervalSeconds, duration, GhostPlayback.MaxOverlapGhostsPerRecording);
+            cycleDuration = Math.Max(effectiveCadence, LoopTiming.MinCycleDuration);
+            return true;
+        }
+
+        /// <summary>
+        /// Source (b) schedule: resolve the overlap tuple for a Mission-unit self-overlap member,
+        /// mirroring the flight engine's unit-overlap branch EXACTLY (GhostPlaybackEngine.cs:2163-2183
+        /// for the member window + schedule anchor, GhostPlaybackEngine.cs:3570-3571 for the cap
+        /// re-clamp inside UpdateOverlapPlayback):
+        ///   memberStartUT   = unit.MemberStartUT(recIdx, rec.StartUT)   (interval-level start trim)
+        ///   memberEndUT     = unit.MemberEndUT(recIdx, rec.EndUT)       (interval-level end trim)
+        ///   duration        = memberEndUT - memberStartUT
+        ///   playbackStartUT = memberStartUT
+        ///   scheduleStartUT = ComputeMemberOverlapScheduleStartUT(PhaseAnchorUT, SpanStartUT, memberStartUT)
+        ///   effectiveCadence= ComputeEffectiveLaunchCadence(OverlapCadenceSeconds, duration, cap)
+        ///   cycleDuration   = max(effectiveCadence, MinCycleDuration)
+        /// SPAN-CLOCK CAVEAT: the overlap path uses this RAW schedule with ComputeOverlapCyclePlaybackUT,
+        /// NOT ResolveTrackingStationSampleUT / ResolveMapPresenceSampleUT (the span-clock NON-overlap
+        /// path with loiter-cut / arrival-hold / re-aim remapping). The engine's overlap branch
+        /// deliberately skips the span clock (GhostPlaybackEngine.cs:2152-2156); re-aim / zero-drift
+        /// units are non-overlapping by construction (cadence raised &gt;= span) so they never enter
+        /// here. Returns false when the recording is not a self-overlapping unit member.
+        /// </summary>
+        private static bool TryResolveUnitOverlapSchedule(
+            Recording rec, int recIdx, GhostPlaybackLogic.LoopUnitSet loopUnits,
+            out double playbackStartUT, out double scheduleStartUT,
+            out double duration, out double effectiveCadence, out double cycleDuration)
+        {
+            playbackStartUT = 0.0;
+            scheduleStartUT = 0.0;
+            duration = 0.0;
+            effectiveCadence = 0.0;
+            cycleDuration = 0.0;
+            if (rec == null || loopUnits == null)
+                return false;
+            if (!loopUnits.TryGetUnitForMember(recIdx, out GhostPlaybackLogic.LoopUnit unit))
+                return false;
+            if (!GhostPlaybackLogic.UnitMemberOverlaps(unit))
+                return false;
+
+            double memberStartUT = unit.MemberStartUT(recIdx, rec.StartUT);
+            double memberEndUT = unit.MemberEndUT(recIdx, rec.EndUT);
+            duration = memberEndUT - memberStartUT;
+            if (duration <= LoopTiming.MinLoopDurationSeconds)
+                return false;
+
+            playbackStartUT = memberStartUT;
+            scheduleStartUT = GhostPlaybackLogic.ComputeMemberOverlapScheduleStartUT(
+                unit.PhaseAnchorUT, unit.SpanStartUT, memberStartUT);
+            effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                unit.OverlapCadenceSeconds, duration, GhostPlayback.MaxOverlapGhostsPerRecording);
             cycleDuration = Math.Max(effectiveCadence, LoopTiming.MinCycleDuration);
             return true;
         }
@@ -10470,13 +10578,14 @@ namespace Parsek
             Recording rec,
             double currentUT,
             IReadOnlyList<Recording> committed,
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
             ref int frameSpawnCount)
         {
             if (rec == null)
                 return 0;
 
             if (!ResolveOverlapSchedule(
-                    rec, recIdx, committed,
+                    rec, recIdx, committed, loopUnits,
                     out double playbackStartUT, out double scheduleStartUT,
                     out double duration, out double effectiveCadence, out double cycleDuration))
             {
@@ -10583,14 +10692,21 @@ namespace Parsek
         /// looping, period grew past duration, or the committed list shrank). Threads a per-frame
         /// spawn counter so a burst of newly-relaunching cycles is throttled exactly like the flight
         /// engine. Called from both <see cref="UpdateFlightMapGhostLifecycle"/> and
-        /// <see cref="UpdateTrackingStationGhostLifecycle"/>. With the gate OFF nothing here runs
-        /// (every recording fails <see cref="ShouldDriveOverlapPerInstance"/>) AND the leftover reaper
-        /// tears down any instances created while the gate was on, so the scene falls cleanly back to
-        /// the legacy one-per-recording path.
+        /// <see cref="UpdateTrackingStationGhostLifecycle"/>. <paramref name="loopUnits"/> is the
+        /// per-frame <see cref="GhostPlaybackEngine.CurrentLoopUnits"/> the scene drivers already hold
+        /// (null-coalesced to Empty), so a Mission-tab loop (source b) drives the per-instance path
+        /// even when <c>rec.LoopPlayback</c> is false. With the gate OFF nothing here runs (every
+        /// recording fails <see cref="ShouldDriveOverlapPerInstance"/>) AND the leftover reaper tears
+        /// down any instances created while the gate was on, so the scene falls cleanly back to the
+        /// legacy one-per-recording path.
         /// </summary>
         internal static void RunOverlapPerInstanceSweep(
-            double currentUT, IReadOnlyList<Recording> committed)
+            double currentUT, IReadOnlyList<Recording> committed,
+            GhostPlaybackLogic.LoopUnitSet loopUnits)
         {
+            if (loopUnits == null)
+                loopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+
             // Snapshot the set of indices that currently have any per-instance vessel, so we can
             // reap the ones that should no longer be driven per-instance after the create pass below.
             HashSet<int> indicesWithInstances = null;
@@ -10605,12 +10721,22 @@ namespace Parsek
             HashSet<int> drivenThisFrame = null;
             if (committed != null)
             {
+                bool gateOn = IsOverlapPerInstanceGateOn();
                 for (int i = 0; i < committed.Count; i++)
                 {
                     var rec = committed[i];
-                    if (!ShouldDriveOverlapPerInstance(rec, i, committed))
+                    bool shouldDrive = ShouldDriveOverlapPerInstance(rec, i, committed, loopUnits);
+
+                    // GATE-DECISION TRACE (the blind spot that cost us a playtest): one rate-limited
+                    // line PER committed recording explaining the verdict, BEFORE the continue. A
+                    // re-fly Mission member shows isMember=true unitOverlaps=true even when
+                    // rec.LoopPlayback=false, so a "one icon instead of N" report is diagnosable from
+                    // the log alone.
+                    LogOverlapGateDecision(i, rec, committed, loopUnits, gateOn, shouldDrive);
+
+                    if (!shouldDrive)
                         continue;
-                    EnsureOverlapInstances(i, rec, currentUT, committed, ref frameSpawnCount);
+                    EnsureOverlapInstances(i, rec, currentUT, committed, loopUnits, ref frameSpawnCount);
                     if (drivenThisFrame == null) drivenThisFrame = new HashSet<int>();
                     drivenThisFrame.Add(i);
                 }
@@ -10629,6 +10755,82 @@ namespace Parsek
                     DestroyAllOverlapInstancesForRecording(idx, "overlap-no-longer-per-instance");
                 }
             }
+        }
+
+        /// <summary>
+        /// Per-recording gate-decision trace (rate-limited, per-index key). Surfaces every input to the
+        /// overlap verdict so a "one icon instead of N" report is diagnosable from the log WITHOUT a
+        /// rebuild: the director-drive gate, the standalone source (a) inputs (rec.LoopPlayback +
+        /// IsOverlapLoop result), the Mission source (b) inputs (isMember / overlapCadence / span /
+        /// unitOverlaps), the resolved schedule tuple (scheduleStart / duration / effectiveCadence), and
+        /// the final ShouldDriveOverlapPerInstance verdict + the live cycle window when driven. Reuses
+        /// the same pure resolvers the verdict uses, so the log can never disagree with the decision.
+        /// Unity-free (reads only the pure resolvers + the test-overridable <c>CurrentUTNow</c>), so the
+        /// xUnit log-assertion test can drive it directly.
+        /// </summary>
+        internal static void LogOverlapGateDecision(
+            int recIdx, Recording rec, IReadOnlyList<Recording> committed,
+            GhostPlaybackLogic.LoopUnitSet loopUnits, bool gateOn, bool shouldDrive)
+        {
+            // Source (a) inputs.
+            bool recLoopPlayback = rec != null && rec.LoopPlayback;
+            double autoDuration = rec != null && GhostPlaybackEngine.ShouldLoopPlayback(rec)
+                ? GhostPlaybackEngine.EffectiveLoopDuration(rec) : double.NaN;
+            double autoInterval = double.NaN;
+            bool autoOverlap = false;
+            if (recLoopPlayback && !double.IsNaN(autoDuration) && autoDuration > LoopTiming.MinLoopDurationSeconds)
+            {
+                autoInterval = ResolveOverlapLoopIntervalSeconds(rec, recIdx, committed);
+                autoOverlap = GhostPlaybackLogic.IsOverlapLoop(autoInterval, autoDuration);
+            }
+
+            // Source (b) inputs.
+            bool isMember = loopUnits != null
+                && loopUnits.TryGetUnitForMember(recIdx, out GhostPlaybackLogic.LoopUnit unit);
+            double overlapCadence = double.NaN;
+            double span = double.NaN;
+            bool unitOverlaps = false;
+            if (isMember)
+            {
+                loopUnits.TryGetUnitForMember(recIdx, out unit);
+                overlapCadence = unit.OverlapCadenceSeconds;
+                span = unit.SpanEndUT - unit.SpanStartUT;
+                unitOverlaps = GhostPlaybackLogic.UnitMemberOverlaps(unit);
+            }
+
+            // Resolved schedule tuple (whichever source won), + the live cycle window when driven.
+            string scheduleStr = "(none)";
+            string cycleWindowStr = "(not-driven)";
+            if (ResolveOverlapSchedule(
+                    rec, recIdx, committed, loopUnits,
+                    out _, out double scheduleStartUT,
+                    out double duration, out double effectiveCadence, out _))
+            {
+                scheduleStr = string.Format(ic,
+                    "scheduleStart={0:F1} duration={1:F1} effectiveCadence={2:F1}",
+                    scheduleStartUT, duration, effectiveCadence);
+                if (shouldDrive)
+                {
+                    OverlapCyclesForTesting(rec, recIdx, committed, loopUnits, CurrentUTNow(),
+                        out long firstCycle, out long lastCycle);
+                    cycleWindowStr = string.Format(ic,
+                        "cycles=[{0}..{1}] liveNow={2}", firstCycle, lastCycle,
+                        GetOverlapInstanceCount(recIdx));
+                }
+            }
+
+            ParsekLog.VerboseRateLimited(Tag,
+                "overlap-gate-decision-" + recIdx.ToString(ic),
+                string.Format(ic,
+                    "Overlap gate decision rec=#{0} \"{1}\": directorDrive={2} | "
+                    + "(a) loopPlayback={3} autoIsOverlapLoop={4} | "
+                    + "(b) isMember={5} overlapCadence={6:F1} span={7:F1} unitOverlaps={8} | "
+                    + "{9} | verdict shouldDrive={10} {11}",
+                    recIdx, rec?.VesselName ?? "(null)", gateOn,
+                    recLoopPlayback, autoOverlap,
+                    isMember, overlapCadence, span, unitOverlaps,
+                    scheduleStr, shouldDrive, cycleWindowStr),
+                3.0);
         }
 
         /// <summary>
@@ -10877,13 +11079,14 @@ namespace Parsek
         /// or currentUT precedes the schedule start.
         /// </summary>
         internal static void OverlapCyclesForTesting(
-            Recording rec, int recIdx, IReadOnlyList<Recording> committed, double currentUT,
+            Recording rec, int recIdx, IReadOnlyList<Recording> committed,
+            GhostPlaybackLogic.LoopUnitSet loopUnits, double currentUT,
             out long firstCycle, out long lastCycle)
         {
             firstCycle = 0;
             lastCycle = -1;
             if (!ResolveOverlapSchedule(
-                    rec, recIdx, committed,
+                    rec, recIdx, committed, loopUnits,
                     out _, out double scheduleStartUT,
                     out double duration, out double effectiveCadence, out _))
                 return;
@@ -10985,7 +11188,7 @@ namespace Parsek
             // Runs in the always-runs section so cycles relaunch/expire promptly. Resolves the live
             // committed list here (the rate-limited section below resolves its own copy after the
             // gate; the overlap path must run every frame).
-            RunOverlapPerInstanceSweep(currentUT, RecordingStore.CommittedRecordings);
+            RunOverlapPerInstanceSweep(currentUT, RecordingStore.CommittedRecordings, loopUnits);
 
             // 2. Map-orbit reseed for existing ProtoVessels. Rate-limited to the real-time timer, BUT
             // warp-aware: under time warp the playback head sprints through short segments (e.g. the many
@@ -11036,7 +11239,7 @@ namespace Parsek
                     // (RunOverlapPerInstanceSweep, run earlier this frame). Skip the legacy
                     // single-instance deferred create for them so there is no double-management.
                     if (committedForOverlapSkip != null && idx >= 0 && idx < committedForOverlapSkip.Count
-                        && ShouldDriveOverlapPerInstance(committedForOverlapSkip[idx], idx, committedForOverlapSkip))
+                        && ShouldDriveOverlapPerInstance(committedForOverlapSkip[idx], idx, committedForOverlapSkip, loopUnits))
                         continue;
 
                     // Loop-mapped sample UT for this member (effUT == currentUT off the loop path).
@@ -11222,7 +11425,7 @@ namespace Parsek
                 if (!rec.HasOrbitSegments) continue;
 
                 // Slice (i): overlap recordings are reseeded by the per-instance sweep, not here.
-                if (ShouldDriveOverlapPerInstance(rec, idx, committed))
+                if (ShouldDriveOverlapPerInstance(rec, idx, committed, loopUnits))
                     continue;
 
                 // Loop-mapped sample UT + live-frame epoch shift (effUT == currentUT, shift 0 off
@@ -11499,7 +11702,7 @@ namespace Parsek
 
                     // Slice (i): overlap recordings are driven by the per-instance sweep, not here.
                     if (committed != null && idx >= 0 && idx < committed.Count
-                        && ShouldDriveOverlapPerInstance(committed[idx], idx, committed))
+                        && ShouldDriveOverlapPerInstance(committed[idx], idx, committed, loopUnits))
                         continue;
 
                     if (!flightStateVectorCachedIndices.ContainsKey(idx))
@@ -11838,12 +12041,12 @@ namespace Parsek
             {
                 var committedForOverlap = RecordingStore.CommittedRecordings;
                 if (committedForOverlap != null && evt.Index >= 0 && evt.Index < committedForOverlap.Count
-                    && ShouldDriveOverlapPerInstance(committedForOverlap[evt.Index], evt.Index, committedForOverlap))
+                    && ShouldDriveOverlapPerInstance(committedForOverlap[evt.Index], evt.Index, committedForOverlap, loopUnits))
                 {
                     ParsekLog.Verbose("Policy",
                         string.Format(CultureInfo.InvariantCulture,
                             "Ghost map for #{0} \"{1}\" deferred to per-instance overlap sweep " +
-                            "(looped overlap recording, director-drive on)",
+                            "(looped overlap recording / Mission-unit overlap member, director-drive on)",
                             evt.Index, evt.Trajectory.VesselName ?? "(null)"));
                     return;
                 }

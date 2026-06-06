@@ -23,6 +23,10 @@ namespace Parsek.Tests
         public OverlapPerInstanceTests()
         {
             GhostMapPresence.ResetForTesting();
+            // CurrentUTNow defaults to Planetarium.GetUniversalTime() (Unity, NRE in xUnit). Override
+            // it after ResetForTesting (which restores GetCurrentUTSafe) so the gate-decision log path
+            // resolves a UT without Unity.
+            GhostMapPresence.CurrentUTNow = () => 5130.0;
             RecordingStore.ClearCommittedInternal();
             RecordingStore.CommittedTrees.Clear();
             ParsekSettings.CurrentOverrideForTesting = new ParsekSettings
@@ -84,6 +88,46 @@ namespace Parsek.Tests
             return rec;
         }
 
+        /// <summary>The empty loop-unit set (source-a-only path; no Mission loops).</summary>
+        private static GhostPlaybackLogic.LoopUnitSet NoUnits => GhostPlaybackLogic.LoopUnitSet.Empty;
+
+        /// <summary>
+        /// A non-looping recording (rec.LoopPlayback == false) with the given [start,end] window.
+        /// Used as a SOURCE (b) member: a Mission-unit overlap member does NOT carry its own loop flag.
+        /// </summary>
+        private static Recording MakeMemberRec(double startUT, double endUT, string id = "rec-member")
+            => MakeLoopRec(startUT, endUT, loopInterval: 30, loopPlayback: false, id: id);
+
+        /// <summary>
+        /// A single-member self-overlapping Mission unit over [spanStart, spanEnd] with the given
+        /// overlap cadence (&lt; span => self-overlap). Optional per-member trim window. PhaseAnchor
+        /// defaults to spanStart. Mirrors the construction in MissionSpanClockTests.
+        /// </summary>
+        private static GhostPlaybackLogic.LoopUnitSet MakeOverlapUnitSet(
+            int memberIdx, double spanStartUT, double spanEndUT, double overlapCadenceSeconds,
+            double phaseAnchorUT = double.NaN,
+            (double startUT, double endUT)? memberWindow = null)
+        {
+            if (double.IsNaN(phaseAnchorUT))
+                phaseAnchorUT = spanStartUT;
+
+            IReadOnlyDictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow> windows = null;
+            if (memberWindow.HasValue)
+                windows = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>
+                {
+                    { memberIdx, new GhostPlaybackLogic.LoopUnit.MemberWindow(
+                        memberWindow.Value.startUT, memberWindow.Value.endUT) }
+                };
+
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                memberIdx, new[] { memberIdx }, spanStartUT, spanEndUT,
+                cadenceSeconds: spanEndUT - spanStartUT, phaseAnchorUT: phaseAnchorUT,
+                overlapCadenceSeconds: overlapCadenceSeconds, memberWindows: windows);
+            var unitsByOwner = new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { memberIdx, unit } };
+            var ownerByIndex = new Dictionary<int, int> { { memberIdx, memberIdx } };
+            return new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex);
+        }
+
         // =================================================================
         //  (b) Overlap gate predicate
         // =================================================================
@@ -112,14 +156,14 @@ namespace Parsek.Tests
         public void IsOverlapRecording_LoopingShortPeriod_True()
         {
             var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
-            Assert.True(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed));
+            Assert.True(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed, NoUnits));
         }
 
         [Fact]
         public void IsOverlapRecording_NotLooping_False()
         {
             var committed = new List<Recording> { MakeLoopRec(100, 300, 30, loopPlayback: false) };
-            Assert.False(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed));
+            Assert.False(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed, NoUnits));
         }
 
         [Fact]
@@ -127,13 +171,13 @@ namespace Parsek.Tests
         {
             // period (500) > duration (200): looping but NOT overlapping (single-ghost path).
             var committed = new List<Recording> { MakeLoopRec(100, 300, 500) };
-            Assert.False(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed));
+            Assert.False(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed, NoUnits));
         }
 
         [Fact]
         public void IsOverlapRecording_Null_False()
         {
-            Assert.False(GhostMapPresence.IsOverlapRecording(null, 0, new List<Recording>()));
+            Assert.False(GhostMapPresence.IsOverlapRecording(null, 0, new List<Recording>(), NoUnits));
         }
 
         [Fact]
@@ -141,23 +185,99 @@ namespace Parsek.Tests
         {
             ParsekSettings.CurrentOverrideForTesting.mapRenderDirectorDrive = false;
             var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
-            Assert.False(GhostMapPresence.ShouldDriveOverlapPerInstance(committed[0], 0, committed));
+            Assert.False(GhostMapPresence.ShouldDriveOverlapPerInstance(committed[0], 0, committed, NoUnits));
             // The recording itself IS an overlap loop; only the gate is off.
-            Assert.True(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed));
+            Assert.True(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed, NoUnits));
         }
 
         [Fact]
         public void ShouldDriveOverlapPerInstance_GateOn_OverlapRecording_True()
         {
             var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
-            Assert.True(GhostMapPresence.ShouldDriveOverlapPerInstance(committed[0], 0, committed));
+            Assert.True(GhostMapPresence.ShouldDriveOverlapPerInstance(committed[0], 0, committed, NoUnits));
         }
 
         [Fact]
         public void ShouldDriveOverlapPerInstance_GateOn_NonOverlap_False()
         {
             var committed = new List<Recording> { MakeLoopRec(100, 300, 30, loopPlayback: false) };
-            Assert.False(GhostMapPresence.ShouldDriveOverlapPerInstance(committed[0], 0, committed));
+            Assert.False(GhostMapPresence.ShouldDriveOverlapPerInstance(committed[0], 0, committed, NoUnits));
+        }
+
+        // =================================================================
+        //  Source (b): Mission-unit self-overlap gate (rec.LoopPlayback == false)
+        // =================================================================
+
+        [Fact]
+        public void IsOverlapRecording_MissionUnitOverlap_NoRecLoopFlag_True()
+        {
+            // The maintainer's case: the recording does NOT loop on its own (rec.LoopPlayback=false),
+            // but it is a member of a looped Mission unit whose overlap cadence (20s) is shorter than
+            // its span (200s) -> self-overlap. Source (b) must drive it even with no rec loop flag.
+            var committed = new List<Recording> { MakeMemberRec(1000, 1200) };
+            var units = MakeOverlapUnitSet(0, spanStartUT: 1000, spanEndUT: 1200, overlapCadenceSeconds: 20);
+
+            Assert.False(committed[0].LoopPlayback);
+            Assert.True(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed, units));
+            Assert.True(GhostMapPresence.ShouldDriveOverlapPerInstance(committed[0], 0, committed, units));
+            // With NO loop units it is NOT an overlap recording (the bug: gate rejected it -> one icon).
+            Assert.False(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed, NoUnits));
+        }
+
+        [Fact]
+        public void IsOverlapRecording_MissionUnit_CadenceAtOrAboveSpan_False()
+        {
+            // Cadence >= span: a single span-clock instance, NOT self-overlap. Source (b) rejects it.
+            var committed = new List<Recording> { MakeMemberRec(1000, 1200) };
+            var units = MakeOverlapUnitSet(0, 1000, 1200, overlapCadenceSeconds: 200); // == span
+            Assert.False(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed, units));
+        }
+
+        [Fact]
+        public void IsOverlapRecording_MissionUnit_ZeroMemberDuration_False()
+        {
+            // A member trimmed to a zero-length window can't replay; the member-duration floor rejects it.
+            var committed = new List<Recording> { MakeMemberRec(1000, 1200) };
+            var units = MakeOverlapUnitSet(0, 1000, 1200, overlapCadenceSeconds: 20,
+                memberWindow: (1100, 1100));
+            Assert.False(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed, units));
+        }
+
+        [Fact]
+        public void ShouldDriveOverlapPerInstance_MissionUnit_GateOff_False()
+        {
+            // Gate-off is preserved for source (b) too: the union only ADDS source b INSIDE the gate.
+            ParsekSettings.CurrentOverrideForTesting.mapRenderDirectorDrive = false;
+            var committed = new List<Recording> { MakeMemberRec(1000, 1200) };
+            var units = MakeOverlapUnitSet(0, 1000, 1200, overlapCadenceSeconds: 20);
+            Assert.False(GhostMapPresence.ShouldDriveOverlapPerInstance(committed[0], 0, committed, units));
+            // But the recording IS an overlap recording; only the gate is off.
+            Assert.True(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed, units));
+        }
+
+        [Fact]
+        public void IsOverlapRecording_PreferUnitWhenBoth()
+        {
+            // A recording that is BOTH a standalone loop (rec.LoopPlayback, period 30 < dur) AND a
+            // self-overlapping unit member: source (b) is preferred. The resolved schedule must be the
+            // UNIT's (scheduleStart from the unit anchor + member offset), not the standalone loop's.
+            var committed = new List<Recording> { MakeLoopRec(1000, 1200, 30) }; // standalone overlap too
+            var units = MakeOverlapUnitSet(
+                0, spanStartUT: 1000, spanEndUT: 1200, overlapCadenceSeconds: 20, phaseAnchorUT: 5000);
+
+            Assert.True(GhostMapPresence.IsOverlapRecording(committed[0], 0, committed, units));
+            bool ok = GhostMapPresence.ResolveOverlapSchedule(
+                committed[0], 0, committed, units,
+                out double playbackStartUT, out double scheduleStartUT,
+                out double duration, out double effectiveCadence, out _);
+            Assert.True(ok);
+            // Unit tuple: memberStart == spanStart == 1000 (no trim); scheduleStart from the unit anchor
+            // (5000 + (1000-1000) = 5000), NOT the standalone loop's own EffectiveLoopStartUT (1000).
+            Assert.Equal(1000.0, playbackStartUT, 3);
+            Assert.Equal(5000.0, scheduleStartUT, 3);
+            Assert.Equal(200.0, duration, 3);
+            // overlapCadence 20s over a 200s span: ceil(200/20)=10 <= cap 20 -> cadence stays 20.
+            Assert.Equal(20.0, effectiveCadence, 3);
         }
 
         // =================================================================
@@ -173,7 +293,7 @@ namespace Parsek.Tests
             // call on the same raw schedule + effective cadence.
             var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
             bool ok = GhostMapPresence.ResolveOverlapSchedule(
-                committed[0], 0, committed,
+                committed[0], 0, committed, NoUnits,
                 out double playbackStartUT, out double scheduleStartUT,
                 out double duration, out double effectiveCadence, out double cycleDuration);
             Assert.True(ok);
@@ -186,7 +306,7 @@ namespace Parsek.Tests
 
             double currentUT = 250.0;
             GhostMapPresence.OverlapCyclesForTesting(
-                committed[0], 0, committed, currentUT,
+                committed[0], 0, committed, NoUnits, currentUT,
                 out long mapFirst, out long mapLast);
 
             // Direct GetActiveCycles on the resolved schedule.
@@ -208,12 +328,12 @@ namespace Parsek.Tests
             // 5s period over a 200s duration -> up to 40 cycles, capped at 20: exercises the cap clamp.
             var committed = new List<Recording> { MakeLoopRec(100, 300, 5) };
             GhostMapPresence.ResolveOverlapSchedule(
-                committed[0], 0, committed,
+                committed[0], 0, committed, NoUnits,
                 out _, out double scheduleStartUT,
                 out double duration, out double effectiveCadence, out _);
 
             GhostMapPresence.OverlapCyclesForTesting(
-                committed[0], 0, committed, currentUT,
+                committed[0], 0, committed, NoUnits, currentUT,
                 out long mapFirst, out long mapLast);
 
             GhostPlaybackLogic.GetActiveCycles(
@@ -225,6 +345,87 @@ namespace Parsek.Tests
             Assert.Equal(engineLast, mapLast);
             // Cap invariant: live cycle count never exceeds the per-recording cap.
             Assert.True(mapLast - mapFirst + 1 <= GhostPlayback.MaxOverlapGhostsPerRecording);
+        }
+
+        // =================================================================
+        //  Source (b): Mission-unit schedule + cycle-set equivalence
+        // =================================================================
+
+        [Fact]
+        public void ResolveOverlapSchedule_MissionUnit_MatchesEngineTuple()
+        {
+            // Mirror the engine's unit tuple (GhostPlaybackEngine.cs:2163-2183 + 3570-3571 cap re-clamp):
+            // member [1000,1200] (no trim), anchor 5000, overlapCadence 20s.
+            var committed = new List<Recording> { MakeMemberRec(1000, 1200) };
+            var units = MakeOverlapUnitSet(
+                0, spanStartUT: 1000, spanEndUT: 1200, overlapCadenceSeconds: 20, phaseAnchorUT: 5000);
+
+            bool ok = GhostMapPresence.ResolveOverlapSchedule(
+                committed[0], 0, committed, units,
+                out double playbackStartUT, out double scheduleStartUT,
+                out double duration, out double effectiveCadence, out double cycleDuration);
+            Assert.True(ok);
+
+            // Engine tuple (verbatim):
+            double memberStartUT = 1000, memberEndUT = 1200;
+            double expectedDuration = memberEndUT - memberStartUT;          // 200
+            double expectedSchedule = GhostPlaybackLogic.ComputeMemberOverlapScheduleStartUT(
+                5000, 1000, memberStartUT);                                 // 5000
+            double expectedCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                20, expectedDuration, GhostPlayback.MaxOverlapGhostsPerRecording); // 20
+            Assert.Equal(memberStartUT, playbackStartUT, 3);
+            Assert.Equal(expectedSchedule, scheduleStartUT, 3);
+            Assert.Equal(expectedDuration, duration, 3);
+            Assert.Equal(expectedCadence, effectiveCadence, 3);
+            Assert.Equal(System.Math.Max(expectedCadence, LoopTiming.MinCycleDuration), cycleDuration, 3);
+        }
+
+        [Fact]
+        public void OverlapCyclesForTesting_MissionUnit_MatchesGetActiveCyclesFromUnitTuple()
+        {
+            var committed = new List<Recording> { MakeMemberRec(1000, 1200) };
+            var units = MakeOverlapUnitSet(
+                0, spanStartUT: 1000, spanEndUT: 1200, overlapCadenceSeconds: 20, phaseAnchorUT: 5000);
+
+            GhostMapPresence.ResolveOverlapSchedule(
+                committed[0], 0, committed, units,
+                out _, out double scheduleStartUT,
+                out double duration, out double effectiveCadence, out _);
+
+            double currentUT = 5130.0; // 130s into the schedule (launches every 20s from 5000)
+            GhostMapPresence.OverlapCyclesForTesting(
+                committed[0], 0, committed, units, currentUT,
+                out long mapFirst, out long mapLast);
+
+            GhostPlaybackLogic.GetActiveCycles(
+                currentUT, scheduleStartUT, scheduleStartUT + duration,
+                effectiveCadence, GhostPlayback.MaxOverlapGhostsPerRecording,
+                out long engineFirst, out long engineLast);
+
+            Assert.Equal(engineFirst, mapFirst);
+            Assert.Equal(engineLast, mapLast);
+            Assert.True(mapLast - mapFirst + 1 <= GhostPlayback.MaxOverlapGhostsPerRecording);
+        }
+
+        [Fact]
+        public void ResolveOverlapSchedule_MissionUnit_MemberTrim_YieldsTrimmedDuration()
+        {
+            // The mission trims this member to [1050, 1150] (a pod shown only after the decouple).
+            // The overlap schedule must use the TRIMMED window: duration 100, playbackStart 1050,
+            // schedule staggered by the member offset (memberStart - spanStart = 50) from the anchor.
+            var committed = new List<Recording> { MakeMemberRec(1000, 1200) };
+            var units = MakeOverlapUnitSet(
+                0, spanStartUT: 1000, spanEndUT: 1200, overlapCadenceSeconds: 20, phaseAnchorUT: 5000,
+                memberWindow: (1050, 1150));
+
+            bool ok = GhostMapPresence.ResolveOverlapSchedule(
+                committed[0], 0, committed, units,
+                out double playbackStartUT, out double scheduleStartUT,
+                out double duration, out _, out _);
+            Assert.True(ok);
+            Assert.Equal(1050.0, playbackStartUT, 3);
+            Assert.Equal(100.0, duration, 3);                       // trimmed (200 -> 100)
+            Assert.Equal(5050.0, scheduleStartUT, 3);               // 5000 + (1050 - 1000)
         }
 
         // =================================================================
@@ -333,6 +534,47 @@ namespace Parsek.Tests
         {
             Assert.Equal(0, GhostMapPresence.GetOverlapInstanceCount(0));
             Assert.Equal(0u, GhostMapPresence.GetNewestOverlapInstancePidForRecording(0));
+        }
+
+        // =================================================================
+        //  Gate-decision logging (the playtest blind spot)
+        // =================================================================
+
+        [Fact]
+        public void LogOverlapGateDecision_MissionLoop_ShowsIsMemberAndUnitOverlaps()
+        {
+            // The diagnostic the playtest lacked: a re-fly Mission member (rec.LoopPlayback=false)
+            // driven via source (b) must log isMember=true unitOverlaps=true so a "one icon instead of
+            // N" report is diagnosable from the log alone, without a rebuild.
+            var committed = new List<Recording> { MakeMemberRec(1000, 1200) };
+            var units = MakeOverlapUnitSet(0, 1000, 1200, overlapCadenceSeconds: 20, phaseAnchorUT: 5000);
+            bool shouldDrive = GhostMapPresence.ShouldDriveOverlapPerInstance(committed[0], 0, committed, units);
+            Assert.True(shouldDrive);
+
+            GhostMapPresence.LogOverlapGateDecision(
+                0, committed[0], committed, units, gateOn: true, shouldDrive: shouldDrive);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Overlap gate decision")
+                && l.Contains("isMember=True")
+                && l.Contains("unitOverlaps=True")
+                && l.Contains("loopPlayback=False")
+                && l.Contains("shouldDrive=True"));
+        }
+
+        [Fact]
+        public void LogOverlapGateDecision_StandaloneLoop_ShowsAutoOverlapNotMember()
+        {
+            // Source (a) standalone loop: the line shows autoIsOverlapLoop=True isMember=False.
+            var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
+            GhostMapPresence.LogOverlapGateDecision(
+                0, committed[0], committed, NoUnits, gateOn: true, shouldDrive: true);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Overlap gate decision")
+                && l.Contains("loopPlayback=True")
+                && l.Contains("autoIsOverlapLoop=True")
+                && l.Contains("isMember=False"));
         }
     }
 }

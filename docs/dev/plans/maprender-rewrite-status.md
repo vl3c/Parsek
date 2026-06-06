@@ -400,7 +400,21 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
       the single-slot `CreateGhostVesselFromSource` funnel); schedule via the PURE
       `GhostPlaybackLogic.TryResolveAutoLoopLaunchSchedule` (works in flight AND TS); `GetActiveCycles` +
       `ComputeOverlapCyclePlaybackUT` for the live-cycle set + per-instance epoch shift; gate =
-      `mapRenderDirectorDrive && IsOverlapLoop(interval,duration)`. Each instance's icon phase comes from
+      `mapRenderDirectorDrive` AND (per-recording auto-loop `IsOverlapLoop` OR Mission-unit self-overlap
+      `loopUnits.TryGetUnitForMember && UnitMemberOverlaps`). **Mission-unit fix (playtest-caught
+      2026-06-06):** the maintainer loops via the Missions tab (a `LoopUnit` self-overlap, `Mission.
+      LoopPlayback`, NOT `rec.LoopPlayback`), so the original per-recording-only gate rejected it -> one
+      icon. The fix threads `loopUnits` through the sweep and unions the gate/schedule with the
+      Mission-unit source, sourcing `(scheduleStart, playbackStart, duration, cadence)` from the `LoopUnit`
+      exactly as the flight engine does (`GhostPlaybackEngine.cs:2163-2183` + the cadence re-clamp), so the
+      map cycles match the flight meshes 1:1. Re-aim / zero-drift units are non-overlapping by construction
+      (`UnitMemberOverlaps` false), so they stay single-ghost. A rate-limited per-recIdx
+      `overlap-gate-decision` log line now surfaces the gate inputs (directorDrive / loopPlayback / isMember
+      / unitOverlaps / schedule / cycle window) so a re-fly is self-diagnosing. **NOTE:**
+      `mapRenderDirectorDrive` is a per-save KSP custom param; an old save persisted `false` and KSP
+      restores it on load (the external override only re-asserts once toggled via the Parsek Settings
+      window), so the maintainer must toggle the setting ON for the save before validating - not a bug.
+      Each instance's icon phase comes from
       its per-pid `ghostOrbitEpochShift` (so slice i ships WITHOUT slice ii's instanceKey, which stays 0).
       `GetGhostVesselPidForRecording`/`HasGhostVesselForRecording` fall through to the newest-cycle
       instance so watch / TS-Fly / UI / polyline-owner readers don't get pid 0. Legacy create/reseed/
