@@ -895,8 +895,9 @@ namespace Parsek
         internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;
 
         // Phase 4 decision-only shadow (design §6.7): the flight-map scene adapter the
-        // ShadowRenderDriver runs the new pipeline against. Only touched when the shadow is enabled
-        // (mapRenderTracing OR the mapRenderDirectorDrive gate, via ShadowRenderDriver.Enabled).
+        // ShadowRenderDriver runs the new pipeline against. The shadow is always enabled
+        // (ShadowRenderDriver.Enabled is always true now that 8e S4 dropped the director-drive gate;
+        // the Director pipeline is unconditional).
         private readonly MapRender.MapViewScene mapViewScene = new MapRender.MapViewScene();
         private readonly List<RecordingAnchorCandidate> cachedGhostRecordingAnchorCandidates =
             new List<RecordingAnchorCandidate>();

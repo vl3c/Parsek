@@ -24,8 +24,8 @@ namespace Parsek.MapRender
     /// TracedPath intent, keep drawing through the Driver's direct path - byte-identical to today.</para>
     ///
     /// <para>What 8b.1 does NOT touch (deferred): the ownership SIGNAL repoint. The Driver still
-    /// publishes <c>activeLegRecordings</c> / <c>IsRenderingNonOrbitalLeg</c> for a director-owned pid it
-    /// stands down on (it still walks the leg, resolves the body, head-UT-gates, and sets
+    /// publishes <c>drewNonOrbitalLegRecordings</c> / <c>IsRenderingNonOrbitalLeg</c> for a director-owned
+    /// pid it stands down on (it still walks the leg, resolves the body, head-UT-gates, and sets
     /// <c>anyDrawn</c>), so <c>IsPolylineOwningGhostPhase</c> stays correct and the proto orbit line is
     /// still hidden + the marker still rides the drawn line. Repointing that signal to the Director is
     /// Phase 8b.2; the marker ownership is 8c.</para>

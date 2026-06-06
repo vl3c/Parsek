@@ -9,11 +9,16 @@ tested.*
 *Commits are UNSIGNED (the harness SSH signer fails in a sibling worktree). Re-sign / squash at
 merge if the repo needs verified commits.*
 
-> **STATUS (2026-06-06): COMPLETE.** All phases (0-7, 8a-8f) and all three integrations landed; the
-> modular Director pipeline is the single map / Tracking-Station ghost render path (legacy fallbacks
-> deleted, `mapRenderDirectorDrive` gate dropped). The per-phase entries below are the historical build
-> log; the "in progress" / "awaiting in-game gate" / "DEFERRED" notes within them are superseded by this
-> banner.*
+> **STATUS (2026-06-06): COMPLETE.** All phases (0-7, 8a-8e incl. the S4 gate-drop) and all three
+> integrations landed; the modular Director pipeline is the single map / Tracking-Station ghost render path
+> (legacy *ownership* fallbacks + the autonomous DECIDE-walk deleted, `mapRenderDirectorDrive` gate dropped).
+> **CUTOVER COMPLETE at S4.** The original 8f deletion of the icon floor / `ghostsWithSuppressedIcon` /
+> `IsIconSuppressed` was REASSESSED (data-backed) and NOT done: those are a KEPT permanent no-conic /
+> suppressed-icon Director fallback (the ONLY marker signal for below-atmosphere descent, off-arc /
+> window-clamp, and no-bounds loiter / terminal / atmospheric ghosts); deleting them would regress those to
+> a blank icon. The `IconFloorGapCounter` S0 instrument is RETIRED (its "floor must reach 0 before deletion"
+> premise no longer holds). The per-phase entries below are the historical build log; the "in progress" /
+> "awaiting in-game gate" / "DEFERRED" notes within them are superseded by this banner.*
 
 ## Done (the pure pipeline - Phases 0-3, committed, UNBUILT)
 
@@ -332,9 +337,10 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
   + 6 dicts, lifecycle handlers, decomposition) is fully migrated from `ParsekPlaybackPolicy` into
   `GhostMapPresence`, no behavior change. The coverage gap (cutover Step 2: the re-aim / overlap members +
   the hyperbolic-escape segment that fell back to the legacy draw path) was then closed by Integrations
-  1-3, after which Phase 8e deleted the 8a/8b/8c legacy draw-side fallbacks + the autonomous Driver walk +
-  grace fields and Phase 8f dropped the `mapRenderDirectorDrive` gate. Presence (8d) was independent of
-  that gap (presence was never gated and always runs).
+  1-3, after which Phase 8e deleted the 8a/8b/8c legacy *ownership* fallbacks (the autonomous Driver
+  DECIDE-walk + `activeLegRecordings`) and the S4 gate-drop dropped the `mapRenderDirectorDrive` gate. The
+  icon floor / `ghostsWithSuppressedIcon` / `IsIconSuppressed` / grace fields were KEPT (the 8f reassessment
+  below). Presence (8d) was independent of that gap (presence was never gated and always runs).
 - **Cutover completion = INTEGRATION before deletion (decided 2026-06-06).** The 8e read-only scoping
   overturned the "delete legacy + drop the gate" premise: the legacy draw code (autonomous Driver walk,
   legacy effUT icon drive, `activeLegRecordings`, `ghostsWithSuppressedIcon`, grace fields) is NOT a
@@ -383,9 +389,10 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
       per-slice entries below are SUPERSEDED by this validation. Two ADVISORY (non-blocking) re-tests
       remain: a TS-view visual confirm (this session had 0 ghosts live in TS) and an ORBITAL-overlap
       ProtoVessel-churn check at warp (the validated mission was suborbital); both are now closed.
-      **Map-render cutover COMPLETE:** Integration 3 folded the minimal pid-0 coverage into the pipeline,
-      Phase 8e deleted the legacy fallbacks, and Phase 8f dropped the `mapRenderDirectorDrive` gate -
-      single modular system.
+      **Map-render cutover COMPLETE at S4:** Integration 3 folded the minimal pid-0 coverage into the
+      pipeline, Phase 8e deleted the legacy ownership fallbacks (autonomous DECIDE-walk + `activeLegRecordings`),
+      and the S4 gate-drop dropped the `mapRenderDirectorDrive` gate - single modular system. The icon floor /
+      `ghostsWithSuppressedIcon` / `IsIconSuppressed` were KEPT as a permanent no-conic fallback (8f reassessed).
     - **2a (DONE, PR #1051, validated):** removed the conservative `SkipOverlap` early-skip in
       `ShadowRenderDriver.RunFrame` so an overlap member flows through the normal assemble->sample->decide->
       seed/stamp path instead of falling back to legacy. It renders ONE ghost at the newest (selected)
@@ -510,12 +517,21 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     added as part of 8e (a proto-less-recording coverage set, the `-50`/`onPreCull` draw path left
     byte-identical), proving the Director's accounted set is a superset of the autonomous walk's drawn set
     before the deletion.
-  - **8e + 8f (deletion LAST) - DONE.** With Integration 2 validated and the minimal pid-0 coverage
-    (folded from #3) in place, 8e deleted the legacy fallbacks + the autonomous `CommittedRecordings`
-    DECIDE-walk + grace fields (keeping the `onPreCull` DRAW mechanism - the sanctioned shared host, not
-    legacy) after a grep-audit confirmed no readers, and 8f dropped the `mapRenderDirectorDrive` gate ->
-    single modular system.
-- **Phase 8** per-surface cutover (8a-8f) - DONE; deleted the scattered gates, in-game gated per sub-phase.
+  - **8e + S4 gate-drop (deletion LAST) - DONE; 8f floor deletion REASSESSED + NOT done.** With
+    Integration 2 validated and the minimal pid-0 coverage (folded from #3) in place, 8e deleted the legacy
+    *ownership* fallbacks + the autonomous `CommittedRecordings` DECIDE-walk (keeping the `onPreCull` DRAW
+    mechanism - the sanctioned shared host, not legacy) after a grep-audit confirmed no readers, and the S4
+    gate-drop dropped the `mapRenderDirectorDrive` gate -> single modular system. **CUTOVER COMPLETE at S4.**
+    The icon floor, the legacy effUT icon drive, `ghostsWithSuppressedIcon` / `IsIconSuppressed`, and the
+    orbit-line grace fields were KEPT (an earlier draft of this entry wrongly listed them as deleted): they
+    are the ONLY marker signal for below-atmosphere descent, off-arc / window-clamp, and no-bounds (loiter /
+    terminal / atmospheric) ghosts (the Director's TracedPath / polyline path does NOT own those), and the
+    icon floor is the legitimate no-conic fallback for no-bounds ghosts; deleting them would regress those to
+    a blank icon. So the no-conic suppress+marker is a KEPT permanent Director fallback, and the
+    `IconFloorGapCounter` S0 instrument was RETIRED in the 8f closeout (its "floor must reach 0 before
+    deletion" premise no longer holds); the `unaccounted-drawn-recording` polyline-coverage instrument STAYS.
+- **Phase 8** per-surface cutover (8a-8e + S4 gate-drop) - DONE; deleted the scattered gates, in-game gated
+  per sub-phase. 8f reassessed: floor KEPT as a permanent fallback.
 - **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3
   `TransferConic` frame-agnostic return - touch the in-game-validated re-aim path.
 - **Workstream C** surface-track closeout: C1 single-recording ascent, C2 descent re-stitch

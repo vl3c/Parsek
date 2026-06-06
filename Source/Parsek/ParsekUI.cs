@@ -1267,7 +1267,7 @@ namespace Parsek
                 // consulted), the resolved shouldDrawNonProto bool, the terminal outcome, and (for a
                 // drawn non-proto marker) the polyline ride reason + the fallback position source. A
                 // single change-based line per ghost is emitted via EmitMarkerDecision() at each exit.
-                bool decGateOn = false, decDirectorTraced = false, decPolylineOwning = false,
+                bool decDirectorTraced = false, decPolylineOwning = false,
                     decIconSuppressed = false, decShouldDraw = false;
                 var decOutcome = MapRenderTrace.MarkerOutcome.Unknown;
                 var decRideReason = MapRenderTrace.MarkerRideReason.NotAttempted;
@@ -1282,7 +1282,7 @@ namespace Parsek
                     MapRenderTrace.EmitMarkerDecisionOnChange(
                         MapRenderTrace.RenderSurface.ImguiLabeledMarker, traceRecId, traceUT,
                         MapRenderTrace.BuildMarkerDecisionSignature(
-                            kvp.Key, traceVessel, decGateOn, decDirectorTraced, decPolylineOwning,
+                            kvp.Key, traceVessel, decDirectorTraced, decPolylineOwning,
                             decIconSuppressed, decShouldDraw, decOutcome, decRideReason, decRideLeg,
                             decPosSource));
                 }
@@ -1389,7 +1389,7 @@ namespace Parsek
                     else
                     {
                         decision = GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(
-                            ghostPid, out decGateOn, out decDirectorTraced,
+                            ghostPid, out decDirectorTraced,
                             out decPolylineOwning, out decIconSuppressed);
                     }
                     decShouldDraw = decision;

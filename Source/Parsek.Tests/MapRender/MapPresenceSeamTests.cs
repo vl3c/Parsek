@@ -136,7 +136,7 @@ namespace Parsek.Tests
                 "private static void PruneTerminalMapRetentionLogKeys(");
 
             // Presence is behavior-identical across the map-render cutover; the relocated body must
-            // never branch on the director-drive / traced-path gate (no mapRenderDirectorDrive branch).
+            // never branch on the Director TracedPath / drive decision predicates.
             Assert.DoesNotContain("IsDirectorDriveActive", body);
             Assert.DoesNotContain("IsDirectorTracedPathActive", body);
         }

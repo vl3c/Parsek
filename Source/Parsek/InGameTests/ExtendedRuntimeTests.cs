@@ -105,11 +105,6 @@ namespace Parsek.InGameTests
             var flight = ParsekFlight.Instance;
             if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
-            // Slice (i) requires the director drive ON; off the gate the per-instance path is
-            // unreachable and the map stays one-per-recording (nothing to assert here).
-            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
-                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance overlap path inactive");
-
             int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
             var ghostGOs = flight.Engine.GetGhostGameObjects();
             int checkedRecordings = 0;
@@ -153,8 +148,6 @@ namespace Parsek.InGameTests
         {
             var flight = ParsekFlight.Instance;
             if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
-            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
-                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance overlap path inactive");
 
             // Source (b): a looped Mission unit that self-overlaps. The flight engine renders the
             // staggered instances through overlapGhosts[memberIdx] (the SAME pure cycle math the map
@@ -212,8 +205,6 @@ namespace Parsek.InGameTests
         {
             // The flight engine does not exist in the Tracking Station; the map per-instance count must
             // equal the PURE recomputed active-cycle set for each overlap recording.
-            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
-                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance overlap path inactive");
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0)
@@ -280,11 +271,7 @@ namespace Parsek.InGameTests
             // TS analogue of OverlapMarkerHeadCountMatchesFlight: the flight engine does not exist in the
             // Tracking Station, so the per-instance marker HEAD set (what DrawAtmosphericMarkers'
             // per-instance branch rides via DrawOneTsOverlapInstanceMarker) must equal the PURE recomputed
-            // active-cycle set for each overlap recording. Slice (iii) requires the director drive ON; off
-            // the gate TryGetLiveOverlapHeadUTs returns false (-> legacy single marker), so there is no
-            // per-instance head set to assert on.
-            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
-                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance marker path inactive");
+            // active-cycle set for each overlap recording.
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0)
@@ -383,10 +370,6 @@ namespace Parsek.InGameTests
             var flight = ParsekFlight.Instance;
             if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
-            // Slice (iii) requires the director drive ON; off the gate TryGetLiveOverlapHeadUTs returns
-            // false (-> legacy single marker) and there is no per-instance marker set to assert on.
-            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
-                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance marker path inactive");
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0)
@@ -2083,99 +2066,5 @@ namespace Parsek.InGameTests
             }
         }
 
-        [InGameTest(Category = "GhostMapOrbits", Scene = GameScenes.FLIGHT,
-            Description = "S0 Instrument 2: the icon-floor classifier maps the live branch inputs to the right reason in-game")]
-        public void IconFloorClassifierMapsLiveBranches()
-        {
-            // The classifier is Unity-free, but running it in-game proves the JIT path the icon-drive
-            // Prefix actually hits. Mirror the four live branch shapes.
-            InGameAssert.AreEqual(
-                Parsek.MapRender.IconFloorGapCounter.FloorReason.NoBounds,
-                Parsek.MapRender.IconFloorGapCounter.Classify(
-                    gateOn: true, hasBounds: false, freshSeed: false, seedBodyResolved: false),
-                "no recorded bounds => NoBounds");
-            InGameAssert.AreEqual(
-                Parsek.MapRender.IconFloorGapCounter.FloorReason.NoFreshSeed,
-                Parsek.MapRender.IconFloorGapCounter.Classify(
-                    gateOn: true, hasBounds: true, freshSeed: false, seedBodyResolved: false),
-                "bounds but no fresh seed => NoFreshSeed");
-            InGameAssert.AreEqual(
-                Parsek.MapRender.IconFloorGapCounter.FloorReason.UnresolvableSeedBody,
-                Parsek.MapRender.IconFloorGapCounter.Classify(
-                    gateOn: true, hasBounds: true, freshSeed: true, seedBodyResolved: false),
-                "fresh seed but body unresolved => UnresolvableSeedBody");
-            InGameAssert.AreEqual(
-                Parsek.MapRender.IconFloorGapCounter.FloorReason.None,
-                Parsek.MapRender.IconFloorGapCounter.Classify(
-                    gateOn: true, hasBounds: true, freshSeed: true, seedBodyResolved: true),
-                "director drove the icon => None (not a floor frame)");
-        }
-    }
-
-    // ════════════════════════════════════════════════════════════════
-    //  Phase 8e S3a legacy-ownership deletion gate (PURELY ADDITIVE)
-    // ════════════════════════════════════════════════════════════════
-
-    /// <summary>
-    /// Exercises the S3a deletion-safety gate under the LIVE KSP runtime/JIT (the pure helper logic is
-    /// covered by xUnit; this proves the static gate + the same-frame drew (actual-draw) view from
-    /// GhostTrajectoryPolylineRenderer run end-to-end in-game). Drives the seam DETERMINISTICALLY via the
-    /// test stamps - no live ghost / no full Driver frame needed - so it is robust regardless of what is on
-    /// the map. Restores the coverage + ownership state on exit. A full scene-driven assertion (live ghosts
-    /// through the polyline walk, watching for the uncovered-legacy-owned-leg anomaly) is left as a manual
-    /// tracing-on playtest, noted in the S3a report.
-    /// </summary>
-    public class MapRenderS3CoverageInGameTests
-    {
-        [InGameTest(Category = "GhostMapOrbits", Scene = GameScenes.FLIGHT,
-            Description = "S3a: the deletion gate covers drew-set + proto-less legacy legs; fires for a proto-bearing-not-drawn blocker")]
-        public void DeletionGateCoversLegacyOwnedSet()
-        {
-            // Snapshot live coverage + ownership state so the synthetic stamps below do not perturb a real
-            // frame. We add synthetic ids and clear them again on exit.
-            GhostMapPresence.ResetCoverageSetsForTesting();
-            try
-            {
-                // A drew-set legacy leg: covered (the drew set still grants suppression).
-                GhostMapPresence.SetLegacyOwnedForTesting("s3-ingame-director", legacyOwned: true);
-                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
-                    "s3-ingame-director", inDrewSet: true, inLegacySet: true);
-                // A proto-less legacy leg: covered (nothing to suppress; the kept walk draws it anyway).
-                GhostMapPresence.SetLegacyOwnedForTesting("s3-ingame-atmo", legacyOwned: true);
-                GhostMapPresence.SetFrameCoverageForTesting("s3-ingame-atmo", drawn: true, protoLess: true);
-                // A blocker: legacy-owned, proto-BEARING (NOT in the proto-less set), did NOT draw.
-                GhostMapPresence.SetLegacyOwnedForTesting("s3-ingame-blocker", legacyOwned: true);
-
-                // Direct predicate exercise under the live JIT (the same-frame drew (actual-draw) view).
-                var drew =
-                    Parsek.Display.GhostTrajectoryPolylineRenderer.DrewNonOrbitalLegRecordingsThisFrame;
-                InGameAssert.IsTrue(
-                    GhostMapPresence.IsLegacyOwnedLegCoveredByDeletion(
-                        "s3-ingame-director", drew, null),
-                    "drew-set legacy leg is covered");
-
-                var uncovered = new List<string>();
-                GhostMapPresence.AssertLegacyOwnedLegsCovered(
-                    (recId, doCount, plCount, loCount) => uncovered.Add(recId));
-
-                ParsekLog.Info("TestRunner",
-                    $"S3a gate in-game: uncovered=[{string.Join(",", uncovered)}]");
-
-                InGameAssert.IsFalse(uncovered.Contains("s3-ingame-director"),
-                    "drew-set legacy leg must not fire");
-                InGameAssert.IsFalse(uncovered.Contains("s3-ingame-atmo"),
-                    "proto-less legacy leg must not fire");
-                InGameAssert.IsTrue(uncovered.Contains("s3-ingame-blocker"),
-                    "a proto-bearing-not-drawn legacy leg must fire (non-vacuity)");
-                InGameAssert.AreEqual(1, uncovered.Count,
-                    "exactly the blocker is uncovered");
-            }
-            finally
-            {
-                Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
-                    "s3-ingame-director", inDrewSet: false, inLegacySet: false);
-                GhostMapPresence.ResetCoverageSetsForTesting();
-            }
-        }
     }
 }

@@ -57,10 +57,6 @@ namespace Parsek
             toolTip = "When enabled, write detailed map and tracking-station ghost render diagnostics to KSP.log. Leave off for normal playtests. Per-frame detail also requires Verbose logging on.")]
         public bool mapRenderTracing = false;
 
-        [GameParameters.CustomParameterUI("Map/TS director render drive (default on)",
-            toolTip = "On by default: the new map-render pipeline (the Director's StockConicTreatment) drives each conic ghost's orbit + icon from one source, baking the loop time-shift into the orbit epoch so the icon lands on its recorded orbit phase. Fixes the looped-re-aim icon-rotated-off-its-line bug (validated in-game). Turn off to fall back to the legacy render path.")]
-        public bool mapRenderDirectorDrive = true;
-
         [GameParameters.CustomParameterUI("Readable sidecar mirrors (Warning: extra disk usage)",
             toolTip = "When enabled, also write human-readable .txt mirrors of recording sidecars for debugging and binary/text comparison")]
         public bool writeReadableSidecarMirrors = true;

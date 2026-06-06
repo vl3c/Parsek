@@ -961,26 +961,6 @@ namespace Parsek
             new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
-        /// Phase 8e S3a (PURELY ADDITIVE diagnostics): every committed recording the autonomous polyline
-        /// walk published into <c>activeLegRecordings</c> (the LEGACY ownership-publish) THIS frame. S3b
-        /// deletes <c>activeLegRecordings</c>, collapsing
-        /// <c>GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership</c> to the drew set
-        /// (<c>drewNonOrbitalLegRecordings</c> - every recording whose polyline leg actually drew this
-        /// frame, owned-treatment OR Driver-direct) only. The DRAW is not at risk (the kept walk draws a
-        /// pid-0 leg regardless of ownership); the only exposure is a PROTO-BEARING leg owned via the
-        /// legacy set but NOT in the drew set, which would lose its proto-line/icon SUPPRESSION (a
-        /// double-draw artifact). This set lets the probe PROVE, before the deletion, that every
-        /// legacy-owned recording is EITHER in the drew set OR pid-0 (proto-less, nothing to suppress).
-        /// Populated by <see cref="NoteLegacyOwnedLeg"/> from the
-        /// polyline Driver's decide walk at the <c>activeLegRecordings.Add</c> site, gated by the Driver
-        /// on <see cref="MapRenderTrace.IsEnabled"/>; cleared by <see cref="ClearFrameCoverageSets"/> on
-        /// the same per-frame lifecycle as the S0 sets. Diagnostic-only; nothing in the live render path
-        /// reads it.
-        /// </summary>
-        private static readonly HashSet<string> legacyOwnedRecordingIdsThisFrame =
-            new HashSet<string>(StringComparer.Ordinal);
-
-        /// <summary>
         /// Orbit segment time bounds per ghost vessel PID. Used by GhostOrbitArcPatch
         /// to clip the orbit line to only the visible arc (between segment startUT and endUT).
         /// Only populated for segment-based ghosts — terminal-orbit ghosts render the full ellipse.
@@ -1116,70 +1096,60 @@ namespace Parsek
         /// This is the dual of "proto icon hidden", so it preserves the no-double-marker / no-gap
         /// invariant: exactly one of {proto icon, our marker} draws per ghost per frame.
         ///
-        /// <para>Gate OFF -> the legacy predicate ONLY (<paramref name="iconSuppressedLegacy"/> ||
-        /// <paramref name="polylineOwning"/>), byte-identical to the pre-8c marker-skip paths. The
-        /// Director DECISION input is never consulted.</para>
+        /// <para>The Director is the AUTHORITATIVE source (8e S4 dropped the director-drive gate, so this
+        /// is now unconditional): proto suppressed when the Director's TracedPath DECISION owns the leg
+        /// (<paramref name="directorTracedPathActive"/>, repointing the context-(a) icon-suppression that
+        /// previously rode <c>ghostsWithSuppressedIcon</c>) OR the polyline actually owns the phase
+        /// (<paramref name="polylineOwning"/>, sourced from 8b.2's / 8e S3a.1's actual-draw set, any leg that
+        /// drew) OR the legacy <paramref name="iconSuppressedLegacy"/> is set. The legacy disjunct is KEPT as
+        /// the fallback so the Director-no-bounds transient (context (b)), below-atmosphere, and off-arc clamp
+        /// - none of which the Director owns yet - still draw the marker; retiring it is Phase 8f.</para>
         ///
-        /// <para>Gate ON -> the Director is the AUTHORITATIVE source: proto suppressed when the
-        /// Director's TracedPath DECISION owns the leg (<paramref name="directorTracedPathActive"/>,
-        /// repointing the context-(a) icon-suppression that previously rode <c>ghostsWithSuppressedIcon</c>)
-        /// OR the polyline actually owns the phase (<paramref name="polylineOwning"/>, sourced from 8b.2's
-        /// / 8e S3a.1's actual-draw set, any leg that drew) OR the legacy <paramref name="iconSuppressedLegacy"/>
-        /// is set. The legacy disjunct is KEPT as the fallback so the Director-no-bounds transient
-        /// (context (b)), below-atmosphere, and off-arc clamp - none of which the Director owns yet -
-        /// still draw the marker; it is retired only as the AUTHORITATIVE source for the director-owned
-        /// (TracedPath) leg, not deleted (that is Phase 8e).</para>
-        ///
-        /// <para>No marker gap (gate ON): the decision is a SUPERSET of the legacy decision (it adds the
+        /// <para>No marker gap: the decision is a SUPERSET of the legacy decision (it adds the
         /// <paramref name="directorTracedPathActive"/> disjunct), so it can never be false on a frame the
         /// proto icon is hidden. No double marker: whenever <paramref name="directorTracedPathActive"/> is
         /// true the orbit-line Postfix's first branch has set the proto <c>drawIcons=NONE</c>, so the proto
         /// icon is not also drawn.</para>
         /// </summary>
         internal static bool ResolveMarkerDrawDecision(
-            bool directorDriveGateOn,
             bool directorTracedPathActive,
             bool polylineOwning,
             bool iconSuppressedLegacy)
-            => directorDriveGateOn
-                ? (directorTracedPathActive || polylineOwning || iconSuppressedLegacy)
-                : (iconSuppressedLegacy || polylineOwning);
+            => directorTracedPathActive || polylineOwning || iconSuppressedLegacy;
 
         /// <summary>
         /// Unity-coupled wrapper over <see cref="ResolveMarkerDrawDecision"/> (Phase 8c): resolves the
-        /// director-drive gate + the three per-pid signals and returns whether the Parsek non-proto
-        /// marker must draw for <paramref name="ghostPid"/> this frame (proto icon hidden). Both marker
-        /// call sites (<c>ParsekUI.DrawMapMarkers</c> flight-map, <c>ParsekTrackingStation
+        /// three per-pid signals and returns whether the Parsek non-proto marker must draw for
+        /// <paramref name="ghostPid"/> this frame (proto icon hidden). Both marker call sites
+        /// (<c>ParsekUI.DrawMapMarkers</c> flight-map, <c>ParsekTrackingStation
         /// .ClassifyAtmosphericMarkerSkip</c> TS) route through this single source so they cannot diverge.
         /// </summary>
         internal static bool ShouldDrawNonProtoMarkerForGhost(uint ghostPid)
         {
             return ShouldDrawNonProtoMarkerForGhost(
-                ghostPid, out _, out _, out _, out _);
+                ghostPid, out _, out _, out _);
         }
 
         /// <summary>
         /// Diagnostics overload of <see cref="ShouldDrawNonProtoMarkerForGhost(uint)"/> that ALSO
-        /// surfaces the four decision inputs the marker tracer logs (the
+        /// surfaces the three decision inputs the marker tracer logs (the
         /// <see cref="ResolveMarkerDrawDecision"/> disjuncts) WITHOUT changing the decision: the
         /// parameterless overload above delegates here, so the returned bool is byte-identical. The
         /// <c>out</c> values let the call site emit a per-pid change-based trace line explaining WHY
-        /// the marker drew or was skipped.
+        /// the marker drew or was skipped. (8e S4 dropped the director-drive gate, so the former
+        /// <c>gateOn</c> out is gone.)
         /// </summary>
         internal static bool ShouldDrawNonProtoMarkerForGhost(
             uint ghostPid,
-            out bool gateOn,
             out bool directorTracedPathActive,
             out bool polylineOwning,
             out bool iconSuppressed)
         {
-            gateOn = ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive;
             directorTracedPathActive = Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(
                 ghostPid, UnityEngine.Time.frameCount);
             polylineOwning = IsPolylineOwningGhostPhase(ghostPid);
             iconSuppressed = IsIconSuppressed(ghostPid);
             return ResolveMarkerDrawDecision(
-                gateOn,
                 directorTracedPathActive,
                 polylineOwning,
                 iconSuppressed);
@@ -9217,9 +9187,6 @@ namespace Parsek
         {
             drawnRecordingIdsThisFrame.Clear();
             protoLessCoverageRecordingIdsThisFrame.Clear();
-            // S3a: the legacy-owned set rides the SAME per-frame lifecycle as the S0 sets, so it reflects
-            // only the recordings this frame's walk published into activeLegRecordings.
-            legacyOwnedRecordingIdsThisFrame.Clear();
         }
 
         /// <summary>
@@ -9242,22 +9209,6 @@ namespace Parsek
             // which keeps the assertion non-vacuous.
             if (ghostPid == 0)
                 protoLessCoverageRecordingIdsThisFrame.Add(recordingId);
-        }
-
-        /// <summary>
-        /// Phase 8e S3a: records that the autonomous polyline walk published
-        /// <paramref name="recordingId"/> into the LEGACY ownership set (<c>activeLegRecordings</c>) this
-        /// frame. Called from the Driver's decide walk at the <c>activeLegRecordings.Add</c> site, already
-        /// gated by the Driver on <see cref="MapRenderTrace.IsEnabled"/>. Distinct from
-        /// <see cref="NoteDrawnRecordingCoverage"/> (S0 DRAWN set): this set mirrors specifically the
-        /// LEGACY-OWNERSHIP publish that S3b deletes, so the S3a gate can prove the deletion drops nothing.
-        /// Diagnostic-only; no render/draw effect.
-        /// </summary>
-        internal static void NoteLegacyOwnedLeg(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId))
-                return;
-            legacyOwnedRecordingIdsThisFrame.Add(recordingId);
         }
 
         /// <summary>
@@ -9323,77 +9274,6 @@ namespace Parsek
             }
         }
 
-        // ---- Phase 8e S3a Gate: legacy-ownership deletion safety (PURELY ADDITIVE) ----
-
-        /// <summary>
-        /// PURE S3a gate predicate: is a LEGACY-owned leg (a recording the autonomous walk published into
-        /// <c>activeLegRecordings</c> this frame) COVERED by the planned S3b deletion of that legacy
-        /// publish? S3b collapses
-        /// <c>GhostTrajectoryPolylineRenderer.ResolveNonOrbitalLegOwnership</c> to the drew set only. A
-        /// legacy-owned leg survives the deletion iff it is EITHER in
-        /// <paramref name="drewRecIds"/> (the same-frame actual-draw set - every recording whose polyline
-        /// leg actually drew, owned-treatment OR Driver-direct - still grants the proto-line/icon
-        /// SUPPRESSION the legacy set granted) OR pid-0 / proto-less (in
-        /// <paramref name="protoLessRecIds"/> - there is NO proto to suppress, and the kept walk draws it
-        /// regardless of ownership, so dropping the legacy ownership is invisible). A legacy-owned leg in
-        /// NEITHER set is proto-BEARING AND did not draw: deleting the legacy ownership would lose its
-        /// suppression and produce the double-draw artifact - the deletion BLOCKER. Expressed entirely in
-        /// the RecordingId domain (both the drew set and the legacy set are RecordingId-keyed, so NO pid
-        /// bridge is needed). Unit-testable (all three inputs passed in), so it FIRES for a real blocker
-        /// and PASSES for a covered leg.
-        /// </summary>
-        internal static bool IsLegacyOwnedLegCoveredByDeletion(
-            string legacyOwnedRecId,
-            ICollection<string> drewRecIds,
-            ICollection<string> protoLessRecIds)
-        {
-            if (string.IsNullOrEmpty(legacyOwnedRecId))
-                return true; // a null/empty id is not a real legacy-owned leg; never flag it
-            if (drewRecIds != null && drewRecIds.Contains(legacyOwnedRecId))
-                return true;
-            if (protoLessRecIds != null && protoLessRecIds.Contains(legacyOwnedRecId))
-                return true;
-            return false;
-        }
-
-        /// <summary>
-        /// Runs the S3a deletion-safety assertion over this frame's legacy-owned set, invoking
-        /// <paramref name="onUncovered"/> once per legacy-owned recording that is NEITHER in the drew set
-        /// (this frame, via <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.DrewNonOrbitalLegRecordingsThisFrame"/>
-        /// - the recordings whose polyline leg actually drew, owned-treatment OR Driver-direct, already
-        /// RecordingId-keyed, no pid bridge) NOR in the proto-less coverage set. Each such recording is
-        /// the deletion BLOCKER: deleting <c>activeLegRecordings</c> (S3b) would drop its proto-line/icon
-        /// suppression. A CLEAN run (zero of these) is the S3b green-light. The callback receives
-        /// <c>(recordingId, drewCount, protoLessCount, legacyOwnedCount)</c> for the anomaly line.
-        /// Diagnostic-only; the caller gates on <see cref="MapRenderTrace.IsEnabled"/>. No-ops when nothing
-        /// was legacy-owned this frame.
-        /// </summary>
-        internal static void AssertLegacyOwnedLegsCovered(
-            System.Action<string, int, int, int> onUncovered)
-        {
-            if (legacyOwnedRecordingIdsThisFrame.Count == 0)
-                return;
-
-            // The same-frame drew set is ALREADY RecordingId-keyed (no pid bridge needed - the S3a
-            // deletion-safety question is purely "is this legacy-owned RecordingId also in the actual-draw
-            // set this frame?"). Read it as a read-only view.
-            ICollection<string> drew =
-                Parsek.Display.GhostTrajectoryPolylineRenderer.DrewNonOrbitalLegRecordingsThisFrame;
-            int drewCount = drew != null ? drew.Count : 0;
-
-            foreach (string recId in legacyOwnedRecordingIdsThisFrame)
-            {
-                if (IsLegacyOwnedLegCoveredByDeletion(
-                        recId, drew, protoLessCoverageRecordingIdsThisFrame))
-                    continue;
-                onUncovered?.Invoke(
-                    recId,
-                    drewCount,
-                    protoLessCoverageRecordingIdsThisFrame.Count,
-                    legacyOwnedRecordingIdsThisFrame.Count);
-            }
-        }
-
         /// <summary>Test-only seam: stamp this frame's drawn / proto-less coverage sets so
         /// <see cref="AssertDrawnRecordingsAccounted"/> and the pid-bridge can be exercised end-to-end
         /// from xUnit (the real producer is the Unity-coupled Driver walk). Mirrors the live
@@ -9416,26 +9296,13 @@ namespace Parsek
             else vesselPidToRecordingId[pid] = recordingId;
         }
 
-        /// <summary>Test-only seam (S3a): stamp this frame's legacy-owned set so
-        /// <see cref="AssertLegacyOwnedLegsCovered"/> can be exercised end-to-end from xUnit (the real
-        /// producer is the Unity-coupled Driver walk). Mirrors the live <see cref="NoteLegacyOwnedLeg"/>
-        /// semantics.</summary>
-        internal static void SetLegacyOwnedForTesting(string recordingId, bool legacyOwned)
-        {
-            if (string.IsNullOrEmpty(recordingId))
-                return;
-            if (legacyOwned) legacyOwnedRecordingIdsThisFrame.Add(recordingId);
-            else legacyOwnedRecordingIdsThisFrame.Remove(recordingId);
-        }
-
-        /// <summary>Test-only: clear all coverage-closure state (the S0 frame sets + the scratch + the
-        /// S3a legacy-owned set), so a test starts from a known-empty accounting.</summary>
+        /// <summary>Test-only: clear all coverage-closure state (the S0 frame sets + the scratch), so a
+        /// test starts from a known-empty accounting.</summary>
         internal static void ResetCoverageSetsForTesting()
         {
             drawnRecordingIdsThisFrame.Clear();
             protoLessCoverageRecordingIdsThisFrame.Clear();
             protoBearingRecordingIdScratch.Clear();
-            legacyOwnedRecordingIdsThisFrame.Clear();
         }
 
         internal static bool TryGetCommittedRecordingById(
@@ -10663,30 +10530,27 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The director-drive gate for the per-instance overlap path. With
-        /// <c>mapRenderDirectorDrive</c> OFF the per-instance path is unreachable (we cannot bake N
-        /// correct per-cycle epochs without the director drive): the legacy one-per-recording create
-        /// runs instead (one honest icon). The legacy create early-out for overlap recordings and the
-        /// per-instance create MUST share this exact gate so gate-off does not render nothing.
+        /// The per-instance overlap path is always available (8e S4 dropped the director-drive gate that
+        /// previously made it conditional; the Director pipeline is unconditional, so the N per-cycle
+        /// epochs are always bakeable). Kept as a method for call-site stability.
         /// </summary>
         internal static bool IsOverlapPerInstanceGateOn()
         {
-            return ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive;
+            return true;
         }
 
         /// <summary>
-        /// Combined gate: should THIS recording be driven by the per-instance overlap path this frame?
-        /// True only when the director drive is ON (<see cref="IsOverlapPerInstanceGateOn"/>) AND the
-        /// recording is an overlap loop (<see cref="IsOverlapRecording"/>). When this is true the
-        /// legacy passes hand off to <see cref="EnsureOverlapInstances"/> and skip their own
-        /// single-instance create/reseed for the index.
+        /// Should THIS recording be driven by the per-instance overlap path this frame? True when the
+        /// recording is an overlap loop (<see cref="IsOverlapRecording"/>) - overlap recordings ALWAYS
+        /// take the per-instance path now (8e S4). When this is true the legacy passes hand off to
+        /// <see cref="EnsureOverlapInstances"/> and skip their own single-instance create/reseed for the
+        /// index.
         /// </summary>
         internal static bool ShouldDriveOverlapPerInstance(
             Recording rec, int recIdx, IReadOnlyList<Recording> committed,
             GhostPlaybackLogic.LoopUnitSet loopUnits)
         {
-            return IsOverlapPerInstanceGateOn()
-                && IsOverlapRecording(rec, recIdx, committed, loopUnits);
+            return IsOverlapRecording(rec, recIdx, committed, loopUnits);
         }
 
         /// <summary>

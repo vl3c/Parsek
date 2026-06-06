@@ -9,8 +9,8 @@ task-level detail is created per phase by the orchestrator.*
 the StockConic surface, the reconciler is sequenced before the scene wiring it verifies, and
 the cutover is split per-surface. See "Shadow contract" and Phase 8.*
 
-> **STATUS (2026-06-06): COMPLETE - all phases (0-7, 8a-8f) and all three integrations
-> DONE.** The new pipeline is the single map / Tracking-Station ghost render path. DONE:
+> **STATUS (2026-06-06): COMPLETE - all phases (0-7, 8a-8e incl. the S4 gate-drop) and all three
+> integrations DONE.** The new pipeline is the single map / Tracking-Station ghost render path. DONE:
 > Phases 0-3 (pure pipeline), 4-6 (scene adapter + shadow + reconciler), 7 (Tracking-Station
 > scene), the per-surface cutover 8a (StockConic icon drive, incl. the Category-1 hyperbolic
 > arc clip), 8b (TracedPath polyline ownership), 8c (marker / proto-icon-suppression
@@ -20,9 +20,15 @@ the cutover is split per-surface. See "Shadow contract" and Phase 8.*
 > one polyline marker per live overlap instance, map + Tracking Station, matching flight), and
 > Integration 3 (scoped down to folding the minimal pid-0 atmospheric coverage surface into the
 > pipeline; the `onPreCull` polyline draw was already the sanctioned shared host). Phase 8e then
-> deleted the now-dead 8a-8d legacy render fallbacks and Phase 8f dropped the
-> `mapRenderDirectorDrive` gate, leaving the single modular system this plan targets. Per-PR
-> breakdown: `docs/dev/plans/maprender-rewrite-status.md`.*
+> deleted the now-dead 8a-8d legacy *ownership* fallbacks (autonomous Driver DECIDE-walk,
+> `activeLegRecordings`) and Phase 8e S4 (this repo's "8f" gate-drop) dropped the
+> `mapRenderDirectorDrive` gate, leaving the single modular system this plan targets.
+> **CUTOVER COMPLETE at S4.** The original 8f deletion of the icon floor / `ghostsWithSuppressedIcon` /
+> `IsIconSuppressed` was REASSESSED (data-backed) and NOT done: those are a KEPT permanent no-conic /
+> suppressed-icon Director fallback (the ONLY marker signal for below-atmosphere descent, off-arc /
+> window-clamp, and no-bounds loiter / terminal / atmospheric ghosts); deleting them would regress those
+> to a blank icon. The `IconFloorGapCounter` S0 instrument is RETIRED (its "floor must reach 0 before
+> deletion" premise no longer holds). Per-PR breakdown: `docs/dev/plans/maprender-rewrite-status.md`.*
 
 ## Principles
 
@@ -192,15 +198,25 @@ in-game gate. **Not "mechanical" — each is a ~1–3-file rewrite of a visibili
   `ParsekPlaybackPolicy.CheckPendingMapVessels` (the ~300-line interleaved method) behind the
   Director/adapter; leave the mesh/spawn half. **Multi-session refactor; treat as its own mini-plan.**
   (All sub-slices 8d.0-8d.3 landed; the lifecycle now lives in `GhostMapPresence`, no behavior change.)
-- **8e - Legacy deletion + pid-0 coverage. DONE.** Folded in the minimal pid-0 atmospheric coverage
-  surface from Integration 3 (proving the Director's accounted set is a superset of the autonomous walk's
-  drawn set), then deleted the now-dead 8a-8d legacy render fallbacks (autonomous Driver walk, legacy effUT
-  icon drive, `activeLegRecordings`, `ghostsWithSuppressedIcon`, `ghostOrbitLineGraceUntilFrame` +
-  remaining grace fields) and removed the implicit -50/0 ordering contract, keeping the `onPreCull` draw as
-  the sanctioned shared host. Grep-audit confirmed the deleted flags have no readers (mirror
-  `GrepAuditNonLoopLivePidTests`).
-- **8f - Drop the gate + regression. DONE.** Dropped the `mapRenderDirectorDrive` gate, leaving the single
-  modular system this plan targets, with a non-looped regression test.
+- **8e - Legacy ownership deletion + pid-0 coverage. DONE.** Folded in the minimal pid-0 atmospheric
+  coverage surface from Integration 3 (proving the Director's accounted set is a superset of the autonomous
+  walk's drawn set), then deleted the now-dead 8a-8d legacy *ownership* fallbacks (the autonomous Driver
+  DECIDE-walk + `activeLegRecordings` ownership set), keeping the `onPreCull` draw as the sanctioned shared
+  host. Grep-audit (`scripts/grep-audit-active-leg-recordings.ps1`, xUnit `GrepAuditActiveLegRecordingsTests`)
+  confirmed `activeLegRecordings` has no readers.
+  - **NOTE (correction):** the legacy effUT icon drive, the `ghostsWithSuppressedIcon` /
+    `IsIconSuppressed` floor, and the orbit-line grace fields were NOT deleted (an earlier draft of this
+    bullet wrongly listed them). They are the KEPT permanent no-conic / suppressed-icon fallback - see 8f.
+- **8f - Drop the gate + REASSESS the floor deletion. DONE (gate dropped; floor KEPT).** Dropped the
+  `mapRenderDirectorDrive` gate (the Director pipeline is now unconditional), leaving the single modular
+  system this plan targets, with a non-looped regression test. The original 8f scope (delete the icon floor
+  + `ghostsWithSuppressedIcon` + `IsIconSuppressed`) was REASSESSED (data-backed) and NOT done: those are the
+  ONLY marker signal for below-atmosphere descent, off-arc / window-clamp, and no-bounds (loiter / terminal /
+  atmospheric) ghosts (the Director's TracedPath / polyline path does NOT own those), and the icon floor is
+  the legitimate no-conic fallback for no-bounds ghosts; deleting them would regress those to a blank icon.
+  **CUTOVER COMPLETE at S4**; the no-conic suppress+marker is a KEPT permanent Director fallback. The 8f
+  closeout RETIRED the `IconFloorGapCounter` S0 instrument (its "floor must reach 0 before deletion" premise
+  no longer holds); the `unaccounted-drawn-recording` polyline-coverage instrument STAYS.
 - **Out of scope (untouched):** `GhostPlaybackEngine` mesh path, `IGhostPositioner`,
   `ParsekPlaybackPolicy` mesh/spawn half, recording/recorder/scheduler.
 - **Deps:** Phases 4–7 + **B and C merged**. **Review.** Full + mandatory in-game per sub-phase.
