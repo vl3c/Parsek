@@ -389,23 +389,11 @@ namespace Parsek
 
             GUILayout.EndScrollView();
 
-            // Tooltip echo box (matches SpawnControlUI / SettingsWindowUI house
-            // style). Read GUI.tooltip AFTER all controls have drawn this frame so
-            // it reflects the currently hovered control, then echo it in a box so
-            // hovering any cell / button shows its help text in-window. When no
-            // control is hovered, emit a zero-height placeholder label so the
-            // window keeps a layout entry here and does not pop its height as the
-            // box appears and disappears (same approach as SpawnControlUI).
-            (bool showEcho, string echoText) = ResolveTooltipEcho(GUI.tooltip);
-            if (showEcho)
-            {
-                GUILayout.Space(SpacingSmall);
-                GUILayout.Label(echoText, GUI.skin.box);
-            }
-            else
-            {
-                GUILayout.Label("", GUILayout.Height(0));
-            }
+            // Tooltip echo box (matches SettingsWindowUI house style). Read
+            // GUI.tooltip AFTER all controls have drawn this frame so it reflects
+            // the currently hovered control, then echo it in a box so hovering any
+            // cell / button shows its help text in-window.
+            DrawTooltipEchoBox(GUI.tooltip);
 
             // Full-width Close button at the bottom (matches Kerbals / Settings windows).
             GUILayout.Space(SpacingSmall);
@@ -2754,17 +2742,43 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Decides whether the bottom tooltip echo box should render and with what
+        /// Decides whether the bottom tooltip echo box should render boxed help
         /// text. Returns (false, "") when there is no hovered-control tooltip this
-        /// frame (the caller then emits a zero-height placeholder so the IMGUI
-        /// control count stays stable), or (true, tooltip) when a control is
-        /// hovered. Pure and Unity-free for unit testing.
+        /// frame (the echo box collapses to zero height), or (true, tooltip) when a
+        /// control is hovered. The boolean drives the box's spacing / content /
+        /// style only, never the number of IMGUI controls emitted (see
+        /// <see cref="DrawTooltipEchoBox"/>). Pure and Unity-free for unit testing.
         /// </summary>
         internal static (bool show, string text) ResolveTooltipEcho(string guiTooltip)
         {
             if (string.IsNullOrEmpty(guiTooltip))
                 return (false, string.Empty);
             return (true, guiTooltip);
+        }
+
+        /// <summary>
+        /// Draws the bottom tooltip echo box with a control count that is invariant
+        /// across the IMGUI Layout and Repaint passes: it ALWAYS emits exactly one
+        /// GUILayout.Space plus one GUILayout.Label, and only varies their spacing,
+        /// content, and style by whether a control is hovered. This matters because
+        /// GUI.tooltip is empty during Layout and only becomes populated during
+        /// Repaint (after a hovered control draws), so any branch here that emits a
+        /// DIFFERENT number of controls between the two passes desyncs the layout
+        /// group and makes the next control (the Close button) overrun it, throwing
+        /// "Getting control N's position in a group with only N controls when doing
+        /// repaint". Mirrors the invariant-count pattern in SettingsWindowUI.
+        /// </summary>
+        internal static void DrawTooltipEchoBox(string guiTooltip)
+        {
+            (bool showEcho, string echoText) = ResolveTooltipEcho(guiTooltip);
+            // Always one Space + always one Label. When there is no tooltip the
+            // Space collapses to 0 and the Label renders empty at zero height, so
+            // the box disappears visually without changing the control count.
+            GUILayout.Space(showEcho ? SpacingSmall : 0f);
+            GUILayout.Label(
+                showEcho ? echoText : string.Empty,
+                showEcho ? GUI.skin.box : GUI.skin.label,
+                showEcho ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
         }
 
         // Human-readable reason for a status. For blocked-active states this
