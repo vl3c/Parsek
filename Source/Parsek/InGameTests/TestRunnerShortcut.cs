@@ -334,8 +334,13 @@ namespace Parsek.InGameTests
                 GUILayout.Label(batchModeNotice, GUI.skin.label);
             }
 
+            // Bare ExpandHeight (no MinHeight) so the scroll view stretches to
+            // fill the fixed-height window, pinning the Close button + info
+            // labels to the bottom. A MinHeight option clears stretchHeight and
+            // leaves the footer floating with dead space below it. Matches the
+            // Kerbals / Real Spawn Control / Logistics windows.
             scrollPos = GUILayout.BeginScrollView(scrollPos,
-                GUILayout.MinHeight(120), GUILayout.ExpandHeight(true));
+                GUILayout.ExpandHeight(true));
 
             foreach (var group in cachedGroups)
             {
