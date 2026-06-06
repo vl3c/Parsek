@@ -1383,6 +1383,8 @@ These complement the pure-logic visual-handoff tests in §16.1: unit tests prove
 
 ## 17. Deferred Work
 
+For the prioritized, tiered sequence of these items into a path from v0 to feature-complete, see the "Logistics: remaining work toward feature-complete (post-0.10.0)" subsection under Phase 13 in `docs/roadmap.md`.
+
 - **Record Supply Run helper:** v1 should automatically prompt after eligible committed runs. A helper button may be added later for intent marking or prompt filtering.
 - **Non-docking stock connection producers:** claw/grapple and stock crossfeed/fuel-line paths are deferred until docking routes are reliable. They need KSP API investigation for endpoint PID, connection start, connection end, and cargo delta.
 - **Pickup routes:** v1 is delivery-only. Resource and inventory pickup routes need separate stock-slot and part-identity tests before exposure.

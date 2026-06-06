@@ -391,6 +391,37 @@ Stock-first automated cargo delivery from proven player-flown Supply Runs. Shipp
 
 Every supply ship remains a replay of a real mission the player flew, but v0 deliberately keeps the mechanics narrow so the first implementation is reliable and stock-realistic.
 
+### Logistics: remaining work toward feature-complete (post-0.10.0)
+
+This is the path from the shipped v0 to a feature-complete logistics system. Every item below traces to a deferred item in the design doc (section 17 and the Status line) or an open known limitation in `docs/dev/todo-and-known-bugs.md`. Tiers are roughly in priority order (a mix of player value, effort, and dependencies); these are NOT committed version numbers, just "post-0.10.0, roughly in this order". Size tags are S/M/L estimates.
+
+**Tier 1: quick wins and polish** (small, self-contained, no new gameplay model)
+
+- **Map-view route lines (S):** draw each active route's path on the map / Tracking Station. Pure render, no model change. (Section 17, "Map view integration".)
+- **"Dispatch now" action (S):** a UI button to fire one cycle immediately, with its own affordability/capacity checks, setting `CurrentCycleStartUT` from the action UT instead of waiting for `NextDispatchUT`. (Section 17, "Force dispatch now".)
+- **Dispatch priority for competing routes (S/M):** replace the v0 FIFO-by-`NextDispatchUT` ordering with a player-set or value-based priority when several routes are due at once. (Section 17, "Dispatch priority for competing routes".)
+- **Candidate intent helper (S):** an optional "mark this run as a Supply Run" affordance to disambiguate or suppress unrelated candidate detection. The shipped Candidates list already auto-detects eligible runs, so this is a UX refinement, not required for correctness. (Section 17, "Record Supply Run helper", reframed around the shipped Candidates model.)
+- **Dock-side-baseline eligibility edge case (S/M):** a clean delivery run that crossfeeds the same resource between transport and endpoint tanks during the docked window can be falsely rejected as `MixedPickupDelivery`, because the dock-side baseline is snapshotted post-couple (after stock equalisation). Capture a pre-couple transport snapshot, or detect the approximate-equalisation pattern. (Open item: "Logistics route window dock-side baseline is post-couple".)
+- **Precise per-run recovery-landing (M):** the recovery credit is currently a constant deferred amount (exact in steady state, an approximation of each run's physical recovery-landing UT). Map each run's recovery into the cycle it physically lands in, with overlap bookkeeping. (Section 17, "KSC cost tuning"; recovery-credit plan OQ1.)
+
+**Tier 2: core gameplay extensions** (new cargo directions; mostly sequential)
+
+- **Pickup routes (M):** v0 is delivery-only. Add resource and inventory pickup (cargo leaves the endpoint and arrives at the origin), which needs separate stock-slot and part-identity tests. Prerequisite for mixed routes. (Section 17, "Pickup routes".)
+- **Mixed pickup/delivery windows (M):** load-and-deliver runs where the same docking window both drops off and picks up cargo. Depends on pickup landing first. (Status line, "mixed pickup/delivery windows".)
+- **Non-KSC undocked-start origins (M/L):** v0 non-KSC routes require the run to start docked to a real depot. Support a tanker that launches from a surface base, drives or flies away undocked, then docks at a destination, once origin ownership can be proven without inventing a warehouse. (Section 17, "Non-KSC undocked-start origins".)
+
+**Tier 3: larger / architectural** (multi-window or new connection mechanics)
+
+- **Multi-stop routes (L):** a single run that delivers to more than one endpoint. The data model already keeps a `Stops` list for this; v0 rejects multi-window runs. (Status line + section 17.)
+- **Round-trip linking (M/L):** pair two one-way routes so they alternate (A completes, then B dispatches, then A again). `LinkedRouteId` is already a reserved serialization field, ignored by v0 dispatch. (Status line, "round-trip linking".)
+- **Inter-body re-aimed routes (M/L):** same-body only in v0. Wire the existing `MissionPeriodicity` / re-aim seam so an interplanetary route dispatches at the synodic transfer window and the delivery clock phase-locks to the re-aimed launch. The seam exists (`RouteLoopClock` threads the backing unit's schedule); it just is not enabled. (Status line, "inter-body re-aimed routes".)
+- **Non-docking connection producers (L, needs KSP API investigation):** claw / grapple and stock crossfeed / fuel-line transfer paths as alternative proof-of-work. Needs API work for endpoint PID, connection start/end, and cargo delta. Deferred until docking routes are reliable. (Section 17, "Non-docking stock connection producers".)
+- **Crew delivery (L):** deliver kerbals along a route. Deferred until it can use named roster / crew-reservation semantics instead of generic kerbal generation; depends on the crew-reservation system. (Design doc section 11 "Crew delivery" and section 12 "Crew reservation".)
+
+**Tier 4: infrastructure** (not player-facing)
+
+- **Scenario-lifecycle test hardening (M):** the route `ParsekScenario` OnSave / OnLoad hookups are pinned only by source-text grep gates, because xUnit cannot drive those lifecycle methods end-to-end (unguarded `Planetarium` + Unity `GameEvents` / `MonoBehaviour` dependencies). Build a Unity test harness (stubbed `Planetarium.fetch`, a `GameEvents` mock, a `MonoBehaviour` shim), ideally alongside the in-flight logging audit. (Open item: "Logistics scenario-lifecycle coverage relies on source-text gates".)
+
 ---
 
 ## Phase 14: Cooperative Async Multiplayer
