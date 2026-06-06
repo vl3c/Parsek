@@ -59,6 +59,7 @@ All notable changes to Parsek are documented here.
 - The Candidates section now has its own header (Name, Origin, Destination, Would deliver, Transit) instead of borrowing the route table's columns, so a candidate no longer shows blank "-" cells for Interval, Cycles, Next, and Delivery or a placeholder "eligible" Status. The per-cycle delivery manifest is now visible directly in the table.
 - The Logistics window's section subtitles (Active Routes, Paused Routes, Candidates) now sit on the same dark background bar as the table column headers below them.
 - The Logistics window is 50 px wider so the route Name column has more room.
+- The Logistics window now opens taller by default (500 px instead of 340 px) so more route rows are visible without resizing.
 - The route detail panel, the Create Route summary, and the Candidate row now show the per-run funds cost (net launch cost minus recovered credits) in Career for KSC-origin routes. Recovering the transport at the end of the recorded flight lowers the shown cost; an unrecovered transport shows the full launch cost.
 - Career KSC-origin supply routes now actually pay back the recovered transport cost. The gross launch cost is still charged at dispatch (you front the full build cost), and the recovered amount is credited back one cycle later, so the net funds effect of a steady-state cycle matches the displayed net. The credit reverses correctly on rewind and re-fly.
 
