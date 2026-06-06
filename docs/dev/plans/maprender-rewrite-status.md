@@ -401,11 +401,26 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
       `ShouldDrawNonProtoMarkerForGhost`: a cycle with a visible proto icon skips its polyline marker;
       pid-0/suppressed draws it) + per-instance marker key `recId#cycle`. The polyline GEOMETRY is
       untouched (one draw, keyed by RecordingId - the maintainer's "ride a single polyline" steer).
-      Flight-map only (TS per-instance markers deferred). Needs slice (ii)? NO. Gate-off + non-overlap
-      byte-identical (pure short-circuit, additive diff). Two clean reviews (plan + code SHIP-with-the-
-      hoist-fix-applied). Build clean; suite green (13519). **In-game gate:** "Kerbal X #2" (suborbital,
-      Missions-tab loop period<length, director-drive ON), map view past a relaunch: N markers on the ONE
-      shared ascent line matching the N flight ghosts; gate-off / non-overlap = one marker. Efficiency:
+      Needs slice (ii)? NO. Gate-off + non-overlap byte-identical (pure short-circuit, additive diff).
+      Two clean reviews (plan + code SHIP-with-the-hoist-fix-applied). Build clean; suite green (13519).
+      **In-game gate:** "Kerbal X #2" (suborbital, Missions-tab loop period<length, director-drive ON),
+      map view past a relaunch: N markers on the ONE shared ascent line matching the N flight ghosts;
+      gate-off / non-overlap = one marker.
+    - **TS per-instance markers - DONE (this branch, awaiting in-game gate):** ported the slice-(iii)
+      flight-map branch to the Tracking Station marker path (`ParsekTrackingStation.DrawAtmosphericMarkers`)
+      so the TS renders the SAME as map view: N markers on the one shared polyline for an overlapping
+      mission (maintainer request). Reuses the scene-agnostic `TryGetLiveOverlapHeadUTs` (fed the TS
+      `cachedLoopUnits`) + `TryGetOverlapInstancePidForCycle` no-double rule + `TryAnchorMarkerToPolyline`
+      ride (the polyline Driver draws in TS too); new TS-LOCAL `DrawOneTsOverlapInstanceMarker` (TS
+      `TryResolveRecordingWorldPosition` head + `MapMarkerRenderer.DrawMarker` world-pos + the
+      `OnAtmosphericMarkerClicked` click handler so the per-instance markers stay clickable - a TS nuance).
+      Hoisted ABOVE the newest-only 8c gate (same mixed-case fix). Per-instance key `recId#cycle`. Flight
+      path + shared helpers UNTOUCHED (TS-local; no over-refactor). Gate-off + non-overlap byte-identical.
+      Clean review SHIP (no fixes). Build clean; suite green (13519). **In-game gate:** the overlap mission
+      in the TRACKING STATION view (director-drive ON) -> N markers matching flight map view; gate-off /
+      non-overlap = one marker. (Watch-item: the recording-level `lastGoodOnLine` hold is shared across the
+      N cycles - assessed cosmetic-only under warp transients, not changed; if it strobes, the fix is a
+      per-(recId,cycle) hold in the shared renderer.) Efficiency:
       overlap-ONLY gate so non-overlap recordings stay EXACTLY
       one-per-recording (zero new cost); reuse the engine's cycles; throttle per-instance ProtoVessel
       create/destroy (the biggest risk = warp-time cycle churn); cap at 20. Gate-OFF stays legacy

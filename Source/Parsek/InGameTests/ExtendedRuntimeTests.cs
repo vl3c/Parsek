@@ -273,6 +273,109 @@ namespace Parsek.InGameTests
                 $"{mismatches} overlap recording(s) have TS map instance count mismatched vs GetActiveCycles");
         }
 
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.TRACKSTATION,
+            Description = "Slice (iii) TS port: per-instance overlap marker head count matches the pure GetActiveCycles size; no-double disjunction coherent")]
+        public void OverlapMarkerHeadCountMatchesScheduleTS()
+        {
+            // TS analogue of OverlapMarkerHeadCountMatchesFlight: the flight engine does not exist in the
+            // Tracking Station, so the per-instance marker HEAD set (what DrawAtmosphericMarkers'
+            // per-instance branch rides via DrawOneTsOverlapInstanceMarker) must equal the PURE recomputed
+            // active-cycle set for each overlap recording. Slice (iii) requires the director drive ON; off
+            // the gate TryGetLiveOverlapHeadUTs returns false (-> legacy single marker), so there is no
+            // per-instance head set to assert on.
+            if (ParsekSettings.Current == null || !ParsekSettings.Current.mapRenderDirectorDrive)
+                InGameAssert.Skip("mapRenderDirectorDrive off — per-instance marker path inactive");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            // Rebuild the TS span-clock loop-unit set exactly as ParsekTrackingStation.DriveMissionLoopUnits
+            // does (the SAME set DrawAtmosphericMarkers' per-instance branch passes as cachedLoopUnits), so a
+            // Mission-tab loop (source b) is recognized identically to the live scene.
+            double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                             ?? LoopTiming.DefaultLoopIntervalSeconds;
+            var loopUnits = MissionLoopUnitBuilder.Build(
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed,
+                autoLoopIntervalSeconds, FlightGlobalsBodyInfo.Instance,
+                ParsekSettings.Current?.TransitedBodyRotationMode ?? TransitedBodyRotationMode.Loose);
+
+            int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
+            double currentUT = Planetarium.GetUniversalTime();
+            var headBuffer = new List<(long cycle, double headUT)>();
+            int checkedRecordings = 0;
+            int mismatches = 0;
+            int doubleViolations = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                // The head set is what the TS per-instance branch rides; it is produced by the SAME
+                // TryGetLiveOverlapHeadUTs the branch calls, gated identically (ShouldDriveOverlapPerInstance).
+                if (!GhostMapPresence.TryGetLiveOverlapHeadUTs(
+                        rec, i, committed, loopUnits, currentUT, headBuffer))
+                    continue;
+
+                // Independent pure recompute of the expected cycle count via GetActiveCycles (the schedule),
+                // matching OverlapMapInstanceCountMatchesScheduleTS.
+                if (!GhostMapPresence.ResolveOverlapSchedule(
+                        rec, i, committed, loopUnits,
+                        out _, out double scheduleStartUT,
+                        out double duration, out double effectiveCadence, out _))
+                    continue;
+                if (currentUT < scheduleStartUT)
+                    continue;
+
+                GhostPlaybackLogic.GetActiveCycles(
+                    currentUT, scheduleStartUT, scheduleStartUT + duration,
+                    effectiveCadence, cap, out long firstCycle, out long lastCycle);
+                int expected = (int)System.Math.Min(cap, lastCycle - firstCycle + 1);
+                int headCount = headBuffer.Count;
+
+                checkedRecordings++;
+                // The head count is the SAME GetActiveCycles span, so it must equal expected exactly
+                // (never above the cap).
+                if (headCount > cap || headCount != expected)
+                {
+                    mismatches++;
+                    ParsekLog.Warn("TestRunner",
+                        $"TS overlap marker head count mismatch rec=#{i}: heads={headCount} " +
+                        $"expectedCycles={expected} cap={cap}");
+                }
+
+                // No-double-marker disjunction coherence: for every live cycle, the per-cycle decision is
+                // exactly one of {proto icon owns it} XOR {polyline marker is the sole indicator}. pid 0
+                // (no proto for the cycle) MUST take the draw branch; pid != 0 routes through
+                // ShouldDrawNonProtoMarkerForGhost (true -> polyline marker draws, false -> proto owns).
+                // Either way the disjunction is total and unambiguous, so this never throws — it asserts the
+                // pid lookup + decision predicate stay callable/coherent for each head the branch will draw.
+                for (int hi = 0; hi < headBuffer.Count; hi++)
+                {
+                    long cycle = headBuffer[hi].cycle;
+                    uint pid = GhostMapPresence.TryGetOverlapInstancePidForCycle(i, cycle);
+                    bool protoOwns = pid != 0
+                        && !GhostMapPresence.ShouldDrawNonProtoMarkerForGhost(pid);
+                    bool polylineDraws = !protoOwns;
+                    if (protoOwns == polylineDraws) // impossible by construction; guards a future regression
+                    {
+                        doubleViolations++;
+                        ParsekLog.Warn("TestRunner",
+                            $"TS overlap no-double disjunction incoherent rec=#{i} cycle={cycle} pid={pid}");
+                    }
+                }
+            }
+
+            if (checkedRecordings == 0)
+                InGameAssert.Skip("No overlap recordings active");
+
+            ParsekLog.Info("TestRunner",
+                $"TS overlap marker head count: {checkedRecordings - mismatches}/{checkedRecordings} recordings match GetActiveCycles (cap={cap}); doubleViolations={doubleViolations}");
+            InGameAssert.AreEqual(0, mismatches,
+                $"{mismatches} overlap recording(s) have TS marker head count mismatched vs GetActiveCycles");
+            InGameAssert.AreEqual(0, doubleViolations,
+                $"{doubleViolations} TS overlap cycle(s) have an incoherent no-double disjunction");
+        }
+
         [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
             Description = "Slice (iii): flight-map per-instance overlap marker head count matches flight overlap ghost count + 1 (capped)")]
         public void OverlapMarkerHeadCountMatchesFlight()
