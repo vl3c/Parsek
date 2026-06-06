@@ -47,7 +47,7 @@ namespace Parsek.MapRender
             string bodyName, out GhostTrajectoryPolylineRenderer.BodySurfaceInfo info)
         {
             info = default(GhostTrajectoryPolylineRenderer.BodySurfaceInfo);
-            CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
+            CelestialBody body = ResolveBodyByNameSafe(bodyName);
             if (body == null)
                 return false;
             info = new GhostTrajectoryPolylineRenderer.BodySurfaceInfo { radius = body.Radius };
@@ -56,8 +56,28 @@ namespace Parsek.MapRender
 
         public bool IsStarBody(string bodyName)
         {
-            CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
+            CelestialBody body = ResolveBodyByNameSafe(bodyName);
             return body != null && body.isStar;
+        }
+
+        // FlightGlobals.GetBodyByName resolves through a Dictionary<string,CelestialBody>
+        // (fetch.bodyNames) and calls ContainsKey(name) with NO null guard (decompiled KSP 1.12.5),
+        // so a null/empty body name throws ArgumentNullException("key"). A null body name is normal on
+        // this path - GhostRenderIntent.Hidden carries FrameBodyName=null, and an OrbitSegment can lack
+        // a body - so guard before the lookup (mirroring the autonomous polyline Driver's
+        // ResolveBodySurface/ResolveBodyByName string.IsNullOrEmpty guard) and treat null/empty as
+        // "no body": the not-found result every caller already handles. Without this the default-on
+        // director-drive shadow (ShadowRenderDriver.RunFrame) throws and is suppressed per frame,
+        // dropping the icon drive to the legacy path for that frame.
+        private static CelestialBody ResolveBodyByNameSafe(string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName))
+            {
+                ParsekLog.VerboseRateLimited("MapRender", "scene-null-body-name",
+                    "GhostMapScene body lookup skipped: null/empty body name (treated as no body)", 10.0);
+                return null;
+            }
+            return FlightGlobals.GetBodyByName(bodyName);
         }
 
         public bool TryGetGhostOrbit(uint pid, out Orbit orbit)
@@ -69,7 +89,7 @@ namespace Parsek.MapRender
             return orbit != null;
         }
 
-        public CelestialBody ResolveBody(string bodyName) => FlightGlobals.GetBodyByName(bodyName);
+        public CelestialBody ResolveBody(string bodyName) => ResolveBodyByNameSafe(bodyName);
 
         // Presence-drive differs per scene: FLIGHT runs the pending-queue model
         // (ParsekPlaybackPolicy.CheckPendingMapVessels); the Tracking Station runs

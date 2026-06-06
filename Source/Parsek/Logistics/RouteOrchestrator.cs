@@ -71,6 +71,21 @@ namespace Parsek.Logistics
         /// transitions the route to <see cref="RouteStatus.Paused"/> instead
         /// of looping back to Active.
         ///
+        /// <para><b>Loop-clock dock phase is one of those conditions.</b> A v0
+        /// route is a looped Mission segment; delivery fires when the loop clock
+        /// reaches the recorded dock PHASE (design 0.4 / 0.9 DEL-2), which is the
+        /// END of the <c>[launch..dock]</c> segment. The clock free-runs on
+        /// absolute UT and Send Once intentionally does NOT reset
+        /// <see cref="Route.LastObservedLoopCycleIndex"/> (resetting it would
+        /// mis-fire a delivery mid-flight, with no ghost at the dock). So
+        /// re-arming Send Once schedules ONE delivery at the next UN-delivered
+        /// dock crossing: anywhere from ~immediate (if a dock passed during the
+        /// pause) up to nearly one full span when the clock has just passed the
+        /// prior dock. Re-arming right after a delivery lands near that worst
+        /// case - the ghost must fly its outbound run to dock again. This is
+        /// expected, not a stuck route; see the "send-once re-arm" closed entry
+        /// in <c>docs/dev/todo-and-known-bugs.md</c>.</para>
+        ///
         /// <para>If the route is currently Paused, "Send Once" un-pauses it
         /// to Active first so the one-shot cycle can dispatch.</para>
         ///

@@ -101,6 +101,7 @@ All notable changes to Parsek are documented here.
 - Fixed map ghost trajectory lines (ascent, burn, transfer, descent) and their labels jittering or drifting when you pan the camera. The lines now draw against the committed camera view each frame and the labels hold their position on the line, so both stay glued in place during a pan.
 - Removed two spurious "Script error: OnLevelWasLoaded" messages printed to the log at startup. Two internal scene-load handlers collided with a deprecated Unity method name; renaming them clears the errors with no behavior change.
 - Fixed a continuous error spam in the log when hovering controls in the Logistics window. The bottom tooltip echo box drew a different number of UI controls when a tooltip was showing than when it was empty, which threw an IMGUI layout error every frame and aborted the rest of the window's draw; it now draws a fixed layout either way.
+- Fixed a rare, silently-caught map-view error in the rebuilt ghost render path that could drop a looping ghost's map icon back onto the old (off-orbit) drive for a single frame. When a ghost had no current body frame (between loops, or an orbit segment with no recorded body) the new render path hit an unguarded celestial-body lookup and threw; the lookup is now guarded the same way the older map path already was, so the frame's icon stays on the new drive.
 
 ### UI
 
