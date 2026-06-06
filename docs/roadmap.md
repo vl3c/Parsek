@@ -393,7 +393,7 @@ Every supply ship remains a replay of a real mission the player flew, but v0 del
 
 ### Logistics: remaining work toward feature-complete (post-0.10.0)
 
-This is the path from the shipped v0 to a feature-complete logistics system. Every item below traces to a deferred item in the design doc (section 17 and the Status line) or an open known limitation in `docs/dev/todo-and-known-bugs.md`. Tiers are roughly in priority order (a mix of player value, effort, and dependencies); these are NOT committed version numbers, just "post-0.10.0, roughly in this order". Size tags are S/M/L estimates. For the NEW supporting systems each item requires (and the two shared foundations that change the sequencing), see "17.1 Supporting systems required for future work" in `docs/parsek-logistics-supply-routes-design.md`.
+This is the path from the shipped v0 to a feature-complete logistics system. Every item below traces to a deferred item in the design doc (section 17 and the Status line, plus the crew limitation in sections 11-12) or an open known limitation in `docs/dev/todo-and-known-bugs.md`. Tiers are roughly in priority order (a mix of player value, effort, and dependencies); these are NOT committed version numbers, just "post-0.10.0, roughly in this order". Size tags are S/M/L estimates. For the NEW supporting systems each item requires (and the two shared foundations that change the sequencing), see "17.1 Supporting systems required for future work" in `docs/parsek-logistics-supply-routes-design.md`.
 
 **Tier 1: quick wins and polish** (small, self-contained, no new gameplay model)
 
@@ -416,7 +416,7 @@ This is the path from the shipped v0 to a feature-complete logistics system. Eve
 - **Round-trip linking (M/L):** pair two one-way routes so they alternate (A completes, then B dispatches, then A again). `LinkedRouteId` is already a reserved serialization field, ignored by v0 dispatch. (Status line, "round-trip linking".)
 - **Inter-body re-aimed routes (M/L):** same-body only in v0. Wire the existing `MissionPeriodicity` / re-aim seam so an interplanetary route dispatches at the synodic transfer window and the delivery clock phase-locks to the re-aimed launch. The seam exists (`RouteLoopClock` threads the backing unit's schedule); it just is not enabled. (Status line, "inter-body re-aimed routes".)
 - **Non-docking connection producers (L, needs KSP API investigation):** claw / grapple and stock crossfeed / fuel-line transfer paths as alternative proof-of-work. Needs API work for endpoint PID, connection start/end, and cargo delta. Deferred until docking routes are reliable. (Section 17, "Non-docking stock connection producers".)
-- **Crew delivery (L):** deliver kerbals along a route. Deferred until it can use named roster / crew-reservation semantics instead of generic kerbal generation; depends on the crew-reservation system. (Design doc section 11 "Crew delivery" and section 12 "Crew reservation".)
+- **Crew delivery (L):** deliver kerbals along a route. Deferred until it can use named roster / crew-reservation semantics instead of generic kerbal generation; depends on the crew-reservation system. (Design doc section 11 ("v1 Limitations", Crew delivery bullet) and section 12 ("What Doesn't Change", Crew reservation bullet).)
 
 **Tier 4: infrastructure** (not player-facing)
 
