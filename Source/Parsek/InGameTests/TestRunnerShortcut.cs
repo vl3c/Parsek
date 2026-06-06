@@ -384,13 +384,14 @@ namespace Parsek.InGameTests
                     GUILayout.Label(GetStatusIcon(test.Status), GUILayout.Width(20));
                     GUI.contentColor = prevColor;
 
-                    // Manual-only [single] scenarios are tinted yellow so they
+                    // Manual-only [single] scenarios are tinted blue so they
                     // are easy to find (dimmed when the scene is ineligible).
+                    // Readable light blue: Color.blue is too dark on KSP's dark window.
                     if (!eligible) GUI.enabled = false;
                     string label = TestRunnerPresentation.BuildTestLabel(test);
                     var prevLabelColor = GUI.contentColor;
                     if (TestRunnerPresentation.IsManualOnly(test))
-                        GUI.contentColor = Color.yellow;
+                        GUI.contentColor = new Color(0.45f, 0.65f, 1f);
                     GUILayout.Label(
                         new GUIContent(label, TestRunnerPresentation.BuildTestTooltip(test, eligible)),
                         GUILayout.ExpandWidth(true));
