@@ -1718,94 +1718,27 @@ namespace Parsek.Tests
 
         #region Orphaned-ghost reap (committed-list shrink)
 
-        [Fact]
-        public void CollectOrphanedGhostIndices_EmptyCommittedList_ReapsEveryGhost()
+        // ReapOrphanedKscGhosts destroys any KSC ghost whose committed-index key falls
+        // outside the half-open range [0, committedCount). These pin that boundary
+        // contract: the cases that drive the reap (empty list, shrink-from-end, sparse
+        // live set) and the edges (index == count, negative).
+        [Theory]
+        // Committed list emptied (Wipe All / removed last recording): every ghost orphaned.
+        [InlineData(0, 0, true)]
+        [InlineData(1, 0, true)]
+        // Backed by a committed recording (in range, including the last valid index): kept.
+        [InlineData(0, 2, false)]
+        [InlineData(1, 2, false)]
+        // List shrank from 4 to 2: trailing indices orphaned (index == count and beyond).
+        [InlineData(2, 2, true)]
+        [InlineData(3, 2, true)]
+        // Sparse live set (index 2 live) with one committed recording: past the end, reaped.
+        [InlineData(2, 1, true)]
+        // Defensive: a negative key is always orphaned.
+        [InlineData(-1, 1, true)]
+        public void IsOrphanedGhostIndex_BoundaryContract(int key, int committedCount, bool expected)
         {
-            var into = new List<int>();
-
-            int count = ParsekKSC.CollectOrphanedGhostIndices(
-                new[] { 0, 1, 2 }, committedCount: 0, into);
-
-            // committed list emptied (Wipe All / removed last recording): every
-            // index-keyed ghost is now orphaned and must be reaped.
-            Assert.Equal(3, count);
-            Assert.Equal(new[] { 0, 1, 2 }, into);
-        }
-
-        [Fact]
-        public void CollectOrphanedGhostIndices_AllInRange_ReapsNothing()
-        {
-            var into = new List<int>();
-
-            int count = ParsekKSC.CollectOrphanedGhostIndices(
-                new[] { 0, 1 }, committedCount: 2, into);
-
-            Assert.Equal(0, count);
-            Assert.Empty(into);
-        }
-
-        [Fact]
-        public void CollectOrphanedGhostIndices_ShrunkList_ReapsOnlyOutOfRangeKeys()
-        {
-            var into = new List<int>();
-
-            // List shrank from 4 to 2: ghosts at indices 2 and 3 are orphaned,
-            // 0 and 1 are still backed by a committed recording.
-            int count = ParsekKSC.CollectOrphanedGhostIndices(
-                new[] { 0, 1, 2, 3 }, committedCount: 2, into);
-
-            Assert.Equal(2, count);
-            Assert.Equal(new[] { 2, 3 }, into);
-        }
-
-        [Fact]
-        public void CollectOrphanedGhostIndices_SparseKeys_ReapsOnlyBeyondCount()
-        {
-            var into = new List<int>();
-
-            // Sparse ghost set (index 0 and 2 live, 1 inactive) with one committed
-            // recording: key 0 stays, key 2 is past the end and is reaped.
-            int count = ParsekKSC.CollectOrphanedGhostIndices(
-                new[] { 0, 2 }, committedCount: 1, into);
-
-            Assert.Equal(1, count);
-            Assert.Equal(new[] { 2 }, into);
-        }
-
-        [Fact]
-        public void CollectOrphanedGhostIndices_KeyAtCountIsOrphaned_BoundaryIsHalfOpen()
-        {
-            var into = new List<int>();
-
-            // The valid range is [0, committedCount): index == count is out of range.
-            int count = ParsekKSC.CollectOrphanedGhostIndices(
-                new[] { 1, 2 }, committedCount: 2, into);
-
-            Assert.Equal(1, count);
-            Assert.Equal(new[] { 2 }, into);
-        }
-
-        [Fact]
-        public void CollectOrphanedGhostIndices_NegativeKey_IsTreatedAsOrphaned()
-        {
-            var into = new List<int>();
-
-            int count = ParsekKSC.CollectOrphanedGhostIndices(
-                new[] { -1, 0 }, committedCount: 1, into);
-
-            Assert.Equal(1, count);
-            Assert.Equal(new[] { -1 }, into);
-        }
-
-        [Fact]
-        public void CollectOrphanedGhostIndices_NullKeys_DoesNotThrow_AndClearsInto()
-        {
-            var into = new List<int> { 99 };
-
-            int count = ParsekKSC.CollectOrphanedGhostIndices(null, committedCount: 0, into);
-
-            Assert.Equal(0, count);
-            Assert.Empty(into);
+            Assert.Equal(expected, ParsekKSC.IsOrphanedGhostIndex(key, committedCount));
         }
 
         #endregion

@@ -1552,8 +1552,14 @@ namespace Parsek
         {
             if (kscGhosts.Count == 0 && kscOverlapGhosts.Count == 0) return;
 
-            int reapedPrimary = CollectOrphanedGhostIndices(
-                kscGhosts.Keys, committedCount, orphanGhostScratch);
+            // Iterate the concrete Dictionary.KeyCollection (struct enumerator, no
+            // boxing) into the reusable scratch list, then mutate the dictionary in a
+            // separate pass so we never modify it mid-enumeration.
+            orphanGhostScratch.Clear();
+            foreach (int key in kscGhosts.Keys)
+                if (IsOrphanedGhostIndex(key, committedCount))
+                    orphanGhostScratch.Add(key);
+            int reapedPrimary = orphanGhostScratch.Count;
             for (int i = 0; i < orphanGhostScratch.Count; i++)
             {
                 int idx = orphanGhostScratch[i];
@@ -1563,8 +1569,11 @@ namespace Parsek
                 loggedReshow.Remove(idx);
             }
 
-            int reapedOverlapSets = CollectOrphanedGhostIndices(
-                kscOverlapGhosts.Keys, committedCount, orphanGhostScratch);
+            orphanGhostScratch.Clear();
+            foreach (int key in kscOverlapGhosts.Keys)
+                if (IsOrphanedGhostIndex(key, committedCount))
+                    orphanGhostScratch.Add(key);
+            int reapedOverlapSets = orphanGhostScratch.Count;
             for (int i = 0; i < orphanGhostScratch.Count; i++)
             {
                 int idx = orphanGhostScratch[i];
@@ -1579,22 +1588,13 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Fills <paramref name="into"/> with the ghost-dictionary index keys that are
-        /// orphaned for a committed list of <paramref name="committedCount"/> entries: any
-        /// key outside the half-open range [0, committedCount). Pure (no Unity); the reap
-        /// uses it to know which index-keyed ghosts to destroy after CommittedRecordings
-        /// shrinks. Returns the number of orphaned keys collected.
+        /// Whether a ghost-dictionary index key is orphaned for a committed list of
+        /// <paramref name="committedCount"/> entries: any key outside the half-open range
+        /// [0, committedCount). Pure; <see cref="ReapOrphanedKscGhosts"/> applies it per
+        /// key to know which index-keyed ghosts to destroy after CommittedRecordings shrinks.
         /// </summary>
-        internal static int CollectOrphanedGhostIndices(
-            ICollection<int> ghostKeys, int committedCount, List<int> into)
-        {
-            into.Clear();
-            if (ghostKeys != null)
-                foreach (int key in ghostKeys)
-                    if (key < 0 || key >= committedCount)
-                        into.Add(key);
-            return into.Count;
-        }
+        internal static bool IsOrphanedGhostIndex(int key, int committedCount)
+            => key < 0 || key >= committedCount;
 
         /// <summary>
         /// Destroy all overlap ghosts for a recording.
