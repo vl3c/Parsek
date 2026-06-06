@@ -91,7 +91,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ## Post-cutover map/TS render backlog (next version)
 
-The map/TS render cutover is COMPLETE (see the DONE entry above): the modular Director pipeline is the single render path; `known-bugs.md` has no open map/TS render bugs. This is the consolidated list of what remains in this area for a future version. NOTHING here blocks the current release.
+The map/TS render cutover is COMPLETE (see the DONE entry above): the modular Director pipeline is the single render path; this file has no open map/TS render bugs (the render entries above are all RESOLVED/CLOSED). This is the consolidated list of what remains in this area for a future version. NOTHING here blocks the current release.
 
 **1. Re-aim destination phase-lock for looped INTERPLANETARY missions (the one substantial piece).** Re-aim aligns the launch body but not the destination body's rotation/phase across the loop shift, so a looped interplanetary arrival drifts. "Duna One" is closed; the generalization (non-synchronous moons, destination loiter, 2+ moons, atmo-direct entry) is the deferred Phase 4 - see the "DUNA ONE CLOSED ... Phase-4 GENERALIZATION still deferred" entry immediately below. WARNING: this sits on the re-aim seam, a known high-cost area - build the failing multi-moon test and measure before any knob math, and treat "the faithful render is good enough" as a valid outcome (do not stack speculative fixes on a working baseline).
 
