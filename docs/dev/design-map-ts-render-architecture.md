@@ -19,6 +19,26 @@ superseded — see that doc's banner), `docs/dev/design-mission-abstractions.md`
 `docs/parsek-ghost-trajectory-rendering-design.md`, and
 `docs/dev/design-map-ts-render-tracer.md`.*
 
+> **IMPLEMENTATION STATUS (2026-06-06): IMPLEMENTED, integration-complete, ON BY
+> DEFAULT.** The Step-3 banner above ("the implementation will REPLACE...") is now
+> historical; the rewrite is built and the modular pipeline (chain assemble -> sample ->
+> decide -> treatment -> draw) drives the map and Tracking-Station ghost render today
+> behind the `mapRenderDirectorDrive` gate (default TRUE; toggle in Settings). Done so
+> far: per-surface cutover phases 8a-8d (StockConic icon drive, hyperbolic arc clip,
+> TracedPath polyline ownership, marker / proto-icon-suppression authority, and the
+> map-presence migration into the scene adapter); Integration 1 (re-aim interplanetary
+> transfer / escape / arrival rendering through the pipeline); and Integration 2 (overlap
+> rendering: the map and Tracking Station now show one orbit icon or one polyline marker
+> per LIVE overlap instance, matching flight). Integration 3 (a shared polyline draw host)
+> is DEFERRED (read-only scoping verdict 2026-06-06: not worth the rewrite; its minimal
+> pid-0 coverage surface is folded into Phase 8e). The ONLY remaining work is Phase 8e:
+> delete the now-unused 8a-8d legacy render fallbacks and drop the `mapRenderDirectorDrive`
+> gate, leaving the single modular system this design specifies. Two advisory (non-blocking)
+> re-tests also remain: a Tracking-Station visual confirm and an orbital-overlap
+> ProtoVessel-churn check at high warp. For the per-PR breakdown see
+> `docs/dev/plans/maprender-rewrite-status.md`; for the phase plan see
+> `docs/dev/plans/map-ts-render-rewrite-phases.md`. The design body below is unchanged.*
+
 > **Template map (per `development-workflow.md` §3):** Problem = §1; Terminology = §2;
 > Mental Model = §3; Data Model = §6.2 + §6.10; Behavior = §9; Edge Cases = §10; What
 > Doesn't Change = §11; Backward Compatibility = §12; Diagnostic Logging = §13; Test

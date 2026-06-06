@@ -326,6 +326,47 @@ research note (R17) at
   snapshots, outlier rejection, anchor/co-bubble fixes, and recorded-anchor
   fallbacks for Re-Fly relative playback.
 
+### v0.10 - Mission Abstractions & Map/TS Render Redesign
+
+The 0.10 cycle shipped two major features on top of the looping system: a mission
+abstraction layer that loops whole missions as a unit, and a clean modular rewrite of the
+map-view and Tracking-Station ghost render path. Designs:
+[`docs/dev/design-mission-abstractions.md`](dev/design-mission-abstractions.md),
+[`docs/dev/design-mission-periodicity.md`](dev/design-mission-periodicity.md),
+[`docs/dev/design-map-ts-render-architecture.md`](dev/design-map-ts-render-architecture.md)
+(plus the tracer design and the phased migration plan + status under `docs/dev/plans/`).
+
+- **Mission abstractions and mission loops** - a new Missions tab groups a recording tree
+  into a configurable mission (one continuous vessel per row; branches included or excluded
+  with checkboxes; clonable into differently-configured variants). A mission can be looped as
+  a single unit: the whole mission replays together on one shared clock in flight, the Space
+  Center, and the Tracking Station, instead of each recording looping on its own. Watching a
+  looped mission follows the live vessel and hands the camera to the next stage as the shared
+  clock crosses each boundary.
+- **Self-overlapping missions** - a looped mission whose period is shorter than its length now
+  overlaps itself: it relaunches every period (in game-time, so faster under warp) so several
+  staggered replays of the whole mission play at once.
+- **Pad-aligned and transfer-window relaunch** - a looped mission relaunches at the right time
+  so its replay lines up with the live sky. A launch-and-orbit mission relaunches when the pad
+  has rotated back under the recorded orbit; a Mun or Minmus mission reschedules each relaunch
+  to a window where the pad lines up and the moon is close enough that the recorded transfer
+  still reaches it. A "Warp to..." button jumps to the next window; an atmosphere-only or
+  surface mission loops continuously.
+- **Map / Tracking-Station render redesign** - the ghost map/TS render path was rebuilt as a
+  clean modular pipeline (chain assemble, sample, decide, treatment, draw) that replaces the
+  prior smear of Harmony patches, OnGUI passes, and lifecycle ticks, and drives each ghost's
+  orbit line and icon from one source (on by default; toggle "Map/TS director render drive" in
+  Settings). It fixes a family of long-standing artifacts: looped and re-aimed icons now ride
+  their own orbit line, trajectory lines and labels stay glued in place when panning (no jitter
+  or warp-dependent doubled lines), escape and flyby lines clip to the part actually flown, and
+  a self-overlapping looped mission shows one orbit icon (orbital) or trajectory marker
+  (suborbital / ascent) PER LIVE OVERLAP INSTANCE in both the map and the Tracking Station,
+  matching flight. The re-aim interplanetary trajectory rendering drives through the same
+  pipeline.
+- **Status** - the render migration is integration-complete and on by default; the remaining
+  work is the final cleanup (Phase 8e): delete the now-unused legacy render fallbacks and drop
+  the compatibility gate, leaving a single modular system per the design.
+
 ---
 
 ## Phase 13: Logistics (Supply Routes)

@@ -24,6 +24,8 @@ Time travel paradoxes are avoided by enforcing causality: events are always proc
 - **Automatic recording** on launch and EVA from pad
 - **Visual replay** with original part meshes, textures, and engine FX
 - **Looped playback** - fly missions and loop their recordings - add as many rockets, spaceships or aircraft in the sky as you want - great for in-game video recordings!
+- **Mission loops** - group a recording tree into a mission in the Missions tab and loop the whole mission as a unit on one shared clock (flight, Space Center, and Tracking Station). Give it a period shorter than its length and it overlaps itself into several staggered replays; launch-and-orbit and Mun / Minmus missions relaunch at the right pad-aligned or transfer window so the replay lines up with the live sky.
+- **Accurate map and Tracking Station view** - looped, re-aimed, and overlapping missions render correctly on the map and in the Tracking Station: icons ride their own orbit line, trajectory lines stay stable when you pan, and each live overlap replay shows its own icon or marker, matching what you see in flight.
 - **Vessel persistence** - recorded vessels spawn with crew, or get recovered for funds
 - **Crew management** - reserved crew get temporary replacements so your roster stays full
 - **Orbital recording** - time warp segments use analytical Keplerian orbits with attitude preservation (SAS-locked orientations like retrograde, normal, radial hold correctly throughout the orbit)
