@@ -363,15 +363,14 @@ namespace Parsek
 
             // --- Bottom bar ---
             // Results auto-export after every run, so there is no manual export
-            // button (the file always reflects the latest run).
+            // button (the file always reflects the latest run). Full-width Close
+            // (matches the Logistics / Kerbals / Settings windows).
             GUILayout.Space(SpacingSmall);
-            GUILayout.BeginHorizontal();
             if (GUILayout.Button("Close"))
             {
                 showTestRunnerWindow = false;
                 ParsekLog.Verbose("UI", "Test runner window closed");
             }
-            GUILayout.EndHorizontal();
             GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
 
             // Always render tooltip label — conditional rendering causes

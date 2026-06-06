@@ -426,10 +426,9 @@ namespace Parsek.InGameTests
             GUILayout.EndScrollView();
 
             // Results auto-export after every run, so there is no manual export
-            // button (the file always reflects the latest run).
-            GUILayout.BeginHorizontal();
+            // button (the file always reflects the latest run). Full-width Close
+            // (matches the Logistics / Kerbals / Settings windows).
             if (GUILayout.Button("Close")) showWindow = false;
-            GUILayout.EndHorizontal();
             GUILayout.Label("Results file auto-updates after each run. Multi-scene runs accumulate.",
                 GUI.skin.label);
             GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
