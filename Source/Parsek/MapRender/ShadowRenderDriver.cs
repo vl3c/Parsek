@@ -19,14 +19,20 @@ namespace Parsek.MapRender
     /// scene adapter (the <see cref="MissionLoopUnitBuilder.Build"/> output), not the engine
     /// passthrough.</para>
     ///
-    /// <para><b>Shadow scope (MVP): faithful, single-instance members only — decided PER MEMBER.</b>
+    /// <para><b>Shadow scope: faithful + overlap single-instance members — decided PER MEMBER.</b>
     /// Re-aim is per member, not per mission (design §4): only the heliocentric (Sun-relative) member
     /// is re-synthesized, so ONLY it is skipped; the Kerbin-departure and destination-arrival members
     /// of the SAME re-aimed mission are faithful and ARE shadowed (they render their recorded surface
-    /// tracks). Overlap members are still skipped (their per-instance phasing is not modelled by a
-    /// single pid→recording resolve). Skips carry a logged reason and land fully with the re-aim /
-    /// overlap wiring in a later phase. Both the faithful same-body case (Mun/Minmus) AND the faithful
-    /// departure/arrival members of an interplanetary mission are validated here.</para>
+    /// tracks). OVERLAP members (a looped mission whose launch cadence is shorter than its span, so it
+    /// relaunches and several staggered instances run at once) are NOW shadowed too (integration #2):
+    /// the MAP has no per-instance model — an overlapping mission renders as exactly ONE ghost at the
+    /// SELECTED cycle's span-clock head-UT, chosen by the SAME pure span clock
+    /// (<see cref="GhostPlaybackLogic.ResolveTrackingStationSampleUT"/>) the legacy single head uses
+    /// (the unit's <c>CadenceSeconds</c>, raised to at least the span, gives a single span instance).
+    /// The N simultaneous instances are flight-MESH-only (<c>GhostPlaybackEngine.overlapGhosts</c>),
+    /// out of scope here. Re-aim skips still carry a logged reason. Both the faithful same-body case
+    /// (Mun/Minmus) AND the faithful departure/arrival members of an interplanetary mission are
+    /// validated here.</para>
     /// </summary>
     internal static class ShadowRenderDriver
     {
@@ -37,7 +43,11 @@ namespace Parsek.MapRender
             Faithful = 0,
             /// <summary>Re-aim member: raw recording lacks the synthesized transfer → skip (later phase).</summary>
             SkipReaim = 1,
-            /// <summary>Overlap member: per-instance phasing not modelled here → skip (later phase).</summary>
+            /// <summary>Overlap member classification (RETAINED for <see cref="ClassifyScope"/> + its tests).
+            /// PRODUCTION NO LONGER ACTS ON THIS: integration #2 lifted the RunFrame overlap skip, so an
+            /// overlap member now flows through the normal assemble→sample→decide path and renders one ghost
+            /// at the span-clock head-UT (the map has no per-instance model). The enum value stays so the pure
+            /// classifier and its unit tests keep documenting the overlap predicate.</summary>
             SkipOverlap = 2,
         }
 
@@ -247,7 +257,7 @@ namespace Parsek.MapRender
             double currentUT = scene.CurrentUT;
             var surface = scene.BodySurface;
 
-            int shadowed = 0, skipReaim = 0, skipOverlap = 0, unresolved = 0;
+            int shadowed = 0, skipReaim = 0, overlapShadowed = 0, unresolved = 0;
             if (pids != null)
             {
                 foreach (uint pid in pids)
@@ -258,14 +268,18 @@ namespace Parsek.MapRender
                         continue;
                     }
 
-                    // Overlap is a per-MEMBER property (the unit's cadence shorter than its span), decided
-                    // before sampling. Re-aim is decided PER ACTIVE SEGMENT after Decide (below), not here.
-                    if (ClassifyOverlapForMember(units, idx, out double wStart, out double wEnd,
-                            traj.StartUT, traj.EndUT) == ShadowScope.SkipOverlap)
-                    {
-                        skipOverlap++;
-                        continue;
-                    }
+                    // Resolve this member's trimmed render window (interval-level start/end trim if it
+                    // belongs to a unit). Integration #2: overlap members are NO LONGER skipped here. On
+                    // the map there is no per-instance model — an overlapping mission renders as exactly
+                    // ONE ghost at the SELECTED cycle's span-clock head-UT, which ChainSampler.Sample
+                    // resolves through the SAME pure clock (ResolveTrackingStationSampleUT, driven by the
+                    // unit's span-raised CadenceSeconds) the legacy single head uses. So an overlap member
+                    // flows through the normal assemble→sample→decide path like any faithful single
+                    // instance. Re-aim is still decided PER ACTIVE SEGMENT after Decide (below).
+                    ShadowScope scope = ClassifyOverlapForMember(
+                        units, idx, out double wStart, out double wEnd, traj.StartUT, traj.EndUT);
+                    if (scope == ShadowScope.SkipOverlap)
+                        overlapShadowed++; // counted for diagnostics; it now PROCEEDS, not skipped
 
                     GhostRenderChain chain = GetOrBuildChain(
                         pid, traj, idx, wStart, wEnd, currentUT, units, surface,
@@ -325,8 +339,8 @@ namespace Parsek.MapRender
 
             ParsekLog.VerboseRateLimited("MapRender", "shadow-frame-summary",
                 string.Format(CultureInfo.InvariantCulture,
-                    "shadow frame ghosts={0} shadowed={1} skipReaim={2} skipOverlap={3} unresolved={4}",
-                    pids?.Count ?? 0, shadowed, skipReaim, skipOverlap, unresolved),
+                    "shadow frame ghosts={0} shadowed={1} skipReaim={2} overlapShadowed={3} unresolved={4}",
+                    pids?.Count ?? 0, shadowed, skipReaim, overlapShadowed, unresolved),
                 5.0);
         }
 
@@ -358,8 +372,11 @@ namespace Parsek.MapRender
                 && !(chainHasReaimedSegments && sampleInSegment);
         }
 
-        // Resolve a member's window (trimmed if it belongs to a unit) and classify ONLY its overlap
-        // scope (re-aim is now decided per active segment via ShouldSkipReaimSegment after Decide).
+        // Resolve a member's window (trimmed if it belongs to a unit) and classify its overlap scope
+        // (re-aim is decided per active segment via ShouldSkipReaimSegment after Decide). Integration #2:
+        // the RunFrame caller no longer DROPS a SkipOverlap member — the scope is used only for a
+        // diagnostic counter; the member proceeds through the normal pipeline. The window resolution
+        // (trimmed MemberStartUT/MemberEndUT) is the load-bearing output now.
         private static ShadowScope ClassifyOverlapForMember(
             GhostPlaybackLogic.LoopUnitSet units, int idx,
             out double windowStartUT, out double windowEndUT,

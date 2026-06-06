@@ -361,11 +361,23 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     + tracing-on: re-aim ghost's icon rides its heliocentric line (`angleIconVsOrbitEff` -> ~0, was
     >45deg), `decision-vs-truth` parity, trim-gap frames stay hidden, no SOI-seam blink; toggle gate-off
     -> byte-identical.
-  - **Integration 2 - overlap rendering (planned, near-trivial).** No per-instance MAP model exists
+  - **Integration 2 - overlap rendering (DONE, awaiting in-game gate).** No per-instance MAP model exists
     (`GhostMapPresence` is one-vessel-per-recording); an overlapping mission renders as ONE ProtoVessel +
-    one polyline head at the selected cycle. So integration = delete the conservative `SkipOverlap` gate
-    in `ShadowRenderDriver` after a reconciler parity check (`ChainSampler` already shares the loop clock).
-    Needs an overlapping-loop save (period < span) to validate; s15/Mun don't overlap.
+    one polyline head at the selected cycle. Fix: removed the conservative `SkipOverlap` early-skip in
+    `ShadowRenderDriver.RunFrame` so an overlap member flows through the normal assemble->sample->decide->
+    seed/stamp path. The sampler-parity precondition is CONFIRMED (clean review): `ChainSampler.Sample`
+    maps live->assembled UT via the SAME `GhostPlaybackLogic.ResolveTrackingStationSampleUT` the legacy
+    single-head uses, driven by `unit.CadenceSeconds` (span-raised single-instance), NOT
+    `unit.OverlapCadenceSeconds` (the short relaunch cadence consumed only by the flight MESH engine), so
+    the Director lands on the SAME selected-cycle head-UT as legacy. `ShadowScope.SkipOverlap` enum +
+    `ClassifyScope`/`ClassifyOverlapForMember` retained (classifier + its tests stay; production just stops
+    skipping; counter renamed `skipOverlap`->`overlapShadowed`). Gate-OFF byte-identical (skip lived only
+    in the gate/tracing-gated `RunFrame`; the new seed/stamp is consumed only under `IsDirectorDriveActive`
+    /`IsDirectorTracedPathActive`). No per-instance model / InstanceKey added. Build clean; suite green
+    (13477); clean review SHIP. **In-game gate:** a LAUNCH-TO-ORBIT mission looped with period < length so
+    it overlaps (interplanetary can't - pinned to its transfer window), map view + tracing on: the single
+    overlap map icon rides its line at the selected cycle, hides cleanly in inter-cycle gaps; gate-off
+    byte-identical. (The N staggered instances are flight-MESH-only; the map shows one at the live cycle.)
   - **Rendering polish - polyline + marker pan-stability (DONE, gated-neutral).** Fixed map polylines +
     yellow label markers jittering / flickering when panning the camera (pre-existing, NOT from the
     cutover). Root cause: the polyline draw ran at `[DefaultExecutionOrder(-50)]`, BEFORE the map camera
@@ -381,15 +393,25 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
     (confirm in re-fly: fixed iff that root is ride-dropout, not leg-non-construction). Gate-off
     byte-identical (only the draw slot moved). FIX 2 is flight-map-scoped (the TS marker path does not use
     the ride; TS line stability still benefits). Two clean reviews SHIP; build clean, suite green (13470).
-  - **Integration 3 - shared polyline draw host (planned, structural).** The ownership DECISION +
-    publish stay at `-50` (publish-before-orbit-patch-read); the per-leg DRAW now runs in the map
-    camera's `onPreCull` (LANDED with the pan-stability fix above, so the "draw must stay in LateUpdate"
-    constraint is superseded). Remaining: fold the autonomous `CommittedRecordings` walk's ITERATION
-    under the Director and close the pid-0 atmospheric-only enumeration gap (Director enumerates
-    `ghostMapVesselPids`; the Driver walks `CommittedRecordings`). Medium.
-  - **Then 8e (deletion LAST):** once 1-3 land and nothing rides the legacy draw path, delete the legacy
-    fallbacks + autonomous walk + grace fields, grep-audit no readers, drop the `mapRenderDirectorDrive`
-    gate -> single modular system.
+  - **Integration 3 - shared polyline draw host (DEFERRED - read-only scoping verdict 2026-06-06).** Do
+    NOT do the "fold the autonomous walk under the Director" rewrite. The scoping found it is NOT worth it
+    now and NOT a true 8e prerequisite: #1050 made the `onPreCull` DRAW the sanctioned shared mechanism
+    (not legacy); the `-50` LateUpdate already does only the DECIDE + ownership publish. The ONLY piece 8e
+    genuinely needs is closing the pid-0 atmospheric-only enumeration gap (the Director enumerates
+    `ghostMapVesselPids` = proto-bearing; atmospheric-only no-orbit no-terminal-state recordings are pid-0,
+    reached only by the Driver's `CommittedRecordings` walk - `GetGhostVesselPidForRecording` returns 0,
+    `ghostMapVesselPids.Add` only in the proto-create funnel). That gap is NEAR-EMPTY in practice and
+    ALREADY DRAWS CORRECTLY today (a pid-0 leg always takes Driver-direct `TryDrawLeg`); it is only a
+    coverage-accounting bookkeeping item for the eventual deletion. The full rewrite is high-risk against
+    the now-working, user-praised pan-stable host for ZERO behavior change. **Recommendation: defer #3;
+    do the MINIMAL pid-0 coverage surface as PART of 8e, when the deletion actually consumes it - add a
+    proto-less-recording coverage set, leave the `-50`/`onPreCull` draw path byte-identical, prove the
+    Director's accounted set is a superset of the autonomous walk's drawn set, THEN delete.**
+  - **Then 8e (deletion LAST):** once #2 is validated + the minimal pid-0 coverage (folded from #3) lands
+    and nothing rides the legacy draw path uncovered, delete the legacy fallbacks + the autonomous
+    `CommittedRecordings` DECIDE-walk + grace fields (KEEP the `onPreCull` DRAW mechanism - it is the
+    sanctioned shared host, not legacy), grep-audit no readers, drop the `mapRenderDirectorDrive` gate ->
+    single modular system.
 - **Phase 8** per-surface cutover (8a-8e) - deletes the scattered gates; in-game per sub-phase.
 - **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3
   `TransferConic` frame-agnostic return - touch the in-game-validated re-aim path.
