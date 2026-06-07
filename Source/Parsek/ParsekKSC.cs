@@ -390,6 +390,21 @@ namespace Parsek
             {
                 var rec = committed[i];
 
+                // BUG-B: maintain the replay-scope latch every frame and decide whether
+                // this committed recording is purely historical (the player progressed
+                // past it in normal forward time and never rewound to replay it). Used
+                // only by the non-looping render/spawn branches below; looping +
+                // mission-unit replays (explicit live opt-in) run through their own
+                // branches and never consult this flag. The active re-fly session is
+                // exempt. Orbital recordings whose extrapolated tail extends past the
+                // live UT would otherwise draw a duplicate ghost of the player's
+                // still-live vessel at the Space Center.
+                double kscActivationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
+                PlaybackScopeTracker.NotePlayhead(rec.RecordingId, currentUT, kscActivationStartUT);
+                bool historicalNeverReplayed = SessionSuppressionState.ActiveMarker == null
+                    && PlaybackScopeTracker.IsHistoricalNeverReplayed(
+                        rec.RecordingId, currentUT, kscActivationStartUT);
+
                 TimelineInactiveReason inactiveReason;
                 bool inactive = IsTimelineInactiveForKsc(rec, supersedes, retirements, out inactiveReason);
                 if (inactive)
@@ -437,7 +452,10 @@ namespace Parsek
                         loggedGhostSpawn.Remove(i);
                     }
                     DestroyAllKscOverlapGhosts(i);
-                    if (currentUT > rec.EndUT)
+                    // BUG-B: a historical (never-replayed) recording must not spawn its
+                    // terminal vessel even when playback-disabled — the career-effect
+                    // spawn is only due once the recording has actually been replayed.
+                    if (currentUT > rec.EndUT && !historicalNeverReplayed)
                     {
                         LogPlaybackDisabledPastEndSpawnAttemptOnce(
                             rec,
@@ -515,6 +533,23 @@ namespace Parsek
                 {
                     // Non-looping: raw UT range check
                     DestroyAllKscOverlapGhosts(i);
+                    // BUG-B: suppress render + terminal spawn for a purely-historical
+                    // recording. Without this, an orbital recording whose extrapolated
+                    // window still straddles the live UT renders a duplicate ghost of
+                    // the player's still-live vessel (and exits-range into a spurious
+                    // terminal spawn) during a normal forward playthrough.
+                    if (historicalNeverReplayed)
+                    {
+                        if (kscGhosts.ContainsKey(i))
+                        {
+                            ParsekLog.Verbose("KSCGhost",
+                                $"Ghost #{i} \"{rec.VesselName}\" historical (never replayed) — destroying");
+                            DestroyKscGhost(kscGhosts[i], i);
+                            kscGhosts.Remove(i);
+                            loggedGhostSpawn.Remove(i);
+                        }
+                        continue;
+                    }
                     bool inRange = currentUT >= rec.StartUT && currentUT <= rec.EndUT;
                     UpdateSingleGhostKsc(i, rec, currentUT, currentUT, 0, inRange, false,
                         warpRate, suppressGhosts, suppressVisualFx);

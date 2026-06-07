@@ -7412,6 +7412,10 @@ namespace Parsek
                 lastSceneChangeRequestedUT = -1.0;
                 RecordingStore.PendingCleanupPids = null;
                 RecordingStore.PendingCleanupNames = null;
+                // BUG-B: drop per-recording replay-scope latches on game unload so a
+                // later save's recordings start out historical (dormant) rather than
+                // inheriting a stale "in replay scope" mark from a previous game.
+                PlaybackScopeTracker.Reset();
                 ParsekLog.Info("Scenario",
                     "Main menu transition — reset initialLoadDone to prevent stale data leak");
             }
