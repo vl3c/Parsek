@@ -6140,21 +6140,26 @@ namespace Parsek
             // 0, so an explicit clock-readiness wait is needed. Spin until the clock reports a
             // real positive UT, or bail on timeout — the recalc below then falls back to the
             // safe full replay (cutoffUT=null), which never wipes an established career.
+            // TryReadReadyUniverseTime wraps Planetarium.GetUniversalTime() in a try/catch
+            // (it can throw during very early load / scene teardown — see Update()), so the
+            // per-frame poll cannot kill this coroutine. A throw / null fetch is treated as
+            // not-ready (keep waiting) and yields currentUT=0.0, which routes to full replay.
             int maxUtWait = 600; // ~10 seconds at 60fps
-            while (maxUtWait-- > 0
-                   && !(Planetarium.fetch != null
-                        && LedgerOrchestrator.IsCurrentUtReadyForCutoff(
-                            Planetarium.GetUniversalTime())))
+            double currentUT = 0.0;
+            bool clockReady = false;
+            while (maxUtWait-- > 0)
+            {
+                clockReady = TryReadReadyUniverseTime(out currentUT);
+                if (clockReady)
+                    break;
                 yield return null;
+            }
             int utFramesWaited = 599 - maxUtWait;
 
             var ic = CultureInfo.InvariantCulture;
-            double currentUT = Planetarium.fetch != null
-                ? Planetarium.GetUniversalTime()
-                : 0.0;
             ParsekLog.Verbose("Scenario",
                 $"DeferredSeed: values ready after {framesWaited} frames, " +
-                $"clock ready after {utFramesWaited} frames (currentUT={currentUT.ToString("R", ic)}) — " +
+                $"clock ready={clockReady} after {utFramesWaited} frames (currentUT={currentUT.ToString("R", ic)}) — " +
                 $"Funding={(Funding.Instance != null ? Funding.Instance.Funds.ToString("F0", ic) : "null")}, " +
                 $"Science={(ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science.ToString("F0", ic) : "null")}, " +
                 $"Rep={(Reputation.Instance != null ? Reputation.Instance.reputation.ToString("F1", ic) : "null")}");
@@ -6174,6 +6179,36 @@ namespace Parsek
             {
                 LedgerOrchestrator.RecalculateAndPatch();
             }
+        }
+
+        /// <summary>
+        /// Reads the universe clock for the deferred-seed readiness wait, returning true only
+        /// when the clock is initialized to a real positive UT. Wrapped in try/catch because
+        /// <see cref="Planetarium.GetUniversalTime"/> can throw during very early load / scene
+        /// teardown (same defensive pattern as <see cref="Update"/>); a throw or null fetch is
+        /// treated as not-ready so the per-frame poll cannot kill the coroutine, and
+        /// <paramref name="ut"/> is set to 0.0 (which the recalc routes to a safe full replay).
+        /// </summary>
+        private static bool TryReadReadyUniverseTime(out double ut)
+        {
+            ut = 0.0;
+            if (Planetarium.fetch == null)
+                return false;
+
+            try
+            {
+                ut = Planetarium.GetUniversalTime();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"DeferredSeed: Planetarium.GetUniversalTime threw {ex.GetType().Name}: " +
+                    $"{ex.Message}; treating clock as not ready");
+                ut = 0.0;
+                return false;
+            }
+
+            return LedgerOrchestrator.IsCurrentUtReadyForCutoff(ut);
         }
 
         #endregion

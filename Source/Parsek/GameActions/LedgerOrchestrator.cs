@@ -2249,13 +2249,25 @@ namespace Parsek
             // normalize it.
             Ledger.RepairDuplicateRolloutActions();
 
+            // BUG-F: during a cold OnLoad the universe clock is not yet initialized, so
+            // maxUT (= Planetarium.GetUniversalTime() at the load call site) reads as 0.
+            // Reconcile's maxUT pruning removes every row with UT > maxUT unless
+            // preserveFutureTimelineActions is set, so at maxUT=0 a non-cutoff scene
+            // (TRACKSTATION / EDITOR cold-load, where useCurrentUtCutoffForFutureActions is
+            // false) would PERMANENTLY delete the entire committed career. Preserve all rows
+            // whenever the clock is not ready; the recalc below then full-replays them and the
+            // deferred-seed pass re-evaluates once the clock is valid. When the clock IS ready
+            // this falls back to the original scene-driven behavior.
+            bool currentUtReady = IsCurrentUtReadyForCutoff(maxUT);
+            bool preserveFutureRows = useCurrentUtCutoffForFutureActions || !currentUtReady;
+
             // Reconcile after timestamp-normalizing rollout repair. Current-UT load
             // mode removes orphaned rows but preserves future committed rows so the
             // cutoff walk can filter them until the game clock catches up.
             Ledger.Reconcile(
                 validRecordingIds,
                 maxUT,
-                preserveFutureTimelineActions: useCurrentUtCutoffForFutureActions);
+                preserveFutureTimelineActions: preserveFutureRows);
 
             // Compatibility repair for early #444 saves written before recovery
             // FundsEarning.DedupKey was serialized. Rebuild the missing key from the
@@ -2277,7 +2289,7 @@ namespace Parsek
                     Ledger.Reconcile(
                         validRecordingIds,
                         maxUT,
-                        preserveFutureTimelineActions: useCurrentUtCutoffForFutureActions);
+                        preserveFutureTimelineActions: preserveFutureRows);
                 }
             }
 
@@ -2311,7 +2323,7 @@ namespace Parsek
             // fall back to the safe full replay (cutoffUT=null) that replays every committed
             // action. The deferred-seed coroutine re-applies the cutoff once the clock is
             // ready, so a genuine future-timeline (post-rewind) cold load is still honored.
-            bool currentUtReady = IsCurrentUtReadyForCutoff(maxUT);
+            // currentUtReady was computed above (it also gates row preservation in Reconcile).
             bool hasFutureActions = HasActionsAfterUT(maxUT);
             bool useCurrentUtCutoff =
                 useCurrentUtCutoffForFutureActions && currentUtReady && hasFutureActions;

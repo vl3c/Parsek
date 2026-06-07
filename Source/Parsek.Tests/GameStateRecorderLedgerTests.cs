@@ -336,6 +336,55 @@ namespace Parsek.Tests
                 && a.FacilityId == "SpaceCenter/LaunchPad");
         }
 
+        // BUG-F sibling: a cold-load into a non-cutoff scene (TRACKSTATION / EDITOR, where
+        // useCurrentUtCutoffForFutureActions is false) with the clock not ready (maxUT=0) must
+        // NOT let Reconcile permanently PRUNE the committed career. With the not-ready clock the
+        // rows are preserved (preserveFutureTimelineActions forced true) and the full replay
+        // restores the balances; the rows only resume normal maxUT pruning once the clock is
+        // valid.
+        [Fact]
+        public void OnKspLoad_ColdLoadNonCutoffScene_PreservesCareerRows_NoPrune()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+            // A facility upgrade at a real UT, no RecordingId, so only the maxUT prune (not the
+            // orphaned-recording prune) could remove it.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 200.0,
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = "SpaceCenter/LaunchPad",
+                FacilityCost = 7500f
+            });
+
+            // Cold load into a non-cutoff scene: feature flag false, clock not ready (maxUT=0).
+            LedgerOrchestrator.OnKspLoad(
+                new HashSet<string>(),
+                maxUT: 0.0,
+                useCurrentUtCutoffForFutureActions: false);
+
+            // The career row survived reconcile (was NOT pruned by the bogus maxUT=0).
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.FacilityUpgrade
+                && a.FacilityId == "SpaceCenter/LaunchPad");
+            // Reconcile preserved future rows because the clock was not ready.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("Reconcile complete")
+                && l.Contains("preserveFutureTimelineActions=True"));
+            // Recalc was a full replay (no UT=0 cutoff).
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("OnKspLoad recalc decision")
+                && l.Contains("useCurrentUtCutoff=False")
+                && l.Contains("featureSupportsCutoff=False")
+                && l.Contains("currentUtReady=False"));
+        }
+
         // The fix must NOT regress the post-rewind / future-timeline case: when the clock is a
         // real positive value AND committed actions still lie ahead of it, the current-UT cutoff
         // is still applied so future rewards are not patched into KSP early.
