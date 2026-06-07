@@ -10,6 +10,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Fixed a critical career-corruption bug where science and world-first funds earned after time-warping to another body (for example recovering Mun science on a recorded Mun mission) were silently wiped on return to the Space Center, even though no Parsek feature was used. Career captures tagged to the live recording are now committed to the ledger even when they land past the recording's last on-rails trajectory point, so the scene-change recalc no longer patches the player's science and funds down to a target that was missing those earnings.
 - A terminal-orbit recording whose auto-recreated vessel dies on spawn is now permanently left alone across save and reload. Previously the "will not be retried" decision was forgotten on every scene change, so the same doomed vessel was re-spawned and re-recovered each session (log spam and needless churn).
 
 ### Log Hygiene

@@ -50,6 +50,29 @@ Latent secondary (noted, not fixed): `SaveActiveTreeIfAny` early-returns and ski
 
 ---
 
+## Done 2026-06-07 - BUG-A: scene-change recalc wiped stock career science + funds earned after a time-warp (career-corruption)
+
+**Source:** 2026-06-07 long career playtest (`logs/2026-06-07_1638_career-playtest/`), pure-stock play, no Parsek feature used. On return to the Space Center: `[KspStatePatcher] PatchScience: 124.8 -> 1.0 (delta=-123.8)` wiped all Mun science, and `[KspStatePatcher] PatchFunds: suspicious drawdown delta=-47840.0 ... earning channel may be missing` clawed back the Mun world-first funds. Recurred 5x across the session with growing magnitude as the loss compounded (each recalc replays the whole ledger from seed).
+
+**Root cause:** A Mun mission recording (`3ec1090f...`, `R3-B2-U1-S7`) recorded trajectory only for its 143s pre-time-warp launch window (`[203697.7, 203840.7]`); the on-rails warp to the Mun emits no per-frame `TrackSection`s, so `Recording.EndUT` (derived from `TryGetActualTrajectoryBounds`) stopped at 203840.7 even though the recorder stayed live and tagging until UT 241435.9. All Mun-phase career captures (10 science subjects, the `Mun/Flyby` / `Mun/Landing` / `Suborbit` / `Mun/Science` milestones with their progression funds/rep) were captured at UT 234349-241406 and tagged to `3ec1090f...`, but the two ledger converters dropped them purely because their `captureUT` fell past the stale trajectory window:
+- `GameStateEventConverter.ConvertScienceSubjects` -> `TryResolveTaggedScienceWindowStart`: a tagged subject whose `captureUT > endUT` returned false -> `skippedOutsideWindow=10` (`converted=0 from 10 subjects`).
+- `GameStateEventConverter.ConvertEvents`: the UT-range check ran before the tag-scope check, so all 45 tagged Mun events were `outOfRange=45` (`converted=0`), losing the milestone funds (the entire -47840).
+
+The committed ledger for `3ec1090f...` therefore had `science=0` and no Mun milestone funds. On the scene-change `RecalculateAndPatch`, `KspStatePatcher` computed a target excluding those legitimate earnings and patched live science/funds DOWN to match. The "suspicious drawdown" guard is log-only (it WARNs but still applies `AddScience` / `AddFunds`), and `PostWalkActionReconciler.ReconcilePostWalk` is log-only too, so neither protected captures that were never converted into actions in the first place.
+
+**Why the recalc patched down during pure-stock play:** `RecalculateAndPatch` runs on every recording commit / scene change to keep KSP state in sync with Parsek's ledger (the same mechanism that applies time-travel deltas). Its invariant is "ledger mirrors live," so with no time-travel the patch should be a no-op (delta ~ 0). It only patched down because the ledger was missing legitimately-earned channels (this conversion bug). The fix restores ledger correctness so the patch is a no-op; a defense-in-depth guard that refuses a large negative drawdown when no rewind/re-fly is active is a sensible follow-up but was not needed to fix the root cause.
+
+**Fix:** The recording's `[StartUT, EndUT]` trajectory window is a heuristic for attributing UNTAGGED captures only; a capture explicitly tagged to the committing recording is authoritatively owned by it (the tag was set at capture time when that recording was the live recorder). The fix is asymmetric to preserve the #528 pre-start rule:
+- `TryResolveTaggedScienceWindowStart` still rejects tagged captures BEFORE `StartUT` (#528 stale launchpad science with a drifted tag), but now keeps tagged captures AFTER `EndUT`, anchored at `EndUT`.
+- `ConvertEvents` now bypasses the upper bound for events tag-scoped to the committing recording (`recordingId` non-empty AND `evt.recordingId == recordingId`); the lower bound and untagged / cross-recording filtering are unchanged, so whole-store conversions (empty `recordingId`) keep both bounds. Double-counting is prevented by the existing committed-science max-merge, `DeduplicateAgainstLedger`, and post-commit `PruneProcessedEvents`.
+- `ReconcileEarningsWindow` / `ComputeEarningsWindowStoreDeltas` apply the same tag-ownership upper-bound rule on the store side, so the #394 / #440B earnings reconciler stops firing a false "missing earning channel" WARN on exactly the time-warp-gap commit the converters were fixed to handle. A genuinely unmatched late tagged delta (no emitted action) still WARNs, and cross-recording late events stay excluded.
+
+**BUG-B cross-link:** ruled OUT as the funds-mismatch driver. The orphan ghost-vessel recoveries (`CleanupOrphanedSpawnedVessels`) fired at 15:58 for unrelated `R.1` vessels, long before the 16:35 return; the -47840 corresponds exactly to the dropped Mun-firsts milestone funds (the ledger UNDERcounting legitimate stock earnings), not orphan recovery inflating live funds.
+
+**Files:** `Source/Parsek/GameActions/GameStateEventConverter.cs`, `Source/Parsek/GameActions/LedgerOrchestrator.cs`, `Source/Parsek.Tests/GameStateEventConverterTests.cs`, `Source/Parsek.Tests/EarningsReconciliationTests.cs`.
+
+**Status:** Fixed for v0.10.1. Full xUnit suite green (14534).
+
 ## Done - Log spam audit of the 2026-06-07 career playtest (top three per-frame offenders)
 
 The `logs/2026-06-07_1638_career-playtest/KSP.log` was 363,790 lines, 94.8% Parsek output, 327,667 of them `[VERBOSE]`, despite the session doing no re-fly and having no supply routes. Full ranked family report: `docs/dev/log-spam-audit-2026-06-07.md` (analyzer: `logs/2026-06-07_1638_career-playtest/_spam_analyze.py`). Fixed the three highest-volume families (logging-only, no runtime-behavior change), ~236,600 lines / ~65% of the whole log:

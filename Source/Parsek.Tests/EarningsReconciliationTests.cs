@@ -3839,5 +3839,95 @@ namespace Parsek.Tests
                 l.Contains("5000") && l.Contains("0"));
         }
 
+        [Fact]
+        public void Reconcile_LateTaggedMilestoneFunds_NoWarn()
+        {
+            // BUG-A: a Mun-firsts milestone reward fires after a time-warp, far past the
+            // recording's launch-only trajectory window, but stays tagged to the live
+            // recording. The converter now emits a MilestoneAchievement for it, so the
+            // store-side reconciler must also count the late tagged FundsChanged delta;
+            // otherwise it cries "missing earning channel" on a correct commit.
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 241025.4,                                 // past endUT
+                    eventType = GameStateEventType.FundsChanged,
+                    key = "Progression",
+                    valueBefore = 100000, valueAfter = 105000,     // +5000
+                    recordingId = "rec"
+                }
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 241025.4,
+                    Type = GameActionType.MilestoneAchievement,
+                    RecordingId = "rec",
+                    MilestoneId = "Mun/Landing",
+                    MilestoneFundsAwarded = 5000f,
+                    Effective = true
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 203697.7, endUT: 203840.7, recordingId: "rec");
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
+        [Fact]
+        public void Reconcile_LateTaggedFundsWithNoEmittedAction_StillWarns()
+        {
+            // The widened store window must not blind the reconciler: a genuinely
+            // unmatched late tagged funds delta is still a leak and must WARN.
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 241025.4,
+                    eventType = GameStateEventType.FundsChanged,
+                    key = "Progression",
+                    valueBefore = 0, valueAfter = 5000,
+                    recordingId = "rec"
+                }
+            };
+            var newActions = new List<GameAction>();  // nothing emitted
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 203697.7, endUT: 203840.7, recordingId: "rec");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Earnings reconciliation (funds)") &&
+                l.Contains("5000"));
+        }
+
+        [Fact]
+        public void Reconcile_LateCrossRecordingFunds_IsExcluded()
+        {
+            // A late funds delta tagged to a DIFFERENT recording must not be folded into
+            // this recording's store delta (that would invent a phantom mismatch).
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 241025.4,
+                    eventType = GameStateEventType.FundsChanged,
+                    key = "Progression",
+                    valueBefore = 0, valueAfter = 5000,
+                    recordingId = "rec-other"
+                }
+            };
+            var newActions = new List<GameAction>();  // nothing emitted for "rec"
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 203697.7, endUT: 203840.7, recordingId: "rec");
+
+            // The cross-recording late event is excluded from the store sum (0 == 0).
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
+        }
+
     }
 }
