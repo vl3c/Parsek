@@ -78,7 +78,7 @@ namespace Parsek.Tests
             bool strip = ParsekScenario.ShouldStripVesselForRecordings(
                 CraftPid, GuidB, Vessel.Situations.LANDED, recordings,
                 matchSource: false, skipPrelaunch: true,
-                scopeToWhitelist: false, preExistingWhitelist: null,
+                requireWhitelist: false, preExistingWhitelist: null,
                 out Recording matched, out string reason);
 
             Assert.False(strip);
@@ -96,7 +96,7 @@ namespace Parsek.Tests
             bool strip = ParsekScenario.ShouldStripVesselForRecordings(
                 CraftPid, GuidA, Vessel.Situations.LANDED, recordings,
                 matchSource: false, skipPrelaunch: true,
-                scopeToWhitelist: false, preExistingWhitelist: null,
+                requireWhitelist: false, preExistingWhitelist: null,
                 out Recording matched, out _);
 
             Assert.True(strip);
@@ -117,7 +117,7 @@ namespace Parsek.Tests
             bool strip = ParsekScenario.ShouldStripVesselForRecordings(
                 CraftPid, GuidA, Vessel.Situations.LANDED, recordings,
                 matchSource: false, skipPrelaunch: true,
-                scopeToWhitelist: true, preExistingWhitelist: launchQuicksavePids,
+                requireWhitelist: true, preExistingWhitelist: launchQuicksavePids,
                 out Recording matched, out string reason);
 
             Assert.False(strip);
@@ -137,7 +137,7 @@ namespace Parsek.Tests
             bool strip = ParsekScenario.ShouldStripVesselForRecordings(
                 spawnPid, "freshspawnguid", Vessel.Situations.ORBITING, recordings,
                 matchSource: false, skipPrelaunch: true,
-                scopeToWhitelist: true, preExistingWhitelist: launchQuicksavePids,
+                requireWhitelist: true, preExistingWhitelist: launchQuicksavePids,
                 out Recording matched, out string reason);
 
             Assert.True(strip);
@@ -154,7 +154,7 @@ namespace Parsek.Tests
             bool strip = ParsekScenario.ShouldStripVesselForRecordings(
                 909090909u, "g", Vessel.Situations.ORBITING, recordings,
                 matchSource: false, skipPrelaunch: true,
-                scopeToWhitelist: true, preExistingWhitelist: null,
+                requireWhitelist: true, preExistingWhitelist: null,
                 out Recording matched, out string reason);
 
             Assert.False(strip);
@@ -171,7 +171,7 @@ namespace Parsek.Tests
             bool strip = ParsekScenario.ShouldStripVesselForRecordings(
                 CraftPid, GuidA, Vessel.Situations.PRELAUNCH, recordings,
                 matchSource: false, skipPrelaunch: true,
-                scopeToWhitelist: false, preExistingWhitelist: null,
+                requireWhitelist: false, preExistingWhitelist: null,
                 out _, out string reason);
 
             Assert.False(strip);
@@ -218,7 +218,7 @@ namespace Parsek.Tests
             bool strip = ParsekScenario.ShouldStripVesselForRecordings(
                 CraftPid, GuidA, Vessel.Situations.FLYING, recordings,
                 matchSource: true, skipPrelaunch: false,
-                scopeToWhitelist: false, preExistingWhitelist: null,
+                requireWhitelist: false, preExistingWhitelist: null,
                 out Recording matched, out _);
 
             Assert.True(strip);
@@ -241,11 +241,53 @@ namespace Parsek.Tests
             bool strip = ParsekScenario.ShouldStripVesselForRecordings(
                 CraftPid, GuidB, Vessel.Situations.LANDED, recordings,
                 matchSource: true, skipPrelaunch: false,
-                scopeToWhitelist: false, preExistingWhitelist: null,
+                requireWhitelist: false, preExistingWhitelist: null,
                 out _, out string reason);
 
             Assert.False(strip);
             Assert.Contains("no same-launch", reason);
+        }
+
+        // ---- Rewind backstop: quicksave protect-set guards the guidless adoption-stamp gap ----
+
+        [Fact]
+        public void Rewind_GuidlessAdoption_VesselInQuicksave_ProtectedByWhitelist()
+        {
+            // The adversarial gap: a GUIDLESS adoption-stamp recording (RecordedVesselGuid empty)
+            // falls back to pid-only matching, so a real vessel reusing the craft-baked pid would
+            // match. On rewind (requireWhitelist=false) the rewind-quicksave protect-set must still
+            // shield a vessel that pre-existed the rewind point even though the Guid gate can't.
+            var recordings = new List<Recording> { Adopted("Legacy", CraftPid, null /* guidless */) };
+            var rewindQuicksavePids = new HashSet<uint> { CraftPid };
+
+            bool strip = ParsekScenario.ShouldStripVesselForRecordings(
+                CraftPid, GuidB, Vessel.Situations.LANDED, recordings,
+                matchSource: true, skipPrelaunch: false,
+                requireWhitelist: false, preExistingWhitelist: rewindQuicksavePids,
+                out Recording matched, out string reason);
+
+            Assert.False(strip);
+            Assert.Null(matched);
+            Assert.Contains("pre-existing", reason);
+        }
+
+        [Fact]
+        public void Rewind_GuidlessAdoption_VesselNotInQuicksave_StillStripped()
+        {
+            // A guidless adoption recording whose vessel is NOT in the rewind quicksave is genuinely
+            // future (created after the rewind point), so the identity strip (pid-only fallback) still
+            // removes it. requireWhitelist=false means a null/absent quicksave keeps prior behaviour.
+            var recordings = new List<Recording> { Adopted("Legacy", CraftPid, null) };
+            var rewindQuicksavePids = new HashSet<uint> { 12345u }; // does NOT contain CraftPid
+
+            bool strip = ParsekScenario.ShouldStripVesselForRecordings(
+                CraftPid, GuidB, Vessel.Situations.LANDED, recordings,
+                matchSource: true, skipPrelaunch: false,
+                requireWhitelist: false, preExistingWhitelist: rewindQuicksavePids,
+                out Recording matched, out _);
+
+            Assert.True(strip);
+            Assert.Same(recordings[0], matched);
         }
 
         // ---- Guid-aware reconcile (don't reset against a same-pid different-launch survivor) ----
@@ -370,6 +412,34 @@ namespace Parsek.Tests
         {
             Assert.Empty(RevertDetector.ExtractFlightStateVesselPids(null));
             Assert.Empty(RevertDetector.ExtractFlightStateVesselPids(new ConfigNode()));
+        }
+
+        // ---- BuildRevertTargetWhitelist: empty-snapshot -> null (fail-closed gate) ----
+
+        [Fact]
+        public void BuildRevertTargetWhitelist_PopulatedSnapshot_ReturnsPidSet()
+        {
+            var config = new ConfigNode();
+            var fs = config.AddNode("GAME").AddNode("FLIGHTSTATE");
+            fs.AddNode("VESSEL").AddValue("persistentId", "100");
+
+            var pids = RevertDetector.BuildRevertTargetWhitelist(config);
+
+            Assert.NotNull(pids);
+            Assert.Contains(100u, pids);
+        }
+
+        [Fact]
+        public void BuildRevertTargetWhitelist_EmptyOrUnparseableSnapshot_ReturnsNull_SoStripFailsClosed()
+        {
+            // A launch/prelaunch snapshot always has >= 1 vessel, so an empty parse means the layout
+            // was unexpected; returning null makes the revert strip fail closed (strip nothing).
+            Assert.Null(RevertDetector.BuildRevertTargetWhitelist(null));
+            Assert.Null(RevertDetector.BuildRevertTargetWhitelist(new ConfigNode()));
+
+            var onlyZero = new ConfigNode();
+            onlyZero.AddNode("GAME").AddNode("FLIGHTSTATE").AddNode("VESSEL").AddValue("persistentId", "0");
+            Assert.Null(RevertDetector.BuildRevertTargetWhitelist(onlyZero));
         }
     }
 }

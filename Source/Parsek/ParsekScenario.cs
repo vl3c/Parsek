@@ -2158,6 +2158,10 @@ namespace Parsek
                     // We consume it here; any later OnLoad (e.g. an F9 into a pre-revert flight
                     // quicksave) sees RevertKind.None and classifies as a plain quickload resume.
                     var revertKind = RevertDetector.Consume("ParsekScenario.OnLoad");
+                    // BUG-H: consume the revert-target whitelist together with the kind so the
+                    // captured static can never leak into a later OnLoad (e.g. a revert event that
+                    // this load classifies as a vessel switch). Only used below when isRevert.
+                    HashSet<uint> revertTargetPids = RevertDetector.ConsumeRevertTargetVesselPids();
                     bool isRevert = !isVesselSwitch && revertKind != RevertKind.None;
                     ParsekLog.Verbose("Scenario",
                         $"OnLoad: revert detection — revertKind={revertKind}, " +
@@ -2348,11 +2352,9 @@ namespace Parsek
                     // must never delete a real, separately-launched craft from an unrelated mission
                     // that merely reuses the craft-baked name/pid of a recording. The strip fails
                     // closed when the scope whitelist is unavailable.
-                    HashSet<uint> revertTargetPids = null;
                     if (isRevert)
                     {
                         loadPhase = "revert-strip";
-                        revertTargetPids = RevertDetector.ConsumeRevertTargetVesselPids();
                         // Preserve for the OnFlightReady belt-and-suspenders cleanup (FLIGHT->FLIGHT
                         // launch revert recovers LOADED vessels, which OnLoad's protoVessel strip
                         // does not see). Null is a meaningful "fail-closed" scope there too.
@@ -2365,7 +2367,7 @@ namespace Parsek
                             StripOrphanedSpawnedVessels(
                                 flightState.protoVessels, allCommitted,
                                 matchSource: false, skipPrelaunch: true,
-                                scopeToWhitelist: true, preExistingWhitelist: revertTargetPids);
+                                requireWhitelist: true, preExistingWhitelist: revertTargetPids);
                         }
                     }
 
@@ -3179,10 +3181,14 @@ namespace Parsek
             //
             // BUG-H: launch-identity-aware (pid + launch-Guid), so a DIFFERENT real
             // launch that merely reuses the craft-baked name/pid is never deleted.
-            // scopeToWhitelist=false preserves the rewind contract: genuinely
+            // requireWhitelist=false preserves the rewind contract: genuinely
             // future-timeline vessels are still removed (the launch-identity match here
-            // plus the separate StripFuturePrelaunchVessels pid-whitelist pass below),
-            // while different real launches are protected by the Guid gate.
+            // plus the separate StripFuturePrelaunchVessels pid-whitelist pass below).
+            // The rewind quicksave pids are passed as a protect-set backstop so a vessel
+            // that pre-existed the rewind point (present in the quicksave) is never deleted
+            // even for the rare guidless adoption-stamp recording where the Guid gate alone
+            // would fall back to pid-only. When the quicksave pids are unavailable this is
+            // null and the strip falls back to identity-only (its prior behaviour).
             {
                 var flightState = HighLogic.CurrentGame?.flightState;
                 if (flightState != null)
@@ -3191,7 +3197,8 @@ namespace Parsek
                     StripOrphanedSpawnedVessels(
                         flightState.protoVessels, allCommitted,
                         matchSource: true, skipPrelaunch: false,
-                        scopeToWhitelist: false, preExistingWhitelist: null);
+                        requireWhitelist: false,
+                        preExistingWhitelist: RewindContext.RewindQuicksaveVesselPids);
                 }
             }
 
@@ -6419,18 +6426,21 @@ namespace Parsek
         /// (<paramref name="matchSource"/>). A conclusive launch-Guid mismatch is never a match, so
         /// a relaunch of the same craft (shared craft-baked name/pid, fresh Guid) is never deleted
         /// in place of the recording's vessel.</item>
-        /// <item><b>Scope</b> (Correction 2, revert only — <paramref name="scopeToWhitelist"/>): the
-        /// candidate is NOT in the revert-target launch/prelaunch quicksave whitelist, i.e. it
-        /// appeared during the reverted flight rather than pre-existing it. When scope is required
-        /// but <paramref name="preExistingWhitelist"/> is unavailable the candidate is NOT deleted
-        /// (fail-closed, data-loss safe). This also protects a legitimately-adopted real vessel from
-        /// an unrelated mission that a pure Guid gate alone would still match.</item>
+        /// <item><b>Pre-existing whitelist</b> (Correction 2): a candidate whose pid is in
+        /// <paramref name="preExistingWhitelist"/> pre-existed this operation and is NEVER stripped.
+        /// On revert this is the revert-target launch/prelaunch quicksave (a vessel present there
+        /// belongs to an unrelated mission, not the reverted flight). On rewind this is the rewind
+        /// quicksave (a vessel present there pre-existed the rewind point, so it is not future); this
+        /// backstops the launch-Guid gate for the rare guidless adoption-stamp recording, mirroring
+        /// the existing <see cref="StripFuturePrelaunchVessels"/> pid-whitelist contract.</item>
         /// </list>
         ///
-        /// Rewind passes <paramref name="scopeToWhitelist"/>=false: its future-vessel determination
-        /// is the launch-identity match itself plus the separate <see cref="StripFuturePrelaunchVessels"/>
-        /// pid-whitelist pass, preserving the rewind contract (genuinely future-timeline vessels are
-        /// still removed) while never deleting a different real launch.
+        /// <paramref name="requireWhitelist"/> (revert only): when the whitelist is unavailable the
+        /// candidate is NOT deleted (fail-closed, data-loss safe) — a missing scope signal can never
+        /// delete real vessels. Rewind passes <paramref name="requireWhitelist"/>=false so that, if
+        /// the rewind quicksave pids are unavailable, it falls back to launch-identity-only stripping
+        /// (its prior behaviour) rather than failing to remove genuinely future-timeline vessels; the
+        /// separate <see cref="StripFuturePrelaunchVessels"/> pid-whitelist pass still backstops it.
         ///
         /// Pure and testable (no ProtoVessel / FlightGlobals dependency): callers resolve the
         /// candidate's pid + Guid + situation and pass them in.
@@ -6439,7 +6449,7 @@ namespace Parsek
             uint candidatePid, string candidateGuid, Vessel.Situations situation,
             IReadOnlyList<Recording> recordings,
             bool matchSource, bool skipPrelaunch,
-            bool scopeToWhitelist, HashSet<uint> preExistingWhitelist,
+            bool requireWhitelist, HashSet<uint> preExistingWhitelist,
             out Recording matched, out string reason)
         {
             matched = null;
@@ -6459,22 +6469,22 @@ namespace Parsek
                 return false;
             }
 
-            // Correction 2: scope the revert strip to vessels that appeared during the reverted
-            // flight. Anything present in the launch/prelaunch quicksave pre-existed the launch and
-            // belongs to an unrelated mission — never strip it. Fail closed when the whitelist is
-            // unavailable so a missing scope signal can never delete real vessels.
-            if (scopeToWhitelist)
+            // Correction 2: a vessel present in the pre-existing whitelist (revert target / rewind
+            // quicksave) pre-existed this operation and belongs to an unrelated mission or an earlier
+            // timeline point — never strip it. Applied whenever a whitelist is supplied (revert AND
+            // rewind), so the rewind path is backstopped against the guidless adoption-stamp gap.
+            if (preExistingWhitelist != null && preExistingWhitelist.Contains(candidatePid))
             {
-                if (preExistingWhitelist == null)
-                {
-                    reason = "scope required but launch-quicksave whitelist unavailable (fail-closed)";
-                    return false;
-                }
-                if (preExistingWhitelist.Contains(candidatePid))
-                {
-                    reason = "pre-existing in launch quicksave (outside the reverted flight)";
-                    return false;
-                }
+                reason = "pre-existing in launch/rewind quicksave (not part of this operation)";
+                return false;
+            }
+
+            // Revert requires the whitelist: with no scope signal, fail closed so a missing target
+            // snapshot can never delete real vessels. (Rewind passes requireWhitelist=false.)
+            if (requireWhitelist && preExistingWhitelist == null)
+            {
+                reason = "scope required but launch-quicksave whitelist unavailable (fail-closed)";
+                return false;
             }
 
             // Correction 1: only delete a vessel that is genuinely the SAME launch as a recording.
@@ -6486,7 +6496,7 @@ namespace Parsek
                 return false;
             }
 
-            reason = scopeToWhitelist
+            reason = requireWhitelist
                 ? "same-launch recording match + appeared during the reverted flight"
                 : "same-launch recording match";
             return true;
@@ -6507,15 +6517,16 @@ namespace Parsek
         /// rewind also removes the recorded vessel itself, which is future relative to the rewind point.</param>
         /// <param name="skipPrelaunch">When true (KSP Revert), PRELAUNCH vessels are kept; when false
         /// (Parsek Rewind), a PRELAUNCH vessel from a later launch is also stripped.</param>
-        /// <param name="scopeToWhitelist">When true (revert), only strip vessels NOT in
-        /// <paramref name="preExistingWhitelist"/> (appeared during the reverted flight).</param>
-        /// <param name="preExistingWhitelist">Pids present in the revert-target launch/prelaunch
-        /// quicksave (pre-existing vessels). Required when <paramref name="scopeToWhitelist"/> is true.</param>
+        /// <param name="requireWhitelist">When true (revert), fail closed (strip nothing) if
+        /// <paramref name="preExistingWhitelist"/> is null. Rewind passes false (identity-only fallback).</param>
+        /// <param name="preExistingWhitelist">Pids that pre-existed this operation and are never
+        /// stripped: the revert-target launch/prelaunch quicksave on revert, or the rewind quicksave
+        /// on rewind. Applied as a protect-set whenever supplied.</param>
         internal static int StripOrphanedSpawnedVessels(
             List<ProtoVessel> protoVessels,
             IReadOnlyList<Recording> recordings,
             bool matchSource, bool skipPrelaunch,
-            bool scopeToWhitelist, HashSet<uint> preExistingWhitelist)
+            bool requireWhitelist, HashSet<uint> preExistingWhitelist)
         {
             if (protoVessels == null || recordings == null || recordings.Count == 0)
                 return 0;
@@ -6534,7 +6545,7 @@ namespace Parsek
 
                 bool shouldStrip = ShouldStripVesselForRecordings(
                     pv.persistentId, candidateGuid, pv.situation, recordings,
-                    matchSource, skipPrelaunch, scopeToWhitelist, preExistingWhitelist,
+                    matchSource, skipPrelaunch, requireWhitelist, preExistingWhitelist,
                     out Recording matched, out string reason);
 
                 if (!shouldStrip)
@@ -6562,7 +6573,7 @@ namespace Parsek
                 ParsekLog.Info("Scenario",
                     $"StripOrphanedSpawnedVessels: removed {stripped} vessel(s) from flightState " +
                     $"(kept {skippedPreExisting} pre-existing, {skippedDifferentLaunch} different-launch; " +
-                    $"matchSource={matchSource}, scopeToWhitelist={scopeToWhitelist}, " +
+                    $"matchSource={matchSource}, requireWhitelist={requireWhitelist}, " +
                     $"whitelistPids={preExistingWhitelist?.Count ?? 0})");
 
             return stripped;

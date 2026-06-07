@@ -856,7 +856,7 @@ namespace Parsek.InGameTests
             bool stripDifferent = ParsekScenario.ShouldStripVesselForRecordings(
                 pid, liveGuid, v.situation, recordings,
                 matchSource: false, skipPrelaunch: false,
-                scopeToWhitelist: false, preExistingWhitelist: null,
+                requireWhitelist: false, preExistingWhitelist: null,
                 out _, out string reasonDifferent);
             InGameAssert.IsFalse(stripDifferent,
                 $"Live vessel (pid={pid}, guid={liveGuid}) must NOT be strippable for a different-launch " +

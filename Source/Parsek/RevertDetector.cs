@@ -65,8 +65,6 @@ namespace Parsek
         // never be stripped. Consumed and cleared by ParsekScenario.OnLoad's revert path.
         private static HashSet<uint> revertTargetVesselPids;
 
-        internal static HashSet<uint> RevertTargetVesselPids => revertTargetVesselPids;
-
         /// <summary>
         /// Reads the revert-target vessel pids from the GameBackup that KSP is reverting to and
         /// stores them for the next OnLoad. Logs (and leaves the whitelist null) when the snapshot
@@ -83,21 +81,27 @@ namespace Parsek
                 return;
             }
 
-            var pids = ExtractFlightStateVesselPids(backup.Config);
-            if (pids.Count == 0)
-            {
-                // A launch/prelaunch snapshot always contains at least the launch vessel, so an
-                // empty parse means the Config layout was not what we expected. Treat as no scope.
-                revertTargetVesselPids = null;
+            revertTargetVesselPids = BuildRevertTargetWhitelist(backup.Config);
+            if (revertTargetVesselPids == null)
                 ParsekLog.Warn("RevertDetector",
                     $"Revert ({kind}): parsed 0 vessel pids from revert-target snapshot — " +
                     "revert vessel strip will fail closed (no scope)");
-                return;
-            }
+            else
+                ParsekLog.Info("RevertDetector",
+                    $"Revert ({kind}): captured {revertTargetVesselPids.Count} revert-target vessel pid(s) as the pre-existing scope whitelist");
+        }
 
-            revertTargetVesselPids = pids;
-            ParsekLog.Info("RevertDetector",
-                $"Revert ({kind}): captured {pids.Count} revert-target vessel pid(s) as the pre-existing scope whitelist");
+        /// <summary>
+        /// Builds the revert-target vessel-pid whitelist from a saved game-state ConfigNode, or
+        /// returns <c>null</c> when the snapshot yields no vessels. A launch/prelaunch snapshot always
+        /// contains at least the launch vessel, so an empty parse means the Config layout was not what
+        /// we expected — returning null makes the revert strip fail closed (strip nothing) rather than
+        /// treating "no scope" as "strip everything". Pure / testable.
+        /// </summary>
+        internal static HashSet<uint> BuildRevertTargetWhitelist(ConfigNode gameStateConfig)
+        {
+            var pids = ExtractFlightStateVesselPids(gameStateConfig);
+            return pids.Count > 0 ? pids : null;
         }
 
         /// <summary>

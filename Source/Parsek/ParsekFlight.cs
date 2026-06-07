@@ -16827,7 +16827,7 @@ namespace Parsek
                 bool shouldRecover = ParsekScenario.ShouldStripVesselForRecordings(
                     vessel.persistentId, candidateGuid, vessel.situation, recordings,
                     matchSource: false, skipPrelaunch: true,
-                    scopeToWhitelist: true, preExistingWhitelist: preExistingWhitelist,
+                    requireWhitelist: true, preExistingWhitelist: preExistingWhitelist,
                     out Recording matched, out string reason);
 
                 if (shouldRecover)
