@@ -2383,6 +2383,15 @@ namespace Parsek
                                             int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx);
                                         recordings[i].LastAppliedResourceIndex = resIdx;
 
+                                        // BUG-C: re-restore the durable terminal-orbit
+                                        // cannot-spawn-safely abandon that the tree-mutable-state
+                                        // reset cleared above. This in-session ("returned-scene-
+                                        // change" / quickload) path reconciles the in-memory
+                                        // committed recordings rather than rebuilding them via
+                                        // RecordingTreeRecordCodec, so without this a known-dead
+                                        // terminal-orbit vessel re-spawns after every scene change.
+                                        RestorePersistedTerminalAbandon(recordings[i], savedTreeRecNode);
+
                                         break;
                                     }
                                 }
@@ -6418,6 +6427,33 @@ namespace Parsek
             if (spawnedPid == 0)
                 return false;
             return survivingPids == null || !survivingPids.Contains(spawnedPid);
+        }
+
+        /// <summary>
+        /// BUG-C (2026-06-07 career playtest): re-applies the durable terminal-orbit
+        /// "cannot spawn safely" abandon from a saved RECORDING node onto an in-memory
+        /// committed recording. The in-session OnLoad reconcile clears all terminal
+        /// spawn-safety fields (via <see cref="TerminalOrbitSpawnSafety.Clear"/>) and
+        /// then restores only the saved subset; without re-restoring this flag a
+        /// terminal-orbit vessel that already died on spawn is re-materialized after
+        /// every scene change (it logs "will not be retried" yet is retried). The flag
+        /// is absent on a revert quicksave (no tree nodes), so the abandon correctly
+        /// does not carry across a revert. Mirrors
+        /// <see cref="RecordingTreeRecordCodec"/>'s save/load of the same keys, which
+        /// covers the cold-start rebuild path.
+        /// </summary>
+        internal static void RestorePersistedTerminalAbandon(Recording rec, ConfigNode savedTreeRecNode)
+        {
+            if (rec == null || savedTreeRecNode == null)
+                return;
+
+            bool savedCannotSpawn = false;
+            bool.TryParse(savedTreeRecNode.GetValue("terminalSpawnCannotSpawnSafely"), out savedCannotSpawn);
+            rec.TerminalSpawnCannotSpawnSafely = savedCannotSpawn;
+
+            string savedReason = savedTreeRecNode.GetValue("terminalSpawnSafetyReasonCode");
+            if (!string.IsNullOrEmpty(savedReason))
+                rec.TerminalSpawnSafetyReasonCode = savedReason;
         }
 
         /// <summary>

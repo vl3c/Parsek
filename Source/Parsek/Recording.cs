@@ -364,11 +364,14 @@ namespace Parsek
         public bool DuplicateBlockerRecovered;   // True after a same-name blocker was recovered once — prevents recovery loops (transient, #112)
         public int SpawnDeathCount;              // Spawn-then-die cycles: vessel spawned but immediately destroyed (transient)
 
-        // Terminal-orbit spawn safety is transient and re-evaluated on the next
-        // spawn attempt; do not serialize these fields.
+        // Terminal-orbit spawn safety. The soft altitude-deferred hold is transient
+        // and re-evaluated against the propagated orbit on the next spawn attempt;
+        // the hard "cannot spawn safely" abandon (+ its reason) is persisted via
+        // RecordingTreeRecordCodec so a known-dead terminal-orbit vessel is not
+        // re-materialized after a scene reload (BUG-C, 2026-06-07 career playtest).
         public bool TerminalSpawnSafetyDeferred;  // True while terminal-orbit real spawn is waiting for a safe propagated UT (transient)
-        public bool TerminalSpawnCannotSpawnSafely; // True when terminal orbit cannot be materialized safely as an on-rails vessel (transient)
-        public string TerminalSpawnSafetyReasonCode;
+        public bool TerminalSpawnCannotSpawnSafely; // True when terminal orbit cannot be materialized safely as an on-rails vessel (persisted: durable abandon)
+        public string TerminalSpawnSafetyReasonCode; // Persisted alongside TerminalSpawnCannotSpawnSafely
         public string TerminalSpawnSafetyReason;
         public double TerminalSpawnSafetyDecisionUT = double.NaN;
         public double TerminalSpawnNextAttemptUT = double.NaN;

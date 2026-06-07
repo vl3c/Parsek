@@ -13,6 +13,43 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## BUG-C (2026-06-07 career playtest) - `R2-B2` tree instability + NaN debris -> stock exceptions
+
+Source: `logs/2026-06-07_1638_career-playtest/` (KSP.log, `BUGS.md` BUG-C section). Build `Parsek V0.10.0` @ `07dea8fac`. The player used NO Parsek features this session (no rewind / re-fly / loop / playback); Parsek was only background-recording. Three log signatures, separable root causes. BUG-C is largely fallout of BUG-A (ledger recalc) and BUG-B (passive ghost / vessel auto-spawn), which are tracked separately.
+
+### 1. NaN debris -> stock `FlightIntegrator.UpdateOcclusionSolar` throw - STOCK KSP, not Parsek data (no fix)
+
+Two `ArgumentOutOfRangeException` throws in stock `FlightIntegrator.UpdateOcclusionSolar` (KSP.log lines 205423 @15:46:42, 218683 @15:50:46), each immediately around `R2-B2M-S6 Debris had a NaN Orbit and was removed` + an on-rails Kerbin->Sun SOI transition.
+
+Origin is **pure stock physics**, confirmed:
+- `R2-B2M-S6 Debris` (pids 1333358833 / 2800168062) is the player's **real staging debris**, created at 15:42:22 by a real decouple (`Decouple created vessel during recording ... rootPart=radialDecoupler`), with real drag cubes, terrain collision (`crashed through terrain on Kerbin`), and explosions. It is NOT a Parsek ghost/spawn: line 204856 `CleanupOrphanedSpawnedVessels: no match for 'R2-B2M-S6 Debris'` is Parsek explicitly disclaiming ownership.
+- Parsek background-recorded the debris and then **finalized + deleted** those recordings as non-persistable (`canPersist=False`, `DeleteRecordingFiles`) at 15:42:39, ~4 minutes before the NaN. No Parsek recording carried or authored the NaN orbit.
+- The throw is the well-known stock pattern: debris clips through terrain, is packed on rails with a degenerate velocity, the resulting hyperbolic orbit escapes Kerbin->Sun, and `UpdateOcclusionSolar` indexes a body list off a NaN-derived value and throws before stock's own NaN-orbit removal runs.
+
+Decision: do **not** Harmony-patch stock `FlightIntegrator` to swallow this. It is not Parsek data, it reproduces without Parsek, and guarding a stock NaN path from a mod is high-risk for little gain (the proper home for a stock-bug shim is KSPCommunityFixes). Filed as known-stock, no Parsek code change.
+
+### 2. Terminal-orbit ghost "permanently abandoned" 3x - BUG-B fallout + a real durability gap (FIXED here)
+
+`[Policy] Spawn-death detected for terminal orbit and will not be retried: #32 "R2-B2-S5" ... reason=spawned-terminal-orbit-vessel-died` fires 3x (15:46:17, 15:56:43, 15:58:58), each with a fresh Parsek-spawn pid (3390689712 / 3495642311 / 3732877540) and `deathCount=1`.
+
+Traced each cycle: `SpawnAtPosition: vessel spawned (ORBITING, body=Sun, alt~13.4 Gm)` -> Parsek's own `CleanupOrphanedSpawnedVessels: recovering 'R2-B2-S5' (matched by name)` immediately recovers it -> `RunSpawnDeathChecks` sees it gone -> `MarkCannotSpawnSafely`. The spawn itself is **BUG-B**: Parsek auto-materializes a committed terminal-orbit `vessel`-type recording during passive play, then orphan-recovers it.
+
+The durability gap (the part fixed here): `RunSpawnDeathChecks` sets `Recording.TerminalSpawnCannotSpawnSafely = true` ("will not be retried"), and `VesselSpawner.SpawnOrRecoverIfTooClose` (`VesselSpawner.cs:1688`) honours that flag as a pre-spawn guard. But the flag was **transient** (`Recording.cs`, "do not serialize"), so every scene reload reset it to false and the vessel re-spawned. The first spawn each session happens before the flag is set, and `TryPassTerminalOrbitSpawnSafety`'s live orbit-geometry re-check passes (a 13.4 Gm heliocentric coast is geometrically "safe"), so only the recorded spawn-death can stop it - and that was being forgotten.
+
+Fix: persist `TerminalSpawnCannotSpawnSafely` + `TerminalSpawnSafetyReasonCode` so the abandon survives a reload, on BOTH load paths. (1) Cold start (fresh game load, `RecordingStore.ClearCommittedInternal` then `LoadRecordingTrees`): the `RecordingTreeRecordCodec` save/load (`SaveMutablePlaybackState` / `LoadRecordingResourceAndState`) round-trips the keys when the committed trees are rebuilt from disk. (2) In-session load (scene change / quickload / revert, the `returned-scene-change` branch of `ParsekScenario.OnLoad`): that path reconciles the in-memory committed recordings instead of rebuilding them - it resets every recording's terminal spawn-safety via `TerminalOrbitSpawnSafety.Clear` (~line 2320) then restores only the saved subset, so the new `ParsekScenario.RestorePersistedTerminalAbandon` re-applies the flag from the saved RECORDING node (absent on a revert quicksave, so the abandon correctly does not carry across a revert). Either way the flag is true on the next scene, so the existing `VesselSpawner.cs:1688` pre-spawn guard blocks the re-spawn and the "will not be retried" log becomes truthful across reloads. The observed 3x repro went through path (2), so the codec change alone would not have fixed it. The soft altitude-deferred hold (`TerminalSpawnSafetyDeferred`) is deliberately left transient so it re-evaluates against the propagated orbit. Tests: `RecordingTreeTests.RecordingTree_TerminalSpawnCannotSpawnSafely_RoundTrips` / `RecordingTree_NoTerminalSpawnAbandon_StaysFalseOnLoad` (codec path) + `SpawnStateReconciliationTests.RestorePersistedTerminalAbandon_*` (in-session path). This is defense-in-depth; the upstream cure (don't auto-spawn during passive play at all) is BUG-B. Note: each orphan recovery runs a stock vessel-recovery (`Recovery processing captured ... recoveryFactor=...`), a candidate contributor to BUG-A's funds drift - flagged for the BUG-A session.
+
+### 3. Active-tree save skipped - correct-by-design merge-consent guard, root is BUG-B-adjacent identity collision (no fix here)
+
+`[Scenario] SaveActiveTreeIfAny: skipped active tree 'R2-B2-S5' because at least one recording could not be written with current v0 sidecars` + `skipped dirty sidecar save for committed-restore overlap recording 'bb53...'` (lines 165907-165925, 15:04).
+
+This is the merge-consent guard in `SaveActiveTreeIfAny` (`ParsekScenario.cs:1380-1390`): a dirty recording that is an `IsCommittedTreeRestoreAttemptRecordingId` (and not a marker-owned switch segment) is skipped to avoid overwriting committed history before merge consent. **No committed sidecar is corrupted**, and in this log only one recording was dirty (the overlap clone `bb53...`, 1 buffered point), so there is no meaningful new-data loss - the guard behaved correctly.
+
+The real defect is upstream and BUG-B-adjacent: the active tree was created by `TryRestoreCommittedTreeForSpawnedActiveVessel` treating the player's **fresh-rollout real vessel** `R2-B2-S5` (pid 590316933) as a committed-spawned-clone. This is the documented craft-baked-`persistentId` collision (a new launch of the same craft reuses the baked pid that prior committed recordings of that craft also carry). The fresh-rollout fast-path ("matches captured scene-entry pid") correctly skipped restore at 14:55, but after the 15:04 scene reload the captured scene-entry pid no longer matched and it fell through to committed-tree restore - routing a normal flight into the re-fly merge-consent path. The correct cure is launch-identity (`RecordedVesselGuid` / `VesselLaunchIdentity`) discrimination at the restore site, which belongs with BUG-B / the identity subsystem, not the save guard. No safe save-path change here.
+
+Latent secondary (noted, not fixed): `SaveActiveTreeIfAny` early-returns and skips the WHOLE active-tree node when any one recording is a committed-restore overlap, even if a legitimately-new marker-owned switch-segment recording in the same tree had its sidecar written - that would orphan the sidecar (no tree node references it). Not triggered destructively in this log; flagged for the switch-segment owner.
+
+---
+
 ## Done 2026-06-07 - BUG-A: scene-change recalc wiped stock career science + funds earned after a time-warp (career-corruption)
 
 **Source:** 2026-06-07 long career playtest (`logs/2026-06-07_1638_career-playtest/`), pure-stock play, no Parsek feature used. On return to the Space Center: `[KspStatePatcher] PatchScience: 124.8 -> 1.0 (delta=-123.8)` wiped all Mun science, and `[KspStatePatcher] PatchFunds: suspicious drawdown delta=-47840.0 ... earning channel may be missing` clawed back the Mun world-first funds. Recurred 5x across the session with growing magnitude as the loss compounded (each recalc replays the whole ledger from seed).
