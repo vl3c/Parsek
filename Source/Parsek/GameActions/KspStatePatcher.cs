@@ -43,14 +43,15 @@ namespace Parsek
             bool authoritativeRepeatableRecordState = false,
             double? techUtCutoff = null,
             double? techBaselineUt = null,
-            bool suppressSuspiciousDrawdownWarnings = false)
+            bool suppressSuspiciousDrawdownWarnings = false,
+            bool authoritativeReduction = false)
         {
             using (SuppressionGuard.ResourcesAndReplay())
             {
-                PatchScience(science, suppressSuspiciousDrawdownWarnings);
+                PatchScience(science, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
                 PatchTechTree(targetTechIds, techUtCutoff, techBaselineUt);
-                PatchFunds(funds, suppressSuspiciousDrawdownWarnings);
-                PatchReputation(reputation);
+                PatchFunds(funds, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
+                PatchReputation(reputation, authoritativeReduction);
                 PatchFacilities(facilities);
                 PatchMilestones(milestones, authoritativeRepeatableRecordState);
                 PatchContracts(contracts);
@@ -66,7 +67,8 @@ namespace Parsek
         /// </summary>
         internal static void PatchScience(
             ScienceModule science,
-            bool suppressSuspiciousDrawdownWarnings = false)
+            bool suppressSuspiciousDrawdownWarnings = false,
+            bool authoritativeReduction = false)
         {
             if (science == null)
             {
@@ -97,6 +99,42 @@ namespace Parsek
             targetScience = AdjustSciencePatchTargetForPendingRecentScienceEarning(
                 targetScience,
                 currentScience);
+
+            // "Keep what you earned" guard (plan §3.3 / §4.2): clamp keyed on the
+            // NON-RESERVED running balance, not the reservation-aware target. A
+            // reservation lowers only GetAvailableScience() while leaving
+            // GetRunningScience() intact, so it never trips this; a missing-earning leak
+            // lowers the running balance itself, so it does.
+            //
+            // DEVIATION from the literal plan seam (achieving its INTENT, plan §3.3 /
+            // §2.6.3): the running-balance discriminator is the pending-adjusted running
+            // balance, not the raw GetRunningScience(). The two pending adjusters above
+            // (AdjustSciencePatchTargetForPendingRecent{ScienceEarning,TechResearch})
+            // exist precisely for the brief window where a stock KSC science credit /
+            // tech-unlock debit has hit the live singleton but the matching ledger action
+            // is still catching up. During that window the raw running balance is
+            // transiently below/above live for a KNOWN in-flight reason (not a missing
+            // earning channel), so folding the same pending credit/debit into the
+            // discriminator keeps the guard from a false clamp+toast on a transient
+            // ledger-catch-up. The plan's invariant ("running below live ONLY when an
+            // earning channel is missing") holds against this adjusted value.
+            double runningScience = science.GetRunningScience()
+                + LedgerOrchestrator.GetPendingRecentKscScienceCredit()
+                - LedgerOrchestrator.GetPendingRecentKscTechResearchScienceDebit();
+            double effTargetScience = ApplyDrawdownGuard(
+                targetScience, runningScience, currentScience, 0.001,
+                authoritativeReduction, "science", out bool scienceClamped);
+            if (scienceClamped)
+            {
+                EmitDrawdownGuardClamp(
+                    "Science", runningScience, currentScience,
+                    wouldBeTarget: targetScience, clampedTo: effTargetScience,
+                    toastText: "Kept your earned science",
+                    sessionToastLatch: ref scienceClampToastShownThisSession,
+                    perSubjectScienceNote: true);
+                targetScience = effTargetScience;
+            }
+
             float delta = (float)(targetScience - (double)currentScience);
 
             if (Math.Abs(delta) < 0.001f)
@@ -618,7 +656,8 @@ namespace Parsek
         /// </summary>
         internal static void PatchFunds(
             FundsModule funds,
-            bool suppressSuspiciousDrawdownWarnings = false)
+            bool suppressSuspiciousDrawdownWarnings = false,
+            bool authoritativeReduction = false)
         {
             if (funds == null)
             {
@@ -644,6 +683,27 @@ namespace Parsek
 
             double currentFunds = Funding.Instance.Funds;
             double targetFunds = funds.GetAvailableFunds();
+
+            // "Keep what you earned" guard (plan §3.3 / §4.2): clamp keyed on the
+            // NON-RESERVED running balance, not the reservation-aware available target.
+            // A reservation lowers only GetAvailableFunds() while leaving
+            // GetRunningBalance() intact, so it never trips this; a missing-earning leak
+            // lowers the running balance itself, so it does.
+            double runningFunds = funds.GetRunningBalance();
+            double effTargetFunds = ApplyDrawdownGuard(
+                targetFunds, runningFunds, currentFunds, 0.01,
+                authoritativeReduction, "funds", out bool fundsClamped);
+            if (fundsClamped)
+            {
+                EmitDrawdownGuardClamp(
+                    "Funds", runningFunds, currentFunds,
+                    wouldBeTarget: targetFunds, clampedTo: effTargetFunds,
+                    toastText: "Kept your earned funds",
+                    sessionToastLatch: ref fundsClampToastShownThisSession,
+                    perSubjectScienceNote: false);
+                targetFunds = effTargetFunds;
+            }
+
             double delta = targetFunds - currentFunds;
 
             if (Math.Abs(delta) < 0.01)
@@ -681,7 +741,9 @@ namespace Parsek
         /// the ReputationModule already applied the curve during the walk.
         /// No-op if Reputation.Instance is null (sandbox mode).
         /// </summary>
-        internal static void PatchReputation(ReputationModule reputation)
+        internal static void PatchReputation(
+            ReputationModule reputation,
+            bool authoritativeReduction = false)
         {
             if (reputation == null)
             {
@@ -707,6 +769,25 @@ namespace Parsek
 
             float currentRep = Reputation.Instance.reputation;
             float targetRep = reputation.GetRunningRep();
+
+            // "Keep what you earned" guard (plan §3.4 / §6): reputation has NO reservation
+            // system, so its running balance IS the patch target. The discriminator is the
+            // plain target-vs-live check, and "downward" is by magnitude (< live - eps) so
+            // negative rep is handled. Express the clamp against the SetReputation
+            // semantics: "do not set below live".
+            double effTargetRep = ApplyDrawdownGuard(
+                targetRep, targetRep, currentRep, 0.01,
+                authoritativeReduction, "reputation", out bool repClamped);
+            if (repClamped)
+            {
+                EmitDrawdownGuardClamp(
+                    "Reputation", targetRep, currentRep,
+                    wouldBeTarget: targetRep, clampedTo: effTargetRep,
+                    toastText: "Kept your earned reputation",
+                    sessionToastLatch: ref reputationClampToastShownThisSession,
+                    perSubjectScienceNote: false);
+                targetRep = (float)effTargetRep;
+            }
 
             if (Math.Abs(targetRep - currentRep) < 0.01f)
             {
@@ -2127,10 +2208,107 @@ namespace Parsek
             return Math.Abs(delta) > 0.10 * currentPool;
         }
 
+        // ================================================================
+        // "Keep what you earned" drawdown guard (recalc-patch-drawdown-guard plan)
+        // ================================================================
+
+        // Per-resource SESSION-SCOPED one-shot latches for the on-screen "Kept your
+        // earned X" toast. NOT reset on scene change: an ongoing leak toasts ONCE per
+        // session and stays quiet across every subsequent scene-change recalc, while the
+        // WARN log still fires on every guarded recalc for diagnostics. Cleared only in
+        // ResetForTesting (xUnit) and at a genuine new-session boundary via
+        // ResetDrawdownGuardSessionLatches (called from ParsekScenario OnLoad of a save).
+        private static bool fundsClampToastShownThisSession;
+        private static bool scienceClampToastShownThisSession;
+        private static bool reputationClampToastShownThisSession;
+
+        /// <summary>
+        /// Clears the per-resource clamp-toast session latches. Called at a genuine
+        /// new-session boundary (a fresh save load) so the first guarded clamp in a new
+        /// session toasts again. NOT called on a plain scene change.
+        /// </summary>
+        internal static void ResetDrawdownGuardSessionLatches()
+        {
+            fundsClampToastShownThisSession = false;
+            scienceClampToastShownThisSession = false;
+            reputationClampToastShownThisSession = false;
+        }
+
+        /// <summary>
+        /// Pure predicate (Blocker 2, plan §3.3): a drawdown is guardable iff the
+        /// NON-RESERVED running balance is more than <paramref name="epsilon"/> below the
+        /// current live value. Keyed on the running balance, NOT the reservation-aware
+        /// patch target: a legitimate reservation lowers only the spendable target while
+        /// leaving the running balance intact (>= live), so it does not trip the guard; a
+        /// missing-earning-channel leak lowers the running balance itself, so it does.
+        /// </summary>
+        internal static bool IsGuardableDrawdown(
+            double runningBalance, double currentLive, double epsilon)
+        {
+            return runningBalance < currentLive - epsilon;
+        }
+
+        /// <summary>
+        /// Pure clamp decision (plan §4.2 step 1). When no time-travel context authorizes
+        /// the reduction AND the running balance is below live past epsilon, raises the
+        /// effective target floor to <paramref name="currentLive"/> (returns
+        /// <c>max(patchTarget, currentLive)</c>) so the patch never writes below the
+        /// player's earned value, and sets <paramref name="clamped"/>. Otherwise returns
+        /// <paramref name="patchTarget"/> unchanged (covers the legitimate reservation
+        /// case, where the target may be below live but the running balance is not).
+        /// </summary>
+        internal static double ApplyDrawdownGuard(
+            double patchTarget, double runningBalance, double currentLive, double epsilon,
+            bool authoritativeReduction, string resource, out bool clamped)
+        {
+            if (!authoritativeReduction && IsGuardableDrawdown(runningBalance, currentLive, epsilon))
+            {
+                clamped = true;
+                return patchTarget > currentLive ? patchTarget : currentLive;
+            }
+
+            clamped = false;
+            return patchTarget;
+        }
+
+        /// <summary>
+        /// Emits the loud observability for a guarded clamp (plan §4.2 steps 2-3): a WARN
+        /// with the full numbers ALWAYS (every guarded recalc, documenting the ongoing
+        /// leak), and one short session-latched native ScreenMessage naming the protected
+        /// resource. <paramref name="perSubjectScienceNote"/> appends the documented
+        /// per-subject divergence limitation to the WARN for the science pool (MINOR 5).
+        /// Internal static so xUnit can drive the WARN + toast path directly (the live
+        /// patch methods early-return on null KSP singletons).
+        /// </summary>
+        internal static void EmitDrawdownGuardClamp(
+            string resource, double runningBalance, double currentLive,
+            double wouldBeTarget, double clampedTo, string toastText,
+            ref bool sessionToastLatch, bool perSubjectScienceNote)
+        {
+            string warn =
+                $"Patch{resource}: GUARDED DRAWDOWN clamped resource={resource} " +
+                $"running={runningBalance.ToString("R", IC)} live={currentLive.ToString("R", IC)} " +
+                $"wouldBeTarget={wouldBeTarget.ToString("R", IC)} clampedTo={clampedTo.ToString("R", IC)} " +
+                "(no time-travel context) - earned value preserved; ledger may be missing an earning channel";
+            if (perSubjectScienceNote)
+            {
+                warn += " NOTE: per-subject credited science is patched UNCLAMPED, so the " +
+                    "Science Archive may transiently disagree with the clamped pool until the leak is fixed";
+            }
+            ParsekLog.Warn(Tag, warn);
+
+            if (!sessionToastLatch)
+            {
+                sessionToastLatch = true;
+                ParsekLog.ScreenMessage(toastText, 2.5f);
+            }
+        }
+
         internal static void ResetForTesting()
         {
             SuppressUnityCallsForTesting = false;
             protoTechNodesReflectionWarnEmitted = false;
+            ResetDrawdownGuardSessionLatches();
             FacilityStatePatcher.ResetForTesting();
         }
     }

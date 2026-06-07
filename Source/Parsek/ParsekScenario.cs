@@ -847,6 +847,19 @@ namespace Parsek
             // fires before OnLoad, so the Instance is available throughout the
             // load path.
             s_instance = this;
+
+            // Drawdown-guard signal 5 fail-safe (MINOR-A, plan §3.2): clear the deferred
+            // rewind-resource-adjustment flag here, NOT on onGameSceneSwitchRequested.
+            // OnAwake of this fresh instance runs only after the previous (SPACECENTER)
+            // ParsekScenario instance and its ApplyRewindResourceAdjustment coroutine were
+            // destroyed, so old and new hosts never coexist - it cannot race a live
+            // coroutine's ~2s singleton wait, and it runs BEFORE this instance's own OnLoad
+            // so it never clears a flag the same instance is about to set. If the coroutine
+            // completed normally the finally already cleared the flag (no-op here); if the
+            // host was destroyed mid-wait the deferred patch never fired (nothing to
+            // mis-guard) and this clears the stranded flag before any new-scene recalc reads
+            // it. EndRewindResourceAdjustment is idempotent.
+            RewindContext.EndRewindResourceAdjustment();
         }
 
         /// <summary>
@@ -3195,6 +3208,13 @@ namespace Parsek
             // so the new scene's Funding/R&D/Reputation/Planetarium are initialized).
             // Setting UT before LoadScene does NOT work — scene transition overwrites it.
             RecordingStore.RewindUTAdjustmentPending = true;
+            // Drawdown-guard signal 5 (Blocker 1): arm BEFORE scheduling the coroutine so
+            // it is true before EndRewind() below clears IsRewinding. The coroutine's
+            // try/finally around the deferred RecalculateAndPatch clears it (authoritative);
+            // the next scene's OnAwake clears it as a race-free fail-safe if the host is
+            // destroyed mid-wait. This authorizes the deferred plain-rewind drawdown, which
+            // runs after all four other signals are false.
+            RewindContext.BeginRewindResourceAdjustment();
             StartCoroutine(ApplyRewindResourceAdjustment());
             ParsekLog.Info("Rewind",
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
@@ -3514,6 +3534,10 @@ namespace Parsek
             {
                 initialLoadDone = false;
                 lastSaveFolder = currentSave;
+                // Genuine new-session boundary: re-arm the drawdown-guard clamp toast so a
+                // persistent leak in a DIFFERENT save toasts once again. A plain scene
+                // change within the same save does NOT reset these latches (plan §9).
+                KspStatePatcher.ResetDrawdownGuardSessionLatches();
                 ScenarioLog($"[Parsek Scenario] Save folder changed to '{currentSave}' — resetting session state");
             }
         }
@@ -6302,9 +6326,22 @@ namespace Parsek
             // this coroutine resumes, so we cannot read from RewindContext here.
             // The cutoff applies to career resources; crew reservations are rebuilt
             // from the full committed timeline inside LedgerOrchestrator.
-            LedgerOrchestrator.RecalculateAndPatch(
-                adjustedUT,
-                suppressSuspiciousDrawdownWarnings: true);
+            //
+            // Drawdown-guard signal 5 (Blocker 1): this is the AUTHORITATIVE deferred
+            // plain-rewind drawdown. Clear the in-progress flag in a finally so a clean OR
+            // thrown patch both release it; the flag must stay true THROUGH this patch so
+            // the guard authorizes any legitimate rewind reduction (all four other signals
+            // are false here). NOT cleared by EndRewind (which ran before this resumed).
+            try
+            {
+                LedgerOrchestrator.RecalculateAndPatch(
+                    adjustedUT,
+                    suppressSuspiciousDrawdownWarnings: true);
+            }
+            finally
+            {
+                RewindContext.EndRewindResourceAdjustment();
+            }
 
             // Belt-and-suspenders guard: if some future refactor accidentally schedules
             // the normal revert budget-deduction coroutine during this rewind load, it
