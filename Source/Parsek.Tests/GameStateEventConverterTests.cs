@@ -387,17 +387,103 @@ namespace Parsek.Tests
         [Fact]
         public void ConvertEvents_FiltersByUtRange()
         {
+            // The lower bound always filters pre-start captures (even when tagged to the
+            // owner, mirroring the #528 pre-start science rule). The upper bound filters
+            // captures that are NOT owned by the recording (untagged / cross-recording).
+            // A late capture tagged to the owner is intentionally kept (see
+            // ConvertEvents_TaggedEventAfterWindow_IsKept).
             var events = new List<GameStateEvent>
             {
                 MakeEvent(GameStateEventType.TechResearched, 50.0, key: "early", detail: "cost=10", recordingId: "rec"),
                 MakeEvent(GameStateEventType.TechResearched, 100.0, key: "inRange", detail: "cost=20", recordingId: "rec"),
-                MakeEvent(GameStateEventType.TechResearched, 200.0, key: "late", detail: "cost=30", recordingId: "rec"),
+                MakeEvent(GameStateEventType.TechResearched, 200.0, key: "lateOther", detail: "cost=30", recordingId: "rec-other"),
             };
 
             var actions = GameStateEventConverter.ConvertEvents(events, "rec", 100.0, 150.0);
 
             Assert.Single(actions);
             Assert.Equal("inRange", actions[0].NodeId);
+        }
+
+        [Fact]
+        public void ConvertEvents_TaggedEventAfterWindow_IsKept()
+        {
+            // BUG-A regression: a Mun mission records its launch, then time-warps to the
+            // Mun where milestone rewards fire, far past the recording's (launch-only)
+            // trajectory window. Those events stay tagged to the live recording and must
+            // be committed to the ledger, otherwise the scene-change recalc patches the
+            // player's funds down to a target missing the milestone earnings.
+            var events = new List<GameStateEvent>
+            {
+                MakeEvent(
+                    GameStateEventType.MilestoneAchieved,
+                    241025.4,
+                    key: "Mun/Landing",
+                    detail: "funds=23000",
+                    recordingId: "rec"),
+            };
+
+            var actions = GameStateEventConverter.ConvertEvents(events, "rec", 203697.7, 203840.7);
+
+            var action = Assert.Single(actions);
+            Assert.Equal(GameActionType.MilestoneAchievement, action.Type);
+            Assert.Equal("Mun/Landing", action.MilestoneId);
+            Assert.Equal("rec", action.RecordingId);
+        }
+
+        [Fact]
+        public void ConvertEvents_UntaggedEventAfterWindow_IsFiltered()
+        {
+            // Untagged captures are not owned by any recording, so the upper bound still
+            // applies during a whole-store conversion (recordingId == "").
+            var events = new List<GameStateEvent>
+            {
+                MakeEvent(GameStateEventType.TechResearched, 200.0, key: "late", detail: "cost=30"),
+            };
+
+            var actions = GameStateEventConverter.ConvertEvents(events, "", 100.0, 150.0);
+
+            Assert.Empty(actions);
+        }
+
+        [Fact]
+        public void ConvertEvents_CrossRecordingEventAfterWindow_IsFiltered()
+        {
+            // A late event tagged to a DIFFERENT recording must never be folded onto the
+            // recording being committed.
+            var events = new List<GameStateEvent>
+            {
+                MakeEvent(
+                    GameStateEventType.MilestoneAchieved,
+                    241025.4,
+                    key: "Mun/Landing",
+                    detail: "funds=23000",
+                    recordingId: "rec-other"),
+            };
+
+            var actions = GameStateEventConverter.ConvertEvents(events, "rec", 203697.7, 203840.7);
+
+            Assert.Empty(actions);
+        }
+
+        [Fact]
+        public void ConvertEvents_TaggedEventBeforeWindow_IsFiltered()
+        {
+            // The lower bound is preserved: a capture before the recording start whose
+            // tag drifted onto the later recording is rejected (#528).
+            var events = new List<GameStateEvent>
+            {
+                MakeEvent(
+                    GameStateEventType.MilestoneAchieved,
+                    50.0,
+                    key: "RecordsSpeed",
+                    detail: "funds=2880",
+                    recordingId: "rec"),
+            };
+
+            var actions = GameStateEventConverter.ConvertEvents(events, "rec", 100.0, 200.0);
+
+            Assert.Empty(actions);
         }
 
         [Fact]
@@ -558,6 +644,38 @@ namespace Parsek.Tests
             var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.3, 248.8);
 
             Assert.Empty(actions);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_TaggedCaptureAfterRecordingEnd_IsKeptAnchoredAtEnd()
+        {
+            // BUG-A regression: a recording's launch is captured, then the flight
+            // time-warps to the Mun where the science is collected/recovered well past
+            // the recording's (launch-only) trajectory window. The capture stayed tagged
+            // to the live recording, so it must still become a ScienceEarning, anchored
+            // at the recording's end bound, instead of being dropped (which made the
+            // scene-change recalc wipe the player's Mun science).
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "temperatureScan@MunSrfLandedMidlands",
+                    science = 16.0f,
+                    captureUT = 241374.4,
+                    reasonKey = "VesselRecovery",
+                    recordingId = "rec"
+                }
+            };
+
+            var actions = GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 203697.7, 203840.7);
+
+            var action = Assert.Single(actions);
+            Assert.Equal("temperatureScan@MunSrfLandedMidlands", action.SubjectId);
+            Assert.Equal(ScienceMethod.Recovered, action.Method);
+            Assert.Equal(16.0f, action.ScienceAwarded);
+            // captureUT is outside the window, so the action is anchored at endUT.
+            Assert.Equal(203840.7f, action.StartUT);
+            Assert.Equal(203840.7f, action.EndUT);
         }
 
         [Fact]

@@ -8,6 +8,10 @@ All notable changes to Parsek are documented here.
 
 - Maintenance and bug-fix release following up on issues found in post-0.10.0 career playtesting.
 
+### Bug Fixes
+
+- Fixed a critical career-corruption bug where science and world-first funds earned after time-warping to another body (for example recovering Mun science on a recorded Mun mission) were silently wiped on return to the Space Center, even though no Parsek feature was used. Career captures tagged to the live recording are now committed to the ledger even when they land past the recording's last on-rails trajectory point, so the scene-change recalc no longer patches the player's science and funds down to a target that was missing those earnings.
+
 ### Log Hygiene
 
 - A long career session no longer floods the log with per-frame re-fly settle and per-recording overlap-gate diagnostics. These two traces alone were about two-thirds of a 2026-06-07 career playtest log (roughly 233,000 lines, none of it from an actual re-fly): the floating-origin shift line is now a throttled heartbeat, and the overlap-gate verdict logs only when it actually changes. The per-frame supply-route summary was given the same change-only treatment.

@@ -56,13 +56,28 @@ namespace Parsek
             {
                 var evt = events[i];
 
-                if (evt.ut < startUT || evt.ut > endUT)
+                bool scoped = EventMatchesRecordingScope(evt, recordingId);
+
+                // BUG-A: an event explicitly tagged to the recording being committed is
+                // owned by it regardless of how far past the recording's trajectory
+                // window its UT falls. On-rails time-warp phases emit no per-frame
+                // trajectory, so the window can end long before the last live tagged
+                // capture (e.g. Mun milestone / progression rewards earned after a warp).
+                // The capture tag is authoritative ownership, so the upper bound is
+                // bypassed for owned events. The lower bound still applies (pre-start
+                // captures whose tag drifted onto a later recording are not this
+                // recording's, mirroring the #528 pre-start science rule), and untagged /
+                // cross-recording events keep both bounds.
+                bool ownedByTag = !string.IsNullOrEmpty(recordingId) && scoped;
+                bool beforeStart = evt.ut < startUT;
+                bool afterEnd = evt.ut > endUT;
+                if (beforeStart || (afterEnd && !ownedByTag))
                 {
                     outOfRange++;
                     continue;
                 }
 
-                if (!EventMatchesRecordingScope(evt, recordingId))
+                if (!scoped)
                 {
                     skipped++;
                     IncrementEventTypeCount(skippedByType, evt.eventType);
@@ -395,8 +410,28 @@ namespace Parsek
                 return false;
             if (captureUt == 0.0 && defaultStartUT > 0.0)
                 return true;
-            if (!IsScienceCaptureWithinRecordingWindow(captureUt, defaultStartUT, endUT))
+
+            // #528: a tagged subject captured BEFORE the recording's start is stale
+            // pre-start science (e.g. launchpad science gathered before Record was
+            // pressed) whose capture tag drifted onto the later recording. Reject it:
+            // it is not this recording's science.
+            if (captureUt < defaultStartUT)
                 return false;
+
+            // BUG-A: a tagged subject captured AFTER the recording's trajectory window
+            // is still owned by this recording. The recorder stayed live and kept
+            // tagging captures for the whole flight, but on-rails time-warp phases
+            // record no per-frame trajectory, so the recording's trajectory bounds can
+            // end long before its last live capture (e.g. a Mun mission whose launch is
+            // recorded, then time-warps to the Mun where the science/recovery fires).
+            // The capture tag is authoritative ownership: keep the subject and anchor it
+            // at the recording's known end bound rather than dropping legitimately
+            // earned science on the floor.
+            if (captureUt > endUT)
+            {
+                resolvedStartUt = endUT;
+                return true;
+            }
 
             resolvedStartUt = captureUt;
             return true;
