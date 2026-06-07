@@ -767,6 +767,42 @@ namespace Parsek
             return largeGapCountAtNormalRate > 0;
         }
 
+        /// <summary>
+        /// Resolves the inter-sample-gap threshold above which a closed
+        /// TrackSection's gaps are treated as "large" (BUG-D, 2026-06-07 career
+        /// playtest). The adaptive sampler's max-interval backstop
+        /// (<see cref="ParsekSettings.GetMaxSampleInterval"/>: 8.0s Low / 3.0s
+        /// Medium / 1.0s High) is the longest gap the recorder produces BY DESIGN
+        /// during a low-dynamics coast -- <see cref="TrajectoryMath.ShouldRecordPoint"/>
+        /// only forces a sample once <c>elapsed &gt;= maxInterval</c>. The legacy
+        /// hard-coded 0.50s floor sat 6x below the Medium backstop, so every coast
+        /// (and every vessel sitting on the pad) tripped the "sparse sampling" WARN
+        /// even though the sampler was behaving exactly as configured. Deriving the
+        /// threshold from the configured backstop (with a margin for physics-frame
+        /// quantization and frame-budget jitter) means only a gap that meaningfully
+        /// EXCEEDS the backstop -- i.e. the heartbeat itself failed (stalled sampler
+        /// / severe lag) -- counts as large.
+        ///
+        /// Based on the configured (non-reduced) backstop, which is the upper bound
+        /// on a legitimate gap. A section recorded entirely under a high-fidelity /
+        /// proximity window samples DENSER than this, so this errs toward fewer
+        /// false WARNs at the cost of possibly missing a stall inside a short HF
+        /// window -- the conservative direction for a noise-reduction change.
+        ///
+        /// Pure static so the recorder hot path stays a one-line call and the
+        /// decision is unit-testable.
+        /// </summary>
+        internal static double ResolveSparseGapWarningThreshold(float configuredMaxSampleInterval)
+        {
+            if (float.IsNaN(configuredMaxSampleInterval)
+                || float.IsInfinity(configuredMaxSampleInterval)
+                || configuredMaxSampleInterval <= 0f)
+                return SparseSectionGapWarningThresholdSeconds;
+            return Math.Max(
+                SparseSectionGapWarningThresholdSeconds,
+                configuredMaxSampleInterval * SparseGapHeartbeatMarginFactor);
+        }
+
         internal static bool IsHighFidelitySamplingActive(double currentUT, double highFidelityUntilUT)
         {
             return !double.IsNaN(highFidelityUntilUT)
@@ -1006,7 +1042,17 @@ namespace Parsek
         internal const double HighFidelityProximityRangeMeters = 250.0;
         internal const double ReFlyTreeFullFidelityProximityRangeMeters = 250.0;
         internal const double ReFlyTreeHalfFidelityProximityRangeMeters = 500.0;
+        // Floor for the sparse-sampling large-gap threshold; only used as a
+        // backstop for a degenerate / unset maxSampleInterval (see
+        // ResolveSparseGapWarningThreshold). The live threshold is derived from
+        // the configured sampler backstop, not this constant.
         internal const double SparseSectionGapWarningThresholdSeconds = 0.50;
+        // Multiplier applied to the configured maxSampleInterval to get the
+        // "sparse sampling" WARN threshold (BUG-D). 1.5x leaves a 50% margin above
+        // the design backstop for physics-frame quantization + frame-budget jitter
+        // so an on-schedule coast gap (~maxInterval) never warns, while a gap well
+        // past the backstop (a genuine stalled-sampler / severe-lag signal) still does.
+        internal const double SparseGapHeartbeatMarginFactor = 1.5;
         private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
         private const float roboticAngularDeadbandDegrees = 0.5f;
         private const float roboticLinearDeadbandMeters = 0.01f;
@@ -5159,8 +5205,10 @@ namespace Parsek
 
             int frameCount = currentTrackSection.frames?.Count ?? 0;
             int checkpointCount = currentTrackSection.checkpoints?.Count ?? 0;
+            double sparseGapThreshold = ResolveSparseGapWarningThreshold(maxSampleInterval);
             SectionGapStats gapStats = ComputeSectionGapStats(
                 currentTrackSection.frames,
+                largeGapThresholdSeconds: sparseGapThreshold,
                 warpFlags: sectionFrameWarpFlags);
 
             // Skip degenerate zero-frame sections from brief RELATIVE/environment flickers
@@ -5250,7 +5298,7 @@ namespace Parsek
                     $"TrackSection sparse sampling: env={currentTrackSection.environment} " +
                     $"ref={currentTrackSection.referenceFrame} frames={frameCount} " +
                     $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
-                    $"threshold={SparseSectionGapWarningThresholdSeconds.ToString("F2", CultureInfo.InvariantCulture)}s " +
+                    $"threshold={sparseGapThreshold.ToString("F2", CultureInfo.InvariantCulture)}s " +
                     $"largeGaps={gapStats.LargeGapCount} largeGaps1x={gapStats.LargeGapCountAtNormalRate}";
                 if (warn)
                     ParsekLog.Warn("Recorder", message);
