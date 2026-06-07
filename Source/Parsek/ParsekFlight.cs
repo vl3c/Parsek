@@ -11440,11 +11440,17 @@ namespace Parsek
             // Here FlightGlobals.Vessels is populated and vessel.persistentId is reliable.
             if (RecordingStore.PendingCleanupPids != null || RecordingStore.PendingCleanupNames != null)
             {
+                // BUG-H: the live-vessel cleanup is launch-identity-aware (pid + Vessel.id Guid) and
+                // scoped to the reverted flight (skips vessels in the revert-target launch quicksave).
+                // The PendingCleanupPids/Names sets are only the "cleanup armed" trigger now — the
+                // actual recover decision derives from the committed recordings + the pre-existing
+                // whitelist so a real, separately-launched craft is never recovered by name.
                 CleanupOrphanedSpawnedVessels(
-                    RecordingStore.PendingCleanupPids,
-                    RecordingStore.PendingCleanupNames);
+                    RecordingStore.CollectAllCommittedRecordings(),
+                    RecordingStore.PendingRevertPreExistingPids);
                 RecordingStore.PendingCleanupPids = null;
                 RecordingStore.PendingCleanupNames = null;
+                RecordingStore.PendingRevertPreExistingPids = null;
             }
             else
             {
@@ -16779,17 +16785,27 @@ namespace Parsek
         /// persistentId (reliable in Flight) and vessel name (fallback).
         /// Skips the active vessel.
         /// </summary>
-        void CleanupOrphanedSpawnedVessels(HashSet<uint> pids, HashSet<string> names)
+        // BUG-H: belt-and-suspenders revert cleanup of LOADED vessels that the OnLoad protoVessel
+        // strip did not catch (FLIGHT->FLIGHT launch revert recovers loaded vessels). The recover
+        // decision routes through the same launch-identity-aware + scoped predicate as the OnLoad
+        // strip (ParsekScenario.ShouldStripVesselForRecordings): a vessel is recovered ONLY when it
+        // is the same launch as a committed recording's spawn/adoption endpoint (pid + Vessel.id Guid)
+        // AND it appeared during the reverted flight (not in the revert-target launch quicksave).
+        // Name-only matching previously recovered real, separately-launched craft that merely reuse a
+        // recording's craft-baked name/pid.
+        void CleanupOrphanedSpawnedVessels(
+            IReadOnlyList<Recording> recordings, HashSet<uint> preExistingWhitelist)
         {
             ParsekLog.Info("Flight",
                 $"CleanupOrphanedSpawnedVessels: starting with " +
-                $"{pids?.Count ?? 0} pid(s), {names?.Count ?? 0} name(s), " +
+                $"{recordings?.Count ?? 0} committed recording(s), " +
+                $"preExistingWhitelist={preExistingWhitelist?.Count ?? 0} pid(s), " +
                 $"{FlightGlobals.Vessels.Count} loaded vessel(s)");
             var activeVessel = FlightGlobals.ActiveVessel;
             uint activePid = activeVessel != null ? activeVessel.persistentId : 0;
-            bool hasPids = pids != null && pids.Count > 0;
-            bool hasNames = names != null && names.Count > 0;
             int recovered = 0;
+            int keptPreExisting = 0;
+            int keptDifferentLaunch = 0;
 
             for (int i = FlightGlobals.Vessels.Count - 1; i >= 0; i--)
             {
@@ -16807,31 +16823,39 @@ namespace Parsek
                     continue;
                 }
 
-                string resolvedName = Recording.ResolveLocalizedName(vessel.vesselName);
-                bool matchByPid = hasPids && pids.Contains(vessel.persistentId);
-                bool matchByName = hasNames && names.Contains(resolvedName);
+                string candidateGuid = vessel.id != Guid.Empty ? vessel.id.ToString("N") : null;
+                bool shouldRecover = ParsekScenario.ShouldStripVesselForRecordings(
+                    vessel.persistentId, candidateGuid, vessel.situation, recordings,
+                    matchSource: false, skipPrelaunch: true,
+                    requireWhitelist: true, preExistingWhitelist: preExistingWhitelist,
+                    out Recording matched, out string reason);
 
-                if (matchByPid || matchByName)
+                if (shouldRecover)
                 {
-                    string matchMethod = matchByPid ? "PID" : "name";
                     ParsekLog.Info("Flight",
                         $"CleanupOrphanedSpawnedVessels: recovering '{vessel.vesselName}' " +
-                        $"pid={vessel.persistentId} (matched by {matchMethod})");
+                        $"pid={vessel.persistentId} guid={candidateGuid ?? "(none)"} — matched recording " +
+                        $"'{matched?.VesselName ?? "(unknown)"}' (recordedGuid={matched?.RecordedVesselGuid ?? "(none)"}); {reason}");
                     ShipConstruction.RecoverVesselFromFlight(
                         vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
                     recovered++;
                 }
                 else
                 {
+                    if (reason != null && reason.StartsWith("pre-existing"))
+                        keptPreExisting++;
+                    else if (reason != null && reason.StartsWith("no same-launch"))
+                        keptDifferentLaunch++;
                     ParsekLog.Verbose("Flight",
-                        $"CleanupOrphanedSpawnedVessels: no match for '{vessel.vesselName}' " +
-                        $"pid={vessel.persistentId} resolved='{resolvedName}'");
+                        $"CleanupOrphanedSpawnedVessels: keeping '{vessel.vesselName}' " +
+                        $"pid={vessel.persistentId} guid={candidateGuid ?? "(none)"} — {reason}");
                 }
             }
 
-            if (recovered > 0)
+            if (recovered > 0 || keptPreExisting > 0 || keptDifferentLaunch > 0)
                 ParsekLog.Info("Flight",
-                    $"CleanupOrphanedSpawnedVessels: recovered {recovered} orphaned vessel(s)");
+                    $"CleanupOrphanedSpawnedVessels: recovered {recovered} orphaned vessel(s) " +
+                    $"(kept {keptPreExisting} pre-existing, {keptDifferentLaunch} different-launch)");
         }
 
         /// <summary>
@@ -16860,10 +16884,27 @@ namespace Parsek
                 }
                 if (vessel != null && vessel.loaded)
                 {
-                    ParsekLog.Info("Flight",
-                        $"RecoverTimelineSpawnedVessel: recovering '{vesselName}' pid={rec.SpawnedVesselPersistentId} " +
-                        $"(from recording #{i}) to make room for tree leaf spawn");
-                    ShipConstruction.RecoverVesselFromFlight(vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    // BUG-H: the loaded vessel matched by craft-baked pid may be a DIFFERENT real
+                    // launch that merely reuses the pid. Only recover it when it is genuinely the
+                    // same launch this recording spawned/adopted (Guid gate; falls back to pid-only
+                    // when a Guid is unknown). A conclusive Guid mismatch is never recovered — it is
+                    // an unrelated real vessel. The recording's stale spawn tracking is still reset
+                    // below so it can re-spawn its own vessel cleanly.
+                    string vGuid = vessel.id != System.Guid.Empty ? vessel.id.ToString("N") : null;
+                    if (VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, vessel.persistentId, vGuid))
+                    {
+                        ParsekLog.Info("Flight",
+                            $"RecoverTimelineSpawnedVessel: recovering '{vesselName}' pid={rec.SpawnedVesselPersistentId} " +
+                            $"guid={vGuid ?? "(none)"} (from recording #{i}) to make room for tree leaf spawn");
+                        ShipConstruction.RecoverVesselFromFlight(vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    }
+                    else
+                    {
+                        ParsekLog.Info("Flight",
+                            $"RecoverTimelineSpawnedVessel: NOT recovering '{vesselName}' pid={vessel.persistentId} " +
+                            $"guid={vGuid ?? "(none)"} — different launch than recording #{i} " +
+                            $"(recordedGuid={rec.RecordedVesselGuid ?? "(none)"}); leaving the real vessel intact");
+                    }
                 }
 
                 // Mark recording as no longer having a live vessel

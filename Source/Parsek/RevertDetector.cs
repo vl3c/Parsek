@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using System.Globalization;
+
 namespace Parsek
 {
     /// <summary>
@@ -36,6 +39,7 @@ namespace Parsek
             public void OnRevertToLaunch(FlightState _)
             {
                 pending = RevertKind.Launch;
+                CaptureRevertTargetPids(FlightDriver.PostInitState, RevertKind.Launch);
                 ParsekLog.Info("RevertDetector",
                     "GameEvents.OnRevertToLaunchFlightState fired; armed RevertKind.Launch for next OnLoad");
             }
@@ -43,6 +47,7 @@ namespace Parsek
             public void OnRevertToPrelaunch(FlightState _)
             {
                 pending = RevertKind.Prelaunch;
+                CaptureRevertTargetPids(FlightDriver.PreLaunchState, RevertKind.Prelaunch);
                 ParsekLog.Info("RevertDetector",
                     "GameEvents.OnRevertToPrelaunchFlightState fired; armed RevertKind.Prelaunch for next OnLoad");
             }
@@ -51,6 +56,92 @@ namespace Parsek
         private static readonly Handlers handlers = new Handlers();
 
         internal static RevertKind PendingKind => pending;
+
+        // BUG-H: pids of vessels in the revert TARGET (the launch/prelaunch quicksave Parsek is
+        // reverting to). The stock revert events fire with HighLogic.CurrentGame.flightState — the
+        // state being LEFT, not the target — so the target vessels are read from the GameBackup
+        // (FlightDriver.PreLaunchState for Prelaunch, PostInitState for Launch) at arm time, when
+        // those statics are valid. A vessel present here pre-existed the reverted launch and must
+        // never be stripped. Consumed and cleared by ParsekScenario.OnLoad's revert path.
+        private static HashSet<uint> revertTargetVesselPids;
+
+        /// <summary>
+        /// Reads the revert-target vessel pids from the GameBackup that KSP is reverting to and
+        /// stores them for the next OnLoad. Logs (and leaves the whitelist null) when the snapshot
+        /// is unavailable or empty so the strip fails closed rather than treating "no scope" as
+        /// "strip everything".
+        /// </summary>
+        private static void CaptureRevertTargetPids(GameBackup backup, RevertKind kind)
+        {
+            if (backup == null)
+            {
+                revertTargetVesselPids = null;
+                ParsekLog.Warn("RevertDetector",
+                    $"Revert ({kind}): no GameBackup target available — revert vessel strip will fail closed (no scope)");
+                return;
+            }
+
+            revertTargetVesselPids = BuildRevertTargetWhitelist(backup.Config);
+            if (revertTargetVesselPids == null)
+                ParsekLog.Warn("RevertDetector",
+                    $"Revert ({kind}): parsed 0 vessel pids from revert-target snapshot — " +
+                    "revert vessel strip will fail closed (no scope)");
+            else
+                ParsekLog.Info("RevertDetector",
+                    $"Revert ({kind}): captured {revertTargetVesselPids.Count} revert-target vessel pid(s) as the pre-existing scope whitelist");
+        }
+
+        /// <summary>
+        /// Builds the revert-target vessel-pid whitelist from a saved game-state ConfigNode, or
+        /// returns <c>null</c> when the snapshot yields no vessels. A launch/prelaunch snapshot always
+        /// contains at least the launch vessel, so an empty parse means the Config layout was not what
+        /// we expected — returning null makes the revert strip fail closed (strip nothing) rather than
+        /// treating "no scope" as "strip everything". Pure / testable.
+        /// </summary>
+        internal static HashSet<uint> BuildRevertTargetWhitelist(ConfigNode gameStateConfig)
+        {
+            var pids = ExtractFlightStateVesselPids(gameStateConfig);
+            return pids.Count > 0 ? pids : null;
+        }
+
+        /// <summary>
+        /// Extracts vessel persistentIds from a saved game-state ConfigNode (GameBackup.Config from
+        /// <c>Game.Save</c>: root -&gt; GAME -&gt; FLIGHTSTATE -&gt; VESSEL[] each carrying
+        /// <c>persistentId</c>). Defensive about whether the GAME wrapper is present. Pure / testable.
+        /// </summary>
+        internal static HashSet<uint> ExtractFlightStateVesselPids(ConfigNode gameStateConfig)
+        {
+            var pids = new HashSet<uint>();
+            if (gameStateConfig == null)
+                return pids;
+
+            ConfigNode flightStateNode =
+                gameStateConfig.GetNode("GAME")?.GetNode("FLIGHTSTATE")
+                ?? gameStateConfig.GetNode("FLIGHTSTATE");
+            if (flightStateNode == null)
+                return pids;
+
+            foreach (ConfigNode vesselNode in flightStateNode.GetNodes("VESSEL"))
+            {
+                string raw = vesselNode.GetValue("persistentId");
+                if (uint.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint pid)
+                    && pid != 0)
+                {
+                    pids.Add(pid);
+                }
+            }
+            return pids;
+        }
+
+        /// <summary>
+        /// Returns the captured revert-target whitelist and clears it (one-shot, like the kind).
+        /// </summary>
+        internal static HashSet<uint> ConsumeRevertTargetVesselPids()
+        {
+            var pids = revertTargetVesselPids;
+            revertTargetVesselPids = null;
+            return pids;
+        }
 
         /// <summary>
         /// Wires the KSP <c>GameEvents</c> subscriptions. Idempotent: safe to call from
@@ -105,6 +196,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             pending = RevertKind.None;
+            revertTargetVesselPids = null;
         }
     }
 }

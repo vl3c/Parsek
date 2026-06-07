@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek
@@ -76,6 +77,69 @@ namespace Parsek
             if (a == null || b == null) return false;
             if (a.VesselPersistentId == 0 || a.VesselPersistentId != b.VesselPersistentId) return false;
             return !GuidsConclusivelyDiffer(a.RecordedVesselGuid, b.RecordedVesselGuid);
+        }
+
+        /// <summary>
+        /// True when a candidate vessel (its <c>persistentId</c> and <c>Vessel.id</c> Guid) is the
+        /// SAME launch as the recording's SPAWN / adoption endpoint, so a revert/rewind strip may
+        /// remove it. Genuine Parsek spawns use a KSP-unique spawn pid (so
+        /// <c>SpawnedVesselPersistentId != VesselPersistentId</c>) and a bare spawn-pid match is
+        /// conclusive. Adoption stamps (<c>SpawnedVesselPersistentId == VesselPersistentId</c>) reuse
+        /// the craft-baked source pid on every launch of the craft, so they additionally require the
+        /// launch Guid to NOT conclusively differ: a known Guid mismatch means a DIFFERENT real launch
+        /// that merely reuses the baked pid (BUG-H), which must never be deleted in place of the
+        /// recording's spawned vessel.
+        /// </summary>
+        internal static bool LiveVesselIsRecordedSpawn(Recording rec, uint candidatePid, string candidateGuid)
+        {
+            if (rec == null || candidatePid == 0) return false;
+            uint spawnedPid = rec.SpawnedVesselPersistentId;
+            if (spawnedPid == 0 || spawnedPid != candidatePid) return false;
+
+            bool adoptionStamp = rec.VesselPersistentId != 0 && spawnedPid == rec.VesselPersistentId;
+            if (adoptionStamp)
+                return !GuidsConclusivelyDiffer(rec.RecordedVesselGuid, candidateGuid);
+
+            // Genuine Parsek spawn: the spawn pid is KSP-unique, so a pid match is conclusive.
+            return true;
+        }
+
+        /// <summary>
+        /// True when a candidate vessel is the SAME launch as a recording — its recorded SOURCE
+        /// vessel (when <paramref name="matchSource"/>, via <see cref="LiveVesselIsRecordedLaunch"/>)
+        /// and/or its spawn/adoption endpoint (when <paramref name="matchSpawn"/>, via
+        /// <see cref="LiveVesselIsRecordedSpawn"/>). This is the single launch-identity gate every
+        /// vessel-deletion path routes through: a conclusive launch-Guid mismatch is NEVER a match,
+        /// so a relaunch of the same craft (shared craft-baked name/pid, fresh Guid) can never be
+        /// deleted in place of the recording's vessel.
+        /// </summary>
+        internal static bool CandidateMatchesRecording(
+            Recording rec, uint candidatePid, string candidateGuid, bool matchSource, bool matchSpawn)
+        {
+            if (rec == null) return false;
+            if (matchSpawn && LiveVesselIsRecordedSpawn(rec, candidatePid, candidateGuid)) return true;
+            if (matchSource && LiveVesselIsRecordedLaunch(rec, candidatePid, candidateGuid)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Returns the first recording in <paramref name="recordings"/> the candidate vessel matches
+        /// as the same launch (per <paramref name="matchSource"/> / <paramref name="matchSpawn"/>),
+        /// or <c>null</c> when none do. Used by the centralized strip / cleanup decision so a vessel
+        /// is only deleted when it is genuinely a recording's recorded-or-spawned vessel of THIS
+        /// launch, never a different real launch that reuses the craft-baked name/pid.
+        /// </summary>
+        internal static Recording FindMatchingRecording(
+            IReadOnlyList<Recording> recordings, uint candidatePid, string candidateGuid,
+            bool matchSource, bool matchSpawn)
+        {
+            if (recordings == null) return null;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (CandidateMatchesRecording(recordings[i], candidatePid, candidateGuid, matchSource, matchSpawn))
+                    return recordings[i];
+            }
+            return null;
         }
 
         /// <summary>
