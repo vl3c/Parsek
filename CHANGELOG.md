@@ -4,6 +4,10 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.10.1
+
+- Maintenance and bug-fix release following up on issues found in post-0.10.0 career playtesting.
+
 ## 0.10.0
 
 ### Defaults
