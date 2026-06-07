@@ -11049,8 +11049,10 @@ namespace Parsek
             // every interval forever: ~48k lines (~15% of all verbose output) in the
             // 2026-06-07 career playtest. Switch to change-detection so the line fires
             // only when the decision actually flips. Identity is the stable RecordingId
-            // (a different recording reusing a positional index is a different identity);
-            // the state key carries only the boolean decision facets so the continuously
+            // (committed recordings always have one), so a different recording reusing a
+            // positional index gets its own identity; the positional "idx-N" fallback is
+            // best-effort and only reachable for an id-less recording (not expected here).
+            // The state key carries only the boolean decision facets so the continuously
             // varying cadence / span / cycle-window floats don't defeat coalescing while
             // a recording is driven.
             string identity = !string.IsNullOrEmpty(rec?.RecordingId)
