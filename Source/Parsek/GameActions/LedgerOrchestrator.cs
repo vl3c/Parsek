@@ -1384,12 +1384,22 @@ namespace Parsek
             string reason)
         {
             string safeReason = string.IsNullOrEmpty(reason) ? "current-timeline" : reason;
-            if (HasActionsAfterUT(currentUT))
+            // BUG-F guard: never cut off at a non-positive (not-yet-initialized) clock value.
+            // A UT of 0 during an early load/seed pass would otherwise filter out an entire
+            // established career as "future". In-session callers always pass a valid UT, so
+            // this only changes behavior on the not-ready path (falls back to full replay).
+            bool currentUtReady = IsCurrentUtReadyForCutoff(currentUT);
+            bool hasFutureActions = currentUtReady && HasActionsAfterUT(currentUT);
+            if (hasFutureActions)
             {
                 RecalculateAndPatchForCurrentTimelineUT(currentUT, safeReason);
                 return;
             }
 
+            ParsekLog.Verbose(Tag,
+                "Current-timeline recalc: full replay (cutoffUT=null) — reason=" + safeReason +
+                " currentUT=" + currentUT.ToString("R", CultureInfo.InvariantCulture) +
+                " currentUtReady=" + currentUtReady);
             RecalculateAndPatch();
         }
 
@@ -2058,6 +2068,24 @@ namespace Parsek
             return TryGetNextActionUTAfter(ut, out _);
         }
 
+        /// <summary>
+        /// True when <paramref name="ut"/> is a real, initialized game-clock value that can
+        /// safely be used as a current-timeline cutoff. During a cold
+        /// <c>ScenarioModule.OnLoad</c> (and the deferred-seed coroutine that may run before
+        /// the universe clock is set up), <see cref="Planetarium.GetUniversalTime"/> returns
+        /// <c>0</c> before time is initialized. Cutting the committed ledger off at UT=0 then
+        /// filters out an entire established career as if it were "future" (BUG-F: cold-loading
+        /// a career wiped funds to the starting seed and science to 0). A non-positive UT means
+        /// the clock is not ready, so callers must fall back to the safe full replay
+        /// (<see cref="RecalculateAndPatch"/>, cutoffUT=null) which replays every committed
+        /// action. A genuine career clock is always well above 0, so this never blocks a real
+        /// post-rewind / future-timeline cutoff (those carry a valid positive UT).
+        /// </summary>
+        internal static bool IsCurrentUtReadyForCutoff(double ut)
+        {
+            return ut > 0.0;
+        }
+
         internal static bool TryGetNextActionUTAfter(double ut, out double nextActionUT)
         {
             nextActionUT = double.PositiveInfinity;
@@ -2262,13 +2290,25 @@ namespace Parsek
             // normalize it.
             Ledger.RepairDuplicateRolloutActions();
 
+            // BUG-F: during a cold OnLoad the universe clock is not yet initialized, so
+            // maxUT (= Planetarium.GetUniversalTime() at the load call site) reads as 0.
+            // Reconcile's maxUT pruning removes every row with UT > maxUT unless
+            // preserveFutureTimelineActions is set, so at maxUT=0 a non-cutoff scene
+            // (TRACKSTATION / EDITOR cold-load, where useCurrentUtCutoffForFutureActions is
+            // false) would PERMANENTLY delete the entire committed career. Preserve all rows
+            // whenever the clock is not ready; the recalc below then full-replays them and the
+            // deferred-seed pass re-evaluates once the clock is valid. When the clock IS ready
+            // this falls back to the original scene-driven behavior.
+            bool currentUtReady = IsCurrentUtReadyForCutoff(maxUT);
+            bool preserveFutureRows = useCurrentUtCutoffForFutureActions || !currentUtReady;
+
             // Reconcile after timestamp-normalizing rollout repair. Current-UT load
             // mode removes orphaned rows but preserves future committed rows so the
             // cutoff walk can filter them until the game clock catches up.
             Ledger.Reconcile(
                 validRecordingIds,
                 maxUT,
-                preserveFutureTimelineActions: useCurrentUtCutoffForFutureActions);
+                preserveFutureTimelineActions: preserveFutureRows);
 
             // Compatibility repair for early #444 saves written before recovery
             // FundsEarning.DedupKey was serialized. Rebuild the missing key from the
@@ -2290,7 +2330,7 @@ namespace Parsek
                     Ledger.Reconcile(
                         validRecordingIds,
                         maxUT,
-                        preserveFutureTimelineActions: useCurrentUtCutoffForFutureActions);
+                        preserveFutureTimelineActions: preserveFutureRows);
                 }
             }
 
@@ -2316,7 +2356,25 @@ namespace Parsek
                     $"TryRecoverBrokenLedgerOnLoad failed during OnKspLoad: {ex.GetType().Name}: {ex.Message}");
             }
 
-            if (useCurrentUtCutoffForFutureActions && HasActionsAfterUT(maxUT))
+            // BUG-F: during a cold OnLoad the universe clock is not yet initialized, so
+            // maxUT (= Planetarium.GetUniversalTime() at the load call site) reads as 0.
+            // A current-UT cutoff at UT=0 treats the entire established career as "future"
+            // and filters it out, wiping funds to the starting seed and science to 0. Only
+            // take the cutoff path when the UT is a real, initialized clock value; otherwise
+            // fall back to the safe full replay (cutoffUT=null) that replays every committed
+            // action. The deferred-seed coroutine re-applies the cutoff once the clock is
+            // ready, so a genuine future-timeline (post-rewind) cold load is still honored.
+            // currentUtReady was computed above (it also gates row preservation in Reconcile).
+            bool hasFutureActions = HasActionsAfterUT(maxUT);
+            bool useCurrentUtCutoff =
+                useCurrentUtCutoffForFutureActions && currentUtReady && hasFutureActions;
+            ParsekLog.Info(Tag,
+                "OnKspLoad recalc decision: useCurrentUtCutoff=" + useCurrentUtCutoff +
+                " maxUT=" + maxUT.ToString("R", CultureInfo.InvariantCulture) +
+                " featureSupportsCutoff=" + useCurrentUtCutoffForFutureActions +
+                " currentUtReady=" + currentUtReady +
+                " hasFutureActions=" + hasFutureActions);
+            if (useCurrentUtCutoff)
             {
                 RecalculateAndPatchForCurrentTimelineUT(maxUT, "ksp-load");
             }
