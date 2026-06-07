@@ -22589,5 +22589,155 @@ namespace Parsek.InGameTests
         // Per memory/reference_parsek_scenario_xunit.md, in-game tests
         // are for things that require live KSP runtime; pure decision
         // predicates belong in xUnit.
+
+        #region DrawdownGuard
+
+        // recalc-patch-drawdown-guard plan §10.2: the real AddFunds/AddScience/
+        // SetReputation and the live singletons only exist inside KSP, so prove the
+        // guard's clamp + signal-bypass wiring against the actual Funding/R&D/Reputation
+        // singletons. xUnit covers the pure helpers; this proves the live patch path.
+        //
+        // SAFETY: this test mutates the live career singletons. It snapshots the original
+        // funds/science/rep up front and restores them in a finally so it never alters the
+        // player's career, and it never calls the full ledger recalc (which would write to
+        // disk) — it drives the patch methods directly with throwaway seeded modules.
+        [Parsek.InGameTests.InGameTest(Category = "Ledger", Scene = GameScenes.SPACECENTER,
+            Description = "Drawdown guard clamps a too-low funds/science/rep patch with no time-travel context, and applies it when a signal authorizes the reduction")]
+        public void DrawdownGuard_ClampsLeakAndAuthorizesSignal()
+        {
+            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null
+                || Reputation.Instance == null)
+            {
+                Parsek.InGameTests.InGameAssert.Skip(
+                    "requires a career game with Funding/R&D/Reputation singletons");
+                return;
+            }
+
+            double origFunds = Funding.Instance.Funds;
+            float origScience = ResearchAndDevelopment.Instance.Science;
+            float origRep = Reputation.Instance.reputation;
+
+            // Force a known live baseline well above any module running balance so the
+            // would-be patch target is clearly below live.
+            const double LiveFunds = 100000.0;
+            const float LiveScience = 500f;
+            const float LiveRep = 40f;
+            // Module running balances are seeded BELOW live to mimic a missing earning
+            // channel (the BUG-A signature): running < live with no reservation.
+            const double RunningFunds = 60000.0;
+            const float RunningScience = 100f;
+            const float RunningRep = 10f;
+
+            KspStatePatcher.ResetForTesting();
+            try
+            {
+                Funding.Instance.SetFunds(LiveFunds, TransactionReasons.None);
+                ResearchAndDevelopment.Instance.SetScience(LiveScience, TransactionReasons.None);
+                Reputation.Instance.SetReputation(LiveRep, TransactionReasons.None);
+
+                // ---- Case 1: NO time-travel signal -> clamp (live preserved) ----
+                var funds = MakeSeededFundsModule(RunningFunds);
+                var science = MakeSeededScienceModule(RunningScience);
+                var rep = MakeSeededReputationModule(RunningRep);
+
+                KspStatePatcher.PatchFunds(funds, authoritativeReduction: false);
+                KspStatePatcher.PatchScience(science, authoritativeReduction: false);
+                KspStatePatcher.PatchReputation(rep, authoritativeReduction: false);
+
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(Funding.Instance.Funds - LiveFunds) < 0.5,
+                    $"Funds must be clamped to live (expected {LiveFunds}, got {Funding.Instance.Funds})");
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(ResearchAndDevelopment.Instance.Science - LiveScience) < 0.5f,
+                    $"Science must be clamped to live (expected {LiveScience}, got {ResearchAndDevelopment.Instance.Science})");
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(Reputation.Instance.reputation - LiveRep) < 0.5f,
+                    $"Reputation must be clamped to live (expected {LiveRep}, got {Reputation.Instance.reputation})");
+
+                // ---- Case 2: an authoritative signal -> reduction APPLIES ----
+                // Drive a single signal (signal 5) true so authoritativeReduction is true.
+                RewindContext.BeginRewindResourceAdjustment();
+                try
+                {
+                    var funds2 = MakeSeededFundsModule(RunningFunds);
+                    var science2 = MakeSeededScienceModule(RunningScience);
+                    var rep2 = MakeSeededReputationModule(RunningRep);
+
+                    bool authoritative = LedgerOrchestrator.IsAuthoritativeReduction(
+                        RewindContext.IsRewinding,
+                        false, false, false,
+                        RewindContext.RewindResourceAdjustmentInProgress);
+                    Parsek.InGameTests.InGameAssert.IsTrue(authoritative,
+                        "Signal 5 must make IsAuthoritativeReduction true");
+
+                    KspStatePatcher.PatchFunds(funds2, authoritativeReduction: authoritative);
+                    KspStatePatcher.PatchScience(science2, authoritativeReduction: authoritative);
+                    KspStatePatcher.PatchReputation(rep2, authoritativeReduction: authoritative);
+
+                    Parsek.InGameTests.InGameAssert.IsTrue(
+                        System.Math.Abs(Funding.Instance.Funds - RunningFunds) < 0.5,
+                        $"Authorized reduction must apply funds target (expected {RunningFunds}, got {Funding.Instance.Funds})");
+                    Parsek.InGameTests.InGameAssert.IsTrue(
+                        System.Math.Abs(ResearchAndDevelopment.Instance.Science - RunningScience) < 0.5f,
+                        $"Authorized reduction must apply science target (expected {RunningScience}, got {ResearchAndDevelopment.Instance.Science})");
+                    Parsek.InGameTests.InGameAssert.IsTrue(
+                        System.Math.Abs(Reputation.Instance.reputation - RunningRep) < 0.5f,
+                        $"Authorized reduction must apply rep target (expected {RunningRep}, got {Reputation.Instance.reputation})");
+                }
+                finally
+                {
+                    RewindContext.EndRewindResourceAdjustment();
+                }
+
+                ParsekLog.Info("TestRunner",
+                    "DrawdownGuard_ClampsLeakAndAuthorizesSignal: clamp + signal-bypass verified against live singletons");
+            }
+            finally
+            {
+                // Restore the player's real career values no matter what.
+                Funding.Instance.SetFunds(origFunds, TransactionReasons.None);
+                ResearchAndDevelopment.Instance.SetScience(origScience, TransactionReasons.None);
+                Reputation.Instance.SetReputation(origRep, TransactionReasons.None);
+                KspStatePatcher.ResetForTesting();
+            }
+        }
+
+        private static FundsModule MakeSeededFundsModule(double running)
+        {
+            var m = new FundsModule();
+            m.ProcessAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = (float)running,
+            });
+            return m;
+        }
+
+        private static ScienceModule MakeSeededScienceModule(double running)
+        {
+            var m = new ScienceModule();
+            m.ProcessScienceInitial(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = (float)running,
+            });
+            return m;
+        }
+
+        private static ReputationModule MakeSeededReputationModule(float running)
+        {
+            var m = new ReputationModule();
+            m.ProcessReputationInitial(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ReputationInitial,
+                InitialReputation = running,
+            });
+            return m;
+        }
+
+        #endregion
     }
 }

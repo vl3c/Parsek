@@ -14,6 +14,10 @@ All notable changes to Parsek are documented here.
 - Parsek no longer auto-spawns ghost vessels, map icons, or duplicate copies of your recorded missions during a normal playthrough. Recorded flights now stay dormant until you rewind, loop, or preview them, instead of replaying and re-spawning on their own once game time passes their recorded end.
 - A terminal-orbit recording whose auto-recreated vessel dies on spawn is now permanently left alone across save and reload. Previously the "will not be retried" decision was forgotten on every scene change, so the same doomed vessel was re-spawned and re-recovered each session (log spam and needless churn).
 
+### Safety
+
+- Added a "keep what you earned" safety net so a bookkeeping error can never again silently wipe your funds, science, or reputation. If an internal recalculation would drop one of these below your current total without an active rewind or re-fly, Parsek keeps your value, shows a brief "Kept your earned ..." notice once, and logs the details. Legitimate reductions from time travel still apply normally, and spending reservations are unaffected.
+
 ### Log Hygiene
 
 - A long career session no longer floods the log with per-frame re-fly settle and per-recording overlap-gate diagnostics. These two traces alone were about two-thirds of a 2026-06-07 career playtest log (roughly 233,000 lines, none of it from an actual re-fly): the floating-origin shift line is now a throttled heartbeat, and the overlap-gate verdict logs only when it actually changes. The per-frame supply-route summary was given the same change-only treatment.
