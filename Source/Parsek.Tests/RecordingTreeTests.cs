@@ -296,6 +296,91 @@ namespace Parsek.Tests
                 "VesselSpawned should stay false when spawnedPid is absent on load.");
         }
 
+        // --- BUG-C: durable terminal-orbit cannot-spawn-safely abandon ---
+
+        [Fact]
+        public void RecordingTree_TerminalSpawnCannotSpawnSafely_RoundTrips()
+        {
+            // Regression (2026-06-07 career playtest, BUG-C): a terminal-orbit
+            // "vessel"-type recording whose spawned vessel died/was orphan-recovered
+            // is marked TerminalSpawnCannotSpawnSafely so it "will not be retried".
+            // That flag used to be transient, so every scene reload reset it and the
+            // vessel re-spawned -> re-died -> re-abandoned (R2-B2-S5 abandoned 3x).
+            // Persist the flag + reason so VesselSpawner's pre-spawn guard keeps the
+            // known-dead terminal vessel from re-materializing after load.
+            var tree = new RecordingTree
+            {
+                Id = "tree_term",
+                TreeName = "Terminal Abandon",
+                RootRecordingId = "rec_term",
+                ActiveRecordingId = "rec_term"
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec_term",
+                VesselName = "R2-B2-S5",
+                VesselPersistentId = 590316933u,
+                ExplicitStartUT = 160103.0,
+                ExplicitEndUT = 160114.0,
+                TreeId = "tree_term",
+                TerminalSpawnCannotSpawnSafely = true,
+                TerminalSpawnSafetyReasonCode = TerminalOrbitSpawnSafety.ReasonSpawnedVesselDied
+            };
+            tree.Recordings["rec_term"] = rec;
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+
+            var restored = RecordingTree.Load(node);
+            var restoredRec = restored.Recordings["rec_term"];
+            Assert.True(restoredRec.TerminalSpawnCannotSpawnSafely,
+                "TerminalSpawnCannotSpawnSafely must survive save/load so the abandon " +
+                "is durable across scene reloads (BUG-C re-spawn loop).");
+            Assert.Equal(
+                TerminalOrbitSpawnSafety.ReasonSpawnedVesselDied,
+                restoredRec.TerminalSpawnSafetyReasonCode);
+
+            // The persisted flag must drive the spawn-hold decision after reload so
+            // the deferred/pre-spawn guards keep the vessel down.
+            Assert.True(
+                TerminalOrbitSpawnSafety.ShouldHoldDeferredSpawnUntilUT(restoredRec, 200000.0, out string holdReason),
+                "A reloaded cannot-spawn-safely recording must still resolve to a spawn Hold.");
+            Assert.Equal(TerminalOrbitSpawnSafety.ReasonSpawnedVesselDied, holdReason);
+        }
+
+        [Fact]
+        public void RecordingTree_NoTerminalSpawnAbandon_StaysFalseOnLoad()
+        {
+            // A recording that was never abandoned must not gain a spurious
+            // cannot-spawn-safely flag on load (absent key -> false), so legitimate
+            // terminal-orbit materialization is never frozen by accident.
+            var tree = new RecordingTree
+            {
+                Id = "tree_noterm",
+                TreeName = "No Abandon",
+                RootRecordingId = "rec_noterm",
+                ActiveRecordingId = "rec_noterm"
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec_noterm",
+                VesselName = "Healthy Orbiter",
+                VesselPersistentId = 7u,
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 5.0,
+                TreeId = "tree_noterm"
+            };
+            tree.Recordings["rec_noterm"] = rec;
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+
+            var restored = RecordingTree.Load(node);
+            var restoredRec = restored.Recordings["rec_noterm"];
+            Assert.False(restoredRec.TerminalSpawnCannotSpawnSafely,
+                "Absent terminalSpawnCannotSpawnSafely must default to false on load.");
+        }
+
         // --- Recording tree with undock branch ---
 
         [Fact]
