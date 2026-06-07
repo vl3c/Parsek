@@ -909,6 +909,91 @@ namespace Parsek.Tests
             Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(11));
         }
 
+        [Theory]
+        // BUG-D: the large-gap threshold must track the adaptive sampler's
+        // configured max-interval backstop (8.0/3.0/1.0s), not the legacy 0.50s
+        // floor. 1.5x leaves a margin so an on-schedule coast gap never warns.
+        [InlineData(SamplingDensity.Low, 12.0)]    // 8.0 * 1.5
+        [InlineData(SamplingDensity.Medium, 4.5)]  // 3.0 * 1.5
+        [InlineData(SamplingDensity.High, 1.5)]    // 1.0 * 1.5
+        public void ResolveSparseGapWarningThreshold_DerivesFromConfiguredBackstop(
+            SamplingDensity density, double expectedThreshold)
+        {
+            float configuredMax = ParsekSettings.GetMaxSampleInterval(density);
+            double threshold = FlightRecorder.ResolveSparseGapWarningThreshold(configuredMax);
+            Assert.Equal(expectedThreshold, threshold, precision: 6);
+        }
+
+        [Theory]
+        [InlineData(float.NaN)]
+        [InlineData(float.PositiveInfinity)]
+        [InlineData(0f)]
+        [InlineData(-3f)]
+        public void ResolveSparseGapWarningThreshold_DegenerateInterval_FallsBackToFloor(
+            float configuredMax)
+        {
+            // A degenerate / unset backstop falls back to the conservative floor so
+            // the WARN gate still fires on something rather than dividing by garbage.
+            double threshold = FlightRecorder.ResolveSparseGapWarningThreshold(configuredMax);
+            Assert.Equal(
+                FlightRecorder.SparseSectionGapWarningThresholdSeconds,
+                threshold,
+                precision: 6);
+        }
+
+        [Fact]
+        public void SectionGapStats_MediumCoastGap_BelowHeartbeatThreshold_NoWarn()
+        {
+            // BUG-D reproducer (2026-06-07 career playtest): at Medium density the
+            // adaptive sampler's max-interval backstop is 3.0s, so a low-dynamics
+            // coast legitimately produces ~3.04s gaps. Under the legacy 0.50s
+            // threshold these tripped the WARN; under the heartbeat-derived 4.5s
+            // threshold they are no longer counted as large gaps at all.
+            float configuredMax = ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
+            double threshold = FlightRecorder.ResolveSparseGapWarningThreshold(configuredMax);
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 1000.00 },
+                new TrajectoryPoint { ut = 1003.04 }, // 3.04s on-schedule backstop gap
+                new TrajectoryPoint { ut = 1006.08 }  // another on-schedule backstop gap
+            };
+            var warpFlags = new List<bool> { false, false, false };
+
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(
+                    frames, largeGapThresholdSeconds: threshold, warpFlags: warpFlags);
+
+            Assert.Equal(0, stats.LargeGapCount);
+            Assert.Equal(0, stats.LargeGapCountAtNormalRate);
+            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(stats.LargeGapCountAtNormalRate));
+        }
+
+        [Fact]
+        public void SectionGapStats_MediumStallGap_AboveHeartbeatThreshold_Warns()
+        {
+            // The genuine signal the WARN exists for: a gap well past the configured
+            // backstop means even the heartbeat failed (stalled sampler / severe
+            // frame-budget lag). The 5.92s gap is the worst 1x gap seen in the
+            // BUG-D playtest and must still WARN under the recalibrated threshold.
+            float configuredMax = ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
+            double threshold = FlightRecorder.ResolveSparseGapWarningThreshold(configuredMax);
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 2000.00 },
+                new TrajectoryPoint { ut = 2003.00 }, // 3.0s on-schedule backstop -> not large
+                new TrajectoryPoint { ut = 2008.92 }  // 5.92s stall -> large at 1x
+            };
+            var warpFlags = new List<bool> { false, false, false };
+
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(
+                    frames, largeGapThresholdSeconds: threshold, warpFlags: warpFlags);
+
+            Assert.Equal(1, stats.LargeGapCount);
+            Assert.Equal(1, stats.LargeGapCountAtNormalRate);
+            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(stats.LargeGapCountAtNormalRate));
+        }
+
         [Fact]
         public void TrimSectionFramesAndWarpFlagsAfterUT_TrimsTailAndKeepsFlagsAligned()
         {

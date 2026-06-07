@@ -54,22 +54,44 @@ namespace Parsek
             lastFloatingOriginShiftRefPos = refPos;
             lastFloatingOriginShiftNonFrame = nonFrame;
 
-            Vector3d offsetNonKrakensbane = refPos + nonFrame;
-            double magnitude = Math.Sqrt(offsetNonKrakensbane.sqrMagnitude);
-            string wallclock = realtimeSinceStartup >= 0f
-                ? realtimeSinceStartup.ToString("F3", CultureInfo.InvariantCulture)
-                : "(n/a)";
-            string message =
-                $"FloatingOrigin.setOffset refPos={DiagnosticFormatters.FormatVector3d(refPos)} " +
-                $"nonFrame={DiagnosticFormatters.FormatVector3d(nonFrame)} " +
-                $"offsetNonKrakensbane={DiagnosticFormatters.FormatVector3d(offsetNonKrakensbane)} " +
-                $"magnitude={magnitude.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"wallclock={wallclock} " +
-                $"frame={frame.ToString(CultureInfo.InvariantCulture)}";
+            // The shift STATE above is updated unconditionally (it feeds
+            // LastFloatingOriginShiftFrame, which the GhostRenderTrace large-delta
+            // detector reads). Only the diagnostic LINE is conditional. Build the
+            // message lazily so the dominant non-settle path pays no string-format
+            // cost on the frames the rate limiter suppresses.
+            Func<string> buildMessage = () =>
+            {
+                Vector3d offsetNonKrakensbane = refPos + nonFrame;
+                double magnitude = Math.Sqrt(offsetNonKrakensbane.sqrMagnitude);
+                string wallclock = realtimeSinceStartup >= 0f
+                    ? realtimeSinceStartup.ToString("F3", CultureInfo.InvariantCulture)
+                    : "(n/a)";
+                return
+                    $"FloatingOrigin.setOffset refPos={DiagnosticFormatters.FormatVector3d(refPos)} " +
+                    $"nonFrame={DiagnosticFormatters.FormatVector3d(nonFrame)} " +
+                    $"offsetNonKrakensbane={DiagnosticFormatters.FormatVector3d(offsetNonKrakensbane)} " +
+                    $"magnitude={magnitude.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"wallclock={wallclock} " +
+                    $"frame={frame.ToString(CultureInfo.InvariantCulture)}";
+            };
+
             if (HasRecentSettleActivity(frame))
-                ParsekLog.Info("ReFlySettle", message);
+            {
+                // Inside an actual re-fly settle window every floating-origin shift is
+                // diagnostically valuable, so emit unconditionally at INFO.
+                ParsekLog.Info("ReFlySettle", buildMessage());
+            }
             else
-                ParsekLog.Verbose("ReFlySettle", message);
+            {
+                // Outside a settle window FloatingOrigin.setOffset fires on (nearly) every
+                // physics frame the world re-centres. This was by far the largest log-spam
+                // source in long sessions: ~185k lines (~56% of all verbose output) in the
+                // 2026-06-07 career playtest, none of it from a re-fly. Throttle to a
+                // shared-key heartbeat plus a "suppressed=N" tail so the patch is still
+                // observably alive and a sample magnitude is retained.
+                ParsekLog.VerboseRateLimited(
+                    "ReFlySettle", "floating-origin-shift", buildMessage, 30.0);
+            }
         }
 
         /// <summary>

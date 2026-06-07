@@ -6948,9 +6948,14 @@ namespace Parsek
             state.trackSections.Add(state.currentTrackSection);
             state.trackSectionActive = false;
 
+            float configuredMaxSampleInterval = ParsekSettings.Current?.maxSampleInterval
+                ?? ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
+            double sparseGapThreshold =
+                FlightRecorder.ResolveSparseGapWarningThreshold(configuredMaxSampleInterval);
             FlightRecorder.SectionGapStats gapStats =
                 FlightRecorder.ComputeSectionGapStats(
                     state.currentTrackSection.frames,
+                    largeGapThresholdSeconds: sparseGapThreshold,
                     warpFlags: state.sectionFrameWarpFlags);
             if (state.currentTrackSection.referenceFrame == ReferenceFrame.Relative
                 && string.IsNullOrWhiteSpace(state.currentTrackSection.anchorRecordingId))
@@ -6983,7 +6988,7 @@ namespace Parsek
                     $"env={state.currentTrackSection.environment} " +
                     $"ref={state.currentTrackSection.referenceFrame} frames={frameCount} " +
                     $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
-                    $"threshold={FlightRecorder.SparseSectionGapWarningThresholdSeconds.ToString("F2", CultureInfo.InvariantCulture)}s " +
+                    $"threshold={sparseGapThreshold.ToString("F2", CultureInfo.InvariantCulture)}s " +
                     $"largeGaps={gapStats.LargeGapCount} largeGaps1x={gapStats.LargeGapCountAtNormalRate}";
                 if (warn)
                     ParsekLog.Warn("BgRecorder", message);
