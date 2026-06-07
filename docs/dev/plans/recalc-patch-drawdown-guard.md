@@ -1,11 +1,12 @@
 # Recalc-Patch Drawdown Guard (defense-in-depth)
 
-Status: PLAN ONLY. No code in this branch beyond this document. Do not implement
-from this doc without a follow-up build/review cycle. REVISED after a clean Opus
-design review found the original "clamp any non-time-travel downward delta" thesis
-false: the predicate now keys on the NON-RESERVED running balance and adds a fifth
-time-travel signal for the deferred plain-rewind drawdown (see sections 2.6.6 / 2.6.7
-and 3.2 / 3.3).
+Status: IMPLEMENTATION-READY. No code in this branch beyond this document; implement on
+a follow-up branch. REVISED after a clean Opus design review found the original "clamp
+any non-time-travel downward delta" thesis false: the predicate now keys on the
+NON-RESERVED running balance and adds a fifth time-travel signal for the deferred
+plain-rewind recalc (sections 2.6.6 / 2.6.7, 3.2 / 3.3). A follow-up review refinement
+(MINOR-A) made the signal-5 fail-safe race-free via the next scene's
+`ParsekScenario.OnAwake` clear instead of a blanket scene-switch clear (section 3.2).
 
 Motivating bug: BUG-A (fixed in PR #1090). During pure-stock career play with no
 Parsek feature used, a scene-change `RecalculateAndPatch` silently patched live
@@ -290,11 +291,11 @@ explicitly carry no setting (the map-view trajectory polyline,
 restricts legitimate play, so by this precedent it is unconditional (no toggle).
 (Resolves Q5.)
 
-#### 2.6.6 BLOCKER 1 - plain Rewind-to-Launch writes its authoritative drawdown with ALL prior signals false
+#### 2.6.6 BLOCKER 1 - plain Rewind-to-Launch runs its authoritative recalc with ALL prior signals false
 
 The earlier draft keyed the rewind case on `RewindContext.IsRewinding` and cited the
-recalc at `ParsekScenario.cs:3202`. That call site is the WRONG one. The real
-career-resource drawdown for a plain Rewind-to-Launch is the DEFERRED coroutine:
+recalc at `ParsekScenario.cs:3202`. That call site is the WRONG one. The authoritative
+career-resource recalc for a plain Rewind-to-Launch is the DEFERRED coroutine:
 
 - `HandleRewindOnLoad` sets `RewindUTAdjustmentPending = true` and
   `StartCoroutine(ApplyRewindResourceAdjustment())` (`ParsekScenario.cs:3188-3189`),
@@ -306,8 +307,11 @@ career-resource drawdown for a plain Rewind-to-Launch is the DEFERRED coroutine:
 - `ApplyRewindResourceAdjustment` (`:6191`) yields, sets the adjusted UT, waits up to
   ~2s for the singletons (`:6225-6230`), then calls
   `RecalculateAndPatch(adjustedUT, suppressSuspiciousDrawdownWarnings: true)` at
-  `:6237`. This is where the actual funds/science/rep are driven down to the rewound
-  target.
+  `:6237`. This is the authoritative funds/science/rep recalc for the rewound target.
+  (Whether it reduces the running balance below live is NOT rigorously established - it
+  depends on the loaded pre-launch value vs the rewound running balance. The point is
+  that IF it reduces, the reduction is legitimate and must be authorized; signal (5)
+  authorizes it either way, and if running >= live the guard would not fire anyway.)
 - By the time `:6237` runs: `IsRewinding` is FALSE (EndRewind ran at `:3215`,
   confirmed by the `:6233-6234` comment "RewindContext.EndRewind() has already cleared
   the global"); `ActiveReFlySessionMarker` is NULL for a plain rewind
@@ -316,11 +320,12 @@ career-resource drawdown for a plain Rewind-to-Launch is the DEFERRED coroutine:
   re-fly merge); and it is not the tombstone path. ALL FOUR original signals are
   false.
 
-So the prior guard would CLAMP A LEGITIMATE rewind drawdown - exactly the
-"intended reduction" the guard must allow. Fix: the fifth signal,
-`RewindContext.RewindResourceAdjustmentInProgress`, set synchronously before
-`StartCoroutine` and cleared after the `:6237` patch (section 3.2). Verified against
-the `:6237` call site specifically.
+So if this recalc reduces the running balance, the prior guard would CLAMP A
+LEGITIMATE rewind drawdown - exactly the "intended reduction" the guard must allow.
+Fix: the fifth signal, `RewindContext.RewindResourceAdjustmentInProgress`, set
+synchronously before `StartCoroutine` and cleared by the coroutine try/finally plus the
+OnAwake fail-safe (section 3.2). It authorizes the `:6237` patch unconditionally.
+Verified against the `:6237` call site specifically.
 
 #### 2.6.7 BLOCKER 2 - the reservation legitimately drives the target BELOW live on plain (non-time-travel) loads
 
@@ -422,23 +427,48 @@ Rationale for each:
   point ALL of (1)-(4) are FALSE: the coroutine resumes after `EndRewind()` cleared
   IsRewinding (`:6233-6234` comment) and after `ClearActiveReFlyMarkerForPlainRewind()`
   nulled the marker (`:3094` -> `:3235`), and a plain rewind has no merge journal or
-  tombstone path. Without signal (5) the guard would CLAMP A LEGITIMATE rewind
-  drawdown. See Blocker 1 (section 2.6.6) for the full call-site trace.
+  tombstone path. Signal (5) authorizes this patch UNCONDITIONALLY: whether the
+  running balance is actually below live there is immaterial (it depends on the loaded
+  pre-launch value vs the rewound running balance, and is not rigorously established;
+  if running >= live the guard would not fire anyway, and if running < live signal (5)
+  authorizes it). See Blocker 1 (section 2.6.6) for the full call-site trace.
 
-Implementing signal (5): add a static flag to `RewindContext`:
-`RewindResourceAdjustmentInProgress` (default false). Set it true in
-`HandleRewindOnLoad` immediately BEFORE `StartCoroutine(ApplyRewindResourceAdjustment())`
-(`ParsekScenario.cs:3188-3189`) - synchronously, so the flag is set before EndRewind
-clears IsRewinding - and clear it in `ApplyRewindResourceAdjustment` right AFTER the
-`:6237` patch returns (in the same coroutine, so it spans exactly the deferred patch).
-Add a paired clear in `RewindContext.EndRewind`'s own reset path is NOT correct here
-(EndRewind runs before the coroutine), so the flag is owned by the coroutine's
-lifetime, not the synchronous EndRewind. Also clear it in `ResetForTesting`. Because
-the flag is process-static and the coroutine always runs to completion within one
-session (like the rest of `RewindContext`), it does not need to persist across
-save/load. Defensive: also clear it on `onGameSceneSwitchRequested` so an aborted
-coroutine cannot strand the flag true into normal play (a stranded-true flag would
-DISABLE the guard during normal play - fail-safe is to clear).
+Implementing signal (5) - lifetime and the race-free fail-safe (MINOR-A): add a static
+flag to `RewindContext`: `RewindResourceAdjustmentInProgress` (default false), with
+`BeginRewindResourceAdjustment()` / `EndRewindResourceAdjustment()` setters (logged) and
+a clear in `ResetForTesting`.
+
+Host-lifetime facts (verified): `ApplyRewindResourceAdjustment` is a coroutine started
+via `StartCoroutine` on the per-scene `ParsekScenario` ScenarioModule (`:3189`), which a
+plain Rewind-to-Launch loads in SPACECENTER. `ParsekScenario` is NOT DontDestroyOnLoad
+(it is a `ScenarioModule`, a fresh instance per scene, `ParsekScenario.cs:30-32`); on a
+scene change the SPACECENTER instance is destroyed and Unity STOPS the coroutine WITHOUT
+running its remaining `finally` blocks. Therefore:
+
+- AUTHORITATIVE CLEAR (covers the normal + exception paths): the coroutine's own
+  try/finally. Set the flag synchronously in `HandleRewindOnLoad` immediately BEFORE
+  `StartCoroutine(ApplyRewindResourceAdjustment())` (`:3188-3189`) via
+  `RewindContext.BeginRewindResourceAdjustment()` (so it is true before EndRewind clears
+  IsRewinding at `:3215`), and wrap the `:6237` patch in the coroutine in
+  `try { ...patch... } finally { RewindContext.EndRewindResourceAdjustment(); }`. The
+  finally clears on both a clean patch and a thrown patch. NOTE the flag is NOT cleared
+  by `RewindContext.EndRewind` (which runs synchronously at `:3215`, before the coroutine
+  resumes); it is owned solely by the coroutine's lifetime.
+- FAIL-SAFE for the only uncovered case (host destroyed mid-wait, so the finally never
+  runs AND the `:6237` patch never runs): do NOT use a blanket
+  `onGameSceneSwitchRequested` clear - that races the live coroutine during its
+  up-to-120-frame (~2s) singleton wait (`:6225-6230`) and could null signal (5) before
+  the deferred patch, exactly the bug MINOR-A flags. Instead clear the flag in the NEXT
+  scene's `ParsekScenario.OnAwake` (`:841-850`). OnAwake runs once per fresh instance,
+  BEFORE that instance's OnLoad (so it never clears a flag the same instance is about to
+  set in its own `HandleRewindOnLoad`), and only AFTER the previous SPACECENTER instance
+  (and its coroutine) has been destroyed - so it cannot race a live coroutine: the old
+  host and the new host never coexist. If the coroutine completed normally, the finally
+  already cleared the flag and the OnAwake clear is a no-op; if the host was destroyed
+  mid-wait, the `:6237` patch never fired (nothing to mis-guard) and OnAwake clears the
+  stranded flag before any new-scene recalc can read it. This makes signal (5) true for
+  the entire window up to and including the `:6237` patch, and impossible to strand-true
+  into normal play.
 
 This signal is computed inside `LedgerOrchestrator` (it has access to `RewindContext`
 and `ParsekScenario.Instance`), not inside `KspStatePatcher` (which is a pure-ish
@@ -859,21 +889,41 @@ No configuration, no popup, no opt-out. Time-travel reductions still apply norma
     plus `BeginRewindResourceAdjustment()` / `EndRewindResourceAdjustment()` setters
     (logged, mirroring the existing Begin/End style). Clear it in `ResetForTesting`.
     This is signal (5) for the deferred plain-rewind drawdown (Blocker 1, 2.6.6, 3.2).
-    Owned by the coroutine's lifetime, set synchronously before scheduling and cleared
-    after the `:6237` patch; NOT cleared by `EndRewind` (which runs before the coroutine).
+    Owned by the coroutine's lifetime: set synchronously before scheduling, cleared by the
+    coroutine's try/finally around the `:6237` patch (authoritative) and by the next
+    scene's `ParsekScenario.OnAwake` (fail-safe for host-destroyed-mid-wait); NOT cleared
+    by `EndRewind` (which runs before the coroutine resumes).
 
 - `Source/Parsek/ParsekScenario.cs`
   - In `HandleRewindOnLoad`, call `RewindContext.BeginRewindResourceAdjustment()`
     synchronously immediately before `StartCoroutine(ApplyRewindResourceAdjustment())`
     (`:3188-3189`).
-  - In `ApplyRewindResourceAdjustment`, call `RewindContext.EndRewindResourceAdjustment()`
-    immediately AFTER the `RecalculateAndPatch(adjustedUT, suppress:true)` at `:6237`
-    (wrap in try/finally so an exception in the patch still clears the flag).
-  - Defensive: clear the flag on `GameEvents.onGameSceneSwitchRequested` so an aborted
-    coroutine cannot strand it true (a stranded-true flag would DISABLE the guard during
-    normal play; fail-safe is to clear).
+  - In `ApplyRewindResourceAdjustment`, wrap the `RecalculateAndPatch(adjustedUT,
+    suppress:true)` at `:6237` in `try { ...patch... } finally {
+    RewindContext.EndRewindResourceAdjustment(); }`. This is the AUTHORITATIVE clear; the
+    finally covers clean and thrown patch paths.
+  - FAIL-SAFE (MINOR-A, host-destroyed-mid-wait case only): clear the flag in
+    `ParsekScenario.OnAwake` (`:841-850`), NOT on `onGameSceneSwitchRequested`. OnAwake of
+    the next scene's fresh `ParsekScenario` instance runs before that instance's OnLoad
+    and only after the prior (SPACECENTER) instance + its coroutine are destroyed, so it
+    cannot race a live coroutine (old and new hosts never coexist) and cannot clear a flag
+    the same instance is about to set. A blanket scene-switch clear is explicitly REJECTED
+    because it races the coroutine's ~2s singleton wait. (See 3.2 for the full lifetime
+    analysis: `ParsekScenario` is a per-scene `ScenarioModule`, NOT DontDestroyOnLoad, so
+    Unity stops the coroutine without running its finally on host teardown; the OnAwake
+    clear is the race-free recovery for that one uncovered case, where the `:6237` patch
+    never fired so there is nothing to mis-guard.)
   - Optional diagnostic persistence: `DrawdownGuardClampCount` / `DrawdownGuardLastClampUT`
     in OnSave/OnLoad. Purely observability (the clamp itself never depends on it).
+  - NIT-B (no new scene-switch subscription needed): the final fail-safe uses the
+    EXISTING `ParsekScenario.OnAwake` override, so NO new `GameEvents` subscription is
+    added. (Note `ParsekScenario` does not currently subscribe to
+    `onGameSceneSwitchRequested`; the existing scene-change stamping is
+    `ParsekFlight.OnSceneChangeRequested` on `onGameSceneLoadRequested`, FLIGHT-only,
+    `ParsekFlight.cs:1115`, and would not fire for the SPACECENTER rewind path anyway.)
+    If a future revision needs a real subscription instead, follow the
+    `MapRenderProbe.cs:112` template (Awake `GameEvents.X.Add`, OnDestroy `GameEvents.X.Remove`,
+    instance once-guard) - but the OnAwake-clear design avoids needing one.
 
 - `Source/Parsek/GameActions/LedgerOrchestrator.cs`
   - Add `internal static bool IsAuthoritativeReduction(bool isRewinding,
