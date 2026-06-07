@@ -1439,7 +1439,8 @@ namespace Parsek
                 authoritativeRepeatableRecordState: true,
                 techPatchCutoff: patchTechTree ? double.MaxValue : (double?)null,
                 excludeTombstonedTechFromBaseline: patchTechTree,
-                suppressSuspiciousDrawdownWarnings: false);
+                suppressSuspiciousDrawdownWarnings: false,
+                tombstonePath: true);
         }
 
         private const double InitialResourceBaselineMaxUtSeconds = 1.0;
@@ -1676,13 +1677,29 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Pure decision (drawdown-guard plan §3.2): the recalc patch is an AUTHORITATIVE
+        /// (intended) downward reduction iff ANY of the five time-travel signals is set.
+        /// When true, the "Keep what you earned" clamp is bypassed so legitimate time-travel
+        /// drawdowns (rewind / re-fly / merge / tombstone / deferred rewind adjustment) apply
+        /// unchanged. Pure / unit-testable; the live wrapper reads the five inputs.
+        /// </summary>
+        internal static bool IsAuthoritativeReduction(
+            bool isRewinding, bool hasReFlyMarker, bool hasMergeJournal,
+            bool tombstonePath, bool rewindResourceAdjustmentInProgress)
+        {
+            return isRewinding || hasReFlyMarker || hasMergeJournal
+                || tombstonePath || rewindResourceAdjustmentInProgress;
+        }
+
         private static void RecalculateAndPatchCore(
             double? utCutoff,
             bool bypassPatchDeferral,
             bool authoritativeRepeatableRecordState,
             double? techPatchCutoff,
             bool excludeTombstonedTechFromBaseline = false,
-            bool suppressSuspiciousDrawdownWarnings = false)
+            bool suppressSuspiciousDrawdownWarnings = false,
+            bool tombstonePath = false)
         {
             Initialize();
 
@@ -1744,13 +1761,35 @@ namespace Parsek
             }
             else
             {
+                // Drawdown-guard plan §3.2: compute the authoritative-reduction signal once
+                // here (Core has access to RewindContext + ParsekScenario.Instance) and pass
+                // it down to the patch methods, which read the per-resource running balance
+                // from the module they already hold. Kept separate from
+                // suppressSuspiciousDrawdownWarnings (that flag only silences the legacy 10%
+                // WARN; this flag authorizes the clamp bypass).
+                bool authoritativeReduction = IsAuthoritativeReduction(
+                    RewindContext.IsRewinding,
+                    ParsekScenario.Instance?.ActiveReFlySessionMarker != null,
+                    ParsekScenario.Instance?.ActiveMergeJournal != null,
+                    tombstonePath,
+                    RewindContext.RewindResourceAdjustmentInProgress);
+                ParsekLog.Verbose(Tag,
+                    "RecalculateAndPatch: drawdown-guard authoritativeReduction=" +
+                    authoritativeReduction +
+                    $" (rewinding={RewindContext.IsRewinding}, " +
+                    $"reFlyMarker={ParsekScenario.Instance?.ActiveReFlySessionMarker != null}, " +
+                    $"mergeJournal={ParsekScenario.Instance?.ActiveMergeJournal != null}, " +
+                    $"tombstone={tombstonePath}, " +
+                    $"rewindResAdjust={RewindContext.RewindResourceAdjustmentInProgress})");
+
                 ApplyRecalculatedStateToKsp(
                     actions,
                     utCutoff,
                     authoritativeRepeatableRecordState,
                     techPatchCutoff,
                     excludeTombstonedTechFromBaseline,
-                    suppressSuspiciousDrawdownWarnings);
+                    suppressSuspiciousDrawdownWarnings,
+                    authoritativeReduction);
             }
 
             // #391 / cutoff-cache follow-up: rebuild committedScienceSubjects from
@@ -1843,7 +1882,8 @@ namespace Parsek
             bool authoritativeRepeatableRecordState,
             double? techPatchCutoff,
             bool excludeTombstonedTechFromBaseline,
-            bool suppressSuspiciousDrawdownWarnings)
+            bool suppressSuspiciousDrawdownWarnings,
+            bool authoritativeReduction)
         {
             // KSP state mutations (PostWalk already called by engine). Repeatable
             // Records* nodes only rebuild strictly from ledger-backed thresholds on
@@ -1892,7 +1932,8 @@ namespace Parsek
                 authoritativeRepeatableRecordState: authoritativeRepeatableRecordState,
                 techUtCutoff: techPatchCutoff,
                 techBaselineUt: techBaselineUt,
-                suppressSuspiciousDrawdownWarnings: suppressSuspiciousDrawdownWarnings);
+                suppressSuspiciousDrawdownWarnings: suppressSuspiciousDrawdownWarnings,
+                authoritativeReduction: authoritativeReduction);
         }
 
         internal static HashSet<string> BuildTombstonedFacilityIdsForPatch()

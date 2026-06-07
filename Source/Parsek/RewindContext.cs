@@ -10,6 +10,22 @@ namespace Parsek
     internal static class RewindContext
     {
         internal static bool IsRewinding { get; private set; }
+
+        /// <summary>
+        /// True while the deferred plain-Rewind-to-Launch resource adjustment coroutine
+        /// (<c>ParsekScenario.ApplyRewindResourceAdjustment</c>) is in flight, i.e. between
+        /// scheduling the coroutine in <c>HandleRewindOnLoad</c> and the authoritative
+        /// <c>RecalculateAndPatch(adjustedUT)</c> completing. This is the FIFTH
+        /// time-travel signal for the recalc drawdown guard (Blocker 1): it is the ONLY
+        /// authoritative-reduction signal true at the deferred recalc, because by then
+        /// <see cref="EndRewind"/> has cleared <see cref="IsRewinding"/> and a plain rewind
+        /// has no re-fly marker / merge journal / tombstone path. Owned by the coroutine's
+        /// lifetime: set synchronously before scheduling, cleared by the coroutine's
+        /// try/finally (authoritative) and by the next scene's <c>ParsekScenario.OnAwake</c>
+        /// (race-free fail-safe for host-destroyed-mid-wait). NOT cleared by
+        /// <see cref="EndRewind"/>, which runs before the coroutine resumes.
+        /// </summary>
+        internal static bool RewindResourceAdjustmentInProgress { get; private set; }
         internal static double RewindUT { get; private set; }
         internal static double RewindAdjustedUT { get; private set; }
         internal static BudgetSummary RewindReserved { get; private set; }
@@ -71,6 +87,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Marks the deferred plain-rewind resource adjustment as in progress (signal 5
+        /// for the recalc drawdown guard). Called synchronously in
+        /// <c>HandleRewindOnLoad</c> immediately before the coroutine is scheduled, so the
+        /// flag is true before <see cref="EndRewind"/> clears <see cref="IsRewinding"/>.
+        /// </summary>
+        internal static void BeginRewindResourceAdjustment()
+        {
+            RewindResourceAdjustmentInProgress = true;
+            ParsekLog.Info("RewindContext",
+                "BeginRewindResourceAdjustment: deferred rewind resource adjustment in progress (drawdown-guard signal 5 ON)");
+        }
+
+        /// <summary>
+        /// Clears the deferred plain-rewind resource adjustment flag (signal 5). Called from
+        /// the coroutine's try/finally after the authoritative recalc and as a no-op
+        /// fail-safe from the next scene's OnAwake. Idempotent.
+        /// </summary>
+        internal static void EndRewindResourceAdjustment()
+        {
+            if (!RewindResourceAdjustmentInProgress)
+                return;
+            RewindResourceAdjustmentInProgress = false;
+            ParsekLog.Info("RewindContext",
+                "EndRewindResourceAdjustment: deferred rewind resource adjustment complete (drawdown-guard signal 5 OFF)");
+        }
+
+        /// <summary>
         /// Sets the adjusted UT captured from the preprocessed save file after LoadGame.
         /// Called separately from BeginRewind because the adjusted UT is only known
         /// after PreProcessRewindSave + LoadGame.
@@ -99,6 +142,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             IsRewinding = false;
+            RewindResourceAdjustmentInProgress = false;
             RewindUT = 0;
             RewindAdjustedUT = 0;
             RewindReserved = default(BudgetSummary);
