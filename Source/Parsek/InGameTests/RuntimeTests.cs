@@ -22738,6 +22738,88 @@ namespace Parsek.InGameTests
             return m;
         }
 
+        // BUG-G: the affordability gate is the missing other half of the drawdown guard.
+        // (1) The gate must reconcile against the live R&D singleton so a missing-earning
+        //     leak (running below live, no time-travel context) does NOT falsely block an
+        //     affordable purchase — exercised against the real ResearchAndDevelopment.Instance.
+        // (2) A Parsek block must be NON-DESTRUCTIVE: stock RDTech.ResearchTech deducts
+        //     science BEFORE calling UnlockTech, so the block is gated pre-deduction on
+        //     ResearchTech. A blocked research must deduct nothing.
+        // SAFETY: snapshots and restores live science in a finally; never unlocks a real
+        // node (the synthetic node carries an impossible cost so the gate always blocks).
+        [Parsek.InGameTests.InGameTest(Category = "Ledger", Scene = GameScenes.SPACECENTER,
+            Description = "BUG-G: affordability gate respects the guard-preserved live science, and a blocked tech research deducts nothing (block before deduction)")]
+        public void SpendingGate_RespectsLiveAndBlocksNonDestructively()
+        {
+            if (ResearchAndDevelopment.Instance == null)
+            {
+                Parsek.InGameTests.InGameAssert.Skip(
+                    "requires a career game with the R&D singleton");
+                return;
+            }
+
+            float origScience = ResearchAndDevelopment.Instance.Science;
+            var prevHook = CommittedActionDialog.TestHookForTesting;
+            string blockedReason = null;
+            CommittedActionDialog.TestHookForTesting = (a, reason, c) => blockedReason = reason;
+
+            GameObject go = null;
+            try
+            {
+                // ---- Bug 1: gate reconciles against the live R&D singleton ----
+                // Force a known live science well above a simulated leaked ledger
+                // (available == running == 1.0). The gate must add back the guard-preserved
+                // live value so the purchase is affordable.
+                const float LiveScience = 500f;
+                ResearchAndDevelopment.Instance.SetScience(LiveScience, TransactionReasons.None);
+
+                double effLeak = LedgerOrchestrator.ComputeEffectiveAffordable(
+                    1.0, 1.0, ResearchAndDevelopment.Instance.Science,
+                    authoritativeReduction: false);
+                Parsek.InGameTests.InGameAssert.IsTrue(effLeak >= 45.0,
+                    $"Gate must respect live science above a leaked ledger (eff={effLeak}, live={ResearchAndDevelopment.Instance.Science})");
+
+                // The authoritative (time-travel) branch keeps the ledger value as truth.
+                double effAuth = LedgerOrchestrator.ComputeEffectiveAffordable(
+                    1.0, 1.0, ResearchAndDevelopment.Instance.Science,
+                    authoritativeReduction: true);
+                Parsek.InGameTests.InGameAssert.IsTrue(effAuth < 45.0,
+                    $"Authoritative reduction must gate on the ledger value, not live (eff={effAuth})");
+
+                // ---- Bug 2: blocked RDTech.ResearchTech deducts nothing ----
+                go = new GameObject("ParsekTestRDTech");
+                var tech = go.AddComponent<RDTech>();
+                tech.techID = "parsek_test_unaffordable_node";
+                tech.title = "Parsek Test Node";
+                tech.scienceCost = 1000000000; // never affordable -> gate always blocks
+                tech.state = RDTech.State.Unavailable;
+                tech.host = ResearchAndDevelopment.Instance;
+
+                float beforeResearch = ResearchAndDevelopment.Instance.Science;
+                RDTech.OperationResult result = tech.ResearchTech();
+
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    result == RDTech.OperationResult.Failure,
+                    $"Parsek's pre-deduction block must return Failure, not stock NotEnoughFunds (got {result})");
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(ResearchAndDevelopment.Instance.Science - beforeResearch) < 0.001f,
+                    $"A blocked tech research must deduct NO science (before={beforeResearch}, after={ResearchAndDevelopment.Instance.Science})");
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    blockedReason != null
+                        && blockedReason.IndexOf("Insufficient science", System.StringComparison.Ordinal) >= 0,
+                    $"The block must be Parsek's affordability gate (reason='{blockedReason}')");
+
+                ParsekLog.Info("TestRunner",
+                    "SpendingGate_RespectsLiveAndBlocksNonDestructively: live-reconciled gate + non-destructive ResearchTech block verified");
+            }
+            finally
+            {
+                if (go != null) UnityEngine.Object.Destroy(go);
+                ResearchAndDevelopment.Instance.SetScience(origScience, TransactionReasons.None);
+                CommittedActionDialog.TestHookForTesting = prevHook;
+            }
+        }
+
         #endregion
     }
 }

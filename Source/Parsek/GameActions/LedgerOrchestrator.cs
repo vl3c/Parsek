@@ -3798,15 +3798,70 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure affordability reconciliation (BUG-G, the missing other half of the
+        /// "Keep what you earned" drawdown guard, see
+        /// <c>docs/dev/plans/recalc-patch-drawdown-guard.md</c>).
+        ///
+        /// The drawdown guard (<see cref="KspStatePatcher.ApplyDrawdownGuard"/>)
+        /// PRESERVES the live KSP pool whenever the running balance has fallen below it
+        /// (a missing-earning-channel leak) and NO time-travel context authorizes the
+        /// reduction. So in that case the player genuinely still has the live value, and
+        /// an affordability gate that reads only the leaked ledger <paramref name="available"/>
+        /// contradicts the guard and blocks a purchase the player can actually make.
+        ///
+        /// This helper adds the guard-preserved "leak gap" (<c>live - running</c>) back
+        /// into the spendable amount, mirroring the guard's <c>max(target, live)</c>
+        /// clamp. A GENUINE reservation (committed future costs lower
+        /// <paramref name="available"/> below <paramref name="runningBalance"/>) still
+        /// reduces the spendable amount below the leak-corrected base, so overspend of
+        /// reserved future tech/funds stays prevented. That is why this is NOT a plain
+        /// <c>max(available, live)</c> (which would defeat the reservation). When a
+        /// time-travel context is active (<paramref name="authoritativeReduction"/>) the
+        /// guard does NOT preserve live, so the reservation-aware
+        /// <paramref name="available"/> is ground truth and is returned unchanged.
+        /// </summary>
+        internal static double ComputeEffectiveAffordable(
+            double available, double runningBalance, double liveValue,
+            bool authoritativeReduction)
+        {
+            if (authoritativeReduction)
+                return available;
+
+            double leakGap = liveValue - runningBalance;
+            return leakGap > 0.0 ? available + leakGap : available;
+        }
+
+        /// <summary>
+        /// Live reading of the five drawdown-guard time-travel signals for an
+        /// affordability probe (NOT a recalc patch, so the tombstone-path signal is
+        /// false here). Mirrors the computation in <see cref="RecalculateAndPatchCore"/>.
+        /// </summary>
+        private static bool IsAuthoritativeReductionForAffordability()
+        {
+            return IsAuthoritativeReduction(
+                RewindContext.IsRewinding,
+                ParsekScenario.Instance?.ActiveReFlySessionMarker != null,
+                ParsekScenario.Instance?.ActiveMergeJournal != null,
+                tombstonePath: false,
+                RewindContext.RewindResourceAdjustmentInProgress);
+        }
+
+        /// <summary>
         /// Checks whether a science spending of the given cost is affordable under the
-        /// current ledger reservation. Returns true if available science >= cost.
-        /// Used by TechResearchPatch to block unfunded tech unlocks.
+        /// current ledger reservation, reconciled with the live KSP pool so the gate
+        /// never contradicts the "Keep what you earned" drawdown guard (BUG-G).
+        /// Returns true if the effective (guard-consistent) available science >= cost.
+        /// Used by the RDTech.ResearchTech / UnlockTech patches to block unfunded tech
+        /// unlocks.
         /// </summary>
         /// <remarks>
         /// The recalculation walk is scoped to <c>Planetarium.GetUniversalTime()</c> as
         /// its UT cutoff so post-rewind future actions on the persisted ledger don't leak
         /// into affordability ("what's the state right now?" → right now = Planetarium's
-        /// current UT, not the ledger's last action).
+        /// current UT, not the ledger's last action). When the live R&D singleton exists
+        /// (real KSP) the reservation-aware available is reconciled against live via
+        /// <see cref="ComputeEffectiveAffordable"/>; with no singleton (xUnit) the gate
+        /// keeps the pure-ledger contract.
         /// </remarks>
         internal static bool CanAffordScienceSpending(float cost)
         {
@@ -3824,11 +3879,26 @@ namespace Parsek
             RecalculationEngine.Recalculate(actions, nowUT);
 
             double available = scienceModule.GetAvailableScience();
-            bool affordable = available >= (double)cost;
+
+            // BUG-G: reconcile the ledger spendable with the drawdown-guard-preserved live
+            // value. Only when the live singleton exists (real KSP); xUnit keeps the
+            // pure-ledger contract so the reservation/cutoff tests stay authoritative.
+            double effectiveAvailable = available;
+            var rnd = ResearchAndDevelopment.Instance;
+            if (rnd != null)
+            {
+                effectiveAvailable = ComputeEffectiveAffordable(
+                    available,
+                    scienceModule.GetRunningScience(),
+                    rnd.Science,
+                    IsAuthoritativeReductionForAffordability());
+            }
+
+            bool affordable = effectiveAvailable >= (double)cost;
 
             ParsekLog.Verbose(Tag,
                 $"CanAffordScienceSpending: cost={cost:F1}, available={available:F1}, " +
-                $"affordable={affordable}, cutoffUT={nowUT:R}");
+                $"effectiveAvailable={effectiveAvailable:F1}, affordable={affordable}, cutoffUT={nowUT:R}");
 
             return affordable;
         }
@@ -3858,11 +3928,26 @@ namespace Parsek
             RecalculationEngine.Recalculate(actions, nowUT);
 
             double available = fundsModule.GetAvailableFunds();
-            bool affordable = available >= (double)cost;
+
+            // BUG-G: reconcile the ledger spendable with the drawdown-guard-preserved live
+            // funds (same rule as CanAffordScienceSpending). Live-only; xUnit keeps the
+            // pure-ledger contract.
+            double effectiveAvailable = available;
+            var funding = Funding.Instance;
+            if (funding != null)
+            {
+                effectiveAvailable = ComputeEffectiveAffordable(
+                    available,
+                    fundsModule.GetRunningBalance(),
+                    funding.Funds,
+                    IsAuthoritativeReductionForAffordability());
+            }
+
+            bool affordable = effectiveAvailable >= (double)cost;
 
             ParsekLog.Verbose(Tag,
                 $"CanAffordFundsSpending: cost={cost:F1}, available={available:F1}, " +
-                $"affordable={affordable}, cutoffUT={nowUT:R}");
+                $"effectiveAvailable={effectiveAvailable:F1}, affordable={affordable}, cutoffUT={nowUT:R}");
 
             return affordable;
         }
