@@ -13,6 +13,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - Log spam audit of the 2026-06-07 career playtest (top three per-frame offenders)
+
+The `logs/2026-06-07_1638_career-playtest/KSP.log` was 363,790 lines, 94.8% Parsek output, 327,667 of them `[VERBOSE]`, despite the session doing no re-fly and having no supply routes. Full ranked family report: `docs/dev/log-spam-audit-2026-06-07.md` (analyzer: `logs/2026-06-07_1638_career-playtest/_spam_analyze.py`). Fixed the three highest-volume families (logging-only, no runtime-behavior change), ~236,600 lines / ~65% of the whole log:
+
+- `ReFlySettleStabilityTracker.RecordFloatingOriginShift` (185,303 lines, ~56% of all verbose). `FloatingOrigin.setOffset` fires nearly every physics frame the world re-centres; the non-settle branch logged `Verbose` unconditionally. The shift STATE is still recorded unconditionally (it feeds `LastFloatingOriginShiftFrame`, read by the GhostRenderTrace large-delta detector); only the LINE changed. Settle-window branch still INFO-emits every shift; non-settle branch is now a 30s shared-key `VerboseRateLimited` heartbeat, message built lazily so suppressed frames pay no format cost.
+- `GhostMapPresence.LogOverlapGateDecision` (48,109 lines, ~15%). The verdict is stable ("not-driven") almost always, so the old per-index 3s time limit re-emitted the same line forever for every committed recording. Now `VerboseOnChange` keyed on the stable `RecordingId` with a boolean-facet state key (cadence/span/cycle floats excluded so a driven recording still coalesces); emits only on a verdict flip.
+- `RouteGhostDriverSelector.SelectGhostDrivingBackingMissions` (3,184 lines). Already 2s-rate-limited but all-zeros (no routes). Now `VerboseOnChange` on the counts tuple.
+
+Lock-in tests: `FloatingOriginSetOffsetPatchTests.RecordFloatingOriginShift_NoSettleActivity_IsRateLimited`, `OverlapPerInstanceTests.LogOverlapGateDecision_StableVerdict_CoalescesAndReEmitsOnFlip`, `RouteGhostDriverSelectorTests.Summary_StableCounts_CoalescesAndReEmitsOnChange`. Full xUnit suite green (14,516).
+
+Deferred follow-ups (runtime-frequency or higher-risk, see the report): trajectory sidecar re-reads (~18k lines, repeated-load driven), ledger-recompute re-walks (Funds / ScienceModule / Milestones / LedgerOrchestrator / per-module `Reset: cleared 0` lines, ~25k combined), per-save per-recording resource lines, and the `MapRender shadow frame` / `Anchor candidates` per-frame zero emits.
+
 ## Done (triage) - BUG-D: high-volume recorder-quality WARNs in the 2026-06-07 career playtest
 
 Source: `logs/2026-06-07_1638_career-playtest/` (BUGS.md BUG-D). Player used NO Parsek features this session (background recording only), so these are recorder-side log warnings, not gameplay faults. The recordings themselves are correct; the warnings are a mix of by-design conditions and one mis-calibrated threshold. Triage verdict per family:
