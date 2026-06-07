@@ -22798,6 +22798,15 @@ namespace Parsek.InGameTests
                 float beforeResearch = ResearchAndDevelopment.Instance.Science;
                 RDTech.OperationResult result = tech.ResearchTech();
 
+                // Discriminating assertions (state=Unavailable IS the stock purchase path:
+                // 'if (state != Available)' deducts + unlocks). If our prefix had ALLOWED,
+                // stock's CurrencyModifierQuery would reject the 1e9 cost and return
+                // NotEnoughFunds without deducting; our prefix instead skips the original
+                // and returns the Failure we set. So result==Failure uniquely proves OUR
+                // pre-deduction block fired (not stock's), and the captured "Insufficient
+                // science" reason proves it was OUR affordability gate (stock never uses the
+                // Parsek dialog). The science-unchanged assertion is the non-destructive
+                // safety check (true under either block, but the load-bearing guarantee).
                 Parsek.InGameTests.InGameAssert.IsTrue(
                     result == RDTech.OperationResult.Failure,
                     $"Parsek's pre-deduction block must return Failure, not stock NotEnoughFunds (got {result})");

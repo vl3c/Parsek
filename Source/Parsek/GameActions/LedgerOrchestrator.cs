@@ -3883,6 +3883,20 @@ namespace Parsek
             // BUG-G: reconcile the ledger spendable with the drawdown-guard-preserved live
             // value. Only when the live singleton exists (real KSP); xUnit keeps the
             // pure-ledger contract so the reservation/cutoff tests stay authoritative.
+            //
+            // INTENTIONAL: this uses the RAW GetRunningScience(), NOT the pending-adjusted
+            // running balance that the guard's PatchScience clamp uses (KspStatePatcher.cs
+            // GetRunningScience() + pendingKscCredit - pendingTechDebit). The gate fires
+            // PRE-deduction (the RDTech.ResearchTech prefix runs before stock AddScience),
+            // so there is no in-flight debit from THIS purchase to fold in. For a prior
+            // in-flight tech debit (live transiently below raw running) raw stays the
+            // conservative choice (live - running <= 0, no gap added); for an in-flight KSC
+            // credit (live above raw running) adding the raw gap correctly lets the player
+            // spend science already in the live pool. Either way stock's CurrencyModifierQuery
+            // still backstops live affordability after the gate allows, so the raw value
+            // cannot cause an overspend. Do NOT "consistency-fix" this to the pending-adjusted
+            // form: that would make the gate more permissive (add a spurious gap) on a prior
+            // in-flight debit.
             double effectiveAvailable = available;
             var rnd = ResearchAndDevelopment.Instance;
             if (rnd != null)
