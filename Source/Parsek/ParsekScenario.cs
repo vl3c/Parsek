@@ -2339,15 +2339,34 @@ namespace Parsek
                     // These vessels were spawned by Parsek in a previous flight but their
                     // tracking was lost when spawn flags were reset. Without stripping,
                     // they contaminate the next launch quicksave and persist across reverts.
-                    // Use RecordingStore.PendingCleanupNames as the authoritative source —
-                    // the local collection may have been skipped by the guard above.
-                    var cleanupNames = RecordingStore.PendingCleanupNames;
-                    if (isRevert && cleanupNames != null && cleanupNames.Count > 0)
+                    //
+                    // BUG-H: this is launch-identity-aware AND scoped to the reverted flight.
+                    // The deletion decision matches a vessel against a recording's spawn endpoint
+                    // by pid+launch-Guid (never name alone) and only removes vessels that appeared
+                    // DURING the reverted flight (not in the revert-target launch/prelaunch
+                    // quicksave whitelist). A stock revert must only undo the current launch — it
+                    // must never delete a real, separately-launched craft from an unrelated mission
+                    // that merely reuses the craft-baked name/pid of a recording. The strip fails
+                    // closed when the scope whitelist is unavailable.
+                    HashSet<uint> revertTargetPids = null;
+                    if (isRevert)
                     {
+                        loadPhase = "revert-strip";
+                        revertTargetPids = RevertDetector.ConsumeRevertTargetVesselPids();
+                        // Preserve for the OnFlightReady belt-and-suspenders cleanup (FLIGHT->FLIGHT
+                        // launch revert recovers LOADED vessels, which OnLoad's protoVessel strip
+                        // does not see). Null is a meaningful "fail-closed" scope there too.
+                        RecordingStore.PendingRevertPreExistingPids = revertTargetPids;
+
                         var flightState = HighLogic.CurrentGame?.flightState;
                         if (flightState != null)
-                            StripOrphanedSpawnedVessels(flightState.protoVessels, cleanupNames,
-                                skipPrelaunch: true);
+                        {
+                            var allCommitted = RecordingStore.CollectAllCommittedRecordings();
+                            StripOrphanedSpawnedVessels(
+                                flightState.protoVessels, allCommitted,
+                                matchSource: false, skipPrelaunch: true,
+                                scopeToWhitelist: true, preExistingWhitelist: revertTargetPids);
+                        }
                     }
 
                     // Rescue crew orphaned by vessel stripping (#116)
@@ -2415,11 +2434,15 @@ namespace Parsek
                     // Reconcile spawn state after all restore + strip operations (#168).
                     // If a recording's SpawnedVesselPersistentId points to a vessel that was
                     // stripped, reset the PID so the vessel can be re-spawned at the correct time.
+                    // BUG-H: guid-aware — a surviving same-pid vessel from a DIFFERENT launch does
+                    // not keep the recording's spawn state alive (it would otherwise block re-spawn).
                     if (isRevert)
                     {
                         var flightStateForReconcile = HighLogic.CurrentGame?.flightState;
                         if (flightStateForReconcile != null)
-                            ReconcileSpawnStateAfterStrip(flightStateForReconcile.protoVessels, recordings);
+                            ReconcileSpawnStateAfterStrip(
+                                CollectSurvivingVesselIdentities(flightStateForReconcile.protoVessels),
+                                recordings);
                     }
 
                     if (isRevert)
@@ -3147,17 +3170,29 @@ namespace Parsek
                 $"OnLoad: SpawnSuppressedByRewind scope evaluated — " +
                 $"protectedActiveSource={protectedCount}; same-tree future recordings remain spawn-eligible (#573/#589)");
 
-            // Strip ALL vessels matching recording names from flightState.
+            // Strip vessels belonging to a recording's launch from flightState.
             // The rewind save was preprocessed to strip the recorded vessel,
             // but KSP's scene transition may reintroduce vessels from the old
-            // persistent.sfs. Strip unconditionally — on rewind, every matching
-            // vessel is from the future.
-            if (allRecordingNames.Count > 0)
+            // persistent.sfs. On rewind every vessel that belongs to a recording's
+            // launch (its recorded source OR its spawn/adoption endpoint) is from the
+            // future and is removed.
+            //
+            // BUG-H: launch-identity-aware (pid + launch-Guid), so a DIFFERENT real
+            // launch that merely reuses the craft-baked name/pid is never deleted.
+            // scopeToWhitelist=false preserves the rewind contract: genuinely
+            // future-timeline vessels are still removed (the launch-identity match here
+            // plus the separate StripFuturePrelaunchVessels pid-whitelist pass below),
+            // while different real launches are protected by the Guid gate.
             {
                 var flightState = HighLogic.CurrentGame?.flightState;
                 if (flightState != null)
-                    StripOrphanedSpawnedVessels(flightState.protoVessels, allRecordingNames,
-                        skipPrelaunch: false);
+                {
+                    var allCommitted = RecordingStore.CollectAllCommittedRecordings();
+                    StripOrphanedSpawnedVessels(
+                        flightState.protoVessels, allCommitted,
+                        matchSource: true, skipPrelaunch: false,
+                        scopeToWhitelist: false, preExistingWhitelist: null);
+                }
             }
 
             // Rewind strip already handled protoVessel cleanup in flightState.
@@ -3167,6 +3202,7 @@ namespace Parsek
             // fresh data from CollectSpawnedVesselInfo() if needed.
             RecordingStore.PendingCleanupPids = null;
             RecordingStore.PendingCleanupNames = null;
+            RecordingStore.PendingRevertPreExistingPids = null;
             ParsekLog.Info("Rewind",
                 "OnLoad: cleared PendingCleanupPids/Names after strip — " +
                 "prevents OnFlightReady from destroying freshly-spawned past vessels");
@@ -6373,58 +6409,177 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Strips protoVessels from flightState whose vesselName matches a spawned recording name.
-        /// Called during revert/rewind to remove orphaned spawned vessels before they contaminate
-        /// the next launch quicksave. Uses name-based matching because ProtoVessel doesn't expose
-        /// vessel persistentId directly.
-        /// <param name="skipPrelaunch">When true (KSP Revert), PRELAUNCH vessels are kept —
-        /// they are the user's launch vessel, not spawned vessels. When false (Parsek Rewind),
-        /// all matching vessels are stripped — a PRELAUNCH vessel from a later launch is
-        /// incompatible with the earlier game state being restored.</param>
+        /// BUG-H — the single launch-identity-aware decision every revert/rewind vessel deletion
+        /// routes through. A candidate flightState/loaded vessel may be deleted ONLY when both hold:
+        ///
+        /// <list type="number">
+        /// <item><b>Launch-identity match</b> (Correction 1): the candidate (its
+        /// <c>persistentId</c> + <c>Vessel.id</c> Guid) is the SAME launch as some recording — the
+        /// recording's spawn/adoption endpoint (always) and, on rewind, its recorded source vessel
+        /// (<paramref name="matchSource"/>). A conclusive launch-Guid mismatch is never a match, so
+        /// a relaunch of the same craft (shared craft-baked name/pid, fresh Guid) is never deleted
+        /// in place of the recording's vessel.</item>
+        /// <item><b>Scope</b> (Correction 2, revert only — <paramref name="scopeToWhitelist"/>): the
+        /// candidate is NOT in the revert-target launch/prelaunch quicksave whitelist, i.e. it
+        /// appeared during the reverted flight rather than pre-existing it. When scope is required
+        /// but <paramref name="preExistingWhitelist"/> is unavailable the candidate is NOT deleted
+        /// (fail-closed, data-loss safe). This also protects a legitimately-adopted real vessel from
+        /// an unrelated mission that a pure Guid gate alone would still match.</item>
+        /// </list>
+        ///
+        /// Rewind passes <paramref name="scopeToWhitelist"/>=false: its future-vessel determination
+        /// is the launch-identity match itself plus the separate <see cref="StripFuturePrelaunchVessels"/>
+        /// pid-whitelist pass, preserving the rewind contract (genuinely future-timeline vessels are
+        /// still removed) while never deleting a different real launch.
+        ///
+        /// Pure and testable (no ProtoVessel / FlightGlobals dependency): callers resolve the
+        /// candidate's pid + Guid + situation and pass them in.
         /// </summary>
-        internal static int StripOrphanedSpawnedVessels(
-            List<ProtoVessel> protoVessels, HashSet<string> spawnedNames, bool skipPrelaunch)
+        internal static bool ShouldStripVesselForRecordings(
+            uint candidatePid, string candidateGuid, Vessel.Situations situation,
+            IReadOnlyList<Recording> recordings,
+            bool matchSource, bool skipPrelaunch,
+            bool scopeToWhitelist, HashSet<uint> preExistingWhitelist,
+            out Recording matched, out string reason)
         {
-            if (protoVessels == null || spawnedNames == null || spawnedNames.Count == 0)
+            matched = null;
+
+            if (candidatePid == 0)
+            {
+                reason = "candidate pid zero";
+                return false;
+            }
+
+            // On KSP Revert, skip PRELAUNCH vessels — these are the user's launch vessel on the pad.
+            // On Parsek Rewind, strip them too — a PRELAUNCH vessel from a later launch is
+            // incompatible with the earlier game state being restored.
+            if (skipPrelaunch && situation == Vessel.Situations.PRELAUNCH)
+            {
+                reason = "PRELAUNCH skipped (launch vessel protected)";
+                return false;
+            }
+
+            // Correction 2: scope the revert strip to vessels that appeared during the reverted
+            // flight. Anything present in the launch/prelaunch quicksave pre-existed the launch and
+            // belongs to an unrelated mission — never strip it. Fail closed when the whitelist is
+            // unavailable so a missing scope signal can never delete real vessels.
+            if (scopeToWhitelist)
+            {
+                if (preExistingWhitelist == null)
+                {
+                    reason = "scope required but launch-quicksave whitelist unavailable (fail-closed)";
+                    return false;
+                }
+                if (preExistingWhitelist.Contains(candidatePid))
+                {
+                    reason = "pre-existing in launch quicksave (outside the reverted flight)";
+                    return false;
+                }
+            }
+
+            // Correction 1: only delete a vessel that is genuinely the SAME launch as a recording.
+            matched = VesselLaunchIdentity.FindMatchingRecording(
+                recordings, candidatePid, candidateGuid, matchSource, matchSpawn: true);
+            if (matched == null)
+            {
+                reason = "no same-launch recording match (different real launch or unrelated vessel)";
+                return false;
+            }
+
+            reason = scopeToWhitelist
+                ? "same-launch recording match + appeared during the reverted flight"
+                : "same-launch recording match";
+            return true;
+        }
+
+        /// <summary>
+        /// Strips protoVessels from flightState that genuinely belong to a recording's launch and
+        /// (on revert) appeared during the reverted flight. Called during revert/rewind to remove
+        /// orphaned spawned vessels before they contaminate the next launch quicksave. The
+        /// per-vessel decision is the launch-identity-aware <see cref="ShouldStripVesselForRecordings"/>
+        /// (BUG-H): name-only matching previously deleted real, separately-launched craft that merely
+        /// reuse the craft-baked name/pid of a recording.
+        /// </summary>
+        /// <param name="protoVessels">flightState's protoVessels list (modified in place).</param>
+        /// <param name="recordings">All committed recordings (for the launch-identity lookup).</param>
+        /// <param name="matchSource">Also match a recording's recorded SOURCE vessel (rewind=true,
+        /// revert=false). Revert only undoes Parsek-spawned/adopted vessels of the reverted flight;
+        /// rewind also removes the recorded vessel itself, which is future relative to the rewind point.</param>
+        /// <param name="skipPrelaunch">When true (KSP Revert), PRELAUNCH vessels are kept; when false
+        /// (Parsek Rewind), a PRELAUNCH vessel from a later launch is also stripped.</param>
+        /// <param name="scopeToWhitelist">When true (revert), only strip vessels NOT in
+        /// <paramref name="preExistingWhitelist"/> (appeared during the reverted flight).</param>
+        /// <param name="preExistingWhitelist">Pids present in the revert-target launch/prelaunch
+        /// quicksave (pre-existing vessels). Required when <paramref name="scopeToWhitelist"/> is true.</param>
+        internal static int StripOrphanedSpawnedVessels(
+            List<ProtoVessel> protoVessels,
+            IReadOnlyList<Recording> recordings,
+            bool matchSource, bool skipPrelaunch,
+            bool scopeToWhitelist, HashSet<uint> preExistingWhitelist)
+        {
+            if (protoVessels == null || recordings == null || recordings.Count == 0)
                 return 0;
 
             int stripped = 0;
+            int skippedPreExisting = 0;
+            int skippedDifferentLaunch = 0;
             for (int i = protoVessels.Count - 1; i >= 0; i--)
             {
                 var pv = protoVessels[i];
                 if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) continue;
-                if (!spawnedNames.Contains(Recording.ResolveLocalizedName(pv.vesselName)))
-                    continue;
 
-                // On KSP Revert, skip PRELAUNCH vessels — these are the user's launch
-                // vessel on the pad. On Parsek Rewind, strip them too — a PRELAUNCH
-                // vessel from a future launch is incompatible with the rewound state.
-                if (skipPrelaunch && pv.situation == Vessel.Situations.PRELAUNCH)
+                string candidateGuid = pv.vesselID != Guid.Empty
+                    ? pv.vesselID.ToString("N")
+                    : null;
+
+                bool shouldStrip = ShouldStripVesselForRecordings(
+                    pv.persistentId, candidateGuid, pv.situation, recordings,
+                    matchSource, skipPrelaunch, scopeToWhitelist, preExistingWhitelist,
+                    out Recording matched, out string reason);
+
+                if (!shouldStrip)
                 {
+                    if (reason != null && reason.StartsWith("pre-existing"))
+                        skippedPreExisting++;
+                    else if (reason != null && reason.StartsWith("no same-launch"))
+                        skippedDifferentLaunch++;
                     ParsekLog.Verbose("Scenario",
-                        $"Skipping PRELAUNCH vessel '{pv.vesselName}' (revert — protecting launch vessel)");
+                        $"Keeping vessel '{pv.vesselName}' (pid={pv.persistentId}, guid={candidateGuid ?? "(none)"}, " +
+                        $"situation={pv.situation}) — {reason}");
                     continue;
                 }
 
                 ParsekLog.Info("Scenario",
                     $"Stripping orphaned spawned vessel '{pv.vesselName}' " +
-                    $"(situation={pv.situation}) from flightState");
+                    $"(pid={pv.persistentId}, guid={candidateGuid ?? "(none)"}, situation={pv.situation}) " +
+                    $"from flightState — matched recording '{matched?.VesselName ?? "(unknown)"}' " +
+                    $"(recordedGuid={matched?.RecordedVesselGuid ?? "(none)"}); {reason}");
                 protoVessels.RemoveAt(i);
                 stripped++;
             }
 
-            if (stripped > 0)
+            if (stripped > 0 || skippedPreExisting > 0 || skippedDifferentLaunch > 0)
                 ParsekLog.Info("Scenario",
-                    $"StripOrphanedSpawnedVessels: removed {stripped} vessel(s) from flightState");
+                    $"StripOrphanedSpawnedVessels: removed {stripped} vessel(s) from flightState " +
+                    $"(kept {skippedPreExisting} pre-existing, {skippedDifferentLaunch} different-launch; " +
+                    $"matchSource={matchSource}, scopeToWhitelist={scopeToWhitelist}, " +
+                    $"whitelistPids={preExistingWhitelist?.Count ?? 0})");
 
             return stripped;
         }
 
         /// <summary>
-        /// Strips PRELAUNCH vessels whose persistentId is NOT in the quicksave whitelist.
-        /// These are pad vessels from a future launch that persisted through rewind because
-        /// StripOrphanedSpawnedVessels only filters by name — unrecorded PRELAUNCH vessels
-        /// fail the name check and survive.
+        /// Strips vessels whose persistentId is NOT in the rewind quicksave whitelist (#129/#164).
+        /// These are vessels from after the rewind point (e.g. a pad vessel from a later launch)
+        /// that persisted through rewind because the launch-identity strip only removes vessels that
+        /// belong to a recording's launch — an unrecorded future vessel survives that match.
+        ///
+        /// BUG-H audit: this path is NOT in the name/pid-without-Guid defect class. It is keyed on the
+        /// rewind quicksave whitelist (keep-if-present), never on a recording-name match, so it cannot
+        /// delete a vessel "in place of" a recording's relaunched craft. A vessel present in the
+        /// quicksave is always kept (the data-loss-safe direction); only vessels genuinely absent from
+        /// the rewind target are removed, preserving the rewind contract. Behaviour intentionally
+        /// unchanged.
         /// </summary>
         /// <param name="protoVessels">The flightState's protoVessels list (modified in-place).</param>
         /// <param name="quicksavePids">PIDs of vessels that existed in the rewind quicksave.</param>
@@ -6523,6 +6678,87 @@ namespace Parsek
             if (spawnedPid == 0)
                 return false;
             return survivingPids == null || !survivingPids.Contains(spawnedPid);
+        }
+
+        /// <summary>
+        /// BUG-H: launch-identity-aware reconcile. A recording is reset only when its spawned vessel
+        /// is no longer present as the SAME launch among the survivors. A surviving vessel that shares
+        /// the recording's spawned pid but is a DIFFERENT launch (craft-baked pid collision) does NOT
+        /// keep the recording's spawn state alive — the recording is reset so it can re-spawn, instead
+        /// of being permanently blocked by a same-pid stranger. Adoption-stamp recordings are matched
+        /// by launch Guid; genuine Parsek spawns (KSP-unique spawn pid) match by pid.
+        /// </summary>
+        internal static int ReconcileSpawnStateAfterStrip(
+            IReadOnlyList<(uint pid, string guid)> survivors, IReadOnlyList<Recording> recordings)
+        {
+            if (recordings == null || recordings.Count == 0)
+                return 0;
+
+            int reconciled = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (ShouldResetSpawnState(recordings[i], survivors))
+                {
+                    uint oldPid = recordings[i].SpawnedVesselPersistentId;
+                    recordings[i].SpawnedVesselPersistentId = 0;
+                    recordings[i].VesselSpawned = false;
+                    recordings[i].SpawnAttempts = 0;
+                    recordings[i].SpawnDeathCount = 0;
+                    TerminalOrbitSpawnSafety.Clear(recordings[i]);
+                    ParsekLog.Info("Scenario",
+                        $"Reconciled spawn state for recording #{i} \"{recordings[i].VesselName}\": " +
+                        $"pid={oldPid} not present as the same launch in flightState — reset for re-spawn");
+                    reconciled++;
+                }
+            }
+
+            if (reconciled > 0)
+                ParsekLog.Info("Scenario",
+                    $"ReconcileSpawnStateAfterStrip (guid-aware): reset {reconciled} recording(s) whose spawned vessel was stripped");
+
+            return reconciled;
+        }
+
+        /// <summary>
+        /// Guid-aware pure decision for <see cref="ReconcileSpawnStateAfterStrip(IReadOnlyList{ValueTuple{uint,string}}, IReadOnlyList{Recording})"/>:
+        /// reset the recording's spawn state when its spawn endpoint is non-zero and no surviving
+        /// vessel is the same launch (via <see cref="VesselLaunchIdentity.LiveVesselIsRecordedSpawn"/>).
+        /// A null survivor set means nothing survived, so any non-zero spawn pid is reset.
+        /// </summary>
+        internal static bool ShouldResetSpawnState(
+            Recording rec, IReadOnlyList<(uint pid, string guid)> survivors)
+        {
+            if (rec == null || rec.SpawnedVesselPersistentId == 0)
+                return false;
+            if (survivors == null)
+                return true;
+            for (int i = 0; i < survivors.Count; i++)
+            {
+                if (VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, survivors[i].pid, survivors[i].guid))
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Collects (persistentId, launch-Guid) identities of the surviving protoVessels for the
+        /// guid-aware reconcile. Extracted so the reconcile logic stays testable without a live
+        /// flightState (ProtoVessel can't be constructed outside KSP).
+        /// </summary>
+        internal static List<(uint pid, string guid)> CollectSurvivingVesselIdentities(
+            List<ProtoVessel> remainingVessels)
+        {
+            var list = new List<(uint pid, string guid)>();
+            if (remainingVessels == null)
+                return list;
+            for (int i = 0; i < remainingVessels.Count; i++)
+            {
+                var pv = remainingVessels[i];
+                if (pv == null) continue;
+                string g = pv.vesselID != Guid.Empty ? pv.vesselID.ToString("N") : null;
+                list.Add((pv.persistentId, g));
+            }
+            return list;
         }
 
         /// <summary>
@@ -7544,6 +7780,7 @@ namespace Parsek
                 lastSceneChangeRequestedUT = -1.0;
                 RecordingStore.PendingCleanupPids = null;
                 RecordingStore.PendingCleanupNames = null;
+                RecordingStore.PendingRevertPreExistingPids = null;
                 // BUG-B: drop per-recording replay-scope latches on game unload so a
                 // later save's recordings start out historical (dormant) rather than
                 // inheriting a stale "in replay scope" mark from a previous game.

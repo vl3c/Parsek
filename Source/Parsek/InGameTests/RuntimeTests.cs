@@ -821,6 +821,63 @@ namespace Parsek.InGameTests
             InGameAssert.IsNotNull(FlightCamera.fetch.mainCamera, "FlightCamera.mainCamera should exist");
         }
 
+        [InGameTest(Category = "RevertVesselStrip", Scene = GameScenes.FLIGHT,
+            Description = "BUG-H: the live active vessel's Vessel.id Guid protects it from a same-pid DIFFERENT-launch recording, but is recognized when the recorded Guid matches")]
+        public void RevertStrip_LiveGuidGate_ProtectsDifferentLaunch()
+        {
+            var v = FlightGlobals.ActiveVessel;
+            if (v == null)
+            {
+                InGameAssert.Skip("No active vessel in Flight scene");
+                return;
+            }
+
+            uint pid = v.persistentId;
+            string liveGuid = v.id != System.Guid.Empty ? v.id.ToString("N") : null;
+            InGameAssert.IsFalse(string.IsNullOrEmpty(liveGuid),
+                "A live flight vessel must carry a non-empty Vessel.id Guid for the launch-identity gate");
+
+            // A recording that ADOPTED a DIFFERENT real launch of the same craft: identical
+            // craft-baked pid, but a distinct launch Guid. Even with NO scope whitelist, the live
+            // vessel must never be deletable in its place (the core BUG-H invariant).
+            string differentGuid = System.Guid.NewGuid().ToString("N");
+            if (string.Equals(differentGuid, liveGuid, System.StringComparison.OrdinalIgnoreCase))
+                differentGuid = System.Guid.NewGuid().ToString("N");
+
+            var differentLaunch = new Recording
+            {
+                VesselName = v.vesselName,
+                VesselPersistentId = pid,
+                SpawnedVesselPersistentId = pid, // adoption stamp (the colliding shape)
+                RecordedVesselGuid = differentGuid,
+            };
+            var recordings = new System.Collections.Generic.List<Recording> { differentLaunch };
+
+            bool stripDifferent = ParsekScenario.ShouldStripVesselForRecordings(
+                pid, liveGuid, v.situation, recordings,
+                matchSource: false, skipPrelaunch: false,
+                scopeToWhitelist: false, preExistingWhitelist: null,
+                out _, out string reasonDifferent);
+            InGameAssert.IsFalse(stripDifferent,
+                $"Live vessel (pid={pid}, guid={liveGuid}) must NOT be strippable for a different-launch " +
+                $"recording (guid={differentGuid}); reason={reasonDifferent}");
+
+            // The same-launch recording (recorded Guid matches the live vessel) IS recognized.
+            var sameLaunch = new Recording
+            {
+                VesselName = v.vesselName,
+                VesselPersistentId = pid,
+                SpawnedVesselPersistentId = pid,
+                RecordedVesselGuid = liveGuid,
+            };
+            InGameAssert.IsTrue(
+                VesselLaunchIdentity.LiveVesselIsRecordedSpawn(sameLaunch, pid, liveGuid),
+                "Live vessel must be recognized as the same launch when the recorded Guid matches");
+
+            ParsekLog.Info("TestRunner",
+                $"RevertStrip live-Guid gate OK: pid={pid} liveGuid={liveGuid} protected vs differentGuid={differentGuid}");
+        }
+
         [InGameTest(Category = "SpawnTerminalOrbit", Scene = GameScenes.FLIGHT,
             Description = "Recording with a stale on-rails OrbitSegment plus a fresh post-burn ExoBallistic Absolute tail frame derives a stable circular orbit at spawn time")]
         public void TerminalOrbitFromTail_DerivesPostBurnCircularOrbit()

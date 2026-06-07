@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
@@ -157,6 +158,110 @@ namespace Parsek.Tests
         {
             Assert.False(VesselLaunchIdentity.RecordingsShareLaunch(Rec(0u, GuidA), Rec(0u, GuidA)));
             Assert.False(VesselLaunchIdentity.RecordingsShareLaunch(null, Rec(Pid, GuidA)));
+        }
+
+        // -- LiveVesselIsRecordedSpawn (BUG-H spawn-endpoint match) -----
+        // SpawnRec(spawnPid, sourcePid, guid): the recording's spawn/adoption endpoint.
+        // Adoption stamp == (sourcePid != 0 && spawnPid == sourcePid).
+
+        private static Recording SpawnRec(uint spawnPid, uint sourcePid, string guid) =>
+            new Recording
+            {
+                SpawnedVesselPersistentId = spawnPid,
+                VesselPersistentId = sourcePid,
+                RecordedVesselGuid = guid
+            };
+
+        [Fact]
+        public void LiveVesselIsRecordedSpawn_GenuineSpawn_PidMatch_IgnoresGuid_True()
+        {
+            // Genuine Parsek spawn: spawn pid is KSP-unique (!= craft-baked source pid). A pid match
+            // is conclusive regardless of Guid — the spawned vessel carries its own fresh Guid, not
+            // the recorded source Guid.
+            const uint spawnPid = 555555555u;
+            var rec = SpawnRec(spawnPid, Pid, GuidA);
+            Assert.True(VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, spawnPid, GuidB));
+            Assert.True(VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, spawnPid, null));
+        }
+
+        [Fact]
+        public void LiveVesselIsRecordedSpawn_GenuineSpawn_PidMismatch_False()
+        {
+            var rec = SpawnRec(555555555u, Pid, GuidA);
+            Assert.False(VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, 999u, GuidA));
+        }
+
+        [Fact]
+        public void LiveVesselIsRecordedSpawn_AdoptionStamp_GuidMatch_True()
+        {
+            // Adoption stamp: spawnedPid == craft-baked source pid. Same launch (Guid agrees).
+            var rec = SpawnRec(Pid, Pid, GuidA);
+            Assert.True(VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, Pid, GuidA));
+        }
+
+        [Fact]
+        public void LiveVesselIsRecordedSpawn_AdoptionStamp_GuidMismatch_False()
+        {
+            // THE BUG-H CASE: a different real launch reuses the craft-baked pid; its Guid differs,
+            // so it is NOT the recording's adopted vessel and must never be stripped in its place.
+            var rec = SpawnRec(Pid, Pid, GuidA);
+            Assert.False(VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, Pid, GuidB));
+        }
+
+        [Fact]
+        public void LiveVesselIsRecordedSpawn_AdoptionStamp_UnknownGuid_FallsBackToPid()
+        {
+            var rec = SpawnRec(Pid, Pid, GuidA);
+            Assert.True(VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, Pid, null));
+            var recNoGuid = SpawnRec(Pid, Pid, null);
+            Assert.True(VesselLaunchIdentity.LiveVesselIsRecordedSpawn(recNoGuid, Pid, GuidB));
+        }
+
+        [Fact]
+        public void LiveVesselIsRecordedSpawn_SpawnPidZeroOrNullRecOrCandidateZero_False()
+        {
+            Assert.False(VesselLaunchIdentity.LiveVesselIsRecordedSpawn(SpawnRec(0u, Pid, GuidA), Pid, GuidA));
+            Assert.False(VesselLaunchIdentity.LiveVesselIsRecordedSpawn(null, Pid, GuidA));
+            Assert.False(VesselLaunchIdentity.LiveVesselIsRecordedSpawn(SpawnRec(Pid, Pid, GuidA), 0u, GuidA));
+        }
+
+        // -- CandidateMatchesRecording / FindMatchingRecording ----------
+
+        [Fact]
+        public void CandidateMatchesRecording_MatchSpawnOnly_IgnoresSourceVessel()
+        {
+            // matchSource=false: a candidate equal to the recorded SOURCE vessel (pid=VesselPersistentId)
+            // is NOT a match unless it is also the spawn endpoint.
+            var rec = SpawnRec(555555555u, Pid, GuidA); // genuine spawn, source pid = Pid
+            Assert.False(VesselLaunchIdentity.CandidateMatchesRecording(rec, Pid, GuidA, matchSource: false, matchSpawn: true));
+            Assert.True(VesselLaunchIdentity.CandidateMatchesRecording(rec, 555555555u, GuidA, matchSource: false, matchSpawn: true));
+        }
+
+        [Fact]
+        public void CandidateMatchesRecording_MatchSourceTrue_MatchesRecordedSource()
+        {
+            var rec = SpawnRec(0u, Pid, GuidA); // not spawned; recorded source pid = Pid, guid = GuidA
+            Assert.True(VesselLaunchIdentity.CandidateMatchesRecording(rec, Pid, GuidA, matchSource: true, matchSpawn: true));
+            // Different launch of the same craft -> not a match.
+            Assert.False(VesselLaunchIdentity.CandidateMatchesRecording(rec, Pid, GuidB, matchSource: true, matchSpawn: true));
+        }
+
+        [Fact]
+        public void FindMatchingRecording_ReturnsFirstSameLaunchMatch_NullWhenNone()
+        {
+            var recordings = new List<Recording>
+            {
+                SpawnRec(Pid, Pid, GuidA),       // adoption stamp, launch A
+                SpawnRec(777u, 0u, null),        // genuine spawn pid 777
+            };
+            // Candidate pid=Pid guid=GuidB (launch B) -> different launch from recordings[0] -> no match.
+            Assert.Null(VesselLaunchIdentity.FindMatchingRecording(recordings, Pid, GuidB, false, true));
+            // Candidate pid=Pid guid=GuidA -> matches recordings[0].
+            Assert.Same(recordings[0], VesselLaunchIdentity.FindMatchingRecording(recordings, Pid, GuidA, false, true));
+            // Candidate pid=777 -> genuine spawn match.
+            Assert.Same(recordings[1], VesselLaunchIdentity.FindMatchingRecording(recordings, 777u, "anything", false, true));
+            // Null recordings -> null.
+            Assert.Null(VesselLaunchIdentity.FindMatchingRecording(null, Pid, GuidA, false, true));
         }
 
         // -- TryReadVesselGuid --------------------------------------

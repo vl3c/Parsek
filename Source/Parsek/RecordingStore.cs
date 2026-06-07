@@ -5513,6 +5513,7 @@ namespace Parsek
             GameStateRecorder.PendingScienceSubjects.Clear();
             PendingCleanupPids = null;
             PendingCleanupNames = null;
+            PendingRevertPreExistingPids = null;
             PendingStashedThisTransition = false;
             suppressNextTreeSceneExitCommit = false;
             suppressNextTreeSceneExitCommitReason = null;
@@ -6211,6 +6212,41 @@ namespace Parsek
         // (before spawn state reset), consumed and cleared in ParsekFlight.OnFlightReady.
         internal static HashSet<uint> PendingCleanupPids { get; set; }
         internal static HashSet<string> PendingCleanupNames { get; set; }
+
+        // BUG-H: pids of vessels present in the revert-target launch/prelaunch quicksave
+        // (FlightDriver.PreLaunchState / PostInitState). A vessel whose pid is in this set
+        // pre-existed the reverted launch and must NEVER be stripped/recovered — it belongs
+        // to an unrelated mission, not the reverted flight. Populated in the OnLoad revert
+        // path, consumed and cleared in ParsekFlight.OnFlightReady (belt-and-suspenders
+        // cleanup). Null when there is no active revert scope.
+        internal static HashSet<uint> PendingRevertPreExistingPids { get; set; }
+
+        /// <summary>
+        /// Flat list of every committed recording (standalone + tree members), for the
+        /// launch-identity-aware vessel-strip / cleanup predicate (BUG-H). Mirrors
+        /// <see cref="CollectSpawnedVesselInfo"/>'s iteration. This is a raw read of the committed
+        /// store because the consumer is a physical pid+Guid identity correlation (does this live
+        /// vessel belong to a recording's launch?), not a supersede-aware recording-set walk — the
+        /// same trust scope as <see cref="CollectSpawnedVesselInfo"/> / <see cref="CollectAllRecordingVesselNames"/>.
+        /// </summary>
+        internal static List<Recording> CollectAllCommittedRecordings()
+        {
+            var list = new List<Recording>(committedRecordings.Count);
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                if (committedRecordings[i] != null)
+                    list.Add(committedRecordings[i]);
+            }
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                foreach (var rec in committedTrees[i].Recordings.Values)
+                {
+                    if (rec != null)
+                        list.Add(rec);
+                }
+            }
+            return list;
+        }
 
         // Destination scene from last OnSceneChangeRequested — consumed in OnLoad (#88)
         internal static GameScenes? PendingDestinationScene { get; set; }
