@@ -200,6 +200,83 @@ expected-reduction paths, not to authorize destructive reductions. The guard mus
 NOT key on it. The guard derives a SEPARATE authoritative-reduction signal (section
 3.2) and passes it explicitly down the same plumbing the suppress flag uses.
 
+### 2.6 Resolved evidence: no legitimate non-time-travel downward delta exists
+
+This section records the second-pass investigation that resolved the open questions.
+The conclusion drives the threshold model (3.3) and the reputation decision (3.4).
+
+#### 2.6.1 A "time jump" is always forward; backward warp routes through a rewind
+
+`TimeJumpManager` (the only caller of `RecalculateAndPatchForTimeJump`) executes a
+DISCRETE FORWARD UT skip. `ExecuteJump` / `ExecuteForwardJump` both abort unless
+`IsValidJump(t0, target)` holds, and `IsValidJump` is `target > current`
+(`TimeJumpManager.cs:218-228`, called at `:276` and `:429`). The recalc cutoff is the
+post-jump (later) UT (`RecalculateLedgerAfterTimeJump` -> `RecalculateAndPatchForTimeJump`
+-> `RecalculateAndPatchForCurrentTimelineUT(targetUT)`, `TimeJumpManager.cs:61-93`,
+`LedgerOrchestrator.cs:1377-1379`).
+
+The Warp-to-time feature (`docs/dev/done/plans/warp-to-time-timeline.md`) confirms
+the only way to move the clock BACKWARD is to first run a Rewind-to-Launch
+(`RecordingStore.InitiateRewind` -> `HandleRewindOnLoad` -> `RewindContext`), then
+forward-jump. The rewind sets `RewindContext.IsRewinding` and lands in the Space
+Center via the warp consumer, so a backward warp is covered by signal (1). The
+follow-up forward jump runs from the post-rewind state and only ever advances.
+
+Therefore the time-jump recalc cutoff only moves LATER, which can only INCLUDE MORE
+committed actions, never fewer. No fifth authoritative-reduction signal is needed for
+time jump. (Resolves Q3.)
+
+#### 2.6.2 Future committed COSTS are reserved, not applied-on-crossing
+
+`FundsModule.GetAvailableFunds()` returns `min(projected balance from cutoff
+forward)` (`FundsModule.cs:596-613`; cashflow projection in
+`TryGetProjectionDelta` / `SetProjectedAvailable`, `cs:623-697`). The economic model
+(`docs/dev/done/design-going-back-in-time.md:32-46`,
+`docs/dev/done/milestone-resource-reservation.md`) is explicit: future committed
+recording COSTS are subtracted from "available" UP FRONT as a reservation
+("available = save resources minus committed future costs"), while resource deltas
+EARNED by recordings "are applied at the correct UT during ghost playback"
+(`design-going-back-in-time.md:46,58`).
+
+So crossing a committed future spend during a forward jump produces NO new downward
+delta (the projected-min already counted it); crossing a committed future earning
+produces an UPWARD delta. A forward jump never drives available funds/science below
+current. (Reinforces 2.6.1.)
+
+#### 2.6.3 Every legitimate live spend/penalty is reconciled to ~0 at the recalc
+
+KSP applies the spend/penalty to the live singleton FIRST, then Parsek captures it:
+`GameStateRecorder.OnFundsChanged(double newFunds, TransactionReasons)` fires with
+the post-debit value (`GameStateRecorder.cs:985-1020`), `OnScienceChanged` likewise
+(`cs:1073`), and rep penalties are captured post-curve
+(`ReputationModule.cs:115-160`). The action lands in the ledger BEFORE the
+post-commit / live-event recalc, so the recalc target already includes the spend and
+the patch delta is the small reconciliation residual (~0), not the spend magnitude.
+This is the load-bearing fact behind "clamp any unexplained downward delta": there is
+no path on which a legitimate spend arrives at the patch AS a large downward delta.
+
+#### 2.6.4 The patch only fires when ledger-mirrors-live should hold
+
+`GetKspPatchDeferralReason` (`LedgerOrchestrator.cs:2044`) skips the patch entirely
+while a live recorder / active uncommitted tree / pending tree exists (only the
+cutoff/rewind paths bypass). So the dangerous downward patch fires only AFTER commit
+or on a settled scene, exactly when the expected delta is ~0. Combined with 2.6.1-3,
+any downward delta past rounding epsilon on a non-time-travel path is a corruption.
+
+#### 2.6.5 Setting-toggle precedent (Q5)
+
+The recalc/patch mechanism itself (the core correctness system) is UNCONDITIONAL:
+there is no setting gating whether the ledger patches KSP state. The codebase gates
+behind a default-ON toggle only GAMEPLAY-RESTRICTION features the player might want
+off (`blockCommittedActions`, `ParsekSettings.cs:68-70`, which blocks the player's
+own stock-UI actions) and DEV/DIAGNOSTIC features (tracing, splines). Pure
+correctness / fidelity behaviors with no gameplay downside are unconditional and
+explicitly carry no setting (the map-view trajectory polyline,
+`ParsekSettings.cs:172-174`: "always on (no setting)"; anchor taxonomy default-on,
+`cs:170`). A corruption-prevention safety net only ever PREVENTS a wipe and never
+restricts legitimate play, so by this precedent it is unconditional (no toggle).
+(Resolves Q5.)
+
 ------------------------------------------------------------------------
 
 ## 3. The decision predicate
@@ -255,51 +332,86 @@ internal static bool IsAuthoritativeReduction(
 
 The live wrapper reads the four inputs and calls it.
 
-### 3.3 The drawdown threshold (when is a downward delta "large")
+### 3.3 The drawdown threshold (RESOLVED: clamp any unexplained downward delta)
 
-Reuse and extend the existing `IsSuspiciousDrawdown` shape so behavior stays
-consistent with the WARN that operators already know:
+The first draft proposed a percentage + absolute threshold (50% + a floor) to avoid
+blocking large legitimate spends. Investigation (section 2.6, with file:line
+evidence) overturned that model. The correct model is: **with no time-travel
+context active, clamp ANY downward delta past a small rounding epsilon.** There is
+no legitimate "large but allowed" downward patch on a non-time-travel path, so a
+percentage band would only leave a hole through which medium-sized corruptions slip.
 
-- delta >= 0 -> never guarded.
-- currentPool <= pool-floor -> never guarded (below the floor a wipe is small in
-  absolute terms and the false-positive risk on tiny pools is high).
-- |delta| > fraction * currentPool -> candidate for guard.
+Why a threshold band is the WRONG model here:
 
-Current `IsSuspiciousDrawdown` uses pool-floor 1000 and fraction 0.10. The guard
-should be MORE conservative than the WARN to avoid blocking legitimate large
-spends that the WARN merely flags. Recommended split:
+- The deferral guard (`GetKspPatchDeferralReason`, section 2.2) means the dangerous
+  patch only fires AFTER commit / on a settled scene, when the ledger is supposed to
+  mirror live exactly, so the expected delta is ~0.
+- Every legitimate downward movement (facility upgrade, tech purchase, rollout cost,
+  strategy exchange, contract penalty, kerbal hire, rep penalty) is a COMMITTED
+  LEDGER ACTION. KSP debits live state first, then Parsek captures the change as an
+  action and recalcs; the target now includes that action, so the patch delta is the
+  small reconciliation residual, not the spend (section 2.6.3, evidence:
+  `GameStateRecorder.OnFundsChanged(double newFunds, ...)` fires post-debit at
+  `GameStateRecorder.cs:985`).
+- Future committed COSTS are RESERVED, not applied-on-crossing: `GetAvailableFunds`
+  returns the minimum projected balance from the cutoff forward
+  (`FundsModule.cs:606-613`, design `docs/dev/done/milestone-resource-reservation.md`
+  and `design-going-back-in-time.md:34-46`), so a forward time jump past a committed
+  spend produces NO new downward delta (the reservation already counted it). Future
+  committed EARNINGS apply upward when crossed.
+- A "time jump" is ALWAYS forward (`TimeJumpManager.IsValidJump` requires
+  `target > current`, `TimeJumpManager.cs:218-228`); backward warp routes through a
+  rewind, which sets the time-travel signal (section 2.6.1). Forward = up or flat.
 
-- Keep `IsSuspiciousDrawdown` (10% / 1000) as the WARN tripwire, unchanged.
-- Add `IsGuardableDrawdown(delta, currentPool)` with a HIGHER bar for actually
-  blocking: pool-floor and fraction tuned so a single legitimate large spend does
-  not trip it. See section 7 (open question) for the exact numbers; the design
-  defaults to fraction 0.50 and an absolute floor (for example, block only when the
-  drop is BOTH > 50% of the pool AND > an absolute minimum such as 5000 of the
-  resource), so that small-career exchanges and node purchases never trip it.
+Conclusion: on a non-time-travel path, a downward delta beyond rounding noise can
+ONLY be a bug (a missing earning channel, the BUG-A class). So the guard predicate is
+simply:
 
-The two predicates compose: WARN on suspicious (10%), GUARD on guardable (50% +
-absolute). Every legitimate-but-large spend in section 5 is far below the 50%
-clamp in a healthy career because the spend was already committed to the ledger and
-the patch delta is the small residual, not the whole spend.
+```
+internal static bool IsGuardableDrawdown(double delta, double epsilon)
+    => delta < -epsilon;
+```
+
+Epsilon = the resource's existing patch no-op epsilon, so the guard never fights the
+patch's own rounding tolerance:
+- Funds: 0.01 (matches `PatchFunds` no-op check at `KspStatePatcher.cs:649`).
+- Science: 0.001 (matches `PatchScience` no-op check at `KspStatePatcher.cs:102`).
+- Reputation: 0.01 (matches `PatchReputation` no-op check at `KspStatePatcher.cs:711`).
+
+The existing `IsSuspiciousDrawdown` (10% / 1000) stays as the louder WARN tripwire
+for the legacy log-watchers, but the CLAMP no longer depends on it: any downward
+delta past epsilon with no time-travel context is clamped. The two compose (a small
+downward leak now gets clamped even though it would never have tripped the 10%
+WARN), which is strictly safer than the original threshold-band design.
+
+No absolute floor, no percentage. "Never clamp a legitimate change, always clamp a
+corruption" is achieved because the ONLY non-time-travel downward delta past epsilon
+is a corruption.
 
 ### 3.4 Per-resource specifics
 
 - SCIENCE: pool can be legitimately spent to ~0 by buying tech, but each purchase
-  is a committed `ScienceSpending` action, so the post-commit patch delta is small.
-  A target FAR below live with no time-travel = leak. Per-subject science
-  (`PatchPerSubjectScience`) also needs guarding (section 6): a subject's credited
-  total being zeroed mirrors the same leak.
-- FUNDS: same shape; large spends (facility upgrade, rollout) are committed
-  actions. Guard the net `AddFunds` delta.
-- REPUTATION: special. Rep is a SET (`SetReputation`), not an add, and legitimately
-  FALLS on contract failure and kerbal death even in normal play. Rep also has a
-  bounded range and can be negative. The guard for rep must be LESS aggressive:
-  only guard when the rep target drops by an implausibly large absolute amount with
-  no time-travel context (a full or near-full collapse), since ordinary penalties
-  are bounded and routed through committed actions. Recommendation: apply the clamp
-  to rep but with a separate, looser threshold, and lean on the time-travel signal
-  rather than the magnitude (rep collapses are most plausibly a missing
-  ReputationEarning channel). See section 7 open question.
+  is a committed `ScienceSpending` action, so the post-commit patch delta is ~0.
+  Any downward delta past epsilon with no time-travel context = leak. Per-subject
+  science (`PatchPerSubjectScience`) is handled at the pool level only (section 6).
+- FUNDS: same shape; spends (facility upgrade, rollout, hire, strategy setup) are
+  committed actions reconciled to ~0. Guard the net `AddFunds` delta past epsilon.
+- REPUTATION (RESOLVED: treat like funds/science). The first draft called rep
+  "special" and proposed WARN-only. Investigation overturned that: every legitimate
+  rep drop (contract fail/cancel, kerbal-death penalty, strategy currency exchange)
+  is a committed ledger action that KSP applies first and Parsek captures with the
+  post-curve magnitude (`ReputationModule.ProcessRepPenalty` /
+  `ProcessContractPenaltyRep` at `ReputationModule.cs:115-160`; the Strategy source
+  is pre-curved and bypasses re-application, `cs:122-135`), so the post-commit recalc
+  target already includes it and the patch delta is ~0. Rep is therefore NOT
+  semantically different from funds/science. The only differences are mechanical and
+  do not change the decision:
+  - It uses `SetReputation(target)` not an add. The guard expresses the clamp as
+    "do not let the set drive below current": if `target < current - epsilon` and no
+    time-travel context, `SetReputation(current)` (no-op) instead of `target`.
+  - It can be negative. "Downward" is `target < current` regardless of sign, and the
+    clamp sets the effective target to current. Works identically for negative rep.
+  So rep gets the SAME clamp as funds/science, just applied to the SET semantics.
 
 ------------------------------------------------------------------------
 
@@ -330,11 +442,13 @@ On a GUARDED-DRAWDOWN for a resource:
 2. LOG: emit a WARN (or ERROR-level INFO) with the full numbers (current, would-be
    target, clamped delta, resource, reason string, time-travel signal values) so
    the leak is loud in KSP.log. This is the diagnostic that a leak exists.
-3. NOTIFY (non-blocking): post a single, rate-limited `ScreenMessages.PostScreenMessage`
-   in-game ("Parsek blocked a suspicious career-resource drop; your progress was
-   preserved. See KSP.log."). One-shot per session per resource to avoid spam.
-   ScreenMessage is already used across the codebase
-   (`ParsekScenario.cs:2603`, `:6054`).
+3. NOTIFY (non-blocking) per the notification-mode setting (section 7.2). Default
+   (ScreenMessage): a single, one-shot-per-session-per-resource
+   `ScreenMessages.PostScreenMessage` in-game ("Parsek kept the science / funds /
+   reputation you earned (a sync error tried to remove it). See KSP.log."). Silent
+   mode skips the toast; PopupFirstTime shows a popup the first time then toasts.
+   ScreenMessage / PopupDialog are already used across the codebase
+   (`ParsekScenario.cs:2603`, `:6054`). Use plain wording, no jargon.
 4. PERSIST a lightweight marker (section 4.4) so a repeated guarded clamp across
    scene changes does not re-spam and so the condition is visible after reload.
 
@@ -381,27 +495,24 @@ For each, show why the guard does not block it.
 | Re-fly post-invoke | `RewindInvoker:908`, `IsRewinding` true | AUTHORIZED-REDUCTION via (1). |
 | Re-fly mid-session scene change | any recalc while `ActiveReFlySessionMarker != null` | AUTHORIZED-REDUCTION via (2). |
 | Re-fly merge tail (tombstones) | `RecalculateAndPatchAfterTombstones` | AUTHORIZED-REDUCTION via (4); also `ActiveMergeJournal` likely non-null (3). |
-| Time jump backward | `TimeJumpManager` | Time jump uses a cutoff walk; if it reduces resources it is an intended timeline reposition. Covered by signal review (see open question 7.3 - time jump may need its own flag if it can run with no rewind/marker). |
-| Strategy exchange (Bail-Out Grant) | KSC live event -> committed action -> small post-commit delta | delta is the small residual, below the 50% guard bar; pool not near-collapsed. |
-| Contract penalty | committed `ContractFail`/`Cancel` action | small residual; rep penalties are bounded. |
-| Facility upgrade / repair cost | committed `FundsSpending` action | small residual relative to the committed cost; funds already debited before the post-commit recalc. |
-| Tech node purchase | committed `ScienceSpending` action | small science residual; the big drop already happened through the committed action, not the patch. |
-| Vessel build / rollout cost | `vessel-rollout` live event -> committed action | small residual. |
-| Multi-channel commit | one recalc applying many committed deltas | each is committed before the patch; net target reflects them; residual delta small. |
+| Time jump (always forward) | `TimeJumpManager` -> `RecalculateAndPatchForTimeJump` | Forward only (`IsValidJump`, `TimeJumpManager.cs:218-228`); later cutoff includes more actions, never fewer. Future costs are reserved, not applied-on-crossing. No downward delta. (2.6.1-2) |
+| Backward warp | `WarpToTime` -> Rewind-to-Launch then forward jump | The rewind sets `IsRewinding` -> AUTHORIZED-REDUCTION via signal (1); the forward jump only advances. (2.6.1) |
+| Strategy exchange (Bail-Out Grant) | KSC live event -> committed action | KSP debits live first, action captured post-curve, recalc delta ~0. (2.6.3) |
+| Contract penalty | committed `ContractFail`/`Cancel` action | KSP applies penalty first, captured as a committed action, recalc delta ~0. (2.6.3) |
+| Facility upgrade / repair cost | committed `FundsSpending` action | funds debited live first, action committed, recalc delta ~0. (2.6.3) |
+| Tech node purchase | committed `ScienceSpending` action | science spent live first, action committed, recalc delta ~0. (2.6.3) |
+| Vessel build / rollout cost | `vessel-rollout` live event -> committed action | debited live first, committed, recalc delta ~0. (2.6.3) |
+| Multi-channel commit | one recalc applying many committed deltas | each committed before the patch; net target reflects them; residual ~0. |
 
-The unifying invariant: a legitimate spend is a COMMITTED LEDGER ACTION, so the
-recalc target already includes it and the patch delta is the small reconciliation
-residual, not the whole spend. A leak is the opposite: an earning that NEVER became
-a ledger action, so the target is below live by the whole missing amount. The 50% +
-absolute guard bar plus the time-travel signal separates these cleanly.
-
-Residual false-positive risk: a player who, in a single recalc with no time travel,
-legitimately spends more than 50% of a large pool AND more than the absolute floor
-in one un-deferred move. This is implausible in stock play (such spends are
-committed actions reconciled incrementally), but section 7.1 calls it out for the
-human to weigh, and the clamp is non-destructive even if it triggers (the player
-keeps the resource; worst case is the next correct recalc reapplies the intended
-spend, or the player re-spends).
+The unifying invariant: a legitimate spend is a COMMITTED LEDGER ACTION that KSP
+applies to live state BEFORE Parsek captures it, so the recalc target already
+includes it and the patch delta is ~0, not the spend. A leak is the opposite: an
+earning that NEVER became a ledger action, so the target is below live by the whole
+missing amount. The time-travel signal authorizes the only legitimate large downward
+moves (rewind/re-fly/tombstone). Everything else downward past rounding epsilon, with
+no time-travel context, is a corruption. There is NO legitimate scenario that arrives
+at the non-time-travel patch as a downward delta past epsilon (section 2.6), so the
+"clamp any unexplained downward delta" rule has zero false positives by construction.
 
 ------------------------------------------------------------------------
 
@@ -415,8 +526,11 @@ spend, or the player re-spends).
   ledger-driven. Document this explicitly so a future reader does not "fix" the
   asymmetry.
 - FUNDS: full guard (clamp + observability).
-- REPUTATION: guard with a looser threshold (section 3.4); lean on time-travel
-  signal. Clamp to current on a near-collapse with no time-travel context.
+- REPUTATION: full guard, SAME rule as funds/science (resolved, section 3.4). The
+  clamp is expressed against the `SetReputation` semantics ("do not set below
+  current") and measures "downward" as `target < current - epsilon` regardless of
+  sign so negative rep is handled. Every legitimate rep drop is a committed action
+  reconciled to ~0, so the clamp never blocks a genuine penalty.
 - TECH TREE: NOT guarded by clamp. Tech is set-membership, not a magnitude, and is
   only patched on cutoff/rewind walks (`techPatchCutoff` non-null), which are the
   time-travel paths. A non-rewind walk passes `targetTechIds = null` and PatchTechTree
@@ -431,36 +545,73 @@ spend, or the player re-spends).
 
 ------------------------------------------------------------------------
 
-## 7. Open questions / decisions for the human
+## 7. Resolved decisions and the player-facing choice
 
-7.1 Guard threshold numbers. Proposed: WARN stays at 10% / 1000 (unchanged);
-    CLAMP at 50% AND an absolute floor (5000 funds, 50 science, looser for rep).
-    Are these acceptable, or should the clamp bar be lower (more protective, higher
-    false-positive risk) or higher (more permissive)? The absolute floor is what
-    keeps small-career legitimate spends safe.
+### 7.1 Resolved (dev-internal, no player input needed)
 
-7.2 Reputation handling. Rep legitimately falls in normal play (penalties) and is a
-    SET not an ADD. Should rep be clamped at all, or only WARN + notify (because a
-    rep "wipe" is less catastrophic and harder to distinguish from legitimate
-    multi-penalty collapse)? Recommendation: WARN + notify only for rep in v1, add
-    clamp later if a rep-leak is observed. Confirm.
+The four originally-open questions are resolved from code + design docs (evidence in
+section 2.6):
 
-7.3 Time jump. Does `RecalculateAndPatchForTimeJump` ever run with NO rewind
-    context and NO re-fly marker while legitimately reducing resources? If a
-    backward time jump can reduce funds/science without `IsRewinding`, it needs to
-    be added as an explicit authoritative-reduction caller (a fifth signal), or the
-    guard would clamp it. Needs a code/playtest confirmation of the time-jump
-    resource semantics before wiring.
+- Q1 / threshold model (was 7.1). RESOLVED: clamp ANY downward delta past the
+  resource's rounding epsilon when no time-travel context is active; no percentage,
+  no absolute floor. There is no legitimate non-time-travel downward delta past
+  epsilon (2.6.1-4), so a threshold band would only leave a hole for medium
+  corruptions. (Section 3.3.)
+- Q2 / reputation (was 7.2). RESOLVED: treat rep exactly like funds/science (full
+  clamp against the `SetReputation` semantics). Every legitimate rep drop is a
+  committed action reconciled to ~0; rep is not semantically special, only mechanically
+  different (set vs add, can be negative), and both are handled. (Sections 3.4, 6.)
+- Q3 / time jump (was 7.3). RESOLVED: a time jump is always forward and a backward
+  warp routes through a rewind (which sets the signal), so the time-jump recalc never
+  legitimately reduces resources with no time-travel context. No fifth signal needed.
+  (Section 2.6.1.)
+- Q5 / setting toggle (was 7.5). RESOLVED: UNCONDITIONAL, no toggle. The recalc/patch
+  system is itself unconditional; the codebase reserves default-ON toggles for
+  gameplay-restriction features (which this is not). A corruption-prevention net with
+  no gameplay downside follows the "always on, no setting" precedent. (Section 2.6.5.)
 
-7.4 Notification UX. Is a `ScreenMessages.PostScreenMessage` acceptable, or should
-    a guarded clamp also raise a `PopupDialog` the first time (more intrusive but
-    harder to miss)? Recommendation: ScreenMessage one-shot; PopupDialog feels too
-    heavy for a defense-in-depth tripwire.
+Q4 (notification UX, was 7.4) is NOT a dev-internal default - it is the one genuine
+player preference and is moved to 7.2 below.
 
-7.5 Should the clamp be behind a default-ON setting (section 8 phased rollout) or
-    unconditional from v1? Recommendation: ship behind a default-ON
-    `guardSuspiciousDrawdown` setting so a playtester can disable it if it ever
-    mis-fires, then consider removing the toggle once proven.
+### 7.2 The genuine player-facing choice
+
+After resolving the above, exactly ONE decision genuinely depends on player
+preference: HOW LOUD the protection should be when it triggers. The clamp itself
+(preserve what was earned) is non-negotiable and unconditional; the only variable is
+whether and how the player is told. This is a pure UX preference with no correctness
+impact, so it should be put to the user.
+
+Plain-language framing (no jargon) for the user:
+
+> Once in a while, a bug elsewhere could make Parsek think you have less science,
+> funds, or reputation than you actually earned, and it would normally lower your
+> totals to match. Parsek can now catch this and KEEP what you earned instead of
+> taking it away. When that happens, how should Parsek tell you?
+>
+> A. Just keep my progress and don't interrupt me (it's noted in the log file).
+> B. Keep my progress and show a brief on-screen message so I know it happened.
+> C. Keep my progress and pop up a one-time notice the first time, so I definitely
+>    notice (brief messages after that).
+
+Recommended default: B (keep progress + a brief, one-time-per-session on-screen
+message per resource). It is visible enough that a real leak gets noticed and
+reported, without nagging on every scene change, and it matches the existing
+in-game toast style (`ScreenMessages.PostScreenMessage`, used at
+`ParsekScenario.cs:2603,6054`). A (silent) risks a leak going unnoticed for a long
+time; C (popup) is heavier than a defense-in-depth tripwire warrants but is offered
+for players who want maximum visibility.
+
+Note this choice is about NOTIFICATION ONLY. Whichever option is picked, the
+career-protecting clamp always happens and is always written to KSP.log as a WARN
+with full numbers for diagnostics.
+
+A second, smaller player-facing question only arises IF the user wants an escape
+hatch: should there be an OFF switch for the protection at all? The recommendation
+(2.6.5) is NO toggle, because turning it off can only re-enable silent career
+corruption and never helps legitimate play. If the user nonetheless wants the safety
+valve, it would be a single default-ON "Protect earned career progress" checkbox.
+Surfaced here so the user can veto the unconditional decision, not because the design
+needs it.
 
 ------------------------------------------------------------------------
 
@@ -469,27 +620,27 @@ spend, or the player re-spends).
 ### 8.1 Files and functions to add / change
 
 - `Source/Parsek/GameActions/KspStatePatcher.cs`
-  - Add `internal static bool IsGuardableDrawdown(double delta, double currentPool,
-    double fraction, double absoluteFloor)` (pure, unit-tested).
-  - Add `internal static double ApplyDrawdownGuard(double delta, double currentValue,
-    double target, bool authoritativeReduction, bool guardEnabled, string resource,
-    out bool clamped)` (pure decision: returns the delta to actually apply -
-    `delta` unchanged when safe/authorized, `0` when clamped - and reports
-    `clamped`). All logging done by the caller from the returned `clamped` + numbers
-    so the pure helper stays log-free and testable, OR log inside with a TestSink
-    (match the existing `IsSuspiciousDrawdown`/WARN pattern - the existing patcher
-    logs inside, so keep that style and assert via `TestSinkForTesting`).
-  - Thread a new parameter `bool authoritativeReduction` (and optionally
-    `bool guardEnabled`) through `PatchAll` -> `PatchScience` / `PatchFunds` /
-    `PatchReputation`. Apply the guarded delta instead of the raw delta.
-  - `PatchScience`: compute `delta`, then
-    `delta = ApplyDrawdownGuard(...)` before `AddScience(delta, ...)`.
-  - `PatchFunds`: same before `AddFunds(delta, ...)`.
-  - `PatchReputation`: convert the SET into a guarded check (compute implied delta
-    `target - current`, guard, and if clamped, SetReputation(current) i.e. no-op).
-  - Keep `IsSuspiciousDrawdown` and the existing WARN unchanged (the WARN is the
-    10% tripwire; the clamp is the 50%+floor action). They compose.
-  - Extend `ResetForTesting` for any new one-shot notification guard bool.
+  - Add `internal static bool IsGuardableDrawdown(double delta, double epsilon)
+    => delta < -epsilon;` (pure, unit-tested). No fraction, no floor (section 3.3).
+  - Add `internal static double ApplyDrawdownGuard(double delta, double epsilon,
+    bool authoritativeReduction, string resource, out bool clamped)` (pure decision:
+    returns the delta to actually apply - `delta` unchanged when not guardable or when
+    authorized, `0` when clamped - and reports `clamped`). Keep the logging in the
+    caller-visible patch methods (match the existing `IsSuspiciousDrawdown`/WARN
+    in-method pattern; assert via `TestSinkForTesting`).
+  - Thread a new parameter `bool authoritativeReduction` through `PatchAll` ->
+    `PatchScience` / `PatchFunds` / `PatchReputation`. Apply the guarded delta.
+  - `PatchScience`: compute `delta`, then `delta = ApplyDrawdownGuard(delta, 0.001,
+    authoritativeReduction, "science", out clamped)` before `AddScience(delta, ...)`.
+  - `PatchFunds`: same with epsilon 0.01 before `AddFunds(delta, ...)`.
+  - `PatchReputation`: compute implied delta `target - current`; if
+    `ApplyDrawdownGuard(delta, 0.01, authoritativeReduction, "reputation", out clamped)`
+    returns 0 (clamped), call `SetReputation(current)` (no-op) instead of `target`.
+    "Downward" is `target < current - epsilon` regardless of sign (negative rep OK).
+  - Keep `IsSuspiciousDrawdown` and the existing WARN unchanged (legacy 10% tripwire);
+    the clamp is independent and fires on any downward delta past epsilon. They compose
+    (the clamp is strictly broader).
+  - Extend `ResetForTesting` for the one-shot per-session notification bools.
 
 - `Source/Parsek/GameActions/LedgerOrchestrator.cs`
   - Add `internal static bool IsAuthoritativeReduction(bool isRewinding,
@@ -501,12 +652,16 @@ spend, or the player re-spends).
     flag threaded from `RecalculateAndPatchAfterTombstones`. Pass it to `PatchAll`.
   - Do NOT reuse `suppressSuspiciousDrawdownWarnings` for this; keep them separate
     parameters (the suppress flag controls the noisy 10% WARN; the new flag
-    authorizes the 50% clamp bypass).
+    authorizes the clamp bypass on time-travel paths).
 
 - `Source/Parsek/ParsekSettings.cs`
-  - Add `public bool guardSuspiciousDrawdown = true;` with a CustomParameterUI under
-    the appropriate section. Read via `ParsekSettings.Current` (null-safe; default
-    to ON when settings unavailable, matching the project's null-safe pattern).
+  - The CLAMP is unconditional (no on/off setting, section 2.6.5 / 7.1). The only
+    setting added is the NOTIFICATION MODE (section 7.2): a small enum
+    (`Silent` / `ScreenMessage` / `PopupFirstTime`, default `ScreenMessage`) exposed
+    via `CustomParameterUI`. Read via `ParsekSettings.Current` (null-safe; default to
+    `ScreenMessage` when settings unavailable). If the user vetoes "unconditional" and
+    wants an off switch, this becomes an additional default-ON
+    `protectEarnedProgress` checkbox; otherwise no on/off field is added.
 
 - `Source/Parsek/ParsekScenario.cs`
   - Optional diagnostic persistence: `DrawdownGuardClampCount` /
@@ -531,7 +686,10 @@ Every decision logged:
   tombstone=..)" with the numbers.
 - Guarded clamp: WARN line "PatchX: GUARDED DRAWDOWN clamped delta=.. current=..
   wouldBeTarget=.. resource=.. (no time-travel context) - live value preserved;
-  ledger may be missing an earning channel" plus a one-shot ScreenMessage.
+  ledger may be missing an earning channel" ALWAYS (regardless of notification mode),
+  plus the in-game notice per the notification-mode setting (Silent: none;
+  ScreenMessage: one-shot-per-session-per-resource toast; PopupFirstTime: a popup the
+  first time then toasts).
 - Tag `KspStatePatcher` (existing). Subsystem-tagged, numeric, InvariantCulture.
 
 ### 8.4 Persistence / Post-Change Checklist
@@ -568,13 +726,13 @@ Add to `Source/Parsek.Tests/` (likely a new `DrawdownGuardTests.cs`, plus extend
 `KspStatePatcher.SuppressUnityCallsForTesting = true` (existing pattern). All
 classes touching shared static state get `[Collection("Sequential")]`.
 
-`IsGuardableDrawdown`:
-- big drop from big pool above absolute floor -> true.
-- big percent drop but below absolute floor -> false (small career protected).
-- above absolute floor but below percent bar -> false.
+`IsGuardableDrawdown(delta, epsilon)`:
+- delta more negative than -epsilon -> true.
+- delta within [-epsilon, 0] -> false (rounding noise).
+- delta == -epsilon exactly -> false (strict `< -epsilon`).
 - positive delta -> false.
-- pool below floor -> false.
-- boundary cases at the fraction and the absolute floor.
+- a tiny downward delta (smaller magnitude than the old 10% WARN but past epsilon)
+  -> true (proves the clamp is broader than the legacy WARN).
 
 `IsAuthoritativeReduction`:
 - all four inputs false -> false.
@@ -583,11 +741,9 @@ classes touching shared static state get `[Collection("Sequential")]`.
 
 `ApplyDrawdownGuard` (pure decision):
 - safe (positive delta) -> returns delta unchanged, clamped=false.
+- within-epsilon downward -> returns delta unchanged, clamped=false.
 - guardable + authoritative -> returns delta unchanged, clamped=false (time travel).
-- guardable + NOT authoritative + guard enabled -> returns 0, clamped=true.
-- guardable + NOT authoritative + guard DISABLED (setting off) -> returns delta,
-  clamped=false (but WARN still emitted - assert the WARN line).
-- below-floor drop with no context -> returns delta unchanged (not guardable).
+- guardable + NOT authoritative -> returns 0, clamped=true.
 
 Log-assertion (drive `PatchScience`/`PatchFunds` with `SuppressUnityCallsForTesting`
 where the singletons are null-guarded, OR exercise the pure path and assert on the
@@ -624,17 +780,19 @@ the false-positive analysis.
 
 ### 11.1 Risks
 
-- Mis-tuned thresholds blocking a legitimate large spend. Mitigated by: the
-  absolute floor, the committed-action invariant (spends are reconciled
-  incrementally, so the residual is small), the default-ON setting toggle, and the
-  non-destructive nature of clamp.
-- A missing time-travel signal causing a legitimate reduction to clamp. Mitigated
-  by enumerating all four signals (section 2.4) and the open question on time jump
-  (7.3). If a signal is missed, the failure mode is a clamped legitimate reduction
-  (player keeps resources they were supposed to lose) - annoying but not
-  career-destroying, and visible in the loud WARN.
-- Rep semantics (SET vs ADD, legitimate negatives). Mitigated by the looser rep
-  threshold and the v1 recommendation to WARN+notify only for rep.
+- A legitimate spend reaching the patch as a downward delta and being clamped.
+  Investigation shows this cannot happen on a non-time-travel path: spends are
+  committed actions reconciled to ~0 (2.6.3), future costs are reserved not
+  applied-on-crossing (2.6.2), and time jumps only advance (2.6.1). The clamp is also
+  non-destructive, so even an unforeseen trigger only preserves the player's resource.
+- A missing time-travel signal causing a legitimate reduction to clamp. Mitigated by
+  enumerating all four signals (section 2.4) and confirming the time-jump path needs
+  no fifth signal (2.6.1). If a signal is ever missed, the failure mode is a clamped
+  legitimate reduction (player keeps resources they were supposed to lose) - annoying
+  but not career-destroying, and loud in the WARN, so it surfaces fast.
+- Rep semantics (SET vs ADD, legitimate negatives). Mitigated by expressing the clamp
+  against the set ("do not set below current") and measuring downward as
+  `target < current - epsilon` regardless of sign (sections 3.4, 6).
 
 ### 11.2 Edge cases
 
@@ -653,16 +811,21 @@ the false-positive analysis.
 
 ### 11.3 Phased rollout
 
-- Phase 1: ship the pure helpers + the clamp behind default-ON
-  `guardSuspiciousDrawdown`, with loud WARN + one-shot ScreenMessage, for science
-  and funds only. Rep stays WARN+notify (no clamp). xUnit + in-game tests.
-- Phase 2 (after a clean career playtest confirms zero false clamps): consider rep
-  clamp, and consider removing the toggle once proven.
+The clamp is unconditional (no on/off toggle, section 2.6.5 / 7.1) and applies to
+funds, science, AND reputation from v1 (rep is not special, section 3.4). The phasing
+is about validation depth, not feature gating:
+
+- Phase 1: ship the pure helpers + the unconditional clamp for funds / science / rep,
+  with the loud WARN always and the notification-mode setting (default ScreenMessage,
+  section 7.2). xUnit + in-game tests.
+- Phase 2 (after a clean career playtest): confirm zero false clamps in the wild;
+  tune only the notification UX if needed (no clamp-logic change expected).
 - In-game validation required before declaring done: a full career playtest with no
   time travel must produce ZERO guarded clamps and ZERO false WARNs (the healthy
   baseline), and a deliberately-leaked ledger (or a forced too-low target) must
-  clamp and preserve live state. Verify the deployed DLL per the CLAUDE.md recipe
-  before the playtest.
+  clamp and preserve live state, on funds, science, AND rep. Also validate a real
+  rewind / re-fly / tombstone reduction still applies (authorized). Verify the
+  deployed DLL per the CLAUDE.md recipe before the playtest.
 
 ------------------------------------------------------------------------
 
@@ -670,13 +833,18 @@ the false-positive analysis.
 
 The recalc patch trusts the ledger and applies downward deltas unconditionally; the
 only existing protection is a log-only WARN that is even silenced on the
-scene-change path. The guard adds a clamp-to-current safety net keyed on a clean
-three-way classification: positive/small deltas apply; large downward deltas WITH a
-time-travel context (rewind in progress, active re-fly marker, active merge journal,
-or the tombstone tail) apply as intended; large downward deltas with NO time-travel
-context are clamped so live career state can never again be silently wiped. The
-clamp is surgical (per resource), idempotent (no oscillation), non-destructive
-(player keeps progress), and self-healing (stops triggering once the underlying leak
-is fixed). It is loud (WARN + one-shot in-game notice) so leaks are caught, and it
-explicitly does not block the legitimate spends and time-travel reductions
-enumerated in section 5.
+scene-change path. The guard adds an unconditional clamp-to-current safety net keyed
+on a clean classification: a downward delta past the resource's rounding epsilon is
+clamped UNLESS a time-travel context is active (rewind in progress, active re-fly
+marker, active merge journal, or the tombstone tail), in which case it applies as
+intended. Investigation proved there is no legitimate non-time-travel downward delta
+past epsilon (spends are committed actions reconciled to ~0; future costs are reserved
+not applied-on-crossing; time jumps only advance; backward warp routes through a
+rewind), so "clamp any unexplained downward delta" has zero false positives by
+construction and needs no percentage/floor threshold. The clamp covers funds,
+science, and reputation identically (rep is not special). It is surgical (per
+resource), idempotent (no oscillation), non-destructive (player keeps progress), and
+self-healing (stops triggering once the underlying leak is fixed). It is always loud
+in KSP.log, and the in-game notice level is the single player-facing preference
+(default: a brief on-screen message). The clamp itself is unconditional, matching the
+codebase precedent for correctness behaviors with no gameplay downside.
