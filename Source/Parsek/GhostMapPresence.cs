@@ -8669,6 +8669,34 @@ namespace Parsek
                 acceptTerminalOrbitForLoopSynthesis: false,
                 loopMemberInWindow: loopMemberInWindow);
 
+            // BUG-B: in the live tracking-station create paths (batch != null), a committed recording
+            // that WOULD seed a map icon (source != None) but is purely historical (the player only ever
+            // progressed past it in normal forward time and never rewound to replay it) is suppressed so
+            // it does not draw a duplicate ghost of a still-live vessel. Placed AFTER source resolution
+            // so the existing, more-specific skip reasons (already-spawned, no-orbit, before-activation)
+            // are preserved; only an otherwise-renderable historical recording is overridden. The
+            // pure-predicate "direct" wrapper passes batch == null and is left unchanged. Loop members
+            // (loopMemberInWindow) and the active re-fly session are exempt, and rec.LoopPlayback covers
+            // a per-recording loop sampling at live UT; for every other recording reaching here in a
+            // create path currentUT is the live UT (effUT == currentUT), so the latch sees live time.
+            if (source != TrackingStationGhostSource.None
+                && batch != null
+                && !loopMemberInWindow
+                && !rec.LoopPlayback
+                && SessionSuppressionState.ActiveMarker == null)
+            {
+                double historicalActivationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
+                PlaybackScopeTracker.NotePlayhead(rec.RecordingId, currentUT, historicalActivationStartUT);
+                if (PlaybackScopeTracker.IsHistoricalNeverReplayed(
+                        rec.RecordingId, currentUT, historicalActivationStartUT))
+                {
+                    source = TrackingStationGhostSource.None;
+                    segment = default(OrbitSegment);
+                    stateVectorPoint = default(TrajectoryPoint);
+                    skipReason = "historical-not-replayed";
+                }
+            }
+
             LogTrackingStationGhostSourceDecision(
                 context,
                 recordingIndex,
