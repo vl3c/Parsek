@@ -46,6 +46,13 @@ namespace Parsek
         // this member's ghost is hidden. Exactly one unit member renders at a
         // time; the others count this skip. See UpdateUnitMemberPlayback.
         MissionLoopUnitInactive = 18,
+        // BUG-B: a committed recording the player only ever progressed past in normal
+        // forward time (never rewound to replay it). It is historical — no ghost, no
+        // map icon, no terminal-vessel spawn — until a rewind puts its window back in
+        // the player's forward path. Looping / mission-unit replays (explicit live
+        // opt-in) and the active re-fly session are exempt and never carry this reason.
+        // Host-decided in ComputePlaybackFlags via PlaybackScopeTracker.
+        HistoricalNotReplayed = 19,
     }
 
     internal static class GhostPlaybackSkipReasonExtensions
@@ -92,6 +99,8 @@ namespace Parsek
                     return "chain-bridge-held";
                 case GhostPlaybackSkipReason.MissionLoopUnitInactive:
                     return "mission-loop-unit-inactive";
+                case GhostPlaybackSkipReason.HistoricalNotReplayed:
+                    return "historical-not-replayed";
                 default:
                     return "unknown";
             }

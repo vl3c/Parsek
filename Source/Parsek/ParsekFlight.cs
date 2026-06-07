@@ -18562,7 +18562,8 @@ namespace Parsek
             bool playbackEnabled,
             bool externalVesselSuppressed,
             bool supersededByRelation = false,
-            bool rewindRetired = false)
+            bool rewindRetired = false,
+            bool historicalNeverReplayed = false)
         {
             if (!hasRenderableData)
                 return GhostPlaybackSkipReason.NoRenderableData;
@@ -18574,6 +18575,11 @@ namespace Parsek
                 return GhostPlaybackSkipReason.SupersededByRelation;
             if (externalVesselSuppressed)
                 return GhostPlaybackSkipReason.ExternalVesselSuppressed;
+            // BUG-B: keep a purely-historical committed recording (never rewound to
+            // replay) dormant. Ordered last so a structural/career skip still wins;
+            // only an otherwise-renderable recording is parked as historical.
+            if (historicalNeverReplayed)
+                return GhostPlaybackSkipReason.HistoricalNotReplayed;
             return GhostPlaybackSkipReason.None;
         }
 
@@ -19043,12 +19049,32 @@ namespace Parsek
                     timelineInactiveIds.TryGetValue(rec.RecordingId, out inactiveReason);
                 bool supersededByRelation = inactiveReason == TimelineInactiveReason.SupersededByRelation;
                 bool rewindRetired = inactiveReason == TimelineInactiveReason.RewindRetired;
+
+                // BUG-B: keep a purely-historical committed recording dormant during
+                // normal forward play. A recording only replays (and spawns its
+                // terminal vessel) when the player rewound so its window lies ahead of
+                // the live playhead; PlaybackScopeTracker latches that per recording.
+                // Looping / chain-loop / mission-unit members (explicit live-replay
+                // opt-in) and the active re-fly session are exempt — they are driven by
+                // their own engine paths and must keep rendering. Every committed
+                // recording is noted each frame so a later rewind re-arms its scope.
+                double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
+                PlaybackScopeTracker.NotePlayhead(rec.RecordingId, currentUT, activationStartUT);
+                bool loopingLike = rec.LoopPlayback
+                    || chainLooping
+                    || (cachedLoopUnits != null && cachedLoopUnits.IsMember(i));
+                bool historicalNeverReplayed = !loopingLike
+                    && activeReFlyMarker == null
+                    && PlaybackScopeTracker.IsHistoricalNeverReplayed(
+                        rec.RecordingId, currentUT, activationStartUT);
+
                 GhostPlaybackSkipReason skipReason = ResolveGhostPlaybackSkipReason(
                     hasData,
                     rec.PlaybackEnabled,
                     externalVesselSuppressed,
                     supersededByRelation,
-                    rewindRetired);
+                    rewindRetired,
+                    historicalNeverReplayed);
                 LogGhostSkipReasonChangeIfNeeded(
                     i,
                     rec,
@@ -19071,7 +19097,8 @@ namespace Parsek
                 bool finalNeedsSpawn = spawnResult.needsSpawn
                     && !chainSuppressed.suppressed
                     && !supersededByRelation
-                    && !rewindRetired;
+                    && !rewindRetired
+                    && !historicalNeverReplayed;
                 string anchorReFlyUnstableAnchorId;
                 string anchorReFlyUnstableReason;
                 bool anchorReFlyUnstable = ResolveReFlySettleStability(
@@ -19084,7 +19111,9 @@ namespace Parsek
                 // the per-reason histogram; the batched summary is emitted after the loop.
                 if (!finalNeedsSpawn && !rec.IsDebris)
                 {
-                    string reason = !spawnResult.needsSpawn ? spawnResult.reason : chainSuppressed.reason;
+                    string reason = historicalNeverReplayed
+                        ? "historical-never-replayed"
+                        : (!spawnResult.needsSpawn ? spawnResult.reason : chainSuppressed.reason);
                     string reasonKey = string.IsNullOrEmpty(reason) ? "(none)" : reason;
                     spawnSuppressedByReason.TryGetValue(reasonKey, out int reasonCount);
                     spawnSuppressedByReason[reasonKey] = reasonCount + 1;
