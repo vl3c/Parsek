@@ -49,5 +49,33 @@ namespace Parsek.Tests
                 && line.Contains("frame=42"));
             Assert.Single(logLines.Where(line => line.Contains("FloatingOrigin.setOffset")));
         }
+
+        [Fact]
+        public void RecordFloatingOriginShift_NoSettleActivity_IsRateLimited()
+        {
+            // Reproduces the dominant log-spam source: with no re-fly settle in progress,
+            // FloatingOrigin.setOffset fires every physics frame. A burst within the
+            // throttle window must collapse to a single VERBOSE line (no INFO at all).
+            double clock = 1000.0;
+            ParsekLog.ClockOverrideForTesting = () => clock;
+
+            var refPos = new Vector3d(1.0, 2.0, 3.0);
+            var nonFrame = new Vector3d(4.0, 5.0, 6.0);
+            for (int i = 0; i < 50; i++)
+                ReFlySettleStabilityTracker.RecordFloatingOriginShift(refPos, nonFrame, frame: 100 + i);
+
+            Assert.Equal(1, logLines.Count(l =>
+                l.Contains("[Parsek][VERBOSE][ReFlySettle]") && l.Contains("FloatingOrigin.setOffset")));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Parsek][INFO][ReFlySettle]") && l.Contains("FloatingOrigin.setOffset"));
+
+            // Crossing the throttle window surfaces the suppressed count on the next emit.
+            clock += 31.0;
+            ReFlySettleStabilityTracker.RecordFloatingOriginShift(refPos, nonFrame, frame: 200);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][ReFlySettle]")
+                && l.Contains("FloatingOrigin.setOffset")
+                && l.Contains("suppressed="));
+        }
     }
 }

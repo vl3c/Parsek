@@ -601,5 +601,52 @@ namespace Parsek.Tests
                 && l.Contains("strippedPids=0")
                 && l.Contains("survivorPidCount=1"));
         }
+
+        // --- BUG-C: in-session OnLoad re-restore of the durable terminal abandon ---
+
+        [Fact]
+        public void RestorePersistedTerminalAbandon_SavedFlag_ReappliesAbandonAfterReset()
+        {
+            // The in-session OnLoad reconcile clears the terminal spawn-safety fields
+            // and then restores the saved subset. This helper is the part that
+            // re-applies the persisted "cannot spawn safely" abandon so a known-dead
+            // terminal-orbit vessel is not re-spawned after a scene change (BUG-C).
+            var rec = new Recording { VesselName = "R2-B2-S5" };
+            // Simulate the tree-mutable-state reset having just cleared the flag.
+            TerminalOrbitSpawnSafety.Clear(rec);
+            Assert.False(rec.TerminalSpawnCannotSpawnSafely);
+
+            var savedNode = new ConfigNode("RECORDING");
+            savedNode.AddValue("terminalSpawnCannotSpawnSafely", "True");
+            savedNode.AddValue("terminalSpawnSafetyReasonCode",
+                TerminalOrbitSpawnSafety.ReasonSpawnedVesselDied);
+
+            ParsekScenario.RestorePersistedTerminalAbandon(rec, savedNode);
+
+            Assert.True(rec.TerminalSpawnCannotSpawnSafely,
+                "The saved cannot-spawn-safely abandon must be re-applied so the "
+                + "scene-change reconcile does not re-enable a known-dead terminal spawn.");
+            Assert.Equal(TerminalOrbitSpawnSafety.ReasonSpawnedVesselDied,
+                rec.TerminalSpawnSafetyReasonCode);
+        }
+
+        [Fact]
+        public void RestorePersistedTerminalAbandon_NoSavedFlag_LeavesAbandonClear()
+        {
+            // A recording that was never abandoned must stay spawn-eligible after the
+            // reconcile: an absent key leaves the (already-cleared) flag false, so a
+            // revert quicksave (which has no tree nodes) never freezes a healthy
+            // terminal-orbit recording.
+            var rec = new Recording { VesselName = "Healthy Orbiter" };
+            TerminalOrbitSpawnSafety.Clear(rec);
+
+            var savedNode = new ConfigNode("RECORDING");
+            // No terminalSpawnCannotSpawnSafely key written.
+
+            ParsekScenario.RestorePersistedTerminalAbandon(rec, savedNode);
+
+            Assert.False(rec.TerminalSpawnCannotSpawnSafely,
+                "Absent terminalSpawnCannotSpawnSafely must leave the abandon clear.");
+        }
     }
 }

@@ -224,5 +224,26 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("ghostDriving=1")
                 && l.Contains("skippedByStatus=1"));
         }
+
+        // The per-frame summary is change-detected: a stable route roster collapses to a
+        // single line and re-emits only when a count actually moves.
+        [Fact]
+        public void Summary_StableCounts_CoalescesAndReEmitsOnChange()
+        {
+            RouteStore.AddRoute(RouteForGhost("route-live", "tree-A", RouteStatus.Active));
+
+            for (int i = 0; i < 5; i++)
+                RouteGhostDriverSelector.SelectGhostDrivingBackingMissions(
+                    RouteStore.CommittedRoutes, i);
+
+            Assert.Equal(1, logLines.Count(l => l.Contains("SelectGhostDrivingBackingMissions")));
+
+            // A new ghost-driving route moves the counts -> exactly one new line.
+            RouteStore.AddRoute(RouteForGhost("route-live-2", "tree-B", RouteStatus.Active));
+            RouteGhostDriverSelector.SelectGhostDrivingBackingMissions(
+                RouteStore.CommittedRoutes, 99.0);
+
+            Assert.Equal(2, logLines.Count(l => l.Contains("SelectGhostDrivingBackingMissions")));
+        }
     }
 }

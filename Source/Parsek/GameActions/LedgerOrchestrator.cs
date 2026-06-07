@@ -450,8 +450,19 @@ namespace Parsek
                 for (int i = 0; i < events.Count; i++)
                 {
                     var e = events[i];
-                    if (e.ut < startUT || e.ut > endUT) continue;
-                    if (!EventMatchesRecordingScope(e, recordingId))
+                    bool scoped = EventMatchesRecordingScope(e, recordingId);
+
+                    // BUG-A: mirror ConvertEvents' tag-ownership window rule. An event
+                    // tagged to the committing recording is summed even past endUT, so
+                    // the store-side delta stays comparable to the emitted-side actions,
+                    // which now include those late tagged captures (e.g. Mun milestone
+                    // rewards earned after an on-rails warp). Without this the reconciler
+                    // would fire a false "missing earning channel" WARN on exactly the
+                    // scenario the converters were fixed to handle. The lower bound and
+                    // cross-recording scope filtering are unchanged.
+                    bool ownedByTag = !string.IsNullOrEmpty(recordingId) && scoped;
+                    if (e.ut < startUT || (e.ut > endUT && !ownedByTag)) continue;
+                    if (!scoped)
                     {
                         deltas.ScopeSkipped++;
                         continue;

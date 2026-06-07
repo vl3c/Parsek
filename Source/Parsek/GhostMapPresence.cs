@@ -11062,18 +11062,33 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.VerboseRateLimited(Tag,
-                "overlap-gate-decision-" + recIdx.ToString(ic),
-                string.Format(ic,
-                    "Overlap gate decision rec=#{0} \"{1}\": directorDrive={2} | "
-                    + "(a) loopPlayback={3} autoIsOverlapLoop={4} | "
-                    + "(b) isMember={5} overlapCadence={6:F1} span={7:F1} unitOverlaps={8} | "
-                    + "{9} | verdict shouldDrive={10} {11}",
-                    recIdx, rec?.VesselName ?? "(null)", gateOn,
-                    recLoopPlayback, autoOverlap,
-                    isMember, overlapCadence, span, unitOverlaps,
-                    scheduleStr, shouldDrive, cycleWindowStr),
-                3.0);
+            string message = string.Format(ic,
+                "Overlap gate decision rec=#{0} \"{1}\": directorDrive={2} | "
+                + "(a) loopPlayback={3} autoIsOverlapLoop={4} | "
+                + "(b) isMember={5} overlapCadence={6:F1} span={7:F1} unitOverlaps={8} | "
+                + "{9} | verdict shouldDrive={10} {11}",
+                recIdx, rec?.VesselName ?? "(null)", gateOn,
+                recLoopPlayback, autoOverlap,
+                isMember, overlapCadence, span, unitOverlaps,
+                scheduleStr, shouldDrive, cycleWindowStr);
+
+            // This verdict is STABLE across the vast majority of frames (almost always
+            // "not-driven"), so the old per-index time-based rate limit still re-emitted
+            // every interval forever: ~48k lines (~15% of all verbose output) in the
+            // 2026-06-07 career playtest. Switch to change-detection so the line fires
+            // only when the decision actually flips. Identity is the stable RecordingId
+            // (committed recordings always have one), so a different recording reusing a
+            // positional index gets its own identity; the positional "idx-N" fallback is
+            // best-effort and only reachable for an id-less recording (not expected here).
+            // The state key carries only the boolean decision facets so the continuously
+            // varying cadence / span / cycle-window floats don't defeat coalescing while
+            // a recording is driven.
+            string identity = !string.IsNullOrEmpty(rec?.RecordingId)
+                ? rec.RecordingId
+                : "idx-" + recIdx.ToString(ic);
+            string stateKey = string.Format(ic, "{0}|{1}|{2}|{3}|{4}|{5}",
+                gateOn, shouldDrive, recLoopPlayback, autoOverlap, isMember, unitOverlaps);
+            ParsekLog.VerboseOnChange(Tag, identity, stateKey, message);
         }
 
         /// <summary>

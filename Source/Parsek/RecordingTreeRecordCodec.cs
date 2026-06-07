@@ -307,6 +307,25 @@ namespace Parsek
                 recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
             if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId))
                 recNode.AddValue("terminalSpawnSupersededBy", rec.TerminalSpawnSupersededByRecordingId);
+            // BUG-C (2026-06-07 career playtest): persist the terminal-orbit
+            // "cannot spawn safely" abandon so it survives save/reload. The flag
+            // was transient, so every scene reload reset it to false and the only
+            // thing blocking re-spawn - VesselSpawner.SpawnOrRecoverIfTooClose's
+            // pre-spawn guard - then re-materialized the same known-dead terminal
+            // vessel each session (R2-B2-S5 spawned -> orphan-recovered -> abandoned
+            // 3x across reloads, each time logging "will not be retried"). Live
+            // orbit-geometry re-evaluation at spawn time cannot re-derive this: the
+            // recorded terminal orbit is geometrically safe (a 13.4 Gm heliocentric
+            // coast); only the recorded spawn-death makes it unspawnable, so the
+            // decision must be durable. The soft, altitude-deferred hold
+            // (TerminalSpawnSafetyDeferred) is deliberately left transient so it
+            // re-evaluates fresh against the propagated orbit on reload.
+            if (rec.TerminalSpawnCannotSpawnSafely)
+            {
+                recNode.AddValue("terminalSpawnCannotSpawnSafely", rec.TerminalSpawnCannotSpawnSafely.ToString());
+                if (!string.IsNullOrEmpty(rec.TerminalSpawnSafetyReasonCode))
+                    recNode.AddValue("terminalSpawnSafetyReasonCode", rec.TerminalSpawnSafetyReasonCode);
+            }
             if (rec.VesselDestroyed)
                 recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
             // #573/#589: persist scoped rewind suppression metadata. New saves only
@@ -716,6 +735,16 @@ namespace Parsek
             }
             rec.VesselDestroyed = ParseBoolOr(recNode, "vesselDestroyed", rec.VesselDestroyed);
             rec.TerminalSpawnSupersededByRecordingId = recNode.GetValue("terminalSpawnSupersededBy");
+            // BUG-C: restore the durable terminal-orbit cannot-spawn-safely abandon
+            // so VesselSpawner.SpawnOrRecoverIfTooClose's pre-spawn guard keeps a
+            // known-dead terminal-orbit vessel from re-materializing after reload.
+            // Absent on saves from before this fix -> defaults to false (current
+            // behaviour), so no migration is required.
+            rec.TerminalSpawnCannotSpawnSafely = ParseBoolOr(
+                recNode, "terminalSpawnCannotSpawnSafely", rec.TerminalSpawnCannotSpawnSafely);
+            string terminalSpawnReason = recNode.GetValue("terminalSpawnSafetyReasonCode");
+            if (!string.IsNullOrEmpty(terminalSpawnReason))
+                rec.TerminalSpawnSafetyReasonCode = terminalSpawnReason;
             // #573/#589: load the scoped post-rewind suppression marker. The only
             // reason produced today is same-recording. Pre-reset saves that wrote a
             // bare bool without a reason are rejected at the schema-generation gate
