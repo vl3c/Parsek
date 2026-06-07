@@ -442,13 +442,22 @@ On a GUARDED-DRAWDOWN for a resource:
 2. LOG: emit a WARN (or ERROR-level INFO) with the full numbers (current, would-be
    target, clamped delta, resource, reason string, time-travel signal values) so
    the leak is loud in KSP.log. This is the diagnostic that a leak exists.
-3. NOTIFY (non-blocking) per the notification-mode setting (section 7.2). Default
-   (ScreenMessage): a single, one-shot-per-session-per-resource
-   `ScreenMessages.PostScreenMessage` in-game ("Parsek kept the science / funds /
-   reputation you earned (a sync error tried to remove it). See KSP.log."). Silent
-   mode skips the toast; PopupFirstTime shows a popup the first time then toasts.
-   ScreenMessage / PopupDialog are already used across the codebase
-   (`ParsekScenario.cs:2603`, `:6054`). Use plain wording, no jargon.
+3. NOTIFY (non-blocking, FINAL - player decision 1): post one short, transient
+   native ScreenMessage via `ParsekLog.ScreenMessage(message, duration)` - the SAME
+   mechanism Parsek already uses for "Recording STARTED" (`ParsekLog.cs:483-495` ->
+   `ScreenMessages.PostScreenMessage(..., ScreenMessageStyle.UPPER_CENTER)`; the
+   "Recording STARTED" call is `ParsekLog.ScreenMessage("Recording STARTED", 2f)` at
+   `FlightRecorder.cs:6187`). Duration ~2-3s. NOT a PopupDialog (the one-time-popup
+   option was dropped). Proposed wording, plain and naming what was protected (the
+   `ParsekLog.ScreenMessage` helper auto-prefixes `[Parsek] `):
+   - Funds: `"Kept your earned funds"`
+   - Science: `"Kept your earned science"`
+   - Reputation: `"Kept your earned reputation"`
+   (So the on-screen text reads e.g. `[Parsek] Kept your earned funds`. Keep it this
+   short; the WARN log carries the numbers.) One-shot per session per resource to
+   avoid spam on repeated recalcs (section 9). This path has a unit-test seam
+   (`ParsekLog.ScreenMessageSinkForTesting`, `ParsekLog.cs:80,485-489`), so the
+   notification is directly assertable in xUnit.
 4. PERSIST a lightweight marker (section 4.4) so a repeated guarded clamp across
    scene changes does not re-spam and so the condition is visible after reload.
 
@@ -545,73 +554,58 @@ at the non-time-travel patch as a downward delta past epsilon (section 2.6), so 
 
 ------------------------------------------------------------------------
 
-## 7. Resolved decisions and the player-facing choice
+## 7. Decisions (all RESOLVED, no open questions)
 
-### 7.1 Resolved (dev-internal, no player input needed)
+Every decision is settled: four resolved from code + design docs, two answered by
+the player. Nothing in this plan is left open.
 
-The four originally-open questions are resolved from code + design docs (evidence in
-section 2.6):
+### 7.1 Resolved from code/docs (evidence in section 2.6)
 
-- Q1 / threshold model (was 7.1). RESOLVED: clamp ANY downward delta past the
-  resource's rounding epsilon when no time-travel context is active; no percentage,
-  no absolute floor. There is no legitimate non-time-travel downward delta past
-  epsilon (2.6.1-4), so a threshold band would only leave a hole for medium
-  corruptions. (Section 3.3.)
-- Q2 / reputation (was 7.2). RESOLVED: treat rep exactly like funds/science (full
-  clamp against the `SetReputation` semantics). Every legitimate rep drop is a
-  committed action reconciled to ~0; rep is not semantically special, only mechanically
-  different (set vs add, can be negative), and both are handled. (Sections 3.4, 6.)
-- Q3 / time jump (was 7.3). RESOLVED: a time jump is always forward and a backward
-  warp routes through a rewind (which sets the signal), so the time-jump recalc never
-  legitimately reduces resources with no time-travel context. No fifth signal needed.
-  (Section 2.6.1.)
-- Q5 / setting toggle (was 7.5). RESOLVED: UNCONDITIONAL, no toggle. The recalc/patch
-  system is itself unconditional; the codebase reserves default-ON toggles for
-  gameplay-restriction features (which this is not). A corruption-prevention net with
-  no gameplay downside follows the "always on, no setting" precedent. (Section 2.6.5.)
+- Q1 / threshold model. RESOLVED: clamp ANY downward delta past the resource's
+  rounding epsilon when no time-travel context is active; no percentage, no absolute
+  floor. There is no legitimate non-time-travel downward delta past epsilon
+  (2.6.1-4), so a threshold band would only leave a hole for medium corruptions.
+  (Section 3.3.)
+- Q2 / reputation. RESOLVED: treat rep exactly like funds/science (full clamp against
+  the `SetReputation` semantics). Every legitimate rep drop is a committed action
+  reconciled to ~0; rep is not semantically special, only mechanically different (set
+  vs add, can be negative), and both are handled. (Sections 3.4, 6.)
+- Q3 / time jump. RESOLVED: a time jump is always forward and a backward warp routes
+  through a rewind (which sets the signal), so the time-jump recalc never legitimately
+  reduces resources with no time-travel context. No fifth signal needed. (Section 2.6.1.)
+- Q4-internal / patch is the right seam. RESOLVED: the guard lives inside
+  PatchScience / PatchFunds / PatchReputation (section 8.2).
 
-Q4 (notification UX, was 7.4) is NOT a dev-internal default - it is the one genuine
-player preference and is moved to 7.2 below.
+### 7.2 Player decisions (FINAL)
 
-### 7.2 The genuine player-facing choice
+PLAYER DECISION 1 - Notification. The player chose: use the SAME native, short,
+transient on-screen message Parsek already shows for "Recording STARTED", i.e.
+`ParsekLog.ScreenMessage(message, duration)` (`ParsekLog.cs:483-495`;
+"Recording STARTED" precedent at `FlightRecorder.cs:6187`). So when the guard
+prevents a wipe, it posts one short ~2-3s UPPER_CENTER ScreenMessage naming what was
+protected (wording in section 4.2 step 3). The one-time-popup / PopupDialog option was
+DROPPED. The notification is unit-test assertable via the existing
+`ParsekLog.ScreenMessageSinkForTesting` seam (`ParsekLog.cs:80,485-489`).
 
-After resolving the above, exactly ONE decision genuinely depends on player
-preference: HOW LOUD the protection should be when it triggers. The clamp itself
-(preserve what was earned) is non-negotiable and unconditional; the only variable is
-whether and how the player is told. This is a pure UX preference with no correctness
-impact, so it should be put to the user.
+PLAYER DECISION 2 - No toggle. The player chose: the guard is UNCONDITIONAL / always
+on (matching the Q5 code finding and the always-on-correctness precedent, 2.6.5).
+There is NO setting that can disable the protection. (A dev rollout MAY stage
+clamp-vs-warn-only during development, but the SHIPPED behavior is fixed: always
+clamp + always post the short ScreenMessage + always WARN-log. No
+`guardSuspiciousDrawdown` field, no `protectEarnedProgress` checkbox, no
+notification-mode enum.)
 
-Plain-language framing (no jargon) for the user:
+### 7.3 The single shipped behavior
 
-> Once in a while, a bug elsewhere could make Parsek think you have less science,
-> funds, or reputation than you actually earned, and it would normally lower your
-> totals to match. Parsek can now catch this and KEEP what you earned instead of
-> taking it away. When that happens, how should Parsek tell you?
->
-> A. Just keep my progress and don't interrupt me (it's noted in the log file).
-> B. Keep my progress and show a brief on-screen message so I know it happened.
-> C. Keep my progress and pop up a one-time notice the first time, so I definitely
->    notice (brief messages after that).
+When the recalc would drive live funds, science, or reputation DOWN past the rounding
+epsilon AND no time-travel context (rewind / re-fly marker / merge journal / tombstone
+tail) is active, the guard ALWAYS:
 
-Recommended default: B (keep progress + a brief, one-time-per-session on-screen
-message per resource). It is visible enough that a real leak gets noticed and
-reported, without nagging on every scene change, and it matches the existing
-in-game toast style (`ScreenMessages.PostScreenMessage`, used at
-`ParsekScenario.cs:2603,6054`). A (silent) risks a leak going unnoticed for a long
-time; C (popup) is heavier than a defense-in-depth tripwire warrants but is offered
-for players who want maximum visibility.
+1. clamps the patch so the player keeps what was earned (no downward write), and
+2. posts one short native ScreenMessage naming the protected resource, and
+3. emits a WARN to KSP.log with the full numbers.
 
-Note this choice is about NOTIFICATION ONLY. Whichever option is picked, the
-career-protecting clamp always happens and is always written to KSP.log as a WARN
-with full numbers for diagnostics.
-
-A second, smaller player-facing question only arises IF the user wants an escape
-hatch: should there be an OFF switch for the protection at all? The recommendation
-(2.6.5) is NO toggle, because turning it off can only re-enable silent career
-corruption and never helps legitimate play. If the user nonetheless wants the safety
-valve, it would be a single default-ON "Protect earned career progress" checkbox.
-Surfaced here so the user can veto the unconditional decision, not because the design
-needs it.
+No configuration, no popup, no opt-out. Time-travel reductions still apply normally.
 
 ------------------------------------------------------------------------
 
@@ -640,6 +634,9 @@ needs it.
   - Keep `IsSuspiciousDrawdown` and the existing WARN unchanged (legacy 10% tripwire);
     the clamp is independent and fires on any downward delta past epsilon. They compose
     (the clamp is strictly broader).
+  - On a clamp, post the one-shot ScreenMessage via `ParsekLog.ScreenMessage(text, 2.5f)`
+    (player decision 1; wording in section 4.2 step 3). Guard the one-shot with a
+    per-resource static bool so repeated recalcs do not re-toast.
   - Extend `ResetForTesting` for the one-shot per-session notification bools.
 
 - `Source/Parsek/GameActions/LedgerOrchestrator.cs`
@@ -655,13 +652,10 @@ needs it.
     authorizes the clamp bypass on time-travel paths).
 
 - `Source/Parsek/ParsekSettings.cs`
-  - The CLAMP is unconditional (no on/off setting, section 2.6.5 / 7.1). The only
-    setting added is the NOTIFICATION MODE (section 7.2): a small enum
-    (`Silent` / `ScreenMessage` / `PopupFirstTime`, default `ScreenMessage`) exposed
-    via `CustomParameterUI`. Read via `ParsekSettings.Current` (null-safe; default to
-    `ScreenMessage` when settings unavailable). If the user vetoes "unconditional" and
-    wants an off switch, this becomes an additional default-ON
-    `protectEarnedProgress` checkbox; otherwise no on/off field is added.
+  - NO CHANGES (player decision 2). The guard is unconditional: no
+    `guardSuspiciousDrawdown` field, no `protectEarnedProgress` checkbox, no
+    notification-mode enum, no `CustomParameterUI`. The clamp + ScreenMessage + WARN
+    always fire; there is nothing for the player to configure.
 
 - `Source/Parsek/ParsekScenario.cs`
   - Optional diagnostic persistence: `DrawdownGuardClampCount` /
@@ -686,10 +680,9 @@ Every decision logged:
   tombstone=..)" with the numbers.
 - Guarded clamp: WARN line "PatchX: GUARDED DRAWDOWN clamped delta=.. current=..
   wouldBeTarget=.. resource=.. (no time-travel context) - live value preserved;
-  ledger may be missing an earning channel" ALWAYS (regardless of notification mode),
-  plus the in-game notice per the notification-mode setting (Silent: none;
-  ScreenMessage: one-shot-per-session-per-resource toast; PopupFirstTime: a popup the
-  first time then toasts).
+  ledger may be missing an earning channel" ALWAYS, plus the one-shot-per-session
+  short ScreenMessage via `ParsekLog.ScreenMessage` (player decision 1; unconditional,
+  there is no notification-mode setting).
 - Tag `KspStatePatcher` (existing). Subsystem-tagged, numeric, InvariantCulture.
 
 ### 8.4 Persistence / Post-Change Checklist
@@ -751,8 +744,12 @@ emitted lines): assert the GUARDED-DRAWDOWN WARN contains the resource, current,
 would-be target, and "live value preserved"; assert the AUTHORIZED line contains
 the signal values; assert no clamp line on a healthy delta.
 
-One-shot notification: assert the ScreenMessage / one-shot bool fires once and not
-on the second guarded recalc within a session.
+One-shot notification: install `ParsekLog.ScreenMessageSinkForTesting`
+(`ParsekLog.cs:80,485-489`) to capture posted messages, then assert exactly ONE
+message per resource is posted on the first guarded recalc, its text names the
+protected resource ("Kept your earned funds" / science / reputation), and NO further
+message is posted on a second guarded recalc within the same session. Reset the
+one-shot bools via `ResetForTesting` in Dispose.
 
 ### 10.2 In-game tests (`InGameTests/RuntimeTests.cs`)
 
@@ -811,21 +808,23 @@ the false-positive analysis.
 
 ### 11.3 Phased rollout
 
-The clamp is unconditional (no on/off toggle, section 2.6.5 / 7.1) and applies to
-funds, science, AND reputation from v1 (rep is not special, section 3.4). The phasing
-is about validation depth, not feature gating:
+The shipped behavior is fixed and unconditional (player decision 2): always clamp +
+always post the short ScreenMessage + always WARN-log, for funds, science, AND
+reputation from v1 (rep is not special, section 3.4). There is no setting and no
+feature gate. Phasing is purely a DEV strategy for validation depth, not anything the
+player ever sees:
 
-- Phase 1: ship the pure helpers + the unconditional clamp for funds / science / rep,
-  with the loud WARN always and the notification-mode setting (default ScreenMessage,
-  section 7.2). xUnit + in-game tests.
-- Phase 2 (after a clean career playtest): confirm zero false clamps in the wild;
-  tune only the notification UX if needed (no clamp-logic change expected).
+- Phase 1 (dev): land the pure helpers + the unconditional clamp + the one-shot
+  ScreenMessage + the WARN, with xUnit coverage. A dev MAY temporarily run a
+  warn-only build locally to compare clamp-vs-warn behavior, but warn-only never
+  ships.
+- Phase 2 (after a clean career playtest): confirm zero false clamps in the wild.
 - In-game validation required before declaring done: a full career playtest with no
   time travel must produce ZERO guarded clamps and ZERO false WARNs (the healthy
-  baseline), and a deliberately-leaked ledger (or a forced too-low target) must
-  clamp and preserve live state, on funds, science, AND rep. Also validate a real
-  rewind / re-fly / tombstone reduction still applies (authorized). Verify the
-  deployed DLL per the CLAUDE.md recipe before the playtest.
+  baseline); a deliberately-leaked ledger (or a forced too-low target) must clamp,
+  preserve live state, AND post the ScreenMessage, on funds, science, AND rep; and a
+  real rewind / re-fly / tombstone reduction must still apply (authorized). Verify
+  the deployed DLL per the CLAUDE.md recipe before the playtest.
 
 ------------------------------------------------------------------------
 
@@ -844,7 +843,9 @@ rewind), so "clamp any unexplained downward delta" has zero false positives by
 construction and needs no percentage/floor threshold. The clamp covers funds,
 science, and reputation identically (rep is not special). It is surgical (per
 resource), idempotent (no oscillation), non-destructive (player keeps progress), and
-self-healing (stops triggering once the underlying leak is fixed). It is always loud
-in KSP.log, and the in-game notice level is the single player-facing preference
-(default: a brief on-screen message). The clamp itself is unconditional, matching the
-codebase precedent for correctness behaviors with no gameplay downside.
+self-healing (stops triggering once the underlying leak is fixed). All decisions are
+resolved: the guard is unconditional with no setting (player decision 2), and when it
+prevents a wipe it always WARN-logs the numbers and posts one short native
+ScreenMessage naming the protected resource via `ParsekLog.ScreenMessage` - the same
+"Recording STARTED"-style notice (player decision 1). The clamp being unconditional
+matches the codebase precedent for correctness behaviors with no gameplay downside.
