@@ -13,6 +13,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - Log spam audit of the 2026-06-07 career playtest (top three per-frame offenders)
+
+The `logs/2026-06-07_1638_career-playtest/KSP.log` was 363,790 lines, 94.8% Parsek output, 327,667 of them `[VERBOSE]`, despite the session doing no re-fly and having no supply routes. Full ranked family report: `docs/dev/log-spam-audit-2026-06-07.md` (analyzer: `logs/2026-06-07_1638_career-playtest/_spam_analyze.py`). Fixed the three highest-volume families (logging-only, no runtime-behavior change), ~236,600 lines / ~65% of the whole log:
+
+- `ReFlySettleStabilityTracker.RecordFloatingOriginShift` (185,303 lines, ~56% of all verbose). `FloatingOrigin.setOffset` fires nearly every physics frame the world re-centres; the non-settle branch logged `Verbose` unconditionally. The shift STATE is still recorded unconditionally (it feeds `LastFloatingOriginShiftFrame`, read by the GhostRenderTrace large-delta detector); only the LINE changed. Settle-window branch still INFO-emits every shift; non-settle branch is now a 30s shared-key `VerboseRateLimited` heartbeat, message built lazily so suppressed frames pay no format cost.
+- `GhostMapPresence.LogOverlapGateDecision` (48,109 lines, ~15%). The verdict is stable ("not-driven") almost always, so the old per-index 3s time limit re-emitted the same line forever for every committed recording. Now `VerboseOnChange` keyed on the stable `RecordingId` with a boolean-facet state key (cadence/span/cycle floats excluded so a driven recording still coalesces); emits only on a verdict flip.
+- `RouteGhostDriverSelector.SelectGhostDrivingBackingMissions` (3,184 lines). Already 2s-rate-limited but all-zeros (no routes). Now `VerboseOnChange` on the counts tuple.
+
+Lock-in tests: `FloatingOriginSetOffsetPatchTests.RecordFloatingOriginShift_NoSettleActivity_IsRateLimited`, `OverlapPerInstanceTests.LogOverlapGateDecision_StableVerdict_CoalescesAndReEmitsOnFlip`, `RouteGhostDriverSelectorTests.Summary_StableCounts_CoalescesAndReEmitsOnChange`. Full xUnit suite green (14,516).
+
+Deferred follow-ups (runtime-frequency or higher-risk, see the report): trajectory sidecar re-reads (~18k lines, repeated-load driven), ledger-recompute re-walks (Funds / ScienceModule / Milestones / LedgerOrchestrator / per-module `Reset: cleared 0` lines, ~25k combined), per-save per-recording resource lines, and the `MapRender shadow frame` / `Anchor candidates` per-frame zero emits.
+
+---
+
 ## Done - Promoted the manual logistics + staging in-game tests into the Isolated batch
 
 The eight in-game tests that previously had to be run by hand via the test-runner row play button (they were `AllowBatchExecution = false` with no restore flag, so both `Run All` and `Run All + Isolated` skipped them as manual-only) now carry `RestoreBatchFlightBaselineAfterExecution = true`, so `Run All + Isolated` runs them automatically and quickloads the captured FLIGHT baseline afterward. Each test already had a full try/finally teardown (snapshot + restore of RouteStore / Ledger / MissionStore / committed trees / live `PartResource.amount` / the `RouteOrchestrator.LoopUnitResolverForTesting` static seam, plus disposable-slot deletion); the baseline quickload is the belt-and-suspenders net on top (and the only reset for the static seam, which a quickload does not touch, so the in-finally disarm still matters). They stay `AllowBatchExecution = false` (out of the lightweight `Run All`, which has no restore) and self-skip gracefully on the wrong vessel shape (no LF tank, fewer than two cargo containers, fewer than two command pods).

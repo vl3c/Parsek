@@ -82,11 +82,16 @@ namespace Parsek.Logistics
             }
 
             var ic = CultureInfo.InvariantCulture;
-            ParsekLog.VerboseRateLimited(Tag, "select-ghost-driving",
+            // This summary is identical frame-to-frame for a stable route roster (and is
+            // all-zeros when no routes exist, the common case). A time-based rate limit
+            // still re-emits the same line every interval; change-detection collapses a
+            // steady state to a single line and re-emits only when a count actually moves.
+            string stateKey = string.Format(ic, "{0}|{1}|{2}|{3}",
+                ghostDriving, skippedByStatus, skippedNull, routes.Count);
+            ParsekLog.VerboseOnChange(Tag, "select-ghost-driving", stateKey,
                 $"SelectGhostDrivingBackingMissions: ghostDriving={ghostDriving.ToString(ic)} " +
                 $"skippedByStatus={skippedByStatus.ToString(ic)} skippedNull={skippedNull.ToString(ic)} " +
-                $"totalRoutes={routes.Count.ToString(ic)}",
-                2.0);
+                $"totalRoutes={routes.Count.ToString(ic)}");
             return result;
         }
     }
