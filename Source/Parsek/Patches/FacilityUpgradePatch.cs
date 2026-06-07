@@ -4,8 +4,11 @@ using Upgradeables;
 namespace Parsek.Patches
 {
     /// <summary>
-    /// Harmony prefix on UpgradeableFacility.SetLevel to block upgrading
-    /// facilities that are already committed in unreplayed milestones.
+    /// Harmony prefix on UpgradeableFacility.SetLevel. SetLevel does NOT deduct funds
+    /// itself (the stock deduction lives in SpaceCenterBuilding.UpgradeFacility, which is
+    /// gated pre-deduction by <see cref="FacilityUpgradeSpendPatch"/>), so this prefix is
+    /// a non-destructive backstop for direct SetLevel callers and blocks already-committed
+    /// facility upgrades only.
     /// </summary>
     [HarmonyPatch(typeof(UpgradeableFacility), nameof(UpgradeableFacility.SetLevel))]
     internal static class FacilityUpgradePatch
@@ -23,34 +26,45 @@ namespace Parsek.Patches
                 return true;
             }
 
-            string facilityId = __instance.id;
-            if (string.IsNullOrEmpty(facilityId)) return true;
+            return !TryBlockFacilityUpgrade(__instance);
+        }
+
+        /// <summary>
+        /// Shared facility-upgrade block decision used by both the pre-deduction
+        /// <see cref="FacilityUpgradeSpendPatch"/> (SpaceCenterBuilding.UpgradeFacility)
+        /// and the post-deduction backstop here (UpgradeableFacility.SetLevel). Returns
+        /// true when the upgrade must be BLOCKED (and emits the log + blocked dialog as a
+        /// side effect); false to allow. Funds affordability is intentionally NOT checked
+        /// (stock's own CurrencyModifierQuery enforces it, and SetLevel does not receive
+        /// the cost) — this only blocks upgrades already committed on the timeline.
+        /// </summary>
+        internal static bool TryBlockFacilityUpgrade(UpgradeableFacility facility)
+        {
+            if (facility == null) return false;
+
+            string facilityId = facility.id;
+            if (string.IsNullOrEmpty(facilityId)) return false;
 
             if (!(ParsekSettings.Current?.blockCommittedActions ?? true))
             {
                 ParsekLog.Verbose("FacilityUpgradePatch",
                     "feature disabled by ParsekSettings");
-                return true;
+                return false;
             }
 
             if (GameStateRecorder.IsReplayingActions)
             {
                 ParsekLog.Verbose("FacilityUpgradePatch",
                     $"Bypassing block for '{facilityId}' — action replay in progress");
-                return true;
+                return false;
             }
 
             var committedFacilities = MilestoneStore.GetCommittedFacilityUpgrades();
             if (!committedFacilities.Contains(facilityId))
             {
-                // Note: funds reservation check (LedgerOrchestrator.CanAffordFundsSpending)
-                // is not wired here because UpgradeableFacility.SetLevel does not receive
-                // the upgrade cost as a parameter. Querying GameVariables per-facility cost
-                // functions is complex and fragile. KSP's own funds check prevents the
-                // upgrade if insufficient. The ledger captures the cost after the fact.
                 ParsekLog.Verbose("FacilityUpgradePatch",
-                    $"Allowing facility upgrade: '{facilityId}' level {currentLevel} → {lvl} — not in committed set ({committedFacilities.Count} committed)");
-                return true;
+                    $"Allowing facility upgrade: '{facilityId}' — not in committed set ({committedFacilities.Count} committed)");
+                return false;
             }
 
             var ev = MilestoneStore.FindCommittedEvent(
@@ -61,14 +75,14 @@ namespace Parsek.Patches
                 : "";
 
             ParsekLog.Info("FacilityUpgradePatch",
-                $"Blocking facility upgrade: '{facilityId}' level {currentLevel} → {lvl} — already committed{utStr}");
+                $"Blocking facility upgrade: '{facilityId}' — already committed{utStr}");
 
             CommittedActionDialog.ShowBlocked(
                 "Cannot upgrade \"" + facilityId + "\"",
                 "This facility upgrade is already committed on your timeline" + utStr + ".",
                 "");
 
-            return false;
+            return true;
         }
     }
 }
