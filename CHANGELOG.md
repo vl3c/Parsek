@@ -198,6 +198,7 @@ All notable changes to Parsek are documented here.
 
 - Capturing a vessel snapshot no longer writes two INFO lines to the log every time (the surface-orbit normalization and the stand-in-crew remap). A long time-warped recording was adding roughly 2,200 such lines per session; both are now rate-limited diagnostic lines.
 - New "Map/TS render tracing" diagnostics setting (Settings > Diagnostics, off by default) that, like the existing ghost render tracing toggle, writes detailed map and tracking-station ghost render diagnostics to the log when investigating map/TS rendering. Leave off for normal playtests (it produces large logs).
+- The recorder's "sparse sampling" WARN no longer fires during normal coasting or on parked vessels. Its large-gap threshold now scales with the configured sample-density backstop (about 3 seconds at the default Medium) instead of a fixed half-second, so only a genuinely stalled sampler warns; a long career session was logging well over a hundred of these on routine coasts.
 
 ### Internals
 
