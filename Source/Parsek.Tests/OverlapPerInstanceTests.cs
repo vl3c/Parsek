@@ -556,6 +556,61 @@ namespace Parsek.Tests
                 && l.Contains("isMember=False"));
         }
 
+        [Fact]
+        public void LogOverlapGateDecision_StableVerdict_CoalescesAndReEmitsOnFlip()
+        {
+            // The gate verdict is stable for the vast majority of frames, so the line must
+            // be change-detected: a steady verdict collapses to a single line and re-emits
+            // (with a suppressed count) only when the decision actually flips.
+            var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
+
+            for (int i = 0; i < 5; i++)
+                GhostMapPresence.LogOverlapGateDecision(
+                    0, committed[0], committed, NoUnits, gateOn: true, shouldDrive: false);
+
+            Assert.Equal(1, logLines.Count(l => l.Contains("Overlap gate decision")));
+
+            // Flip the verdict -> exactly one new line, carrying the coalesced count.
+            GhostMapPresence.LogOverlapGateDecision(
+                0, committed[0], committed, NoUnits, gateOn: true, shouldDrive: true);
+
+            Assert.Equal(2, logLines.Count(l => l.Contains("Overlap gate decision")));
+            Assert.Contains(logLines, l =>
+                l.Contains("Overlap gate decision")
+                && l.Contains("shouldDrive=True")
+                && l.Contains("suppressed="));
+        }
+
+        [Fact]
+        public void LogOverlapGateDecision_DrivenWithMovingCycleWindow_StillCoalesces()
+        {
+            // Locks in the design decision that the continuously-varying floats (live
+            // cycle window / cadence / span) are EXCLUDED from the change key: while a
+            // recording is driven, the cycle window advances every frame, but the boolean
+            // verdict facets are stable, so the line must still coalesce. A regression
+            // that folded a float back into the state key would re-spam every frame and
+            // this test would catch it.
+            var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
+
+            // First driven emit at the default UT (first-seen for this identity).
+            GhostMapPresence.CurrentUTNow = () => 5130.0;
+            GhostMapPresence.LogOverlapGateDecision(
+                0, committed[0], committed, NoUnits, gateOn: true, shouldDrive: true);
+
+            // Advance the clock far enough that the live cycle window moves, but keep the
+            // boolean verdict identical -> must coalesce to the same single line.
+            GhostMapPresence.CurrentUTNow = () => 8130.0;
+            GhostMapPresence.LogOverlapGateDecision(
+                0, committed[0], committed, NoUnits, gateOn: true, shouldDrive: true);
+
+            Assert.Equal(1, logLines.Count(l => l.Contains("Overlap gate decision")));
+
+            // A boolean facet flip still re-emits, proving the key is live, not dead.
+            GhostMapPresence.LogOverlapGateDecision(
+                0, committed[0], committed, NoUnits, gateOn: false, shouldDrive: true);
+            Assert.Equal(2, logLines.Count(l => l.Contains("Overlap gate decision")));
+        }
+
         // =================================================================
         //  Slice (iii): per-instance head-UT resolution (the marker ride set)
         // =================================================================

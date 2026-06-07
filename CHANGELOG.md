@@ -12,6 +12,11 @@ All notable changes to Parsek are documented here.
 
 - A terminal-orbit recording whose auto-recreated vessel dies on spawn is now permanently left alone across save and reload. Previously the "will not be retried" decision was forgotten on every scene change, so the same doomed vessel was re-spawned and re-recovered each session (log spam and needless churn).
 
+### Log Hygiene
+
+- A long career session no longer floods the log with per-frame re-fly settle and per-recording overlap-gate diagnostics. These two traces alone were about two-thirds of a 2026-06-07 career playtest log (roughly 233,000 lines, none of it from an actual re-fly): the floating-origin shift line is now a throttled heartbeat, and the overlap-gate verdict logs only when it actually changes. The per-frame supply-route summary was given the same change-only treatment.
+- The recorder's "sparse sampling" WARN no longer fires during normal coasting or on parked vessels. Its large-gap threshold now scales with the configured sample-density backstop (about 3 seconds at the default Medium) instead of a fixed half-second, so only a genuinely stalled sampler warns; a long career session was logging well over a hundred of these on routine coasts.
+
 ## 0.10.0
 
 ### Defaults
@@ -202,7 +207,6 @@ All notable changes to Parsek are documented here.
 
 - Capturing a vessel snapshot no longer writes two INFO lines to the log every time (the surface-orbit normalization and the stand-in-crew remap). A long time-warped recording was adding roughly 2,200 such lines per session; both are now rate-limited diagnostic lines.
 - New "Map/TS render tracing" diagnostics setting (Settings > Diagnostics, off by default) that, like the existing ghost render tracing toggle, writes detailed map and tracking-station ghost render diagnostics to the log when investigating map/TS rendering. Leave off for normal playtests (it produces large logs).
-- The recorder's "sparse sampling" WARN no longer fires during normal coasting or on parked vessels. Its large-gap threshold now scales with the configured sample-density backstop (about 3 seconds at the default Medium) instead of a fixed half-second, so only a genuinely stalled sampler warns; a long career session was logging well over a hundred of these on routine coasts.
 
 ### Internals
 
