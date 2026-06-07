@@ -4,6 +4,14 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.10.1
+
+- Maintenance and bug-fix release following up on issues found in post-0.10.0 career playtesting.
+
+### Bug Fixes
+
+- A terminal-orbit recording whose auto-recreated vessel dies on spawn is now permanently left alone across save and reload. Previously the "will not be retried" decision was forgotten on every scene change, so the same doomed vessel was re-spawned and re-recovered each session (log spam and needless churn).
+
 ## 0.10.0
 
 ### Defaults
@@ -70,7 +78,6 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- A terminal-orbit recording whose auto-recreated vessel dies on spawn is now permanently left alone across save and reload. Previously the "will not be retried" decision was forgotten on every scene change, so the same doomed vessel was re-spawned and re-recovered each session (log spam and needless churn).
 - Fixed a duplicate vessel appearing at the runway after a logistics delivery (a transport docking into a previously landed, spawned vessel). The absorbed vessel's recording was treated as if it had vanished and got re-spawned at the Space Center; its terminal spawn is now suppressed once a dock absorbs it, so no copy appears.
 - Supply route dock-side endpoint baseline now reflects the partner's pre-dock state instead of the post-couple merged vessel. Previously, when the partner had no background recording in the active tree, the endpoint snapshot fell back to a live `FindVesselByPid` lookup that returned the already-merged vessel, and its resource manifest then included the transport's tank, so `DOCK_ENDPOINT_RESOURCES` showed `transport + endpoint` totals (e.g. `LF=400/800` instead of the endpoint's `LF=200/400`). The couple-event path now snapshots the partner before KSP reparents the parts (both the live-recording and the retroactive `onPartCouple` paths now attempt the capture), and feeds that pre-couple snapshot to the route window so the dock baseline only contains the endpoint's contribution.
 - Supply route part-set drift on undock now emits an observational `Warn` log when a vessel half's actual part-PID set at undock differs from the pre-dock expected set (e.g. EVA construction added or removed parts during the docked window). The disjoint-overlap verifier still gates route eligibility; this warning is informational so we can spot ghost-replay / resource-accounting divergence before tightening the contract. Stock fuel and stock inventory transfers do not trip the warning because they don't change either side's outer part-PID set.
@@ -195,6 +202,7 @@ All notable changes to Parsek are documented here.
 
 - Capturing a vessel snapshot no longer writes two INFO lines to the log every time (the surface-orbit normalization and the stand-in-crew remap). A long time-warped recording was adding roughly 2,200 such lines per session; both are now rate-limited diagnostic lines.
 - New "Map/TS render tracing" diagnostics setting (Settings > Diagnostics, off by default) that, like the existing ghost render tracing toggle, writes detailed map and tracking-station ghost render diagnostics to the log when investigating map/TS rendering. Leave off for normal playtests (it produces large logs).
+- The recorder's "sparse sampling" WARN no longer fires during normal coasting or on parked vessels. Its large-gap threshold now scales with the configured sample-density backstop (about 3 seconds at the default Medium) instead of a fixed half-second, so only a genuinely stalled sampler warns; a long career session was logging well over a hundred of these on routine coasts.
 
 ### Internals
 
