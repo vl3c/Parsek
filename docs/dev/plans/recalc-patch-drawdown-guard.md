@@ -1,7 +1,11 @@
 # Recalc-Patch Drawdown Guard (defense-in-depth)
 
 Status: PLAN ONLY. No code in this branch beyond this document. Do not implement
-from this doc without a follow-up build/review cycle.
+from this doc without a follow-up build/review cycle. REVISED after a clean Opus
+design review found the original "clamp any non-time-travel downward delta" thesis
+false: the predicate now keys on the NON-RESERVED running balance and adds a fifth
+time-travel signal for the deferred plain-rewind drawdown (see sections 2.6.6 / 2.6.7
+and 3.2 / 3.3).
 
 Motivating bug: BUG-A (fixed in PR #1090). During pure-stock career play with no
 Parsek feature used, a scene-change `RecalculateAndPatch` silently patched live
@@ -200,10 +204,16 @@ expected-reduction paths, not to authorize destructive reductions. The guard mus
 NOT key on it. The guard derives a SEPARATE authoritative-reduction signal (section
 3.2) and passes it explicitly down the same plumbing the suppress flag uses.
 
-### 2.6 Resolved evidence: no legitimate non-time-travel downward delta exists
+### 2.6 Resolved evidence (corrected after the Blocker review)
 
-This section records the second-pass investigation that resolved the open questions.
-The conclusion drives the threshold model (3.3) and the reputation decision (3.4).
+This section records the investigation behind the predicate. IMPORTANT CORRECTION: a
+clean Opus design review found that the earlier "no legitimate non-time-travel
+downward delta exists; clamp anything past epsilon" thesis was FALSE against the code,
+via two reachable false-positive paths. Subsections 2.6.6 (Blocker 1) and 2.6.7
+(Blocker 2) document them with file:line evidence, and 3.2 / 3.3 are revised to
+match. 2.6.1-2.6.5 below remain individually correct as stated, but they do NOT
+add up to "downward == bug" - 2.6.7 is the missing case. Read 2.6.6 / 2.6.7 as the
+controlling facts.
 
 #### 2.6.1 A "time jump" is always forward; backward warp routes through a rewind
 
@@ -250,18 +260,21 @@ KSP applies the spend/penalty to the live singleton FIRST, then Parsek captures 
 the post-debit value (`GameStateRecorder.cs:985-1020`), `OnScienceChanged` likewise
 (`cs:1073`), and rep penalties are captured post-curve
 (`ReputationModule.cs:115-160`). The action lands in the ledger BEFORE the
-post-commit / live-event recalc, so the recalc target already includes the spend and
-the patch delta is the small reconciliation residual (~0), not the spend magnitude.
-This is the load-bearing fact behind "clamp any unexplained downward delta": there is
-no path on which a legitimate spend arrives at the patch AS a large downward delta.
+post-commit / live-event recalc, so the RUNNING balance already includes the spend and
+stays at/above live; the patch residual is ~0. This is the load-bearing fact for
+Class B in section 5: a legitimate spend keeps the running balance intact, so it never
+trips the running-balance guard - even on a cutoff walk where the reservation
+separately lowers the spendable target (Blocker 2 / 2.6.7).
 
 #### 2.6.4 The patch only fires when ledger-mirrors-live should hold
 
 `GetKspPatchDeferralReason` (`LedgerOrchestrator.cs:2044`) skips the patch entirely
 while a live recorder / active uncommitted tree / pending tree exists (only the
 cutoff/rewind paths bypass). So the dangerous downward patch fires only AFTER commit
-or on a settled scene, exactly when the expected delta is ~0. Combined with 2.6.1-3,
-any downward delta past rounding epsilon on a non-time-travel path is a corruption.
+or on a settled scene. NOTE (corrected): the earlier conclusion drawn here - "so any
+downward delta is a corruption" - is WRONG, because the reservation legitimately
+lowers the patch TARGET below live on cutoff walks (2.6.7). The corrected predicate
+keys on the running balance, not the patch delta (3.3).
 
 #### 2.6.5 Setting-toggle precedent (Q5)
 
@@ -277,25 +290,110 @@ explicitly carry no setting (the map-view trajectory polyline,
 restricts legitimate play, so by this precedent it is unconditional (no toggle).
 (Resolves Q5.)
 
+#### 2.6.6 BLOCKER 1 - plain Rewind-to-Launch writes its authoritative drawdown with ALL prior signals false
+
+The earlier draft keyed the rewind case on `RewindContext.IsRewinding` and cited the
+recalc at `ParsekScenario.cs:3202`. That call site is the WRONG one. The real
+career-resource drawdown for a plain Rewind-to-Launch is the DEFERRED coroutine:
+
+- `HandleRewindOnLoad` sets `RewindUTAdjustmentPending = true` and
+  `StartCoroutine(ApplyRewindResourceAdjustment())` (`ParsekScenario.cs:3188-3189`),
+  then synchronously runs the pre-singleton recalc at `:3202` (while IsRewinding is
+  true), then `RewindContext.EndRewind()` at `:3215`.
+- The synchronous `:3202` patch runs when KSP's Funding/R&D/Reputation singletons are
+  NOT yet populated (they load on a separate schedule after OnLoad), so it is not the
+  authoritative write.
+- `ApplyRewindResourceAdjustment` (`:6191`) yields, sets the adjusted UT, waits up to
+  ~2s for the singletons (`:6225-6230`), then calls
+  `RecalculateAndPatch(adjustedUT, suppressSuspiciousDrawdownWarnings: true)` at
+  `:6237`. This is where the actual funds/science/rep are driven down to the rewound
+  target.
+- By the time `:6237` runs: `IsRewinding` is FALSE (EndRewind ran at `:3215`,
+  confirmed by the `:6233-6234` comment "RewindContext.EndRewind() has already cleared
+  the global"); `ActiveReFlySessionMarker` is NULL for a plain rewind
+  (`ClearActiveReFlyMarkerForPlainRewind()` at the top of `HandleRewindOnLoad`, `:3094`,
+  sets it null at `:3235`); `ActiveMergeJournal` is null (a plain rewind is not a
+  re-fly merge); and it is not the tombstone path. ALL FOUR original signals are
+  false.
+
+So the prior guard would CLAMP A LEGITIMATE rewind drawdown - exactly the
+"intended reduction" the guard must allow. Fix: the fifth signal,
+`RewindContext.RewindResourceAdjustmentInProgress`, set synchronously before
+`StartCoroutine` and cleared after the `:6237` patch (section 3.2). Verified against
+the `:6237` call site specifically.
+
+#### 2.6.7 BLOCKER 2 - the reservation legitimately drives the target BELOW live on plain (non-time-travel) loads
+
+`GetAvailableFunds()` / `GetAvailableScience()` return the reservation-aware spendable
+amount, which on a CUTOFF walk is the projected MINIMUM balance (running balance minus
+future committed costs), NOT the running balance. The projection installs that value
+only when `utCutoff.HasValue`:
+
+- `RecalculationEngine.Recalculate` runs `ApplyProjectedAvailability` (which calls
+  `SetProjectedAvailable` -> `hasProjectedAvailableFunds = true`) ONLY inside
+  `if (utCutoff.HasValue)` (`RecalculationEngine.cs:177-194`).
+- With the projected value installed, `GetAvailableFunds` returns it
+  (`FundsModule.cs:606-613`); `GetAvailableScience` likewise (`ScienceModule.cs:433-440`).
+- This is INTENDED (design `docs/dev/done/design-going-back-in-time.md:34-46`,
+  `milestone-resource-reservation.md`): the reservation patches KSP's top-bar DOWN to
+  the spendable amount so the player cannot overspend funds already committed to future
+  recordings.
+
+And cutoff walks fire on PLAIN, non-time-travel paths with NO time-travel signal:
+- `DeferredSeedAndRecalculate` calls `RecalculateAndPatchForCurrentTimelineUT(currentUT)`
+  when `HasActionsAfterUT(currentUT)` on a normal load (`ParsekScenario.cs:6133-6138`).
+- `ShouldUseCurrentUtCutoffForPostRewindFlightLoad` ->
+  `RecalculateAndPatchForPostRewindFlightLoad` is gated with NO time-travel signal
+  (`ParsekScenario.cs:525-543`, `:586-588`).
+- `RecalculateAndPatchForLiveTimelineEvent` / `...IfFutureActions` route to the cutoff
+  walk when future actions exist (`LedgerOrchestrator.cs:1382-1417`).
+
+Concrete repro: a committed mission's build cost is a future-UT `FundsSpending`. After
+a rewind + resume + save + reload, the next plain load's cutoff walk reserves that
+future cost, so target = (running balance) - (reserved cost) < live, with NO signal.
+The earlier guard ("clamp any downward delta") would clamp this, defeating the
+reservation and letting the player overspend (MAJOR 4). "Live == saved" does NOT save
+the thesis, because the reservation lowers the TARGET below the loaded-live value even
+when live == saved.
+
+Resolution (evaluated against the code): the soundest fix is the review's option (b),
+which SUBSUMES option (a). Compare the guard against the NON-RESERVED running balance
+(`GetRunningBalance()` / `GetRunningScience()`), not `GetAvailableFunds()` /
+`GetAvailableScience()`. A reservation lowers `available` below `running` but leaves
+`running` intact (>= live), so it does NOT trip the guard. A missing-earning-channel
+bug lowers `running` itself below live, so it DOES. On a full walk
+(`utCutoff == null`) no projection runs and `available == running`, so option (b)
+collapses to option (a) there - and BUG-A fired on exactly that full-walk return-to-KSC
+path, so the motivating bug is still caught. Reputation has no reservation
+(`ReputationModule` has only `GetRunningRep()`), so its target already IS the running
+balance and the discriminator is the plain target-vs-live check. Predicate details in
+3.3.
+
 ------------------------------------------------------------------------
 
 ## 3. The decision predicate
 
-### 3.1 Three outcomes per resource
+### 3.1 Outcomes per resource (keyed on the RUNNING balance vs live)
 
-For each guarded resource (science, funds, reputation) the guard classifies the
-patch as exactly one of:
+For each guarded resource (science, funds, reputation) the guard classifies the patch
+as exactly one of, using the NON-RESERVED running balance as the discriminator (3.3,
+Blocker 2):
 
-- (a) SAFE-TO-APPLY: delta >= 0 (an increase, or no change), OR a small downward
-  delta within tolerance. Apply unchanged.
-- (b) AUTHORIZED-REDUCTION: a large downward delta WITH an active/recent
-  time-travel context. Apply unchanged (this is intended time travel).
-- (c) GUARDED-DRAWDOWN: a large downward delta with NO time-travel context. This is
-  the suspicious wipe. Take the guarded action (section 4).
+- (a) SAFE-TO-APPLY: `runningBalance >= currentLive - epsilon` (the career total is
+  intact). Apply the reservation-aware patch target UNCHANGED. This includes the
+  legitimate RESERVATION case where the patch target (`available`) is below live but
+  the running balance is not - the reservation is written so overspend stays prevented.
+- (b) AUTHORIZED-REDUCTION: `runningBalance < currentLive - epsilon` WITH any of the
+  five time-travel signals set. Apply unchanged (intended time travel: rewind, re-fly,
+  merge, tombstone, deferred rewind adjustment).
+- (c) GUARDED-DRAWDOWN: `runningBalance < currentLive - epsilon` with NO time-travel
+  signal. This is the missing-earning-channel wipe (BUG-A class). Clamp: apply
+  `max(target, live)` so live is preserved (section 4).
 
-Per-resource because their drawdown semantics differ (section 3.4).
+Per-resource because their reservation/semantics differ (section 3.4): rep has no
+reservation, so its running balance is its target.
 
-### 3.2 The time-travel-authorized signal
+### 3.2 The time-travel-authorized signal (FIVE inputs - Blocker 1 added a fifth)
 
 A boolean `authoritativeReduction` computed once per `RecalculateAndPatchCore`
 call and threaded down to `PatchAll` (alongside `suppressSuspiciousDrawdownWarnings`,
@@ -307,95 +405,151 @@ NOT reusing it). It is true when ANY of:
 4. The call is the tombstone path (`RecalculateAndPatchAfterTombstones` sets the
    flag explicitly; it is the only caller that needs to, since tombstone removal is
    a designed reduction and may run after EndRewind has cleared IsRewinding).
+5. NEW (Blocker 1): a deferred rewind resource adjustment is in progress -
+   `RewindContext.RewindResourceAdjustmentInProgress`.
 
 Rationale for each:
-- (1) covers the rewind OnLoad recalc and the post-invoke recalc that run during an
-  active rewind.
+- (1) covers the SYNCHRONOUS pre-singleton rewind recalc at `ParsekScenario.cs:3202`
+  (runs while IsRewinding is still true; EndRewind is at `:3215`).
 - (2) covers any recalc that fires while a re-fly session is live (including
   scene-change recalcs DURING the session, which legitimately reflect the
   superseded-branch removal).
 - (3) covers mid-merge recalcs across the crash-recovery checkpoints.
 - (4) covers the tombstone tail specifically.
+- (5) covers the AUTHORITATIVE DEFERRED rewind drawdown at `ParsekScenario.cs:6237`
+  (`ApplyRewindResourceAdjustment` -> `RecalculateAndPatch(adjustedUT, suppress:true)`).
+  This is the real career-resource write for a plain Rewind-to-Launch, and at that
+  point ALL of (1)-(4) are FALSE: the coroutine resumes after `EndRewind()` cleared
+  IsRewinding (`:6233-6234` comment) and after `ClearActiveReFlyMarkerForPlainRewind()`
+  nulled the marker (`:3094` -> `:3235`), and a plain rewind has no merge journal or
+  tombstone path. Without signal (5) the guard would CLAMP A LEGITIMATE rewind
+  drawdown. See Blocker 1 (section 2.6.6) for the full call-site trace.
 
-This signal is computed inside `LedgerOrchestrator` (it has access to
-`RewindContext` and `ParsekScenario.Instance`), not inside `KspStatePatcher` (which
-is a pure-ish writer and should stay free of scene-state lookups for testability).
-`KspStatePatcher` receives the boolean as a parameter.
+Implementing signal (5): add a static flag to `RewindContext`:
+`RewindResourceAdjustmentInProgress` (default false). Set it true in
+`HandleRewindOnLoad` immediately BEFORE `StartCoroutine(ApplyRewindResourceAdjustment())`
+(`ParsekScenario.cs:3188-3189`) - synchronously, so the flag is set before EndRewind
+clears IsRewinding - and clear it in `ApplyRewindResourceAdjustment` right AFTER the
+`:6237` patch returns (in the same coroutine, so it spans exactly the deferred patch).
+Add a paired clear in `RewindContext.EndRewind`'s own reset path is NOT correct here
+(EndRewind runs before the coroutine), so the flag is owned by the coroutine's
+lifetime, not the synchronous EndRewind. Also clear it in `ResetForTesting`. Because
+the flag is process-static and the coroutine always runs to completion within one
+session (like the rest of `RewindContext`), it does not need to persist across
+save/load. Defensive: also clear it on `onGameSceneSwitchRequested` so an aborted
+coroutine cannot strand the flag true into normal play (a stranded-true flag would
+DISABLE the guard during normal play - fail-safe is to clear).
+
+This signal is computed inside `LedgerOrchestrator` (it has access to `RewindContext`
+and `ParsekScenario.Instance`), not inside `KspStatePatcher` (which is a pure-ish
+writer and should stay free of scene-state lookups for testability). `KspStatePatcher`
+receives the boolean as a parameter.
 
 A pure, internal-static helper makes it unit-testable:
 
 ```
 internal static bool IsAuthoritativeReduction(
-    bool isRewinding, bool hasReFlyMarker, bool hasMergeJournal, bool tombstonePath)
-    => isRewinding || hasReFlyMarker || hasMergeJournal || tombstonePath;
+    bool isRewinding, bool hasReFlyMarker, bool hasMergeJournal,
+    bool tombstonePath, bool rewindResourceAdjustmentInProgress)
+    => isRewinding || hasReFlyMarker || hasMergeJournal
+       || tombstonePath || rewindResourceAdjustmentInProgress;
 ```
 
-The live wrapper reads the four inputs and calls it.
+The live wrapper reads the five inputs and calls it.
 
-### 3.3 The drawdown threshold (RESOLVED: clamp any unexplained downward delta)
+### 3.3 The drawdown predicate (REVISED after Blocker 2: compare the NON-RESERVED running balance, not the reservation-aware target)
 
-The first draft proposed a percentage + absolute threshold (50% + a floor) to avoid
-blocking large legitimate spends. Investigation (section 2.6, with file:line
-evidence) overturned that model. The correct model is: **with no time-travel
-context active, clamp ANY downward delta past a small rounding epsilon.** There is
-no legitimate "large but allowed" downward patch on a non-time-travel path, so a
-percentage band would only leave a hole through which medium-sized corruptions slip.
+The prior draft compared the patch delta (target - live) and claimed "any downward
+delta past epsilon with no time-travel context is a bug, clamp it". Blocker 2 (section
+2.6.7, with file:line evidence) proved that thesis FALSE: the patch TARGET is the
+reservation-aware spendable amount (`GetAvailableFunds()` / `GetAvailableScience()`),
+which on a CUTOFF walk is DELIBERATELY below the running balance to reserve
+already-committed future spends and prevent overspend. Cutoff walks run on plain,
+non-time-travel paths (`DeferredSeedAndRecalculate` -> current-UT cutoff on a normal
+load with future actions; `RecalculateAndPatchForPostRewindFlightLoad`;
+`RecalculateAndPatchForLiveTimelineEvent` when future actions exist - section 2.6.7).
+So a legitimate reservation legitimately drives target below live with NO time-travel
+signal. Clamping on "target < live" would defeat the reservation and let the player
+overspend (MAJOR 4). The thesis is wrong.
 
-Why a threshold band is the WRONG model here:
+The fix distinguishes the two CAUSES of a low target:
 
-- The deferral guard (`GetKspPatchDeferralReason`, section 2.2) means the dangerous
-  patch only fires AFTER commit / on a settled scene, when the ledger is supposed to
-  mirror live exactly, so the expected delta is ~0.
-- Every legitimate downward movement (facility upgrade, tech purchase, rollout cost,
-  strategy exchange, contract penalty, kerbal hire, rep penalty) is a COMMITTED
-  LEDGER ACTION. KSP debits live state first, then Parsek captures the change as an
-  action and recalcs; the target now includes that action, so the patch delta is the
-  small reconciliation residual, not the spend (section 2.6.3, evidence:
-  `GameStateRecorder.OnFundsChanged(double newFunds, ...)` fires post-debit at
-  `GameStateRecorder.cs:985`).
-- Future committed COSTS are RESERVED, not applied-on-crossing: `GetAvailableFunds`
-  returns the minimum projected balance from the cutoff forward
-  (`FundsModule.cs:606-613`, design `docs/dev/done/milestone-resource-reservation.md`
-  and `design-going-back-in-time.md:34-46`), so a forward time jump past a committed
-  spend produces NO new downward delta (the reservation already counted it). Future
-  committed EARNINGS apply upward when crossed.
-- A "time jump" is ALWAYS forward (`TimeJumpManager.IsValidJump` requires
-  `target > current`, `TimeJumpManager.cs:218-228`); backward warp routes through a
-  rewind, which sets the time-travel signal (section 2.6.1). Forward = up or flat.
+- RESERVATION drawdown (legitimate): the RUNNING balance is intact, but `available`
+  is below it because future committed spends are reserved. Here
+  `runningBalance >= currentLive` (or within epsilon) but `available < runningBalance`.
+  This must NOT be clamped - it is the overspend-prevention invariant.
+- MISSING-EARNING-CHANNEL drawdown (the BUG-A corruption): the RUNNING balance ITSELF
+  fell below live because earned resources never became ledger actions. Here
+  `runningBalance < currentLive - epsilon`. This is what must be clamped.
 
-Conclusion: on a non-time-travel path, a downward delta beyond rounding noise can
-ONLY be a bug (a missing earning channel, the BUG-A class). So the guard predicate is
-simply:
+The discriminator is the NON-RESERVED running balance, which the modules already
+expose: `FundsModule.GetRunningBalance()` (`FundsModule.cs:589-593`),
+`ScienceModule.GetRunningScience()` (`ScienceModule.cs:416-420`). Reputation has NO
+reservation system at all (`ReputationModule` exposes only `GetRunningRep()`, the
+patch target already IS the running value, `ReputationModule.cs:289`), so for rep the
+running balance and the target are the same and the discriminator collapses to the
+plain "target < live" check.
+
+Revised predicate (the guard input is the running balance, NOT the patch target):
 
 ```
-internal static bool IsGuardableDrawdown(double delta, double epsilon)
-    => delta < -epsilon;
+internal static bool IsGuardableDrawdown(
+    double runningBalance, double currentLive, double epsilon)
+    => runningBalance < currentLive - epsilon;
 ```
 
-Epsilon = the resource's existing patch no-op epsilon, so the guard never fights the
+Per-resource the caller passes:
+- Funds: `runningBalance = funds.GetRunningBalance()`, `currentLive = Funding.Instance.Funds`.
+- Science: `runningBalance = science.GetRunningScience()`, `currentLive = ResearchAndDevelopment.Instance.Science`.
+- Reputation: `runningBalance = reputation.GetRunningRep()`, `currentLive = Reputation.Instance.reputation`.
+
+Epsilon = the resource's existing patch no-op epsilon so the guard never fights the
 patch's own rounding tolerance:
 - Funds: 0.01 (matches `PatchFunds` no-op check at `KspStatePatcher.cs:649`).
 - Science: 0.001 (matches `PatchScience` no-op check at `KspStatePatcher.cs:102`).
 - Reputation: 0.01 (matches `PatchReputation` no-op check at `KspStatePatcher.cs:711`).
 
-The existing `IsSuspiciousDrawdown` (10% / 1000) stays as the louder WARN tripwire
-for the legacy log-watchers, but the CLAMP no longer depends on it: any downward
-delta past epsilon with no time-travel context is clamped. The two compose (a small
-downward leak now gets clamped even though it would never have tripped the 10%
-WARN), which is strictly safer than the original threshold-band design.
+What the clamp DOES when it fires (revised): it does NOT just zero the delta to the
+target; it raises the EFFECTIVE TARGET floor to `currentLive` so the patch never
+writes below live. Concretely the applied target becomes `max(patchTarget, currentLive)`.
+Note that on a guarded (corruption) frame `runningBalance < currentLive`, and the
+reservation can only lower `available` further below `runningBalance`, so `patchTarget`
+(=`available`) is also `< currentLive`; raising the floor to `currentLive` preserves
+the player's live value. On a NON-guarded frame (reservation-only drawdown,
+`runningBalance >= currentLive`) the clamp does not fire and the reservation-aware
+target is written unchanged - overspend prevention intact.
 
-No absolute floor, no percentage. "Never clamp a legitimate change, always clamp a
-corruption" is achieved because the ONLY non-time-travel downward delta past epsilon
-is a corruption.
+Why running-balance is the right and sufficient discriminator (the BUG-A motivating
+case is still caught): on a FULL walk (`utCutoff == null`), no projection runs, so
+`available == runningBalance == initial + earnings - spendings` (the modules return
+the non-projected branch, `FundsModule.cs:606-613`, `ScienceModule.cs:433-440`). BUG-A
+fired on the return-to-KSC FULL-walk `RecalculateAndPatch()` path, where
+`runningBalance` itself was below live (the Mun earnings were missing from the ledger),
+so `IsGuardableDrawdown(runningBalance, live, eps)` is true and the corruption is
+clamped. On a CUTOFF walk, a missing-earning leak ALSO lowers `runningBalance` (the
+earning never entered the walk), so the same predicate catches it there too, while a
+pure reservation (running intact) does not trip it. One predicate, both walk kinds,
+zero false positives on reservation.
+
+The existing `IsSuspiciousDrawdown` (10% / 1000) stays as the louder legacy WARN
+tripwire on the patch delta; the clamp is independent and keyed on the running-balance
+discriminator. No percentage, no absolute floor on the clamp. "Never clamp a
+legitimate change, always clamp a corruption" now holds because the discriminator is
+the actual career total (running balance), not the spendable amount (which reservation
+legitimately lowers).
 
 ### 3.4 Per-resource specifics
 
 - SCIENCE: pool can be legitimately spent to ~0 by buying tech, but each purchase
-  is a committed `ScienceSpending` action, so the post-commit patch delta is ~0.
-  Any downward delta past epsilon with no time-travel context = leak. Per-subject
-  science (`PatchPerSubjectScience`) is handled at the pool level only (section 6).
+  is a committed `ScienceSpending` action, so the RUNNING balance reflects it and
+  stays >= live. The guard fires only when `GetRunningScience()` itself is below live
+  past epsilon (the leak signature, 3.3). The reservation lowering only the spendable
+  `available` (cutoff walks) does NOT trip it. Per-subject science
+  (`PatchPerSubjectScience`) is handled at the pool level only (section 6, MINOR 5).
 - FUNDS: same shape; spends (facility upgrade, rollout, hire, strategy setup) are
-  committed actions reconciled to ~0. Guard the net `AddFunds` delta past epsilon.
+  committed actions reflected in `GetRunningBalance()`. Guard fires only when
+  `GetRunningBalance()` is below live past epsilon, never on a reservation-only
+  drawdown of `available`.
 - REPUTATION (RESOLVED: treat like funds/science). The first draft called rep
   "special" and proposed WARN-only. Investigation overturned that: every legitimate
   rep drop (contract fail/cancel, kerbal-death penalty, strategy currency exchange)
@@ -432,16 +586,24 @@ is a corruption.
 
 ### 4.2 Recommendation: clamp-to-current, plus loud observability
 
-On a GUARDED-DRAWDOWN for a resource:
+On a GUARDED-DRAWDOWN for a resource (i.e. `GetRunningBalance()` / `GetRunningScience()`
+/ `GetRunningRep()` is below live past epsilon AND no time-travel context):
 
-1. CLAMP: do not apply the negative delta. Set the effective target to the current
-   live value (delta becomes 0 for that resource). The player keeps what they
-   earned. This makes future leaks NON-destructive: the worst case is that live
-   state stays correct while the ledger is wrong, which is recoverable, instead of
-   live state being driven to a wrong value, which is not.
-2. LOG: emit a WARN (or ERROR-level INFO) with the full numbers (current, would-be
-   target, clamped delta, resource, reason string, time-travel signal values) so
-   the leak is loud in KSP.log. This is the diagnostic that a leak exists.
+1. CLAMP: raise the effective target floor to the current live value - apply
+   `max(patchTarget, currentLive)` instead of `patchTarget`, so the patch never writes
+   below live (3.3). The player keeps what they earned. This makes future leaks
+   NON-destructive: the worst case is that live state stays correct while the ledger is
+   wrong, which is recoverable, instead of live state being driven to a wrong value,
+   which is not. (Because the clamp only fires when running < live, and reservation can
+   only lower the target further, the would-be target is below live, so the floor at
+   live is the preserving choice.)
+2. LOG: emit a WARN (or ERROR-level INFO) with the full numbers (current live,
+   running balance, would-be reservation-aware target, clamped-to value, resource,
+   reason string, all five time-travel signal values) so the leak is loud in KSP.log.
+   For pool-clamped SCIENCE, the WARN MUST also note that per-subject credited totals
+   were patched UNCLAMPED (MINOR 5, section 6) so the Science Archive may transiently
+   disagree with the clamped pool until the leak is fixed - this is a documented
+   limitation, called out at the clamp site.
 3. NOTIFY (non-blocking, FINAL - player decision 1): post one short, transient
    native ScreenMessage via `ParsekLog.ScreenMessage(message, duration)` - the SAME
    mechanism Parsek already uses for "Recording STARTED" (`ParsekLog.cs:483-495` ->
@@ -454,12 +616,15 @@ On a GUARDED-DRAWDOWN for a resource:
    - Science: `"Kept your earned science"`
    - Reputation: `"Kept your earned reputation"`
    (So the on-screen text reads e.g. `[Parsek] Kept your earned funds`. Keep it this
-   short; the WARN log carries the numbers.) One-shot per session per resource to
-   avoid spam on repeated recalcs (section 9). This path has a unit-test seam
-   (`ParsekLog.ScreenMessageSinkForTesting`, `ParsekLog.cs:80,485-489`), so the
-   notification is directly assertable in xUnit.
-4. PERSIST a lightweight marker (section 4.4) so a repeated guarded clamp across
-   scene changes does not re-spam and so the condition is visible after reload.
+   short; the WARN log carries the numbers.) The toast is gated by a SESSION-SCOPED
+   latch per resource (MAJOR 3, section 9), NOT reset on scene change, so a persistent
+   leak toasts ONCE and stays quiet across every subsequent scene change. This path
+   has a unit-test seam (`ParsekLog.ScreenMessageSinkForTesting`, `ParsekLog.cs:80,485-489`),
+   so the notification is directly assertable in xUnit.
+4. The WARN line itself fires on every guarded recalc (it documents the ongoing leak
+   for diagnostics); only the in-game toast is one-shot. No persisted marker is needed
+   for correctness (the clamp recomputes from live + running every time and is
+   idempotent); the optional diagnostic counter in 4.4 is purely for humans.
 
 Why clamp rather than refuse: refusing the whole patch leaves the OTHER resources
 unpatched and the ledger / KSP diverged. Clamping is surgical: only the suspicious
@@ -475,8 +640,16 @@ BUG-A's loss was permanent because the wipe was applied and saved. With clamp:
   computes the correct (now-matching) target and the clamp simply stops triggering;
   no special heal code needed. The guard is self-healing once the leak is fixed.
 - The clamp is idempotent: as long as the ledger stays wrong, every recalc sees the
-  same current vs target and re-clamps to a no-op (delta 0), so live state never
-  drifts and the guard never oscillates.
+  same running balance below the same live value and re-applies the same floor
+  (`max(target, live) == live`), so live state never drifts and the guard never
+  oscillates.
+- BLAST RADIUS of a (now-prevented) false positive (MAJOR 4): if the guard ever
+  clamped a LEGITIMATE reservation drawdown (the Blocker 2 bug, now fixed by keying on
+  the running balance), the clamp would be idempotent (no oscillation) BUT would defeat
+  the reservation invariant - KSP's top-bar would show the un-reserved running balance,
+  letting the player spend funds already committed to future recordings and overspend
+  the timeline. That is WHY Blocker 2 had to be fixed at the predicate (running-balance
+  discriminator), not merely mitigated: an idempotent-but-wrong clamp is still wrong.
 
 ### 4.4 Persistence concern
 
@@ -498,54 +671,72 @@ one-shot and the diagnostic survives reload:
 
 For each, show why the guard does not block it.
 
+There are TWO classes of legitimate downward movement. The guard is not blocked by
+either, but for DIFFERENT reasons: time-travel reductions are allowed by the
+authoritative-reduction SIGNAL, and reservation drawdowns are allowed because the
+guard keys on the RUNNING balance (which a reservation leaves intact), not the
+spendable target.
+
+Class A - time-travel reductions (allowed by signal):
+
 | Scenario | Path | Why not blocked |
 | --- | --- | --- |
-| Rewind-to-Separation | `ParsekScenario:3202` while `IsRewinding` | AUTHORIZED-REDUCTION via signal (1). |
-| Re-fly post-invoke | `RewindInvoker:908`, `IsRewinding` true | AUTHORIZED-REDUCTION via (1). |
-| Re-fly mid-session scene change | any recalc while `ActiveReFlySessionMarker != null` | AUTHORIZED-REDUCTION via (2). |
-| Re-fly merge tail (tombstones) | `RecalculateAndPatchAfterTombstones` | AUTHORIZED-REDUCTION via (4); also `ActiveMergeJournal` likely non-null (3). |
-| Time jump (always forward) | `TimeJumpManager` -> `RecalculateAndPatchForTimeJump` | Forward only (`IsValidJump`, `TimeJumpManager.cs:218-228`); later cutoff includes more actions, never fewer. Future costs are reserved, not applied-on-crossing. No downward delta. (2.6.1-2) |
-| Backward warp | `WarpToTime` -> Rewind-to-Launch then forward jump | The rewind sets `IsRewinding` -> AUTHORIZED-REDUCTION via signal (1); the forward jump only advances. (2.6.1) |
-| Strategy exchange (Bail-Out Grant) | KSC live event -> committed action | KSP debits live first, action captured post-curve, recalc delta ~0. (2.6.3) |
-| Contract penalty | committed `ContractFail`/`Cancel` action | KSP applies penalty first, captured as a committed action, recalc delta ~0. (2.6.3) |
-| Facility upgrade / repair cost | committed `FundsSpending` action | funds debited live first, action committed, recalc delta ~0. (2.6.3) |
-| Tech node purchase | committed `ScienceSpending` action | science spent live first, action committed, recalc delta ~0. (2.6.3) |
-| Vessel build / rollout cost | `vessel-rollout` live event -> committed action | debited live first, committed, recalc delta ~0. (2.6.3) |
-| Multi-channel commit | one recalc applying many committed deltas | each committed before the patch; net target reflects them; residual ~0. |
+| Plain Rewind-to-Launch, pre-singleton recalc | `ParsekScenario:3202` while `IsRewinding` | signal (1). |
+| Plain Rewind-to-Launch, DEFERRED authoritative recalc | `ParsekScenario:6237` (after EndRewind + marker clear) | signal (5) `RewindResourceAdjustmentInProgress` - the ONLY signal true here (Blocker 1, 2.6.6). |
+| Re-fly post-invoke | `RewindInvoker:908`, `IsRewinding` true | signal (1). |
+| Re-fly mid-session scene change | any recalc while `ActiveReFlySessionMarker != null` | signal (2). |
+| Re-fly merge tail (tombstones) | `RecalculateAndPatchAfterTombstones` | signal (4); also `ActiveMergeJournal` typically non-null (3). |
+| Backward warp | `WarpToTime` -> Rewind-to-Launch then forward jump | the rewind sets (1)/(5); the forward jump only advances (2.6.1). |
 
-The unifying invariant: a legitimate spend is a COMMITTED LEDGER ACTION that KSP
-applies to live state BEFORE Parsek captures it, so the recalc target already
-includes it and the patch delta is ~0, not the spend. A leak is the opposite: an
-earning that NEVER became a ledger action, so the target is below live by the whole
-missing amount. The time-travel signal authorizes the only legitimate large downward
-moves (rewind/re-fly/tombstone). Everything else downward past rounding epsilon, with
-no time-travel context, is a corruption. There is NO legitimate scenario that arrives
-at the non-time-travel patch as a downward delta past epsilon (section 2.6), so the
-"clamp any unexplained downward delta" rule has zero false positives by construction.
+Class B - non-time-travel legitimate downward movements (allowed because running
+balance stays >= live, so `IsGuardableDrawdown` is false):
+
+| Scenario | Path | Why not blocked |
+| --- | --- | --- |
+| Reservation of a committed future cost (cutoff walk) | `DeferredSeedAndRecalculate` / post-rewind-load / live-event cutoff walks | the reservation lowers `available` below running, but `GetRunningBalance()` stays >= live, so the guard does not fire; the reservation-aware target is written unchanged (Blocker 2, 2.6.7). |
+| Strategy exchange (Bail-Out Grant) | KSC live event -> committed action | KSP debits live first, action captured, running balance reflects it (>= live), residual ~0. (2.6.3) |
+| Contract penalty | committed `ContractFail`/`Cancel` action | applied live first, captured, running reflects it, ~0 residual. (2.6.3) |
+| Facility upgrade / repair cost | committed `FundsSpending` action | debited live first, running reflects it, ~0 residual. (2.6.3) |
+| Tech node purchase | committed `ScienceSpending` action | spent live first, running reflects it, ~0 residual. (2.6.3) |
+| Vessel build / rollout cost | `vessel-rollout` live event -> committed action | debited live first, running reflects it, ~0 residual. (2.6.3) |
+| Multi-channel commit | one recalc applying many committed deltas | all committed before the patch; running reflects them; ~0 residual. |
+
+The unifying invariant for Class B: a legitimate spend is a COMMITTED LEDGER ACTION
+that KSP applies to live state BEFORE Parsek captures it, so the RUNNING balance
+already includes it and stays at/above live; a reservation lowers only the spendable
+`available`, never the running balance. A LEAK is the opposite: an earning that never
+became a ledger action, so the RUNNING balance itself falls below live. The guard
+clamps iff the running balance is below live with no time-travel signal - so it allows
+every Class A and Class B scenario above and clamps only the leak.
 
 ------------------------------------------------------------------------
 
 ## 6. Per-resource handling and which channels get protection
 
-- SCIENCE (R&D pool): full guard (clamp + observability).
-- SCIENCE (per-subject, `PatchPerSubjectScience`): guard the AGGREGATE only at the
-  pool level. Do NOT clamp individual subject totals (a subject can legitimately
-  drop to 0 on a revert, and per-subject clamping would fight legitimate
-  rewrites). The pool-level clamp is the safety net; per-subject stays
-  ledger-driven. Document this explicitly so a future reader does not "fix" the
-  asymmetry.
-- FUNDS: full guard (clamp + observability).
-- REPUTATION: full guard, SAME rule as funds/science (resolved, section 3.4). The
-  clamp is expressed against the `SetReputation` semantics ("do not set below
-  current") and measures "downward" as `target < current - epsilon` regardless of
-  sign so negative rep is handled. Every legitimate rep drop is a committed action
-  reconciled to ~0, so the clamp never blocks a genuine penalty.
+- SCIENCE (R&D pool): full guard (clamp on `GetRunningScience() < live - eps`).
+- SCIENCE (per-subject, `PatchPerSubjectScience`, `KspStatePatcher.cs:129`): NOT
+  clamped - it runs UNCLAMPED (MINOR 5). The guard protects only the aggregate POOL.
+  Per-subject credited totals stay ledger-driven (a subject can legitimately drop to 0
+  on a revert, and per-subject clamping would fight legitimate rewrites). KNOWN
+  LIMITATION: when the pool is clamped (a leak), the per-subject credited totals are
+  still patched to the (too-low) ledger values, so the stock Science Archive can
+  transiently disagree with the clamped pool total until the underlying leak is fixed.
+  The pool clamp WARN explicitly states this (section 4.2 step 2) so it is visible.
+  Self-heals once the leak is fixed (the next recalc agrees and nothing is clamped).
+- FUNDS: full guard (clamp on `GetRunningBalance() < live - eps`).
+- REPUTATION: full guard. Rep has NO reservation (`ReputationModule` exposes only
+  `GetRunningRep()`), so its running balance IS the patch target and the discriminator
+  is the plain `GetRunningRep() < live - eps` check. The clamp is expressed against the
+  `SetReputation` semantics ("do not set below live"); "downward" is measured by
+  magnitude (`< live - eps`) regardless of sign so negative rep is handled. Every
+  legitimate rep drop is a committed action that leaves the running rep at/above live,
+  so the clamp never blocks a genuine penalty.
 - TECH TREE: NOT guarded by clamp. Tech is set-membership, not a magnitude, and is
-  only patched on cutoff/rewind walks (`techPatchCutoff` non-null), which are the
-  time-travel paths. A non-rewind walk passes `targetTechIds = null` and PatchTechTree
-  no-ops. So tech downgrades only happen on already-authorized paths. Add a log-only
-  observability line if a non-cutoff walk ever produces a non-null target (defense
-  against a future regression), but no clamp.
+  only patched when `techPatchCutoff` is non-null. Per Blocker 2, a non-null cutoff is
+  NOT necessarily a time-travel path (plain cutoff walks exist), but tech removal still
+  only happens through the explicit baseline+ledger target set, not a magnitude
+  drawdown, so the BUG-A wipe class does not apply. No clamp; keep the existing
+  PatchTechTree logging.
 - FACILITIES: NOT guarded by clamp in v1. Facility downgrades are level changes, not
   magnitudes; the BUG-A class (silent magnitude wipe) does not apply the same way.
   Revisit only if a facility-downgrade leak is observed.
@@ -556,23 +747,36 @@ at the non-time-travel patch as a downward delta past epsilon (section 2.6), so 
 
 ## 7. Decisions (all RESOLVED, no open questions)
 
-Every decision is settled: four resolved from code + design docs, two answered by
-the player. Nothing in this plan is left open.
+Every decision is settled: four design questions resolved from code + design docs,
+two answered by the player, and TWO BLOCKERS from a clean Opus design review resolved
+at the predicate level (2.6.6 / 2.6.7, 3.2 / 3.3). Nothing in this plan is left open.
+
+### 7.0 Blocker resolutions (design review)
+
+- BLOCKER 1 (plain-rewind drawdown runs with all prior signals false). RESOLVED: add a
+  fifth authoritative-reduction signal, `RewindContext.RewindResourceAdjustmentInProgress`,
+  set synchronously before the deferred coroutine is scheduled and cleared after its
+  `:6237` patch (2.6.6, 3.2). Verified against the `ParsekScenario.cs:6237` call site.
+- BLOCKER 2 (reservation legitimately drives the target below live on plain loads).
+  RESOLVED: key the guard on the NON-RESERVED running balance
+  (`GetRunningBalance()` / `GetRunningScience()` / `GetRunningRep()`), not the
+  reservation-aware patch target. A reservation leaves the running balance intact, so
+  it never trips the guard; a missing-earning leak lowers the running balance itself,
+  so it does. Subsumes the "full-walk only" alternative (2.6.7, 3.3).
 
 ### 7.1 Resolved from code/docs (evidence in section 2.6)
 
-- Q1 / threshold model. RESOLVED: clamp ANY downward delta past the resource's
-  rounding epsilon when no time-travel context is active; no percentage, no absolute
-  floor. There is no legitimate non-time-travel downward delta past epsilon
-  (2.6.1-4), so a threshold band would only leave a hole for medium corruptions.
-  (Section 3.3.)
-- Q2 / reputation. RESOLVED: treat rep exactly like funds/science (full clamp against
-  the `SetReputation` semantics). Every legitimate rep drop is a committed action
-  reconciled to ~0; rep is not semantically special, only mechanically different (set
-  vs add, can be negative), and both are handled. (Sections 3.4, 6.)
+- Q1 / threshold model. RESOLVED: no percentage and no absolute floor; the clamp fires
+  when the NON-RESERVED running balance is below live past the resource's rounding
+  epsilon with no time-travel context (revised from the disproven "clamp any downward
+  delta" after Blocker 2). (Section 3.3.)
+- Q2 / reputation. RESOLVED: treat rep like funds/science. Rep has no reservation, so
+  its running balance IS the target and the discriminator is the plain
+  `GetRunningRep() < live - eps` check, expressed against `SetReputation` semantics.
+  (Sections 3.4, 6.)
 - Q3 / time jump. RESOLVED: a time jump is always forward and a backward warp routes
-  through a rewind (which sets the signal), so the time-jump recalc never legitimately
-  reduces resources with no time-travel context. No fifth signal needed. (Section 2.6.1.)
+  through a rewind (which sets signal (1)/(5)), so the time-jump recalc never
+  legitimately reduces the running balance with no signal. (Section 2.6.1.)
 - Q4-internal / patch is the right seam. RESOLVED: the guard lives inside
   PatchScience / PatchFunds / PatchReputation (section 8.2).
 
@@ -614,75 +818,111 @@ No configuration, no popup, no opt-out. Time-travel reductions still apply norma
 ### 8.1 Files and functions to add / change
 
 - `Source/Parsek/GameActions/KspStatePatcher.cs`
-  - Add `internal static bool IsGuardableDrawdown(double delta, double epsilon)
-    => delta < -epsilon;` (pure, unit-tested). No fraction, no floor (section 3.3).
-  - Add `internal static double ApplyDrawdownGuard(double delta, double epsilon,
-    bool authoritativeReduction, string resource, out bool clamped)` (pure decision:
-    returns the delta to actually apply - `delta` unchanged when not guardable or when
-    authorized, `0` when clamped - and reports `clamped`). Keep the logging in the
-    caller-visible patch methods (match the existing `IsSuspiciousDrawdown`/WARN
-    in-method pattern; assert via `TestSinkForTesting`).
-  - Thread a new parameter `bool authoritativeReduction` through `PatchAll` ->
-    `PatchScience` / `PatchFunds` / `PatchReputation`. Apply the guarded delta.
-  - `PatchScience`: compute `delta`, then `delta = ApplyDrawdownGuard(delta, 0.001,
-    authoritativeReduction, "science", out clamped)` before `AddScience(delta, ...)`.
-  - `PatchFunds`: same with epsilon 0.01 before `AddFunds(delta, ...)`.
-  - `PatchReputation`: compute implied delta `target - current`; if
-    `ApplyDrawdownGuard(delta, 0.01, authoritativeReduction, "reputation", out clamped)`
-    returns 0 (clamped), call `SetReputation(current)` (no-op) instead of `target`.
-    "Downward" is `target < current - epsilon` regardless of sign (negative rep OK).
-  - Keep `IsSuspiciousDrawdown` and the existing WARN unchanged (legacy 10% tripwire);
-    the clamp is independent and fires on any downward delta past epsilon. They compose
-    (the clamp is strictly broader).
-  - On a clamp, post the one-shot ScreenMessage via `ParsekLog.ScreenMessage(text, 2.5f)`
-    (player decision 1; wording in section 4.2 step 3). Guard the one-shot with a
-    per-resource static bool so repeated recalcs do not re-toast.
-  - Extend `ResetForTesting` for the one-shot per-session notification bools.
+  - Add `internal static bool IsGuardableDrawdown(double runningBalance,
+    double currentLive, double epsilon) => runningBalance < currentLive - epsilon;`
+    (pure, unit-tested). Keyed on the RUNNING balance, not the patch delta (Blocker 2,
+    section 3.3). No fraction, no floor.
+  - Add `internal static double ApplyDrawdownGuard(double patchTarget,
+    double runningBalance, double currentLive, double epsilon,
+    bool authoritativeReduction, string resource, out bool clamped)`:
+    if `!authoritativeReduction && IsGuardableDrawdown(runningBalance, currentLive, eps)`
+    -> `clamped = true; return max(patchTarget, currentLive);` else
+    `clamped = false; return patchTarget;`. Pure decision; keep the WARN/toast in the
+    caller-visible patch methods (match the existing in-method WARN pattern; assert via
+    `TestSinkForTesting`).
+  - Thread new parameters `bool authoritativeReduction` AND the running-balance accessor
+    through `PatchAll` -> `PatchScience` / `PatchFunds` / `PatchReputation`. The
+    patch methods already hold the module, so they call `funds.GetRunningBalance()` /
+    `science.GetRunningScience()` / `reputation.GetRunningRep()` directly; only
+    `authoritativeReduction` is a new cross-cutting param.
+  - `PatchScience`: compute `targetScience` as today; then
+    `double effTarget = ApplyDrawdownGuard(targetScience, science.GetRunningScience(),
+    currentScience, 0.001, authoritativeReduction, "science", out clamped);` recompute
+    `delta = (float)(effTarget - currentScience)` before `AddScience(delta, ...)`.
+    NOTE: `PatchPerSubjectScience` still runs UNCLAMPED (MINOR 5); when `clamped`, the
+    pool WARN states the per-subject divergence.
+  - `PatchFunds`: same with `funds.GetRunningBalance()`, epsilon 0.01, before `AddFunds`.
+  - `PatchReputation`: rep has no reservation, so pass `reputation.GetRunningRep()` as
+    BOTH the patchTarget and the runningBalance; if `clamped`, `SetReputation(currentRep)`
+    (no-op) instead of the target. "Downward" is by magnitude (`< live - eps`) so
+    negative rep is handled.
+  - Keep `IsSuspiciousDrawdown` and the existing WARN unchanged (legacy 10% tripwire on
+    the patch delta); the clamp is independent and keyed on the running-balance
+    discriminator.
+  - On a clamp, post the toast via `ParsekLog.ScreenMessage(text, 2.5f)` (player
+    decision 1; wording in 4.2 step 3) gated by a per-resource SESSION-SCOPED latch
+    (MAJOR 3, section 9) so it fires once and stays quiet across scene changes.
+  - Add per-resource latch statics + extend `ResetForTesting` to clear them.
+
+- `Source/Parsek/RewindContext.cs`
+  - Add `internal static bool RewindResourceAdjustmentInProgress { get; private set; }`
+    plus `BeginRewindResourceAdjustment()` / `EndRewindResourceAdjustment()` setters
+    (logged, mirroring the existing Begin/End style). Clear it in `ResetForTesting`.
+    This is signal (5) for the deferred plain-rewind drawdown (Blocker 1, 2.6.6, 3.2).
+    Owned by the coroutine's lifetime, set synchronously before scheduling and cleared
+    after the `:6237` patch; NOT cleared by `EndRewind` (which runs before the coroutine).
+
+- `Source/Parsek/ParsekScenario.cs`
+  - In `HandleRewindOnLoad`, call `RewindContext.BeginRewindResourceAdjustment()`
+    synchronously immediately before `StartCoroutine(ApplyRewindResourceAdjustment())`
+    (`:3188-3189`).
+  - In `ApplyRewindResourceAdjustment`, call `RewindContext.EndRewindResourceAdjustment()`
+    immediately AFTER the `RecalculateAndPatch(adjustedUT, suppress:true)` at `:6237`
+    (wrap in try/finally so an exception in the patch still clears the flag).
+  - Defensive: clear the flag on `GameEvents.onGameSceneSwitchRequested` so an aborted
+    coroutine cannot strand it true (a stranded-true flag would DISABLE the guard during
+    normal play; fail-safe is to clear).
+  - Optional diagnostic persistence: `DrawdownGuardClampCount` / `DrawdownGuardLastClampUT`
+    in OnSave/OnLoad. Purely observability (the clamp itself never depends on it).
 
 - `Source/Parsek/GameActions/LedgerOrchestrator.cs`
   - Add `internal static bool IsAuthoritativeReduction(bool isRewinding,
-    bool hasReFlyMarker, bool hasMergeJournal, bool tombstonePath)` (pure).
-  - In `RecalculateAndPatchCore` / `ApplyRecalculatedStateToKsp`, compute
-    `authoritativeReduction` from `RewindContext.IsRewinding`,
-    `ParsekScenario.Instance?.ActiveReFlySessionMarker != null`,
-    `ParsekScenario.Instance?.ActiveMergeJournal != null`, and a `tombstonePath`
-    flag threaded from `RecalculateAndPatchAfterTombstones`. Pass it to `PatchAll`.
-  - Do NOT reuse `suppressSuspiciousDrawdownWarnings` for this; keep them separate
-    parameters (the suppress flag controls the noisy 10% WARN; the new flag
-    authorizes the clamp bypass on time-travel paths).
+    bool hasReFlyMarker, bool hasMergeJournal, bool tombstonePath,
+    bool rewindResourceAdjustmentInProgress)` (pure, FIVE inputs - section 3.2).
+  - MINOR 6 (explicit plumbing): `RecalculateAndPatchCore`
+    (`LedgerOrchestrator.cs:1679`) needs a NEW parameter `bool tombstonePath` (default
+    false) added to its signature, threaded to the three Core call sites
+    (`:1329` `RecalculateAndPatch`, `:1354` `RecalculateAndPatchForCurrentTimelineUT`,
+    `:1436` `RecalculateAndPatchAfterTombstones`). Only `RecalculateAndPatchAfterTombstones`
+    passes `tombstonePath: true`; the other two pass false. Core then computes
+    `authoritativeReduction = IsAuthoritativeReduction(RewindContext.IsRewinding,
+    ParsekScenario.Instance?.ActiveReFlySessionMarker != null,
+    ParsekScenario.Instance?.ActiveMergeJournal != null, tombstonePath,
+    RewindContext.RewindResourceAdjustmentInProgress)` and passes it through
+    `ApplyRecalculatedStateToKsp` -> `PatchAll`. (This threading is not detectable by
+    inspection of the patch methods alone; it must be added at all three Core callers.)
+  - Do NOT reuse `suppressSuspiciousDrawdownWarnings`; keep the two params separate (the
+    suppress flag controls the legacy 10% WARN; the new flag authorizes the clamp
+    bypass on the five time-travel signals).
 
 - `Source/Parsek/ParsekSettings.cs`
   - NO CHANGES (player decision 2). The guard is unconditional: no
     `guardSuspiciousDrawdown` field, no `protectEarnedProgress` checkbox, no
-    notification-mode enum, no `CustomParameterUI`. The clamp + ScreenMessage + WARN
-    always fire; there is nothing for the player to configure.
-
-- `Source/Parsek/ParsekScenario.cs`
-  - Optional diagnostic persistence: `DrawdownGuardClampCount` /
-    `DrawdownGuardLastClampUT` in OnSave/OnLoad (per the Post-Change Checklist for
-    serialized fields). Purely observability.
+    notification-mode enum, no `CustomParameterUI`.
 
 ### 8.2 The seam
 
-The guard hooks in at the LOWEST point that still knows the per-resource current vs
-target: inside `PatchScience` / `PatchFunds` / `PatchReputation`, immediately
-before the `AddScience` / `AddFunds` / `SetReputation` call. The authoritative-
-reduction decision is computed once at the `RecalculateAndPatchCore` boundary and
-passed down. This keeps the magnitude logic next to the live read (no staleness)
-while keeping the scene-state lookup out of the pure writer.
+The guard hooks in at the LOWEST point that still knows the per-resource running
+balance and live value: inside `PatchScience` / `PatchFunds` / `PatchReputation`,
+immediately before the `AddScience` / `AddFunds` / `SetReputation` call. The
+authoritative-reduction decision (five signals) is computed once at the
+`RecalculateAndPatchCore` boundary and passed down; the running-balance read happens
+in the patch method from the module it already holds. This keeps the discriminator
+next to the live read (no staleness) while keeping the scene-state lookup out of the
+pure writer.
 
 ### 8.3 Logging and observability (per CLAUDE.md)
 
 Every decision logged:
-- Safe (delta >= 0 or within tolerance): existing INFO/VERBOSE lines unchanged.
-- Authorized reduction: VERBOSE line noting "large drawdown authorized by
-  time-travel context (rewinding=.., reFlyMarker=.., mergeJournal=..,
-  tombstone=..)" with the numbers.
-- Guarded clamp: WARN line "PatchX: GUARDED DRAWDOWN clamped delta=.. current=..
-  wouldBeTarget=.. resource=.. (no time-travel context) - live value preserved;
-  ledger may be missing an earning channel" ALWAYS, plus the one-shot-per-session
-  short ScreenMessage via `ParsekLog.ScreenMessage` (player decision 1; unconditional,
-  there is no notification-mode setting).
+- Safe (running >= live, or within tolerance): existing INFO/VERBOSE lines unchanged.
+- Authorized reduction (running < live but a signal is set): VERBOSE line noting
+  "drawdown authorized by time-travel context (rewinding=.., reFlyMarker=..,
+  mergeJournal=.., tombstone=.., rewindResAdjust=..)" with running/live numbers.
+- Guarded clamp: WARN line "PatchX: GUARDED DRAWDOWN clamped resource=.. running=..
+  live=.. wouldBeTarget=.. clampedTo=live (no time-travel context) - earned value
+  preserved; ledger may be missing an earning channel" ALWAYS (every guarded recalc),
+  plus (for SCIENCE) the per-subject-unclamped note (MINOR 5), plus the
+  session-latched short ScreenMessage via `ParsekLog.ScreenMessage` (player decision 1).
 - Tag `KspStatePatcher` (existing). Subsystem-tagged, numeric, InvariantCulture.
 
 ### 8.4 Persistence / Post-Change Checklist
@@ -698,15 +938,20 @@ recording-format change is involved (CurrentRecordingSchemaGeneration untouched)
 A corrupted ledger recalcs on every scene change. The guard must behave sanely on
 repeat:
 
-- The clamp is idempotent: clamped delta is 0, so live value is unchanged; the next
-  recalc reads the same current and the same wrong target and re-clamps to 0 again.
-  No drift, no oscillation, no slow leak.
-- The WARN line is per-resource and fires each recalc by design (it documents the
-  ongoing leak), but it is gated to GUARDED cases only, so a healthy career emits
+- The clamp is idempotent: the applied floor is `max(target, live) == live`, so live
+  value is unchanged; the next recalc reads the same running-below-live and re-applies
+  the same floor. No drift, no oscillation, no slow leak.
+- The WARN line is per-resource and fires each guarded recalc by design (it documents
+  the ongoing leak), but it is gated to GUARDED cases only, so a healthy career emits
   nothing.
-- The ScreenMessage is one-shot per session per resource (a static "already
-  notified" bool reset in `ResetForTesting` and on scene-quit), so the player is not
-  spammed across repeated scene changes.
+- The ScreenMessage latch is SESSION-SCOPED (MAJOR 3), keyed on the clamp CAUSE
+  (per-resource), and is NOT reset on scene change. The earlier draft reset it
+  on-scene-quit, which would re-fire the toast on EVERY scene change for a persistent
+  leak - spam. Correct design: a per-resource static bool (e.g.
+  `fundsClampToastShownThisSession`) set on the first clamp toast and cleared ONLY in
+  `ResetForTesting` and (optionally) on a genuine new-session boundary
+  (`onGameStatePostLoad` of a DIFFERENT save / process restart), never on a plain
+  scene change. An ongoing condition toasts once per session and stays quiet.
 
 ------------------------------------------------------------------------
 
@@ -719,30 +964,35 @@ Add to `Source/Parsek.Tests/` (likely a new `DrawdownGuardTests.cs`, plus extend
 `KspStatePatcher.SuppressUnityCallsForTesting = true` (existing pattern). All
 classes touching shared static state get `[Collection("Sequential")]`.
 
-`IsGuardableDrawdown(delta, epsilon)`:
-- delta more negative than -epsilon -> true.
-- delta within [-epsilon, 0] -> false (rounding noise).
-- delta == -epsilon exactly -> false (strict `< -epsilon`).
-- positive delta -> false.
-- a tiny downward delta (smaller magnitude than the old 10% WARN but past epsilon)
-  -> true (proves the clamp is broader than the legacy WARN).
+`IsGuardableDrawdown(runningBalance, currentLive, epsilon)`:
+- running more than epsilon below live -> true (leak).
+- running within [live-epsilon, live] -> false (rounding noise).
+- running == live - epsilon exactly -> false (strict `< live - epsilon`).
+- running >= live -> false (healthy).
+- CRITICAL Blocker-2 case: running >= live BUT a separate reservation-aware target is
+  below live -> false (the predicate takes the running balance, not the target, so a
+  reservation drawdown does NOT trip it).
 
-`IsAuthoritativeReduction`:
-- all four inputs false -> false.
-- each input true individually -> true.
+`IsAuthoritativeReduction` (five inputs):
+- all five inputs false -> false.
+- each input true individually (including the NEW
+  `rewindResourceAdjustmentInProgress`) -> true.
 - combinations -> true.
 
-`ApplyDrawdownGuard` (pure decision):
-- safe (positive delta) -> returns delta unchanged, clamped=false.
-- within-epsilon downward -> returns delta unchanged, clamped=false.
-- guardable + authoritative -> returns delta unchanged, clamped=false (time travel).
-- guardable + NOT authoritative -> returns 0, clamped=true.
+`ApplyDrawdownGuard(patchTarget, runningBalance, currentLive, epsilon, authoritative, ...)`:
+- running >= live -> returns patchTarget unchanged, clamped=false (covers the
+  reservation case: target may be < live but running is not).
+- running < live, authoritative=true -> returns patchTarget unchanged, clamped=false.
+- running < live, authoritative=false -> returns `max(patchTarget, live)` (== live when
+  target < live), clamped=true.
 
 Log-assertion (drive `PatchScience`/`PatchFunds` with `SuppressUnityCallsForTesting`
 where the singletons are null-guarded, OR exercise the pure path and assert on the
-emitted lines): assert the GUARDED-DRAWDOWN WARN contains the resource, current,
-would-be target, and "live value preserved"; assert the AUTHORIZED line contains
-the signal values; assert no clamp line on a healthy delta.
+emitted lines): assert the GUARDED-DRAWDOWN WARN contains the resource, running, live,
+would-be target, and "earned value preserved"; assert the SCIENCE clamp WARN contains
+the per-subject-unclamped note (MINOR 5); assert the AUTHORIZED line contains the five
+signal values; assert no clamp line on a healthy (running>=live) recalc; assert no
+clamp line on a reservation-only drawdown (running>=live, target<live).
 
 One-shot notification: install `ParsekLog.ScreenMessageSinkForTesting`
 (`ParsekLog.cs:80,485-489`) to capture posted messages, then assert exactly ONE
@@ -757,19 +1007,34 @@ Needed because the real `AddScience`/`AddFunds`/`SetReputation` and the live
 singletons only exist in KSP:
 
 - `[InGameTest(Category = "Ledger", Scene = GameScenes.SPACECENTER)]`: seed a known
-  science/funds total, force a recalc whose ledger target is artificially below live
-  (via a test seam, for example a one-shot "force target" hook), and assert the live
+  science/funds total, force a recalc whose RUNNING balance is artificially below live
+  (via a test seam, for example a one-shot "force running" hook), and assert the live
   `ResearchAndDevelopment.Instance.Science` / `Funding.Instance.Funds` are UNCHANGED
   (clamped) and the WARN fired.
-- A paired test with `RewindContext`/marker forced true asserting the same
-  too-low target IS applied (authorized reduction) so the in-game path proves the
-  signal wiring, not just the pure helper.
+- A paired test with each signal (incl. `RewindResourceAdjustmentInProgress`) forced
+  true asserting the same too-low running balance IS applied (authorized reduction), so
+  the in-game path proves the signal wiring, not just the pure helper.
 
-### 10.3 Regression guard
+### 10.3 Regression guards (incl. the two BLOCKER paths - MINOR 7)
 
-Add a test asserting that the existing legitimate paths (a small post-commit
-reconciliation delta, a strategy-exchange-sized residual) do NOT clamp, to lock in
-the false-positive analysis.
+Lock in the false-positive analysis with explicit tests for both blocker paths:
+
+- BLOCKER 1 regression: plain Rewind-to-Launch (no re-fly) must STILL APPLY the
+  authoritative drawdown, not clamp. Drive the decision with `IsRewinding=false`,
+  marker=null, journal=null, tombstonePath=false, BUT
+  `RewindResourceAdjustmentInProgress=true`, running < live -> assert NOT clamped
+  (authorized). xUnit on `IsAuthoritativeReduction` / `ApplyDrawdownGuard`; plus an
+  in-game test that exercises a real rewind and asserts the post-rewind funds/science
+  landed at the rewound target (not clamped to pre-rewind live).
+- BLOCKER 2 regression: plain load with committed future costs must STILL APPLY the
+  reservation drawdown of the spendable target. Drive `ApplyDrawdownGuard` with
+  running >= live (intact) but patchTarget < live (reservation) and all signals false
+  -> assert NOT clamped and the reservation-aware target is returned unchanged.
+  Synthetic-ledger xUnit: a committed future `FundsSpending`, a cutoff walk, assert
+  `GetAvailableFunds() < GetRunningBalance()` and that the guard returns the
+  reservation target (so the top-bar still reserves and overspend is prevented).
+- Existing-legitimate-paths regression: a small post-commit reconciliation delta and a
+  strategy-exchange-sized residual do NOT clamp (running stays >= live).
 
 ------------------------------------------------------------------------
 
@@ -777,34 +1042,44 @@ the false-positive analysis.
 
 ### 11.1 Risks
 
-- A legitimate spend reaching the patch as a downward delta and being clamped.
-  Investigation shows this cannot happen on a non-time-travel path: spends are
-  committed actions reconciled to ~0 (2.6.3), future costs are reserved not
-  applied-on-crossing (2.6.2), and time jumps only advance (2.6.1). The clamp is also
-  non-destructive, so even an unforeseen trigger only preserves the player's resource.
-- A missing time-travel signal causing a legitimate reduction to clamp. Mitigated by
-  enumerating all four signals (section 2.4) and confirming the time-jump path needs
-  no fifth signal (2.6.1). If a signal is ever missed, the failure mode is a clamped
-  legitimate reduction (player keeps resources they were supposed to lose) - annoying
-  but not career-destroying, and loud in the WARN, so it surfaces fast.
-- Rep semantics (SET vs ADD, legitimate negatives). Mitigated by expressing the clamp
-  against the set ("do not set below current") and measuring downward as
-  `target < current - epsilon` regardless of sign (sections 3.4, 6).
+- A legitimate RESERVATION drawdown being clamped (this was Blocker 2). RESOLVED by
+  keying the guard on the running balance, not the patch target (3.3): a reservation
+  lowers only `available`, never running, so it does not trip the guard. If this fix
+  were wrong the blast radius (MAJOR 4) is defeating the reservation and letting the
+  player overspend - which is WHY it had to be fixed at the predicate. Covered by the
+  Blocker-2 regression test (10.3).
+- A legitimate TIME-TRAVEL reduction being clamped because a signal is missing (this
+  was Blocker 1 for the deferred plain-rewind path). RESOLVED by the fifth signal
+  `RewindResourceAdjustmentInProgress` (3.2, 2.6.6). Residual risk: a future
+  time-travel path that reduces the running balance with none of the five signals set
+  would be clamped. Failure mode is a clamped legitimate reduction (player keeps
+  resources they were supposed to lose) - annoying but not career-destroying, loud in
+  the WARN, and surfaces fast. Covered by the Blocker-1 regression test (10.3).
+- Rep semantics (SET vs ADD, legitimate negatives, no reservation). Mitigated by
+  expressing the clamp against the set ("do not set below live"), measuring downward by
+  magnitude regardless of sign, and noting rep's running balance IS its target
+  (sections 3.4, 6).
+- Per-subject science divergence on a pool clamp (MINOR 5): documented limitation,
+  called out in the clamp WARN; self-heals when the leak is fixed (section 6).
 
 ### 11.2 Edge cases
 
 - HasSeed false (early load): patch already skipped; guard never runs. Fine.
 - Sandbox mode (null singletons): patch already no-ops; guard never runs. Fine.
-- First-ever seed establishment: the seed path sets the initial value; the guard
-  only acts on subsequent reductions, not on seeding. Verify the guard is keyed on
-  the patch delta AFTER HasSeed is true.
-- Loading a save authored elsewhere where live state legitimately differs: OnKspLoad
-  recalc. This is the one case where a downward patch with no time-travel context
-  could be legitimate (the loaded .sfs already has the lower value, and the ledger
-  is the source of truth). But on a fresh load, KSP's singletons are loaded FROM the
-  .sfs, so live == saved, and the recalc should match (delta ~0). A large drawdown
-  on load is itself the BUG-A signature. Treat OnKspLoad like any other path:
-  guard it. (Confirm in playtest that a normal load produces delta ~0.)
+- First-ever seed establishment: the seed path sets the initial value; the guard only
+  acts on subsequent reductions, not on seeding. The patch already skips when
+  `!HasSeed`; the guard runs only AFTER HasSeed is true, so it never fights seeding.
+- Loading a normal save (OnKspLoad / deferred-seed): NIT 8 correction. The earlier
+  draft claimed "a normal load produces delta ~0". That is FALSE when committed future
+  costs exist: a cutoff walk (taken when `HasActionsAfterUT(currentUT)`,
+  `ParsekScenario.cs:6133-6138`) installs the reservation, so the patch TARGET
+  (`available`) is legitimately below live by the reserved amount, i.e. delta is NOT
+  ~0. The guard handles this correctly BECAUSE it keys on the RUNNING balance, not the
+  delta: on a normal load the running balance == loaded live (KSP loads singletons from
+  the .sfs), so `running < live` is false and the guard does not fire even though the
+  reservation lowered the target. A real BUG-A leak instead lowers the running balance
+  itself below live and IS clamped. Validate in playtest: a normal load with committed
+  future costs writes the reservation-aware (lower) target with NO clamp and NO toast.
 
 ### 11.3 Phased rollout
 
@@ -831,21 +1106,26 @@ player ever sees:
 ## 12. Summary
 
 The recalc patch trusts the ledger and applies downward deltas unconditionally; the
-only existing protection is a log-only WARN that is even silenced on the
-scene-change path. The guard adds an unconditional clamp-to-current safety net keyed
-on a clean classification: a downward delta past the resource's rounding epsilon is
-clamped UNLESS a time-travel context is active (rewind in progress, active re-fly
-marker, active merge journal, or the tombstone tail), in which case it applies as
-intended. Investigation proved there is no legitimate non-time-travel downward delta
-past epsilon (spends are committed actions reconciled to ~0; future costs are reserved
-not applied-on-crossing; time jumps only advance; backward warp routes through a
-rewind), so "clamp any unexplained downward delta" has zero false positives by
-construction and needs no percentage/floor threshold. The clamp covers funds,
-science, and reputation identically (rep is not special). It is surgical (per
-resource), idempotent (no oscillation), non-destructive (player keeps progress), and
-self-healing (stops triggering once the underlying leak is fixed). All decisions are
-resolved: the guard is unconditional with no setting (player decision 2), and when it
-prevents a wipe it always WARN-logs the numbers and posts one short native
-ScreenMessage naming the protected resource via `ParsekLog.ScreenMessage` - the same
-"Recording STARTED"-style notice (player decision 1). The clamp being unconditional
-matches the codebase precedent for correctness behaviors with no gameplay downside.
+only existing protection is a log-only WARN that is even silenced on the scene-change
+path. The guard adds an unconditional safety net that clamps a downward patch to the
+player's current live value UNLESS the reduction is legitimate. The discriminator,
+after a design review found the naive "clamp any downward delta" thesis false, is the
+NON-RESERVED RUNNING balance (`GetRunningBalance` / `GetRunningScience` /
+`GetRunningRep`), not the reservation-aware patch target: a reservation legitimately
+lowers the spendable target below live on plain cutoff walks (Blocker 2), so keying on
+the target would defeat overspend prevention; the running balance instead falls below
+live ONLY when an earning channel is missing (the BUG-A corruption). The clamp is
+suppressed when any of FIVE time-travel signals is set - rewind in progress, active
+re-fly marker, active merge journal, the tombstone tail, and (Blocker 1) the deferred
+rewind resource-adjustment in progress, which is the ONLY signal true when a plain
+Rewind-to-Launch writes its authoritative drawdown. The clamp covers funds, science,
+and reputation (rep has no reservation, so its running balance is its target). It is
+surgical (per resource), idempotent (re-applies the same floor, no oscillation),
+non-destructive (player keeps progress), and self-healing (stops once the leak is
+fixed); per-subject science is patched unclamped, a documented limitation called out in
+the clamp WARN (MINOR 5). The guard is unconditional with no setting (player decision
+2); when it prevents a wipe it always WARN-logs running/live/target and posts one
+session-latched short native ScreenMessage naming the protected resource via
+`ParsekLog.ScreenMessage`, the same "Recording STARTED"-style notice (player decision
+1). The clamp being unconditional matches the codebase precedent for correctness
+behaviors with no gameplay downside.
