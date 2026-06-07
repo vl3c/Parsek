@@ -13,6 +13,7 @@ namespace Parsek.Tests
         public GhostMapPresenceTests()
         {
             GhostMapPresence.ResetForTesting();
+            PlaybackScopeTracker.ResetForTesting();
             RecordingStore.ClearCommittedInternal();
             RecordingStore.CommittedTrees.Clear();
             ParsekSettings.CurrentOverrideForTesting = null;
@@ -26,6 +27,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             GhostMapPresence.ResetForTesting();
+            PlaybackScopeTracker.ResetForTesting();
             RecordingStore.ClearCommittedInternal();
             RecordingStore.CommittedTrees.Clear();
             ParsekSettings.CurrentOverrideForTesting = null;
@@ -1612,6 +1614,51 @@ namespace Parsek.Tests
                     l.Contains("CreateGhostVesselsFromCommittedRecordings: created=0 from 4 recordings") &&
                     l.Contains("spawned=1") &&
                     l.Contains("noOrbit=3"));
+            }
+            finally
+            {
+                RecordingStore.ClearCommittedInternal();
+                RecordingStore.CommittedTrees.Clear();
+                ParsekSettingsPersistence.ResetForTesting();
+            }
+        }
+
+        /// <summary>
+        /// BUG-B: an orbital recording the player flew and progressed past (no rewind)
+        /// would resolve to a TerminalOrbit map-icon source, but the Tracking Station
+        /// create path must suppress it (the player never replayed it) so it does not
+        /// draw a ghost of the still-live vessel. Arming replay scope (simulating a
+        /// rewind to before its launch) lets it resolve normally.
+        /// </summary>
+        [Fact]
+        public void CreateGhostVesselsFromCommittedRecordings_SuppressesHistoricalOrbitalGhost()
+        {
+            GhostMapPresence.CurrentUTNow = () => 1500.0;
+            try
+            {
+                var rec = new Recording
+                {
+                    RecordingId = "hist-orbital",
+                    TerminalOrbitBody = "Mun",
+                    TerminalOrbitSemiMajorAxis = 260300,
+                    TerminalStateValue = TerminalState.Orbiting,
+                    Points = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                        new TrajectoryPoint { ut = 1000, bodyName = "Mun" }
+                    }
+                };
+                RecordingStore.AddCommittedInternal(rec);
+
+                // Forward play, never rewound: the would-be terminal-orbit icon is
+                // suppressed as historical (terminalOrbit source count stays 0).
+                int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
+                Assert.Equal(0, created);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[GhostMap]") && l.Contains("reason=historical-not-replayed"));
+                Assert.Contains(logLines, l =>
+                    l.Contains("CreateGhostVesselsFromCommittedRecordings: created=0")
+                    && l.Contains("terminalOrbit=0"));
             }
             finally
             {

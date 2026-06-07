@@ -6091,7 +6091,7 @@ namespace Parsek
             int destroyedBefore = lifecycleDestroyedThisTick;
 
             if (hasCommittedRecordings)
-                TryRunTrackingStationSpawnHandoffs(committed, currentUT);
+                TryRunTrackingStationSpawnHandoffs(committed, currentUT, loopUnits);
 
             // Phase F v1 simplification: suppression is resolved at the LIVE currentUT, not the
             // per-member span-clock effUT. Loop-unit members are already gated by the per-recording
@@ -6872,23 +6872,61 @@ namespace Parsek
 
         internal static void TryRunTrackingStationSpawnHandoffs(
             IReadOnlyList<Recording> committed,
-            double currentUT)
+            double currentUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits = null)
         {
             if (committed == null || committed.Count == 0)
                 return;
+            if (loopUnits == null)
+                loopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
 
             var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
             var timelineInactiveIds = CurrentTimelineInactiveRecordingIds(committed);
             List<int> eligibleIndices = null;
             for (int i = 0; i < committed.Count; i++)
             {
+                var rec = committed[i];
                 var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(
-                    committed[i],
+                    rec,
                     currentUT,
                     chains,
                     timelineInactiveIds);
                 if (!needsSpawn)
                     continue;
+
+                // BUG-B: in the unconditional per-frame Tracking Station lifecycle, do NOT
+                // auto-spawn a NEW duplicate vessel for a purely-historical recording (the
+                // player progressed past it in normal forward time and never rewound to
+                // replay it). The adoption path (the recorded vessel already exists live)
+                // is harmless and still runs; looping / mission-unit members (explicit live
+                // opt-in) and the active re-fly session are exempt. Explicit "Warp to Spawn"
+                // (TryRunTrackingStationSpawnHandoffForIndex / ForRecordingId) does not route
+                // through here, so a user-initiated spawn is never gated. Mirrors the flight
+                // and Space Center spawn gates.
+                bool realVesselExists = rec.VesselPersistentId != 0
+                    && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
+                bool wouldAdoptExistingVessel =
+                    ShouldSkipTrackingStationDuplicateSpawn(rec, realVesselExists);
+                if (!wouldAdoptExistingVessel
+                    && SessionSuppressionState.ActiveMarker == null
+                    && !rec.LoopPlayback
+                    && !loopUnits.IsMember(i))
+                {
+                    double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
+                    PlaybackScopeTracker.NotePlayhead(rec.RecordingId, currentUT, activationStartUT);
+                    if (PlaybackScopeTracker.IsHistoricalNeverReplayed(
+                            rec.RecordingId, currentUT, activationStartUT))
+                    {
+                        ParsekLog.VerboseRateLimited(Tag,
+                            "ts-spawn-historical-" + i.ToString(ic),
+                            string.Format(ic,
+                                "Tracking-station spawn handoff skipped #{0} \"{1}\": historical "
+                                + "(never replayed during normal forward play)",
+                                i, rec.VesselName ?? "(null)"),
+                            5.0);
+                        continue;
+                    }
+                }
 
                 if (eligibleIndices == null)
                     eligibleIndices = new List<int>();
@@ -8668,6 +8706,34 @@ namespace Parsek
                 recordingIndex: recordingIndex,
                 acceptTerminalOrbitForLoopSynthesis: false,
                 loopMemberInWindow: loopMemberInWindow);
+
+            // BUG-B: in the live tracking-station create paths (batch != null), a committed recording
+            // that WOULD seed a map icon (source != None) but is purely historical (the player only ever
+            // progressed past it in normal forward time and never rewound to replay it) is suppressed so
+            // it does not draw a duplicate ghost of a still-live vessel. Placed AFTER source resolution
+            // so the existing, more-specific skip reasons (already-spawned, no-orbit, before-activation)
+            // are preserved; only an otherwise-renderable historical recording is overridden. The
+            // pure-predicate "direct" wrapper passes batch == null and is left unchanged. Loop members
+            // (loopMemberInWindow) and the active re-fly session are exempt, and rec.LoopPlayback covers
+            // a per-recording loop sampling at live UT; for every other recording reaching here in a
+            // create path currentUT is the live UT (effUT == currentUT), so the latch sees live time.
+            if (source != TrackingStationGhostSource.None
+                && batch != null
+                && !loopMemberInWindow
+                && !rec.LoopPlayback
+                && SessionSuppressionState.ActiveMarker == null)
+            {
+                double historicalActivationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
+                PlaybackScopeTracker.NotePlayhead(rec.RecordingId, currentUT, historicalActivationStartUT);
+                if (PlaybackScopeTracker.IsHistoricalNeverReplayed(
+                        rec.RecordingId, currentUT, historicalActivationStartUT))
+                {
+                    source = TrackingStationGhostSource.None;
+                    segment = default(OrbitSegment);
+                    stateVectorPoint = default(TrajectoryPoint);
+                    skipReason = "historical-not-replayed";
+                }
+            }
 
             LogTrackingStationGhostSourceDecision(
                 context,

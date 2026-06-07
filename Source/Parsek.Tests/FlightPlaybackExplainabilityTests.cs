@@ -20,11 +20,13 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             FlightRecorder.FrameCountProviderForTesting = () => 123;
             ReFlySettleStabilityTracker.Reset();
+            PlaybackScopeTracker.ResetForTesting();
         }
 
         public void Dispose()
         {
             ReFlySettleStabilityTracker.Reset();
+            PlaybackScopeTracker.ResetForTesting();
             FlightRecorder.FrameCountProviderForTesting = null;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -46,6 +48,16 @@ namespace Parsek.Tests
                     new TrajectoryPoint { ut = 101.0 }
                 }
             };
+        }
+
+        // Simulate that the player rewound to before this recording, so it is a
+        // legitimate live replay rather than a purely-historical committed recording
+        // (BUG-B). Without this, a committed recording evaluated past its end UT is
+        // classified HistoricalNotReplayed and skipped.
+        private static void ArmReplayScope(Recording rec)
+        {
+            PlaybackScopeTracker.NotePlayhead(
+                rec.RecordingId, 0.0, GhostPlaybackEngine.ResolveGhostActivationStartUT(rec));
         }
 
         [Fact]
@@ -174,6 +186,9 @@ namespace Parsek.Tests
                 oldRec.TerminalStateValue = TerminalState.Orbiting;
                 var newRec = MakeRecording("rec-new", "New Probe");
                 var committed = new List<Recording> { oldRec, newRec };
+                // rec-new is the live re-flight (player rewound into it): keep it in
+                // replay scope so the test isolates supersession, not BUG-B history.
+                ArmReplayScope(newRec);
 
                 TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
 
@@ -288,6 +303,91 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComputePlaybackFlags_HistoricalNeverReplayed_SkipsGhostAndSpawnDuringForwardPlay()
+        {
+            // BUG-B: a committed recording the player flew and progressed past (window
+            // ~[100,101]) with NO rewind is historical at live UT 200 — it must not
+            // render a ghost or spawn its terminal vessel even though its terminal
+            // state (Orbiting) would otherwise mark it needsSpawn.
+            RecordingStore.ResetForTesting();
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+                var rec = MakeRecording("rec-hist", "Past Probe");
+                rec.VesselSnapshot = new ConfigNode("VESSEL");
+                rec.TerminalStateValue = TerminalState.Orbiting;
+                var committed = new List<Recording> { rec };
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
+
+                Assert.True(flags[0].skipGhost);
+                Assert.Equal(GhostPlaybackSkipReason.HistoricalNotReplayed, flags[0].skipReason);
+                Assert.False(flags[0].needsSpawn);
+                Assert.Contains(logLines, line =>
+                    line.Contains("id=rec-hist")
+                    && line.Contains("reason=historical-not-replayed"));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void ComputePlaybackFlags_RewoundIntoReplayScope_RendersAndSpawns()
+        {
+            // The same recording, but the player rewound to before its launch — it is
+            // now a legitimate live replay, so it renders and spawns at its terminal.
+            RecordingStore.ResetForTesting();
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+                var rec = MakeRecording("rec-replay", "Replayed Probe");
+                rec.VesselSnapshot = new ConfigNode("VESSEL");
+                rec.TerminalStateValue = TerminalState.Orbiting;
+                var committed = new List<Recording> { rec };
+                ArmReplayScope(rec);
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
+
+                Assert.False(flags[0].skipGhost);
+                Assert.NotEqual(GhostPlaybackSkipReason.HistoricalNotReplayed, flags[0].skipReason);
+                Assert.True(flags[0].needsSpawn);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void ComputePlaybackFlags_LoopingRecording_NotHistoricalDuringForwardPlay()
+        {
+            // A recording the user explicitly opted into looping must keep replaying
+            // during normal forward play (no rewind), so it is never classified
+            // historical even though its window is in the past.
+            RecordingStore.ResetForTesting();
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+                var rec = MakeRecording("rec-loop", "Looping Probe");
+                rec.VesselSnapshot = new ConfigNode("VESSEL");
+                rec.TerminalStateValue = TerminalState.Orbiting;
+                rec.LoopPlayback = true;
+                var committed = new List<Recording> { rec };
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
+
+                Assert.NotEqual(GhostPlaybackSkipReason.HistoricalNotReplayed, flags[0].skipReason);
+                Assert.False(flags[0].skipGhost);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
         public void ComputePlaybackFlags_RewindRetired_SkipsGhostAndSpawn()
         {
             RecordingStore.ResetForTesting();
@@ -314,6 +414,9 @@ namespace Parsek.Tests
                 retired.TerminalStateValue = TerminalState.Orbiting;
                 var restored = MakeRecording("rec-restored", "Restored Probe");
                 var committed = new List<Recording> { retired, restored };
+                // rec-restored is the recording the rewind restored (the live replay):
+                // keep it in replay scope so the test isolates retirement, not BUG-B.
+                ArmReplayScope(restored);
 
                 TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
 
@@ -379,6 +482,9 @@ namespace Parsek.Tests
                 var restored = MakeRecording("rec-restored", "Restored Vessel");
 
                 var committed = new List<Recording> { retiredParent, orphanDebris, restored };
+                // The restored sibling is the live replay after the rewind: keep it in
+                // replay scope so the test isolates the retirement cascade, not BUG-B.
+                ArmReplayScope(restored);
 
                 TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
 

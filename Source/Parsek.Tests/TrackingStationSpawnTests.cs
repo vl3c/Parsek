@@ -14,6 +14,7 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             GhostMapPresence.ResetForTesting();
+            PlaybackScopeTracker.ResetForTesting();
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
             ParsekSettingsPersistence.ResetForTesting();
@@ -27,6 +28,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
             GhostMapPresence.ResetForTesting();
+            PlaybackScopeTracker.ResetForTesting();
             ParsekSettingsPersistence.ResetForTesting();
             ParsekScenario.SetInstanceForTesting(null);
             ParsekLog.ResetTestOverrides();
@@ -281,6 +283,25 @@ namespace Parsek.Tests
             Assert.True(rec.VesselSpawned);
             Assert.Equal(777u, rec.SpawnedVesselPersistentId);
             Assert.False(GhostMapPresence.HasGhostVesselForRecording(0));
+        }
+
+        [Fact]
+        public void TryRunTrackingStationSpawnHandoffs_HistoricalRecordingWithNoLiveVessel_DoesNotSpawn()
+        {
+            // BUG-B: during normal forward play (no rewind), a historical recording whose
+            // recorded vessel no longer exists must NOT auto-spawn a duplicate at the
+            // Tracking Station. The adoption case (a matching live vessel still present) is
+            // exempt and covered by ...MatchingSceneEntryPidMarksRecordingMaterialized above.
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(_ => false); // recorded vessel gone
+            // No replay scope armed: the player never rewound to before this recording.
+
+            GhostMapPresence.TryRunTrackingStationSpawnHandoffs(
+                new List<Recording> { rec },
+                rec.EndUT + 1);
+
+            Assert.False(rec.VesselSpawned);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
         }
 
         [Fact]
