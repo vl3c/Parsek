@@ -6131,18 +6131,42 @@ namespace Parsek
 
             int framesWaited = 599 - maxValueWait; // post-decrement: 600→599 on first check
 
+            // Phase 3 (BUG-F): wait for the universe clock to be initialized before deciding
+            // whether to apply a current-UT ledger cutoff. On a cold load
+            // Planetarium.GetUniversalTime() returns 0 until the scene's clock is set up;
+            // cutting the committed ledger off at UT=0 filters out an entire established career
+            // (funds collapse to the starting seed, science to 0). The value-wait above can exit
+            // immediately (singletons already carry their save values) while the clock is still
+            // 0, so an explicit clock-readiness wait is needed. Spin until the clock reports a
+            // real positive UT, or bail on timeout — the recalc below then falls back to the
+            // safe full replay (cutoffUT=null), which never wipes an established career.
+            int maxUtWait = 600; // ~10 seconds at 60fps
+            while (maxUtWait-- > 0
+                   && !(Planetarium.fetch != null
+                        && LedgerOrchestrator.IsCurrentUtReadyForCutoff(
+                            Planetarium.GetUniversalTime())))
+                yield return null;
+            int utFramesWaited = 599 - maxUtWait;
+
             var ic = CultureInfo.InvariantCulture;
+            double currentUT = Planetarium.fetch != null
+                ? Planetarium.GetUniversalTime()
+                : 0.0;
             ParsekLog.Verbose("Scenario",
-                $"DeferredSeed: values ready after {framesWaited} frames — " +
+                $"DeferredSeed: values ready after {framesWaited} frames, " +
+                $"clock ready after {utFramesWaited} frames (currentUT={currentUT.ToString("R", ic)}) — " +
                 $"Funding={(Funding.Instance != null ? Funding.Instance.Funds.ToString("F0", ic) : "null")}, " +
                 $"Science={(ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science.ToString("F0", ic) : "null")}, " +
                 $"Rep={(Reputation.Instance != null ? Reputation.Instance.reputation.ToString("F1", ic) : "null")}");
 
-            double currentUT = Planetarium.GetUniversalTime();
-            if (IsCurrentUtCutoffSupportedScene(HighLogic.LoadedScene)
-                && LedgerOrchestrator.HasActionsAfterUT(currentUT))
+            // Route through the guarded helper: it applies the current-UT cutoff only when the
+            // clock is ready (currentUT > 0) AND committed actions still lie ahead of it
+            // (post-rewind / future-timeline case), otherwise it replays the full committed
+            // ledger. A not-ready clock therefore restores an established career instead of
+            // wiping it.
+            if (IsCurrentUtCutoffSupportedScene(HighLogic.LoadedScene))
             {
-                LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(
+                LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
                     currentUT,
                     "deferred-seed");
             }

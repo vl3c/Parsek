@@ -1031,6 +1031,35 @@ namespace Parsek.Tests
             Assert.Equal(26795.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
         }
 
+        // BUG-F: a not-ready clock (UT <= 0, e.g. a cold-load deferred-seed pass before the
+        // universe clock is initialized) must NOT cut the committed career off at UT=0. The
+        // guard falls back to the full replay so the whole career is restored instead of wiped.
+        [Fact]
+        public void CurrentTimelineIfFutureActions_NotReadyClock_ReplaysFullLedger()
+        {
+            AddAll(
+                FundsSeed(25000f),
+                FundsSpending(129.0, 3805f, "rollout"),
+                Milestone(153.0, "future-altitude", 5600f));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                0.0,
+                "test-cold-load");
+
+            // Full replay: all three actions walked, cutoffUT=null (no UT=0 wipe).
+            AssertLogHasCutoffSummary(logLines, 3, 3, "null");
+            Assert.Equal(26795.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            // The current-UT cutoff recalc must NOT have run.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains(Tag)
+                && l.Contains("Current-UT ledger recalculation")
+                && l.Contains("reason=test-cold-load"));
+            Assert.Contains(logLines, l =>
+                l.Contains(Tag)
+                && l.Contains("Current-timeline recalc: full replay")
+                && l.Contains("currentUtReady=False"));
+        }
+
         [Fact]
         public void TryGetNextActionUTAfter_IgnoresSeedsAndReturnsEarliestFutureAction()
         {

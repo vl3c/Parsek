@@ -251,6 +251,180 @@ namespace Parsek.Tests
                 && l.Contains("preserveFutureTimelineActions=True"));
         }
 
+        [Theory]
+        [InlineData(0.0, false)]
+        [InlineData(-1.0, false)]
+        [InlineData(-0.0001, false)]
+        [InlineData(0.0001, true)]
+        [InlineData(1.0, true)]
+        [InlineData(2160000.0, true)]
+        public void IsCurrentUtReadyForCutoff_TreatsNonPositiveUtAsNotReady(
+            double ut, bool expectedReady)
+        {
+            Assert.Equal(expectedReady, LedgerOrchestrator.IsCurrentUtReadyForCutoff(ut));
+        }
+
+        // BUG-F: cold-loading an established career wiped the stock economy. During a cold
+        // ScenarioModule.OnLoad the universe clock is not yet initialized, so the load passes
+        // maxUT=0. The current-UT cutoff then treats the entire committed career as "future"
+        // and filters it out (funds collapse to the starting seed, science to 0). With the fix
+        // a not-ready UT (<= 0) must fall back to the safe full replay (cutoffUT=null) that
+        // replays every committed action.
+        [Fact]
+        public void OnKspLoad_ColdLoadWithUnreadyClock_ReplaysEntireCareer_NoWipe()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 0f
+            });
+            // Committed career rewards/spends at real (positive) UTs — the rows an established
+            // save accumulates from normal play.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "first-launch",
+                MilestoneFundsAwarded = 50000f,
+                RecordingId = "rec-1"
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 200.0,
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = "SpaceCenter/LaunchPad",
+                FacilityCost = 7500f
+            });
+
+            // Cold load: Planetarium clock not ready, so the load site passes maxUT=0 while
+            // the scene (FLIGHT/SPACECENTER) still opts into the current-UT cutoff feature.
+            LedgerOrchestrator.OnKspLoad(
+                new HashSet<string> { "rec-1" },
+                maxUT: 0.0,
+                useCurrentUtCutoffForFutureActions: true);
+
+            // The decision must skip the cutoff because the clock is not ready.
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("OnKspLoad recalc decision")
+                && l.Contains("useCurrentUtCutoff=False")
+                && l.Contains("currentUtReady=False"));
+            // The career-wiping current-UT cutoff recalc must NOT have run for the load.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Current-UT ledger recalculation")
+                && l.Contains("reason=ksp-load"));
+            // Full replay walked ALL four actions (none filtered out), cutoffUT=null.
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecalcEngine]")
+                && l.Contains("Recalculate complete")
+                && l.Contains("actionsTotal=4")
+                && l.Contains("actionsAfterCutoff=4")
+                && l.Contains("cutoffUT=null")
+                && l.Contains("filteredOut=0"));
+            // The committed rows survived reconcile (preserveFutureTimelineActions keeps them).
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.MilestoneAchievement && a.MilestoneId == "first-launch");
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.FacilityUpgrade
+                && a.FacilityId == "SpaceCenter/LaunchPad");
+        }
+
+        // The fix must NOT regress the post-rewind / future-timeline case: when the clock is a
+        // real positive value AND committed actions still lie ahead of it, the current-UT cutoff
+        // is still applied so future rewards are not patched into KSP early.
+        [Fact]
+        public void OnKspLoad_ReadyClockWithFutureActions_StillAppliesCutoff()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "future-milestone",
+                MilestoneFundsAwarded = 50000f,
+                RecordingId = "future-rec"
+            });
+
+            // Valid clock at UT=300 (post-rewind playhead), future committed action at UT=500.
+            LedgerOrchestrator.OnKspLoad(
+                new HashSet<string> { "future-rec" },
+                maxUT: 300.0,
+                useCurrentUtCutoffForFutureActions: true);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("OnKspLoad recalc decision")
+                && l.Contains("useCurrentUtCutoff=True")
+                && l.Contains("currentUtReady=True")
+                && l.Contains("hasFutureActions=True"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Current-UT ledger recalculation")
+                && l.Contains("reason=ksp-load")
+                && l.Contains("cutoffUT=300"));
+            // The future reward is filtered out of the walk (not applied early).
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecalcEngine]")
+                && l.Contains("Recalculate complete")
+                && l.Contains("actionsTotal=2")
+                && l.Contains("actionsAfterCutoff=1")
+                && l.Contains("cutoffUT=300"));
+        }
+
+        // An established career loaded with a ready clock that is already past every committed
+        // action (the ordinary in-session load) takes the full replay — the guard does not
+        // over-trigger the cutoff when there is nothing ahead of the clock.
+        [Fact]
+        public void OnKspLoad_ReadyClockPastAllActions_ReplaysFullLedger()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "past-milestone",
+                MilestoneFundsAwarded = 50000f,
+                RecordingId = "rec-1"
+            });
+
+            LedgerOrchestrator.OnKspLoad(
+                new HashSet<string> { "rec-1" },
+                maxUT: 5000.0,
+                useCurrentUtCutoffForFutureActions: true);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("OnKspLoad recalc decision")
+                && l.Contains("useCurrentUtCutoff=False")
+                && l.Contains("currentUtReady=True")
+                && l.Contains("hasFutureActions=False"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Current-UT ledger recalculation")
+                && l.Contains("reason=ksp-load"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecalcEngine]")
+                && l.Contains("Recalculate complete")
+                && l.Contains("actionsTotal=2")
+                && l.Contains("actionsAfterCutoff=2")
+                && l.Contains("cutoffUT=null"));
+        }
+
         [Fact]
         public void OnKscSpending_ContractCompleted_AddsContractCompleteAction()
         {
