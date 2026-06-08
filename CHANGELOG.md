@@ -20,6 +20,7 @@ All notable changes to Parsek are documented here.
 ### Safety
 
 - Added a "keep what you earned" safety net so a bookkeeping error can never again silently wipe your funds, science, or reputation. If an internal recalculation would drop one of these below your current total without an active rewind or re-fly, Parsek keeps your value, shows a brief "Kept your earned ..." notice once, and logs the details. Legitimate reductions from time travel still apply normally, and spending reservations are unaffected.
+- Added a rewind self-check that logs a loud warning if a Rewind-to-Separation would rebuild your career economy below your real funds, science, or reputation, so a silent corruption is now a caught, logged event. It is warn-only by default and never changes a successful rewind.
 
 ### Log Hygiene
 

@@ -22795,6 +22795,100 @@ namespace Parsek.InGameTests
             return m;
         }
 
+        // Rewind read-back divergence guard (audit rec #1): prove the warn-only guard fires
+        // a FLAGGED DIVERGENCE WARN against the LIVE economy modules without altering any live
+        // value. Arms the guard with two witnesses deliberately ABOVE the live realized
+        // economy (a synthetic downward divergence), runs the runner against the live
+        // Funds/Science/Reputation modules built from the live singletons, and asserts the
+        // WARN fired and the live values are unchanged (warn-only). Does NOT test abort.
+        //
+        // SAFETY: snapshots the three pools up front and restores them in a finally; it never
+        // calls the full ledger recalc and never enables the abort opt-in, so the player's
+        // career is numerically untouched.
+        [Parsek.InGameTests.InGameTest(Category = "Rewind", Scene = GameScenes.FLIGHT,
+            Description = "Rewind read-back guard fires a divergence WARN (warn-only) against the live economy without altering any live value")]
+        public void RewindReadbackGuard_WarnsOnDivergence_LeavesLiveUnchanged()
+        {
+            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null
+                || Reputation.Instance == null)
+            {
+                Parsek.InGameTests.InGameAssert.Skip(
+                    "requires a career game with Funding/R&D/Reputation singletons");
+                return;
+            }
+
+            double origFunds = Funding.Instance.Funds;
+            float origScience = ResearchAndDevelopment.Instance.Science;
+            float origRep = Reputation.Instance.reputation;
+
+            // Capture the test-sink log lines so we can assert the WARN fired.
+            var captured = new List<string>();
+            var prevSink = ParsekLog.TestSinkForTesting;
+            ParsekLog.TestSinkForTesting = line => captured.Add(line);
+
+            RewindReadbackGuard.ResetForTesting();
+            KspStatePatcher.ResetForTesting();
+            try
+            {
+                // Live realized running balances seeded BELOW the witnesses to mimic a clobber:
+                // both witnesses are above, so floor > target -> downward divergence flagged.
+                const double RunningFunds = 60000.0;
+                const float RunningScience = 100f;
+                const float RunningRep = 10f;
+                var funds = MakeSeededFundsModule(RunningFunds);
+                var science = MakeSeededScienceModule(RunningScience);
+                var rep = MakeSeededReputationModule(RunningRep);
+
+                // Two witnesses deliberately above the running targets (E_before / E_rp).
+                RewindReadbackGuard.Arm(
+                    new EconomySnapshot { Funds = 100000.0, Science = 500.0, Reputation = 40f },
+                    new EconomySnapshot { Funds = 120000.0, Science = 600.0, Reputation = 50f });
+
+                // Abort opt-in stays OFF -> warn-only; runner must return false.
+                bool abort = KspStatePatcher.RunRewindReadbackGuard(
+                    science, funds, rep, authoritativeReduction: false);
+
+                Parsek.InGameTests.InGameAssert.IsFalse(abort,
+                    "Warn-only guard must never request an abort");
+
+                bool warned = captured.Exists(l =>
+                    l.Contains("[RewindReadback]")
+                    && l.Contains("FLAGGED DIVERGENCE")
+                    && l.Contains("resource=funds"));
+                Parsek.InGameTests.InGameAssert.IsTrue(warned,
+                    "Guard must emit a FLAGGED DIVERGENCE WARN for the funds clobber");
+
+                // Live economy must be untouched (the guard reads modules, never writes KSP).
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(Funding.Instance.Funds - origFunds) < 0.5,
+                    $"Live funds must be unchanged by the guard (expected {origFunds}, got {Funding.Instance.Funds})");
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(ResearchAndDevelopment.Instance.Science - origScience) < 0.5f,
+                    $"Live science must be unchanged by the guard (expected {origScience}, got {ResearchAndDevelopment.Instance.Science})");
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(Reputation.Instance.reputation - origRep) < 0.5f,
+                    $"Live reputation must be unchanged by the guard (expected {origRep}, got {Reputation.Instance.reputation})");
+
+                ParsekLog.Info("TestRunner",
+                    "RewindReadbackGuard_WarnsOnDivergence_LeavesLiveUnchanged: divergence WARN fired, live economy untouched (warn-only)");
+            }
+            finally
+            {
+                RewindReadbackGuard.Clear();
+                ParsekLog.TestSinkForTesting = prevSink;
+                // Restore the player's real career values no matter what (the guard does not
+                // write KSP, but ResetForTesting + defense-in-depth keeps the career pristine).
+                using (SuppressionGuard.Resources())
+                {
+                    Funding.Instance.SetFunds(origFunds, TransactionReasons.None);
+                    ResearchAndDevelopment.Instance.SetScience(origScience, TransactionReasons.None);
+                    Reputation.Instance.SetReputation(origRep, TransactionReasons.None);
+                }
+                RewindReadbackGuard.ResetForTesting();
+                KspStatePatcher.ResetForTesting();
+            }
+        }
+
         // BUG-G: the affordability gate is the missing other half of the drawdown guard.
         // (1) The gate must reconcile against the live R&D singleton so a missing-earning
         //     leak (running below live, no time-travel context) does NOT falsely block an
