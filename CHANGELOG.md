@@ -28,6 +28,10 @@ All notable changes to Parsek are documented here.
 - The recorder's "sparse sampling" WARN no longer fires during normal coasting or on parked vessels. Its large-gap threshold now scales with the configured sample-density backstop (about 3 seconds at the default Medium) instead of a fixed half-second, so only a genuinely stalled sampler warns; a long career session was logging well over a hundred of these on routine coasts.
 - When Parsek rewrites career state, the default log now names which per-subject science totals, tech-node availability flips, and contracts were changed (a bounded sample on the summary line, full list at Verbose), so a corrupted subject, node, or contract is identifiable from a normal log instead of only a count.
 
+### Internals & Tests
+
+- Added headless test coverage for the career-state apply boundary (the step that writes your funds, science, reputation, tech tree, and facility levels when Parsek rebuilds career state), so its value and clamp decisions are now verified directly in unit tests rather than only in the live game. No gameplay change.
+
 ## 0.10.0
 
 ### Defaults

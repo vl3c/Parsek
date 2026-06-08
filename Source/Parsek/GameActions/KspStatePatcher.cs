@@ -82,6 +82,59 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure decision core for <see cref="PatchScience"/> (apply-boundary test seam,
+        /// audit rec #5). Takes the live science pool as a PARAMETER instead of reading
+        /// <c>ResearchAndDevelopment.Instance</c>, so the compute-delta -> drawdown-clamp ->
+        /// no-op / suspicious-drawdown composition is unit-testable headlessly. The live
+        /// wrapper performs the side effects (clamp WARN+toast, AddScience, logs) from the
+        /// returned flags. No KSP singletons touched.
+        /// </summary>
+        internal readonly struct SciencePoolPatchDecision
+        {
+            /// <summary>True when |delta| >= the 0.001 no-op threshold (a write is needed).</summary>
+            internal readonly bool ShouldWrite;
+            /// <summary>The float delta passed to AddScience (effectiveTarget - currentScience).</summary>
+            internal readonly float Delta;
+            /// <summary>The post-clamp target (the value the pool reaches), kept as a double for the logs.</summary>
+            internal readonly double EffectiveTarget;
+            /// <summary>True when the drawdown guard clamped the target up to the live value.</summary>
+            internal readonly bool Clamped;
+            /// <summary>True when a needed write is a >10% drawdown of a non-trivial pool.</summary>
+            internal readonly bool SuspiciousDrawdown;
+
+            internal SciencePoolPatchDecision(
+                bool shouldWrite, float delta, double effectiveTarget,
+                bool clamped, bool suspiciousDrawdown)
+            {
+                ShouldWrite = shouldWrite;
+                Delta = delta;
+                EffectiveTarget = effectiveTarget;
+                Clamped = clamped;
+                SuspiciousDrawdown = suspiciousDrawdown;
+            }
+        }
+
+        /// <summary>
+        /// Resolves the science-pool patch outcome from the live pool + the recalc target +
+        /// the (pending-adjusted) running balance. Mirrors <see cref="PatchScience"/>'s
+        /// arithmetic exactly: drawdown-guard the target, derive the float delta against the
+        /// post-clamp target, decide no-op vs write on the 0.001 threshold, and flag a
+        /// suspicious >10% drawdown only when a write is actually needed. Pure: no singletons.
+        /// </summary>
+        internal static SciencePoolPatchDecision ResolveSciencePoolPatch(
+            float currentScience, double targetScience, double runningScience,
+            bool authoritativeReduction)
+        {
+            double effTarget = ApplyDrawdownGuard(
+                targetScience, runningScience, currentScience, 0.001,
+                authoritativeReduction, "science", out bool clamped);
+            float delta = (float)(effTarget - (double)currentScience);
+            bool shouldWrite = Math.Abs(delta) >= 0.001f;
+            bool suspicious = shouldWrite && IsSuspiciousDrawdown(delta, currentScience);
+            return new SciencePoolPatchDecision(shouldWrite, delta, effTarget, clamped, suspicious);
+        }
+
+        /// <summary>
         /// Patches KSP's science pool to match the module's available science.
         /// Uses AddScience with a computed delta to reach the target value.
         /// No-op if ResearchAndDevelopment.Instance is null (sandbox mode).
@@ -140,45 +193,41 @@ namespace Parsek
             // ledger-catch-up. The plan's invariant ("running below live ONLY when an
             // earning channel is missing") holds against this adjusted value.
             double runningScience = ComputePendingAdjustedRunningScience(science);
-            double effTargetScience = ApplyDrawdownGuard(
-                targetScience, runningScience, currentScience, 0.001,
-                authoritativeReduction, "science", out bool scienceClamped);
-            if (scienceClamped)
+            SciencePoolPatchDecision decision = ResolveSciencePoolPatch(
+                currentScience, targetScience, runningScience, authoritativeReduction);
+            if (decision.Clamped)
             {
                 EmitDrawdownGuardClamp(
                     "Science", runningScience, currentScience,
-                    wouldBeTarget: targetScience, clampedTo: effTargetScience,
+                    wouldBeTarget: targetScience, clampedTo: decision.EffectiveTarget,
                     toastText: "Kept your earned science",
                     sessionToastLatch: ref scienceClampToastShownThisSession,
                     perSubjectScienceNote: true);
-                targetScience = effTargetScience;
             }
 
-            float delta = (float)(targetScience - (double)currentScience);
-
-            if (Math.Abs(delta) < 0.001f)
+            if (!decision.ShouldWrite)
             {
-                VerboseStablePatchState("patch-noop|science", targetScience.ToString("F1", IC),
+                VerboseStablePatchState("patch-noop|science", decision.EffectiveTarget.ToString("F1", IC),
                     $"PatchScience: balance unchanged (current={currentScience.ToString("F1", IC)}, " +
-                    $"target={targetScience.ToString("F1", IC)})");
+                    $"target={decision.EffectiveTarget.ToString("F1", IC)})");
             }
             else
             {
                 // #402 parity: WARN when science drawdown >10% of a non-trivial pool.
-                if (!suppressSuspiciousDrawdownWarnings && IsSuspiciousDrawdown(delta, currentScience))
+                if (!suppressSuspiciousDrawdownWarnings && decision.SuspiciousDrawdown)
                 {
                     ParsekLog.Warn(Tag,
-                        $"PatchScience: suspicious drawdown delta={delta.ToString("F1", IC)} " +
+                        $"PatchScience: suspicious drawdown delta={decision.Delta.ToString("F1", IC)} " +
                         $"from current={currentScience.ToString("F1", IC)} " +
-                        $"(>10% of pool, target={targetScience.ToString("F1", IC)}) — " +
+                        $"(>10% of pool, target={decision.EffectiveTarget.ToString("F1", IC)}) — " +
                         $"earning channel may be missing. HasSeed={science.HasSeed}");
                 }
-                ResearchAndDevelopment.Instance.AddScience(delta, TransactionReasons.None);
+                ResearchAndDevelopment.Instance.AddScience(decision.Delta, TransactionReasons.None);
 
                 float afterScience = ResearchAndDevelopment.Instance.Science;
                 ParsekLog.Info(Tag,
                     $"PatchScience: {currentScience.ToString("F1", IC)} -> {afterScience.ToString("F1", IC)} " +
-                    $"(delta={delta.ToString("F1", IC)}, target={targetScience.ToString("F1", IC)})");
+                    $"(delta={decision.Delta.ToString("F1", IC)}, target={decision.EffectiveTarget.ToString("F1", IC)})");
             }
 
             // Always patch per-subject credited totals — individual subjects may have changed
@@ -315,6 +364,29 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure per-node classification for <see cref="PatchTechTree"/> (apply-boundary test
+        /// seam, audit gap 2 / rec #5). Given whether a node should be researched in the target
+        /// set and whether it is currently available live, returns which of the four outcomes
+        /// applies. <see cref="TechNodePatchAction.MakeUnavailable"/> is the dangerous direction
+        /// (a researched node being re-locked); the live wrapper resolves
+        /// <paramref name="currentlyAvailable"/> per branch from the proto / static tech state
+        /// and dispatches the actual mutation. Pure: no KSP singletons touched.
+        /// </summary>
+        internal enum TechNodePatchAction { MakeAvailable, AlreadyAvailable, MakeUnavailable, AlreadyUnavailable }
+
+        internal static TechNodePatchAction ClassifyTechNodeForPatch(
+            bool shouldBeAvailable, bool currentlyAvailable)
+        {
+            if (shouldBeAvailable)
+                return currentlyAvailable
+                    ? TechNodePatchAction.AlreadyAvailable
+                    : TechNodePatchAction.MakeAvailable;
+            return currentlyAvailable
+                ? TechNodePatchAction.MakeUnavailable
+                : TechNodePatchAction.AlreadyUnavailable;
+        }
+
+        /// <summary>
         /// Patches KSP's R&amp;D tech state to the recalculated timeline state.
         /// This updates both the authoritative proto-tech dictionary and the static
         /// tech-tree proto nodes, then asks KSP to refresh the tech-tree UI.
@@ -382,7 +454,8 @@ namespace Parsek
                 if (shouldBeAvailable)
                 {
                     ProtoTechNode proto = ResearchAndDevelopment.Instance.GetTechState(techId);
-                    if (proto == null || proto.state != RDTech.State.Available)
+                    bool currentlyAvailable = proto != null && proto.state == RDTech.State.Available;
+                    if (ClassifyTechNodeForPatch(true, currentlyAvailable) == TechNodePatchAction.MakeAvailable)
                     {
                         madeAvailable++;
                         madeAvailableIds.Add(techId);
@@ -403,7 +476,9 @@ namespace Parsek
                 }
                 else
                 {
-                    if (currentState == RDTech.State.Available || tech.state == RDTech.State.Available)
+                    bool currentlyAvailable =
+                        currentState == RDTech.State.Available || tech.state == RDTech.State.Available;
+                    if (ClassifyTechNodeForPatch(false, currentlyAvailable) == TechNodePatchAction.MakeUnavailable)
                     {
                         madeUnavailable++;
                         madeUnavailableIds.Add(techId);
@@ -714,6 +789,60 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure decision core for <see cref="PatchFunds"/> (apply-boundary test seam,
+        /// audit rec #5). Takes the live funds pool as a PARAMETER instead of reading
+        /// <c>Funding.Instance</c>, so the compute-delta -> drawdown-clamp -> no-op /
+        /// suspicious-drawdown composition is unit-testable headlessly. The live wrapper
+        /// performs the side effects (clamp WARN+toast, AddFunds, logs) from the returned
+        /// flags. No KSP singletons touched.
+        /// </summary>
+        internal readonly struct FundsPatchDecision
+        {
+            /// <summary>True when |delta| >= the 0.01 no-op threshold (a write is needed).</summary>
+            internal readonly bool ShouldWrite;
+            /// <summary>The delta passed to AddFunds (effectiveTarget - currentFunds).</summary>
+            internal readonly double Delta;
+            /// <summary>The post-clamp target (the value the pool reaches).</summary>
+            internal readonly double EffectiveTarget;
+            /// <summary>True when the drawdown guard clamped the target up to the live value.</summary>
+            internal readonly bool Clamped;
+            /// <summary>True when a needed write is a >10% drawdown of a non-trivial pool.</summary>
+            internal readonly bool SuspiciousDrawdown;
+
+            internal FundsPatchDecision(
+                bool shouldWrite, double delta, double effectiveTarget,
+                bool clamped, bool suspiciousDrawdown)
+            {
+                ShouldWrite = shouldWrite;
+                Delta = delta;
+                EffectiveTarget = effectiveTarget;
+                Clamped = clamped;
+                SuspiciousDrawdown = suspiciousDrawdown;
+            }
+        }
+
+        /// <summary>
+        /// Resolves the funds patch outcome from the live pool + the reservation-aware
+        /// available target + the non-reserved running balance. Mirrors
+        /// <see cref="PatchFunds"/>'s arithmetic exactly: drawdown-guard the target (keyed on
+        /// the running balance), derive the delta against the post-clamp target, decide no-op
+        /// vs write on the 0.01 threshold, and flag a suspicious >10% drawdown only when a
+        /// write is actually needed. Pure: no singletons.
+        /// </summary>
+        internal static FundsPatchDecision ResolveFundsPatch(
+            double currentFunds, double targetFunds, double runningFunds,
+            bool authoritativeReduction)
+        {
+            double effTarget = ApplyDrawdownGuard(
+                targetFunds, runningFunds, currentFunds, 0.01,
+                authoritativeReduction, "funds", out bool clamped);
+            double delta = effTarget - currentFunds;
+            bool shouldWrite = Math.Abs(delta) >= 0.01;
+            bool suspicious = shouldWrite && IsSuspiciousDrawdown(delta, currentFunds);
+            return new FundsPatchDecision(shouldWrite, delta, effTarget, clamped, suspicious);
+        }
+
+        /// <summary>
         /// Patches KSP's fund balance to match the module's available funds.
         /// Uses AddFunds with a computed delta to reach the target value.
         /// No-op if Funding.Instance is null (sandbox mode).
@@ -754,27 +883,23 @@ namespace Parsek
             // GetRunningBalance() intact, so it never trips this; a missing-earning leak
             // lowers the running balance itself, so it does.
             double runningFunds = funds.GetRunningBalance();
-            double effTargetFunds = ApplyDrawdownGuard(
-                targetFunds, runningFunds, currentFunds, 0.01,
-                authoritativeReduction, "funds", out bool fundsClamped);
-            if (fundsClamped)
+            FundsPatchDecision decision = ResolveFundsPatch(
+                currentFunds, targetFunds, runningFunds, authoritativeReduction);
+            if (decision.Clamped)
             {
                 EmitDrawdownGuardClamp(
                     "Funds", runningFunds, currentFunds,
-                    wouldBeTarget: targetFunds, clampedTo: effTargetFunds,
+                    wouldBeTarget: targetFunds, clampedTo: decision.EffectiveTarget,
                     toastText: "Kept your earned funds",
                     sessionToastLatch: ref fundsClampToastShownThisSession,
                     perSubjectScienceNote: false);
-                targetFunds = effTargetFunds;
             }
 
-            double delta = targetFunds - currentFunds;
-
-            if (Math.Abs(delta) < 0.01)
+            if (!decision.ShouldWrite)
             {
-                VerboseStablePatchState("patch-noop|funds", targetFunds.ToString("F1", IC),
+                VerboseStablePatchState("patch-noop|funds", decision.EffectiveTarget.ToString("F1", IC),
                     $"PatchFunds: no change needed (current={currentFunds.ToString("F1", IC)}, " +
-                    $"target={targetFunds.ToString("F1", IC)})");
+                    $"target={decision.EffectiveTarget.ToString("F1", IC)})");
                 return;
             }
 
@@ -782,21 +907,73 @@ namespace Parsek
             // the live funds pool. Legitimate walks can subtract large amounts after a
             // revert, so this is log-only (never aborts the patch) — but a >10% drop
             // alongside a small pool (>1000F) is the shape of missing-earnings bugs.
-            if (!suppressSuspiciousDrawdownWarnings && IsSuspiciousDrawdown(delta, currentFunds))
+            if (!suppressSuspiciousDrawdownWarnings && decision.SuspiciousDrawdown)
             {
                 ParsekLog.Warn(Tag,
-                    $"PatchFunds: suspicious drawdown delta={delta.ToString("F1", IC)} " +
+                    $"PatchFunds: suspicious drawdown delta={decision.Delta.ToString("F1", IC)} " +
                     $"from current={currentFunds.ToString("F1", IC)} " +
-                    $"(>10% of pool, target={targetFunds.ToString("F1", IC)}) — " +
+                    $"(>10% of pool, target={decision.EffectiveTarget.ToString("F1", IC)}) — " +
                     $"earning channel may be missing. HasSeed={funds.HasSeed}");
             }
 
-            Funding.Instance.AddFunds(delta, TransactionReasons.None);
+            Funding.Instance.AddFunds(decision.Delta, TransactionReasons.None);
 
             double afterFunds = Funding.Instance.Funds;
             ParsekLog.Info(Tag,
                 $"PatchFunds: {currentFunds.ToString("F1", IC)} -> {afterFunds.ToString("F1", IC)} " +
-                $"(delta={delta.ToString("F1", IC)}, target={targetFunds.ToString("F1", IC)})");
+                $"(delta={decision.Delta.ToString("F1", IC)}, target={decision.EffectiveTarget.ToString("F1", IC)})");
+        }
+
+        /// <summary>
+        /// Pure decision core for <see cref="PatchReputation"/> (apply-boundary test seam,
+        /// audit rec #5). Takes the live reputation as a PARAMETER instead of reading
+        /// <c>Reputation.Instance</c>. Reputation uses SetReputation (absolute, no delta) and
+        /// has NO reservation system, so its running balance IS the target; the only decision
+        /// is the drawdown-guard clamp + the 0.01 no-op gate. The live wrapper performs the
+        /// side effects (clamp WARN+toast, SetReputation, logs) from the returned flags.
+        /// Pure: no KSP singletons touched.
+        /// </summary>
+        internal readonly struct ReputationPatchDecision
+        {
+            /// <summary>True when |effectiveTarget - currentRep| >= the 0.01f no-op threshold.</summary>
+            internal readonly bool ShouldWrite;
+            /// <summary>True when the drawdown guard clamped the target up to the live value.</summary>
+            internal readonly bool Clamped;
+            /// <summary>
+            /// The raw post-clamp target as the <see cref="ApplyDrawdownGuard"/> double, used
+            /// ONLY for the clamp WARN's <c>clampedTo</c> so its formatted output is identical
+            /// to the pre-refactor wrapper (a float round-trip would change the "R" string).
+            /// </summary>
+            internal readonly double EffectiveTargetRaw;
+            /// <summary>The post-clamp target as the float value written by SetReputation and logged.</summary>
+            internal readonly float EffectiveTarget;
+
+            internal ReputationPatchDecision(
+                bool shouldWrite, bool clamped, double effectiveTargetRaw, float effectiveTarget)
+            {
+                ShouldWrite = shouldWrite;
+                Clamped = clamped;
+                EffectiveTargetRaw = effectiveTargetRaw;
+                EffectiveTarget = effectiveTarget;
+            }
+        }
+
+        /// <summary>
+        /// Resolves the reputation patch outcome from the live reputation + the module's
+        /// running reputation. Mirrors <see cref="PatchReputation"/> exactly: drawdown-guard
+        /// the target (running == target, so "downward" is by magnitude, negative rep handled),
+        /// cast the clamped target back to float, and decide no-op vs write on the 0.01f
+        /// threshold. Pure: no singletons.
+        /// </summary>
+        internal static ReputationPatchDecision ResolveReputationPatch(
+            float currentRep, float targetRep, bool authoritativeReduction)
+        {
+            double effTargetRaw = ApplyDrawdownGuard(
+                targetRep, targetRep, currentRep, 0.01,
+                authoritativeReduction, "reputation", out bool clamped);
+            float effTarget = (float)effTargetRaw;
+            bool shouldWrite = Math.Abs(effTarget - currentRep) >= 0.01f;
+            return new ReputationPatchDecision(shouldWrite, clamped, effTargetRaw, effTarget);
         }
 
         /// <summary>
@@ -839,34 +1016,32 @@ namespace Parsek
             // plain target-vs-live check, and "downward" is by magnitude (< live - eps) so
             // negative rep is handled. Express the clamp against the SetReputation
             // semantics: "do not set below live".
-            double effTargetRep = ApplyDrawdownGuard(
-                targetRep, targetRep, currentRep, 0.01,
-                authoritativeReduction, "reputation", out bool repClamped);
-            if (repClamped)
+            ReputationPatchDecision decision = ResolveReputationPatch(
+                currentRep, targetRep, authoritativeReduction);
+            if (decision.Clamped)
             {
                 EmitDrawdownGuardClamp(
                     "Reputation", targetRep, currentRep,
-                    wouldBeTarget: targetRep, clampedTo: effTargetRep,
+                    wouldBeTarget: targetRep, clampedTo: decision.EffectiveTargetRaw,
                     toastText: "Kept your earned reputation",
                     sessionToastLatch: ref reputationClampToastShownThisSession,
                     perSubjectScienceNote: false);
-                targetRep = (float)effTargetRep;
             }
 
-            if (Math.Abs(targetRep - currentRep) < 0.01f)
+            if (!decision.ShouldWrite)
             {
-                VerboseStablePatchState("patch-noop|reputation", targetRep.ToString("F2", IC),
+                VerboseStablePatchState("patch-noop|reputation", decision.EffectiveTarget.ToString("F2", IC),
                     $"PatchReputation: no change needed (current={currentRep.ToString("F2", IC)}, " +
-                    $"target={targetRep.ToString("F2", IC)})");
+                    $"target={decision.EffectiveTarget.ToString("F2", IC)})");
                 return;
             }
 
-            Reputation.Instance.SetReputation(targetRep, TransactionReasons.None);
+            Reputation.Instance.SetReputation(decision.EffectiveTarget, TransactionReasons.None);
 
             float afterRep = Reputation.Instance.reputation;
             ParsekLog.Info(Tag,
                 $"PatchReputation: {currentRep.ToString("F2", IC)} -> {afterRep.ToString("F2", IC)} " +
-                $"(target={targetRep.ToString("F2", IC)})");
+                $"(target={decision.EffectiveTarget.ToString("F2", IC)})");
         }
 
         /// <summary>
@@ -886,6 +1061,51 @@ namespace Parsek
             System.Collections.Generic.IReadOnlyDictionary<string, FacilitiesModule.FacilityState> allFacilities)
         {
             FacilityStatePatcher.PatchDestructionState(allFacilities);
+        }
+
+        /// <summary>
+        /// Pure decision core for one subject inside <see cref="PatchPerSubjectScience"/>
+        /// (apply-boundary test seam, audit gap 1 / rec #5). Takes the live subject science +
+        /// scienceCap as PARAMETERS instead of reading the live <c>ScienceSubject</c>. This is
+        /// the audit's HIGHEST-risk apply path: per-subject credited science is written
+        /// UNCLAMPED (the drawdown guard does NOT cover it), so the resulting value equals the
+        /// target verbatim even on a drawdown. The scientific-value (diminishing-returns)
+        /// factor is recomputed from the target and the cap, floored at 0. Pure: no singletons.
+        /// </summary>
+        internal readonly struct SubjectSciencePatchDecision
+        {
+            /// <summary>True when |currentScience - targetScience| &gt; the 0.001f per-subject threshold.</summary>
+            internal readonly bool ShouldWrite;
+            /// <summary>The credited-science target written verbatim to the subject (UNCLAMPED).</summary>
+            internal readonly float TargetScience;
+            /// <summary>The diminishing-returns factor: 1 - target/cap when cap &gt; 0 (floored at 0), else 0.</summary>
+            internal readonly float ScientificValue;
+
+            internal SubjectSciencePatchDecision(bool shouldWrite, float targetScience, float scientificValue)
+            {
+                ShouldWrite = shouldWrite;
+                TargetScience = targetScience;
+                ScientificValue = scientificValue;
+            }
+        }
+
+        /// <summary>
+        /// Resolves one subject's per-subject science patch outcome. Mirrors the inner loop of
+        /// <see cref="PatchPerSubjectScience"/> exactly: write iff the live value differs from
+        /// the target by more than 0.001, write the target UNCLAMPED, and recompute
+        /// scientificValue = 1 - target/scienceCap (cap &gt; 0) floored at 0, else 0. Pure.
+        /// </summary>
+        internal static SubjectSciencePatchDecision ResolveSubjectSciencePatch(
+            float currentScience, float targetScience, float scienceCap)
+        {
+            bool shouldWrite = Math.Abs(currentScience - targetScience) > 0.001f;
+            float scientificValue;
+            if (scienceCap > 0f)
+                scientificValue = 1f - (targetScience / scienceCap);
+            else
+                scientificValue = 0f;
+            if (scientificValue < 0f) scientificValue = 0f;
+            return new SubjectSciencePatchDecision(shouldWrite, targetScience, scientificValue);
         }
 
         /// <summary>
@@ -931,16 +1151,14 @@ namespace Parsek
                 ScienceModule.SubjectState state;
                 bool hasCurrentState = subjects.TryGetValue(subjectId, out state);
                 float targetScience = hasCurrentState ? (float)state.CreditedTotal : 0f;
-                if (Math.Abs(kspSubject.science - targetScience) > 0.001f)
+                SubjectSciencePatchDecision decision = ResolveSubjectSciencePatch(
+                    kspSubject.science, targetScience, kspSubject.scienceCap);
+                if (decision.ShouldWrite)
                 {
                     // Read the live value BEFORE the write so the log captures old->new.
                     float oldScience = kspSubject.science;
-                    kspSubject.science = targetScience;
-                    if (kspSubject.scienceCap > 0f)
-                        kspSubject.scientificValue = 1f - (targetScience / kspSubject.scienceCap);
-                    else
-                        kspSubject.scientificValue = 0f;
-                    if (kspSubject.scientificValue < 0f) kspSubject.scientificValue = 0f;
+                    kspSubject.science = decision.TargetScience;
+                    kspSubject.scientificValue = decision.ScientificValue;
                     patchedSubjects++;
                     if (!hasCurrentState)
                         clearedSubjects++;
