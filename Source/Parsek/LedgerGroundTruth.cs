@@ -234,7 +234,9 @@ namespace Parsek
                     continue;
                 }
 
-                if (strict && !IsAlwaysHard(d))
+                // Always-hard entries already continued above, so any divergence
+                // reaching here is report-only; strict promotes the whole set.
+                if (strict)
                     hard.Add(d);
             }
             return hard;

@@ -359,6 +359,11 @@ namespace Parsek
                 {
                     // Body-subtree container: descend, qualifying children by the
                     // container's name (e.g. "Mun" -> "Mun/Landing").
+                    // Assumption: a Progress node lacking BOTH `completed` and
+                    // `reached` is a body-subtree container to descend into
+                    // (correct for stock KSP). A modded data-only child without
+                    // those fields would be descended into here, adding at most
+                    // benign report-only noise since milestones are report-only.
                     string childPrefix = string.IsNullOrEmpty(pathPrefix)
                         ? childName
                         : pathPrefix + "/" + childName;

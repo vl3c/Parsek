@@ -323,6 +323,7 @@ namespace Parsek
             report.FacetsCompared++;
 
             int phantoms = 0;
+            int mismatches = 0;
             int missing = 0;
 
             // Recon-active guids absent from save's all-states set => phantom.
@@ -355,7 +356,7 @@ namespace Parsek
                         Reconstructed = double.NaN,
                         Detail = "contract active in recon but not Active in save"
                     });
-                    phantoms++;
+                    mismatches++;
                 }
             }
 
@@ -380,7 +381,8 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 $"CompareContracts: reconActive={recon.ActiveContractGuids.Count.ToString(IC)} " +
                 $"saveActive={save.ActiveContractGuids.Count.ToString(IC)} " +
-                $"phantoms={phantoms.ToString(IC)} missing={missing.ToString(IC)}");
+                $"phantoms={phantoms.ToString(IC)} mismatches={mismatches.ToString(IC)} " +
+                $"missing={missing.ToString(IC)}");
         }
 
         // ----------------------------------------------------------------

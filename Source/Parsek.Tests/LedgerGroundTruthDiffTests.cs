@@ -321,6 +321,201 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("CompareFunds") && l.Contains("skip"));
         }
 
+        // ================================================================
+        // Contract facet
+        // ================================================================
+
+        [Fact]
+        public void Diff_ContractPhantom_ReportOnly()
+        {
+            // Recon thinks a contract is active that the save has never heard of
+            // (absent from ContractGuidsAllStates) => PhantomInRecon, report-only.
+            var save = HealthySave();
+            save.ContractGuidsAllStates.Add("guid-known");
+            save.ActiveContractGuids.Add("guid-known");
+            var recon = HealthyRecon();
+            recon.ActiveContractGuids.Add("guid-known");   // agrees -> no divergence
+            recon.ActiveContractGuids.Add("guid-phantom"); // not in save at all
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Contract
+                && d.Kind == DivergenceKind.PhantomInRecon
+                && d.Identity == "guid-phantom");
+            // The agreeing guid must NOT produce any contract divergence.
+            Assert.DoesNotContain(report.All, d =>
+                d.Facet == DivergenceFacet.Contract && d.Identity == "guid-known");
+
+            // Report-only by default.
+            Assert.Empty(report.HardFailures(strict: false));
+        }
+
+        [Fact]
+        public void Diff_ContractActiveMissingInRecon_ReportOnly()
+        {
+            // The save lists a contract as Active but the recon does not consider
+            // it active => MissingInRecon, report-only.
+            var save = HealthySave();
+            save.ContractGuidsAllStates.Add("guid-save-active");
+            save.ActiveContractGuids.Add("guid-save-active");
+            var recon = HealthyRecon();
+            // recon has no active contracts.
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Contract
+                && d.Kind == DivergenceKind.MissingInRecon
+                && d.Identity == "guid-save-active");
+
+            // Report-only by default.
+            Assert.Empty(report.HardFailures(strict: false));
+        }
+
+        [Fact]
+        public void Diff_ContractActiveButNonActiveInSave_ValueMismatch()
+        {
+            // Recon thinks a guid is active; the save knows the guid (it is in
+            // ContractGuidsAllStates) but it is NOT Active (e.g. Completed) =>
+            // ValueMismatch, report-only. Mirrors the benign state-transition the
+            // recon may not have captured.
+            var save = HealthySave();
+            save.ContractGuidsAllStates.Add("guid-completed"); // known...
+            // ...but NOT in ActiveContractGuids (it is non-Active in the save).
+            var recon = HealthyRecon();
+            recon.ActiveContractGuids.Add("guid-completed");
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Contract
+                && d.Kind == DivergenceKind.ValueMismatch
+                && d.Identity == "guid-completed");
+            // It must NOT be flagged phantom (it IS in the all-states set).
+            Assert.DoesNotContain(report.All, d =>
+                d.Facet == DivergenceFacet.Contract
+                && d.Kind == DivergenceKind.PhantomInRecon
+                && d.Identity == "guid-completed");
+
+            // Report-only by default.
+            Assert.Empty(report.HardFailures(strict: false));
+        }
+
+        [Fact]
+        public void Diff_ContractStrictMode_PromotesReportOnly()
+        {
+            // The strict flag promotes contract phantom + missing entries to hard.
+            var save = HealthySave();
+            save.ContractGuidsAllStates.Add("guid-save-active");
+            save.ActiveContractGuids.Add("guid-save-active"); // active in save, not in recon -> missing
+            var recon = HealthyRecon();
+            recon.ActiveContractGuids.Add("guid-phantom");    // not in save -> phantom
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Empty(report.HardFailures(strict: false));
+            var strictHard = report.HardFailures(strict: true);
+            Assert.Contains(strictHard, d =>
+                d.Facet == DivergenceFacet.Contract
+                && d.Kind == DivergenceKind.PhantomInRecon
+                && d.Identity == "guid-phantom");
+            Assert.Contains(strictHard, d =>
+                d.Facet == DivergenceFacet.Contract
+                && d.Kind == DivergenceKind.MissingInRecon
+                && d.Identity == "guid-save-active");
+        }
+
+        // ================================================================
+        // Milestone facet
+        // ================================================================
+
+        [Fact]
+        public void Diff_MilestonePhantom_ReportOnly()
+        {
+            // Recon credits a milestone id the save has never recorded (neither
+            // qualified nor bare form present) => PhantomInRecon, report-only.
+            // Also verifies a recon id matching the BARE form of a qualified save
+            // id is NOT flagged phantom (the parser emits both forms, so a single
+            // Contains covers both).
+            var save = HealthySave();
+            // Save recorded a qualified milestone AND its bare form (as the parser
+            // does); e.g. "Mun/Landing" plus bare "Landing".
+            save.AllMilestoneIds.Add("Mun/Landing");
+            save.AllMilestoneIds.Add("Landing");
+            var recon = HealthyRecon();
+            recon.CreditedMilestoneIds.Add("Landing");        // BARE form of a known id -> NOT phantom
+            recon.CreditedMilestoneIds.Add("Duna/FirstFlag"); // truly unknown -> phantom
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Milestone
+                && d.Kind == DivergenceKind.PhantomInRecon
+                && d.Identity == "Duna/FirstFlag");
+            // The bare-form match must NOT be flagged phantom.
+            Assert.DoesNotContain(report.All, d =>
+                d.Facet == DivergenceFacet.Milestone
+                && d.Kind == DivergenceKind.PhantomInRecon
+                && d.Identity == "Landing");
+
+            // Report-only by default.
+            Assert.Empty(report.HardFailures(strict: false));
+        }
+
+        [Fact]
+        public void Diff_MilestoneMissingInRecon_ReportOnly()
+        {
+            // The save completed a milestone the recon did not credit =>
+            // MissingInRecon, report-only.
+            var save = HealthySave();
+            save.AllMilestoneIds.Add("Mun/Landing");
+            save.CompletedMilestoneIds.Add("Mun/Landing");
+            var recon = HealthyRecon();
+            // recon credits nothing.
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Milestone
+                && d.Kind == DivergenceKind.MissingInRecon
+                && d.Identity == "Mun/Landing");
+
+            // Report-only by default.
+            Assert.Empty(report.HardFailures(strict: false));
+        }
+
+        [Fact]
+        public void Diff_MilestoneStrictMode_PromotesReportOnly()
+        {
+            // The strict flag promotes milestone phantom + missing entries to hard.
+            var save = HealthySave();
+            save.AllMilestoneIds.Add("Mun/Landing");
+            save.CompletedMilestoneIds.Add("Mun/Landing"); // completed in save, not in recon -> missing
+            var recon = HealthyRecon();
+            recon.CreditedMilestoneIds.Add("Duna/Flyby");  // not in save -> phantom
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Empty(report.HardFailures(strict: false));
+            var strictHard = report.HardFailures(strict: true);
+            Assert.Contains(strictHard, d =>
+                d.Facet == DivergenceFacet.Milestone
+                && d.Kind == DivergenceKind.PhantomInRecon
+                && d.Identity == "Duna/Flyby");
+            Assert.Contains(strictHard, d =>
+                d.Facet == DivergenceFacet.Milestone
+                && d.Kind == DivergenceKind.MissingInRecon
+                && d.Identity == "Mun/Landing");
+        }
+
         [Fact]
         public void Format_StableAndComplete()
         {
