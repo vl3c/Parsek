@@ -50,7 +50,18 @@ namespace Parsek
             int outOfRange = 0;
             int converted = 0;
             int sequence = 1;
+            int contractDuplicatesSkipped = 0;
             var skippedByType = new Dictionary<GameStateEventType, int>();
+
+            // Bug 1 belt-and-suspenders (fix-funds-economy-divergence §3.2a): even if a
+            // pre-existing duplicate-completion burst is already in the store (recorded
+            // before the recorder debounce shipped, or via a path that bypassed it), this
+            // commit-time chokepoint must not double-bake a contract-lifecycle reward. Track
+            // converted contract-lifecycle actions by (Type, ContractId, UT-bucket) within
+            // THIS batch and skip a duplicate. The UT bucket reuses the resource-coalesce
+            // window so re-fires within the same instant collapse the same way the carried
+            // resource events already did.
+            var seenContractActionKeys = new HashSet<string>(StringComparer.Ordinal);
 
             for (int i = 0; i < events.Count; i++)
             {
@@ -87,6 +98,17 @@ namespace Parsek
                 var action = ConvertEvent(evt, recordingId);
                 if (action != null)
                 {
+                    if (IsContractLifecycleAction(action.Type)
+                        && !seenContractActionKeys.Add(BuildContractDedupKey(action)))
+                    {
+                        // A duplicate contract-lifecycle action for the same (Type,
+                        // ContractId, UT-bucket) already converted in this batch — drop it.
+                        contractDuplicatesSkipped++;
+                        skipped++;
+                        IncrementEventTypeCount(skippedByType, evt.eventType);
+                        continue;
+                    }
+
                     action.Sequence = sequence++;
                     result.Add(action);
                     converted++;
@@ -98,6 +120,13 @@ namespace Parsek
                 }
             }
 
+            if (contractDuplicatesSkipped > 0)
+                ParsekLog.Info(Tag,
+                    string.Format(IC,
+                        "ConvertEvents: dropped {0} duplicate contract-lifecycle action(s) within the batch (stock re-fire dedup), recordingId={1}",
+                        contractDuplicatesSkipped,
+                        recordingId ?? "(none)"));
+
             ParsekLog.Info(Tag,
                 FormatConvertEventsSummary(
                     converted,
@@ -108,6 +137,39 @@ namespace Parsek
                     skippedByType));
 
             return result;
+        }
+
+        /// <summary>True for the four contract-lifecycle <see cref="GameActionType"/>s
+        /// (Accept/Complete/Fail/Cancel) that the §3.2a intra-batch dedup guards.</summary>
+        private static bool IsContractLifecycleAction(GameActionType type)
+        {
+            return type == GameActionType.ContractAccept
+                || type == GameActionType.ContractComplete
+                || type == GameActionType.ContractFail
+                || type == GameActionType.ContractCancel;
+        }
+
+        /// <summary>
+        /// Intra-batch dedup key for a contract-lifecycle action: (Type, ContractId,
+        /// UT-bucket). The UT bucket quantizes by <see cref="GameStateStore.ResourceCoalesceEpsilon"/>
+        /// so re-fires within the same coalesce window land in the same bucket and collapse
+        /// (matching how the carried resource events already coalesce in the store).
+        ///
+        /// NOTE: this is UT BUCKETING, not a true |dt| &lt;= window compare, so two re-fires
+        /// that straddle a bucket boundary (e.g. 0.099s and 0.101s) would fall in adjacent
+        /// buckets and NOT collapse here. That is acceptable because this is only the
+        /// belt-and-suspenders commit-time path; the PRIMARY defense is the recorder debounce
+        /// (GameStateRecorder.IsDuplicateContractCompletion), which uses a true |dt| &lt;= window
+        /// compare against the last-seen UT and runs before the event ever reaches the store.
+        /// The observed stock re-fire burst sits at a single stable UT, so every copy floors
+        /// to one bucket and collapses.
+        /// </summary>
+        private static string BuildContractDedupKey(GameAction action)
+        {
+            long bucket = (long)Math.Floor(action.UT / GameStateStore.ResourceCoalesceEpsilon);
+            return ((int)action.Type).ToString(IC) + "|"
+                + (action.ContractId ?? "") + "|"
+                + bucket.ToString(IC);
         }
 
         internal static string FormatConvertEventsSummary(
