@@ -193,6 +193,7 @@ namespace Parsek
                 s.verboseLogging = defaults.VerboseLogging;
                 s.ghostRenderTracing = false;
                 s.mapRenderTracing = false;
+                s.ledgerTracing = false;
                 s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
@@ -204,6 +205,7 @@ namespace Parsek
                 ParsekSettingsPersistence.RecordBlockCommittedActions(s.blockCommittedActions);
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
                 ParsekSettingsPersistence.RecordMapRenderTracing(s.mapRenderTracing);
+                ParsekSettingsPersistence.RecordLedgerTracing(s.ledgerTracing);
                 // blockCommittedActions needs no controller refresh; click-block patches read it at call time.
                 if (s.showCommittedFutureOverlays != priorShowCommittedFutureOverlays)
                     StockUiOverlayController.RefreshOpenScreensAfterSettingsChanged();
@@ -463,6 +465,16 @@ namespace Parsek
                 s.mapRenderTracing = mapRenderTracing;
                 ParsekSettingsPersistence.RecordMapRenderTracing(s.mapRenderTracing);
                 ParsekLog.Info("UI", $"Setting changed: mapRenderTracing={s.mapRenderTracing}");
+            }
+
+            bool ledgerTracing = GUILayout.Toggle(s.ledgerTracing,
+                new GUIContent(" Ledger apply tracing (Warning: huge logs)",
+                    "Write detailed ledger reconstruction diagnostics to KSP.log: a structural snapshot per recalc, per-identity change lines, and computed-vs-live read-back mismatch warnings. Leave off unless investigating ledger / career-state apply. Per-identity detail also requires Verbose logging on."));
+            if (ledgerTracing != s.ledgerTracing)
+            {
+                s.ledgerTracing = ledgerTracing;
+                ParsekSettingsPersistence.RecordLedgerTracing(s.ledgerTracing);
+                ParsekLog.Info("UI", $"Setting changed: ledgerTracing={s.ledgerTracing}");
             }
 
             bool writeReadableSidecarMirrors = GUILayout.Toggle(s.writeReadableSidecarMirrors,
