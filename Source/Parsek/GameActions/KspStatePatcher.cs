@@ -142,15 +142,21 @@ namespace Parsek
             double runningScience = ComputePendingAdjustedRunningScience(science);
             double effTargetScience = ApplyDrawdownGuard(
                 targetScience, runningScience, currentScience, 0.001,
-                authoritativeReduction, "science", out bool scienceClamped);
+                authoritativeReduction, "science", out bool scienceClamped,
+                out ClampDirection scienceDirection);
             if (scienceClamped)
             {
+                bool scienceDown = scienceDirection == ClampDirection.Down;
+                ref bool scienceLatch = ref (scienceDown
+                    ? ref scienceUpliftClampToastShownThisSession
+                    : ref scienceClampToastShownThisSession);
                 EmitDrawdownGuardClamp(
                     "Science", runningScience, currentScience,
                     wouldBeTarget: targetScience, clampedTo: effTargetScience,
-                    toastText: "Kept your earned science",
-                    sessionToastLatch: ref scienceClampToastShownThisSession,
-                    perSubjectScienceNote: true);
+                    toastText: scienceDown ? "Held your science at the spent value" : "Kept your earned science",
+                    sessionToastLatch: ref scienceLatch,
+                    perSubjectScienceNote: true,
+                    direction: scienceDirection);
                 targetScience = effTargetScience;
             }
 
@@ -756,15 +762,21 @@ namespace Parsek
             double runningFunds = funds.GetRunningBalance();
             double effTargetFunds = ApplyDrawdownGuard(
                 targetFunds, runningFunds, currentFunds, 0.01,
-                authoritativeReduction, "funds", out bool fundsClamped);
+                authoritativeReduction, "funds", out bool fundsClamped,
+                out ClampDirection fundsDirection);
             if (fundsClamped)
             {
+                bool fundsDown = fundsDirection == ClampDirection.Down;
+                ref bool fundsLatch = ref (fundsDown
+                    ? ref fundsUpliftClampToastShownThisSession
+                    : ref fundsClampToastShownThisSession);
                 EmitDrawdownGuardClamp(
                     "Funds", runningFunds, currentFunds,
                     wouldBeTarget: targetFunds, clampedTo: effTargetFunds,
-                    toastText: "Kept your earned funds",
-                    sessionToastLatch: ref fundsClampToastShownThisSession,
-                    perSubjectScienceNote: false);
+                    toastText: fundsDown ? "Held your funds at the spent value" : "Kept your earned funds",
+                    sessionToastLatch: ref fundsLatch,
+                    perSubjectScienceNote: false,
+                    direction: fundsDirection);
                 targetFunds = effTargetFunds;
             }
 
@@ -841,15 +853,21 @@ namespace Parsek
             // semantics: "do not set below live".
             double effTargetRep = ApplyDrawdownGuard(
                 targetRep, targetRep, currentRep, 0.01,
-                authoritativeReduction, "reputation", out bool repClamped);
+                authoritativeReduction, "reputation", out bool repClamped,
+                out ClampDirection repDirection);
             if (repClamped)
             {
+                bool repDown = repDirection == ClampDirection.Down;
+                ref bool repLatch = ref (repDown
+                    ? ref reputationUpliftClampToastShownThisSession
+                    : ref reputationClampToastShownThisSession);
                 EmitDrawdownGuardClamp(
                     "Reputation", targetRep, currentRep,
                     wouldBeTarget: targetRep, clampedTo: effTargetRep,
-                    toastText: "Kept your earned reputation",
-                    sessionToastLatch: ref reputationClampToastShownThisSession,
-                    perSubjectScienceNote: false);
+                    toastText: repDown ? "Held your reputation at the current value" : "Kept your earned reputation",
+                    sessionToastLatch: ref repLatch,
+                    perSubjectScienceNote: false,
+                    direction: repDirection);
                 targetRep = (float)effTargetRep;
             }
 
@@ -2382,6 +2400,16 @@ namespace Parsek
         private static bool scienceClampToastShownThisSession;
         private static bool reputationClampToastShownThisSession;
 
+        // Dedicated UPLIFT (DOWN-clamp) session latches (plan §2.2 step 3). The symmetric
+        // no-authority guard can clamp DOWN to live when the running balance LEADS live
+        // (a real spend the ledger does not model, e.g. a facility upgrade — Bug 2). That
+        // direction toasts once per session INDEPENDENTLY of the drawdown (UP-clamp) latch,
+        // so a session that experiences both an under-model leak and an over-model leak
+        // shows both toasts. Same lifecycle as the drawdown latches.
+        private static bool fundsUpliftClampToastShownThisSession;
+        private static bool scienceUpliftClampToastShownThisSession;
+        private static bool reputationUpliftClampToastShownThisSession;
+
         /// <summary>
         /// Clears the per-resource clamp-toast session latches. Called at a genuine
         /// new-session boundary (a fresh save load) so the first guarded clamp in a new
@@ -2392,7 +2420,23 @@ namespace Parsek
             fundsClampToastShownThisSession = false;
             scienceClampToastShownThisSession = false;
             reputationClampToastShownThisSession = false;
+            fundsUpliftClampToastShownThisSession = false;
+            scienceUpliftClampToastShownThisSession = false;
+            reputationUpliftClampToastShownThisSession = false;
         }
+
+        /// <summary>
+        /// Direction a guarded clamp moved the patch target (plan §2.2 step 2).
+        /// <list type="bullet">
+        /// <item><see cref="None"/>: no clamp fired.</item>
+        /// <item><see cref="Up"/>: running BELOW live (a missing earning channel) -> target
+        /// floored UP to live ("keep what you earned").</item>
+        /// <item><see cref="Down"/>: running ABOVE live (a spend the ledger does not model,
+        /// e.g. a facility upgrade — Bug 2) -> target capped DOWN to live ("hold at the
+        /// spent value"), so a non-authoritative recalc cannot refund the spend.</item>
+        /// </list>
+        /// </summary>
+        internal enum ClampDirection { None, Up, Down }
 
         /// <summary>
         /// Pure predicate (Blocker 2, plan §3.3): a drawdown is guardable iff the
@@ -2409,47 +2453,125 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure clamp decision (plan §4.2 step 1). When no time-travel context authorizes
-        /// the reduction AND the running balance is below live past epsilon, raises the
-        /// effective target floor to <paramref name="currentLive"/> (returns
-        /// <c>max(patchTarget, currentLive)</c>) so the patch never writes below the
-        /// player's earned value, and sets <paramref name="clamped"/>. Otherwise returns
-        /// <paramref name="patchTarget"/> unchanged (covers the legitimate reservation
-        /// case, where the target may be below live but the running balance is not).
+        /// Pure predicate (Bug 2, plan §2.1): an UPLIFT is guardable iff the running
+        /// balance is more than <paramref name="epsilon"/> ABOVE the current live value.
+        /// Exact mirror of <see cref="IsGuardableDrawdown"/> on the SAME running-balance
+        /// discriminator, NOT the target: a legitimate reservation lowers only the
+        /// spendable target while leaving the running balance at/above live, so it never
+        /// trips this (running is within eps of live for a pure load); a real spend the
+        /// ledger does not model (a facility upgrade, the Bug-2 signature) leaves the
+        /// running balance ABOVE live, so it does. When this fires with no time-travel
+        /// authority the target is capped DOWN to live so the patch cannot refund the spend.
+        /// </summary>
+        internal static bool IsGuardableUplift(
+            double runningBalance, double currentLive, double epsilon)
+        {
+            return runningBalance > currentLive + epsilon;
+        }
+
+        /// <summary>
+        /// Pure clamp decision (1-out overload preserved for the existing call sites /
+        /// DrawdownGuardTests). Delegates to the 2-out <see cref="ApplyDrawdownGuard(double,
+        /// double, double, double, bool, string, out bool, out ClampDirection)"/> overload
+        /// and discards the direction.
         /// </summary>
         internal static double ApplyDrawdownGuard(
             double patchTarget, double runningBalance, double currentLive, double epsilon,
             bool authoritativeReduction, string resource, out bool clamped)
         {
-            if (!authoritativeReduction && IsGuardableDrawdown(runningBalance, currentLive, epsilon))
+            return ApplyDrawdownGuard(
+                patchTarget, runningBalance, currentLive, epsilon,
+                authoritativeReduction, resource, out clamped, out _);
+        }
+
+        /// <summary>
+        /// Pure symmetric clamp decision (plan §2.2 step 2). When no time-travel context
+        /// authorizes the change the guard keys on the RUNNING balance vs live in BOTH
+        /// directions:
+        /// <list type="bullet">
+        /// <item>running BELOW live past epsilon -> floor the target UP to live (returns
+        /// <c>max(patchTarget, currentLive)</c>), <paramref name="direction"/>=<see
+        /// cref="ClampDirection.Up"/>. UP semantics are UNCHANGED from the original guard,
+        /// including flagging <paramref name="clamped"/> even when <c>patchTarget &gt;
+        /// live</c> (so the existing TargetAboveLive assertion still holds).</item>
+        /// <item>running ABOVE live past epsilon -> cap the target DOWN to live (returns
+        /// <c>min(patchTarget, currentLive)</c>), <paramref name="direction"/>=<see
+        /// cref="ClampDirection.Down"/>. The DOWN branch flags <paramref name="clamped"/>
+        /// ONLY when the clamp actually LOWERED the value (<c>min &lt; patchTarget</c>),
+        /// so a target already at/below live (a partial reservation on top of a leak) does
+        /// not emit a misleading WARN/toast (plan §2.4 last bullet).</item>
+        /// <item>otherwise (running within epsilon of live in either direction, OR an
+        /// authoritative signal is set) -> return <paramref name="patchTarget"/> unchanged,
+        /// <paramref name="direction"/>=<see cref="ClampDirection.None"/>. Covers the
+        /// legitimate reservation case (target below live while running is at live) and
+        /// every authoritative time-travel restore (which moves funds freely either way).</item>
+        /// </list>
+        /// </summary>
+        internal static double ApplyDrawdownGuard(
+            double patchTarget, double runningBalance, double currentLive, double epsilon,
+            bool authoritativeReduction, string resource, out bool clamped,
+            out ClampDirection direction)
+        {
+            if (!authoritativeReduction)
             {
-                clamped = true;
-                return patchTarget > currentLive ? patchTarget : currentLive;
+                if (IsGuardableDrawdown(runningBalance, currentLive, epsilon))
+                {
+                    clamped = true;
+                    direction = ClampDirection.Up;
+                    return patchTarget > currentLive ? patchTarget : currentLive;
+                }
+
+                if (IsGuardableUplift(runningBalance, currentLive, epsilon))
+                {
+                    // Cap DOWN to live. Flag clamped only when the value actually moved:
+                    // a target already at/below live is not refunding the spend, so a
+                    // no-op clamp must not emit a misleading WARN/toast (plan §2.4).
+                    double capped = patchTarget < currentLive ? patchTarget : currentLive;
+                    clamped = capped < patchTarget;
+                    direction = clamped ? ClampDirection.Down : ClampDirection.None;
+                    return capped;
+                }
             }
 
             clamped = false;
+            direction = ClampDirection.None;
             return patchTarget;
         }
 
         /// <summary>
-        /// Emits the loud observability for a guarded clamp (plan §4.2 steps 2-3): a WARN
-        /// with the full numbers ALWAYS (every guarded recalc, documenting the ongoing
-        /// leak), and one short session-latched native ScreenMessage naming the protected
-        /// resource. <paramref name="perSubjectScienceNote"/> appends the documented
-        /// per-subject divergence limitation to the WARN for the science pool (MINOR 5).
-        /// Internal static so xUnit can drive the WARN + toast path directly (the live
-        /// patch methods early-return on null KSP singletons).
+        /// Emits the loud observability for a guarded clamp (plan §4.2 steps 2-3 / §2.2
+        /// step 3): a WARN with the full numbers ALWAYS (every guarded recalc, documenting
+        /// the ongoing leak), and one short session-latched native ScreenMessage naming the
+        /// protected resource. The WARN distinguishes the two directions:
+        /// <list type="bullet">
+        /// <item><see cref="ClampDirection.Up"/> -> "GUARDED DRAWDOWN clamped" (running below
+        /// live: a missing earning channel; target floored up to live).</item>
+        /// <item><see cref="ClampDirection.Down"/> -> "GUARDED UPLIFT clamped" (running above
+        /// live: a spend the ledger does not model, e.g. a facility upgrade; target capped
+        /// down to live so the patch cannot refund it — Bug 2).</item>
+        /// </list>
+        /// <paramref name="perSubjectScienceNote"/> appends the documented per-subject
+        /// divergence limitation to the WARN for the science pool (MINOR 5). Internal static
+        /// so xUnit can drive the WARN + toast path directly (the live patch methods
+        /// early-return on null KSP singletons).
         /// </summary>
         internal static void EmitDrawdownGuardClamp(
             string resource, double runningBalance, double currentLive,
             double wouldBeTarget, double clampedTo, string toastText,
-            ref bool sessionToastLatch, bool perSubjectScienceNote)
+            ref bool sessionToastLatch, bool perSubjectScienceNote,
+            ClampDirection direction = ClampDirection.Up)
         {
+            string label = direction == ClampDirection.Down
+                ? "GUARDED UPLIFT clamped"
+                : "GUARDED DRAWDOWN clamped";
+            string tail = direction == ClampDirection.Down
+                ? "(no time-travel context) - spent value held; ledger may be missing a spending channel"
+                : "(no time-travel context) - earned value preserved; ledger may be missing an earning channel";
             string warn =
-                $"Patch{resource}: GUARDED DRAWDOWN clamped resource={resource} " +
+                $"Patch{resource}: {label} resource={resource} " +
                 $"running={runningBalance.ToString("R", IC)} live={currentLive.ToString("R", IC)} " +
                 $"wouldBeTarget={wouldBeTarget.ToString("R", IC)} clampedTo={clampedTo.ToString("R", IC)} " +
-                "(no time-travel context) - earned value preserved; ledger may be missing an earning channel";
+                tail;
             if (perSubjectScienceNote)
             {
                 warn += " NOTE: per-subject credited science is patched UNCLAMPED, so the " +

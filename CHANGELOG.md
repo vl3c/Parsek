@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 - Parsek no longer auto-spawns ghost vessels, map icons, or duplicate copies of your recorded missions during a normal playthrough. Recorded flights now stay dormant until you rewind, loop, or preview them, instead of replaying and re-spawning on their own once game time passes their recorded end.
 - A terminal-orbit recording whose auto-recreated vessel dies on spawn is now permanently left alone across save and reload. Previously the "will not be retried" decision was forgotten on every scene change, so the same doomed vessel was re-spawned and re-recovered each session (log spam and needless churn).
 - Fixed a bug where Parsek could wrongly block a tech-node purchase as "insufficient science" while you actually had plenty, and the science was still spent (twice in the reported case) with no node unlocked. The affordability check now respects your real science total in step with the keep-what-you-earned safety net, and a blocked tech or facility purchase no longer deducts anything before the block.
+- Fixed a critical bug where a normal scene change (for example leaving the Space Center for the Editor) could silently refund money you had just spent, such as a facility upgrade, restoring your funds to before the purchase. The keep-what-you-earned safety net now also protects against an unexpected increase: when no rewind or re-fly is active your current funds, science, and reputation are the source of truth, so a bookkeeping gap can no longer hand money back.
 
 ### Safety
 
