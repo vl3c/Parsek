@@ -282,6 +282,21 @@ samples, `HasInterestingChanges` gate), driven from `LedgerOrchestrator.cs:2386`
    *before* patching; fire a loud Warn (and optionally abort the patch) on divergence.
    Turns silent career corruption into a caught, logged, abortable event. *Highest
    leverage; most self-contained.*
+
+   **SHIPPED (warn-only default; abort opt-in via `RewindReadbackGuard.AbortRewindPatchOnDivergence`).**
+   The §6 oracle premise was corrected during implementation: the loaded quicksave is the
+   OLD at-RP economy, **not** the live-tip economy the recalc legitimately restores, so a
+   straight "target vs quicksave" compare false-flags every healthy rewind, and the
+   `authoritativeReduction` flag is true at this boundary (the ReFly marker is armed) so it
+   cannot be used to excuse the drop. The guard therefore uses TWO witnesses -
+   `E_before` (live economy captured before `LoadGame`, the pre-rewind career) and
+   `E_rp` (live economy captured post-load, the quicksave) - and flags only when the
+   recalc's realized running target drops below `floor = min(E_before, E_rp)` by more than
+   a per-resource tolerance (downward only; a NaN/Inf target is itself flagged). The
+   min-floor structurally encodes legit post-RP drawdown and absorbs uncommitted-in-flight
+   effects, so the guard does not gate on `authoritativeReduction`. See
+   `Source/Parsek/RewindReadbackGuard.cs`, `KspStatePatcher.ResolveRewindDivergence` /
+   `RunRewindReadbackGuard`, and the arm/clear in `RewindInvoker.RunStripActivateMarker`.
 2. **Logging gaps 1–3** (per-subject science, tech nodes, contracts): promote per-identity
    changes to a trace-gated line. HIGH risk, currently invisible.
 3. **In-game ground-truth harness:** from a career save at UT X, capture a quicksave

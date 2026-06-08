@@ -550,6 +550,13 @@ namespace Parsek
                 return;
             }
 
+            // Step 1b: capture the pre-rewind live career economy (E_before) for the
+            // rewind read-back divergence guard, BEFORE LoadGame overwrites the live
+            // singletons with the loaded quicksave state. This is the "career state
+            // sticks" witness; it survives LoadGame on the static RewindInvokeContext and
+            // is auto-cleared when that context clears.
+            EconomySnapshot readbackPreRewind = EconomySnapshot.Capture();
+
             // Step 2: copy a slot-scrubbed view of the RP quicksave from
             // saves/<save>/Parsek/RewindPoints/<rpId>.sfs to
             // saves/<save>/Parsek_Rewind_<sessionId>.sfs (root; KSP's LoadGame
@@ -588,6 +595,7 @@ namespace Parsek
             RewindInvokeContext.CapturedBundle = bundle;
             RewindInvokeContext.HasCapturedBundle = true;
             RewindInvokeContext.TempQuicksavePath = tempPath;
+            RewindInvokeContext.ReadbackPreRewind = readbackPreRewind;
 
             // Step 4: trigger the load. Past this point, Unity will destroy the
             // current scenario; only the static context survives to the new
@@ -903,6 +911,19 @@ namespace Parsek
                 // means "no time filter" — the full ledger walks and every
                 // tech unlock re-applies to KSP's R&D after the quicksave's
                 // old state overwrote it.
+                //
+                // Rewind read-back divergence guard (audit rec #1): arm the guard with the
+                // two economy witnesses immediately before the recalc that PatchAll runs.
+                // E_before = the pre-rewind live career parked on the context before
+                // LoadGame; E_rp = the live economy NOW (post-load = the loaded quicksave /
+                // OLD at-RP economy). The floor = min(E_before, E_rp); the recalc target is
+                // flagged (and optionally aborted) only when it drops below that floor. The
+                // finally clears the guard so it never stays armed past this boundary, even
+                // if the recalc throws — it must never leak onto an ordinary recalc patch.
+                EconomySnapshot eBefore =
+                    RewindInvokeContext.ReadbackPreRewind ?? new EconomySnapshot();
+                EconomySnapshot eRp = EconomySnapshot.Capture();
+                RewindReadbackGuard.Arm(eBefore, eRp);
                 try
                 {
                     LedgerOrchestrator.RecalculateAndPatch(double.MaxValue);
@@ -911,6 +932,10 @@ namespace Parsek
                 {
                     ParsekLog.Warn(InvokeTag,
                         $"Post-invoke ledger recalculate threw (non-fatal): {ex.Message}");
+                }
+                finally
+                {
+                    RewindReadbackGuard.Clear();
                 }
 
                 ParsekLog.Info(InvokeTag,

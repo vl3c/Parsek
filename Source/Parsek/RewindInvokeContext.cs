@@ -60,6 +60,16 @@ namespace Parsek
         internal static string TempQuicksavePath;
 
         /// <summary>
+        /// Live career economy captured in <see cref="RewindInvoker.StartInvoke"/> BEFORE
+        /// the <c>GamePersistence.LoadGame</c> — the "career state sticks" pre-rewind
+        /// witness (E_before) for the rewind read-back divergence guard. Survives LoadGame
+        /// because this context is static; RUNTIME-ONLY (never serialized — the rewind
+        /// completes within one process). Cleared with the rest of the context in
+        /// <see cref="Clear"/> so the guard never carries a stale witness.
+        /// </summary>
+        internal static EconomySnapshot? ReadbackPreRewind;
+
+        /// <summary>
         /// Clears every field. Idempotent.
         /// </summary>
         internal static void Clear()
@@ -74,6 +84,7 @@ namespace Parsek
             CapturedBundle = default(ReconciliationBundle);
             HasCapturedBundle = false;
             TempQuicksavePath = null;
+            ReadbackPreRewind = null;
         }
 
         /// <summary>
