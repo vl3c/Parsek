@@ -190,22 +190,50 @@ namespace Parsek
 
         /// <summary>
         /// One recalc's structural state, captured AFTER the apply burst from data
-        /// already in hand at the orchestrator. Funds / science / rep are the
-        /// running/available pool targets; <see cref="Facilities"/> is a compact
-        /// <c>name:level</c> list; <see cref="TechNodes"/> / <see cref="Contracts"/>
-        /// are counts; <see cref="Cutoff"/> is the UT cutoff (null on a live walk);
+        /// already in hand at the orchestrator.
+        /// <para>Per-field getter provenance (so a log reader knows what each number
+        /// means — the snapshot deliberately mixes getter semantics):
+        /// <list type="bullet">
+        /// <item><see cref="Funds"/> = AVAILABLE / reservation-adjusted funds
+        /// (<c>FundsModule.GetAvailableFunds</c>).</item>
+        /// <item><see cref="Science"/> = AVAILABLE science
+        /// (<c>ScienceModule.GetAvailableScience</c>).</item>
+        /// <item><see cref="Reputation"/> = RUNNING rep
+        /// (<c>ReputationModule.GetRunningRep</c>), NOT a reservation-adjusted pool.</item>
+        /// <item><see cref="Facilities"/> = compact, sorted <c>name:level</c> list
+        /// (<c>FacilitiesModule.GetAllFacilities</c>).</item>
+        /// <item><see cref="TargetTechNodes"/> = count of tech nodes THIS patch
+        /// targeted (<c>targetTechIds.Count</c>), NOT the whole career tree; 0 when the
+        /// recalc did not scope a tech cutoff (see the field doc).</item>
+        /// <item><see cref="Contracts"/> = active-contract count
+        /// (<c>ContractsModule.GetActiveContractIds</c>).</item>
+        /// </list></para>
+        /// <see cref="Cutoff"/> is the UT cutoff (null on a live walk);
         /// <see cref="AuthoritativeReduction"/> is the LedgerOrchestrator
         /// authorized-drawdown decision.
         /// </summary>
         internal struct LedgerStructuralSnapshot
         {
+            /// <summary>Available / reservation-adjusted funds (FundsModule.GetAvailableFunds).</summary>
             public double Funds;
+            /// <summary>Available science (ScienceModule.GetAvailableScience).</summary>
             public double Science;
+            /// <summary>Running reputation (ReputationModule.GetRunningRep), not reservation-adjusted.</summary>
             public double Reputation;
+            /// <summary>Compact, sorted name:level facility list (FacilitiesModule.GetAllFacilities).</summary>
             public string Facilities;
-            public int TechNodes;
+            /// <summary>
+            /// Count of tech nodes THIS patch targeted (the orchestrator's local
+            /// <c>targetTechIds</c> set), NOT the whole career tech tree. It is 0 when
+            /// the recalc did not scope a tech cutoff (live / non-rewind recalcs build
+            /// no target set), so do not read this as a corruption signal on a live walk.
+            /// </summary>
+            public int TargetTechNodes;
+            /// <summary>Active-contract count (ContractsModule.GetActiveContractIds).</summary>
             public int Contracts;
+            /// <summary>Walk UT cutoff; null on a live (non-rewind) recalc.</summary>
             public double? Cutoff;
+            /// <summary>LedgerOrchestrator authorized-drawdown decision for this recalc.</summary>
             public bool AuthoritativeReduction;
         }
 
@@ -225,8 +253,11 @@ namespace Parsek
         /// <summary>
         /// PURE, grep-stable, field-ordered structural line builder. Field order is
         /// fixed (a downstream grep / parser relies on it): <c>phase=Structural
-        /// recalcSeq=N funds=… science=… rep=… facilities=[…] techNodes=N contracts=M
-        /// cutoff=&lt;R|null&gt; authReduction=&lt;bool&gt;</c>. NaN/Inf-safe via
+        /// recalcSeq=N funds=… science=… rep=… facilities=[…] targetTechNodes=N
+        /// contracts=M cutoff=&lt;R|null&gt; authReduction=&lt;bool&gt;</c>. The
+        /// <c>targetTechNodes</c> token counts the nodes THIS patch targeted, not the
+        /// whole tree, and is 0 when the recalc did not scope a tech cutoff (see
+        /// <see cref="LedgerStructuralSnapshot.TargetTechNodes"/>). NaN/Inf-safe via
         /// <see cref="FormatDouble"/>.
         /// </summary>
         internal static string FormatStructural(long recalcSeq, LedgerStructuralSnapshot snap)
@@ -240,7 +271,7 @@ namespace Parsek
                 + " science=" + FormatDouble(snap.Science, "F2")
                 + " rep=" + FormatDouble(snap.Reputation, "F2")
                 + " facilities=[" + (string.IsNullOrEmpty(snap.Facilities) ? string.Empty : snap.Facilities) + "]"
-                + " techNodes=" + snap.TechNodes.ToString(CultureInfo.InvariantCulture)
+                + " targetTechNodes=" + snap.TargetTechNodes.ToString(CultureInfo.InvariantCulture)
                 + " contracts=" + snap.Contracts.ToString(CultureInfo.InvariantCulture)
                 + " cutoff=" + cutoff
                 + " authReduction=" + Bool(snap.AuthoritativeReduction);

@@ -212,7 +212,7 @@ namespace Parsek.Tests
                 Science = 50.5,
                 Reputation = 12.25,
                 Facilities = "LaunchPad:2,Runway:1",
-                TechNodes = 7,
+                TargetTechNodes = 7,
                 Contracts = 3,
                 Cutoff = 12345.5,
                 AuthoritativeReduction = true
@@ -227,7 +227,7 @@ namespace Parsek.Tests
             int iScience = line.IndexOf("science=50.50");
             int iRep = line.IndexOf("rep=12.25");
             int iFac = line.IndexOf("facilities=[LaunchPad:2,Runway:1]");
-            int iTech = line.IndexOf("techNodes=7");
+            int iTech = line.IndexOf("targetTechNodes=7");
             int iContracts = line.IndexOf("contracts=3");
             int iCutoff = line.IndexOf("cutoff=12345.5");
             int iAuth = line.IndexOf("authReduction=true");
@@ -301,7 +301,7 @@ namespace Parsek.Tests
                 Science = 10.0,
                 Reputation = 1.0,
                 Facilities = "VAB:1",
-                TechNodes = 2,
+                TargetTechNodes = 2,
                 Contracts = 1,
                 Cutoff = null,
                 AuthoritativeReduction = false

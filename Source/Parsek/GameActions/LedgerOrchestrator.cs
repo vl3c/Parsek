@@ -2015,7 +2015,10 @@ namespace Parsek
                 Science = science,
                 Reputation = rep,
                 Facilities = facilities,
-                TechNodes = targetTechIds != null ? targetTechIds.Count : 0,
+                // Count of nodes THIS patch targeted (the local targetTechIds set), NOT
+                // the whole career tree. Null on a non-cutoff / live recalc (no tech
+                // cutoff scoped) -> 0; do not read 0 here as "no tech unlocked".
+                TargetTechNodes = targetTechIds != null ? targetTechIds.Count : 0,
                 Contracts = contractCount,
                 Cutoff = cutoff,
                 AuthoritativeReduction = authoritativeReduction

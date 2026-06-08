@@ -1992,6 +1992,12 @@ namespace Parsek
             // when tracing. Intended: a restored id must be present, a removed id absent.
             if (LedgerTrace.IsEnabled)
             {
+                // Coverage boundary (intentional, not a bug): livePresentGuids is built
+                // from the ACTIVE contract bucket (currentContracts) only. removedIds can
+                // include finished-bucket removals, whose absence from this active set
+                // would read as "absent" — which matches the intended-removed expectation,
+                // so this never produces a false positive. Reconciling the finished bucket
+                // is out of v1 scope; this read-back reconciles the active bucket only.
                 var livePresentGuids = new HashSet<string>(StringComparer.Ordinal);
                 if (currentContracts != null)
                 {
