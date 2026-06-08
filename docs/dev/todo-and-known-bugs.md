@@ -61,6 +61,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Status:** Implemented. Full xUnit suite green except the known `InjectAllRecordings` environmental flake (KSP.log lock). In-game validation pending: run `RuntimeTests.RewindReadbackGuard_WarnsOnDivergence_LeavesLiveUnchanged` (Ctrl+Shift+T, FLIGHT) to confirm the WARN fires and live values are untouched; a real healthy rewind should log only within-range / Verbose lines (no FLAGGED DIVERGENCE).
 
+## Done - Per-identity logging at the apply boundary (audit rec #2, gaps 1-3, `docs/dev/ledger-state-reconstruction-audit.md` §4.2)
+
+**Source:** Recommendation #2 of the ledger-state-reconstruction audit: promote the three HIGH-risk per-identity logging gaps from Verbose-only to the default (Info) apply line so a per-subject-science / tech-node / contract corruption is diagnosable from a normal `KSP.log`, not only Verbose.
+
+- ~~**Gap 1 - per-subject science (`KspStatePatcher.PatchPerSubjectScience`):**~~ DONE. The Info summary now carries a bounded `changedSubjects=[subjectId:old->new, ...]` clause (old read before the write), full list at Verbose.
+- ~~**Gap 2 - tech-node availability flips (`KspStatePatcher.PatchTechTree`):**~~ DONE. The Info summary now carries bounded `madeUnavailableIds=[...]` (the dangerous re-lock direction, listed first) and `madeAvailableIds=[...]` clauses, full lists at Verbose. (The `...Ids` suffix keeps the identity-list clauses distinct from the existing `madeAvailable=`/`madeUnavailable=` count fields on the same line.)
+- ~~**Gap 3 - contract remove/restore (`KspStatePatcher.PatchContracts`):**~~ DONE. The Info summary now carries bounded `removedIds=[...]` (targeted removal keys, current set before finished set) and `restoredIds=[...]` clauses, full lists at Verbose.
+
+**Mechanism:** shared pure formatter `KspStatePatcher.ComposeBoundedIdentitySample(list, cap=10)` returns `string.Empty` for a null/empty list (steady-state Info lines stay byte-identical), joins under the cap, and appends ` (+N more)` over the cap; each clause is appended only when the sample is non-empty. Contract removed-identity derivation is the pure `DescribeRemovedContractIdentities`. Logging-only, no schema/serialized-field change.
+
+**Files:** `Source/Parsek/GameActions/KspStatePatcher.cs` (formatter + `DescribeRemovedContractIdentities` + the three Info-line clauses + paired Verbose full-list lines), `Source/Parsek.Tests/KspStatePatcherTests.cs` (6 pure-helper tests).
+
+**Status:** Implemented. Full xUnit suite green except the known `InjectAllRecordings` environmental flake (KSP.log lock).
+
 ## Done 2026-06-07 - BUG-G: tech-purchase affordability gate contradicted the drawdown guard AND blocked destructively (double science loss)
 
 **Source:** 2026-06-07 career playtest, `logs/2026-06-07_2110_tech-purchase-bug/KSP.log` (~lines 13027-13045). Pure-stock play, no Parsek feature used. The player had live science 124.8 but Parsek blocked a 45-cost tech unlock as "insufficient science" AND the science was deducted anyway, twice (`ScienceChanged -45.0 -> 79.8`, block, `ScienceChanged -45.0 -> 34.8`, block; ~90 science lost, no node unlocked). This is the missing OTHER HALF of the drawdown guard above: the guard preserves live above a leaked ledger running balance, but the affordability gate read the leaked ledger value.

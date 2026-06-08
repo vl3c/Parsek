@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using Contracts;
 using Xunit;
 
 namespace Parsek.Tests
@@ -1119,6 +1120,149 @@ namespace Parsek.Tests
                 l.Contains("[KspStatePatcher]")
                 && l.Contains("RecordsAltitude")
                 && l.Contains("is missing stock record fields"));
+        }
+
+        // ================================================================
+        // Audit gaps 1-3: changed-identity sampling at the Info apply boundary
+        // ================================================================
+
+        [Fact]
+        public void ComposeBoundedIdentitySample_NullOrEmpty_ReturnsEmptyString()
+        {
+            // LOAD-BEARING no-spam contract: a null/empty changed list must append
+            // NOTHING so steady-state Info lines stay byte-identical. Empty string,
+            // never "[]".
+            Assert.Equal(string.Empty,
+                KspStatePatcher.ComposeBoundedIdentitySample(null, 10));
+            Assert.Equal(string.Empty,
+                KspStatePatcher.ComposeBoundedIdentitySample(new List<string>(), 10));
+        }
+
+        [Fact]
+        public void ComposeBoundedIdentitySample_UnderCap_AllEntriesNoMoreSuffix()
+        {
+            var entries = new List<string> { "alpha", "bravo", "charlie" };
+
+            string sample = KspStatePatcher.ComposeBoundedIdentitySample(entries, 10);
+
+            // All three present; no overflow marker because count <= cap.
+            Assert.Contains("alpha", sample);
+            Assert.Contains("bravo", sample);
+            Assert.Contains("charlie", sample);
+            Assert.DoesNotContain("more", sample);
+            Assert.Equal("alpha, bravo, charlie", sample);
+        }
+
+        [Fact]
+        public void ComposeBoundedIdentitySample_OverCap_FirstNThenSingleMoreSuffix()
+        {
+            var entries = new List<string>();
+            for (int i = 0; i < 13; i++)
+                entries.Add("id" + i.ToString());
+
+            string sample = KspStatePatcher.ComposeBoundedIdentitySample(entries, 10);
+
+            // First cap entries present, the rest absent, exactly one "(+3 more)".
+            Assert.Contains("id0", sample);
+            Assert.Contains("id9", sample);
+            Assert.DoesNotContain("id10", sample);
+            Assert.DoesNotContain("id12", sample);
+            Assert.Contains("(+3 more)", sample);
+            // Exactly one overflow marker (no double-append).
+            int markerCount = CountOccurrences(sample, "more)");
+            Assert.Equal(1, markerCount);
+        }
+
+        [Fact]
+        public void ComposeBoundedIdentitySample_ScienceIdentityShape_PreservesOldToNew()
+        {
+            // GAP 1 shape: subjectId:old->new survives the formatter verbatim, with
+            // invariant-culture round-trip floats.
+            float oldScience = 124.8f;
+            float newScience = 1.0f;
+            var entries = new List<string>
+            {
+                $"surfaceSampleMinmus:{oldScience.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}->" +
+                $"{newScience.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}"
+            };
+
+            string sample = KspStatePatcher.ComposeBoundedIdentitySample(entries, 10);
+
+            Assert.Contains("surfaceSampleMinmus", sample);
+            Assert.Contains("->", sample);
+            // The drawdown-corruption shape (124.8 -> 1.0) must be readable. 1.0f
+            // round-trips as "1" under "R"/InvariantCulture, so the new value reads "->1".
+            Assert.Contains("124.8", sample);
+            Assert.Contains("124.8->1", sample);
+        }
+
+        [Fact]
+        public void DescribeRemovedContractIdentities_CurrentBeforeFinished_AllGuidsPresent()
+        {
+            // GAP 3 end-to-end: derive removed identities from two key sets and pass them
+            // through the formatter. Assert membership + current-category-before-finished
+            // ordering, NOT intra-HashSet ordering (the sets are HashSet-sourced).
+            var currentGuid = Guid.Parse("11111111-1111-1111-1111-111111111111");
+            var finishedGuid = Guid.Parse("22222222-2222-2222-2222-222222222222");
+            var currentKeys = new HashSet<KspStatePatcher.ContractRemovalKey>
+            {
+                new KspStatePatcher.ContractRemovalKey
+                {
+                    Id = currentGuid, State = Contract.State.Active
+                }
+            };
+            var finishedKeys = new HashSet<KspStatePatcher.ContractRemovalKey>
+            {
+                new KspStatePatcher.ContractRemovalKey
+                {
+                    Id = finishedGuid, State = Contract.State.Completed
+                }
+            };
+
+            var ids = KspStatePatcher.DescribeRemovedContractIdentities(currentKeys, finishedKeys);
+            string sample = KspStatePatcher.ComposeBoundedIdentitySample(ids, 10);
+
+            Assert.Contains(currentGuid.ToString(), sample);
+            Assert.Contains(finishedGuid.ToString(), sample);
+            // Current-set keys are emitted before finished-set keys.
+            Assert.True(
+                sample.IndexOf(currentGuid.ToString(), StringComparison.Ordinal)
+                    < sample.IndexOf(finishedGuid.ToString(), StringComparison.Ordinal),
+                "current-set removal id must precede finished-set removal id");
+        }
+
+        [Fact]
+        public void DescribeRemovedContractIdentities_OverCap_EmitsMoreSuffix()
+        {
+            // GAP 3 over-cap safety: >cap removal keys must not blow up the Info line.
+            var currentKeys = new HashSet<KspStatePatcher.ContractRemovalKey>();
+            for (int i = 0; i < 13; i++)
+            {
+                currentKeys.Add(new KspStatePatcher.ContractRemovalKey
+                {
+                    Id = Guid.NewGuid(), State = Contract.State.Active
+                });
+            }
+
+            var ids = KspStatePatcher.DescribeRemovedContractIdentities(
+                currentKeys, new HashSet<KspStatePatcher.ContractRemovalKey>());
+            string sample = KspStatePatcher.ComposeBoundedIdentitySample(ids, 10);
+
+            Assert.Equal(13, ids.Count);
+            Assert.Contains("(+3 more)", sample);
+        }
+
+        private static int CountOccurrences(string haystack, string needle)
+        {
+            int count = 0;
+            int index = 0;
+            while ((index = haystack.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += needle.Length;
+            }
+
+            return count;
         }
     }
 }
