@@ -71,19 +71,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveFundsPatch_PlainCredit_WritesPositiveDelta()
+        public void ResolveFundsPatch_AuthorizedCredit_WritesPositiveDelta()
         {
-            // Fails if the delta sign/magnitude is wrong (current - target instead of
-            // target - current), or if a legitimate earning is suppressed as a no-op.
+            // A credit (running ahead of live) is only legitimate under a time-travel
+            // authority; without it the symmetric guard reads running>live as an unmodeled
+            // spend and caps DOWN (the OverModelSpend test). Fails if the delta sign/magnitude
+            // is wrong, or if the authority bypass is dropped (a real rewind credit lost).
+            var d = KspStatePatcher.ResolveFundsPatch(
+                currentFunds: 1000.0, targetFunds: 1500.0, runningFunds: 1500.0,
+                authoritativeReduction: true);
+
+            Assert.True(d.ShouldWrite);
+            Assert.False(d.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.None, d.Direction);
+            Assert.Equal(500.0, d.Delta, 6);
+            Assert.Equal(1500.0, d.EffectiveTarget, 6);
+            Assert.False(d.SuspiciousDrawdown); // a credit is never suspicious
+        }
+
+        [Fact]
+        public void ResolveFundsPatch_OverModelSpend_DownClampsToLiveAndCollapsesToNoOp()
+        {
+            // #1101 Bug 2 (symmetric uplift guard): the ledger running balance LEADS live (a
+            // real spend KSP applied that the ledger does not model, e.g. a facility upgrade)
+            // with no time-travel authority. The guard must cap the target DOWN to live so a
+            // non-authoritative recalc cannot REFUND the spend, collapsing to a no-op. Fails
+            // if the symmetric down-clamp regresses (the recalc would credit the unmodeled spend back).
             var d = KspStatePatcher.ResolveFundsPatch(
                 currentFunds: 1000.0, targetFunds: 1500.0, runningFunds: 1500.0,
                 authoritativeReduction: false);
 
-            Assert.True(d.ShouldWrite);
-            Assert.False(d.Clamped);
-            Assert.Equal(500.0, d.Delta, 6);
-            Assert.Equal(1500.0, d.EffectiveTarget, 6);
-            Assert.False(d.SuspiciousDrawdown); // a credit is never suspicious
+            Assert.True(d.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Down, d.Direction);
+            Assert.False(d.ShouldWrite);
+            Assert.Equal(1000.0, d.EffectiveTarget, 6);
+            Assert.Equal(0.0, d.Delta, 6);
         }
 
         [Fact]
@@ -116,6 +138,7 @@ namespace Parsek.Tests
                 authoritativeReduction: false);
 
             Assert.True(d.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Up, d.Direction); // floored UP to live
             Assert.False(d.ShouldWrite);            // clamp -> noop collapse
             Assert.Equal(1000.0, d.EffectiveTarget, 6);
             Assert.Equal(0.0, d.Delta, 6);
@@ -198,23 +221,66 @@ namespace Parsek.Tests
             Assert.Equal("Kept your earned funds", screenMessages[0].text);
         }
 
+        [Fact]
+        public void EmitDrawdownGuardClamp_DownDirection_LogsGuardedUpliftAndHeldToast()
+        {
+            // The #1101 symmetric DOWN clamp must log "GUARDED UPLIFT" (not "DRAWDOWN") and
+            // toast the held-value text, so an unmodeled-spend hold is distinguishable in the
+            // log from an earned-value floor. Fails if the direction label / tail regresses.
+            bool latch = false;
+            KspStatePatcher.EmitDrawdownGuardClamp(
+                "Funds", runningBalance: 1500.0, currentLive: 1000.0,
+                wouldBeTarget: 1500.0, clampedTo: 1000.0,
+                toastText: "Held your funds at the spent value",
+                sessionToastLatch: ref latch, perSubjectScienceNote: false,
+                direction: KspStatePatcher.ClampDirection.Down);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]")
+                && l.Contains("GUARDED UPLIFT")
+                && l.Contains("resource=Funds")
+                && l.Contains("clampedTo=1000")
+                && l.Contains("spent value held"));
+            Assert.Single(screenMessages);
+            Assert.Equal("Held your funds at the spent value", screenMessages[0].text);
+        }
+
         // ================================================================
         // ResolveSciencePoolPatch — float-delta boundary + clamp composition
         // ================================================================
 
         [Fact]
-        public void ResolveSciencePoolPatch_Credit_WritesFloatDelta()
+        public void ResolveSciencePoolPatch_AuthorizedCredit_WritesFloatDelta()
         {
-            // Fails if the double->float cast at the AddScience boundary is reordered or
-            // lost (the delta is float; the target stays double for the logs).
+            // The double->float cast at the AddScience boundary (delta is float; target stays
+            // double for the logs). A credit (running ahead of live) needs authority, else the
+            // symmetric guard caps DOWN. Fails if the cast is reordered/lost or the bypass drops.
+            var d = KspStatePatcher.ResolveSciencePoolPatch(
+                currentScience: 20f, targetScience: 50.0, runningScience: 50.0,
+                authoritativeReduction: true);
+
+            Assert.True(d.ShouldWrite);
+            Assert.False(d.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.None, d.Direction);
+            Assert.Equal(30f, d.Delta);
+            Assert.Equal(50.0, d.EffectiveTarget, 6);
+        }
+
+        [Fact]
+        public void ResolveSciencePoolPatch_OverModelSpend_DownClampsToLiveAndCollapsesToNoOp()
+        {
+            // Symmetric uplift on the science pool: running (50) leads live (20) with no
+            // authority -> cap DOWN to live, collapse to no-op. Fails if science misses the
+            // down-clamp and refunds the unmodeled science spend.
             var d = KspStatePatcher.ResolveSciencePoolPatch(
                 currentScience: 20f, targetScience: 50.0, runningScience: 50.0,
                 authoritativeReduction: false);
 
-            Assert.True(d.ShouldWrite);
-            Assert.False(d.Clamped);
-            Assert.Equal(30f, d.Delta);
-            Assert.Equal(50.0, d.EffectiveTarget, 6);
+            Assert.True(d.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Down, d.Direction);
+            Assert.False(d.ShouldWrite);
+            Assert.Equal(20.0, d.EffectiveTarget, 6);
+            Assert.Equal(0f, d.Delta);
         }
 
         [Fact]
@@ -228,6 +294,7 @@ namespace Parsek.Tests
                 authoritativeReduction: false);
 
             Assert.True(d.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Up, d.Direction); // floored UP to live
             Assert.False(d.ShouldWrite);
             Assert.Equal(50.0, d.EffectiveTarget, 6);
             Assert.Equal(0f, d.Delta);
@@ -279,17 +346,35 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void ResolveReputationPatch_Increase_WritesAbsoluteTarget()
+        public void ResolveReputationPatch_AuthorizedIncrease_WritesAbsoluteTarget()
         {
             // Reputation uses SetReputation (absolute), so EffectiveTarget IS the value
-            // written. Fails if rep accidentally computes an additive delta (the double-
-            // curve bug the Set semantics exist to avoid).
+            // written. An increase (running ahead of live) needs authority; without it the
+            // symmetric guard holds at the current value (the HeldAtCurrent test). Fails if rep
+            // computes an additive delta (the double-curve bug Set avoids) or drops the bypass.
             var d = KspStatePatcher.ResolveReputationPatch(
-                currentRep: 100f, targetRep: 150f, authoritativeReduction: false);
+                currentRep: 100f, targetRep: 150f, authoritativeReduction: true);
 
             Assert.True(d.ShouldWrite);
             Assert.False(d.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.None, d.Direction);
             Assert.Equal(150f, d.EffectiveTarget);
+        }
+
+        [Fact]
+        public void ResolveReputationPatch_OverModelRep_HeldAtCurrentAndCollapsesToNoOp()
+        {
+            // Symmetric uplift on reputation: the running rep (== target, 150) leads live
+            // (100) with no authority -> hold DOWN at the current value, no-op. Fails if rep
+            // misses the down-clamp and inflates reputation a non-authoritative recalc should not.
+            var d = KspStatePatcher.ResolveReputationPatch(
+                currentRep: 100f, targetRep: 150f, authoritativeReduction: false);
+
+            Assert.True(d.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Down, d.Direction);
+            Assert.False(d.ShouldWrite);
+            Assert.Equal(100f, d.EffectiveTarget);
+            Assert.Equal(100.0, d.EffectiveTargetRaw, 6);
         }
 
         [Fact]
@@ -316,6 +401,7 @@ namespace Parsek.Tests
                 currentRep: 100f, targetRep: 40f, authoritativeReduction: false);
 
             Assert.True(d.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Up, d.Direction); // floored UP to live
             Assert.False(d.ShouldWrite);
             Assert.Equal(100f, d.EffectiveTarget);
             Assert.Equal(100.0, d.EffectiveTargetRaw, 6);

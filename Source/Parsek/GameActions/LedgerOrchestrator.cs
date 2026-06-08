@@ -1895,6 +1895,13 @@ namespace Parsek
             bool suppressSuspiciousDrawdownWarnings,
             bool authoritativeReduction)
         {
+            // LedgerTrace Tier-A: open the recalc burst so every trace line emitted by
+            // the Patch* sites below shares one grep-sliceable recalcSeq. No-op when the
+            // tracer is off. This is the single recalc-scoped lifecycle call; the
+            // patch-deferral gate returns BEFORE this method, so a deferred recalc opens
+            // no burst and emits nothing.
+            LedgerTrace.BeginRecalc();
+
             // KSP state mutations (PostWalk already called by engine). Repeatable
             // Records* nodes only rebuild strictly from ledger-backed thresholds on
             // rewind-style cutoff walks; normal same-branch recalculations preserve the
@@ -1944,6 +1951,78 @@ namespace Parsek
                 techBaselineUt: techBaselineUt,
                 suppressSuspiciousDrawdownWarnings: suppressSuspiciousDrawdownWarnings,
                 authoritativeReduction: authoritativeReduction);
+
+            // LedgerTrace Tier-A: emit ONE structural snapshot per recalc, here (after
+            // PatchAll), never inside a Patch* (that would emit 7x). Built from data
+            // already in hand: module getters for the three pools, the facilities
+            // collection for a compact name:level list, the local targetTechIds set, the
+            // active-contract count, the techPatchCutoff, and authoritativeReduction. We
+            // read module getters / locals, never Ledger.Actions or
+            // RecordingStore.CommittedRecordings directly (ERS/ELS routing rule).
+            if (LedgerTrace.IsEnabled)
+            {
+                // cutoff = the walk cutoff (utCutoff), the UT this recalc was scoped to
+                // (null on a live walk); NOT techPatchCutoff, which is the narrower
+                // tech-tree-patch-only cutoff.
+                LedgerTrace.EmitStructural(BuildLedgerStructuralSnapshot(
+                    targetTechIds, utCutoff, authoritativeReduction));
+            }
+        }
+
+        /// <summary>
+        /// Builds the LedgerTrace Tier-A structural snapshot from the orchestrator's
+        /// recalc modules + the per-recalc locals already in hand. Reads only module
+        /// getters and the supplied locals (no direct Ledger.Actions /
+        /// RecordingStore.CommittedRecordings read — ERS/ELS routing rule). The facility
+        /// list is a compact, sorted name:level string so the structural line stays
+        /// grep-stable across recalcs.
+        /// </summary>
+        private static LedgerTrace.LedgerStructuralSnapshot BuildLedgerStructuralSnapshot(
+            HashSet<string> targetTechIds,
+            double? cutoff,
+            bool authoritativeReduction)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+
+            double funds = fundsModule != null ? fundsModule.GetAvailableFunds() : double.NaN;
+            double science = scienceModule != null ? scienceModule.GetAvailableScience() : double.NaN;
+            double rep = reputationModule != null ? reputationModule.GetRunningRep() : double.NaN;
+
+            string facilities = string.Empty;
+            if (facilitiesModule != null)
+            {
+                var all = facilitiesModule.GetAllFacilities();
+                if (all != null && all.Count > 0)
+                {
+                    var entries = new List<string>(all.Count);
+                    foreach (var kvp in all)
+                        entries.Add(kvp.Key + ":" + kvp.Value.Level.ToString(ic));
+                    entries.Sort(StringComparer.Ordinal);
+                    facilities = string.Join(",", entries.ToArray());
+                }
+            }
+
+            int contractCount = 0;
+            if (contractsModule != null)
+            {
+                var activeIds = contractsModule.GetActiveContractIds();
+                contractCount = activeIds != null ? activeIds.Count : 0;
+            }
+
+            return new LedgerTrace.LedgerStructuralSnapshot
+            {
+                Funds = funds,
+                Science = science,
+                Reputation = rep,
+                Facilities = facilities,
+                // Count of nodes THIS patch targeted (the local targetTechIds set), NOT
+                // the whole career tree. Null on a non-cutoff / live recalc (no tech
+                // cutoff scoped) -> 0; do not read 0 here as "no tech unlocked".
+                TargetTechNodes = targetTechIds != null ? targetTechIds.Count : 0,
+                Contracts = contractCount,
+                Cutoff = cutoff,
+                AuthoritativeReduction = authoritativeReduction
+            };
         }
 
         internal static HashSet<string> BuildTombstonedFacilityIdsForPatch()

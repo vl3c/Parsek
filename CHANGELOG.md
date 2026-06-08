@@ -16,6 +16,8 @@ All notable changes to Parsek are documented here.
 - Parsek no longer auto-spawns ghost vessels, map icons, or duplicate copies of your recorded missions during a normal playthrough. Recorded flights now stay dormant until you rewind, loop, or preview them, instead of replaying and re-spawning on their own once game time passes their recorded end.
 - A terminal-orbit recording whose auto-recreated vessel dies on spawn is now permanently left alone across save and reload. Previously the "will not be retried" decision was forgotten on every scene change, so the same doomed vessel was re-spawned and re-recovered each session (log spam and needless churn).
 - Fixed a bug where Parsek could wrongly block a tech-node purchase as "insufficient science" while you actually had plenty, and the science was still spent (twice in the reported case) with no node unlocked. The affordability check now respects your real science total in step with the keep-what-you-earned safety net, and a blocked tech or facility purchase no longer deducts anything before the block.
+- Fixed a critical bug where a normal scene change (for example leaving the Space Center for the Editor) could silently refund money you had just spent, such as a facility upgrade, restoring your funds to before the purchase. The keep-what-you-earned safety net now also protects against an unexpected increase: when no rewind or re-fly is active your current funds, science, and reputation are the source of truth, so a bookkeeping gap can no longer hand money back.
+- Fixed a bug where a single contract could be recorded as completing several times in a row (a stock re-fire), multiplying its recorded reward in Parsek's ledger. Duplicate completions of the same contract within the same instant are now ignored, so each contract is recorded once.
 
 ### Safety
 
@@ -27,6 +29,11 @@ All notable changes to Parsek are documented here.
 - A long career session no longer floods the log with per-frame re-fly settle and per-recording overlap-gate diagnostics. These two traces alone were about two-thirds of a 2026-06-07 career playtest log (roughly 233,000 lines, none of it from an actual re-fly): the floating-origin shift line is now a throttled heartbeat, and the overlap-gate verdict logs only when it actually changes. The per-frame supply-route summary was given the same change-only treatment.
 - The recorder's "sparse sampling" WARN no longer fires during normal coasting or on parked vessels. Its large-gap threshold now scales with the configured sample-density backstop (about 3 seconds at the default Medium) instead of a fixed half-second, so only a genuinely stalled sampler warns; a long career session was logging well over a hundred of these on routine coasts.
 - When Parsek rewrites career state, the default log now names which per-subject science totals, tech-node availability flips, and contracts were changed (a bounded sample on the summary line, full list at Verbose), so a corrupted subject, node, or contract is identifiable from a normal log instead of only a count.
+- Added a Ledger apply tracing diagnostic (off by default, in Diagnostics settings) that logs each ledger reconstruction and flags any computed-vs-live mismatch in your career funds, science, reputation, facility levels, tech nodes, or contracts. It is for investigating rare corruption only; leave it off for normal play.
+
+### Internals & Tests
+
+- Added an in-game ledger ground-truth verification harness: it quicksaves the live career, parses that save independently of Parsek's bookkeeping, runs the career-state reconstruction, and reports any disagreement between the two. This is the closed self-check that catches a reconstruction drifting from your actual funds, science, reputation, or recovered vessels. Run it from the in-game test runner (Ctrl+Shift+T) under the `LedgerGroundTruth` category.
 
 ### Internals & Tests
 

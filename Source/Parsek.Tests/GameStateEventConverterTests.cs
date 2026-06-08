@@ -256,6 +256,68 @@ namespace Parsek.Tests
             Assert.Equal("guid-5678", action.ContractId);
         }
 
+        [Fact]
+        public void ConvertEvents_DuplicateContractCompletedSameUt_ConvertsOnce()
+        {
+            // Bug 1 belt-and-suspenders (§3.2a): a pre-existing stock re-fire burst already
+            // in the store (four ContractCompleted events, same guid / UT / tag) must
+            // convert to exactly ONE ContractComplete action, not four.
+            const string Guid = "1eb2baf9-afce-48c7-82d6-364dae85f57a";
+            const double Ut = 475409.6;
+            const string Detail = "title=Science from Mun;fundsReward=63250;repReward=9;sciReward=4";
+
+            var events = new List<GameStateEvent>
+            {
+                MakeEvent(GameStateEventType.ContractCompleted, Ut, key: Guid, detail: Detail, recordingId: "rec"),
+                MakeEvent(GameStateEventType.ContractCompleted, Ut, key: Guid, detail: Detail, recordingId: "rec"),
+                MakeEvent(GameStateEventType.ContractCompleted, Ut, key: Guid, detail: Detail, recordingId: "rec"),
+                MakeEvent(GameStateEventType.ContractCompleted, Ut, key: Guid, detail: Detail, recordingId: "rec"),
+            };
+
+            var actions = GameStateEventConverter.ConvertEvents(events, "rec", 0.0, 500000.0);
+
+            var action = Assert.Single(actions);
+            Assert.Equal(GameActionType.ContractComplete, action.Type);
+            Assert.Equal(Guid, action.ContractId);
+            Assert.Equal(63250f, action.FundsReward);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GameStateEventConverter]")
+                && l.Contains("dropped 3 duplicate contract-lifecycle action"));
+        }
+
+        [Fact]
+        public void ConvertEvents_DistinctContractsSameUt_BothConverted()
+        {
+            // The §3.2a dedup keys on (Type, ContractId, UT-bucket): two DIFFERENT contracts
+            // completing in the same instant are independent and both convert.
+            const double Ut = 475409.6;
+            var events = new List<GameStateEvent>
+            {
+                MakeEvent(GameStateEventType.ContractCompleted, Ut, key: "guid-A", detail: "fundsReward=100", recordingId: "rec"),
+                MakeEvent(GameStateEventType.ContractCompleted, Ut, key: "guid-B", detail: "fundsReward=200", recordingId: "rec"),
+            };
+
+            var actions = GameStateEventConverter.ConvertEvents(events, "rec", 0.0, 500000.0);
+
+            Assert.Equal(2, actions.Count);
+        }
+
+        [Fact]
+        public void ConvertEvents_SameContractCompletedFarApart_BothConverted()
+        {
+            // A genuine later re-completion (UT outside the coalesce bucket) is NOT a stock
+            // re-fire and must convert to its own action.
+            var events = new List<GameStateEvent>
+            {
+                MakeEvent(GameStateEventType.ContractCompleted, 1000.0, key: "guid-A", detail: "fundsReward=100", recordingId: "rec"),
+                MakeEvent(GameStateEventType.ContractCompleted, 5000.0, key: "guid-A", detail: "fundsReward=100", recordingId: "rec"),
+            };
+
+            var actions = GameStateEventConverter.ConvertEvents(events, "rec", 0.0, 10000.0);
+
+            Assert.Equal(2, actions.Count);
+        }
+
         // ================================================================
         // ContractFailed -> ContractFail
         // ================================================================

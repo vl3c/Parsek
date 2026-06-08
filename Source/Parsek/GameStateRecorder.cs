@@ -183,6 +183,7 @@ namespace Parsek
             HasLiveRecorderProviderForTesting = null;
             HasActiveUncommittedTreeProviderForTesting = null;
             ClearPendingMilestoneEvents("ResetForTesting");
+            ClearContractCompletionDedup("ResetForTesting");
             RecoveryPayoutContextStore.ResetForTesting();
             PendingScienceSubjects.Clear();
             SuppressCrewEvents = false;
@@ -300,6 +301,7 @@ namespace Parsek
             pendingCrewEvents.Clear();
             latestScienceChangeCapture = default(RecentScienceChangeCapture);
             ClearPendingMilestoneEvents("Subscribe");
+            ClearContractCompletionDedup("Subscribe");
 
             // Contracts
             GameEvents.Contract.onOffered.Add(OnContractOffered);
@@ -349,6 +351,7 @@ namespace Parsek
             subscribed = false;
             latestScienceChangeCapture = default(RecentScienceChangeCapture);
             ClearPendingMilestoneEvents("Unsubscribe");
+            ClearContractCompletionDedup("Unsubscribe");
 
             // Contracts
             GameEvents.Contract.onOffered.Remove(OnContractOffered);
@@ -505,6 +508,26 @@ namespace Parsek
                 LogEventReject("ContractCompleted", "contract-null");
                 return;
             }
+
+            // Bug 1 (fix-funds-economy-divergence §3.2): debounce a stock contract re-fire.
+            // Stock KSP can fire onCompleted N times for one contract within a few ms (the
+            // observed burst fired 4x at the same UT). RETURN before BOTH the Emit store
+            // write AND the ShouldForwardDirectLedgerEvent -> OnKscSpending forward below,
+            // so neither inflation path (tagged-commit via the store, no-owner-direct via
+            // OnKscSpending) bakes a duplicate reward. The window is the same coalesce window
+            // the carried resource events already collapse within.
+            string contractGuid = contract.ContractGuid.ToString();
+            double completionUt = Planetarium.GetUniversalTime();
+            if (IsDuplicateContractCompletion(
+                contractGuid, completionUt,
+                lastContractCompletionUtByGuid, GameStateStore.ResourceCoalesceEpsilon))
+            {
+                ParsekLog.Info("GameStateRecorder",
+                    $"Game state: ContractCompleted '{contract.Title ?? ""}' DEDUPED " +
+                    $"(stock re-fire of contract {contractGuid} within {GameStateStore.ResourceCoalesceEpsilon.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}s at UT={completionUt.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}) - not recorded");
+                return;
+            }
+
             var title = contract.Title ?? "";
             // InvariantCulture-safe float serialization — plain interpolation emits
             // comma decimals on locales like de-DE/fr-FR/ro-RO, and the IC-parsing
@@ -518,9 +541,9 @@ namespace Parsek
                 $";sciReward={sciReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
             var evt = new GameStateEvent
             {
-                ut = Planetarium.GetUniversalTime(),
+                ut = completionUt,
                 eventType = GameStateEventType.ContractCompleted,
-                key = contract.ContractGuid.ToString(),
+                key = contractGuid,
                 detail = detail
             };
             Emit(ref evt, "ContractCompleted");
@@ -1435,6 +1458,64 @@ namespace Parsek
             PendingMilestoneEventById.Clear();
             ParsekLog.Verbose("GameStateRecorder",
                 $"Cleared {cleared} pending milestone reward entr{(cleared == 1 ? "y" : "ies")} ({reason ?? "unspecified"})");
+        }
+
+        /// <summary>
+        /// Last completion UT seen per contract guid, used to debounce a stock contract
+        /// re-fire (Bug 1, fix-funds-economy-divergence §3.2). Stock KSP (or an external
+        /// interaction) can fire <c>Contract.onCompleted</c> N times for one contract within
+        /// a few milliseconds; without this debounce the recorder emits N
+        /// <see cref="GameStateEventType.ContractCompleted"/> events (not coalesced, since
+        /// they are not resource events), and the converter bakes N <c>ContractComplete</c>
+        /// ledger rows, multiplying the reward.
+        ///
+        /// Follows the <see cref="PendingMilestoneEventById"/> precedent exactly: a static
+        /// map cleared at every scene-entry / scene-exit and between tests via
+        /// <see cref="ClearContractCompletionDedup"/> (called from <see cref="Subscribe"/>,
+        /// <see cref="Unsubscribe"/>, and <see cref="ResetForTesting"/>). NO
+        /// <c>onGameSceneSwitchRequested</c> hook is added. Clearing the map on every scene
+        /// boundary keeps a legitimate re-completion in a different session / timeline from
+        /// being suppressed.
+        /// </summary>
+        internal static readonly Dictionary<string, double> lastContractCompletionUtByGuid
+            = new Dictionary<string, double>(StringComparer.Ordinal);
+
+        internal static void ClearContractCompletionDedup(string reason)
+        {
+            int cleared = lastContractCompletionUtByGuid.Count;
+            if (cleared <= 0)
+                return;
+
+            lastContractCompletionUtByGuid.Clear();
+            ParsekLog.Verbose("GameStateRecorder",
+                $"Cleared {cleared} contract-completion dedup entr{(cleared == 1 ? "y" : "ies")} ({reason ?? "unspecified"})");
+        }
+
+        /// <summary>
+        /// Pure debounce decision (Bug 1, fix-funds-economy-divergence §3.2). Returns true
+        /// (= duplicate, SUPPRESS) when <paramref name="contractGuid"/> is already present in
+        /// <paramref name="lastSeenByGuid"/> with a last-seen UT within
+        /// <paramref name="window"/> of <paramref name="ut"/>. Otherwise records
+        /// <c>lastSeenByGuid[contractGuid] = ut</c> and returns false (= first seen / genuine
+        /// re-completion, PROCEED). A null/empty guid is never treated as a duplicate (cannot
+        /// key it; let it through unchanged). Pure with respect to Unity (the caller passes
+        /// the static dict), so it is directly unit-testable.
+        /// </summary>
+        internal static bool IsDuplicateContractCompletion(
+            string contractGuid, double ut,
+            IDictionary<string, double> lastSeenByGuid, double window)
+        {
+            if (lastSeenByGuid == null || string.IsNullOrEmpty(contractGuid))
+                return false;
+
+            if (lastSeenByGuid.TryGetValue(contractGuid, out double lastSeen)
+                && Math.Abs(ut - lastSeen) <= window)
+            {
+                return true;
+            }
+
+            lastSeenByGuid[contractGuid] = ut;
+            return false;
         }
 
         /// <summary>

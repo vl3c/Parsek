@@ -97,19 +97,22 @@ namespace Parsek
             internal readonly float Delta;
             /// <summary>The post-clamp target (the value the pool reaches), kept as a double for the logs.</summary>
             internal readonly double EffectiveTarget;
-            /// <summary>True when the drawdown guard clamped the target up to the live value.</summary>
+            /// <summary>True when the symmetric drawdown guard clamped the target (up to or down to live).</summary>
             internal readonly bool Clamped;
+            /// <summary>Which direction the guard clamped (Up = kept earnings, Down = held the spent value, None = no clamp).</summary>
+            internal readonly ClampDirection Direction;
             /// <summary>True when a needed write is a >10% drawdown of a non-trivial pool.</summary>
             internal readonly bool SuspiciousDrawdown;
 
             internal SciencePoolPatchDecision(
                 bool shouldWrite, float delta, double effectiveTarget,
-                bool clamped, bool suspiciousDrawdown)
+                bool clamped, ClampDirection direction, bool suspiciousDrawdown)
             {
                 ShouldWrite = shouldWrite;
                 Delta = delta;
                 EffectiveTarget = effectiveTarget;
                 Clamped = clamped;
+                Direction = direction;
                 SuspiciousDrawdown = suspiciousDrawdown;
             }
         }
@@ -127,11 +130,11 @@ namespace Parsek
         {
             double effTarget = ApplyDrawdownGuard(
                 targetScience, runningScience, currentScience, 0.001,
-                authoritativeReduction, "science", out bool clamped);
+                authoritativeReduction, "science", out bool clamped, out ClampDirection direction);
             float delta = (float)(effTarget - (double)currentScience);
             bool shouldWrite = Math.Abs(delta) >= 0.001f;
             bool suspicious = shouldWrite && IsSuspiciousDrawdown(delta, currentScience);
-            return new SciencePoolPatchDecision(shouldWrite, delta, effTarget, clamped, suspicious);
+            return new SciencePoolPatchDecision(shouldWrite, delta, effTarget, clamped, direction, suspicious);
         }
 
         /// <summary>
@@ -197,12 +200,17 @@ namespace Parsek
                 currentScience, targetScience, runningScience, authoritativeReduction);
             if (decision.Clamped)
             {
+                bool scienceDown = decision.Direction == ClampDirection.Down;
+                ref bool scienceLatch = ref (scienceDown
+                    ? ref scienceUpliftClampToastShownThisSession
+                    : ref scienceClampToastShownThisSession);
                 EmitDrawdownGuardClamp(
                     "Science", runningScience, currentScience,
                     wouldBeTarget: targetScience, clampedTo: decision.EffectiveTarget,
-                    toastText: "Kept your earned science",
-                    sessionToastLatch: ref scienceClampToastShownThisSession,
-                    perSubjectScienceNote: true);
+                    toastText: scienceDown ? "Held your science at the spent value" : "Kept your earned science",
+                    sessionToastLatch: ref scienceLatch,
+                    perSubjectScienceNote: true,
+                    direction: decision.Direction);
             }
 
             if (!decision.ShouldWrite)
@@ -228,6 +236,21 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"PatchScience: {currentScience.ToString("F1", IC)} -> {afterScience.ToString("F1", IC)} " +
                     $"(delta={decision.Delta.ToString("F1", IC)}, target={decision.EffectiveTarget.ToString("F1", IC)})");
+
+                // LedgerTrace Tier-C: reconcile the computed target against the live
+                // read-back we just took (afterScience). A drift beyond the science
+                // tolerance is a ledger-vs-truth anomaly (the write did not land where
+                // the recalc intended). Reuses afterScience; no second read.
+                if (LedgerTrace.IsEnabled)
+                {
+                    double tol = LedgerTrace.ResourceTolerance("science");
+                    if (LedgerTrace.IsResourceDrift(decision.EffectiveTarget, afterScience, tol))
+                        LedgerTrace.EmitAnomaly("science", "pool", "ledger-vs-truth",
+                            $"target={LedgerTrace.FormatDouble(decision.EffectiveTarget, "F3")} " +
+                            $"actual={LedgerTrace.FormatDouble(afterScience, "F3")} " +
+                            $"delta={LedgerTrace.FormatDouble(decision.EffectiveTarget - afterScience, "F3")} " +
+                            $"tol={LedgerTrace.FormatDouble(tol, "R")}");
+                }
             }
 
             // Always patch per-subject credited totals — individual subjects may have changed
@@ -542,6 +565,34 @@ namespace Parsek
                     $"PatchTechTree: all {madeAvailableIds.Count.ToString(IC)} made-available tech id(s): " +
                     string.Join(", ", madeAvailableIds));
 
+            // LedgerTrace Tier-B (per-node change lines, reusing the #1098 changed-sets)
+            // + Tier-C (read-back presence reconcile). The read-back re-queries
+            // ResearchAndDevelopment.GetTechnologyState per changed node, so it is
+            // guarded by IsEnabled — the extra KSP calls only run when tracing.
+            if (LedgerTrace.IsEnabled)
+            {
+                foreach (string techId in madeUnavailableIds)
+                {
+                    LedgerTrace.EmitOnChange("tech-node", techId, "->unavailable");
+                    bool actualAvailable =
+                        ResearchAndDevelopment.GetTechnologyState(techId) == RDTech.State.Available;
+                    // Intended: NOT in the target set -> should be unavailable.
+                    if (LedgerTrace.IsTechNodePresenceMismatch(false, actualAvailable))
+                        LedgerTrace.EmitAnomaly("tech-node", techId, "ledger-vs-truth",
+                            "intendedAvailable=false actualAvailable=" + LedgerTrace.Bool(actualAvailable));
+                }
+                foreach (string techId in madeAvailableIds)
+                {
+                    LedgerTrace.EmitOnChange("tech-node", techId, "->available");
+                    bool actualAvailable =
+                        ResearchAndDevelopment.GetTechnologyState(techId) == RDTech.State.Available;
+                    // Intended: in the target set -> should be available.
+                    if (LedgerTrace.IsTechNodePresenceMismatch(true, actualAvailable))
+                        LedgerTrace.EmitAnomaly("tech-node", techId, "ledger-vs-truth",
+                            "intendedAvailable=true actualAvailable=" + LedgerTrace.Bool(actualAvailable));
+                }
+            }
+
             if (bypassRehydratedNodes > 0)
                 ParsekLog.Verbose(Tag,
                     $"EnsureAvailableProtoTechNode: bypass rehydrated {bypassRehydratedNodes.ToString(IC)} tech node(s), " +
@@ -804,19 +855,22 @@ namespace Parsek
             internal readonly double Delta;
             /// <summary>The post-clamp target (the value the pool reaches).</summary>
             internal readonly double EffectiveTarget;
-            /// <summary>True when the drawdown guard clamped the target up to the live value.</summary>
+            /// <summary>True when the symmetric drawdown guard clamped the target (up to or down to live).</summary>
             internal readonly bool Clamped;
+            /// <summary>Which direction the guard clamped (Up = kept earnings, Down = held the spent value, None = no clamp).</summary>
+            internal readonly ClampDirection Direction;
             /// <summary>True when a needed write is a >10% drawdown of a non-trivial pool.</summary>
             internal readonly bool SuspiciousDrawdown;
 
             internal FundsPatchDecision(
                 bool shouldWrite, double delta, double effectiveTarget,
-                bool clamped, bool suspiciousDrawdown)
+                bool clamped, ClampDirection direction, bool suspiciousDrawdown)
             {
                 ShouldWrite = shouldWrite;
                 Delta = delta;
                 EffectiveTarget = effectiveTarget;
                 Clamped = clamped;
+                Direction = direction;
                 SuspiciousDrawdown = suspiciousDrawdown;
             }
         }
@@ -835,11 +889,11 @@ namespace Parsek
         {
             double effTarget = ApplyDrawdownGuard(
                 targetFunds, runningFunds, currentFunds, 0.01,
-                authoritativeReduction, "funds", out bool clamped);
+                authoritativeReduction, "funds", out bool clamped, out ClampDirection direction);
             double delta = effTarget - currentFunds;
             bool shouldWrite = Math.Abs(delta) >= 0.01;
             bool suspicious = shouldWrite && IsSuspiciousDrawdown(delta, currentFunds);
-            return new FundsPatchDecision(shouldWrite, delta, effTarget, clamped, suspicious);
+            return new FundsPatchDecision(shouldWrite, delta, effTarget, clamped, direction, suspicious);
         }
 
         /// <summary>
@@ -887,12 +941,17 @@ namespace Parsek
                 currentFunds, targetFunds, runningFunds, authoritativeReduction);
             if (decision.Clamped)
             {
+                bool fundsDown = decision.Direction == ClampDirection.Down;
+                ref bool fundsLatch = ref (fundsDown
+                    ? ref fundsUpliftClampToastShownThisSession
+                    : ref fundsClampToastShownThisSession);
                 EmitDrawdownGuardClamp(
                     "Funds", runningFunds, currentFunds,
                     wouldBeTarget: targetFunds, clampedTo: decision.EffectiveTarget,
-                    toastText: "Kept your earned funds",
-                    sessionToastLatch: ref fundsClampToastShownThisSession,
-                    perSubjectScienceNote: false);
+                    toastText: fundsDown ? "Held your funds at the spent value" : "Kept your earned funds",
+                    sessionToastLatch: ref fundsLatch,
+                    perSubjectScienceNote: false,
+                    direction: decision.Direction);
             }
 
             if (!decision.ShouldWrite)
@@ -922,6 +981,19 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"PatchFunds: {currentFunds.ToString("F1", IC)} -> {afterFunds.ToString("F1", IC)} " +
                 $"(delta={decision.Delta.ToString("F1", IC)}, target={decision.EffectiveTarget.ToString("F1", IC)})");
+
+            // LedgerTrace Tier-C: reconcile the computed target against the live
+            // read-back we just took (afterFunds). Reuses afterFunds; no second read.
+            if (LedgerTrace.IsEnabled)
+            {
+                double tol = LedgerTrace.ResourceTolerance("funds");
+                if (LedgerTrace.IsResourceDrift(decision.EffectiveTarget, afterFunds, tol))
+                    LedgerTrace.EmitAnomaly("funds", "pool", "ledger-vs-truth",
+                        $"target={LedgerTrace.FormatDouble(decision.EffectiveTarget, "F3")} " +
+                        $"actual={LedgerTrace.FormatDouble(afterFunds, "F3")} " +
+                        $"delta={LedgerTrace.FormatDouble(decision.EffectiveTarget - afterFunds, "F3")} " +
+                        $"tol={LedgerTrace.FormatDouble(tol, "R")}");
+            }
         }
 
         /// <summary>
@@ -929,16 +1001,18 @@ namespace Parsek
         /// audit rec #5). Takes the live reputation as a PARAMETER instead of reading
         /// <c>Reputation.Instance</c>. Reputation uses SetReputation (absolute, no delta) and
         /// has NO reservation system, so its running balance IS the target; the only decision
-        /// is the drawdown-guard clamp + the 0.01 no-op gate. The live wrapper performs the
-        /// side effects (clamp WARN+toast, SetReputation, logs) from the returned flags.
-        /// Pure: no KSP singletons touched.
+        /// is the symmetric drawdown-guard clamp + the 0.01 no-op gate. The live wrapper
+        /// performs the side effects (clamp WARN+toast, SetReputation, logs) from the returned
+        /// flags. Pure: no KSP singletons touched.
         /// </summary>
         internal readonly struct ReputationPatchDecision
         {
             /// <summary>True when |effectiveTarget - currentRep| >= the 0.01f no-op threshold.</summary>
             internal readonly bool ShouldWrite;
-            /// <summary>True when the drawdown guard clamped the target up to the live value.</summary>
+            /// <summary>True when the symmetric drawdown guard clamped the target (up to or down to live).</summary>
             internal readonly bool Clamped;
+            /// <summary>Which direction the guard clamped (Up = kept earnings, Down = held the current value, None = no clamp).</summary>
+            internal readonly ClampDirection Direction;
             /// <summary>
             /// The raw post-clamp target as the <see cref="ApplyDrawdownGuard"/> double, used
             /// ONLY for the clamp WARN's <c>clampedTo</c> so its formatted output is identical
@@ -949,10 +1023,12 @@ namespace Parsek
             internal readonly float EffectiveTarget;
 
             internal ReputationPatchDecision(
-                bool shouldWrite, bool clamped, double effectiveTargetRaw, float effectiveTarget)
+                bool shouldWrite, bool clamped, ClampDirection direction,
+                double effectiveTargetRaw, float effectiveTarget)
             {
                 ShouldWrite = shouldWrite;
                 Clamped = clamped;
+                Direction = direction;
                 EffectiveTargetRaw = effectiveTargetRaw;
                 EffectiveTarget = effectiveTarget;
             }
@@ -970,10 +1046,10 @@ namespace Parsek
         {
             double effTargetRaw = ApplyDrawdownGuard(
                 targetRep, targetRep, currentRep, 0.01,
-                authoritativeReduction, "reputation", out bool clamped);
+                authoritativeReduction, "reputation", out bool clamped, out ClampDirection direction);
             float effTarget = (float)effTargetRaw;
             bool shouldWrite = Math.Abs(effTarget - currentRep) >= 0.01f;
-            return new ReputationPatchDecision(shouldWrite, clamped, effTargetRaw, effTarget);
+            return new ReputationPatchDecision(shouldWrite, clamped, direction, effTargetRaw, effTarget);
         }
 
         /// <summary>
@@ -1020,12 +1096,17 @@ namespace Parsek
                 currentRep, targetRep, authoritativeReduction);
             if (decision.Clamped)
             {
+                bool repDown = decision.Direction == ClampDirection.Down;
+                ref bool repLatch = ref (repDown
+                    ? ref reputationUpliftClampToastShownThisSession
+                    : ref reputationClampToastShownThisSession);
                 EmitDrawdownGuardClamp(
                     "Reputation", targetRep, currentRep,
                     wouldBeTarget: targetRep, clampedTo: decision.EffectiveTargetRaw,
-                    toastText: "Kept your earned reputation",
-                    sessionToastLatch: ref reputationClampToastShownThisSession,
-                    perSubjectScienceNote: false);
+                    toastText: repDown ? "Held your reputation at the current value" : "Kept your earned reputation",
+                    sessionToastLatch: ref repLatch,
+                    perSubjectScienceNote: false,
+                    direction: decision.Direction);
             }
 
             if (!decision.ShouldWrite)
@@ -1042,6 +1123,19 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"PatchReputation: {currentRep.ToString("F2", IC)} -> {afterRep.ToString("F2", IC)} " +
                 $"(target={decision.EffectiveTarget.ToString("F2", IC)})");
+
+            // LedgerTrace Tier-C: reconcile the computed target against the live
+            // read-back we just took (afterRep). Reuses afterRep; no second read.
+            if (LedgerTrace.IsEnabled)
+            {
+                double tol = LedgerTrace.ResourceTolerance("reputation");
+                if (LedgerTrace.IsResourceDrift(decision.EffectiveTarget, afterRep, tol))
+                    LedgerTrace.EmitAnomaly("reputation", "pool", "ledger-vs-truth",
+                        $"target={LedgerTrace.FormatDouble(decision.EffectiveTarget, "F3")} " +
+                        $"actual={LedgerTrace.FormatDouble(afterRep, "F3")} " +
+                        $"delta={LedgerTrace.FormatDouble(decision.EffectiveTarget - afterRep, "F3")} " +
+                        $"tol={LedgerTrace.FormatDouble(tol, "R")}");
+            }
         }
 
         /// <summary>
@@ -1164,6 +1258,22 @@ namespace Parsek
                         clearedSubjects++;
                     changedSubjects.Add(
                         $"{subjectId}:{oldScience.ToString("R", IC)}->{targetScience.ToString("R", IC)}");
+
+                    // LedgerTrace Tier-B (per-subject change line) + Tier-C (read-back
+                    // reconcile of the UNCLAMPED gap-1 per-subject write).
+                    if (LedgerTrace.IsEnabled)
+                    {
+                        LedgerTrace.EmitOnChange("subject-science", subjectId,
+                            $"{oldScience.ToString("R", IC)}->{targetScience.ToString("R", IC)}");
+
+                        double subTol = LedgerTrace.ResourceTolerance("subject-science");
+                        if (LedgerTrace.IsSubjectScienceDrift(targetScience, kspSubject.science, subTol))
+                            LedgerTrace.EmitAnomaly("subject-science", subjectId, "ledger-vs-truth",
+                                $"target={LedgerTrace.FormatDouble(targetScience, "F3")} " +
+                                $"actual={LedgerTrace.FormatDouble(kspSubject.science, "F3")} " +
+                                $"delta={LedgerTrace.FormatDouble(targetScience - kspSubject.science, "F3")} " +
+                                $"tol={LedgerTrace.FormatDouble(subTol, "R")}");
+                    }
                 }
                 else
                 {
@@ -1285,6 +1395,12 @@ namespace Parsek
 
             int credited = 0, unreached = 0, skipped = 0;
 
+            // LedgerTrace Tier-B coverage for milestones (gap 6) is intentionally
+            // DEFERRED from v1: the Prompt-4 Tier-B enumeration is "subject / node /
+            // facility / contract id" and omits milestones, and there is no #1098
+            // changed-set for the per-node reached/complete flips below. Add a
+            // milestone changed-set (and a presence read-back) when Tier-B is extended
+            // to milestones; until then milestone changes are not traced.
             PatchProgressNodeTree(tree, milestones, reachedField, completeField,
                 mannedProp, unmannedProp,
                 "", authoritativeRepeatableRecordState,
@@ -2111,6 +2227,47 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"PatchContracts: all {restoredIds.Count.ToString(IC)} restored contract id(s): " +
                     string.Join(", ", restoredIds));
+
+            // LedgerTrace Tier-B (per-contract change lines, reusing the #1098
+            // removed/restored sets) + Tier-C (presence read-back reconcile). The
+            // read-back builds a set of live-present contract guids from the current
+            // contracts list, so it is guarded by IsEnabled — the extra work only runs
+            // when tracing. Intended: a restored id must be present, a removed id absent.
+            if (LedgerTrace.IsEnabled)
+            {
+                // Coverage boundary (intentional, not a bug): livePresentGuids is built
+                // from the ACTIVE contract bucket (currentContracts) only. removedIds can
+                // include finished-bucket removals, whose absence from this active set
+                // would read as "absent" — which matches the intended-removed expectation,
+                // so this never produces a false positive. Reconciling the finished bucket
+                // is out of v1 scope; this read-back reconciles the active bucket only.
+                var livePresentGuids = new HashSet<string>(StringComparer.Ordinal);
+                if (currentContracts != null)
+                {
+                    foreach (var c in currentContracts)
+                    {
+                        if (c != null)
+                            livePresentGuids.Add(c.ContractGuid.ToString());
+                    }
+                }
+
+                foreach (string contractId in restoredIds)
+                {
+                    LedgerTrace.EmitOnChange("contract", contractId, "restored");
+                    bool present = livePresentGuids.Contains(contractId);
+                    if (LedgerTrace.IsContractPresenceMismatch(true, present))
+                        LedgerTrace.EmitAnomaly("contract", contractId, "ledger-vs-truth",
+                            "intendedPresent=true actualPresent=" + LedgerTrace.Bool(present));
+                }
+                foreach (string contractId in removedIds)
+                {
+                    LedgerTrace.EmitOnChange("contract", contractId, "removed");
+                    bool present = livePresentGuids.Contains(contractId);
+                    if (LedgerTrace.IsContractPresenceMismatch(false, present))
+                        LedgerTrace.EmitAnomaly("contract", contractId, "ledger-vs-truth",
+                            "intendedPresent=false actualPresent=" + LedgerTrace.Bool(present));
+                }
+            }
         }
 
         // ================================================================
@@ -2600,6 +2757,16 @@ namespace Parsek
         private static bool scienceClampToastShownThisSession;
         private static bool reputationClampToastShownThisSession;
 
+        // Dedicated UPLIFT (DOWN-clamp) session latches (plan §2.2 step 3). The symmetric
+        // no-authority guard can clamp DOWN to live when the running balance LEADS live
+        // (a real spend the ledger does not model, e.g. a facility upgrade — Bug 2). That
+        // direction toasts once per session INDEPENDENTLY of the drawdown (UP-clamp) latch,
+        // so a session that experiences both an under-model leak and an over-model leak
+        // shows both toasts. Same lifecycle as the drawdown latches.
+        private static bool fundsUpliftClampToastShownThisSession;
+        private static bool scienceUpliftClampToastShownThisSession;
+        private static bool reputationUpliftClampToastShownThisSession;
+
         /// <summary>
         /// Clears the per-resource clamp-toast session latches. Called at a genuine
         /// new-session boundary (a fresh save load) so the first guarded clamp in a new
@@ -2610,7 +2777,23 @@ namespace Parsek
             fundsClampToastShownThisSession = false;
             scienceClampToastShownThisSession = false;
             reputationClampToastShownThisSession = false;
+            fundsUpliftClampToastShownThisSession = false;
+            scienceUpliftClampToastShownThisSession = false;
+            reputationUpliftClampToastShownThisSession = false;
         }
+
+        /// <summary>
+        /// Direction a guarded clamp moved the patch target (plan §2.2 step 2).
+        /// <list type="bullet">
+        /// <item><see cref="None"/>: no clamp fired.</item>
+        /// <item><see cref="Up"/>: running BELOW live (a missing earning channel) -> target
+        /// floored UP to live ("keep what you earned").</item>
+        /// <item><see cref="Down"/>: running ABOVE live (a spend the ledger does not model,
+        /// e.g. a facility upgrade — Bug 2) -> target capped DOWN to live ("hold at the
+        /// spent value"), so a non-authoritative recalc cannot refund the spend.</item>
+        /// </list>
+        /// </summary>
+        internal enum ClampDirection { None, Up, Down }
 
         /// <summary>
         /// Pure predicate (Blocker 2, plan §3.3): a drawdown is guardable iff the
@@ -2627,47 +2810,125 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure clamp decision (plan §4.2 step 1). When no time-travel context authorizes
-        /// the reduction AND the running balance is below live past epsilon, raises the
-        /// effective target floor to <paramref name="currentLive"/> (returns
-        /// <c>max(patchTarget, currentLive)</c>) so the patch never writes below the
-        /// player's earned value, and sets <paramref name="clamped"/>. Otherwise returns
-        /// <paramref name="patchTarget"/> unchanged (covers the legitimate reservation
-        /// case, where the target may be below live but the running balance is not).
+        /// Pure predicate (Bug 2, plan §2.1): an UPLIFT is guardable iff the running
+        /// balance is more than <paramref name="epsilon"/> ABOVE the current live value.
+        /// Exact mirror of <see cref="IsGuardableDrawdown"/> on the SAME running-balance
+        /// discriminator, NOT the target: a legitimate reservation lowers only the
+        /// spendable target while leaving the running balance at/above live, so it never
+        /// trips this (running is within eps of live for a pure load); a real spend the
+        /// ledger does not model (a facility upgrade, the Bug-2 signature) leaves the
+        /// running balance ABOVE live, so it does. When this fires with no time-travel
+        /// authority the target is capped DOWN to live so the patch cannot refund the spend.
+        /// </summary>
+        internal static bool IsGuardableUplift(
+            double runningBalance, double currentLive, double epsilon)
+        {
+            return runningBalance > currentLive + epsilon;
+        }
+
+        /// <summary>
+        /// Pure clamp decision (1-out overload preserved for the existing call sites /
+        /// DrawdownGuardTests). Delegates to the 2-out <see cref="ApplyDrawdownGuard(double,
+        /// double, double, double, bool, string, out bool, out ClampDirection)"/> overload
+        /// and discards the direction.
         /// </summary>
         internal static double ApplyDrawdownGuard(
             double patchTarget, double runningBalance, double currentLive, double epsilon,
             bool authoritativeReduction, string resource, out bool clamped)
         {
-            if (!authoritativeReduction && IsGuardableDrawdown(runningBalance, currentLive, epsilon))
+            return ApplyDrawdownGuard(
+                patchTarget, runningBalance, currentLive, epsilon,
+                authoritativeReduction, resource, out clamped, out _);
+        }
+
+        /// <summary>
+        /// Pure symmetric clamp decision (plan §2.2 step 2). When no time-travel context
+        /// authorizes the change the guard keys on the RUNNING balance vs live in BOTH
+        /// directions:
+        /// <list type="bullet">
+        /// <item>running BELOW live past epsilon -> floor the target UP to live (returns
+        /// <c>max(patchTarget, currentLive)</c>), <paramref name="direction"/>=<see
+        /// cref="ClampDirection.Up"/>. UP semantics are UNCHANGED from the original guard,
+        /// including flagging <paramref name="clamped"/> even when <c>patchTarget &gt;
+        /// live</c> (so the existing TargetAboveLive assertion still holds).</item>
+        /// <item>running ABOVE live past epsilon -> cap the target DOWN to live (returns
+        /// <c>min(patchTarget, currentLive)</c>), <paramref name="direction"/>=<see
+        /// cref="ClampDirection.Down"/>. The DOWN branch flags <paramref name="clamped"/>
+        /// ONLY when the clamp actually LOWERED the value (<c>min &lt; patchTarget</c>),
+        /// so a target already at/below live (a partial reservation on top of a leak) does
+        /// not emit a misleading WARN/toast (plan §2.4 last bullet).</item>
+        /// <item>otherwise (running within epsilon of live in either direction, OR an
+        /// authoritative signal is set) -> return <paramref name="patchTarget"/> unchanged,
+        /// <paramref name="direction"/>=<see cref="ClampDirection.None"/>. Covers the
+        /// legitimate reservation case (target below live while running is at live) and
+        /// every authoritative time-travel restore (which moves funds freely either way).</item>
+        /// </list>
+        /// </summary>
+        internal static double ApplyDrawdownGuard(
+            double patchTarget, double runningBalance, double currentLive, double epsilon,
+            bool authoritativeReduction, string resource, out bool clamped,
+            out ClampDirection direction)
+        {
+            if (!authoritativeReduction)
             {
-                clamped = true;
-                return patchTarget > currentLive ? patchTarget : currentLive;
+                if (IsGuardableDrawdown(runningBalance, currentLive, epsilon))
+                {
+                    clamped = true;
+                    direction = ClampDirection.Up;
+                    return patchTarget > currentLive ? patchTarget : currentLive;
+                }
+
+                if (IsGuardableUplift(runningBalance, currentLive, epsilon))
+                {
+                    // Cap DOWN to live. Flag clamped only when the value actually moved:
+                    // a target already at/below live is not refunding the spend, so a
+                    // no-op clamp must not emit a misleading WARN/toast (plan §2.4).
+                    double capped = patchTarget < currentLive ? patchTarget : currentLive;
+                    clamped = capped < patchTarget;
+                    direction = clamped ? ClampDirection.Down : ClampDirection.None;
+                    return capped;
+                }
             }
 
             clamped = false;
+            direction = ClampDirection.None;
             return patchTarget;
         }
 
         /// <summary>
-        /// Emits the loud observability for a guarded clamp (plan §4.2 steps 2-3): a WARN
-        /// with the full numbers ALWAYS (every guarded recalc, documenting the ongoing
-        /// leak), and one short session-latched native ScreenMessage naming the protected
-        /// resource. <paramref name="perSubjectScienceNote"/> appends the documented
-        /// per-subject divergence limitation to the WARN for the science pool (MINOR 5).
-        /// Internal static so xUnit can drive the WARN + toast path directly (the live
-        /// patch methods early-return on null KSP singletons).
+        /// Emits the loud observability for a guarded clamp (plan §4.2 steps 2-3 / §2.2
+        /// step 3): a WARN with the full numbers ALWAYS (every guarded recalc, documenting
+        /// the ongoing leak), and one short session-latched native ScreenMessage naming the
+        /// protected resource. The WARN distinguishes the two directions:
+        /// <list type="bullet">
+        /// <item><see cref="ClampDirection.Up"/> -> "GUARDED DRAWDOWN clamped" (running below
+        /// live: a missing earning channel; target floored up to live).</item>
+        /// <item><see cref="ClampDirection.Down"/> -> "GUARDED UPLIFT clamped" (running above
+        /// live: a spend the ledger does not model, e.g. a facility upgrade; target capped
+        /// down to live so the patch cannot refund it — Bug 2).</item>
+        /// </list>
+        /// <paramref name="perSubjectScienceNote"/> appends the documented per-subject
+        /// divergence limitation to the WARN for the science pool (MINOR 5). Internal static
+        /// so xUnit can drive the WARN + toast path directly (the live patch methods
+        /// early-return on null KSP singletons).
         /// </summary>
         internal static void EmitDrawdownGuardClamp(
             string resource, double runningBalance, double currentLive,
             double wouldBeTarget, double clampedTo, string toastText,
-            ref bool sessionToastLatch, bool perSubjectScienceNote)
+            ref bool sessionToastLatch, bool perSubjectScienceNote,
+            ClampDirection direction = ClampDirection.Up)
         {
+            string label = direction == ClampDirection.Down
+                ? "GUARDED UPLIFT clamped"
+                : "GUARDED DRAWDOWN clamped";
+            string tail = direction == ClampDirection.Down
+                ? "(no time-travel context) - spent value held; ledger may be missing a spending channel"
+                : "(no time-travel context) - earned value preserved; ledger may be missing an earning channel";
             string warn =
-                $"Patch{resource}: GUARDED DRAWDOWN clamped resource={resource} " +
+                $"Patch{resource}: {label} resource={resource} " +
                 $"running={runningBalance.ToString("R", IC)} live={currentLive.ToString("R", IC)} " +
                 $"wouldBeTarget={wouldBeTarget.ToString("R", IC)} clampedTo={clampedTo.ToString("R", IC)} " +
-                "(no time-travel context) - earned value preserved; ledger may be missing an earning channel";
+                tail;
             if (perSubjectScienceNote)
             {
                 warn += " NOTE: per-subject credited science is patched UNCLAMPED, so the " +
