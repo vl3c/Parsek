@@ -23,6 +23,17 @@ namespace Parsek
             ParsekLog.VerboseOnChange(Tag, identity, stateKey, message);
         }
 
+        // LedgerTrace-only: one facility level change captured at the SetLevel site for
+        // the post-loop Tier-B change line + Tier-C read-back reconcile (facilities have
+        // no #1098 changed-set).
+        private struct LedgerFacilityChange
+        {
+            public string FacilityId;
+            public int OldLevel;
+            public int TargetLevel;
+            public int ActualLevel;
+        }
+
         /// <summary>
         /// Patches KSP's facility levels to match the module's derived state.
         /// Reads from ScenarioUpgradeableFacilities.protoUpgradeables and sets
@@ -62,6 +73,13 @@ namespace Parsek
             int patchedCount = 0;
             int skippedCount = 0;
             int notFoundCount = 0;
+            // LedgerTrace: facilities have NO #1098 changed-set, so we accumulate the
+            // changed ids locally (id:old->new) for Tier-B change lines + Tier-C
+            // read-back below. Only populated when tracing is on. (This is the ONLY new
+            // changed-set LedgerTrace adds; every other tier reuses the existing #1098
+            // sets.)
+            List<LedgerFacilityChange> ledgerTraceChanges =
+                LedgerTrace.IsEnabled ? new List<LedgerFacilityChange>() : null;
 
             foreach (var kvp in allFacilities)
             {
@@ -113,6 +131,33 @@ namespace Parsek
                     $"PatchFacilities: '{facilityId}' level {currentLevel.ToString(IC)} -> " +
                     $"{targetLevel.ToString(IC)} (ledgerLevel={targetLedgerLevel.ToString(IC)}, " +
                     $"destroyed={state.Destroyed.ToString(IC)})");
+
+                // LedgerTrace: capture the change + the live read-back level (after
+                // SetLevel) for the post-loop Tier-B / Tier-C emit. Reading
+                // facility.FacilityLevel here reuses the live ref we just wrote.
+                if (ledgerTraceChanges != null)
+                    ledgerTraceChanges.Add(new LedgerFacilityChange
+                    {
+                        FacilityId = facilityId,
+                        OldLevel = currentLevel,
+                        TargetLevel = targetLevel,
+                        ActualLevel = facility.FacilityLevel
+                    });
+            }
+
+            // LedgerTrace Tier-B (per-facility change line) + Tier-C (level read-back
+            // reconcile). Emitted after the loop so the patch path stays tight.
+            if (ledgerTraceChanges != null)
+            {
+                foreach (var change in ledgerTraceChanges)
+                {
+                    LedgerTrace.EmitOnChange("facility", change.FacilityId,
+                        change.OldLevel.ToString(IC) + "->" + change.TargetLevel.ToString(IC));
+                    if (LedgerTrace.IsFacilityLevelMismatch(change.TargetLevel, change.ActualLevel))
+                        LedgerTrace.EmitAnomaly("facility", change.FacilityId, "ledger-vs-truth",
+                            "targetLevel=" + change.TargetLevel.ToString(IC)
+                            + " actualLevel=" + change.ActualLevel.ToString(IC));
+                }
             }
 
             // Bug #596: gate INFO on changed-state-or-not-found-diagnostic only.

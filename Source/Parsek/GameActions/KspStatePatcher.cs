@@ -185,6 +185,21 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"PatchScience: {currentScience.ToString("F1", IC)} -> {afterScience.ToString("F1", IC)} " +
                     $"(delta={delta.ToString("F1", IC)}, target={targetScience.ToString("F1", IC)})");
+
+                // LedgerTrace Tier-C: reconcile the computed target against the live
+                // read-back we just took (afterScience). A drift beyond the science
+                // tolerance is a ledger-vs-truth anomaly (the write did not land where
+                // the recalc intended). Reuses afterScience; no second read.
+                if (LedgerTrace.IsEnabled)
+                {
+                    double tol = LedgerTrace.ResourceTolerance("science");
+                    if (LedgerTrace.IsResourceDrift(targetScience, afterScience, tol))
+                        LedgerTrace.EmitAnomaly("science", "pool", "ledger-vs-truth",
+                            $"target={LedgerTrace.FormatDouble(targetScience, "F3")} " +
+                            $"actual={LedgerTrace.FormatDouble(afterScience, "F3")} " +
+                            $"delta={LedgerTrace.FormatDouble(targetScience - afterScience, "F3")} " +
+                            $"tol={LedgerTrace.FormatDouble(tol, "R")}");
+                }
             }
 
             // Always patch per-subject credited totals — individual subjects may have changed
@@ -472,6 +487,34 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"PatchTechTree: all {madeAvailableIds.Count.ToString(IC)} made-available tech id(s): " +
                     string.Join(", ", madeAvailableIds));
+
+            // LedgerTrace Tier-B (per-node change lines, reusing the #1098 changed-sets)
+            // + Tier-C (read-back presence reconcile). The read-back re-queries
+            // ResearchAndDevelopment.GetTechnologyState per changed node, so it is
+            // guarded by IsEnabled — the extra KSP calls only run when tracing.
+            if (LedgerTrace.IsEnabled)
+            {
+                foreach (string techId in madeUnavailableIds)
+                {
+                    LedgerTrace.EmitOnChange("tech-node", techId, "->unavailable");
+                    bool actualAvailable =
+                        ResearchAndDevelopment.GetTechnologyState(techId) == RDTech.State.Available;
+                    // Intended: NOT in the target set -> should be unavailable.
+                    if (LedgerTrace.IsTechNodePresenceMismatch(false, actualAvailable))
+                        LedgerTrace.EmitAnomaly("tech-node", techId, "ledger-vs-truth",
+                            "intendedAvailable=false actualAvailable=" + LedgerTrace.Bool(actualAvailable));
+                }
+                foreach (string techId in madeAvailableIds)
+                {
+                    LedgerTrace.EmitOnChange("tech-node", techId, "->available");
+                    bool actualAvailable =
+                        ResearchAndDevelopment.GetTechnologyState(techId) == RDTech.State.Available;
+                    // Intended: in the target set -> should be available.
+                    if (LedgerTrace.IsTechNodePresenceMismatch(true, actualAvailable))
+                        LedgerTrace.EmitAnomaly("tech-node", techId, "ledger-vs-truth",
+                            "intendedAvailable=true actualAvailable=" + LedgerTrace.Bool(actualAvailable));
+                }
+            }
 
             if (bypassRehydratedNodes > 0)
                 ParsekLog.Verbose(Tag,
@@ -809,6 +852,19 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"PatchFunds: {currentFunds.ToString("F1", IC)} -> {afterFunds.ToString("F1", IC)} " +
                 $"(delta={delta.ToString("F1", IC)}, target={targetFunds.ToString("F1", IC)})");
+
+            // LedgerTrace Tier-C: reconcile the computed target against the live
+            // read-back we just took (afterFunds). Reuses afterFunds; no second read.
+            if (LedgerTrace.IsEnabled)
+            {
+                double tol = LedgerTrace.ResourceTolerance("funds");
+                if (LedgerTrace.IsResourceDrift(targetFunds, afterFunds, tol))
+                    LedgerTrace.EmitAnomaly("funds", "pool", "ledger-vs-truth",
+                        $"target={LedgerTrace.FormatDouble(targetFunds, "F3")} " +
+                        $"actual={LedgerTrace.FormatDouble(afterFunds, "F3")} " +
+                        $"delta={LedgerTrace.FormatDouble(targetFunds - afterFunds, "F3")} " +
+                        $"tol={LedgerTrace.FormatDouble(tol, "R")}");
+            }
         }
 
         /// <summary>
@@ -885,6 +941,19 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"PatchReputation: {currentRep.ToString("F2", IC)} -> {afterRep.ToString("F2", IC)} " +
                 $"(target={targetRep.ToString("F2", IC)})");
+
+            // LedgerTrace Tier-C: reconcile the computed target against the live
+            // read-back we just took (afterRep). Reuses afterRep; no second read.
+            if (LedgerTrace.IsEnabled)
+            {
+                double tol = LedgerTrace.ResourceTolerance("reputation");
+                if (LedgerTrace.IsResourceDrift(targetRep, afterRep, tol))
+                    LedgerTrace.EmitAnomaly("reputation", "pool", "ledger-vs-truth",
+                        $"target={LedgerTrace.FormatDouble(targetRep, "F3")} " +
+                        $"actual={LedgerTrace.FormatDouble(afterRep, "F3")} " +
+                        $"delta={LedgerTrace.FormatDouble(targetRep - afterRep, "F3")} " +
+                        $"tol={LedgerTrace.FormatDouble(tol, "R")}");
+            }
         }
 
         /// <summary>
@@ -964,6 +1033,22 @@ namespace Parsek
                         clearedSubjects++;
                     changedSubjects.Add(
                         $"{subjectId}:{oldScience.ToString("R", IC)}->{targetScience.ToString("R", IC)}");
+
+                    // LedgerTrace Tier-B (per-subject change line) + Tier-C (read-back
+                    // reconcile of the UNCLAMPED gap-1 per-subject write).
+                    if (LedgerTrace.IsEnabled)
+                    {
+                        LedgerTrace.EmitOnChange("subject-science", subjectId,
+                            $"{oldScience.ToString("R", IC)}->{targetScience.ToString("R", IC)}");
+
+                        double subTol = LedgerTrace.ResourceTolerance("subject-science");
+                        if (LedgerTrace.IsSubjectScienceDrift(targetScience, kspSubject.science, subTol))
+                            LedgerTrace.EmitAnomaly("subject-science", subjectId, "ledger-vs-truth",
+                                $"target={LedgerTrace.FormatDouble(targetScience, "F3")} " +
+                                $"actual={LedgerTrace.FormatDouble(kspSubject.science, "F3")} " +
+                                $"delta={LedgerTrace.FormatDouble(targetScience - kspSubject.science, "F3")} " +
+                                $"tol={LedgerTrace.FormatDouble(subTol, "R")}");
+                    }
                 }
                 else
                 {
@@ -1085,6 +1170,12 @@ namespace Parsek
 
             int credited = 0, unreached = 0, skipped = 0;
 
+            // LedgerTrace Tier-B coverage for milestones (gap 6) is intentionally
+            // DEFERRED from v1: the Prompt-4 Tier-B enumeration is "subject / node /
+            // facility / contract id" and omits milestones, and there is no #1098
+            // changed-set for the per-node reached/complete flips below. Add a
+            // milestone changed-set (and a presence read-back) when Tier-B is extended
+            // to milestones; until then milestone changes are not traced.
             PatchProgressNodeTree(tree, milestones, reachedField, completeField,
                 mannedProp, unmannedProp,
                 "", authoritativeRepeatableRecordState,
@@ -1911,6 +2002,47 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"PatchContracts: all {restoredIds.Count.ToString(IC)} restored contract id(s): " +
                     string.Join(", ", restoredIds));
+
+            // LedgerTrace Tier-B (per-contract change lines, reusing the #1098
+            // removed/restored sets) + Tier-C (presence read-back reconcile). The
+            // read-back builds a set of live-present contract guids from the current
+            // contracts list, so it is guarded by IsEnabled — the extra work only runs
+            // when tracing. Intended: a restored id must be present, a removed id absent.
+            if (LedgerTrace.IsEnabled)
+            {
+                // Coverage boundary (intentional, not a bug): livePresentGuids is built
+                // from the ACTIVE contract bucket (currentContracts) only. removedIds can
+                // include finished-bucket removals, whose absence from this active set
+                // would read as "absent" — which matches the intended-removed expectation,
+                // so this never produces a false positive. Reconciling the finished bucket
+                // is out of v1 scope; this read-back reconciles the active bucket only.
+                var livePresentGuids = new HashSet<string>(StringComparer.Ordinal);
+                if (currentContracts != null)
+                {
+                    foreach (var c in currentContracts)
+                    {
+                        if (c != null)
+                            livePresentGuids.Add(c.ContractGuid.ToString());
+                    }
+                }
+
+                foreach (string contractId in restoredIds)
+                {
+                    LedgerTrace.EmitOnChange("contract", contractId, "restored");
+                    bool present = livePresentGuids.Contains(contractId);
+                    if (LedgerTrace.IsContractPresenceMismatch(true, present))
+                        LedgerTrace.EmitAnomaly("contract", contractId, "ledger-vs-truth",
+                            "intendedPresent=true actualPresent=" + LedgerTrace.Bool(present));
+                }
+                foreach (string contractId in removedIds)
+                {
+                    LedgerTrace.EmitOnChange("contract", contractId, "removed");
+                    bool present = livePresentGuids.Contains(contractId);
+                    if (LedgerTrace.IsContractPresenceMismatch(false, present))
+                        LedgerTrace.EmitAnomaly("contract", contractId, "ledger-vs-truth",
+                            "intendedPresent=false actualPresent=" + LedgerTrace.Bool(present));
+                }
+            }
         }
 
         // ================================================================

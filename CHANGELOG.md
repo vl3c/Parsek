@@ -29,6 +29,7 @@ All notable changes to Parsek are documented here.
 - A long career session no longer floods the log with per-frame re-fly settle and per-recording overlap-gate diagnostics. These two traces alone were about two-thirds of a 2026-06-07 career playtest log (roughly 233,000 lines, none of it from an actual re-fly): the floating-origin shift line is now a throttled heartbeat, and the overlap-gate verdict logs only when it actually changes. The per-frame supply-route summary was given the same change-only treatment.
 - The recorder's "sparse sampling" WARN no longer fires during normal coasting or on parked vessels. Its large-gap threshold now scales with the configured sample-density backstop (about 3 seconds at the default Medium) instead of a fixed half-second, so only a genuinely stalled sampler warns; a long career session was logging well over a hundred of these on routine coasts.
 - When Parsek rewrites career state, the default log now names which per-subject science totals, tech-node availability flips, and contracts were changed (a bounded sample on the summary line, full list at Verbose), so a corrupted subject, node, or contract is identifiable from a normal log instead of only a count.
+- Added a Ledger apply tracing diagnostic (off by default, in Diagnostics settings) that logs each ledger reconstruction and flags any computed-vs-live mismatch in your career funds, science, reputation, facility levels, tech nodes, or contracts. It is for investigating rare corruption only; leave it off for normal play.
 
 ### Internals & Tests
 
