@@ -19,6 +19,12 @@ namespace Parsek
     {
         private const string Tag = "KspStatePatcher";
         private const double RecordStateEpsilon = 0.000001;
+
+        // Max per-identity entries appended to a default-level (Info) apply line.
+        // Keeps the Info aggregate diagnosable without unbounded log growth; the full
+        // list is emitted alongside at Verbose.
+        private const int IdentitySampleCap = 10;
+
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         private static void VerboseStablePatchState(string identity, string stateKey, string message)
@@ -360,6 +366,8 @@ namespace Parsek
             int bypassRehydratedNodes = 0, bypassTotalPartsAdded = 0, bypassFallbackNodes = 0;
             var seen = new HashSet<string>(StringComparer.Ordinal);
             List<string> missingTargetIds = null;
+            var madeUnavailableIds = new List<string>();
+            var madeAvailableIds = new List<string>();
 
             foreach (var tech in AssetBase.RnDTechTree.GetTreeTechs())
             {
@@ -375,7 +383,10 @@ namespace Parsek
                 {
                     ProtoTechNode proto = ResearchAndDevelopment.Instance.GetTechState(techId);
                     if (proto == null || proto.state != RDTech.State.Available)
+                    {
                         madeAvailable++;
+                        madeAvailableIds.Add(techId);
+                    }
                     else
                         alreadyAvailable++;
 
@@ -393,7 +404,10 @@ namespace Parsek
                 else
                 {
                     if (currentState == RDTech.State.Available || tech.state == RDTech.State.Available)
+                    {
                         madeUnavailable++;
+                        madeUnavailableIds.Add(techId);
+                    }
                     else
                         alreadyUnavailable++;
 
@@ -422,6 +436,12 @@ namespace Parsek
             string baselineLabel = baselineUt.HasValue
                 ? baselineUt.Value.ToString("R", IC)
                 : "null";
+            // madeUnavailable identities lead (the dangerous direction: a wrongly
+            // re-locked researched node), followed by madeAvailable identities.
+            string madeUnavailableSample =
+                ComposeBoundedIdentitySample(madeUnavailableIds, IdentitySampleCap);
+            string madeAvailableSample =
+                ComposeBoundedIdentitySample(madeAvailableIds, IdentitySampleCap);
             ParsekLog.Info(Tag,
                 $"PatchTechTree: available={target.Count.ToString(IC)}, " +
                 $"madeAvailable={madeAvailable.ToString(IC)}, " +
@@ -429,7 +449,23 @@ namespace Parsek
                 $"alreadyAvailable={alreadyAvailable.ToString(IC)}, " +
                 $"alreadyUnavailable={alreadyUnavailable.ToString(IC)}, " +
                 $"missingTargets={missingTargets.ToString(IC)}, " +
-                $"utCutoff={cutoffLabel}, baselineUt={baselineLabel}");
+                $"utCutoff={cutoffLabel}, baselineUt={baselineLabel}" +
+                (madeUnavailableSample.Length > 0
+                    ? $", madeUnavailableIds=[{madeUnavailableSample}]"
+                    : string.Empty) +
+                (madeAvailableSample.Length > 0
+                    ? $", madeAvailableIds=[{madeAvailableSample}]"
+                    : string.Empty));
+
+            if (madeUnavailableIds.Count > 0)
+                ParsekLog.Verbose(Tag,
+                    $"PatchTechTree: all {madeUnavailableIds.Count.ToString(IC)} made-unavailable tech id(s): " +
+                    string.Join(", ", madeUnavailableIds));
+
+            if (madeAvailableIds.Count > 0)
+                ParsekLog.Verbose(Tag,
+                    $"PatchTechTree: all {madeAvailableIds.Count.ToString(IC)} made-available tech id(s): " +
+                    string.Join(", ", madeAvailableIds));
 
             if (bypassRehydratedNodes > 0)
                 ParsekLog.Verbose(Tag,
@@ -881,6 +917,7 @@ namespace Parsek
             int skippedSubjects = 0;
             int notFoundSubjects = 0;
             int clearedSubjects = 0;
+            var changedSubjects = new List<string>();
 
             foreach (var subjectId in subjectIds)
             {
@@ -896,6 +933,8 @@ namespace Parsek
                 float targetScience = hasCurrentState ? (float)state.CreditedTotal : 0f;
                 if (Math.Abs(kspSubject.science - targetScience) > 0.001f)
                 {
+                    // Read the live value BEFORE the write so the log captures old->new.
+                    float oldScience = kspSubject.science;
                     kspSubject.science = targetScience;
                     if (kspSubject.scienceCap > 0f)
                         kspSubject.scientificValue = 1f - (targetScience / kspSubject.scienceCap);
@@ -905,6 +944,8 @@ namespace Parsek
                     patchedSubjects++;
                     if (!hasCurrentState)
                         clearedSubjects++;
+                    changedSubjects.Add(
+                        $"{subjectId}:{oldScience.ToString("R", IC)}->{targetScience.ToString("R", IC)}");
                 }
                 else
                 {
@@ -912,12 +953,22 @@ namespace Parsek
                 }
             }
 
+            string changedSubjectsSample =
+                ComposeBoundedIdentitySample(changedSubjects, IdentitySampleCap);
             ParsekLog.Info(Tag,
                 $"PatchPerSubjectScience: patched={patchedSubjects.ToString(IC)}, " +
                 $"cleared={clearedSubjects.ToString(IC)}, " +
                 $"skipped={skippedSubjects.ToString(IC)}, " +
                 $"notFound={notFoundSubjects.ToString(IC)}, " +
-                $"totalSubjects={subjectIds.Count}");
+                $"totalSubjects={subjectIds.Count}" +
+                (changedSubjectsSample.Length > 0
+                    ? $", changedSubjects=[{changedSubjectsSample}]"
+                    : string.Empty));
+
+            if (changedSubjects.Count > 0)
+                ParsekLog.Verbose(Tag,
+                    $"PatchPerSubjectScience: all {changedSubjects.Count.ToString(IC)} changed subject(s): " +
+                    string.Join(", ", changedSubjects));
         }
 
         internal static HashSet<string> BuildSubjectIdsForPatch(
@@ -1677,6 +1728,12 @@ namespace Parsek
                 $"{survivingTerminalIds.Count.ToString(IC)} terminal contract(s) preserved in place " +
                 $"(unregisterFailures={unregisterFailures.ToString(IC)})");
 
+            // These are the TARGETED removal keys (pure set): current keys first, then
+            // finished keys. The count can exceed the actually-removed count if a targeted
+            // live contract was already absent from the KSP list.
+            var removedIds = DescribeRemovedContractIdentities(
+                toRemoveCurrentKeys, toRemoveFinishedKeys);
+
             // 2. Rebuild ONLY contracts that are in the ledger but not already present.
             int restored = 0;
             int skippedExisting = 0;
@@ -1685,6 +1742,7 @@ namespace Parsek
             int typeNotFound = 0;
             int loadFailed = 0;
             int registered = 0;
+            var restoredIds = new List<string>();
 
             foreach (string contractId in activeIds)
             {
@@ -1768,6 +1826,7 @@ namespace Parsek
                         }
 
                         restored++;
+                        restoredIds.Add(contractId);
                     }
                     else
                     {
@@ -1799,6 +1858,10 @@ namespace Parsek
 
             int kspTotalAfter = currentContracts != null ? currentContracts.Count : 0;
             int kspFinishedAfter = finishedContracts != null ? finishedContracts.Count : 0;
+            string removedSample =
+                ComposeBoundedIdentitySample(removedIds, IdentitySampleCap);
+            string restoredSample =
+                ComposeBoundedIdentitySample(restoredIds, IdentitySampleCap);
             ParsekLog.Info(Tag,
                 $"PatchContracts: removedStale={removedStale.ToString(IC)}, " +
                 $"removedFinishedTombstoned={removedFinishedTombstoned.ToString(IC)}, " +
@@ -1813,7 +1876,23 @@ namespace Parsek
                 $"ledgerTerminal={terminalIds.Count.ToString(IC)}, " +
                 $"kspTotal={kspTotalAfter.ToString(IC)}, " +
                 $"kspFinished={kspFinishedAfter.ToString(IC)} " +
-                $"(Offered and unrelated finished history preserved; tombstoned terminal filtered)");
+                $"(Offered and unrelated finished history preserved; tombstoned terminal filtered)" +
+                (removedSample.Length > 0
+                    ? $", removedIds=[{removedSample}]"
+                    : string.Empty) +
+                (restoredSample.Length > 0
+                    ? $", restoredIds=[{restoredSample}]"
+                    : string.Empty));
+
+            if (removedIds.Count > 0)
+                ParsekLog.Verbose(Tag,
+                    $"PatchContracts: all {removedIds.Count.ToString(IC)} targeted removed contract id(s): " +
+                    string.Join(", ", removedIds));
+
+            if (restoredIds.Count > 0)
+                ParsekLog.Verbose(Tag,
+                    $"PatchContracts: all {restoredIds.Count.ToString(IC)} restored contract id(s): " +
+                    string.Join(", ", restoredIds));
         }
 
         // ================================================================
@@ -2086,6 +2165,59 @@ namespace Parsek
                 Id = entry.Id,
                 State = entry.State
             };
+        }
+
+        /// <summary>
+        /// Pure helper: composes a bounded, comma-joined sample of changed-identity
+        /// descriptions for a default-level (Info) apply line. Returns string.Empty for a
+        /// null/empty list so the caller appends NOTHING (steady-state Info lines stay
+        /// byte-identical). Under the cap, the full list joins as-is; over the cap, the
+        /// first <paramref name="cap"/> entries join followed by a " (+N more)" overflow
+        /// marker. The full list is emitted separately at Verbose by each caller.
+        /// </summary>
+        internal static string ComposeBoundedIdentitySample(
+            IReadOnlyList<string> changedDescriptions, int cap)
+        {
+            if (changedDescriptions == null || changedDescriptions.Count == 0)
+                return string.Empty;
+
+            int count = changedDescriptions.Count;
+            if (count <= cap)
+                return string.Join(", ", changedDescriptions);
+
+            var head = new List<string>(cap);
+            for (int i = 0; i < cap; i++)
+                head.Add(changedDescriptions[i]);
+
+            return string.Join(", ", head)
+                + " (+" + (count - cap).ToString(IC) + " more)";
+        }
+
+        /// <summary>
+        /// Pure helper: derives the contract identities targeted for removal by the
+        /// per-state removal-key sets — current-set keys first, then finished-set keys.
+        /// Headless-testable because both inputs come from pure key builders. The result
+        /// reflects the TARGETED removal keys, which can exceed the count actually removed
+        /// when a targeted contract was already absent from the live KSP list.
+        /// </summary>
+        internal static List<string> DescribeRemovedContractIdentities(
+            HashSet<ContractRemovalKey> currentKeys,
+            HashSet<ContractRemovalKey> finishedKeys)
+        {
+            var ids = new List<string>();
+            if (currentKeys != null)
+            {
+                foreach (var key in currentKeys)
+                    ids.Add(key.Id.ToString());
+            }
+
+            if (finishedKeys != null)
+            {
+                foreach (var key in finishedKeys)
+                    ids.Add(key.Id.ToString());
+            }
+
+            return ids;
         }
 
         private static bool IsSurvivingTerminalEntry(
