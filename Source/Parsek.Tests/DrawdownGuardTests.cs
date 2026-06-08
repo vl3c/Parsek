@@ -80,6 +80,44 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // IsGuardableUplift — symmetric mirror keyed on the running balance (Bug 2)
+        // ================================================================
+
+        [Fact]
+        public void IsGuardableUplift_RunningMoreThanEpsilonAboveLive_IsGuardable()
+        {
+            // running 415466 vs live 66386, eps 0.01 -> true (the Bug-2 refund signature)
+            Assert.True(KspStatePatcher.IsGuardableUplift(415466.0, 66386.0, 0.01));
+        }
+
+        [Fact]
+        public void IsGuardableUplift_RunningWithinEpsilonAboveLive_IsNotGuardable()
+        {
+            // running 0.005 above live, eps 0.01 -> false (rounding noise)
+            Assert.False(KspStatePatcher.IsGuardableUplift(100000.005, 100000.0, 0.01));
+        }
+
+        [Fact]
+        public void IsGuardableUplift_RunningExactlyEpsilonAboveLive_IsNotGuardable()
+        {
+            // strict "> live + epsilon": exactly at the boundary is NOT guardable
+            Assert.False(KspStatePatcher.IsGuardableUplift(100000.0 + 0.01, 100000.0, 0.01));
+        }
+
+        [Fact]
+        public void IsGuardableUplift_RunningEqualsLive_IsNotGuardable()
+        {
+            Assert.False(KspStatePatcher.IsGuardableUplift(100000.0, 100000.0, 0.01));
+        }
+
+        [Fact]
+        public void IsGuardableUplift_RunningBelowLive_IsNotGuardable()
+        {
+            // a decrease is the OTHER guard (IsGuardableDrawdown), never the uplift guard
+            Assert.False(KspStatePatcher.IsGuardableUplift(60000.0, 100000.0, 0.01));
+        }
+
+        // ================================================================
         // IsAuthoritativeReduction — five inputs (Blocker 1 adds the fifth)
         // ================================================================
 
@@ -234,6 +272,116 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // ApplyDrawdownGuard — symmetric DOWN (uplift) clamp + direction (Bug 2)
+        // ================================================================
+
+        [Fact]
+        public void ApplyDrawdownGuard_RunningAboveLive_NoSignal_ClampsDownToLive()
+        {
+            // The Bug-2 facility-refund leak: running 415466 > live 66386, no time-travel
+            // signal -> cap the target DOWN to live so the patch cannot refund the spend.
+            double result = KspStatePatcher.ApplyDrawdownGuard(
+                patchTarget: 415466.0, runningBalance: 415466.0, currentLive: 66386.0,
+                epsilon: 0.01, authoritativeReduction: false, resource: "funds",
+                out bool clamped, out KspStatePatcher.ClampDirection direction);
+
+            Assert.True(clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Down, direction);
+            Assert.Equal(66386.0, result);
+        }
+
+        [Fact]
+        public void ApplyDrawdownGuard_RunningAboveLive_Authoritative_ReturnsTargetUnchanged()
+        {
+            // Same numbers but an authoritative signal is set -> a genuine time-travel
+            // restore that raises funds must apply unchanged (no DOWN clamp).
+            double result = KspStatePatcher.ApplyDrawdownGuard(
+                patchTarget: 415466.0, runningBalance: 415466.0, currentLive: 66386.0,
+                epsilon: 0.01, authoritativeReduction: true, resource: "funds",
+                out bool clamped, out KspStatePatcher.ClampDirection direction);
+
+            Assert.False(clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.None, direction);
+            Assert.Equal(415466.0, result);
+        }
+
+        [Fact]
+        public void ApplyDrawdownGuard_RunningAboveLive_TargetAlreadyBelowLive_DoesNotFlagNoOpClamp()
+        {
+            // running 415466 > live 66386 (uplift guardable), but the reservation-aware
+            // target 50000 is already BELOW live -> min(target, live) = target, the value
+            // is unchanged so the DOWN branch must NOT flag a misleading clamp (plan §2.4).
+            double result = KspStatePatcher.ApplyDrawdownGuard(
+                patchTarget: 50000.0, runningBalance: 415466.0, currentLive: 66386.0,
+                epsilon: 0.01, authoritativeReduction: false, resource: "funds",
+                out bool clamped, out KspStatePatcher.ClampDirection direction);
+
+            Assert.False(clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.None, direction);
+            Assert.Equal(50000.0, result);
+        }
+
+        [Fact]
+        public void ApplyDrawdownGuard_RunningBelowLive_NoSignal_DirectionIsUp()
+        {
+            // The existing UP clamp now reports direction=Up via the 2-out overload.
+            double result = KspStatePatcher.ApplyDrawdownGuard(
+                patchTarget: 60000.0, runningBalance: 60000.0, currentLive: 100000.0,
+                epsilon: 0.01, authoritativeReduction: false, resource: "funds",
+                out bool clamped, out KspStatePatcher.ClampDirection direction);
+
+            Assert.True(clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Up, direction);
+            Assert.Equal(100000.0, result);
+        }
+
+        [Fact]
+        public void Reservation_RunningEqualsLive_TargetBelowLive_NoUpliftClamp()
+        {
+            // Reservation case under the symmetric change: running 33000 == live 33000
+            // (running within eps of live, so NOT a guardable uplift) and target 18000 is
+            // below live (a committed future spend reserved). Neither guard fires; the
+            // lower reservation target is written unchanged so overspend stays prevented.
+            double result = KspStatePatcher.ApplyDrawdownGuard(
+                patchTarget: 18000.0, runningBalance: 33000.0, currentLive: 33000.0,
+                epsilon: 0.01, authoritativeReduction: false, resource: "funds",
+                out bool clamped, out KspStatePatcher.ClampDirection direction);
+
+            Assert.False(clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.None, direction);
+            Assert.Equal(18000.0, result);
+        }
+
+        [Fact]
+        public void ApplyDrawdownGuard_Science_RunningAboveLive_NoSignal_ClampsDownToLive()
+        {
+            // Science mirror: running 600 > live 200 with no signal -> cap DOWN to live.
+            double result = KspStatePatcher.ApplyDrawdownGuard(
+                patchTarget: 600.0, runningBalance: 600.0, currentLive: 200.0,
+                epsilon: 0.001, authoritativeReduction: false, resource: "science",
+                out bool clamped, out KspStatePatcher.ClampDirection direction);
+
+            Assert.True(clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Down, direction);
+            Assert.Equal(200.0, result);
+        }
+
+        [Fact]
+        public void ApplyDrawdownGuard_Reputation_RunningAboveLive_NoSignal_ClampsDownToLive()
+        {
+            // Reputation mirror (discriminator == target, no reservation): running 50 >
+            // live 20 with no signal -> cap DOWN to live so an unmodeled rep loss is held.
+            double result = KspStatePatcher.ApplyDrawdownGuard(
+                patchTarget: 50.0, runningBalance: 50.0, currentLive: 20.0,
+                epsilon: 0.01, authoritativeReduction: false, resource: "reputation",
+                out bool clamped, out KspStatePatcher.ClampDirection direction);
+
+            Assert.True(clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Down, direction);
+            Assert.Equal(20.0, result);
+        }
+
+        // ================================================================
         // EmitDrawdownGuardClamp — WARN + session-latched toast
         // ================================================================
 
@@ -258,6 +406,36 @@ namespace Parsek.Tests
 
             Assert.Single(screenMessages);
             Assert.Equal("Kept your earned funds", screenMessages[0].text);
+            Assert.True(latch);
+        }
+
+        [Fact]
+        public void EmitDrawdownGuardClamp_Funds_Down_WarnsWithUpliftWordingAndToastsOnce()
+        {
+            // Bug 2 DOWN direction: the WARN must read "GUARDED UPLIFT clamped" with the
+            // spent-value tail, and the dedicated uplift toast fires once.
+            bool latch = false;
+            KspStatePatcher.EmitDrawdownGuardClamp(
+                "Funds", runningBalance: 415466.0, currentLive: 66386.0,
+                wouldBeTarget: 415466.0, clampedTo: 66386.0,
+                toastText: "Held your funds at the spent value",
+                sessionToastLatch: ref latch, perSubjectScienceNote: false,
+                direction: KspStatePatcher.ClampDirection.Down);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]")
+                && l.Contains("GUARDED UPLIFT clamped")
+                && l.Contains("resource=Funds")
+                && l.Contains("running=415466")
+                && l.Contains("live=66386")
+                && l.Contains("wouldBeTarget=415466")
+                && l.Contains("clampedTo=66386")
+                && l.Contains("spent value held"));
+            // It must NOT use the drawdown wording.
+            Assert.DoesNotContain(logLines, l => l.Contains("GUARDED DRAWDOWN"));
+
+            Assert.Single(screenMessages);
+            Assert.Equal("Held your funds at the spent value", screenMessages[0].text);
             Assert.True(latch);
         }
 

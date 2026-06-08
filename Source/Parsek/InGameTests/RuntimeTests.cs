@@ -22795,6 +22795,182 @@ namespace Parsek.InGameTests
             return m;
         }
 
+        // Bug 2 (fix-funds-economy-divergence §4): the symmetric uplift guard. The xUnit
+        // ApplyDrawdownGuard facts cover the pure clamp; this proves the LIVE PatchFunds
+        // AddFunds write path actually caps DOWN to live when the running balance LEADS live
+        // with no time-travel authority (the facility-refund signature: ledger running >
+        // live because a real spend the ledger does not model already hit the live singleton).
+        //
+        // SAFETY: snapshots the live funds up front and restores them in a finally; it never
+        // calls the full ledger recalc and drives PatchFunds directly with a throwaway module.
+        [Parsek.InGameTests.InGameTest(Category = "Ledger", Scene = GameScenes.SPACECENTER,
+            Description = "Symmetric uplift guard caps a too-high funds patch DOWN to live with no time-travel context (facility-refund leak), and applies the higher target when a signal authorizes it")]
+        public void DrawdownGuard_RefundLeak_ClampedDownToLive()
+        {
+            if (Funding.Instance == null)
+            {
+                Parsek.InGameTests.InGameAssert.Skip(
+                    "requires a career game with the Funding singleton");
+                return;
+            }
+
+            double origFunds = Funding.Instance.Funds;
+
+            // Live is BELOW the module running balance: the player spent on a facility
+            // (live already dropped) but the ledger does not model the spend, so running
+            // still LEADS live. A non-authoritative recalc would refund the spend.
+            const double LiveFunds = 66386.0;
+            const double RunningFunds = 415466.0;
+
+            KspStatePatcher.ResetForTesting();
+            try
+            {
+                Funding.Instance.SetFunds(LiveFunds, TransactionReasons.None);
+
+                // ---- Case 1: NO time-travel signal -> cap DOWN to live (spend held) ----
+                var funds = MakeSeededFundsModule(RunningFunds);
+                KspStatePatcher.PatchFunds(funds, authoritativeReduction: false);
+
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(Funding.Instance.Funds - LiveFunds) < 0.5,
+                    $"Funds must be capped DOWN to live (expected {LiveFunds}, got {Funding.Instance.Funds}) — the refund must be held");
+
+                // ---- Case 2: an authoritative signal -> the higher target APPLIES ----
+                // A genuine time-travel restore that raises funds must NOT be clamped.
+                RewindContext.BeginRewindResourceAdjustment();
+                try
+                {
+                    Funding.Instance.SetFunds(LiveFunds, TransactionReasons.None);
+                    var funds2 = MakeSeededFundsModule(RunningFunds);
+                    bool authoritative = LedgerOrchestrator.IsAuthoritativeReduction(
+                        RewindContext.IsRewinding,
+                        false, false, false,
+                        RewindContext.RewindResourceAdjustmentInProgress);
+                    Parsek.InGameTests.InGameAssert.IsTrue(authoritative,
+                        "Signal 5 must make IsAuthoritativeReduction true");
+
+                    KspStatePatcher.PatchFunds(funds2, authoritativeReduction: authoritative);
+
+                    Parsek.InGameTests.InGameAssert.IsTrue(
+                        System.Math.Abs(Funding.Instance.Funds - RunningFunds) < 0.5,
+                        $"Authorized recalc must apply the higher running target (expected {RunningFunds}, got {Funding.Instance.Funds})");
+                }
+                finally
+                {
+                    RewindContext.EndRewindResourceAdjustment();
+                }
+
+                ParsekLog.Info("TestRunner",
+                    "DrawdownGuard_RefundLeak_ClampedDownToLive: uplift cap + signal-bypass verified against live Funding");
+            }
+            finally
+            {
+                Funding.Instance.SetFunds(origFunds, TransactionReasons.None);
+                KspStatePatcher.ResetForTesting();
+            }
+        }
+
+        // Bug 2 (fix-funds-economy-divergence §2.3): a live KSC TECH-UNLOCK window must NOT
+        // trip a spurious DOWN (uplift) clamp. This exercises the REAL transient, not a
+        // trivial within-epsilon no-op: during a tech unlock KSP debits the live science pool
+        // immediately (live drops) but the matching TechResearched -> ScienceSpending ledger
+        // action has not landed yet, so the RAW GetRunningScience() reads ABOVE the
+        // already-dropped live value (an apparent uplift). The §2.3 guarantee is that the
+        // pending-tech-research DEBIT adjuster lowers BOTH the drawdown-guard discriminator
+        // (ComputePendingAdjustedRunningScience) AND the patch target by the same pending
+        // debit, pulling running back to ~live so no spurious DOWN clamp fires. We set up the
+        // pending debit through its real inputs (a recent ScienceChanged(RnDTechResearch)
+        // event in the store with no matching committed ScienceSpending) and assert NO
+        // GUARDED clamp WARN fires. If the debit adjuster regressed, the raw running would
+        // read > live and a spurious uplift clamp WARN would fire — this test would catch it.
+        //
+        // SAFETY: snapshots the live science up front and restores it in a finally; drives
+        // PatchScience directly with a throwaway seeded module and resets the store / UT seam.
+        [Parsek.InGameTests.InGameTest(Category = "Ledger", Scene = GameScenes.SPACECENTER,
+            Description = "Science patch during a live tech-unlock window (raw running above live, pending debit pending) performs no spurious uplift DOWN clamp")]
+        public void DrawdownGuard_ScienceTechUnlockWindow_NoSpuriousDownClamp()
+        {
+            if (ResearchAndDevelopment.Instance == null)
+            {
+                Parsek.InGameTests.InGameAssert.Skip(
+                    "requires a career/science game with the ResearchAndDevelopment singleton");
+                return;
+            }
+
+            float origScience = ResearchAndDevelopment.Instance.Science;
+
+            // Pre-unlock balance the module still reflects (ledger spend not yet ingested).
+            const float PreUnlockScience = 500f;
+            // Stock debit already applied to the live pool by the tech unlock.
+            const double UnlockDebit = 45.0;
+            // Post-debit live value the pool actually sits at right now.
+            const float LiveScience = (float)(PreUnlockScience - UnlockDebit); // 455
+            const double WindowUt = 100000.0;
+
+            var captured = new List<string>();
+            var prevSink = ParsekLog.TestSinkForTesting;
+            ParsekLog.TestSinkForTesting = line => captured.Add(line);
+
+            KspStatePatcher.ResetForTesting();
+            GameStateStore.ResetForTesting();
+            LedgerOrchestrator.NowUtProviderForTesting = () => WindowUt;
+            try
+            {
+                // Live pool already dropped to the post-debit value.
+                ResearchAndDevelopment.Instance.SetScience(LiveScience, TransactionReasons.None);
+
+                // The module still holds the PRE-unlock running balance: raw GetRunningScience()
+                // reads 500 > live 455 -> looks like an uplift unless the debit adjuster fires.
+                var science = MakeSeededScienceModule(PreUnlockScience);
+
+                // Recent stock tech-unlock debit in the store, no matching committed
+                // ScienceSpending -> ComputePendingRecentKscTechResearchScienceDebit == 45.
+                var debitEvt = new GameStateEvent
+                {
+                    ut = WindowUt,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.TechResearchScienceReasonKey, // "RnDTechResearch"
+                    valueBefore = PreUnlockScience,
+                    valueAfter = LiveScience,
+                    recordingId = ""
+                };
+                GameStateStore.AddEvent(ref debitEvt);
+
+                // Sanity: the pending debit the adjuster will use must be the unlock debit.
+                double pendingDebit = LedgerOrchestrator.GetPendingRecentKscTechResearchScienceDebit();
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(pendingDebit - UnlockDebit) < 0.5,
+                    $"Pending tech-unlock debit must be ~{UnlockDebit} (got {pendingDebit}) for the transient to be real");
+
+                KspStatePatcher.PatchScience(science, authoritativeReduction: false);
+
+                // No guarded clamp of EITHER direction may fire: the adjusted discriminator
+                // and target both sit at ~live, so the guard sees running ~ live.
+                bool clampWarned = captured.Exists(l =>
+                    l.Contains("[KspStatePatcher]")
+                    && (l.Contains("GUARDED UPLIFT clamped") || l.Contains("GUARDED DRAWDOWN clamped")));
+                Parsek.InGameTests.InGameAssert.IsFalse(clampWarned,
+                    "No spurious DOWN/uplift clamp may fire during a tech-unlock window (the pending debit adjuster holds running at live)");
+
+                // And the live pool must be left at the post-debit value (the adjusted target
+                // equals live, so the patch is a no-op).
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(ResearchAndDevelopment.Instance.Science - LiveScience) < 0.5f,
+                    $"Science must stay at the post-debit live value (expected {LiveScience}, got {ResearchAndDevelopment.Instance.Science})");
+
+                ParsekLog.Info("TestRunner",
+                    "DrawdownGuard_ScienceTechUnlockWindow_NoSpuriousDownClamp: pending-debit adjuster held running at live, no spurious clamp");
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = prevSink;
+                ResearchAndDevelopment.Instance.SetScience(origScience, TransactionReasons.None);
+                LedgerOrchestrator.NowUtProviderForTesting = null;
+                GameStateStore.ResetForTesting();
+                KspStatePatcher.ResetForTesting();
+            }
+        }
+
         // Rewind read-back divergence guard (audit rec #1): prove the warn-only guard fires
         // a FLAGGED DIVERGENCE WARN against the LIVE economy modules without altering any live
         // value. Arms the guard with two witnesses deliberately ABOVE the live realized

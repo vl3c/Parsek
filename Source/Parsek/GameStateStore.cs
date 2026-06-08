@@ -18,7 +18,14 @@ namespace Parsek
 
         internal static bool SuppressLogging = false;
 
-        private const double ResourceCoalesceEpsilon = 0.1; // seconds
+        // UT window (seconds) for same-type/same-tag resource-event coalescing. Also the
+        // single source of truth for the contract-completion debounce window
+        // (GameStateRecorder.IsDuplicateContractCompletion) and the converter intra-batch
+        // contract-lifecycle dedup UT bucket, so a duplicate stock re-fire within the same
+        // coalesce window is suppressed in lockstep with the resource events it carries.
+        // KscActionReconciler.KscReconcileEpsilonSeconds encodes the same invariant
+        // (kept in lockstep by comment, see KscActionReconciler.cs).
+        internal const double ResourceCoalesceEpsilon = 0.1; // seconds
 
         internal static IReadOnlyList<GameStateEvent> Events => events;
         internal static IReadOnlyList<ContractSnapshot> ContractSnapshots => contractSnapshots;
