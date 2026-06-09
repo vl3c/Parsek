@@ -40,6 +40,7 @@ All notable changes to Parsek are documented here.
 - Added headless test coverage for the career-state apply boundary (the step that writes your funds, science, reputation, tech tree, and facility levels when Parsek rebuilds career state), so its value and clamp decisions are now verified directly in unit tests rather than only in the live game. No gameplay change.
 - The two scene-exit merge-dialog in-game tests (Space Center exit with Merge to Timeline / Discard) now run automatically under the test runner's `Run All + Isolated`, which captures a flight baseline beforehand and quickloads it after each test. Previously they were manual-only rows you had to run one at a time. No gameplay change.
 - The in-game test runner now force-closes any stock Space Center facility (R&D, Astronaut Complex, Mission Control, Administration) left open by a test, after every test, on Cancel, and before each batch. Previously, cancelling a run while a facility-overlay test was mid-flight could leave you stuck inside the building with the game paused; the runner now always returns you to a usable Space Center. No gameplay change.
+- The test runner's automatic baseline isolation (quicksave before the batch, quickload after each isolated test) now also works from the Tracking Station, so the last manual-only Tracking Station "Fly" canary can run under `Run All + Isolated` and return you to the Tracking Station afterward. Previously baseline isolation was FLIGHT-only. No gameplay change.
 
 ## 0.10.0
 

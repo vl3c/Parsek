@@ -5761,9 +5761,10 @@ namespace Parsek.InGameTests
             }
         }
 
-        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Manual-only — this canary drives stock Tracking Station Fly on a spawned orbital vessel and transitions the session to FLIGHT. Run it from a disposable Tracking Station session after an orbital recording has spawned.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — this canary drives stock Tracking Station Fly on a spawned orbital vessel and transitions the session to FLIGHT. Run All + Isolated from the Tracking Station captures a TS baseline and returns to it afterward; or use the row play button in a disposable Tracking Station session after an orbital recording has spawned.",
             Description = "#554/#550: spawned orbital TS vessel can be selected/flown without loading a stale asteroid/comet")]
         public IEnumerator TrackingStationMaterializedOrbit_FlyLoadsMaterializedVessel_NotStaleSelection()
         {

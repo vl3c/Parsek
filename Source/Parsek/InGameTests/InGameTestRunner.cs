@@ -82,6 +82,13 @@ namespace Parsek.InGameTests
         private sealed class FlightBatchBaselineState
         {
             public string SlotName;
+            // Scene the baseline was captured in (FLIGHT or TRACKSTATION). The
+            // restore returns to this scene: FLIGHT via StartAndFocusVessel,
+            // non-FLIGHT via CommitNonFlightSceneLoad + LoadScene. A batch's
+            // restore-backed tests are scene-filtered to this scene, so the
+            // prime/post-test restore always lands the player back where the
+            // batch began.
+            public GameScenes CapturedScene;
             public string ParsekSaveSnapshotDirectory;
             public int CapturedFlightInstanceId;
             public Guid ActiveVesselId;
@@ -828,25 +835,61 @@ namespace Parsek.InGameTests
             }
         }
 
-        private static string GetBatchFlightBaselineUnavailableReason()
+        /// <summary>
+        /// Scenes the automatic batch baseline (quicksave + quickload) restore
+        /// supports. FLIGHT is the original path; TRACKSTATION lets the Tracking
+        /// Station "Fly" canary isolate (it captures a TS baseline and returns
+        /// to it after the test transitions into FLIGHT). Other scenes have no
+        /// quicksave-restorable baseline contract here.
+        /// </summary>
+        internal static bool IsBatchBaselineRestoreSupportedScene(GameScenes scene)
         {
-            if (HighLogic.LoadedScene != GameScenes.FLIGHT)
-                return "Automatic FLIGHT batch restore requires running from the FLIGHT scene.";
-            if (HighLogic.CurrentGame == null)
-                return "Automatic FLIGHT batch restore requires HighLogic.CurrentGame.";
-            if (string.IsNullOrEmpty(HighLogic.SaveFolder))
-                return "Automatic FLIGHT batch restore requires HighLogic.SaveFolder.";
-            if (FlightGlobals.ActiveVessel == null)
+            return scene == GameScenes.FLIGHT || scene == GameScenes.TRACKSTATION;
+        }
+
+        /// <summary>
+        /// Pure availability gate for the automatic batch baseline restore.
+        /// Returns null when a baseline can be captured/restored for the given
+        /// scene + live-state flags, or the reason string otherwise. Only FLIGHT
+        /// requires a focusable active vessel (its restore re-focuses one via
+        /// StartAndFocusVessel); a Tracking Station baseline returns via
+        /// LoadScene and needs no active vessel.
+        /// </summary>
+        internal static string BatchBaselineUnavailableReasonForScene(
+            GameScenes scene, bool hasCurrentGame, bool hasSaveFolder, bool hasActiveVessel)
+        {
+            if (!IsBatchBaselineRestoreSupportedScene(scene))
+                return "Automatic batch restore requires running from the FLIGHT or Tracking Station scene.";
+            if (!hasCurrentGame)
+                return "Automatic batch restore requires HighLogic.CurrentGame.";
+            if (!hasSaveFolder)
+                return "Automatic batch restore requires HighLogic.SaveFolder.";
+            if (scene == GameScenes.FLIGHT && !hasActiveVessel)
                 return "Automatic FLIGHT batch restore requires an active vessel.";
 
             return null;
         }
 
+        private static string GetBatchFlightBaselineUnavailableReason()
+        {
+            return BatchBaselineUnavailableReasonForScene(
+                HighLogic.LoadedScene,
+                HighLogic.CurrentGame != null,
+                !string.IsNullOrEmpty(HighLogic.SaveFolder),
+                FlightGlobals.ActiveVessel != null);
+        }
+
         private static FlightBatchBaselineState CaptureFlightBatchBaseline()
         {
+            GameScenes capturedScene = HighLogic.LoadedScene;
             Vessel vessel = FlightGlobals.ActiveVessel;
-            InGameAssert.IsNotNull(vessel,
-                "Automatic FLIGHT batch restore requires a live active vessel to capture baseline.");
+            // FLIGHT restore re-focuses an active vessel (StartAndFocusVessel),
+            // so it must exist at capture time. A non-FLIGHT (Tracking Station)
+            // baseline returns via LoadScene with no vessel focus, so a null
+            // active vessel there is fine.
+            if (capturedScene == GameScenes.FLIGHT)
+                InGameAssert.IsNotNull(vessel,
+                    "Automatic FLIGHT batch restore requires a live active vessel to capture baseline.");
 
             string slotName = CreateBatchFlightBaselineSlotName();
             string parsekSnapshotDirectory = null;
@@ -859,13 +902,16 @@ namespace Parsek.InGameTests
                 return new FlightBatchBaselineState
                 {
                     SlotName = slotName,
+                    CapturedScene = capturedScene,
                     ParsekSaveSnapshotDirectory = parsekSnapshotDirectory,
                     CapturedFlightInstanceId = ParsekFlight.Instance != null
                         ? ParsekFlight.Instance.GetInstanceID()
                         : 0,
-                    ActiveVesselId = vessel.id,
-                    ActiveVesselName = vessel.vesselName,
-                    ActiveVesselSituation = vessel.situation,
+                    ActiveVesselId = vessel != null ? vessel.id : Guid.Empty,
+                    ActiveVesselName = vessel != null ? vessel.vesselName : null,
+                    ActiveVesselSituation = vessel != null
+                        ? vessel.situation
+                        : Vessel.Situations.PRELAUNCH,
                     // P2 review fix: capture the live RecordingStore state
                     // at batch start, before any test mutates it. This is
                     // the rollback target for RestoreBatchFlightBaselineCore's
@@ -1276,6 +1322,7 @@ namespace Parsek.InGameTests
             RecordingStoreTestSnapshot preWipeSnapshot = baseline?.RecordingStoreSnapshot;
             bool restoreCommitted = false;
             bool wipePerformed = false;
+            bool isFlightBaseline = baseline.CapturedScene == GameScenes.FLIGHT;
             try
             {
                 // Step 1a: structural pre-validation via ConfigNode.Load.
@@ -1285,8 +1332,12 @@ namespace Parsek.InGameTests
                 // effect). Catches the bulk of failure modes (file
                 // missing/empty, malformed XML, no FLIGHTSTATE node,
                 // no VESSEL nodes, invalid activeVessel index) without
-                // mutating any KSP or Parsek state.
-                Helpers.QuickloadResumeHelpers.ValidateQuicksaveStructure(baseline.SlotName);
+                // mutating any KSP or Parsek state. A non-FLIGHT (Tracking
+                // Station) baseline returns via LoadScene with no vessel
+                // focus, so an out-of-range activeVessel index is tolerated
+                // there (a TS save can carry activeVessel = -1).
+                Helpers.QuickloadResumeHelpers.ValidateQuicksaveStructure(
+                    baseline.SlotName, requireValidActiveVessel: isFlightBaseline);
 
                 using (var stagedSnapshot = CreateBatchFlightParsekSaveSnapshotStaging(baseline))
                 {
@@ -1314,8 +1365,15 @@ namespace Parsek.InGameTests
                 // realisation still failing), FlightGlobals stays
                 // cleared until the user manually reloads. Documented
                 // residual.
-                Helpers.QuickloadResumeHelpers.ValidatedGameLoad validatedLoad =
-                    Helpers.QuickloadResumeHelpers.LoadAndValidateGameForQuickload(baseline.SlotName);
+                // FLIGHT realises via the activeVessel-validated load (its
+                // commit focuses that vessel); a non-FLIGHT baseline realises
+                // via the vessel-tolerant load and returns through LoadScene.
+                Helpers.QuickloadResumeHelpers.ValidatedGameLoad validatedLoad = default;
+                Game nonFlightGame = null;
+                if (isFlightBaseline)
+                    validatedLoad = Helpers.QuickloadResumeHelpers.LoadAndValidateGameForQuickload(baseline.SlotName);
+                else
+                    nonFlightGame = Helpers.QuickloadResumeHelpers.LoadGameForSceneRestore(baseline.SlotName);
 
                 // Step 3: prep wipe runs only after validation succeeded
                 // AND the on-disk Parsek/ has been swapped to BATCH-START.
@@ -1341,17 +1399,35 @@ namespace Parsek.InGameTests
                         onWipeStart: () => wipePerformed = true);
                 }
 
-                // Step 4: commit the scene change.
-                Helpers.QuickloadResumeHelpers.CommitValidatedGameLoad(validatedLoad);
-
-                // Step 5: wait for FLIGHT-ready and the active vessel to
-                // become live. OnLoad fires during this scene change.
-                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
-                    previousFlightInstanceId, timeoutSeconds: 15f);
-                yield return WaitForBatchBaselineVessel(baseline, timeoutSeconds: 10f);
-                PerformBetweenRunCleanup(cleanupReason);
-                if (ShouldWaitForStockStageManager(baseline.ActiveVesselSituation))
-                    yield return WaitForStockStageManagerReady(timeoutSeconds: 10f);
+                // Step 4 + 5: commit the scene change and wait for it to land.
+                // OnLoad (including ParsekScenario, which rebuilds the wiped
+                // Parsek save-scoped stores from the on-disk BATCH-START
+                // snapshot) fires during the transition in either scene.
+                if (isFlightBaseline)
+                {
+                    // FLIGHT: StartAndFocusVessel re-focuses the captured
+                    // active vessel; wait for FLIGHT-ready + that vessel +
+                    // (for a staged baseline) the stock stage manager.
+                    Helpers.QuickloadResumeHelpers.CommitValidatedGameLoad(validatedLoad);
+                    yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                        previousFlightInstanceId, timeoutSeconds: 15f);
+                    yield return WaitForBatchBaselineVessel(baseline, timeoutSeconds: 10f);
+                    PerformBetweenRunCleanup(cleanupReason);
+                    if (ShouldWaitForStockStageManager(baseline.ActiveVesselSituation))
+                        yield return WaitForStockStageManagerReady(timeoutSeconds: 10f);
+                }
+                else
+                {
+                    // Non-FLIGHT (Tracking Station): return via LoadScene; no
+                    // vessel focus / stage manager to wait on. The test that
+                    // ran transitioned into FLIGHT (stock "Fly"), so this
+                    // returns the player to the captured Tracking Station.
+                    Helpers.QuickloadResumeHelpers.CommitNonFlightSceneLoad(
+                        nonFlightGame, baseline.SlotName, baseline.CapturedScene);
+                    yield return Helpers.QuickloadResumeHelpers.WaitForLoadedScene(
+                        baseline.CapturedScene, timeoutSeconds: 15f);
+                    PerformBetweenRunCleanup(cleanupReason);
+                }
                 restoreCommitted = true;
             }
             finally

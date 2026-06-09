@@ -132,7 +132,17 @@ namespace Parsek.InGameTests.Helpers
         /// LoadAndValidateGameForQuickload when the .sfs needs to be
         /// realised into a Game object for the scene change.
         /// </summary>
-        internal static StructurallyValidatedSlot ValidateQuicksaveStructure(string slotName)
+        /// <param name="requireValidActiveVessel">
+        /// When true (the FLIGHT-restore default), an out-of-range
+        /// <c>activeVessel</c> index skips the restore -- the FLIGHT commit
+        /// path (<c>FlightDriver.StartAndFocusVessel</c>) needs a focusable
+        /// vessel. Pass false for a non-FLIGHT (Tracking Station / Space
+        /// Center) baseline: those scenes return via
+        /// <see cref="CommitNonFlightSceneLoad"/> (no vessel focus), and a
+        /// save taken there can legitimately carry <c>activeVessel = -1</c>.
+        /// </param>
+        internal static StructurallyValidatedSlot ValidateQuicksaveStructure(
+            string slotName, bool requireValidActiveVessel = true)
         {
             string saveName = HighLogic.SaveFolder;
             InGameAssert.IsTrue(!string.IsNullOrEmpty(slotName),
@@ -168,7 +178,7 @@ namespace Parsek.InGameTests.Helpers
                 InGameAssert.IsTrue(false,
                     $"ValidateQuicksaveStructure failed: '{saveName}/{slotName}' FLIGHTSTATE has no activeVessel field");
             }
-            if (activeVesselIdx < 0 || activeVesselIdx >= vesselCount)
+            if (requireValidActiveVessel && (activeVesselIdx < 0 || activeVesselIdx >= vesselCount))
             {
                 InGameAssert.Skip(
                     $"ValidateQuicksaveStructure skipped: '{saveName}/{slotName}' had invalid activeVesselIdx={activeVesselIdx} " +
@@ -254,6 +264,79 @@ namespace Parsek.InGameTests.Helpers
             FlightDriver.StartAndFocusVessel(load.Game, load.ActiveVesselIdx);
             ParsekLog.Info("TestHelper",
                 $"CommitValidatedGameLoad: loading '{load.SaveName}/{load.SlotName}' via FlightDriver.StartAndFocusVessel(activeVesselIdx={load.ActiveVesselIdx})");
+        }
+
+        /// <summary>
+        /// Realises a quicksave slot into a <see cref="Game"/> for a NON-FLIGHT
+        /// scene restore (Tracking Station / Space Center). Unlike
+        /// <see cref="LoadAndValidateGameForQuickload"/>, it does NOT require a
+        /// focusable active vessel: a save taken in the Tracking Station can
+        /// carry <c>activeVessel = -1</c>, and the non-flight commit
+        /// (<see cref="CommitNonFlightSceneLoad"/>) does not focus a vessel.
+        /// Like LoadGame everywhere, this clears
+        /// <c>FlightGlobals.PersistentLoaded</c> as a stock side effect; the
+        /// dictionaries are rebuilt by OnLoad on the imminent scene change.
+        /// </summary>
+        internal static Game LoadGameForSceneRestore(string slotName)
+        {
+            string saveName = HighLogic.SaveFolder;
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(slotName),
+                "LoadGameForSceneRestore failed: slotName was null/empty");
+
+            string quicksavePath = GetSavePath(saveName, slotName);
+            EnsureQuicksaveFileReady(quicksavePath, saveName, caller: "LoadGameForSceneRestore");
+
+            Game game = GamePersistence.LoadGame(slotName, saveName, true, false);
+            InGameAssert.IsNotNull(game,
+                $"LoadGameForSceneRestore failed: LoadGame returned null for '{saveName}/{slotName}'");
+            InGameAssert.IsNotNull(game.flightState,
+                $"LoadGameForSceneRestore failed: loaded game for '{saveName}/{slotName}' had null flightState");
+            return game;
+        }
+
+        /// <summary>
+        /// Commits a NON-FLIGHT (Tracking Station / Space Center) scene return
+        /// for a baseline restore, mirroring the stock "resume a non-flight
+        /// save" sequence (cf. kOS KUniverse.LoadGame): refresh the loaded
+        /// game's scenario modules, stamp the destination scene as its
+        /// <c>startScene</c>, persist that to the slot, then
+        /// <c>HighLogic.LoadScene</c> into it. <c>GamePersistence.LoadGame</c>
+        /// (called by <see cref="LoadGameForSceneRestore"/>) already adopted the
+        /// loaded game as <c>HighLogic.CurrentGame</c>, so the destination scene
+        /// shows the restored save and every ScenarioModule's <c>OnLoad</c>
+        /// (including <c>ParsekScenario</c>) fires during the transition.
+        /// </summary>
+        internal static void CommitNonFlightSceneLoad(Game game, string slotName, GameScenes scene)
+        {
+            InGameAssert.IsNotNull(game, "CommitNonFlightSceneLoad requires a loaded Game");
+            GamePersistence.UpdateScenarioModules(game);
+            game.startScene = scene;
+            GamePersistence.SaveGame(game, slotName, HighLogic.SaveFolder, SaveMode.OVERWRITE);
+            HighLogic.LoadScene(scene);
+            ParsekLog.Info("TestHelper",
+                $"CommitNonFlightSceneLoad: loading '{HighLogic.SaveFolder}/{slotName}' into {scene} via HighLogic.LoadScene");
+        }
+
+        /// <summary>
+        /// Waits until the given scene is loaded, or times out. Used by the
+        /// non-FLIGHT baseline restore (the FLIGHT path uses
+        /// <see cref="WaitForFlightReady"/>, which also waits for the rebuilt
+        /// ParsekFlight + active vessel).
+        /// </summary>
+        internal static IEnumerator WaitForLoadedScene(GameScenes scene, float timeoutSeconds = 15f)
+        {
+            // Wall-clock: a non-flight scene load can run while the game is
+            // paused (timeScale 0), which would freeze Time.time.
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                if (HighLogic.LoadedScene == scene)
+                    yield break;
+                yield return null;
+            }
+            InGameAssert.IsTrue(false,
+                $"WaitForLoadedScene timed out after {timeoutSeconds:F0}s " +
+                $"(wanted={scene}, current={HighLogic.LoadedScene})");
         }
 
         private static string GetSavePath(string saveName, string slotName)

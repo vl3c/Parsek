@@ -708,5 +708,69 @@ namespace Parsek.Tests
             string summary = InGameTestRunner.FormatFacilityForceCloseSummary(1, null);
             Assert.Contains("reason=(null)", summary);
         }
+
+        [Fact]
+        public void IsBatchBaselineRestoreSupportedScene_AllowsFlightAndTrackingStation()
+        {
+            Assert.True(InGameTestRunner.IsBatchBaselineRestoreSupportedScene(GameScenes.FLIGHT));
+            Assert.True(InGameTestRunner.IsBatchBaselineRestoreSupportedScene(GameScenes.TRACKSTATION));
+
+            foreach (var scene in new[]
+            {
+                GameScenes.SPACECENTER,
+                GameScenes.EDITOR,
+                GameScenes.MAINMENU,
+                GameScenes.LOADING,
+            })
+            {
+                Assert.False(InGameTestRunner.IsBatchBaselineRestoreSupportedScene(scene),
+                    $"baseline restore is only supported in FLIGHT / TRACKSTATION (scene={scene})");
+            }
+        }
+
+        [Fact]
+        public void BatchBaselineUnavailableReasonForScene_FlightHappyPath_ReturnsNull()
+        {
+            Assert.Null(InGameTestRunner.BatchBaselineUnavailableReasonForScene(
+                GameScenes.FLIGHT, hasCurrentGame: true, hasSaveFolder: true, hasActiveVessel: true));
+        }
+
+        [Fact]
+        public void BatchBaselineUnavailableReasonForScene_TrackingStationHappyPath_NeedsNoActiveVessel()
+        {
+            // A Tracking Station baseline returns via LoadScene with no vessel
+            // focus, so a missing active vessel must NOT block capture.
+            Assert.Null(InGameTestRunner.BatchBaselineUnavailableReasonForScene(
+                GameScenes.TRACKSTATION, hasCurrentGame: true, hasSaveFolder: true, hasActiveVessel: false));
+        }
+
+        [Fact]
+        public void BatchBaselineUnavailableReasonForScene_FlightWithoutActiveVessel_IsBlocked()
+        {
+            string reason = InGameTestRunner.BatchBaselineUnavailableReasonForScene(
+                GameScenes.FLIGHT, hasCurrentGame: true, hasSaveFolder: true, hasActiveVessel: false);
+            Assert.False(string.IsNullOrEmpty(reason));
+            Assert.Contains("active vessel", reason);
+        }
+
+        [Fact]
+        public void BatchBaselineUnavailableReasonForScene_UnsupportedScene_IsBlocked()
+        {
+            string reason = InGameTestRunner.BatchBaselineUnavailableReasonForScene(
+                GameScenes.SPACECENTER, hasCurrentGame: true, hasSaveFolder: true, hasActiveVessel: true);
+            Assert.False(string.IsNullOrEmpty(reason));
+            Assert.Contains("FLIGHT or Tracking Station", reason);
+        }
+
+        [Fact]
+        public void BatchBaselineUnavailableReasonForScene_MissingGameOrSaveFolder_IsBlocked()
+        {
+            Assert.Contains("HighLogic.CurrentGame",
+                InGameTestRunner.BatchBaselineUnavailableReasonForScene(
+                    GameScenes.TRACKSTATION, hasCurrentGame: false, hasSaveFolder: true, hasActiveVessel: false));
+            Assert.Contains("HighLogic.SaveFolder",
+                InGameTestRunner.BatchBaselineUnavailableReasonForScene(
+                    GameScenes.FLIGHT, hasCurrentGame: true, hasSaveFolder: false, hasActiveVessel: true));
+        }
     }
 }
