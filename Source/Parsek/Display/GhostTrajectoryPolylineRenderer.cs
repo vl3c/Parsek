@@ -2550,12 +2550,40 @@ namespace Parsek.Display
                 precullDrawnFrame = frame;
 
                 int drawn = 0;
+                // Draw-side instrumentation (run model): account RUN legs (forward=true) separately and
+                // capture the otherwise-silent lookup-skip paths, so a "past segment hidden" symptom is
+                // diagnosable from the log. The decide side already logs the run window + runLegs+= ENQUEUE
+                // count; this logs whether those enqueued run legs actually reach TryDrawLeg and DRAW.
+                int runEnq = 0, runDrawn = 0, runSkipNoCache = 0, runSkipBadIndex = 0;
                 for (int i = 0; i < pendingDraws.Count; i++)
                 {
                     var p = pendingDraws[i];
-                    if (string.IsNullOrEmpty(p.recordingId)) continue;
-                    if (!polylineCache.TryGetValue(p.recordingId, out var set) || set.legs == null) continue;
-                    if (p.legIndex < 0 || p.legIndex >= set.legs.Length) continue;
+                    bool fwd = p.forward;
+                    if (fwd) runEnq++;
+                    if (string.IsNullOrEmpty(p.recordingId)) { if (fwd) runSkipNoCache++; continue; }
+                    if (!polylineCache.TryGetValue(p.recordingId, out var set) || set.legs == null)
+                    {
+                        if (fwd)
+                        {
+                            runSkipNoCache++;
+                            ParsekLog.VerboseRateLimited(DriverTag, "run-leg-nocache." + p.recordingId,
+                                "Run leg skip (no polyline cache / null legs): rec=" + p.recordingId
+                                    + " leg=" + p.legIndex, 3.0);
+                        }
+                        continue;
+                    }
+                    if (p.legIndex < 0 || p.legIndex >= set.legs.Length)
+                    {
+                        if (fwd)
+                        {
+                            runSkipBadIndex++;
+                            ParsekLog.VerboseRateLimited(DriverTag, "run-leg-badidx." + p.recordingId,
+                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "Run leg skip (index OOB): rec={0} leg={1} legCount={2}",
+                                    p.recordingId, p.legIndex, set.legs.Length), 3.0);
+                        }
+                        continue;
+                    }
                     var leg = set.legs[p.legIndex];
                     bool legDrawn = p.ownedByTreatment
                         ? Parsek.MapRender.TracedPathTreatment.TryDrawOwnedLeg(
@@ -2566,6 +2594,17 @@ namespace Parsek.Display
                     // array (set.legs is the same array reference the dict holds).
                     set.legs[p.legIndex] = leg;
                     if (legDrawn) drawn++;
+                    if (fwd)
+                    {
+                        if (legDrawn) runDrawn++;
+                        else ParsekLog.VerboseRateLimited(DriverTag, "run-leg-nodraw." + p.recordingId,
+                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Run leg NOT drawn (TryDrawLeg false): rec={0} leg={1} pts={2} body={3} bodyNull={4} " +
+                                "startUT={5:F1} endUT={6:F1}",
+                                p.recordingId, p.legIndex, leg.PointCount,
+                                string.IsNullOrEmpty(leg.bodyName) ? "<none>" : leg.bodyName,
+                                p.body == null, leg.startUT, leg.endUT), 3.0);
+                    }
 
                     // GAP-2: first-class Polyline-surface trace at the ACTUAL draw site. The
                     // surface=Polyline slot was previously blind under MapRenderTrace (the Driver only
@@ -2634,7 +2673,21 @@ namespace Parsek.Display
                 lastSweepDeactivatedCount = RunDeactivationSweep(frame);
                 // Forward-arc deactivation sweep (Step 3 C): same one-shot-Draw3D contract - hide any
                 // forward arc not drawn this frame (window advanced past it, gap-hold, recording removed).
-                RunForwardArcDeactivationSweep(frame);
+                int fwdArcsDeactivated = RunForwardArcDeactivationSweep(frame);
+
+                // ALWAYS-ON onPreCull draw summary (run-model diagnosis). Unlike the arc-only "Forward arcs
+                // drawn" line above (gated on fwdArcsDrawn>0), this fires every frame the map onPreCull
+                // COMPLETES, so a phase where only RUN LEGS draw (no arcs) is no longer blind. A "past
+                // segment hidden" symptom shows here as runEnq>0 with runDrawn<runEnq (enqueued run legs not
+                // reaching / clearing TryDrawLeg), and its absence while the decide side logs "Render run"
+                // means onPreCull early-returned (the draw never ran this frame).
+                ParsekLog.VerboseRateLimited(DriverTag, "polyline-precull-draw",
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "onPreCull draw: scene={0} totalLegsDrawn={1} runLegs={2}/{3} (noCache={4} badIdx={5}) " +
+                        "arcsDrawn={6} legsDeact={7} arcsDeact={8} frame={9} warp={10:F0}x",
+                        HighLogic.LoadedScene, drawn, runDrawn, runEnq, runSkipNoCache, runSkipBadIndex,
+                        fwdArcsDrawn, lastSweepDeactivatedCount, fwdArcsDeactivated, frame, TimeWarp.CurrentRate),
+                    2.0);
             }
 
             /// <summary>
