@@ -72,6 +72,17 @@ if (self != null && self.parts != null && self.parts.Count > 0) {
     ParsekLog.Verbose("Flight", $"OnPartCouple: captured pre-couple self snapshot selfPid={...} parts={...}");
 }
 ```
+`ResolveSelfVessel(data, recordingVesselId)` is a new pure helper that returns
+whichever of `data.from.vessel` / `data.to.vessel` has
+`persistentId == recordingVesselId`, **regardless of survivor status** (the transport
+is frequently the SURVIVOR `data.to.vessel`, whose `mergedPid == RecordingVesselId`).
+It must NOT borrow the partner code's "pick the non-survivor side" logic (`:10566`),
+which would mis-select for the self case. Returns null when neither side matches (the
+recorder-on-a-third-vessel case, `:10560-10569`); null then falls back to the merged
+snapshot, preserving current behaviour. The resource manifest is filtered to
+`transportPids` downstream, so a self snapshot that happens to be the survivor still
+yields only the transport's own parts.
+
 Same in the retroactive block (`:10696-10712`), guarded by the same `from != to`
 distinctness check; if already reparented it stays null (accepted fallback, same as
 the endpoint snapshot's documented §5.1 risk).
@@ -110,21 +121,49 @@ self-validation in step 3 is the correctness backstop.
 `:11974`. Add `pendingDockSelfSnapshot = null; pendingDockSelfSnapshotPid = 0u;` to
 each so a stale snapshot never leaks across couples / dock attempts.
 
-## Rejected alternative
+## Rejected alternatives
 
-Fix candidate 2 from the todo (detect "approximate equalisation" in
-`HasResourcePickup`: per-resource `transportGain` approximately equal to
-`endpointLoss` within tolerance, treat as not-a-pickup) is NOT taken. It is a
-heuristic that could misclassify a genuine pickup that happens to net out, and it
-patches the symptom in the gate rather than the wrong INPUT data. The pre-couple
-snapshot is exact and reuses a proven mechanism.
+1. **Heuristic equalisation detector** (todo fix candidate 2: per-resource
+   `transportGain` approximately equal to `endpointLoss` within tolerance, treat as
+   not-a-pickup) is NOT taken. It is a heuristic that could misclassify a genuine
+   pickup that happens to net out, and it patches the symptom in the gate rather than
+   the wrong INPUT data. The pre-couple snapshot is exact and reuses a proven shape.
 
-## Dependency / scope note
+2. **Reusing the existing `stoppedRecorder.CaptureAtStop.VesselSnapshot`** (already in
+   hand at the call site, `ParsekFlight.cs:5447-5448`, used today only to derive the
+   transport PID set) instead of a fresh field is NOT taken. `CaptureAtStop` is built
+   inside `StopRecordingForChainBoundary` (`:10645`) off `FlightGlobals.ActiveVessel`,
+   which AFTER a couple may already be the merged vessel (ambiguous identity), and it
+   is captured ~70 lines later in the handler than the proposed self-snapshot point
+   (marginally more equalised). The fresh `pendingDockSelfSnapshot`, captured in the
+   partner-snapshot block where `from != to` is guaranteed, is the earliest in-handler
+   moment with an unambiguous transport identity, so it is strictly the best baseline
+   available. (It is still better than `dockedSnapshot` on the timing axis either way.)
 
-The fix is exactly as reliable as the existing endpoint mechanism: both assume the
-OnPartCouple snapshot block runs BEFORE the same-frame crossfeed equalisation pass.
-The shipped, working endpoint fix validates that timing. If equalisation ran before
-OnPartCouple, neither snapshot would help, but that is not the observed behaviour.
+## Dependency / scope note (corrected per plan review)
+
+The fix is a strict improvement, but how COMPLETELY it removes the false reject
+depends on a stock-KSP timing fact that is not proven in-repo:
+
+- **Code-proven half:** the merged snapshot is captured FRAMES later than
+  `OnPartCouple` (`CreateMergeBranch` runs from the deferred dock-confirm path,
+  `:11748-11766` ticking `dockConfirmFrames` up to 5 before `:11957`), so the
+  pre-couple self snapshot is unambiguously LESS equalised than `mergedSnapshot`. The
+  fix can only help, never hurt.
+- **Unproven half:** whether stock crossfeed equalisation runs AFTER the
+  `onPartCouple` event (so the in-handler self snapshot is fully pre-equalisation) or
+  partly DURING `Part.Couple` before the event fires. The shipped endpoint fix does
+  NOT validate this: that fix addressed a part-PID-set SUMMING bug (the merged-vessel
+  endpoint PID set wrongly included transport parts), not crossfeed deflation, so it
+  only proves the PRE-REPARENT (`from != to`) timing, a necessary but not sufficient
+  condition here.
+
+Therefore the headless tests prove the SELECTION logic (the window reads the
+pre-couple transport baseline when provided), and an **in-game playtest is the real
+validation** that the false reject is gone end-to-end (the prior two logistics dock
+fixes were both playtest-driven). The plan ships the exact, low-risk selection change
+and flags the playtest as the closing step.
+
 This is a route-creation eligibility fix only: no change to dispatch, delivery,
 serialization, or the route data model. `RouteConnectionWindow` already serializes
 `DockTransportResources` / `DockTransportInventory`; this only changes which snapshot
@@ -159,14 +198,17 @@ the format `VesselSpawner.ExtractResourceManifest` reads.
 4. **Inventory parity:** the same pre-couple selection applies to
    `DockTransportInventory` (one stored-part case).
 5. **End-to-end gate behaviour (the actual bug):** build a `RouteConnectionWindow`
-   two ways for a clean delivery run that crossfed LiquidFuel during the dock:
-   - post-couple baseline (deflated dock transport) -> `HasResourcePickup` /
-     `RouteAnalysisEngine.AnalyzeRecording` returns `MixedPickupDelivery` (repro).
+   two ways for a clean delivery run that crossfed LiquidFuel during the dock, and
+   drive `RouteAnalysisEngine.AnalyzeRecording(new Recording { RouteConnectionWindows
+   = [window] })` (the internal entry the existing `RouteAnalysisEngineTests` use):
+   - post-couple baseline (deflated dock transport) -> returns `MixedPickupDelivery`
+     (repro).
    - pre-couple baseline (true dock transport) -> NOT rejected (delivery-only).
-   This pins that the fix flips the classification. (`HasResourcePickup` is private;
-   drive it through `AnalyzeRecording` / the public analysis entry, or assert on the
-   built `DockTransportResources` feeding a directly-constructed window through the
-   analyzer.)
+   The window MUST satisfy `HasEndpointProof` or it short-circuits at
+   `MissingEndpointProof` before the pickup gate: set `TransferTargetVesselPid != 0`,
+   `TransferKind = DockingPort`, `EndpointAtDock = <some endpoint>`, and
+   `TransferEndpointSituation >= 0`, plus a finite `UndockUT` (so `IsComplete`). Use
+   non-zero part persistentIds in snapshots (`TryGetPartPersistentId` rejects 0).
 6. **Log assertion:** the capture path logs the pre-couple self snapshot line; assert
    the `[Flight]` verbose line is emitted (canonical `TestSinkForTesting` pattern,
    `[Collection("Sequential")]`).
