@@ -42,14 +42,12 @@ All notable changes to Parsek are documented here.
 ### Internals & Tests
 
 - Added an in-game ledger ground-truth verification harness: it quicksaves the live career, parses that save independently of Parsek's bookkeeping, runs the career-state reconstruction, and reports any disagreement between the two. This is the closed self-check that catches a reconstruction drifting from your actual funds, science, reputation, or recovered vessels. Run it from the in-game test runner (Ctrl+Shift+T) under the `LedgerGroundTruth` category.
-
-### Internals & Tests
-
 - Added headless test coverage for the career-state apply boundary (the step that writes your funds, science, reputation, tech tree, and facility levels when Parsek rebuilds career state), so its value and clamp decisions are now verified directly in unit tests rather than only in the live game. No gameplay change.
 - The two scene-exit merge-dialog in-game tests (Space Center exit with Merge to Timeline / Discard) now run automatically under the test runner's `Run All + Isolated`, which captures a flight baseline beforehand and quickloads it after each test. Previously they were manual-only rows you had to run one at a time. No gameplay change.
 - The in-game test runner now force-closes any stock Space Center facility (R&D, Astronaut Complex, Mission Control, Administration) left open by a test, after every test, on Cancel, and before each batch. Previously, cancelling a run while a facility-overlay test was mid-flight could leave you stuck inside the building with the game paused; the runner now always returns you to a usable Space Center. No gameplay change.
 - The test runner's automatic baseline isolation (quicksave before the batch, quickload after each isolated test) now also works from the Tracking Station, so the last manual-only Tracking Station "Fly" canary can run under `Run All + Isolated` and return you to the Tracking Station afterward. Previously baseline isolation was FLIGHT-only. No gameplay change.
 - Hardened the in-game test suite so running tests can no longer alter your campaign saves: the isolated batch now backs up and restores your `persistent.sfs` (some scene-exit tests write it directly or trigger an auto-save), two tests that overwrote your stock `quicksave` slot now use throwaway slots, the ledger ground-truth harness deletes its temporary save, and temporary save deletion now also sweeps the `.loadmeta` sidecar. No gameplay change.
+- Running the in-game test suite from the main menu no longer leaves a stray save folder behind. Two save-I/O tests wrote into the last-played save's folder (creating a phantom `<save>/Parsek/Recordings/` that lingered in the load list); they now skip when no game is loaded. No gameplay change.
 
 ## 0.10.0
 

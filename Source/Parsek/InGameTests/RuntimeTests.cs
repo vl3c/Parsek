@@ -7330,6 +7330,17 @@ namespace Parsek.InGameTests
             Description = "Dropped vessel snapshot re-hydrates from its _vessel.craft sidecar")]
         public void VesselSnapshotRehydratesFromSidecar()
         {
+            // No loaded game (main menu / loading): HighLogic.SaveFolder is a stale
+            // leftover, so writing the sidecar + EnsureRecordingsDirectory below would
+            // create a phantom saves/<stale>/Parsek/Recordings/ that lingers in the
+            // load menu. Skip: this exercises the live save-context resolver, which
+            // only has a real target inside a loaded game.
+            if (HighLogic.CurrentGame == null || string.IsNullOrEmpty(HighLogic.SaveFolder))
+            {
+                InGameAssert.Skip("requires a loaded game (writes a save-scoped sidecar)");
+                return;
+            }
+
             // End-to-end of the spawn-time re-hydration that the orbital-payload
             // bug needed: the in-memory snapshot is dropped in-session, but the
             // terminal-spawn path reloads it from the durable sidecar via the
@@ -7765,9 +7776,15 @@ namespace Parsek.InGameTests
             Description = "RecordingPaths.EnsureRecordingsDirectory creates/resolves the dir")]
         public void RecordingsDirectoryExists()
         {
-            if (string.IsNullOrEmpty(HighLogic.SaveFolder))
+            // No loaded game (main menu / loading): HighLogic.SaveFolder is a stale
+            // leftover from the last-played save, so EnsureRecordingsDirectory below
+            // would create a phantom saves/<stale>/Parsek/Recordings/ that lingers in
+            // the load menu. (Checking SaveFolder alone is insufficient — it is
+            // non-empty at the main menu.) Skip: there is no real save to test the
+            // path against without a loaded game.
+            if (HighLogic.CurrentGame == null || string.IsNullOrEmpty(HighLogic.SaveFolder))
             {
-                ParsekLog.Verbose("TestRunner", "No SaveFolder set — skipping directory check");
+                InGameAssert.Skip("requires a loaded game (creates save-scoped recordings directory)");
                 return;
             }
 
