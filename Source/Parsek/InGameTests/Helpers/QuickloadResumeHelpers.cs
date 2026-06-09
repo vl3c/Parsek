@@ -37,6 +37,39 @@ namespace Parsek.InGameTests.Helpers
         }
 
         /// <summary>
+        /// Saves the live game to the campaign "persistent" slot so a durable marker
+        /// written into ParsekScenario is flushed to disk. FIRE-AND-FORGET: unlike
+        /// <see cref="TriggerQuicksave"/> it does NOT assert on a non-empty result.
+        /// <see cref="GamePersistence.SaveGame"/> returns string.Empty for the
+        /// "persistent" slot when the player has autosave disabled
+        /// (<c>Game.Parameters.Flight.CanAutoSave == false</c>); that is a no-op, not
+        /// a failure, and must NOT throw out of batch capture (it would otherwise
+        /// disable the in-memory + disk-.bak isolation too). A no-op simply means
+        /// crash reconcile is unavailable this run.
+        /// </summary>
+        internal static void TriggerCampaignPersistentSave()
+        {
+            string saveName = HighLogic.SaveFolder;
+            if (string.IsNullOrEmpty(saveName))
+            {
+                ParsekLog.Warn("TestHelper",
+                    "TriggerCampaignPersistentSave: SaveFolder null/empty; skipped");
+                return;
+            }
+
+            string result = GamePersistence.SaveGame("persistent", saveName, SaveMode.OVERWRITE);
+            if (string.IsNullOrEmpty(result))
+            {
+                ParsekLog.Warn("TestHelper",
+                    $"TriggerCampaignPersistentSave: SaveGame returned empty for '{saveName}/persistent' "
+                    + "(autosave likely disabled) — durable crash marker NOT written this run");
+                return;
+            }
+            ParsekLog.Info("TestHelper",
+                $"TriggerCampaignPersistentSave: saved '{saveName}/persistent' ({result})");
+        }
+
+        /// <summary>
         /// Triggers a stock load from the given slot name. Defaults to the
         /// standard "quicksave" slot used by the quickload-resume tests.
         /// Uses KSP's stock programmatic flight-resume backend

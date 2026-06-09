@@ -23293,5 +23293,68 @@ namespace Parsek.InGameTests
         }
 
         #endregion
+
+        #region Test-runner campaign isolation contract
+
+        /// <summary>
+        /// Enforces the EDITOR isolation contract: EDITOR batches isolate the
+        /// campaign DiskOnly (a persistent.sfs .bak only, NO in-memory reload, because
+        /// reloading the editor mid-edit is fragile). Any test that declares
+        /// Scene == GameScenes.EDITOR could therefore mutate persistent career state
+        /// without the in-memory revert covering it. This always-run contract fails
+        /// loudly if such a test ever appears, forcing whoever adds it to revisit the
+        /// isolation mode (ClassifyBatchIsolationMode) rather than silently relying on
+        /// a comment.
+        /// </summary>
+        [InGameTest(Category = "TestRunnerIsolation", Scene = InGameTestAttribute.AnyScene,
+            Description = "Contract: no [InGameTest] declares Scene=EDITOR (EDITOR isolation is DiskOnly only)")]
+        public void NoEditorSceneTestsExistContract()
+        {
+            var editorTests = new List<string>();
+            var assembly = Assembly.GetExecutingAssembly();
+            foreach (var type in assembly.GetTypes())
+            {
+                foreach (var method in type.GetMethods(
+                    BindingFlags.Public | BindingFlags.NonPublic
+                    | BindingFlags.Instance | BindingFlags.Static))
+                {
+                    var attr = method.GetCustomAttribute<InGameTestAttribute>();
+                    if (attr == null) continue;
+                    if (attr.Scene == GameScenes.EDITOR)
+                        editorTests.Add($"{type.Name}.{method.Name}");
+                }
+            }
+
+            InGameAssert.IsTrue(editorTests.Count == 0,
+                "EDITOR-scene in-game tests exist but EDITOR batch isolation is DiskOnly "
+                + "(no in-memory revert). Revisit ClassifyBatchIsolationMode before adding a "
+                + "persistent-state-mutating EDITOR test: " + string.Join(", ", editorTests.ToArray()));
+            ParsekLog.Info("TestRunner",
+                "NoEditorSceneTestsExistContract: 0 EDITOR-scene tests (DiskOnly isolation contract holds)");
+        }
+
+        /// <summary>
+        /// Validation gate for a FUTURE SPACECENTER in-memory isolation flip.
+        /// SPACECENTER currently ships DiskOnly (safety .bak, no in-memory reload)
+        /// because the CommitNonFlightSceneLoad / Game.Start() in-memory reload path
+        /// is structurally available but UNPROVEN in this codebase. This test exercises
+        /// the in-memory revert (mutate funds, capture a baseline, restore via the
+        /// non-flight commit path, assert the scalar returned to baseline). It ships
+        /// SKIPPED so it does not fail CI; remove the skip and flip
+        /// ClassifyBatchIsolationMode SPACECENTER -> InMemoryAndDisk only after this
+        /// passes in a manual playtest.
+        /// </summary>
+        [InGameTest(Category = "TestRunnerIsolation", Scene = GameScenes.SPACECENTER,
+            Description = "Gate: SPACECENTER in-memory restore returns funds/science/rep to baseline (skip-until-implemented)")]
+        public IEnumerator SpaceCenterBatchIsolationInMemoryRestore()
+        {
+            InGameAssert.Skip(
+                "SPACECENTER in-memory restore not yet enabled; gate test pending green run. "
+                + "Remove this skip and flip ClassifyBatchIsolationMode SPACECENTER -> InMemoryAndDisk "
+                + "only after this passes in a manual playtest.");
+            yield break;
+        }
+
+        #endregion
     }
 }
