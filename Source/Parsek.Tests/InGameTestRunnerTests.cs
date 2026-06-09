@@ -772,5 +772,53 @@ namespace Parsek.Tests
                 InGameTestRunner.BatchBaselineUnavailableReasonForScene(
                     GameScenes.FLIGHT, hasCurrentGame: true, hasSaveFolder: false, hasActiveVessel: true));
         }
+
+        [Fact]
+        public void IsReloadedNonFlightSceneReady_SameSceneNotYetReloaded_IsNotReady()
+        {
+            // The prime restore reloads TRACKSTATION while already in it: scene
+            // matches but the ParsekScenario has NOT been replaced yet, so the
+            // wait must not report ready (the bug this guards against).
+            Assert.False(InGameTestRunner.IsReloadedNonFlightSceneReady(
+                GameScenes.TRACKSTATION, GameScenes.TRACKSTATION,
+                currentScenarioInstanceId: 42, previousScenarioInstanceId: 42));
+        }
+
+        [Fact]
+        public void IsReloadedNonFlightSceneReady_SceneMatchesAndScenarioReplaced_IsReady()
+        {
+            Assert.True(InGameTestRunner.IsReloadedNonFlightSceneReady(
+                GameScenes.TRACKSTATION, GameScenes.TRACKSTATION,
+                currentScenarioInstanceId: 99, previousScenarioInstanceId: 42));
+        }
+
+        [Fact]
+        public void IsReloadedNonFlightSceneReady_NoPriorScenario_OnlyNeedsFreshInstance()
+        {
+            // previous id 0 == "no prior scenario": any non-zero current scenario
+            // in the target scene counts as ready.
+            Assert.True(InGameTestRunner.IsReloadedNonFlightSceneReady(
+                GameScenes.TRACKSTATION, GameScenes.TRACKSTATION,
+                currentScenarioInstanceId: 7, previousScenarioInstanceId: 0));
+        }
+
+        [Fact]
+        public void IsReloadedNonFlightSceneReady_NoCurrentScenario_IsNotReady()
+        {
+            // Mid-reload the scenario may be momentarily absent (id 0).
+            Assert.False(InGameTestRunner.IsReloadedNonFlightSceneReady(
+                GameScenes.TRACKSTATION, GameScenes.TRACKSTATION,
+                currentScenarioInstanceId: 0, previousScenarioInstanceId: 42));
+        }
+
+        [Fact]
+        public void IsReloadedNonFlightSceneReady_WrongScene_IsNotReady()
+        {
+            // Even with a fresh scenario, a non-target loaded scene is not ready
+            // (e.g. still passing through LOADING / FLIGHT).
+            Assert.False(InGameTestRunner.IsReloadedNonFlightSceneReady(
+                GameScenes.TRACKSTATION, GameScenes.FLIGHT,
+                currentScenarioInstanceId: 99, previousScenarioInstanceId: 42));
+        }
     }
 }

@@ -1559,10 +1559,18 @@ namespace Parsek.InGameTests
                     // vessel focus / stage manager to wait on. The test that
                     // ran transitioned into FLIGHT (stock "Fly"), so this
                     // returns the player to the captured Tracking Station.
+                    //
+                    // Capture the live ParsekScenario instance id BEFORE the
+                    // reload so the wait can require a freshly-rebuilt scenario.
+                    // The prime restore reloads TRACKSTATION while already in
+                    // TRACKSTATION, so a bare "LoadedScene == target" wait would
+                    // return on frame 1 (before the reload tears the scene
+                    // down) and let the canary run against a half-loaded scene.
+                    int previousScenarioInstanceId = CurrentParsekScenarioInstanceId();
                     Helpers.QuickloadResumeHelpers.CommitNonFlightSceneLoad(
                         nonFlightGame, baseline.SlotName, baseline.CapturedScene);
-                    yield return Helpers.QuickloadResumeHelpers.WaitForLoadedScene(
-                        baseline.CapturedScene, timeoutSeconds: 15f);
+                    yield return WaitForBatchBaselineNonFlightScene(
+                        baseline.CapturedScene, previousScenarioInstanceId, timeoutSeconds: 15f);
                     PerformBetweenRunCleanup(cleanupReason);
                 }
                 restoreCommitted = true;
@@ -1759,6 +1767,51 @@ namespace Parsek.InGameTests
             }
 
             Directory.Delete(directoryPath, recursive: true);
+        }
+
+        private static int CurrentParsekScenarioInstanceId()
+        {
+            var scenario = UnityEngine.Object.FindObjectOfType<ParsekScenario>();
+            return scenario != null ? scenario.GetInstanceID() : 0;
+        }
+
+        /// <summary>
+        /// Ready predicate for a NON-FLIGHT baseline scene return. Mirrors
+        /// <see cref="Helpers.QuickloadResumeHelpers.IsReloadedFlightReady"/>:
+        /// requires BOTH the target scene loaded AND a freshly-rebuilt
+        /// ParsekScenario, so a same-scene reload (the TRACKSTATION prime restore
+        /// reloading TRACKSTATION) is not reported ready on frame 1 before the
+        /// reload has actually torn down and recreated the scene. Instance id 0
+        /// is the "no scenario" sentinel.
+        /// </summary>
+        internal static bool IsReloadedNonFlightSceneReady(
+            GameScenes targetScene, GameScenes loadedScene,
+            int currentScenarioInstanceId, int previousScenarioInstanceId)
+        {
+            bool replacedScenario = currentScenarioInstanceId != 0
+                && (previousScenarioInstanceId == 0
+                    || currentScenarioInstanceId != previousScenarioInstanceId);
+            return loadedScene == targetScene && replacedScenario;
+        }
+
+        private IEnumerator WaitForBatchBaselineNonFlightScene(
+            GameScenes scene, int previousScenarioInstanceId, float timeoutSeconds)
+        {
+            // Wall-clock: a non-flight scene load can run while the game is
+            // paused (timeScale 0), which would freeze Time.time.
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                if (IsReloadedNonFlightSceneReady(
+                        scene, HighLogic.LoadedScene,
+                        CurrentParsekScenarioInstanceId(), previousScenarioInstanceId))
+                    yield break;
+                yield return null;
+            }
+            InGameAssert.IsTrue(false,
+                $"WaitForBatchBaselineNonFlightScene timed out after {timeoutSeconds:F0}s "
+                + $"(wanted={scene}, current={HighLogic.LoadedScene}, "
+                + $"awaiting a rebuilt ParsekScenario != id={previousScenarioInstanceId})");
         }
 
         private static IEnumerator WaitForBatchBaselineVessel(

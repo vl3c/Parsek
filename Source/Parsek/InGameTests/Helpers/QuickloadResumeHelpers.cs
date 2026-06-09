@@ -308,6 +308,13 @@ namespace Parsek.InGameTests.Helpers
         /// FlightGlobals persistent-id dictionaries. We deliberately do NOT fire
         /// <c>onSceneConfirmExit</c> (that simulates a player-initiated flight
         /// exit; this is a programmatic baseline reload).
+        /// <para>
+        /// As in the proven pattern, the destination scene's
+        /// ScenarioModule.OnLoad runs from the in-memory <c>HighLogic.CurrentGame</c>
+        /// (= the freshly-loaded <paramref name="game"/>), while the disposable
+        /// slot is persisted from the round-tripped <c>refreshed</c> copy; both
+        /// derive from the same loaded save, and the slot is deleted at teardown.
+        /// </para>
         /// </summary>
         internal static void CommitNonFlightSceneLoad(Game game, string slotName, GameScenes scene)
         {
@@ -322,28 +329,6 @@ namespace Parsek.InGameTests.Helpers
             ParsekLog.Info("TestHelper",
                 $"CommitNonFlightSceneLoad: loading '{HighLogic.SaveFolder}/{slotName}' into {scene} "
                 + "via Game.Updated() + HighLogic.LoadScene");
-        }
-
-        /// <summary>
-        /// Waits until the given scene is loaded, or times out. Used by the
-        /// non-FLIGHT baseline restore (the FLIGHT path uses
-        /// <see cref="WaitForFlightReady"/>, which also waits for the rebuilt
-        /// ParsekFlight + active vessel).
-        /// </summary>
-        internal static IEnumerator WaitForLoadedScene(GameScenes scene, float timeoutSeconds = 15f)
-        {
-            // Wall-clock: a non-flight scene load can run while the game is
-            // paused (timeScale 0), which would freeze Time.time.
-            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
-            while (Time.realtimeSinceStartup < deadline)
-            {
-                if (HighLogic.LoadedScene == scene)
-                    yield break;
-                yield return null;
-            }
-            InGameAssert.IsTrue(false,
-                $"WaitForLoadedScene timed out after {timeoutSeconds:F0}s " +
-                $"(wanted={scene}, current={HighLogic.LoadedScene})");
         }
 
         private static string GetSavePath(string saveName, string slotName)

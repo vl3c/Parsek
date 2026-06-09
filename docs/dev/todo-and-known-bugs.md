@@ -259,6 +259,8 @@ Audited every disk write the in-game test framework makes under `saves/<save>/` 
 
 Already-safe (verified, no change): `LogisticsRouteStoreRuntimeTests` and `PartPersistentIdStabilityTest` use unique Guid slots deleted in `finally`; the baseline slot + Parsek-sidecar snapshot dir + restore/backup staging dirs are already cleaned by `CleanupBatchFlightBaselineSave` / the `using` staging scope; test-created RewindPoints + recordings live under `saves/<save>/Parsek/` which the baseline Parsek-dir snapshot swaps back to batch-start; `parsek-test-results.txt` is written to the KSP root, not the save dir.
 
+Known residual (LOW, follow-up): the `persistent.sfs` revert runs at batch end / cancel (`CleanupBatchFlightBaselineSave`). If KSP is force-killed mid-batch after a test wrote `persistent.sfs` but before teardown, the campaign main save stays in the test-mutated state on next launch — the batch-start `<slot>-persistent.bak` is preserved (intentionally, for manual recovery) but there is no load-time auto-reconciler. Auto-restoring `persistent.sfs` from an orphaned `.bak` at load is deliberately NOT done (it could clobber a save the player intentionally continued after a crash); manual recovery from the `.bak` is the documented path, consistent with the preserve-on-failure design.
+
 **NOT YET VALIDATED IN-GAME** (no .NET/KSP toolchain here): the `persistent.sfs` backup/restore and slot-cleanup wiring are runtime-only file I/O and need a build + playtest. All paths are defensive (try/catch, atomic safe-write, preserve-on-failure) so a failure degrades to a warning rather than corrupting the campaign.
 
 ## Done - Generalized batch baseline isolation to the Tracking Station
