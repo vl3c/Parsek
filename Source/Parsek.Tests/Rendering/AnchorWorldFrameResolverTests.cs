@@ -28,16 +28,13 @@ namespace Parsek.Tests.Rendering
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RenderSessionState.ResetForTesting();
             SectionAnnotationStore.ResetForTesting();
-            AnchorCandidateBuilder.ResetForTesting();
             AnchorPropagator.ResetForTesting();
-            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
         }
 
         public void Dispose()
         {
             RenderSessionState.ResetForTesting();
             SectionAnnotationStore.ResetForTesting();
-            AnchorCandidateBuilder.ResetForTesting();
             AnchorPropagator.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;

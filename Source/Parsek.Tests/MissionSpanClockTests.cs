@@ -579,6 +579,112 @@ namespace Parsek.Tests
             return new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex);
         }
 
+        // Scheduled sibling of MakeSingleUnitSet: the unit carries a non-null RelaunchSchedule, so the
+        // TS sampler must thread unit.RelaunchSchedule into the shared DecideUnitMemberRender ->
+        // TryComputeSpanLoopUT call (4.2 param-forwarding). A scheduled unit is non-overlapping by
+        // construction, so cadence == overlapCadence == max(span, MinInterval) >= span.
+        private static GhostPlaybackLogic.LoopUnitSet MakeScheduledUnitSet(
+            int ownerIndex, int[] memberIndices,
+            double spanStartUT, double spanEndUT,
+            MissionRelaunchSchedule schedule)
+        {
+            double span = spanEndUT - spanStartUT;
+            double cadence = System.Math.Max(span, schedule.MinIntervalSeconds);
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex, memberIndices, spanStartUT, spanEndUT, cadence,
+                phaseAnchorUT: schedule.FirstLaunchUT,
+                overlapCadenceSeconds: cadence,
+                memberWindows: null, relaunchSchedule: schedule);
+            var unitsByOwner = new Dictionary<int, GhostPlaybackLogic.LoopUnit>
+            {
+                { ownerIndex, unit }
+            };
+            var ownerByIndex = new Dictionary<int, int>();
+            foreach (int m in memberIndices)
+                ownerByIndex[m] = ownerIndex;
+            return new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex);
+        }
+
+        [Fact]
+        public void Scheduled_FlightTsSampler_AgreeOverSweep()
+        {
+            // 4.2 (INV-2 param-forwarding + INV-8). PARAM-FORWARDING regression test, NOT an
+            // independent-implementation parity proof: both scene paths funnel through the SAME pure
+            // helper (TS ResolveTrackingStationSampleUT -> DecideUnitMemberRender -> TryComputeSpanLoopUT;
+            // flight calls TryComputeSpanLoopUT directly), so the math is f(x) == f(x). The VALUE here
+            // is catching a future regression that drops unit.RelaunchSchedule (or threads a different
+            // schedule) on the TS call - then the TS sampler would resolve the uniform-cadence clock
+            // while flight resolves the scheduled one, and they would diverge across this sweep.
+            //
+            // The unit carries the synthetic 100/31 schedule (launches 900, 1300, 1800, 2200, ...),
+            // span [0,50] (< the ~400 s relaunch interval), member window = the whole span so the
+            // render/tail/parked decision is the schedule's, not a member-window artifact. The sweep
+            // covers the pre-first-launch parked boundary (INV-8), the launch instants, mid-span, and
+            // the inter-cycle tails between launches.
+            var schedule = MissionZeroDriftScheduleTests.SyntheticSchedule();
+            Assert.Equal(900.0, schedule.FirstLaunchUT, 6);
+
+            const int member = 5;
+            double spanStart = 0.0, spanEnd = 50.0;
+            double cadence = System.Math.Max(spanEnd - spanStart, schedule.MinIntervalSeconds);
+            var units = MakeScheduledUnitSet(
+                member, new[] { member }, spanStart, spanEnd, schedule);
+
+            // pre-first-launch (parked / INV-8), launches, mid-span, and inter-cycle tails.
+            double[] sweep =
+            {
+                500, 700, 899.9,           // parked before the first launch
+                900, 925, 949.9,           // first launch + mid-span render
+                950, 970, 1000, 1200,      // first inter-cycle tail
+                1300, 1325, 1349.9,        // second launch render
+                1360, 1700,                // second tail
+                1800, 1850, 2200, 2250,    // third / fourth launch + their tails
+            };
+
+            foreach (double currentUT in sweep)
+            {
+                // FLIGHT path: call the shared span clock directly with the SAME schedule.
+                bool flightOk = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    currentUT, schedule.FirstLaunchUT, spanStart, spanEnd, cadence,
+                    out double flightLoopUT, out _, out bool flightTail, schedule);
+
+                // TS / map path: the sampler resolves the owning unit's clock, forwarding
+                // unit.RelaunchSchedule. The member window is the whole span, so the only hide reason
+                // is the schedule decision (unresolved / tail), never an out-of-window member.
+                double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                    i: member, memberStartUT: spanStart, memberEndUT: spanEnd, liveUT: currentUT,
+                    units, out bool tsHidden);
+
+                // The flight RENDER decision: resolved (ok) and not in the inter-cycle tail.
+                bool flightRenders = flightOk && !flightTail;
+
+                // The hidden/tail/parked decision must AGREE: the TS path hides exactly when the
+                // flight clock does not render (parked-before-first OR inter-cycle tail).
+                Assert.Equal(!flightRenders, tsHidden);
+
+                // When both render, the substituted loopUT must be byte-identical (the param-forwarding
+                // payload). When hidden the TS path returns liveUT (unused by the caller), so loopUT
+                // agreement is only meaningful on the render frames.
+                if (flightRenders)
+                    Assert.Equal(flightLoopUT, eff, 6);
+            }
+
+            // Spot-check the boundary decisions explicitly so a future regression names the frame.
+            // Parked before L_0: hidden (INV-8).
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                member, spanStart, spanEnd, 500.0, units, out bool h500);
+            Assert.True(h500);
+            // On the first launch: render at spanStart.
+            double eff900 = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                member, spanStart, spanEnd, 900.0, units, out bool h900);
+            Assert.False(h900);
+            Assert.Equal(0.0, eff900, 6);
+            // Inter-cycle tail (past the 50 s span, before the next launch): hidden.
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                member, spanStart, spanEnd, 1000.0, units, out bool h1000);
+            Assert.True(h1000);
+        }
+
         [Fact]
         public void ResolveTrackingStationSampleUT_NonMember_ReturnsLiveUT_NotHidden()
         {

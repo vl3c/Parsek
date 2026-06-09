@@ -672,5 +672,153 @@ namespace Parsek.Tests
         {
             Assert.False(InGameTestRunner.ShouldRestoreBatchFlightBaselineAfterTest(null));
         }
+
+        [Fact]
+        public void ShouldForceCloseSpaceCenterFacilities_OnlyTrueInSpaceCenter()
+        {
+            Assert.True(InGameTestRunner.ShouldForceCloseSpaceCenterFacilities(GameScenes.SPACECENTER));
+
+            foreach (var scene in new[]
+            {
+                GameScenes.FLIGHT,
+                GameScenes.TRACKSTATION,
+                GameScenes.EDITOR,
+                GameScenes.MAINMENU,
+                GameScenes.SETTINGS,
+                GameScenes.CREDITS,
+                GameScenes.LOADING,
+            })
+            {
+                Assert.False(InGameTestRunner.ShouldForceCloseSpaceCenterFacilities(scene),
+                    $"facility force-close must be a no-op outside the Space Center (scene={scene})");
+            }
+        }
+
+        [Fact]
+        public void FormatFacilityForceCloseSummary_IncludesCountAndReason()
+        {
+            string summary = InGameTestRunner.FormatFacilityForceCloseSummary(2, "post-test:Foo");
+            Assert.Contains("closed 2", summary);
+            Assert.Contains("reason=post-test:Foo", summary);
+        }
+
+        [Fact]
+        public void FormatFacilityForceCloseSummary_NullReason_RendersPlaceholder()
+        {
+            string summary = InGameTestRunner.FormatFacilityForceCloseSummary(1, null);
+            Assert.Contains("reason=(null)", summary);
+        }
+
+        [Fact]
+        public void IsBatchBaselineRestoreSupportedScene_AllowsFlightAndTrackingStation()
+        {
+            Assert.True(InGameTestRunner.IsBatchBaselineRestoreSupportedScene(GameScenes.FLIGHT));
+            Assert.True(InGameTestRunner.IsBatchBaselineRestoreSupportedScene(GameScenes.TRACKSTATION));
+
+            foreach (var scene in new[]
+            {
+                GameScenes.SPACECENTER,
+                GameScenes.EDITOR,
+                GameScenes.MAINMENU,
+                GameScenes.LOADING,
+            })
+            {
+                Assert.False(InGameTestRunner.IsBatchBaselineRestoreSupportedScene(scene),
+                    $"baseline restore is only supported in FLIGHT / TRACKSTATION (scene={scene})");
+            }
+        }
+
+        [Fact]
+        public void BatchBaselineUnavailableReasonForScene_FlightHappyPath_ReturnsNull()
+        {
+            Assert.Null(InGameTestRunner.BatchBaselineUnavailableReasonForScene(
+                GameScenes.FLIGHT, hasCurrentGame: true, hasSaveFolder: true, hasActiveVessel: true));
+        }
+
+        [Fact]
+        public void BatchBaselineUnavailableReasonForScene_TrackingStationHappyPath_NeedsNoActiveVessel()
+        {
+            // A Tracking Station baseline returns via LoadScene with no vessel
+            // focus, so a missing active vessel must NOT block capture.
+            Assert.Null(InGameTestRunner.BatchBaselineUnavailableReasonForScene(
+                GameScenes.TRACKSTATION, hasCurrentGame: true, hasSaveFolder: true, hasActiveVessel: false));
+        }
+
+        [Fact]
+        public void BatchBaselineUnavailableReasonForScene_FlightWithoutActiveVessel_IsBlocked()
+        {
+            string reason = InGameTestRunner.BatchBaselineUnavailableReasonForScene(
+                GameScenes.FLIGHT, hasCurrentGame: true, hasSaveFolder: true, hasActiveVessel: false);
+            Assert.False(string.IsNullOrEmpty(reason));
+            Assert.Contains("active vessel", reason);
+        }
+
+        [Fact]
+        public void BatchBaselineUnavailableReasonForScene_UnsupportedScene_IsBlocked()
+        {
+            string reason = InGameTestRunner.BatchBaselineUnavailableReasonForScene(
+                GameScenes.SPACECENTER, hasCurrentGame: true, hasSaveFolder: true, hasActiveVessel: true);
+            Assert.False(string.IsNullOrEmpty(reason));
+            Assert.Contains("FLIGHT or Tracking Station", reason);
+        }
+
+        [Fact]
+        public void BatchBaselineUnavailableReasonForScene_MissingGameOrSaveFolder_IsBlocked()
+        {
+            Assert.Contains("HighLogic.CurrentGame",
+                InGameTestRunner.BatchBaselineUnavailableReasonForScene(
+                    GameScenes.TRACKSTATION, hasCurrentGame: false, hasSaveFolder: true, hasActiveVessel: false));
+            Assert.Contains("HighLogic.SaveFolder",
+                InGameTestRunner.BatchBaselineUnavailableReasonForScene(
+                    GameScenes.FLIGHT, hasCurrentGame: true, hasSaveFolder: false, hasActiveVessel: true));
+        }
+
+        [Fact]
+        public void IsReloadedNonFlightSceneReady_SameSceneNotYetReloaded_IsNotReady()
+        {
+            // The prime restore reloads TRACKSTATION while already in it: scene
+            // matches but the ParsekScenario has NOT been replaced yet, so the
+            // wait must not report ready (the bug this guards against).
+            Assert.False(InGameTestRunner.IsReloadedNonFlightSceneReady(
+                GameScenes.TRACKSTATION, GameScenes.TRACKSTATION,
+                currentScenarioInstanceId: 42, previousScenarioInstanceId: 42));
+        }
+
+        [Fact]
+        public void IsReloadedNonFlightSceneReady_SceneMatchesAndScenarioReplaced_IsReady()
+        {
+            Assert.True(InGameTestRunner.IsReloadedNonFlightSceneReady(
+                GameScenes.TRACKSTATION, GameScenes.TRACKSTATION,
+                currentScenarioInstanceId: 99, previousScenarioInstanceId: 42));
+        }
+
+        [Fact]
+        public void IsReloadedNonFlightSceneReady_NoPriorScenario_OnlyNeedsFreshInstance()
+        {
+            // previous id 0 == "no prior scenario": any non-zero current scenario
+            // in the target scene counts as ready.
+            Assert.True(InGameTestRunner.IsReloadedNonFlightSceneReady(
+                GameScenes.TRACKSTATION, GameScenes.TRACKSTATION,
+                currentScenarioInstanceId: 7, previousScenarioInstanceId: 0));
+        }
+
+        [Fact]
+        public void IsReloadedNonFlightSceneReady_NoCurrentScenario_IsNotReady()
+        {
+            // Mid-reload the scenario may be momentarily absent (id 0).
+            Assert.False(InGameTestRunner.IsReloadedNonFlightSceneReady(
+                GameScenes.TRACKSTATION, GameScenes.TRACKSTATION,
+                currentScenarioInstanceId: 0, previousScenarioInstanceId: 42));
+        }
+
+        [Fact]
+        public void IsReloadedNonFlightSceneReady_WrongScene_IsNotReady()
+        {
+            // Even with a fresh scenario, a non-target loaded scene is not ready
+            // (e.g. still passing through LOADING / FLIGHT).
+            Assert.False(InGameTestRunner.IsReloadedNonFlightSceneReady(
+                GameScenes.TRACKSTATION, GameScenes.FLIGHT,
+                currentScenarioInstanceId: 99, previousScenarioInstanceId: 42));
+        }
     }
 }

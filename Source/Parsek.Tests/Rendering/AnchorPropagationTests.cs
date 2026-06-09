@@ -25,16 +25,13 @@ namespace Parsek.Tests.Rendering
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RenderSessionState.ResetForTesting();
             SectionAnnotationStore.ResetForTesting();
-            AnchorCandidateBuilder.ResetForTesting();
             AnchorPropagator.ResetForTesting();
-            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
         }
 
         public void Dispose()
         {
             RenderSessionState.ResetForTesting();
             SectionAnnotationStore.ResetForTesting();
-            AnchorCandidateBuilder.ResetForTesting();
             AnchorPropagator.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -116,26 +113,6 @@ namespace Parsek.Tests.Rendering
 
             Assert.True(RenderSessionState.TryLookup(rec.RecordingId, 0, AnchorSide.Start, out AnchorCorrection ac));
             Assert.Equal(AnchorSource.Loop, ac.Source);
-        }
-
-        [Fact]
-        public void Run_FlagOff_SkipsEntireWalk()
-        {
-            // What makes it fail: the rollout flag must be respected at
-            // the outermost gate — a buggy gate would let candidates bleed
-            // into the session map even with the flag off.
-            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = false;
-            var rec = MakeRec("rec-flag-off", 0, 100);
-            SectionAnnotationStore.PutAnchorCandidates(rec.RecordingId, 0,
-                new[] { new AnchorCandidate(0.0, AnchorSource.Loop, AnchorSide.Start) });
-
-            var marker = new ReFlySessionMarker { SessionId = "flag-off-sess" };
-            AnchorPropagator.Run(marker, new[] { rec }, new RecordingTree[0],
-                surfaceLookup: null);
-
-            Assert.Equal(0, RenderSessionState.Count);
-            Assert.Contains(logLines, l =>
-                l.Contains("[Pipeline-AnchorPropagate]") && l.Contains("useAnchorTaxonomy=false"));
         }
 
         [Fact]

@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using Parsek.Logistics;
+using Parsek.InGameTests.Helpers;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -148,7 +149,10 @@ namespace Parsek.InGameTests
                     // reload dropped/changed any of them.
                     RestoreRoutes(preExistingRoutes);
                 }
-                TryDeleteTempSaveSlot(savePath);
+                // Route deletion through QuickloadResumeHelpers.TryDeleteSaveSlot so the sibling
+                // <slot>.loadmeta is swept alongside the .sfs (it calls FileIOUtils.DeleteSaveSidecarLoadMeta).
+                // The old raw File.Delete on the .sfs left the .loadmeta behind in the player's save folder.
+                QuickloadResumeHelpers.TryDeleteSaveSlot(saveSlot);
             }
         }
 
@@ -220,31 +224,6 @@ namespace Parsek.InGameTests
             }
             ParsekLog.Verbose("TestRunner",
                 $"RouteStore_RoundTrip cleanup: restored {preExisting.Count} pre-existing route(s)");
-        }
-
-        private static void TryDeleteTempSaveSlot(string savePath)
-        {
-            if (string.IsNullOrEmpty(savePath))
-                return;
-            try
-            {
-                if (File.Exists(savePath))
-                {
-                    File.Delete(savePath);
-                    ParsekLog.Verbose("TestRunner",
-                        $"RouteStore_RoundTrip cleanup: deleted '{savePath}'");
-                }
-            }
-            catch (IOException ioEx)
-            {
-                ParsekLog.Warn("TestRunner",
-                    $"RouteStore_RoundTrip cleanup: failed to delete '{savePath}': {ioEx.Message}");
-            }
-            catch (UnauthorizedAccessException accessEx)
-            {
-                ParsekLog.Warn("TestRunner",
-                    $"RouteStore_RoundTrip cleanup: failed to delete '{savePath}': {accessEx.Message}");
-            }
         }
     }
 }

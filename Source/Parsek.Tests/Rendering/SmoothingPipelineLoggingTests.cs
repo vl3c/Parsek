@@ -458,7 +458,6 @@ namespace Parsek.Tests.Rendering
             // the cluster Warn for the same (recordingId, sectionIndex)
             // tuple. Calling FitAndStorePerSection twice on the same kraken-
             // injected fixture must produce exactly ONE Warn line in total.
-            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
             var rec = MakeKrakenRecording("rec-cluster-dedup");
 
             SmoothingPipeline.FitAndStorePerSection(rec);
@@ -483,7 +482,6 @@ namespace Parsek.Tests.Rendering
             // HR-9 visibility: a section that produced zero rejections still
             // emits the per-section summary so the path is visibly run from
             // KSP.log.
-            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
             var rec = MakeRecording("rec-clean-info"); // smooth fixture, no krakens
             SmoothingPipeline.FitAndStorePerSection(rec);
             Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Outlier]")

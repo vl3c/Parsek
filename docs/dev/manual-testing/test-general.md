@@ -70,8 +70,10 @@ Before capturing any release bundle, verify that the deployed
   - `RuntimeTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`
   - `RuntimeTests.ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree`
   - `RuntimeTests.ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree`
-- Runner note: run these three rows individually from a disposable
-  `PRELAUNCH` `FLIGHT` session
+- Runner note: all three rows are isolated-batch capable — use
+  `Run All + Isolated` (or `Run+`) from a disposable `PRELAUNCH` `FLIGHT`
+  session, which captures a FLIGHT baseline and quickloads it after each
+  row. The row play button still works for running them one at a time.
 
 ### `release-tracking-station`
 

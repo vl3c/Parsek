@@ -16,8 +16,17 @@ All notable changes to Parsek are documented here.
 
 - Maintenance and bug-fix release following up on issues found in post-0.10.0 career playtesting.
 
+### UI
+
+- Removed the per-recording loop (`L`) toggle from the Timeline window rows; it cluttered the list without a way to set the required loop interval. Manage looping (and its interval) from the Recordings tab as before.
+
+### Settings
+
+- Removed four developer-only toggles (smoothing splines, anchor correction, anchor taxonomy, and outlier rejection) from the career Parsek settings tab. These were rollout gates that had settled on their on-by-default behavior, so the ghost-trajectory rendering pipeline is now always on with no toggle to flip.
+
 ### Bug Fixes
 
+- Fixed a bug where a clean cargo-delivery Supply Run could be wrongly rejected as a mixed pickup/delivery run when the transport and the destination shared a fuel type that stock crossfeed equalised during docking. Route eligibility now reads the transport's fuel level from just before docking, so the equalisation no longer looks like the transport picking cargo back up.
 - Fixed a critical data-loss bug where reverting a flight (stock Revert to Launch or Prelaunch) could silently delete your real, separately launched landed or orbiting craft from unrelated missions. A revert now only undoes the flight you actually reverted, and it identifies vessels by their unique launch rather than the craft name, so other craft that merely share a vessel design or its baked id are never removed.
 - Fixed a critical bug where cold-loading (Resume Saved Game) an established career wiped the stock economy: funds collapsed to the starting seed and science dropped to zero, even with no Parsek feature in use. On a fresh load the universe clock is not ready yet, so the ledger replay was cutting the entire career off at time zero; it now replays the full committed history and only applies a time-based cutoff once the clock is valid, which still keeps post-rewind future rewards from being paid out early.
 - Fixed a critical career-corruption bug where science and world-first funds earned after time-warping to another body (for example recovering Mun science on a recorded Mun mission) were silently wiped on return to the Space Center, even though no Parsek feature was used. Career captures tagged to the live recording are now committed to the ledger even when they land past the recording's last on-rails trajectory point, so the scene-change recalc no longer patches the player's science and funds down to a target that was missing those earnings.
@@ -26,6 +35,7 @@ All notable changes to Parsek are documented here.
 - Fixed a bug where Parsek could wrongly block a tech-node purchase as "insufficient science" while you actually had plenty, and the science was still spent (twice in the reported case) with no node unlocked. The affordability check now respects your real science total in step with the keep-what-you-earned safety net, and a blocked tech or facility purchase no longer deducts anything before the block.
 - Fixed a critical bug where a normal scene change (for example leaving the Space Center for the Editor) could silently refund money you had just spent, such as a facility upgrade, restoring your funds to before the purchase. The keep-what-you-earned safety net now also protects against an unexpected increase: when no rewind or re-fly is active your current funds, science, and reputation are the source of truth, so a bookkeeping gap can no longer hand money back.
 - Fixed a bug where a single contract could be recorded as completing several times in a row (a stock re-fire), multiplying its recorded reward in Parsek's ledger. Duplicate completions of the same contract within the same instant are now ignored, so each contract is recorded once.
+- Looped Mun and Minmus missions no longer show a false off-target warning on the launch-window countdown when the loop is actually relaunching on schedule.
 
 ### Safety
 
@@ -42,10 +52,18 @@ All notable changes to Parsek are documented here.
 ### Internals & Tests
 
 - Added an in-game ledger ground-truth verification harness: it quicksaves the live career, parses that save independently of Parsek's bookkeeping, runs the career-state reconstruction, and reports any disagreement between the two. This is the closed self-check that catches a reconstruction drifting from your actual funds, science, reputation, or recovered vessels. Run it from the in-game test runner (Ctrl+Shift+T) under the `LedgerGroundTruth` category.
-
-### Internals & Tests
-
 - Added headless test coverage for the career-state apply boundary (the step that writes your funds, science, reputation, tech tree, and facility levels when Parsek rebuilds career state), so its value and clamp decisions are now verified directly in unit tests rather than only in the live game. No gameplay change.
+- The two scene-exit merge-dialog in-game tests (Space Center exit with Merge to Timeline / Discard) now run automatically under the test runner's `Run All + Isolated`, which captures a flight baseline beforehand and quickloads it after each test. Previously they were manual-only rows you had to run one at a time. No gameplay change.
+- The in-game test runner now force-closes any stock Space Center facility (R&D, Astronaut Complex, Mission Control, Administration) left open by a test, after every test, on Cancel, and before each batch. Previously, cancelling a run while a facility-overlay test was mid-flight could leave you stuck inside the building with the game paused; the runner now always returns you to a usable Space Center. No gameplay change.
+- The test runner's automatic baseline isolation (quicksave before the batch, quickload after each isolated test) now also works from the Tracking Station, so the last manual-only Tracking Station "Fly" canary can run under `Run All + Isolated` and return you to the Tracking Station afterward. Previously baseline isolation was FLIGHT-only. No gameplay change.
+- Hardened the in-game test suite so running tests can no longer alter your campaign saves: the isolated batch now backs up and restores your `persistent.sfs` (some scene-exit tests write it directly or trigger an auto-save), two tests that overwrote your stock `quicksave` slot now use throwaway slots, the ledger ground-truth harness deletes its temporary save, and temporary save deletion now also sweeps the `.loadmeta` sidecar. No gameplay change.
+- Running the in-game test suite from the main menu no longer leaves a stray save folder behind. Two save-I/O tests wrote into the last-played save's folder (creating a phantom `<save>/Parsek/Recordings/` that lingered in the load list); they now skip when no game is loaded. No gameplay change.
+- The in-game test runner no longer hangs inside a paused Space Center facility (Mission Control / Astronaut Complex). Three facility-row waits used a clock that freezes while the building is paused, so a save with no offered contracts would spin forever and leave you stuck in the building (the runner's own facility close never got to run); they now use a wall-clock timeout. No gameplay change.
+- In-game launch tests now handle a vessel held on the pad by launch clamps, a silently zeroed throttle, or low thrust: the launch waits release the clamps, hold the throttle at full so the liquid engines actually burn (a baseline reload could reset it to zero, leaving only the boosters lit), and give a slow craft up to 30 seconds to lift off and clear the pad; a craft that still cannot leave skips those tests with a clear reason instead of failing them. A logistics test also no longer leaves a stray `.loadmeta` sidecar in your save. No gameplay change.
+- The in-game recording-metrics contract test no longer fails on a single-point recording of a vessel that never left the surface, such as a stationary EVA kerbal who boarded straight back. No gameplay change.
+- The in-game ledger ground-truth check no longer false-fails on a long-lived career whose recordings legitimately reconstruct above the live save. When the keep-what-you-earned guard would clamp an upward funds/science/reputation reconstruction (so your live save is never over-credited), that pool is now reported rather than hard-failed; a reconstruction that runs BELOW your save (the actual corruption case the check exists for) still hard-fails. No gameplay change.
+- Test runs now leave your campaign byte-identical automatically in any scene, including on cancel and restore failure. If the game is force-killed mid-run, the next launch detects the interrupted run, restores your save and Parsek bookkeeping (including the career ledger) from the pre-run snapshot, and reloads it. No gameplay change.
+- In-game test harness: the manual Tracking Station Fly canary (`TrackingStationMaterializedOrbit_FlyLoadsMaterializedVessel_NotStaleSelection`) had never actually run: it probed for a one-argument `SpaceTracking.SetVessel(Vessel)` that does not exist on KSP 1.12.5 (the stock signature is `SetVessel(Vessel, bool keepFocus)`), so the reflection guard always skipped it. The canary now resolves `SetVessel` through the same signature-tolerant helper the production Tracking Station handoff uses, and the skip message names which member probe failed. No gameplay change.
 
 ## 0.10.0
 
