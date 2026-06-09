@@ -199,6 +199,11 @@ namespace Parsek.InGameTests
                 // reload backstop in batch mode for the rare buggy save that
                 // mutates facilities/contracts/milestones.
                 RestoreFinancials(fundsBefore, scienceBefore, repBefore);
+
+                // Delete the disposable ground-truth quicksave so the harness
+                // leaves no stray save slot in the player's load menu. Runs on
+                // every path (pass / assert / Skip).
+                QuickloadResumeHelpers.TryDeleteSaveSlot(GroundTruthSlot);
             }
         }
 

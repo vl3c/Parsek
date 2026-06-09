@@ -11584,19 +11584,30 @@ namespace Parsek.InGameTests
             var preFlight = ParsekFlight.Instance;
             InGameAssert.IsNotNull(preFlight, "ParsekFlight.Instance must be non-null before quickload");
 
-            Helpers.QuickloadResumeHelpers.TriggerQuicksave();
-            yield return new WaitForSeconds(0.5f);
+            // Use a unique disposable slot, never the player's stock "quicksave"
+            // slot — clobbering that would destroy the player's manual quicksave.
+            // Deleted in finally so the test leaves no save artifact behind.
+            string testSlot = "parsek-test-bridge-" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            try
+            {
+                Helpers.QuickloadResumeHelpers.TriggerQuicksave(testSlot);
+                yield return new WaitForSeconds(0.5f);
 
-            Helpers.QuickloadResumeHelpers.TriggerQuickload();
-            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
-                preFlight.GetInstanceID(), 15f);
+                Helpers.QuickloadResumeHelpers.TriggerQuickload(testSlot);
+                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                    preFlight.GetInstanceID(), 15f);
 
-            // The same singleton must survive — DontDestroyOnLoad keeps it alive
-            var postInstance = TestRunnerShortcut.Instance;
-            InGameAssert.IsNotNull(postInstance,
-                "TestRunnerShortcut.Instance must be non-null after quickload (DontDestroyOnLoad)");
-            InGameAssert.AreEqual(preInstance.GetInstanceID(), postInstance.GetInstanceID(),
-                "TestRunnerShortcut instance must be the SAME object after quickload");
+                // The same singleton must survive — DontDestroyOnLoad keeps it alive
+                var postInstance = TestRunnerShortcut.Instance;
+                InGameAssert.IsNotNull(postInstance,
+                    "TestRunnerShortcut.Instance must be non-null after quickload (DontDestroyOnLoad)");
+                InGameAssert.AreEqual(preInstance.GetInstanceID(), postInstance.GetInstanceID(),
+                    "TestRunnerShortcut instance must be the SAME object after quickload");
+            }
+            finally
+            {
+                Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(testSlot);
+            }
         }
 
         /// <summary>
@@ -11799,6 +11810,9 @@ namespace Parsek.InGameTests
             var captured = new List<string>();
             var priorObserver = ParsekLog.TestObserverForTesting;
             var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            // Unique disposable slot, never the player's stock "quicksave" slot;
+            // deleted in finally so the test leaves no save artifact behind.
+            string testSlot = "parsek-test-midrec-" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
 
             try
             {
@@ -11882,11 +11896,11 @@ namespace Parsek.InGameTests
                     $"startedRecordingForTest={startedRecordingForTest}");
 
                 // F5
-                Helpers.QuickloadResumeHelpers.TriggerQuicksave();
+                Helpers.QuickloadResumeHelpers.TriggerQuicksave(testSlot);
                 yield return new WaitForSeconds(2f); // accumulate post-F5 data
 
                 // F9
-                Helpers.QuickloadResumeHelpers.TriggerQuickload();
+                Helpers.QuickloadResumeHelpers.TriggerQuickload(testSlot);
                 yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
                     preFlightInstanceId, 15f);
                 yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
@@ -11912,6 +11926,10 @@ namespace Parsek.InGameTests
                 var cleanupFlight = ParsekFlight.Instance;
                 if (startedRecordingForTest && cleanupFlight != null && cleanupFlight.IsRecording)
                     cleanupFlight.StopRecording();
+
+                // Delete the disposable quicksave slot so the test leaves no
+                // save artifact behind (never touches the stock "quicksave").
+                Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(testSlot);
             }
         }
 

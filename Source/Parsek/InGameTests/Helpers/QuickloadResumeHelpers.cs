@@ -358,14 +358,16 @@ namespace Parsek.InGameTests.Helpers
             }
 
             string savePath = GetSavePath(HighLogic.SaveFolder, slotName);
-            if (!File.Exists(savePath))
-                return;
+            string savesDir = Path.GetDirectoryName(savePath);
 
             try
             {
-                File.Delete(savePath);
-                ParsekLog.Verbose("TestHelper",
-                    $"Deleted temporary save slot '{HighLogic.SaveFolder}/{slotName}'");
+                if (File.Exists(savePath))
+                {
+                    File.Delete(savePath);
+                    ParsekLog.Verbose("TestHelper",
+                        $"Deleted temporary save slot '{HighLogic.SaveFolder}/{slotName}'");
+                }
             }
             catch (IOException ioEx)
             {
@@ -377,6 +379,10 @@ namespace Parsek.InGameTests.Helpers
                 ParsekLog.Warn("TestHelper",
                     $"Failed to delete temporary save slot '{HighLogic.SaveFolder}/{slotName}': {accessEx.Message}");
             }
+
+            // KSP may write a sibling <slot>.loadmeta alongside the .sfs; sweep
+            // it too so a test leaves no stray save-slot artifacts behind.
+            FileIOUtils.DeleteSaveSidecarLoadMeta(savesDir, slotName, "TestHelper");
         }
 
         private static long EnsureQuicksaveFileReady(string quicksavePath, string saveName, string caller)

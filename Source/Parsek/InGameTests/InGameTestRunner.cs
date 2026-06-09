@@ -90,6 +90,14 @@ namespace Parsek.InGameTests
             // batch began.
             public GameScenes CapturedScene;
             public string ParsekSaveSnapshotDirectory;
+            // Batch-start backup of the campaign's persistent.sfs (a sibling
+            // .bak so it never shows in KSP's load menu), restored at teardown.
+            // Tests can write persistent.sfs directly (the scene-exit merge
+            // tests) or trigger a KSP auto-save on a scene change; restoring the
+            // batch-start bytes guarantees the campaign's main save is left
+            // exactly as it was. Null when persistent.sfs was absent or the
+            // backup could not be taken (the run then logs a warning).
+            public string PersistentSaveBackupPath;
             public int CapturedFlightInstanceId;
             public Guid ActiveVesselId;
             public string ActiveVesselName;
@@ -893,17 +901,20 @@ namespace Parsek.InGameTests
 
             string slotName = CreateBatchFlightBaselineSlotName();
             string parsekSnapshotDirectory = null;
+            string persistentBackupPath = null;
 
             try
             {
                 Helpers.QuickloadResumeHelpers.TriggerQuicksave(slotName);
                 parsekSnapshotDirectory = CaptureBatchFlightParsekSaveSnapshot(slotName);
+                persistentBackupPath = BackupCampaignPersistentSave(slotName);
 
                 return new FlightBatchBaselineState
                 {
                     SlotName = slotName,
                     CapturedScene = capturedScene,
                     ParsekSaveSnapshotDirectory = parsekSnapshotDirectory,
+                    PersistentSaveBackupPath = persistentBackupPath,
                     CapturedFlightInstanceId = ParsekFlight.Instance != null
                         ? ParsekFlight.Instance.GetInstanceID()
                         : 0,
@@ -926,7 +937,124 @@ namespace Parsek.InGameTests
                 Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(slotName);
                 if (!string.IsNullOrEmpty(parsekSnapshotDirectory))
                     TryDeleteDirectoryRecursive(parsekSnapshotDirectory);
+                TryDeletePersistentSaveBackup(persistentBackupPath);
                 throw;
+            }
+        }
+
+        private const string CampaignPersistentSaveFileName = "persistent.sfs";
+
+        /// <summary>
+        /// Backs up the campaign's persistent.sfs at batch start so the teardown
+        /// can restore it byte-for-byte. Tests promoted into the isolated batch
+        /// write persistent.sfs directly (the scene-exit merge tests) or trigger
+        /// a KSP scene-change auto-save; without this the campaign's main save
+        /// would be left in the test's mutated state even though the baseline
+        /// reload reverts the in-memory game. The backup is a sibling
+        /// "&lt;slot&gt;-persistent.bak" -- a non-.sfs name so KSP never lists it
+        /// as a loadable save. Defensive: never throws (a failed backup just
+        /// disables the revert for the run, with a warning); returns null then.
+        /// </summary>
+        private static string BackupCampaignPersistentSave(string baselineSlotName)
+        {
+            try
+            {
+                string persistentPath = RecordingPaths.ResolveSaveScopedPath(CampaignPersistentSaveFileName);
+                if (string.IsNullOrEmpty(persistentPath) || !File.Exists(persistentPath))
+                {
+                    ParsekLog.Verbose(Tag,
+                        "Batch baseline: no campaign persistent.sfs present to back up");
+                    return null;
+                }
+
+                string backupPath = RecordingPaths.ResolveSaveScopedPath(
+                    baselineSlotName + "-persistent.bak");
+                if (string.IsNullOrEmpty(backupPath))
+                {
+                    ParsekLog.Warn(Tag,
+                        "Batch baseline: could not resolve a persistent.sfs backup path; "
+                        + "campaign persistent.sfs will NOT be auto-reverted this run");
+                    return null;
+                }
+
+                byte[] bytes = File.ReadAllBytes(persistentPath);
+                FileIOUtils.SafeWriteBytes(bytes, backupPath, Tag);
+                ParsekLog.Info(Tag,
+                    $"Batch baseline: backed up campaign persistent.sfs ({bytes.Length} bytes) "
+                    + $"to '{Path.GetFileName(backupPath)}'");
+                return backupPath;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Batch baseline: failed to back up campaign persistent.sfs: {ex.Message}. "
+                    + "Tests that write persistent.sfs will NOT be auto-reverted this run.");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Restores the campaign's persistent.sfs from the batch-start backup
+        /// via the atomic safe-write (tmp + rename) path. Returns true when the
+        /// backup is consumable (restored, or nothing to restore); false only
+        /// when a backup existed but the restore failed, so the caller keeps the
+        /// .bak for manual recovery. Never throws.
+        /// </summary>
+        private static bool RestoreCampaignPersistentSave(string backupPath)
+        {
+            if (string.IsNullOrEmpty(backupPath))
+                return true;
+            try
+            {
+                if (!File.Exists(backupPath))
+                {
+                    ParsekLog.Warn(Tag,
+                        $"Batch baseline: persistent.sfs backup missing at '{backupPath}'; nothing to restore");
+                    return true;
+                }
+
+                string persistentPath = RecordingPaths.ResolveSaveScopedPath(CampaignPersistentSaveFileName);
+                if (string.IsNullOrEmpty(persistentPath))
+                {
+                    ParsekLog.Warn(Tag,
+                        "Batch baseline: could not resolve persistent.sfs path to restore; "
+                        + "backup preserved for manual recovery");
+                    return false;
+                }
+
+                byte[] bytes = File.ReadAllBytes(backupPath);
+                FileIOUtils.SafeWriteBytes(bytes, persistentPath, Tag);
+                ParsekLog.Info(Tag,
+                    $"Batch baseline: restored campaign persistent.sfs ({bytes.Length} bytes) "
+                    + "from batch-start backup");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Batch baseline: failed to restore campaign persistent.sfs from '{backupPath}': "
+                    + $"{ex.Message}. Backup preserved for manual recovery.");
+                return false;
+            }
+        }
+
+        private static void TryDeletePersistentSaveBackup(string backupPath)
+        {
+            if (string.IsNullOrEmpty(backupPath))
+                return;
+            try
+            {
+                if (File.Exists(backupPath))
+                {
+                    File.Delete(backupPath);
+                    ParsekLog.Verbose(Tag,
+                        $"Batch baseline: deleted persistent.sfs backup '{Path.GetFileName(backupPath)}'");
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Batch baseline: failed to delete persistent.sfs backup '{backupPath}': {ex.Message}");
             }
         }
 
@@ -1480,12 +1608,27 @@ namespace Parsek.InGameTests
             if (preserveBatchFlightBaselineArtifacts)
             {
                 ParsekLog.Warn(Tag,
-                    $"Preserving isolated batch baseline artifacts for recovery: slot='{batchFlightBaseline.SlotName}', snapshot='{batchFlightBaseline.ParsekSaveSnapshotDirectory}', reason='{preservedBatchFlightBaselineReason ?? "restore failure"}'");
+                    $"Preserving isolated batch baseline artifacts for recovery: slot='{batchFlightBaseline.SlotName}', snapshot='{batchFlightBaseline.ParsekSaveSnapshotDirectory}', persistentBackup='{batchFlightBaseline.PersistentSaveBackupPath}', reason='{preservedBatchFlightBaselineReason ?? "restore failure"}'");
                 return;
             }
 
+            // Restore the campaign's persistent.sfs to its batch-start bytes
+            // BEFORE deleting the backup. A test may have written persistent.sfs
+            // directly or via a scene-change auto-save; this leaves the player's
+            // main career save exactly as it was. Only delete the backup if the
+            // restore is consumable (succeeded or nothing to restore); a failed
+            // restore keeps the .bak so the player can recover manually.
+            bool persistentRestoreConsumable =
+                RestoreCampaignPersistentSave(batchFlightBaseline.PersistentSaveBackupPath);
+
             Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(batchFlightBaseline.SlotName);
             TryDeleteDirectoryRecursive(batchFlightBaseline.ParsekSaveSnapshotDirectory);
+            if (persistentRestoreConsumable)
+                TryDeletePersistentSaveBackup(batchFlightBaseline.PersistentSaveBackupPath);
+            else
+                ParsekLog.Warn(Tag,
+                    $"Batch baseline: keeping persistent.sfs backup '{batchFlightBaseline.PersistentSaveBackupPath}' "
+                    + "after a failed restore so the campaign save can be recovered manually");
         }
 
         private static StagedBatchFlightParsekSaveSnapshot CreateBatchFlightParsekSaveSnapshotStaging(
