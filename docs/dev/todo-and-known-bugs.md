@@ -13,7 +13,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done 2026-06-09 - Logistics Tier-1: Mission / Route structure-list window (0.11.0)
+## Done 2026-06-09 - Logistics Tier-1: Mission / Route structure-list window (0.10.1)
 
 **Feature (roadmap Phase 13 Tier-1, first bullet):** a popup that lists a run step by step (launch, staging / separation, dock, undock, deliveries, terminal / landing), each with its time and location, complementing the Missions-tab composition tree. One reusable window covers both a mission (Missions-tab "Structure" button) and a supply route (Logistics-window route-detail "Structure" button).
 

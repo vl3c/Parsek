@@ -240,18 +240,15 @@ Edited:
   promoted — the mid-event location uses a pure body-only resolver in
   `StructureLocationFormatter.DescribeMid`, and launch/terminal reuse the already-
   `internal` `FormatStartPosition` / `FormatEndPosition`. No formatter change needed.)
-- `Source/Parsek/Properties/AssemblyInfo.cs` + `GameData/Parsek/Parsek.version` — bump to 0.11.0
-  (lockstep; the release script validates they match)
-- `CHANGELOG.md` (new `## 0.11.0` section), `docs/roadmap.md` (mark Tier-1 item),
-  `docs/dev/todo-and-known-bugs.md`
+- `CHANGELOG.md` (a `### Features` entry under the existing `## 0.10.1` section; no
+  version bump), `docs/roadmap.md` (mark Tier-1 item), `docs/dev/todo-and-known-bugs.md`
 - `docs/parsek-logistics-supply-routes-design.md` — note the §17.1 Tier-1 item shipped
 
 ## Data-model / scope decisions (validate with plan reviewer)
 
-1. **Target version.** Current `main` is `0.10.1` (a maintenance/bug-fix release per
-   its CHANGELOG header). This is a new feature, so it should open a new `## 0.11.0`
-   CHANGELOG section + bump `AssemblyInfo.cs` / `Parsek.version`. Confirm 0.11.0 is
-   the intended line (vs folding into a different planned release).
+1. **Target version.** Ships under the existing `## 0.10.1` section (no version bump):
+   a `### Features` entry is added there and `AssemblyInfo.cs` / `KSPAssembly` tag /
+   `Parsek.version` stay at `0.10.1`.
 2. **Staging granularity.** Mission steps include debris-producing staging via
    `PartEvents` (`Decoupled` / fairing / shroud). Confirm we want every separation
    event, or only "significant" ones (e.g. suppress fairing/shroud, keep
