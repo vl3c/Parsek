@@ -767,9 +767,18 @@ namespace Parsek
             // FlexibleSpace, then the Archive checkbox pinned to the right (under the Archive header).
             GUILayout.BeginHorizontal(GUILayout.Width(MissionHeaderRightBlockWidth));
 
-            // Clone / Delete first. Delete is disabled when this is the tree's last mission. Clone,
-            // Delete, Warp to, Watch, and Rewind/Forward all share ColW_HeaderButton so they read as
-            // one group.
+            // "Log" first: opens the chronological step-list window for this mission (launch,
+            // staging, dock / undock, terminal). Shares the header-button group width.
+            if (GUILayout.Button("Log", GUILayout.Width(ColW_HeaderButton)))
+            {
+                ParsekLog.Info("UI",
+                    $"Mission Log button: tree={mission.TreeId ?? "<null>"} name='{mission.Name ?? ""}'");
+                parentUI.OpenStructureWindowForMission(mission.TreeId, mission.Name);
+            }
+
+            // Clone / Delete next. Delete is disabled when this is the tree's last mission. Log,
+            // Clone, Delete, Warp to, Watch, and Rewind/Forward all share ColW_HeaderButton so they
+            // read as one group.
             if (GUILayout.Button("Clone", GUILayout.Width(ColW_HeaderButton)))
                 MissionStore.Clone(mission);
             GUI.enabled = MissionStore.CanDelete(mission);
@@ -786,15 +795,6 @@ namespace Parsek
             // future, and we are in a warp-capable scene (flight or Space Center). The ellipsis
             // matches the existing "Warp to..." convention; the adjacent TTL column says "to what".
             DrawMissionWarpToWindowButton(mission, periodicity);
-
-            // "Log": opens the chronological step-list window for this mission (launch,
-            // staging, dock / undock, terminal). Shares the header-button group width.
-            if (GUILayout.Button("Log", GUILayout.Width(ColW_HeaderButton)))
-            {
-                ParsekLog.Info("UI",
-                    $"Mission Log button: tree={mission.TreeId ?? "<null>"} name='{mission.Name ?? ""}'");
-                parentUI.OpenStructureWindowForMission(mission.TreeId, mission.Name);
-            }
 
             // "Loop [x]": label then checkbox (bare siblings, normal ~4 px margins; a fixed-width
             // wrapper left slack that widened the gap before the period field). The label uses the
