@@ -4,6 +4,14 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.11.0
+
+### Features
+
+- Added a Structure window that lists a run step by step. Open it from a mission's "Structure" button on the Missions tab or a route's "Structure" button in the Logistics window: it shows launch, staging, dock and undock, deliveries, and the landing or terminal, each with its time and location.
+
+---
+
 ## 0.10.1
 
 - Maintenance and bug-fix release following up on issues found in post-0.10.0 career playtesting.

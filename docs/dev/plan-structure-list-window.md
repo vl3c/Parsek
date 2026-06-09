@@ -232,10 +232,15 @@ Edited:
   bump `MissionHeaderRightBlockWidth` by `ColW_HeaderButton + 4f`
 - `Source/Parsek/UI/LogisticsWindowUI.cs` — one "Structure" button in
   `DrawRouteDetail` + open call
-- `Source/Parsek/ParsekUI.cs` — own + draw the sub-window, two open methods
-- `Source/Parsek/UI/RecordingsTableFormatters.cs` — promote `FormatSituationLocation`
-  from `private` to `internal static` for reuse by the location formatter
-- `Source/Parsek/Properties/AssemblyInfo.cs` + `Parsek.version` — bump to 0.11.0
+- `Source/Parsek/ParsekUI.cs` — own + draw the sub-window, two open methods;
+  `Source/Parsek/ParsekFlight.cs` + `Source/Parsek/ParsekKSC.cs` — host draw call
+- `scripts/ers-els-audit-allowlist.txt` — allowlist the window's by-id dock-member
+  resolve (physical connection-window proof, not a visibility-scoped enumeration)
+- (Deviation from plan: `RecordingsTableFormatters.FormatSituationLocation` was NOT
+  promoted — the mid-event location uses a pure body-only resolver in
+  `StructureLocationFormatter.DescribeMid`, and launch/terminal reuse the already-
+  `internal` `FormatStartPosition` / `FormatEndPosition`. No formatter change needed.)
+- `Source/Parsek/Properties/AssemblyInfo.cs` + `GameData/Parsek/Parsek.version` — bump to 0.11.0
   (lockstep; the release script validates they match)
 - `CHANGELOG.md` (new `## 0.11.0` section), `docs/roadmap.md` (mark Tier-1 item),
   `docs/dev/todo-and-known-bugs.md`

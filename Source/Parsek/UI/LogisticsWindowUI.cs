@@ -1230,6 +1230,19 @@ namespace Parsek
             // H5: resolved recording / tree (mission) names instead of 8-char GUID
             // fragments; the short id moves to the hover tooltip.
             DrawSourceRecordingsLine(route);
+
+            // "Structure": opens the chronological step-list window for this route
+            // (origin, dock, delivery, undock). Free-form detail panel, so no fixed-width
+            // action-cell constraint.
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Structure", GUILayout.Width(110)))
+            {
+                ParsekLog.Info("UI",
+                    $"Route Structure button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} name='{route.Name ?? ""}'");
+                parentUI.OpenStructureWindowForRoute(route.Id, route.Name);
+            }
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
             GUILayout.EndVertical();
         }
 

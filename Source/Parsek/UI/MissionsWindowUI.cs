@@ -99,7 +99,10 @@ namespace Parsek
         // inter-cell margins) plus MissionHeaderPeriodSlack for the one-line period label.
         private const float MissionHeaderRightBlockWidth =
             ColW_StartTime + ColW_StartEvent + ColW_EndEvent + ColW_EndTime + ColW_TMinus + ColW_ReFly + ColW_Archive + 6 * 4f
-            + MissionHeaderPeriodSlack;
+            + MissionHeaderPeriodSlack
+            // Plus the added "Structure" header button (one ColW_HeaderButton + its inter-control margin)
+            // so the period label still fits on one line.
+            + ColW_HeaderButton + 4f;
         // Re-Fly column (mirrors the recordings window's Re-Fly/Fly-Seal column width): a per-vessel
         // Fly / Seal cell for unfinished-flight recordings, drawn by reusing RecordingsTableUI.
         private const float ColW_ReFly = 90f;
@@ -783,6 +786,15 @@ namespace Parsek
             // future, and we are in a warp-capable scene (flight or Space Center). The ellipsis
             // matches the existing "Warp to..." convention; the adjacent TTL column says "to what".
             DrawMissionWarpToWindowButton(mission, periodicity);
+
+            // "Structure": opens the chronological step-list window for this mission (launch,
+            // staging, dock / undock, terminal). Shares the header-button group width.
+            if (GUILayout.Button("Structure", GUILayout.Width(ColW_HeaderButton)))
+            {
+                ParsekLog.Info("UI",
+                    $"Mission Structure button: tree={mission.TreeId ?? "<null>"} name='{mission.Name ?? ""}'");
+                parentUI.OpenStructureWindowForMission(mission.TreeId, mission.Name);
+            }
 
             // "Loop [x]": label then checkbox (bare siblings, normal ~4 px margins; a fixed-width
             // wrapper left slack that widened the gap before the period field). The label uses the
