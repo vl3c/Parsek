@@ -240,7 +240,7 @@ namespace Parsek
         // the window; the transit value now rides in the Interval cell's "Nx" tooltip
         // and the expand-panel detail line.
         private const float ColW_Cycles = 80f;     // "3 / 1 skipped" fits without clipping (QW5)
-        private const float ColW_NextDelivery = 90f; // H1 "Next delivery" countdown ("T-12m 5s")
+        private const float ColW_NextDelivery = 135f; // H1 "Next delivery" countdown ("T-12m 5s"); +50% for room
         private const float ColW_Status = 240f;     // plain-English reason text; H3 badge now carries the at-a-glance verdict so the reason can wrap
         private const float ColW_Badge = 120f;      // H3 "Flying, not delivering" / "Delivering" badge
         private const float ColW_Actions = 190f;   // fixed action cell so Name-expand is identical every row
@@ -1230,19 +1230,6 @@ namespace Parsek
             // H5: resolved recording / tree (mission) names instead of 8-char GUID
             // fragments; the short id moves to the hover tooltip.
             DrawSourceRecordingsLine(route);
-
-            // "Log": opens the chronological step-list window for this route
-            // (origin, dock, delivery, undock). Free-form detail panel, so no fixed-width
-            // action-cell constraint.
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Log", GUILayout.Width(64)))
-            {
-                ParsekLog.Info("UI",
-                    $"Route Log button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} name='{route.Name ?? ""}'");
-                parentUI.OpenStructureWindowForRoute(route.Id, route.Name);
-            }
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
             GUILayout.EndVertical();
         }
 
@@ -1419,6 +1406,29 @@ namespace Parsek
                     ParsekLog.Verbose("UI",
                         $"Logistics: rename started route={ShortId(route.Id)} current='{route.Name}'");
                 }
+
+                // Two log buttons next to Rename: the route's own step log, and the source
+                // mission's step log (identical to the Missions-tab Log for that tree).
+                if (GUILayout.Button(new GUIContent("Log (Route)",
+                        "Step-by-step log of this route: origin, dock, delivery, undock"),
+                        GUILayout.Width(92f)))
+                {
+                    ParsekLog.Info("UI",
+                        $"Route Log (Route) button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} name='{route.Name ?? ""}'");
+                    parentUI.OpenStructureWindowForRoute(route.Id, route.Name);
+                }
+
+                string sourceTreeId = ResolveRouteSourceTreeId(route);
+                GUI.enabled = !string.IsNullOrEmpty(sourceTreeId);
+                if (GUILayout.Button(new GUIContent("Log (Mission)",
+                        "Step-by-step log of the source mission this route was built from"),
+                        GUILayout.Width(104f)))
+                {
+                    ParsekLog.Info("UI",
+                        $"Route Log (Mission) button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} tree={sourceTreeId ?? "<null>"}");
+                    parentUI.OpenStructureWindowForMission(sourceTreeId, ResolveTreeDisplayName(sourceTreeId));
+                }
+                GUI.enabled = true;
             }
             else
             {

@@ -243,6 +243,11 @@ namespace Parsek
             // 5. Deterministic chronological sort.
             steps.Sort(CompareStep);
 
+            // 6. Collapse simultaneous identical events into one "xN" row (e.g. several engine
+            //    shrouds or radial decouplers separating in the same frame), so a big stack
+            //    does not list "Shroud jettisoned" a dozen times.
+            steps = CollapseSimultaneous(steps);
+
             if (!SuppressLogging)
                 ParsekLog.Verbose("Mission",
                     $"BuildStructureList: tree={tree.Id ?? "<null>"} steps={steps.Count} " +
@@ -289,6 +294,48 @@ namespace Parsek
             => t == PartEventType.Decoupled
             || t == PartEventType.FairingJettisoned
             || t == PartEventType.ShroudJettisoned;
+
+        // Two events are the "same simultaneous batch" when everything visible is identical
+        // and they fall within a tight time window (same-frame separations share a recorded
+        // UT; the window absorbs a tick or two of sampling jitter without merging genuinely
+        // distinct stages seconds apart).
+        private const double SimultaneousWindowSeconds = 1.0;
+
+        // Collapses runs of identical simultaneous events (the already-sorted list groups them
+        // adjacently) into one row, appending " xN" to the label. Compares each candidate to
+        // the batch HEAD so a slow drift cannot chain unrelated events together.
+        private static List<StructureStep> CollapseSimultaneous(List<StructureStep> steps)
+        {
+            if (steps.Count < 2) return steps;
+            var result = new List<StructureStep>(steps.Count);
+            int i = 0;
+            while (i < steps.Count)
+            {
+                StructureStep head = steps[i];
+                int count = 1;
+                int j = i + 1;
+                while (j < steps.Count && IsSameBatch(head, steps[j]))
+                {
+                    count++;
+                    j++;
+                }
+                if (count > 1)
+                    head.Label = (head.Label ?? "") + " x" + count.ToString(CultureInfo.InvariantCulture);
+                result.Add(head);
+                i = j;
+            }
+            return result;
+        }
+
+        private static bool IsSameBatch(StructureStep a, StructureStep b)
+        {
+            return a.Kind == b.Kind
+                && System.Math.Abs(a.UT - b.UT) <= SimultaneousWindowSeconds
+                && string.Equals(a.Label, b.Label, StringComparison.Ordinal)
+                && string.Equals(a.Status, b.Status, StringComparison.Ordinal)
+                && string.Equals(a.Location, b.Location, StringComparison.Ordinal)
+                && string.Equals(a.VesselName, b.VesselName, StringComparison.Ordinal);
+        }
 
         private static string StagingLabel(PartEvent pe)
         {

@@ -152,6 +152,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Mission_SimultaneousIdenticalStaging_CollapsesToCountedRow()
+        {
+            // Four engine shrouds jettison in the same frame (same label + UT, distinct PIDs);
+            // they must collapse to one "Shroud jettisoned x4" row. A lone fairing 80s later
+            // stays its own row.
+            var r1 = Rec("r1", 0, 300, vessel: "Stack", terminal: TerminalState.Orbiting);
+            for (uint pid = 50; pid < 54; pid++)
+                r1.PartEvents.Add(new PartEvent { ut = 120.0, eventType = PartEventType.ShroudJettisoned, partPersistentId = pid, partName = "engineShroud" });
+            r1.PartEvents.Add(new PartEvent { ut = 200.0, eventType = PartEventType.FairingJettisoned, partPersistentId = 60, partName = "fairing" });
+
+            var steps = BuildMission(Tree(new[] { r1 }));
+
+            Assert.Single(steps, s => s.Kind == StructureStepKind.Staging && s.Label == "Shroud jettisoned x4");
+            Assert.DoesNotContain(steps, s => s.Label == "Shroud jettisoned"); // no un-collapsed singletons
+            Assert.Single(steps, s => s.Kind == StructureStepKind.Staging && s.Label == "Fairing jettisoned");
+        }
+
+        [Fact]
         public void Mission_DockThenUndock_AreOrderedByUT()
         {
             var r1 = Rec("r1", 0, 300, vessel: "Tug", terminal: TerminalState.Recovered);
