@@ -69,7 +69,9 @@ namespace Parsek.MapRender
             // in under a render frame -> the icon flashes at the wrong phase in the chain's interior gap
             // (the s15 "Kerbal X" decouple seam). The escape burn (hugely different elements) is never
             // merged. Loop-and-faithful safe: merging same-orbit fragments is visually identical to the
-            // recorded coast either way, and the recorded data is untouched (a NEW list is returned). The
+            // recorded coast either way, and the recorded data is untouched (we only READ orbitSegs here;
+            // CoalesceSameOrbitFragments may return its input BY REFERENCE on the no-merge fast path, so
+            // this list must stay read-only - never mutate it). The
             // re-aimed override arrives already coalesced upstream (ReaimSegmentAssembler.ReplaceHeliocentricLeg
             // -> CoalesceSameOrbitFragments); re-coalescing is idempotent, so keep the call on both branches
             // for byte-identical structure.

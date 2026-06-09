@@ -275,11 +275,38 @@ namespace Parsek
         /// matter are preserved; the <c>isPredicted</c> guard keeps a predicted ballistic-tail segment
         /// from folding into a non-predicted coast. Element equivalence is the load-bearing test, NOT the
         /// gap duration - same-orbit fragments coalesce no matter how large the sampling gap.</para>
+        /// <para>RETURN CONTRACT: the result is READ-ONLY - callers MUST NOT mutate it. It MAY be the input
+        /// list returned BY REFERENCE (count &lt; 2, or the no-adjacent-pair-merges hot-path fast exit), and
+        /// that input can itself alias recorded <c>Recording.OrbitSegments</c>; a fresh list is allocated
+        /// only when a merge actually occurs. Mutating the result would corrupt recorded data. All current
+        /// callers (ChainAssembler, the forward-render pass, ReaimSegmentAssembler) only read it.</para>
         /// </summary>
         internal static System.Collections.Generic.List<OrbitSegment> CoalesceSameOrbitFragments(
             System.Collections.Generic.List<OrbitSegment> segs)
         {
             if (segs == null || segs.Count < 2)
+                return segs;
+
+            // Hot-path allocation guard (forward-render review finding): this runs once per leg-bearing
+            // committed recording per frame on the multi-ghost map path. A single cheap no-alloc scan first
+            // checks whether ANY adjacent pair would actually merge; when none would (the common case - a
+            // non-fragmented recording, e.g. a ghost on a full-loop parking orbit or a single recorded
+            // coast), return the INPUT list by reference and skip the per-frame List<OrbitSegment>
+            // allocation entirely. All callers only READ the returned list (ChainAssembler iterates it,
+            // the forward pass passes it to ComputeForwardWindow / SelectForwardArcSegmentIndices, the
+            // re-aim assembler returns it upward) and the recorded data is still never mutated, so the
+            // by-reference return is behaviour-identical to the prior always-copy path.
+            bool anyMerge = false;
+            for (int i = 1; i < segs.Count; i++)
+            {
+                if (segs[i - 1].isPredicted == segs[i].isPredicted
+                    && AreOrbitSegmentsEquivalentForMapDisplay(segs[i - 1], segs[i]))
+                {
+                    anyMerge = true;
+                    break;
+                }
+            }
+            if (!anyMerge)
                 return segs;
 
             var merged = new System.Collections.Generic.List<OrbitSegment>(segs.Count);

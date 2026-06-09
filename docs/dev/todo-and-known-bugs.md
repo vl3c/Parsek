@@ -13,6 +13,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## In progress - Forward trajectory rendering (flight-map + tracking-station)
+
+**Goal:** render the FUTURE portion of a ghost's trajectory ahead of the icon, as one continuous chained line, stopping before the first full-loop closed orbit and at the first SOI change. Plan: `docs/dev/plans/forward-trajectory-render.md` (Option 1 - draw at the live production surfaces with a pure forward-window helper; not the Director-extension Option 2). Branch `claude/flight-map-trajectory-render-io6be0`.
+
+**Built so far:** Step 1 pure `ForwardRenderWindow` (window/stop helpers, effective-segment-sourced, xUnit-covered), Step 2 shared `OrbitArcSampler` (extracted the arc-clip math out of `GhostOrbitArcPatch.UpdateSpline`, one copy), Step 3 forward draw folded into `Display/GhostTrajectoryPolylineRenderer.cs` as a PURELY ADDITIVE pass: future legs (B') via `ShouldDrawForwardLeg`, future arcs (C) sampled into per-segment `VectorLine`s converted through `ScaledSpace.LocalToScaledSpace` (the ARC pipeline), keyed per recording by `(currentElementIndex, bodyName, reaimWindowIndex)`. The forward pass NEVER touches `drewNonOrbitalLegRecordings` (the CRITICAL ownership prerequisite, safest option (a)), so the current element + its proto-suppression contract are byte-identical to today and all three ownership consumers keep seeing "owns" iff the polyline draws the CURRENT element. CRITICAL re-aim sourcing via `GhostMapPresence.ResolveEffectiveMapOrbitSegments`; gap-hold honored via `ShadowRenderDriver.IsDirectorTracking`; below-surface descents fall to forward legs (FIX #27 cover); `CoalesceSameOrbitFragments` reused so a fragmented coast does not split the chain.
+
+**Remaining:** in-game visual confirmation in FLIGHT map + TRACKSTATION (ascent->transfer ghost shows a continuous forward line terminating at the parking orbit / SOI edge), then review.
+
+---
+
 ## Done 2026-06-08 - Bug 1 (funds-economy-divergence): a stock contract re-fire baked N copies of the reward into the ledger
 
 **Symptom (log-verified):** a single contract completion fired the stock award sequence 4 times within 22 ms (and a second contract 3 times), and Parsek recorded a `ContractCompleted` row per fire. Evidence: `logs/2026-06-08_2110_funds-bug/KSP.log`. `KSP.log:17201, 17227, 17250, 17271` (19:15:43.089-.111): four `Awarding 63250 funds to player for contract completion` STOCK lines for ONE contract (`1eb2baf9-afce-48c7-82d6-364dae85f57a`, "Science data from surface of The Mun"), live funds 305131 -> 494881. `KSP.log:17225, 17247, 17269, 17289` (`AddEvent: ContractCompleted ... total=33..36`): four store rows, same contractId / UT 475409.6 / recordingId tag. At commit those convert to four `ContractComplete` ledger rows (4 x 63250 = 253000).

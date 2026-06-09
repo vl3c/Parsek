@@ -238,6 +238,41 @@ namespace Parsek.Tests
             Assert.Same(one, TrajectoryMath.CoalesceSameOrbitFragments(one));
         }
 
+        // Hot-path allocation guard (forward-render review finding): when NO adjacent pair would merge
+        // (the common multi-segment case: a real maneuver boundary, an SOI change, a predicted-vs-faithful
+        // boundary), the helper returns the INPUT list BY REFERENCE instead of allocating a fresh copy
+        // every frame. The contents are unchanged, so callers (which only read) see byte-identical data.
+        [Fact]
+        public void CoalesceSameOrbitFragments_NothingMerges_ReturnsInputByReference()
+        {
+            // Two segments separated by a real escape burn (hyperbolic, far outside the equivalence
+            // tolerance): no adjacent pair merges, so the pre-scan returns the same list reference.
+            var burn = Seg("Kerbin", 200, 60000, 200, sma: -3.8e6);
+            burn.eccentricity = 1.19;
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 200, 100),
+                burn,
+            };
+            var result = TrajectoryMath.CoalesceSameOrbitFragments(segs);
+            Assert.Same(segs, result);     // no allocation: same reference returned
+            Assert.Equal(2, result.Count); // contents unchanged
+        }
+
+        // Predicted/faithful boundary with otherwise-identical elements: still no merge, still by-reference.
+        [Fact]
+        public void CoalesceSameOrbitFragments_PredictedMismatch_ReturnsInputByReference()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 400, 100, predicted: false),
+                Seg("Kerbin", 411, 451, 411, predicted: true),
+            };
+            var result = TrajectoryMath.CoalesceSameOrbitFragments(segs);
+            Assert.Same(segs, result);
+            Assert.Equal(2, result.Count);
+        }
+
         [Fact]
         public void ReplaceHeliocentricLeg_CoalescesFragmentedParkingBeforeTransfer()
         {

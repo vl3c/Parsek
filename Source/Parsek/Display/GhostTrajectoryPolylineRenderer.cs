@@ -52,6 +52,14 @@ namespace Parsek.Display
         internal const int MaxPolylinePointsPerLeg = 200;
 
         /// <summary>
+        /// Per-forward-arc sample count (Step 3 C). 180 matches the stock
+        /// <c>OrbitRendererBase.OrbitPoints</c> length the current-arc patch passes to
+        /// <see cref="OrbitArcSampler.SampleSegmentArc"/> (sampleResolution 2.0), so a forward arc reads at
+        /// the identical resolution as the stock current arc.
+        /// </summary>
+        internal const int ForwardArcSampleCount = 180;
+
+        /// <summary>
         /// Per-body surface geometry needed to decide whether an OrbitSegment is
         /// degenerate (its drawn conic plunges below the SURFACE so the orbit line
         /// cannot usably trace it). Injected into the pure builder via
@@ -100,6 +108,16 @@ namespace Parsek.Display
         /// </summary>
         private static readonly HashSet<string> drewNonOrbitalLegRecordings =
             new HashSet<string>(StringComparer.Ordinal);
+
+        // RecordingId -> per-recording FORWARD-ARC line set (Step 3 C, forward-trajectory-render plan).
+        // Holds the sampled Vectrosity VectorLines for the orbit (StockConic) segments AHEAD of the icon up
+        // to forwardStopUT, plus the cache key (currentElementIndex|bodyName|reaimWindowIndex) so a window
+        // rollover / element advance re-samples. SEPARATE from polylineCache so the forward additive pass is
+        // fully decoupled from the current-element leg draw + its ownership publish (the SAFEST ownership
+        // approach in the plan's Step 3 CRITICAL bullet: forward draws NEVER touch
+        // drewNonOrbitalLegRecordings). One VectorLine per forward segment.
+        private static readonly Dictionary<string, ForwardArcSet> forwardArcCache =
+            new Dictionary<string, ForwardArcSet>(StringComparer.Ordinal);
 
         /// <summary>
         /// Marker ride-robustness (pan-stability): the last on-line position the marker successfully
@@ -357,6 +375,63 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// One forward orbit (StockConic) segment AHEAD of the icon, sampled into its own Vectrosity
+        /// VectorLine (Step 3 C). The arc geometry is BODY-LOCAL Kepler sampling converted to absolute
+        /// scaled space via <c>ScaledSpace.LocalToScaledSpace</c> (the ARC pipeline,
+        /// GhostOrbitLinePatch.cs:1091, NOT the leg's surface-relative path) - so the forward arc<->leg seam
+        /// stays continuous with the current stock arc. One VectorLine PER segment (the same shared-line
+        /// drawStart/drawEnd constraint as legs: Draw3D zeroes every vertex outside the window). The arc is
+        /// re-sampled only on a cache-key change (element/body/window); the per-frame draw just reactivates
+        /// + Draw3D's the cached line (the scaled-space points are absolute and frame-stable for an inertial
+        /// conic, so no per-frame recompute is needed - unlike body-fixed legs).
+        /// </summary>
+        internal struct ForwardArc
+        {
+            /// <summary>Reference body the conic was sampled against (live body.position + scaledBody lookup).</summary>
+            public string bodyName;
+
+            /// <summary>Sampled segment's recorded [startUT, endUT] (diagnostic / draw-order).</summary>
+            public double startUT;
+            public double endUT;
+
+            /// <summary>
+            /// BODY-RELATIVE Kepler sample offsets (metres) = <c>worldSample - body.position</c> captured at
+            /// sample time. Frame-STABLE for an inertial conic (the offset is purely the orbit's shape about
+            /// its body centre, independent of the body's world motion), so they are sampled ONCE on a cache-
+            /// key change and re-projected to scaled space every frame in <see cref="Driver.DrawForwardArc"/>
+            /// via <c>scaledBody.position + offset * invScale</c> - the SAME strobe-free geometry the leg draw
+            /// uses (see the "warp-strobe fix" comment in <see cref="TryDrawLeg"/>). Baking absolute scaled-
+            /// space points once would STROBE under warp (ScaledSpace.totalOffset oscillates every render
+            /// frame and a non-registered VectorLine inherits it - the leg's failed approach (a)).
+            /// </summary>
+            public Vector3d[] bodyRelOffsets;
+
+            /// <summary>This arc's own continuous VectorLine; points3 re-projected to scaled space per frame.</summary>
+            public VectorLine vectorLine;
+
+            /// <summary>Per-frame scratch for the scaled-space projection (zero-alloc hot path).</summary>
+            public Vector3[] scratchScaledSpace;
+
+            /// <summary><c>Time.frameCount</c> of the last frame this arc drew (deactivation sweep).</summary>
+            public int lastDrawnFrame;
+        }
+
+        /// <summary>
+        /// One recording's complete FORWARD-ARC line set: the sampled forward conic arcs (each owning its
+        /// own VectorLine) plus the cache key that produced them. Re-sampled only when
+        /// <see cref="cacheKey"/> changes (<see cref="BuildForwardArcKey"/>:
+        /// currentElementIndex|bodyName|reaimWindowIndex). Stored by RecordingId in
+        /// <see cref="forwardArcCache"/>.
+        /// </summary>
+        internal struct ForwardArcSet
+        {
+            public ForwardArc[] arcs;
+
+            /// <summary>The (currentElementIndex|bodyName|reaimWindowIndex) key the arcs were sampled for.</summary>
+            public string cacheKey;
+        }
+
+        /// <summary>
         /// Refreshes the cache for one recording. Recomputes the cheap
         /// content hash; rebuilds the legs only when the hash changed. When
         /// the hash flips, every leg's previous VectorLine (if any) is
@@ -435,6 +510,11 @@ namespace Parsek.Display
             if (string.IsNullOrEmpty(recordingId)) return;
             if (polylineCache.TryGetValue(recordingId, out var set))
                 DestroyLegLines(set.legs);
+            // Forward-arc lines for this recording (Step 3 C): destroyed + dropped on the SAME lifecycle as
+            // the legs so a reused RecordingId never inherits a stale wrong-aimed forward arc.
+            if (forwardArcCache.TryGetValue(recordingId, out var fwd))
+                DestroyForwardArcLines(fwd.arcs);
+            forwardArcCache.Remove(recordingId);
             // Drop the marker hold for this recording so a reused RecordingId (supersede / delete +
             // re-add) never inherits a stale held on-line point.
             lastGoodOnLine.Remove(recordingId);
@@ -463,13 +543,26 @@ namespace Parsek.Display
             // Drop the marker hold cache on the same cross-save / test-reset lifecycle as the ownership
             // sets so a stale held on-line point never survives a save load or a scene switch.
             lastGoodOnLine.Clear();
-            if (polylineCache.Count == 0) return;
+            // Forward-arc cache (Step 3 C): destroy every arc's VectorLine + drop the dict on the same
+            // cross-save / test-reset lifecycle as the leg cache.
+            int fwdDropped = forwardArcCache.Count;
+            foreach (var kvp in forwardArcCache)
+                DestroyForwardArcLines(kvp.Value.arcs);
+            forwardArcCache.Clear();
+            if (polylineCache.Count == 0)
+            {
+                if (fwdDropped > 0)
+                    ParsekLog.Verbose(Tag,
+                        "Forward-arc cache clear: dropped=" + fwdDropped);
+                return;
+            }
             int dropped = polylineCache.Count;
             foreach (var kvp in polylineCache)
                 DestroyLegLines(kvp.Value.legs);
             polylineCache.Clear();
             ParsekLog.Verbose(Tag,
-                "Polyline cache clear: dropped=" + dropped);
+                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Polyline cache clear: dropped={0} fwdArcDropped={1}", dropped, fwdDropped));
         }
 
         /// <summary>
@@ -483,6 +576,22 @@ namespace Parsek.Display
             for (int i = 0; i < legs.Length; i++)
             {
                 var line = legs[i].vectorLine;
+                if (line != null)
+                    VectorLine.Destroy(ref line);
+            }
+        }
+
+        /// <summary>
+        /// Destroys every forward arc's Vectrosity VectorLine via
+        /// <see cref="VectorLine.Destroy(ref VectorLine)"/> so no Vectrosity GameObjects leak. Null-safe on
+        /// the array and on per-arc null lines (Step 3 C).
+        /// </summary>
+        private static void DestroyForwardArcLines(ForwardArc[] arcs)
+        {
+            if (arcs == null) return;
+            for (int i = 0; i < arcs.Length; i++)
+            {
+                var line = arcs[i].vectorLine;
                 if (line != null)
                     VectorLine.Destroy(ref line);
             }
@@ -513,6 +622,51 @@ namespace Parsek.Display
         internal static bool ShouldDrawLegAtHeadUT(
             double legStartUT, double legEndUT, double headUT)
             => headUT >= legStartUT && headUT <= legEndUT;
+
+        /// <summary>
+        /// Forward-window overlap leg-gate (Step 3 B', forward-trajectory-render plan): should this
+        /// non-orbital leg be drawn as part of the FORWARD chain ahead of the icon? True when the leg's
+        /// recorded [<paramref name="legStartUT"/>, <paramref name="legEndUT"/>] span OVERLAPS the forward
+        /// render window <c>(<paramref name="forwardWindowStartUT"/>, <paramref name="forwardStopUT"/>]</c>
+        /// AND the leg is NOT the CURRENT leg (the one already drawn in full by the head-gated current-leg
+        /// pass via <see cref="ShouldDrawLegAtHeadUT"/>). Excluding the current leg keeps the forward pass
+        /// PURELY ADDITIVE: the current element renders exactly as today (and publishes ownership exactly as
+        /// today), and the forward legs only extend the line ahead. An empty forward range
+        /// (<c>forwardStopUT &lt;= forwardWindowStartUT</c>, e.g. the icon sits on a full-loop closed orbit)
+        /// draws no forward leg. Pure so the contract is xUnit-testable without Unity.
+        /// </summary>
+        /// <param name="legStartUT">Leg's first recorded UT.</param>
+        /// <param name="legEndUT">Leg's last recorded UT.</param>
+        /// <param name="forwardWindowStartUT">The current element's startUT (window lower bound).</param>
+        /// <param name="forwardStopUT">The forward stop UT (window upper bound, exclusive of the next-SOI /
+        /// full-loop element).</param>
+        /// <param name="headUT">The ghost's current playback UT, used to identify and EXCLUDE the current
+        /// leg (drawn by the head-gated pass).</param>
+        internal static bool ShouldDrawForwardLeg(
+            double legStartUT, double legEndUT,
+            double forwardWindowStartUT, double forwardStopUT, double headUT)
+        {
+            // Empty forward range -> nothing forward to draw.
+            if (forwardStopUT <= forwardWindowStartUT) return false;
+            // The current leg is already drawn in full by the head-gated pass; never double-draw it here.
+            if (ShouldDrawLegAtHeadUT(legStartUT, legEndUT, headUT)) return false;
+            // Overlap test against the half-open forward window (legStart < stop && legEnd > windowStart).
+            return legStartUT < forwardStopUT && legEndUT > forwardWindowStartUT;
+        }
+
+        /// <summary>
+        /// Forward-arc cache key (Step 3 Cache bullet): a forward-arc VectorLine set is re-sampled only
+        /// when the element the icon sits on, its body, or the re-aim synodic WINDOW changes. The recorded
+        /// segment geometry is static, but a re-aim window rollover swaps the EFFECTIVE geometry without
+        /// changing the recorded segment count, so <paramref name="reaimWindowIndex"/> (the
+        /// <c>ResolveEffectiveMapOrbitSegments</c> out window index, also the
+        /// <c>ShadowRenderDriver.BuildChainSignature</c> discriminator) MUST be part of the key or a stale
+        /// wrong-aimed forward arc would survive the rollover. Pure; xUnit-testable.
+        /// </summary>
+        internal static string BuildForwardArcKey(
+            int currentElementIndex, string bodyName, long reaimWindowIndex)
+            => string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "{0}|{1}|{2}", currentElementIndex, bodyName ?? "?", reaimWindowIndex);
 
         /// <summary>
         /// Phase 8b.1 no-double-draw routing predicate (Driver side): should this recording's current
@@ -1371,6 +1525,67 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// PURE forward-arc segment selector (Step 3 C). Given the EFFECTIVE (re-aim-resolved) orbit
+        /// segments, the computed forward window <c>(<paramref name="forwardWindowStartUT"/>,
+        /// <paramref name="forwardStopUT"/>]</c>, and the ghost's current <paramref name="headUT"/>, returns
+        /// the INDICES of the segments to draw as FORWARD arcs ahead of the icon. A segment is selected when
+        /// it:
+        ///   - overlaps the forward window (<c>seg.startUT &lt; forwardStopUT &amp;&amp;
+        ///     seg.endUT &gt; forwardWindowStartUT</c>),
+        ///   - is NOT the segment the icon currently sits on (the CURRENT arc is drawn in full by the stock
+        ///     <c>OrbitRenderer</c> + <c>GhostOrbitArcPatch</c>, so the forward pass must never double-draw
+        ///     it - this keeps "the current element renders exactly as today"),
+        ///   - is ABOVE the surface (<see cref="IsOrbitSegmentBelowSurface"/> false): a descent that dips
+        ///     below the surface is drawn as a forward LEG (B'), not an arc (Step 3 / FIX #27),
+        ///   - has a positive span (<c>endUT &gt; startUT</c>).
+        /// An empty forward range (<c>forwardStopUT &lt;= forwardWindowStartUT</c>) selects nothing. Pure
+        /// (the only KSP coupling, the below-surface test, is injected via <paramref name="surface"/>); the
+        /// live Driver then samples each selected segment's Kepler conic. xUnit-testable.
+        /// </summary>
+        internal static List<int> SelectForwardArcSegmentIndices(
+            List<OrbitSegment> effectiveSegments,
+            double forwardWindowStartUT, double forwardStopUT, double headUT,
+            BodySurfaceProvider surface)
+        {
+            var indices = new List<int>();
+            SelectForwardArcSegmentIndices(
+                effectiveSegments, forwardWindowStartUT, forwardStopUT, headUT, surface, indices);
+            return indices;
+        }
+
+        /// <summary>
+        /// Hot-path overload (forward-render review finding): fills the caller-provided
+        /// <paramref name="indices"/> buffer (clear-and-fill) instead of allocating a fresh
+        /// <c>List&lt;int&gt;</c> each call. The Driver's forward decide pass runs this once per
+        /// leg-bearing committed recording per frame on the multi-ghost map path, so it reuses a single
+        /// per-Driver scratch list to avoid sustained Gen-0 churn proportional to the ghost count. The
+        /// allocating overload above wraps this for tests / one-shot callers. Pure selection logic is
+        /// unchanged: same current-arc exclusion, below-surface skip, and half-open window overlap test.
+        /// </summary>
+        internal static void SelectForwardArcSegmentIndices(
+            List<OrbitSegment> effectiveSegments,
+            double forwardWindowStartUT, double forwardStopUT, double headUT,
+            BodySurfaceProvider surface, List<int> indices)
+        {
+            if (indices == null) return;
+            indices.Clear();
+            if (effectiveSegments == null) return;
+            if (forwardStopUT <= forwardWindowStartUT) return;
+            for (int i = 0; i < effectiveSegments.Count; i++)
+            {
+                var seg = effectiveSegments[i];
+                if (seg.endUT <= seg.startUT) continue;
+                // The CURRENT arc (icon's element) is drawn by stock; never forward-draw it.
+                if (headUT >= seg.startUT && headUT < seg.endUT) continue;
+                // Below-surface descent conic -> drawn as a forward leg, not an arc.
+                if (IsOrbitSegmentBelowSurface(seg, surface)) continue;
+                // Overlap the half-open forward window.
+                if (seg.startUT < forwardStopUT && seg.endUT > forwardWindowStartUT)
+                    indices.Add(i);
+            }
+        }
+
+        /// <summary>
         /// Filters a per-section sample list to the section's UT range AND
         /// drops samples covered by an orbital interval (the orbit-arc
         /// already draws them).
@@ -1595,15 +1810,25 @@ namespace Parsek.Display
                 points,
                 5f,
                 LineType.Continuous);
-            // Match the stock map orbit line exactly: a SOLID continuous line
-            // via MapView.OrbitLinesMaterial (NOT the dotted/dashed material),
-            // the same 5f width and the same distance/direction fade, so the
-            // ghost's non-orbital path reads as one unbroken orbit-style line
-            // with no dashes, gaps, or interruptions. Mirrors
-            // OrbitRendererBase.MakeLine. _FadeStrength / _FadeSign are global
-            // GameSettings values set on the SHARED material (idempotent:
-            // stock sets the same values every time it makes an orbit line),
-            // so this does not disturb real orbit lines.
+            ApplyStockOrbitLineStyle(line);
+            return line;
+        }
+
+        /// <summary>
+        /// Styles a fresh <c>LineType.Continuous</c> VectorLine to look EXACTLY like a stock vessel orbit
+        /// line so a polyline leg / forward arc is indistinguishable from the ghost's own orbit arcs: the
+        /// SOLID <c>MapView.OrbitLinesMaterial</c> (NOT the dotted/dashed material), the same 5f width and
+        /// distance/direction fade (mirrors <c>OrbitRendererBase.MakeLine</c>), and the stock vessel
+        /// orbit-line grey via a PER-LINE vertex colour (so the shared material is never dimmed). Shared by
+        /// the leg lines (<see cref="BuildLegVectorLine"/>) and the forward-arc lines
+        /// (<see cref="BuildForwardArcVectorLine"/>) so current + future read as one continuous line, the
+        /// uniform style the plan requires. _FadeStrength / _FadeSign are global GameSettings values set on
+        /// the SHARED material (idempotent: stock sets the same values every orbit line), so this does not
+        /// disturb real orbit lines.
+        /// </summary>
+        private static void ApplyStockOrbitLineStyle(VectorLine line)
+        {
+            if (line == null) return;
             Material orbitMat = MapView.OrbitLinesMaterial;
             if (orbitMat != null)
             {
@@ -1615,18 +1840,36 @@ namespace Parsek.Display
             }
             line.continuousTexture = true;
             line.UpdateImmediate = true;
-            // EXACT stock vessel orbit-line colour so the polyline is
-            // indistinguishable from the ghost's own orbit arcs: KSP's
-            // OrbitRenderer seeds an unfocused vessel with
-            // SetColor(new Color(0.71,0.71,0.71,1)) and draws the line at
-            // orbitColor = nodeColor * 0.5 (alpha preserved) with lineOpacity
-            // 1 (OrbitRenderer.GetOrbitColour / OrbitRendererBase), i.e. the
-            // mid-grey below. Per-line vertex colour, so the shared
-            // OrbitLinesMaterial is left untouched.
+            // EXACT stock vessel orbit-line colour: KSP's OrbitRenderer seeds an unfocused vessel with
+            // SetColor(new Color(0.71,0.71,0.71,1)) and draws the line at orbitColor = nodeColor * 0.5
+            // (alpha preserved) with lineOpacity 1 (OrbitRenderer.GetOrbitColour / OrbitRendererBase),
+            // i.e. the mid-grey below. Per-line vertex colour, so the shared OrbitLinesMaterial is untouched.
             Color stockNode = new Color(0.71f, 0.71f, 0.71f, 1f);
             Color stockOrbit = stockNode * 0.5f;
             stockOrbit.a = stockNode.a;
             line.SetColor(stockOrbit);
+        }
+
+        /// <summary>
+        /// Constructs a fresh forward-arc <c>LineType.Continuous</c> VectorLine sized to hold exactly the
+        /// arc's sample count (Step 3 C). One line PER forward segment (same Draw3D drawStart/drawEnd
+        /// constraint as legs). Identical orbit-line style to the legs via
+        /// <see cref="ApplyStockOrbitLineStyle"/> so the forward arc reads as one continuous line with the
+        /// current stock arc and the legs.
+        /// </summary>
+        internal static VectorLine BuildForwardArcVectorLine(
+            string recordingId, int arcIndex, int pointCount)
+        {
+            if (pointCount <= 0) return null;
+            var points = new List<Vector3>(pointCount);
+            for (int i = 0; i < pointCount; i++)
+                points.Add(Vector3.zero);
+            var line = new VectorLine(
+                "ParsekGhostForwardArc-" + recordingId + "-arc" + arcIndex,
+                points,
+                5f,
+                LineType.Continuous);
+            ApplyStockOrbitLineStyle(line);
             return line;
         }
 
@@ -1724,9 +1967,34 @@ namespace Parsek.Display
                 public Recording rec;        // for the conic anchor
                 public bool ownedByTreatment;
                 public uint ghostPid;        // for TryDrawOwnedLeg
+                // Step 3 B' (forward additive pass): a leg enqueued as part of the FORWARD chain ahead of
+                // the icon. The forward legs draw identically (same TryDrawLeg) but are EXCLUDED from the
+                // anyDrawn / ownership accounting, so they NEVER flip drewNonOrbitalLegRecordings (the
+                // CRITICAL Step 3 ownership prerequisite: forward draws must not suppress the current arc).
+                public bool forward;
             }
             private readonly List<PendingLegDraw> pendingDraws = new List<PendingLegDraw>();
             private int pendingDrawsFrame = -1;
+
+            // Step 3 C (forward additive pass): forward-ARC draws decided this frame, drawn in the same
+            // post-pan onPreCull slot as the legs. Each entry is a (recordingId, arcIndex) into
+            // forwardArcCache; the arc geometry is already sampled (cache-key-gated) so the draw pass just
+            // reactivates + Draw3D's the cached line. Forward arcs never touch drewNonOrbitalLegRecordings.
+            private struct PendingForwardArcDraw
+            {
+                public string recordingId;
+                public int arcIndex;
+            }
+            private readonly List<PendingForwardArcDraw> pendingForwardArcs =
+                new List<PendingForwardArcDraw>();
+
+            // Per-Driver reusable scratch buffer for the forward-arc index selection (forward-render review
+            // finding): SelectForwardArcSegmentIndices runs once per leg-bearing recording per frame on the
+            // multi-ghost path, so the fill-into-buffer overload clears + refills this single list instead of
+            // allocating a fresh List<int> each call. Single-threaded per Driver instance (LateUpdate decide
+            // pass), so one shared scratch is safe; consumed immediately within DecideForwardWindowForRecording.
+            private readonly List<int> forwardArcIndexScratch = new List<int>();
+
             // De-dupe: onPreCull can fire more than once per frame (multiple
             // cameras), but the map camera filter + this frame guard keep the
             // draw pass to exactly one run per frame.
@@ -1800,6 +2068,7 @@ namespace Parsek.Display
                 // is reset too so a half-decided frame from the prior scene cannot draw into the new one.
                 lastGoodOnLine.Clear();
                 pendingDraws.Clear();
+                pendingForwardArcs.Clear();
                 pendingDrawsFrame = -1;
                 precullDrawnFrame = -1;
             }
@@ -1822,6 +2091,7 @@ namespace Parsek.Display
                 // Drop any half-decided draw handoff so the onPreCull pass cannot draw a freed leg into
                 // the next-loaded save before the next LateUpdate re-decides.
                 pendingDraws.Clear();
+                pendingForwardArcs.Clear();
                 pendingDrawsFrame = -1;
                 precullDrawnFrame = -1;
             }
@@ -1849,6 +2119,7 @@ namespace Parsek.Display
                 // the onPreCull pass to draw. The pending list is repopulated below only for legs that
                 // WILL draw this frame; the onPreCull pass keys on pendingDrawsFrame == Time.frameCount.
                 pendingDraws.Clear();
+                pendingForwardArcs.Clear();
                 pendingDrawsFrame = -1;
 
                 // Scene gate: v1 ships TRACKSTATION + FLIGHT only (§1.1).
@@ -1937,6 +2208,12 @@ namespace Parsek.Display
                 int frameSkippedNoLegs = 0;
                 int frameSkippedNoBody = 0;
                 int frameLegsHeadUtGated = 0;
+                // Forward additive pass (Step 3) batch counters: legs + arcs enqueued ahead of the icon
+                // this frame, and recordings whose forward pass was skipped because the Director held the
+                // ghost in a gap (re-aim trim / interior FlexibleSoi gap).
+                int frameForwardLegs = 0;
+                int frameForwardArcs = 0;
+                int frameForwardSkippedGapHold = 0;
                 for (int recordingIndex = 0; recordingIndex < committed.Count; recordingIndex++)
                 {
                     var rec = committed[recordingIndex];
@@ -2171,6 +2448,19 @@ namespace Parsek.Display
                             GhostMapPresence.NoteDrawnRecordingCoverage(rec.RecordingId, ghostPid);
                         }
                     }
+
+                    // ---- FORWARD ADDITIVE PASS (Step 3, forward-trajectory-render plan) ----
+                    // Draw the FUTURE portion of the trajectory ahead of the icon as one continuous chain,
+                    // up to the forward stop (first full-loop closed orbit / first SOI change / end of
+                    // data). This is PURELY ADDITIVE: it enqueues forward legs (B') + forward arcs (C) that
+                    // do NOT touch drewNonOrbitalLegRecordings / anyDrawn, so the current element renders
+                    // exactly as today and the ownership contract is unchanged (the CRITICAL Step 3
+                    // prerequisite, safest option (a)). Gated on the SAME visibility the rest of the loop
+                    // resolved (renderHidden already continued above) plus the Director's gap-hold.
+                    DecideForwardWindowForRecording(
+                        scene, recordingIndex, rec, set, headUT, currentUT, loopUnits,
+                        ghostPid, drawFrame, surface,
+                        ref frameForwardLegs, ref frameForwardArcs, ref frameForwardSkippedGapHold);
                 }
 
                 // Pan-stability (FIX 1): hand the decided legs to the onPreCull draw pass. Stamp the
@@ -2185,11 +2475,13 @@ namespace Parsek.Display
 
                 ParsekLog.VerboseRateLimited(DriverTag, "polyline.frame.summary",
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "Polyline frame: scene={0} drawn={1} warp={10:F0}x suppressed={2} hidden={3} staticSkip={4} noLegs={5} noBody={6} headUtGated={7} deactivated={8} cached={9}",
+                        "Polyline frame: scene={0} drawn={1} warp={10:F0}x suppressed={2} hidden={3} staticSkip={4} noLegs={5} noBody={6} headUtGated={7} deactivated={8} cached={9} fwdLegs={11} fwdArcs={12} fwdGapHold={13} fwdCached={14}",
                         scene, frameDrawn, frameSkippedSuppressed, frameSkippedHidden,
                         frameSkippedStatic, frameSkippedNoLegs, frameSkippedNoBody,
                         frameLegsHeadUtGated, frameDeactivated, polylineCache.Count,
-                        TimeWarp.CurrentRate),
+                        TimeWarp.CurrentRate,
+                        frameForwardLegs, frameForwardArcs, frameForwardSkippedGapHold,
+                        forwardArcCache.Count),
                     5.0);
 
                 // DOUBLE-DRAW PIN (Bug 3): the 5 s rate-limited summary hides transient drawn>=2 frames
@@ -2281,11 +2573,51 @@ namespace Parsek.Display
                 }
                 pendingDraws.Clear();
 
+                // FORWARD ARCS (Step 3 C): draw the future orbit arcs decided this frame in the same
+                // post-pan slot as the legs. The arc geometry is already sampled (cache-key-gated in the
+                // decide pass), so this just reactivates + Draw3D's the cached line. Forward arcs are a
+                // separate additive surface - they never touch drewNonOrbitalLegRecordings, so the current
+                // arc + icon (stock OrbitRenderer) render exactly as today.
+                int fwdArcsDrawn = 0;
+                GameScenes fwdScene = HighLogic.LoadedScene;
+                for (int i = 0; i < pendingForwardArcs.Count; i++)
+                {
+                    var fp = pendingForwardArcs[i];
+                    if (string.IsNullOrEmpty(fp.recordingId)) continue;
+                    if (!forwardArcCache.TryGetValue(fp.recordingId, out var fset) || fset.arcs == null)
+                        continue;
+                    if (fp.arcIndex < 0 || fp.arcIndex >= fset.arcs.Length) continue;
+                    var arc = fset.arcs[fp.arcIndex];
+                    if (DrawForwardArc(fwdScene, ref arc, pendingTargetLayer, frame))
+                        fwdArcsDrawn++;
+                    fset.arcs[fp.arcIndex] = arc; // persist the lastDrawnFrame stamp (same array ref)
+
+                    if (arc.vectorLine != null && arc.lastDrawnFrame == frame && MapRenderTrace.IsEnabled)
+                        MapRenderTrace.EmitMarker(
+                            MapRenderTrace.RenderSurface.Polyline, fp.recordingId,
+                            Planetarium.GetUniversalTime(),
+                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "FWD-ARC scene={0} arc={1} body={2} startUT={3:F1} endUT={4:F1} layer={5}",
+                                HighLogic.LoadedScene, fp.arcIndex,
+                                string.IsNullOrEmpty(arc.bodyName) ? "<none>" : arc.bodyName,
+                                arc.startUT, arc.endUT, pendingTargetLayer));
+                }
+                pendingForwardArcs.Clear();
+                if (fwdArcsDrawn > 0)
+                    ParsekLog.VerboseRateLimited(DriverTag, "fwd-arc-draw",
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Forward arcs drawn: scene={0} count={1} legsDrawn={2} warp={3:F0}x",
+                            fwdScene, fwdArcsDrawn, drawn, TimeWarp.CurrentRate),
+                        5.0);
+
                 // Deactivation sweep MOVES here so it runs in the same slot as the draws: a leg drawn
                 // this frame has lastDrawnFrame == frame and is NOT hidden, while any cached leg not
                 // drawn this frame (recording-level skip, head-UT gate, body missing, removed recording)
                 // is hidden. Draw3D() is one-shot, so a line stays visible until explicitly deactivated.
                 lastSweepDeactivatedCount = RunDeactivationSweep(frame);
+                // Forward-arc deactivation sweep (Step 3 C): same one-shot-Draw3D contract - hide any
+                // forward arc not drawn this frame (window advanced past it, gap-hold, recording removed).
+                RunForwardArcDeactivationSweep(frame);
             }
 
             /// <summary>
@@ -2306,6 +2638,34 @@ namespace Parsek.Display
                         var line = legs[i].vectorLine;
                         if (line != null &&
                             ShouldDeactivateLeg(line.active, legs[i].lastDrawnFrame, frame))
+                        {
+                            line.active = false;
+                            deactivated++;
+                        }
+                    }
+                }
+                return deactivated;
+            }
+
+            /// <summary>
+            /// Forward-arc analogue of <see cref="RunDeactivationSweep"/> (Step 3 C): hides every cached
+            /// forward-arc VectorLine NOT drawn this frame, via the SAME pure <see cref="ShouldDeactivateLeg"/>
+            /// contract. A forward arc stops drawing when the window advances past it (icon moved into a new
+            /// element), the ghost is gap-held, or the recording is removed; Draw3D is one-shot so the line
+            /// must be explicitly deactivated or it lingers.
+            /// </summary>
+            private int RunForwardArcDeactivationSweep(int frame)
+            {
+                int deactivated = 0;
+                foreach (var kvp in forwardArcCache)
+                {
+                    var arcs = kvp.Value.arcs;
+                    if (arcs == null) continue;
+                    for (int i = 0; i < arcs.Length; i++)
+                    {
+                        var line = arcs[i].vectorLine;
+                        if (line != null &&
+                            ShouldDeactivateLeg(line.active, arcs[i].lastDrawnFrame, frame))
                         {
                             line.active = false;
                             deactivated++;
@@ -2399,6 +2759,311 @@ namespace Parsek.Display
                 {
                     radius = body.Radius
                 };
+                return true;
+            }
+
+            /// <summary>
+            /// Per-body gravitational-parameter seam (Step 1): resolves a body's GM from the per-scene body
+            /// map for <see cref="ForwardRenderWindow.ComputeForwardWindow"/>'s full-loop period test.
+            /// Returns NaN for an unknown body so the period is non-finite and no segment is classified a
+            /// full loop (the chain still stops on body-change / end-of-data, per the plan's null-mu note).
+            /// </summary>
+            private double ResolveBodyMu(string bodyName)
+            {
+                if (string.IsNullOrEmpty(bodyName)) return double.NaN;
+                if (!bodyByName.TryGetValue(bodyName, out var body) || body == null)
+                    return double.NaN;
+                return body.gravParameter;
+            }
+
+            /// <summary>
+            /// FORWARD ADDITIVE PASS (Step 3, forward-trajectory-render plan, Option 1). For one recording,
+            /// computes the per-ghost forward render window from the re-aimed EFFECTIVE segments and enqueues
+            /// the FUTURE legs (B') + FUTURE arcs (C) ahead of the icon, up to the forward stop (first
+            /// full-loop closed orbit / first SOI change / end of data). PURELY ADDITIVE: nothing here
+            /// touches <c>drewNonOrbitalLegRecordings</c> / <c>anyDrawn</c>, so the current element renders
+            /// (and publishes ownership) exactly as today (the SAFEST Step 3 CRITICAL option (a)).
+            ///
+            /// CRITICAL sourcing: the forward geometry comes from
+            /// <see cref="GhostMapPresence.ResolveEffectiveMapOrbitSegments(int,string,List{OrbitSegment},double,GhostPlaybackLogic.LoopUnitSet,out long)"/>
+            /// (re-aim-resolved, == recorded by reference for faithful members), NOT raw
+            /// <c>rec.OrbitSegments</c>, and the forward-arc cache keys on the re-aim window index so a
+            /// synodic-window rollover re-samples.
+            ///
+            /// GAP-HOLD: when the Director is HOLDING / HIDING this ghost (re-aim trim gap or interior
+            /// FlexibleSoi gap), it stamps no fresh seed / TracedPath, so
+            /// <c>ShadowRenderDriver.IsDirectorTracking</c> is false for a ghost-bearing recording - draw NO
+            /// forward range (matching the Director's own visibility, the plan's gap-hold edge case).
+            /// </summary>
+            private void DecideForwardWindowForRecording(
+                GameScenes scene, int recordingIndex, Recording rec, LegPolylineSet set,
+                double headUT, double currentUT, GhostPlaybackLogic.LoopUnitSet loopUnits,
+                uint ghostPid, int drawFrame, BodySurfaceProvider surface,
+                ref int frameForwardLegs, ref int frameForwardArcs, ref int frameForwardSkippedGapHold)
+            {
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return;
+
+                // GAP-HOLD gate: a ghost-bearing recording the Director is NOT tracking this frame is held
+                // / hidden in an interior gap (re-aim trim / FlexibleSoi). Draw no forward range. A pid-0
+                // recording (no proto ghost - atmospheric-only ascent) has no Director hide concept; its
+                // visibility is already governed by the renderHidden / static-skip gates above, so it falls
+                // through. Reusing the same freshness predicate the icon-drive / line patches read keeps the
+                // forward pass consistent with the current-element decision.
+                if (ghostPid != 0
+                    && !Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(ghostPid, drawFrame))
+                {
+                    frameForwardSkippedGapHold++;
+                    ParsekLog.VerboseRateLimited(DriverTag, "fwd-gaphold." + rec.RecordingId,
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Forward pass skipped (Director gap-hold): rec={0} pid={1} headUT={2:F1}",
+                            rec.RecordingId, ghostPid, headUT),
+                        5.0);
+                    return;
+                }
+
+                // CRITICAL sourcing: re-aimed EFFECTIVE segments (== recorded by reference for faithful
+                // members) + the synodic window index for the forward-arc cache key.
+                List<OrbitSegment> effective = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                    recordingIndex, rec.RecordingId, rec.OrbitSegments, currentUT, loopUnits,
+                    out long reaimWindowIndex);
+
+                // Reuse CoalesceSameOrbitFragments so a fragmented same-body coast (recorder mode
+                // transition) does not split the forward chain (plan: gaps-between-same-body-segments).
+                List<OrbitSegment> coalesced = TrajectoryMath.CoalesceSameOrbitFragments(effective);
+
+                ForwardRenderWindow.ForwardWindow window =
+                    ForwardRenderWindow.ComputeForwardWindow(coalesced, headUT, ResolveBodyMu);
+                if (!window.HasForwardRange)
+                    return; // icon on a full-loop closed orbit / no element ahead -> nothing forward to draw
+
+                double winStart = window.CurrentElementStartUT;
+                double winStop = window.StopUT;
+
+                // ---- (B') FUTURE LEGS: any non-orbital leg overlapping the forward window, EXCLUDING the
+                // current head leg (drawn by the head-gated pass). Enqueued forward=true so they never flip
+                // the ownership signal.
+                if (set.legs != null)
+                {
+                    for (int li = 0; li < set.legs.Length; li++)
+                    {
+                        var leg = set.legs[li];
+                        if (!ShouldDrawForwardLeg(leg.startUT, leg.endUT, winStart, winStop, headUT))
+                            continue;
+                        CelestialBody legBody = ResolveBodyByName(scene, leg.bodyName);
+                        if (legBody == null) continue;
+                        if (!WillLegDraw(leg.PointCount, true)) continue;
+                        pendingDraws.Add(new PendingLegDraw
+                        {
+                            recordingId = rec.RecordingId,
+                            legIndex = li,
+                            body = legBody,
+                            rec = rec,
+                            ownedByTreatment = false, // forward legs always Driver-direct (no proto to own)
+                            ghostPid = ghostPid,
+                            forward = true,
+                        });
+                        frameForwardLegs++;
+                    }
+                }
+
+                // ---- (C) FUTURE ARCS: forward StockConic segments (above-surface, not the current arc).
+                // Reuse the per-Driver scratch buffer (clear-and-fill) to avoid a per-frame List<int> alloc
+                // on the hot multi-ghost path. arcIndices is consumed synchronously below (RefreshForwardArcs
+                // copies the geometry into the cache before the next recording's decide pass refills it).
+                List<int> arcIndices = forwardArcIndexScratch;
+                SelectForwardArcSegmentIndices(
+                    coalesced, winStart, winStop, headUT, surface, arcIndices);
+                if (arcIndices.Count > 0)
+                {
+                    string cacheKey = BuildForwardArcKey(
+                        window.CurrentIndex,
+                        window.CurrentIndex >= 0 && window.CurrentIndex < coalesced.Count
+                            ? coalesced[window.CurrentIndex].bodyName : null,
+                        reaimWindowIndex);
+                    RefreshForwardArcs(scene, rec.RecordingId, coalesced, arcIndices, cacheKey);
+
+                    if (forwardArcCache.TryGetValue(rec.RecordingId, out var fset) && fset.arcs != null)
+                    {
+                        for (int a = 0; a < fset.arcs.Length; a++)
+                        {
+                            if (fset.arcs[a].vectorLine == null) continue;
+                            pendingForwardArcs.Add(new PendingForwardArcDraw
+                            {
+                                recordingId = rec.RecordingId,
+                                arcIndex = a,
+                            });
+                            frameForwardArcs++;
+                        }
+                    }
+                }
+
+                ParsekLog.VerboseRateLimited(DriverTag, "fwd-window." + rec.RecordingId,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Forward window: rec={0} pid={1} curIdx={2} winStart={3:F1} stopUT={4:F1} reason={5} " +
+                        "fwdLegs+={6} fwdArcs+={7} reaimWindow={8} segs={9}",
+                        rec.RecordingId, ghostPid, window.CurrentIndex, winStart, winStop, window.Reason,
+                        frameForwardLegs, frameForwardArcs, reaimWindowIndex,
+                        coalesced != null ? coalesced.Count : 0),
+                    2.0);
+            }
+
+            /// <summary>
+            /// Re-samples the forward-arc VectorLines for one recording ONLY when the cache key
+            /// (<see cref="BuildForwardArcKey"/>: currentElementIndex|bodyName|reaimWindowIndex) changed.
+            /// The recorded conic geometry is static, but an element advance / re-aim window rollover swaps
+            /// the geometry without changing the segment count, so the key is the load-bearing discriminator.
+            /// On a key change every prior arc line is destroyed before the rebuild so no Vectrosity object
+            /// leaks. Each selected segment is sampled via the shared <see cref="OrbitArcSampler"/> (the
+            /// single copy of the arc math) and converted to ABSOLUTE scaled space via
+            /// <c>ScaledSpace.LocalToScaledSpace</c> (the ARC pipeline, GhostOrbitLinePatch.cs:1091 - NOT
+            /// the leg's surface-relative path), so the forward arc<->leg seam stays continuous.
+            /// </summary>
+            private void RefreshForwardArcs(
+                GameScenes scene, string recordingId, List<OrbitSegment> segments,
+                List<int> arcIndices, string cacheKey)
+            {
+                if (string.IsNullOrEmpty(recordingId) || segments == null || arcIndices == null)
+                    return;
+
+                if (forwardArcCache.TryGetValue(recordingId, out var existing)
+                    && string.Equals(existing.cacheKey, cacheKey, StringComparison.Ordinal))
+                {
+                    return; // cache hit: same element / body / re-aim window -> reuse the sampled arcs
+                }
+
+                // Key changed: destroy the prior arc lines before rebuilding.
+                if (forwardArcCache.TryGetValue(recordingId, out var stale))
+                    DestroyForwardArcLines(stale.arcs);
+
+                var arcs = new List<ForwardArc>(arcIndices.Count);
+                int sampled = 0;
+                int routedToStock = 0;
+                int bodyMissing = 0;
+                var buffer = new Vector3d[ForwardArcSampleCount];
+                for (int k = 0; k < arcIndices.Count; k++)
+                {
+                    int segIdx = arcIndices[k];
+                    if (segIdx < 0 || segIdx >= segments.Count) continue;
+                    OrbitSegment seg = segments[segIdx];
+                    CelestialBody body = ResolveBodyByName(scene, seg.bodyName);
+                    if (body == null) { bodyMissing++; continue; }
+
+                    Orbit orbit;
+                    try
+                    {
+                        orbit = new Orbit(
+                            seg.inclination, seg.eccentricity, seg.semiMajorAxis,
+                            seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
+                            seg.meanAnomalyAtEpoch, seg.epoch, body);
+                    }
+                    catch (Exception)
+                    {
+                        routedToStock++;
+                        continue;
+                    }
+
+                    // Forward arcs are STATIC geometry sampled from each segment's own recorded
+                    // epoch/elements (frame-independent shape). The loop shift affects only the icon's
+                    // drive UT, not the static forward geometry (plan: loop-shifted-ghost edge case), so the
+                    // bounds are the segment's own recorded [startUT, endUT].
+                    OrbitArcSampler.ArcSampleResult res =
+                        OrbitArcSampler.SampleSegmentArc(orbit, seg.startUT, seg.endUT, buffer);
+                    if (!res.Sampled)
+                    {
+                        routedToStock++; // degenerate / parabolic / out-of-validity -> no forward arc
+                        continue;
+                    }
+
+                    // Capture the BODY-RELATIVE offsets (worldSample - body.position) ONCE. The sampler emits
+                    // world positions; subtracting the live body centre leaves the inertial conic's shape
+                    // about its body, which is frame-stable. Per-frame the draw re-projects these to scaled
+                    // space (strobe-free), so they are NOT baked to absolute scaled space here.
+                    Vector3d bodyPos = body.position;
+                    int cnt = res.Count;
+                    var rel = new Vector3d[cnt];
+                    for (int i = 0; i < cnt; i++)
+                        rel[i] = buffer[i] - bodyPos;
+
+                    var arc = new ForwardArc
+                    {
+                        bodyName = seg.bodyName,
+                        startUT = seg.startUT,
+                        endUT = seg.endUT,
+                        bodyRelOffsets = rel,
+                        scratchScaledSpace = new Vector3[cnt],
+                        vectorLine = BuildForwardArcVectorLine(recordingId, sampled, cnt),
+                        lastDrawnFrame = -1,
+                    };
+                    if (arc.vectorLine == null) continue;
+                    arcs.Add(arc);
+                    sampled++;
+                }
+
+                forwardArcCache[recordingId] = new ForwardArcSet
+                {
+                    arcs = arcs.ToArray(),
+                    cacheKey = cacheKey,
+                };
+
+                ParsekLog.Verbose(DriverTag,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Forward-arc sample: rec={0} key={1} selected={2} sampled={3} routedToStock={4} bodyMissing={5}",
+                        recordingId, cacheKey, arcIndices.Count, sampled, routedToStock, bodyMissing));
+            }
+
+            /// <summary>
+            /// Draws one cached forward arc this frame (Step 3 C): re-projects the cached body-relative
+            /// Kepler offsets to scaled space via the SAME strobe-free geometry the leg draw uses
+            /// (<c>scaledBody.position + offset * invScale</c> - see the "warp-strobe fix" comment in
+            /// <see cref="TryDrawLeg"/>), reactivates the line if a prior sweep hid it, runs <c>Draw3D</c> in
+            /// the post-pan slot, and stamps <c>lastDrawnFrame</c>. Re-projecting from the frame-stable
+            /// body-relative offsets every frame is strobe-free at all warps and can never go stale (unlike a
+            /// once-baked absolute scaled-space arc, which would strobe like the leg's failed approach (a)).
+            /// Mutates <paramref name="arc"/> in place (the caller writes it back into the cached array).
+            /// Returns true when the arc drew.
+            /// </summary>
+            private bool DrawForwardArc(GameScenes scene, ref ForwardArc arc, int targetLayer, int drawFrame)
+            {
+                var line = arc.vectorLine;
+                if (line == null || arc.bodyRelOffsets == null || arc.scratchScaledSpace == null)
+                    return false;
+                CelestialBody body = ResolveBodyByName(scene, arc.bodyName);
+                if (body == null) return false;
+
+                int m = arc.bodyRelOffsets.Length;
+                var scaledBody = body.scaledBody;
+                Transform scaledXform = scaledBody != null ? scaledBody.transform : null;
+                if (scaledXform != null)
+                {
+                    // Strobe-free: scaled body centre + body-relative inertial offset scaled down. Both terms
+                    // share the live frame, so ScaledSpace.totalOffset cancels (never touched).
+                    Vector3 bodyCentreScaled = scaledXform.position;
+                    double invScale = ScaledSpace.InverseScaleFactor;
+                    for (int i = 0; i < m; i++)
+                        arc.scratchScaledSpace[i] = bodyCentreScaled + (Vector3)(arc.bodyRelOffsets[i] * invScale);
+                }
+                else
+                {
+                    // No scaled body (should not happen in map view): fall back to the absolute conversion
+                    // (worldSample = body.position + offset). Strobes under warp, but at least renders.
+                    Vector3d bodyPos = body.position;
+                    for (int i = 0; i < m; i++)
+                        arc.scratchScaledSpace[i] =
+                            (Vector3)ScaledSpace.LocalToScaledSpace(bodyPos + arc.bodyRelOffsets[i]);
+                }
+
+                CopyLegIntoVectorLine(line, arc.scratchScaledSpace, 0);
+                line.drawStart = 0;
+                line.drawEnd = m - 1;
+
+                line.rectTransform.gameObject.layer = targetLayer;
+                var xform = line.rectTransform;
+                xform.position = Vector3.zero;
+                xform.rotation = Quaternion.identity;
+                xform.localScale = Vector3.one;
+                if (!line.active) line.active = true;
+                line.Draw3D();
+                arc.lastDrawnFrame = drawFrame;
                 return true;
             }
         }

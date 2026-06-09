@@ -4,6 +4,14 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## Unreleased
+
+### Features
+
+- A ghost's map and tracking-station trajectory now draws the future portion of its path ahead of the icon, as one continuous line, instead of just the short arc under the icon. The forward line stops before the first full repeating orbit and at the first change of sphere of influence, so it never clutters the map.
+
+---
+
 ## 0.10.1
 
 - Maintenance and bug-fix release following up on issues found in post-0.10.0 career playtesting.

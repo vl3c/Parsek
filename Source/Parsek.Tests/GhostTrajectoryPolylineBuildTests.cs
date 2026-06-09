@@ -1482,5 +1482,145 @@ namespace Parsek.Tests
                 "rec-released", headUT: 1000.0, frame: 100, out _, out _);
             Assert.False(held);
         }
+
+        // ====================================================================
+        // Forward additive pass (Step 3, forward-trajectory-render plan)
+        // ShouldDrawForwardLeg / BuildForwardArcKey / SelectForwardArcSegmentIndices
+        // ====================================================================
+
+        // A future leg overlapping the forward window (and NOT under the head) draws forward.
+        [Fact]
+        public void ShouldDrawForwardLeg_FutureLegOverlappingWindow_Draws()
+        {
+            // head at 50 (on the current element), window (40, 300]; a future leg [200,260] overlaps.
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                legStartUT: 200.0, legEndUT: 260.0,
+                forwardWindowStartUT: 40.0, forwardStopUT: 300.0, headUT: 50.0));
+        }
+
+        // The CURRENT leg (head inside its span) is drawn by the head-gated pass, never the forward pass.
+        [Fact]
+        public void ShouldDrawForwardLeg_CurrentLeg_NotForward()
+        {
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                legStartUT: 40.0, legEndUT: 100.0,
+                forwardWindowStartUT: 40.0, forwardStopUT: 300.0, headUT: 50.0));
+        }
+
+        // A leg entirely AFTER the forward stop is excluded (next-SOI / past full-loop element).
+        [Fact]
+        public void ShouldDrawForwardLeg_LegPastStop_NotDrawn()
+        {
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                legStartUT: 320.0, legEndUT: 380.0,
+                forwardWindowStartUT: 40.0, forwardStopUT: 300.0, headUT: 50.0));
+        }
+
+        // A leg entirely BEFORE the window (a completed past leg) is excluded.
+        [Fact]
+        public void ShouldDrawForwardLeg_PastLeg_NotDrawn()
+        {
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                legStartUT: 0.0, legEndUT: 30.0,
+                forwardWindowStartUT: 40.0, forwardStopUT: 300.0, headUT: 50.0));
+        }
+
+        // An empty forward range (stop <= windowStart, e.g. icon on a full-loop closed orbit) draws nothing.
+        [Fact]
+        public void ShouldDrawForwardLeg_EmptyRange_NeverDraws()
+        {
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                legStartUT: 200.0, legEndUT: 260.0,
+                forwardWindowStartUT: 40.0, forwardStopUT: 40.0, headUT: 50.0));
+        }
+
+        // The cache key changes on element advance, body change, or re-aim window rollover.
+        [Fact]
+        public void BuildForwardArcKey_ChangesOnElementBodyOrWindow()
+        {
+            string baseKey = GhostTrajectoryPolylineRenderer.BuildForwardArcKey(2, "Sun", 7);
+            Assert.NotEqual(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(3, "Sun", 7));   // element
+            Assert.NotEqual(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(2, "Kerbin", 7)); // body
+            Assert.NotEqual(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(2, "Sun", 8));    // window
+            // Same inputs -> stable key (cache hit).
+            Assert.Equal(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(2, "Sun", 7));
+        }
+
+        // The forward-arc selector excludes the CURRENT arc (head bracketing) so the stock current arc is
+        // never double-drawn, and includes a later same-body above-surface transfer arc.
+        [Fact]
+        public void SelectForwardArcSegmentIndices_ExcludesCurrentArc_IncludesFutureArc()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                CleanDunaSegment(0.0, 100.0),    // current: head brackets this
+                CleanDunaSegment(100.0, 200.0),  // future arc (above surface)
+            };
+            // head=50 on seg 0; window (0, 200].
+            var picked = GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                segs, forwardWindowStartUT: 0.0, forwardStopUT: 200.0, headUT: 50.0, surface: DunaSurface());
+            Assert.Equal(new[] { 1 }, picked.ToArray());
+        }
+
+        // A below-surface descent segment is NOT selected as a forward ARC (it draws as a forward LEG B').
+        [Fact]
+        public void SelectForwardArcSegmentIndices_BelowSurfaceSegment_ExcludedFromArcs()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                CleanDunaSegment(0.0, 100.0),       // current
+                DegenerateDunaSegment(100.0, 200.0) // below-surface descent -> leg, not arc
+            };
+            var picked = GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                segs, forwardWindowStartUT: 0.0, forwardStopUT: 200.0, headUT: 50.0, surface: DunaSurface());
+            Assert.Empty(picked);
+        }
+
+        // An empty forward range selects no arcs.
+        [Fact]
+        public void SelectForwardArcSegmentIndices_EmptyRange_SelectsNothing()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                CleanDunaSegment(0.0, 100.0),
+                CleanDunaSegment(100.0, 200.0),
+            };
+            var picked = GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                segs, forwardWindowStartUT: 0.0, forwardStopUT: 0.0, headUT: 50.0, surface: DunaSurface());
+            Assert.Empty(picked);
+        }
+
+        // The hot-path buffer overload (forward-render review finding) clears-and-fills a reused scratch
+        // list with the SAME selection as the allocating overload, so the per-frame List<int> alloc is gone
+        // without changing which segments are picked. Reusing the buffer across calls never carries stale
+        // indices (Clear() runs first), even when a later call selects fewer or zero arcs.
+        [Fact]
+        public void SelectForwardArcSegmentIndices_BufferOverload_ClearsAndFills_SameAsAllocating()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                CleanDunaSegment(0.0, 100.0),    // current: head brackets this
+                CleanDunaSegment(100.0, 200.0),  // future arc (above surface)
+            };
+            var scratch = new List<int> { 99, 98 }; // pre-seeded stale entries that MUST be cleared
+            GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                segs, forwardWindowStartUT: 0.0, forwardStopUT: 200.0, headUT: 50.0,
+                surface: DunaSurface(), indices: scratch);
+            Assert.Equal(new[] { 1 }, scratch.ToArray()); // stale 99/98 gone, only the future arc kept
+
+            // Re-fill the SAME buffer with an empty-range call: it must come back empty (no leftover).
+            GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                segs, forwardWindowStartUT: 0.0, forwardStopUT: 0.0, headUT: 50.0,
+                surface: DunaSurface(), indices: scratch);
+            Assert.Empty(scratch);
+
+            // A null buffer is tolerated (no throw); a null segment list clears the buffer.
+            GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                null, 0.0, 200.0, 50.0, DunaSurface(), null);
+            var scratch2 = new List<int> { 7 };
+            GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                null, 0.0, 200.0, 50.0, DunaSurface(), scratch2);
+            Assert.Empty(scratch2);
+        }
     }
 }
