@@ -225,6 +225,31 @@ the `OrbitLinesMaterial` draw, and the per-`VectorLine` lifecycle. Two changes:
   and the forward arcs never double-draw. The forward legs and the current leg
   are disjoint UT ranges of the same per-recording leg set.
 
+- **(CRITICAL) Forward draws must NOT trip the per-recording "polyline owns this
+  phase" ownership signal.** Today every actual leg draw adds the recording to
+  `drewNonOrbitalLegRecordings` (the `if (anyDrawn)` publish at `:2161`), which
+  `IsRenderingNonOrbitalLeg` / `GhostMapPresence.IsPolylineOwningGhostPhase` read
+  and `GhostOrbitArcPatch` consumes at `GhostOrbitLinePatch.cs:600` to **hide the
+  stock orbit line AND the proto icon** for that ghost (the marker paths
+  `ShouldDrawNonProtoMarkerForGhost` / `TryAnchorMarkerToPolyline` cascade off the
+  same signal). That set is **per-`recordingId`, not per-element**: it cannot tell
+  "the polyline is drawing the leg the icon sits on" from "the polyline drew a
+  FUTURE leg/arc". So the moment a forward leg (B') or forward arc (C) draws while
+  the icon is on a `StockConic` arc, the publish flips `IsPolylineOwningGhostPhase`
+  true and the **current** stock arc + its moving icon are suppressed, directly
+  breaking the "current element renders exactly as today" guarantee (and
+  reintroducing the icon-off-line / blank-icon class of bug the MapRender rewrite
+  has been fighting). The forward draws MUST therefore either (a) draw their
+  `VectorLine`s through a path that does NOT touch `drewNonOrbitalLegRecordings`,
+  or (b) narrow the ownership signal so it fires only when the polyline draws the
+  element the icon is actually on (the current leg), with forward elements
+  excluded. The current-leg draw keeps publishing exactly as today. This is a
+  hard prerequisite, not a polish item: resolve it inside Step 3 before any
+  forward leg/arc can ship, or the very first forward extension on an
+  orbit-bearing ghost regresses the current arc. Likely touches the publish logic
+  in `GhostTrajectoryPolylineRenderer.cs` (and possibly the ownership reader in
+  `GhostMapPresence.cs`).
+
 - **Cache.** Key the sampled forward-arc `VectorLine`s per `recordingId` by
   `(currentElementIndex, bodyName)` — segment geometry is static, so re-sample
   only when the icon crosses into a new current element. Re-use the renderer's
@@ -236,7 +261,11 @@ the `OrbitLinesMaterial` draw, and the per-`VectorLine` lifecycle. Two changes:
   production draw surfaces (B′ + C above) with the standalone pure forward-window
   helper (Step 1). It draws the forward range directly and does not disturb the
   Director's single-intent decision (which keeps governing the current element's
-  icon + arc-clip routing). This is the proposed plan.
+  icon + arc-clip routing). This is the proposed plan. **Caveat:** because it
+  draws through `GhostTrajectoryPolylineRenderer`, Option 1 must satisfy the
+  ownership-signal constraint in Step 3 (forward draws must not flip the
+  per-recording `IsPolylineOwningGhostPhase`); otherwise it suppresses the very
+  current arc the Director is still routing.
 
 - **Option 2 (future convergence).** Extend `GhostRenderDirector.Decide` to emit
   a forward **range** of intents instead of one, and have the treatments
@@ -256,6 +285,11 @@ the `OrbitLinesMaterial` draw, and the per-`VectorLine` lifecycle. Two changes:
 
 - **Icon on a full-loop closed orbit** → empty forward range → unchanged
   (confirmed).
+- **Forward leg/arc drawn while the icon is on an orbit arc** -> must NOT suppress
+  the current stock arc. The per-recording polyline-owns signal
+  (`drewNonOrbitalLegRecordings` -> `IsPolylineOwningGhostPhase` ->
+  `GhostOrbitLinePatch.cs:600`) is element-blind, so this is a hard prerequisite,
+  not an edge case to tolerate: see the **(CRITICAL)** bullet in Step 3.
 - **Hyperbolic future segment inside the SOI** (escape arc before the SOI
   marker) → drawn as an open arc, then the chain stops at the following body
   change (`ecc ≥ 1` is never a "full loop", so it does not itself stop the
