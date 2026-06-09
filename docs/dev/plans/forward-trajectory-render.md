@@ -154,9 +154,28 @@ every frame in production (it is not trace-gated), but it is private to
 window decoupled from that pipeline and directly xUnit-testable. (Option 2,
 below, instead surfaces the window from the live chain — both are viable.)
 
-Inputs the helper already has cheap access to:
-- `Recording.OrbitSegments` (sorted; with `bodyName`, `startUT/endUT`, `ecc`,
-  `sma`, `isPredicted`).
+**(CRITICAL) Source the forward geometry from the re-aimed EFFECTIVE segments,
+NOT raw `Recording.OrbitSegments`.** A re-aim loop ghost's recorded heliocentric
+leg is aimed at the target's HISTORICAL position; the Director replaces it per
+synodic window with one aimed at the target's CURRENT position
+(`GhostMapPresence.ResolveEffectiveMapOrbitSegments`, called from
+`ShadowRenderDriver.cs:407`; `ChainAssembler` then builds the chain from that
+override). A forward render that walked the raw recorded segments would draw
+wrong-aimed forward arcs for re-aimed ghosts: the exact icon-off-orbit defect the
+re-aim machinery exists to fix. The SOI stop already excludes the common case
+(the re-aimed leg lives in the Sun's SOI, so a ghost on its Kerbin escape stops
+at the Kerbin -> Sun boundary, and a ghost on the heliocentric leg has it as the
+CURRENT element drawn by stock), but a multi-segment same-SOI transfer (a
+mid-course burn splitting the coast) still puts a re-aimable forward arc inside
+the window, so this is a correctness requirement, not an optimisation. The helper
+stays pure by taking the resolved EFFECTIVE list as an INPUT: the live caller
+resolves it via `ResolveEffectiveMapOrbitSegments` (raw == effective, same
+reference, for faithful members), and xUnit passes a synthetic list directly.
+
+Inputs the helper takes (all caller-resolved, so the helper stays pure):
+- The **effective** (re-aim-resolved) `OrbitSegment` list (sorted; with
+  `bodyName`, `startUT/endUT`, `ecc`, `sma`, `isPredicted`). Live caller gets it
+  from `ResolveEffectiveMapOrbitSegments`; tests pass a synthetic list.
 - The orbital **cover intervals** + below-surface exclusion already computed by
   `GhostTrajectoryPolylineRenderer.ComputeOrbitalCoverIntervals` /
   `IsOrbitSegmentBelowSurface` (`:1335` / `:1312`) — so a leg vs arc at a UT is
@@ -172,16 +191,22 @@ New pure functions:
   → `ecc < 1` **and** `(endUT − startUT) ≥ period`, where
   `period = 2π·sqrt(a³/µ)`. (Hyperbolic / `ecc ≥ 1` is never a full loop.)
 
-- `double ComputeForwardStopUT(orbitSegments, legs/cover, currentUT, µByBody)`
-  → walk the interleaved timeline forward from the element containing
-  `currentUT`; return the UT of the first stop condition (full-loop closed arc
-  start, or body-change boundary), else end-of-data. SOI = `bodyName` of the
-  current element vs the next; the first differing-body element ends the window.
+- `double ComputeForwardStopUT(effectiveSegments, legs/cover, currentUT, muByBody)`:
+  walk the interleaved timeline forward from the element containing `currentUT`;
+  return the UT of the first stop condition, else end-of-data. The CURRENT
+  element is tested FIRST so the icon-on-closed-orbit case is explicit: if the
+  current element is itself a full-loop closed orbit, return its `startUT` (empty
+  forward range, current behaviour unchanged); otherwise advance and stop at the
+  start of the first full-loop closed arc after it, or at the first body-change
+  boundary (`bodyName` of an element differs from the current element's), else
+  end-of-data.
 
   *(If the implementation chooses to reuse `GhostRenderChain` directly — see
   Step 4 Option 2 — this becomes a tiny `chain.Segments` sub-range scan: from
   `LocateSegmentIndex(currentUT)`, advance while next seam is `Rigid` and the
-  next `StockConic` is not a full-loop closed orbit.)*
+  next `StockConic` is not a full-loop closed orbit. The chain is already
+  assembled from the effective segments, so Option 2 gets re-aim correctness for
+  free.)*
 
 ### Step 2 — Shared Kepler arc sampler
 
@@ -251,9 +276,15 @@ the `OrbitLinesMaterial` draw, and the per-`VectorLine` lifecycle. Two changes:
   `GhostMapPresence.cs`).
 
 - **Cache.** Key the sampled forward-arc `VectorLine`s per `recordingId` by
-  `(currentElementIndex, bodyName)` — segment geometry is static, so re-sample
-  only when the icon crosses into a new current element. Re-use the renderer's
-  existing per-leg `VectorLine` cache lifecycle.
+  `(currentElementIndex, bodyName, reaimWindowSignature)`. The recorded segment
+  geometry is static, but the re-aimed effective geometry changes per synodic
+  window, so the key MUST include the same re-aim signature the chain cache uses
+  (`windowIndex`, the last argument of `BuildChainSignature`,
+  `ShadowRenderDriver.cs:414`); a `(currentElementIndex, bodyName)`-only key would
+  serve a stale wrong-aimed arc after a window rollover. Re-sample only when one
+  of those changes. Re-use the renderer's existing per-leg `VectorLine` cache
+  lifecycle. (Option 2 inherits this for free: it reads the already-signature-
+  cached `chainByPid`.)
 
 ### Step 4 — Two implementation routes (recommendation)
 
@@ -261,11 +292,17 @@ the `OrbitLinesMaterial` draw, and the per-`VectorLine` lifecycle. Two changes:
   production draw surfaces (B′ + C above) with the standalone pure forward-window
   helper (Step 1). It draws the forward range directly and does not disturb the
   Director's single-intent decision (which keeps governing the current element's
-  icon + arc-clip routing). This is the proposed plan. **Caveat:** because it
-  draws through `GhostTrajectoryPolylineRenderer`, Option 1 must satisfy the
-  ownership-signal constraint in Step 3 (forward draws must not flip the
-  per-recording `IsPolylineOwningGhostPhase`); otherwise it suppresses the very
-  current arc the Director is still routing.
+  icon + arc-clip routing). This is the proposed plan. **Two hard caveats**
+  (both detailed above, both required for correctness, not polish): (1) it must
+  feed the forward-window helper the re-aimed EFFECTIVE segments
+  (`ResolveEffectiveMapOrbitSegments`), not raw `Recording.OrbitSegments`, or it
+  draws wrong-aimed forward arcs for re-aim loop ghosts (Step 1); (2) because it
+  draws through `GhostTrajectoryPolylineRenderer`, its forward draws must not flip
+  the per-recording `IsPolylineOwningGhostPhase`, or it suppresses the very
+  current arc the Director is still routing (Step 3). Note both are things the
+  live chain already gets right, which is why Option 2 is the cleaner long-term
+  home; Option 1 takes them on as explicit obligations in exchange for shipping
+  without touching the Director's draw surfaces.
 
 - **Option 2 (future convergence).** Extend `GhostRenderDirector.Decide` to emit
   a forward **range** of intents instead of one, and have the treatments
@@ -304,6 +341,20 @@ the `OrbitLinesMaterial` draw, and the per-`VectorLine` lifecycle. Two changes:
   from each segment's own recorded epoch/elements (frame-independent shape), so
   the shift affects only the icon's drive UT, not the static forward geometry.
   The forward-window UTs are resolved in the same clock the head UT is in.
+- **Re-aimed loop ghosts** (interplanetary transfer with a synodic-window
+  re-aim): forward geometry comes from the EFFECTIVE (re-aimed) segments, not the
+  raw recorded ones, and the forward-arc cache keys on the re-aim window
+  signature so it re-samples on a window rollover (Step 1 + the Cache bullet). The
+  SOI stop keeps the re-aimed Sun leg out of the forward window in the common
+  single-coast case; the residual is a multi-segment same-SOI transfer, which the
+  effective-segment sourcing handles.
+- **Seam continuity** depends on consecutive elements meeting at shared
+  boundaries (the current stock arc's endpoint == the first forward element's
+  start) and on the polyline `VectorLine`s sharing scaled-map space with the stock
+  orbit line. Both hold today (the existing current-leg <-> next-arc seam already
+  renders continuously), but the forward arcs inherit that dependency: if a
+  recording's adjacent OrbitSegments are NOT geometrically contiguous the forward
+  chain shows a visible kink, same as the current single-element path would.
 - **Gaps between same-body segments** (recorder mode transitions): already
   coalesced by `TrajectoryMath.CoalesceSameOrbitFragments`
   (`ChainAssembler.cs:76`); reuse it so a fragmented parking coast does not split
@@ -314,7 +365,11 @@ the `OrbitLinesMaterial` draw, and the per-`VectorLine` lifecycle. Two changes:
 - **xUnit (pure):** `IsFullLoopClosedOrbit` (period boundary, `ecc ≥ 1`,
   degenerate `sma`); `ComputeForwardStopUT` (SOI-change stop, full-loop stop,
   multi transfer-arc chain that walks several segments, icon-on-closed-orbit →
-  empty range, predicted-included). Inject synthetic `µByBody`.
+  empty range, predicted-included, **current-element-is-closed-orbit returns its
+  own startUT**). Because the helper takes the effective segment list as input,
+  feed it a synthetic "re-aimed" list (different elements from the "recorded"
+  one) and assert the stop UT / window is computed off the effective list, not the
+  recorded one. Inject synthetic `µByBody`.
 - **xUnit (renderer logic):** the new overlap leg-gate (replacing
   `ShouldDrawLegAtHeadUT`) — boundary inclusivity, current+future disjointness.
 - **In-game (`InGameTests/RuntimeTests.cs`):** visual confirmation in FLIGHT map
@@ -326,7 +381,11 @@ the `OrbitLinesMaterial` draw, and the per-`VectorLine` lifecycle. Two changes:
 - `TrajectoryMath.cs` (or new `ForwardRenderWindow.cs`) — pure Step 1 helpers.
 - New shared `OrbitArcSampler` (Step 2) — extracted from `GhostOrbitArcPatch`.
 - `Display/GhostTrajectoryPolylineRenderer.cs` — forward leg-gate (B′) + forward
-  arc `VectorLine`s (C) + cache.
+  arc `VectorLine`s (C) + window-signature cache + the ownership-signal fix so
+  forward draws do not flip `IsPolylineOwningGhostPhase` (Step 3 CRITICAL).
+- `GhostMapPresence.cs` — live caller resolves the effective segments via
+  `ResolveEffectiveMapOrbitSegments` for the window helper (`[ERS-exempt]`
+  already); possibly the ownership reader if fix option (b) is chosen.
 - `Source/Parsek.Tests/` — pure unit tests.
 - `InGameTests/RuntimeTests.cs` — visual test.
 - `CHANGELOG.md`, `docs/dev/todo-and-known-bugs.md` — entries.
