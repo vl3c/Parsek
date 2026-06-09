@@ -105,6 +105,14 @@ only the trace *emit* + the `MapRenderProbe` reconcile, NOT the loop). Each fram
 `ShadowRenderDriver.RunFrame` builds a `GhostRenderChain` per ghost (cached in
 `chainByPid`), samples it, and calls `GhostRenderDirector.Decide`.
 
+> Do not be misled by `RunFrame`'s own XML doc-comment
+> (`ShadowRenderDriver.cs:244-245`), which still says "Caller MUST gate on
+> `MapRenderTrace.IsEnabled`". That comment is STALE (pre-8e-S4); both live call
+> sites gate only on `ShadowRenderDriver.Enabled` (verified above), so the chain
+> IS available in normal play. Reading the method comment instead of the call
+> sites would wrongly push you toward over-building Option 1's standalone helper.
+> Worth a separate one-line chore to fix the comment.
+
 It is named a "shadow" because it **does not itself paint pixels** — the literal
 drawing is still the stock `OrbitRenderer` (surface A, current arc + icon) and
 the autonomous `GhostTrajectoryPolylineRenderer.Driver` (surface B, current leg).
@@ -203,10 +211,13 @@ New pure functions:
 
   *(If the implementation chooses to reuse `GhostRenderChain` directly — see
   Step 4 Option 2 — this becomes a tiny `chain.Segments` sub-range scan: from
-  `LocateSegmentIndex(currentUT)`, advance while next seam is `Rigid` and the
-  next `StockConic` is not a full-loop closed orbit. The chain is already
-  assembled from the effective segments, so Option 2 gets re-aim correctness for
-  free.)*
+  `LocateSegmentIndex(ut)`, advance while next seam is `Rigid` and the next
+  `StockConic` is not a full-loop closed orbit. Note `LocateSegmentIndex` expects
+  the ASSEMBLED-CHAIN-clock UT (`GhostRenderChain.cs:50`), so the live UT must
+  first pass through `ChainSampler.Sample`'s loop/span-clock remap
+  (`ShadowRenderDriver.cs:284`); a raw live UT mis-locates for looped / span-
+  clocked ghosts. The chain is already assembled from the effective segments, so
+  Option 2 gets re-aim correctness for free.)*
 
 ### Step 2 — Shared Kepler arc sampler
 
@@ -221,6 +232,17 @@ periapsis-wraparound correction (`ArcAnomalyMath.NeedsPeriapsisWraparound` /
 and the new forward-arc renderer call it — no behavioural change to the current
 path, just deduplication. (If extraction proves invasive, the forward renderer
 carries its own copy; decide during build.)
+
+**Draw-space note (forward arcs use the ARC pipeline, not the leg pipeline).**
+The sampler emits BODY-LOCAL points; the forward-arc `VectorLine` (Step 3 C) must
+convert them exactly as the stock patch does:
+`ScaledSpace.LocalToScaledSpace(orbitPoints, line.points3)`
+(`GhostOrbitLinePatch.cs:1091`). It must NOT route through the leg pipeline's
+`CelestialBody.GetWorldSurfacePosition(lat,lon,alt) - body.position`
+(`GhostTrajectoryPolylineRenderer.cs:560`), which is for surface-relative leg
+points. Both land in absolute scaled space, so the arc<->leg seam stays
+continuous, but the conversion source differs and the forward arc must use the
+Kepler-local one.
 
 ### Step 3 — Forward static render (legs + arcs), drawn seamlessly chained
 
@@ -268,12 +290,19 @@ the `OrbitLinesMaterial` draw, and the per-`VectorLine` lifecycle. Two changes:
   `VectorLine`s through a path that does NOT touch `drewNonOrbitalLegRecordings`,
   or (b) narrow the ownership signal so it fires only when the polyline draws the
   element the icon is actually on (the current leg), with forward elements
-  excluded. The current-leg draw keeps publishing exactly as today. This is a
-  hard prerequisite, not a polish item: resolve it inside Step 3 before any
-  forward leg/arc can ship, or the very first forward extension on an
-  orbit-bearing ghost regresses the current arc. Likely touches the publish logic
-  in `GhostTrajectoryPolylineRenderer.cs` (and possibly the ownership reader in
-  `GhostMapPresence.cs`).
+  excluded. The current-leg draw keeps publishing exactly as today. **There are
+  three consumers of the signal, and the fix must keep ALL of them seeing "owns"
+  IFF the polyline is drawing the CURRENT element**, not a forward one: the orbit
+  LINE Postfix (`GhostOrbitLinePatch.cs:600`), the proto-ICON Prefix
+  (`GhostOrbitLinePatch.cs:130`), and the non-proto MARKER decision
+  (`GhostMapPresence.ShouldDrawNonProtoMarkerForGhost`, whose `IsPolylineOwning`
+  disjunct would otherwise paint a second marker over a still-stock-drawn icon).
+  Option (b) covers all three by construction; option (a) must be verified against
+  the marker path too. This is a hard prerequisite, not a polish item: resolve it
+  inside Step 3 before any forward leg/arc can ship, or the very first forward
+  extension on an orbit-bearing ghost regresses the current arc. Likely touches
+  the publish logic in `GhostTrajectoryPolylineRenderer.cs` (and possibly the
+  ownership reader in `GhostMapPresence.cs`).
 
 - **Cache.** Key the sampled forward-arc `VectorLine`s per `recordingId` by
   `(currentElementIndex, bodyName, reaimWindowSignature)`. The recorded segment
@@ -348,6 +377,16 @@ the `OrbitLinesMaterial` draw, and the per-`VectorLine` lifecycle. Two changes:
   SOI stop keeps the re-aimed Sun leg out of the forward window in the common
   single-coast case; the residual is a multi-segment same-SOI transfer, which the
   effective-segment sourcing handles.
+- **Ghost hidden / held in an interior gap** -> draw NO forward range. The Director
+  deliberately HIDES or HOLDS a ghost across re-aim trim gaps / interior
+  FlexibleSoi gaps (`ShadowRenderDriver.ShouldSkipReaimSegment`,
+  `ShadowRenderDriver.cs:364`; `Coverage.InSegment == false`). Option 1's
+  standalone helper is blind to that decision and would otherwise compute a
+  forward window from whatever segment brackets `currentUT` even while the live
+  ghost is invisible. Gate the whole forward pass on the same visibility the
+  Director resolved (e.g. skip when the ghost's current sample is not
+  `InSegment` / is hidden), so the forward line never appears for a ghost whose
+  icon is hidden. Option 2 inherits this from the Director's own intent.
 - **Seam continuity** depends on consecutive elements meeting at shared
   boundaries (the current stock arc's endpoint == the first forward element's
   start) and on the polyline `VectorLine`s sharing scaled-map space with the stock
