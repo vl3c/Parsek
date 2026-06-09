@@ -451,8 +451,9 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Safety net that force-closes any stock Space Center facility building
-        /// (R&amp;D / Astronaut Complex / Mission Control / Administration) left
-        /// open by a test. The Phase-5 StockUiOverlay tests open a facility
+        /// (R&amp;D / Astronaut Complex / Mission Control; Administration is
+        /// deliberately omitted -- see the call site) left open by a test. The
+        /// Phase-5 StockUiOverlay tests open a facility
         /// canvas (which pauses the game) and close it in their own try/finally;
         /// the runner disposes the test iterator via <see cref="RunCoroutineSafely"/>
         /// so that finally fires even on a failed assertion. But a user
@@ -486,8 +487,16 @@ namespace Parsek.InGameTests
                 _ => GameEvents.onGUIAstronautComplexDespawn.Fire());
             closed += TryForceCloseFacility<KSP.UI.Screens.MissionControl>("Mission Control",
                 _ => GameEvents.onGUIMissionControlDespawn.Fire());
-            closed += TryForceCloseFacility<KSP.UI.Screens.Administration>("Administration",
-                _ => GameEvents.onGUIAdministrationFacilityDespawn.Fire());
+            // Administration is intentionally excluded: no test opens it as a
+            // real building (the StockUiOverlay tests open R&D / Astronaut
+            // Complex / Mission Control), and the strategy-lifecycle canaries
+            // create a HIDDEN, disabled Administration canvas that still sets
+            // Administration.Instance and stays activeInHierarchy. Force-closing
+            // by FindObjectOfType<Administration> would fire a spurious
+            // onGUIAdministrationFacilityDespawn into that hidden canvas, which
+            // there is no clean programmatic way to distinguish from a real open
+            // building. Since nothing here leaves a real Administration open,
+            // omitting it removes the only false-positive path with no loss.
 
             if (closed > 0)
                 ParsekLog.Info(Tag, FormatFacilityForceCloseSummary(closed, reason));
