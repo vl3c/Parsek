@@ -3075,34 +3075,62 @@ namespace Parsek.InGameTests
 
         internal enum LaunchWaitTimeoutOutcome
         {
-            /// <summary>Vessel left PRELAUNCH but the recording-side wait conditions never
-            /// became true (no live recording / wrong recording id): a real product Fail.</summary>
+            /// <summary>Vessel left the launch surface but the recording-side wait conditions
+            /// never became true (no live recording / wrong recording id): a real product Fail.</summary>
             FailRecordingContract,
-            /// <summary>Still PRELAUNCH and no engine ever produced thrust (clamp-only or
+            /// <summary>Still on the pad and no engine ever produced thrust (clamp-only or
             /// empty first stage): the craft cannot exercise the launch flow. Skip.</summary>
             SkipNoThrust,
-            /// <summary>Still PRELAUNCH although engines burned the whole window and the
+            /// <summary>Still on the pad although engines burned the whole window and the
             /// clamps were already released by the wait: craft performance (TWR &lt; 1 or a
             /// liftoff slower than the deadline) is environmental, not a regression. Skip.</summary>
             SkipNeverLiftedOff,
         }
 
         // Classifies a launch-wait timeout so craft-specific liftoff problems Skip instead of
-        // logging a misleading product-regression Fail. Both launch waits release any launch
-        // clamps up front, so a craft still PRELAUNCH at the deadline with thrust produced has
+        // logging a misleading product-regression Fail. The launch waits release any launch
+        // clamps up front, so a craft still on the pad at the deadline with thrust produced has
         // nothing holding it but its own engines (career craft with a TWR<1 first stage burn
         // on the pad; a marginal-TWR craft can also need >10s to creep off the pad — observed
-        // on a 4xShrimp first stage that took ~8s to reach FLYING).
+        // on a 4xShrimp first stage that took ~8s to reach FLYING). stillOnPad means "still
+        // grounded at/near the launch site": PRELAUNCH for the leave-prelaunch wait, any
+        // landed/splashed-or-PRELAUNCH state inside the minimum radius for the clear-pad wait.
         internal static LaunchWaitTimeoutOutcome ClassifyLaunchWaitTimeout(
-            bool vesselPresent, bool stillPrelaunch, bool everProducedThrust, bool producingThrustNow)
+            bool vesselPresent, bool stillOnPad, bool everProducedThrust, bool producingThrustNow)
         {
-            if (vesselPresent && stillPrelaunch)
+            if (vesselPresent && stillOnPad)
             {
                 if (!everProducedThrust && !producingThrustNow)
                     return LaunchWaitTimeoutOutcome.SkipNoThrust;
                 return LaunchWaitTimeoutOutcome.SkipNeverLiftedOff;
             }
             return LaunchWaitTimeoutOutcome.FailRecordingContract;
+        }
+
+        // A batch-baseline quickload can leave FlightInputHandler.state.mainThrottle at 0 even
+        // after a test wrote 1f just before staging (2026-06-10 retest: the staged liquid core
+        // idled at zero thrust for a full 30s window while the SRBs, which ignore throttle,
+        // burned). The launch waits re-assert full throttle every frame and report how many
+        // frames needed correcting, so a throttle-zeroing source shows up in the log as data
+        // instead of as an unexplained liftoff timeout. Returns true when a correction was made.
+        internal static bool ReassertFullLaunchThrottle()
+        {
+            var state = FlightInputHandler.state;
+            if (state == null || state.mainThrottle >= 0.99f)
+                return false;
+            state.mainThrottle = 1f;
+            return true;
+        }
+
+        // Batch-counting convention: one summary line per wait, only when a correction
+        // actually happened (silence means the throttle write before staging stuck).
+        internal static void LogThrottleReasserts(string waitName, int reasserts)
+        {
+            if (reasserts <= 0)
+                return;
+            ParsekLog.Info("TestRunner",
+                $"{waitName}: re-asserted full throttle on {reasserts} frame(s) — something " +
+                "external zeroed FlightInputHandler.state.mainThrottle during the staged launch");
         }
 
         internal static IEnumerator WaitForLaunchAutoRecordStart(float timeoutSeconds)
@@ -3112,8 +3140,11 @@ namespace Parsek.InGameTests
             ReleaseLaunchClampsOnActiveVessel();
             float deadline = Time.time + timeoutSeconds;
             bool everProducedThrust = false;
+            int throttleReasserts = 0;
             while (Time.time < deadline)
             {
+                if (ReassertFullLaunchThrottle())
+                    throttleReasserts++;
                 var flight = ParsekFlight.Instance;
                 var vessel = FlightGlobals.ActiveVessel;
                 if (vessel != null && VesselIsProducingLaunchThrust(vessel))
@@ -3123,11 +3154,13 @@ namespace Parsek.InGameTests
                     && vessel != null
                     && vessel.situation != Vessel.Situations.PRELAUNCH)
                 {
+                    LogThrottleReasserts("WaitForLaunchAutoRecordStart", throttleReasserts);
                     yield break;
                 }
 
                 yield return null;
             }
+            LogThrottleReasserts("WaitForLaunchAutoRecordStart", throttleReasserts);
 
             var timedOutFlight = ParsekFlight.Instance;
             var timedOutVessel = FlightGlobals.ActiveVessel;
@@ -10136,8 +10169,11 @@ namespace Parsek.InGameTests
             RuntimeTests.ReleaseLaunchClampsOnActiveVessel();
             float deadline = Time.time + timeoutSeconds;
             bool everProducedThrust = false;
+            int throttleReasserts = 0;
             while (Time.time < deadline)
             {
+                if (RuntimeTests.ReassertFullLaunchThrottle())
+                    throttleReasserts++;
                 var flight = ParsekFlight.Instance;
                 var vessel = FlightGlobals.ActiveVessel;
                 if (vessel != null && RuntimeTests.VesselIsProducingLaunchThrust(vessel))
@@ -10149,11 +10185,13 @@ namespace Parsek.InGameTests
                     && vessel.situation != Vessel.Situations.PRELAUNCH
                     && (string.IsNullOrEmpty(expectedRecordingId) || activeRecId == expectedRecordingId))
                 {
+                    RuntimeTests.LogThrottleReasserts("WaitForRecordingToLeavePrelaunch", throttleReasserts);
                     yield break;
                 }
 
                 yield return null;
             }
+            RuntimeTests.LogThrottleReasserts("WaitForRecordingToLeavePrelaunch", throttleReasserts);
 
             var timedOutFlight = ParsekFlight.Instance;
             var timedOutVessel = FlightGlobals.ActiveVessel;
@@ -10316,10 +10354,16 @@ namespace Parsek.InGameTests
             float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
+            bool everProducedThrust = false;
+            int throttleReasserts = 0;
             while (Time.time < deadline)
             {
+                if (RuntimeTests.ReassertFullLaunchThrottle())
+                    throttleReasserts++;
                 var flight = ParsekFlight.Instance;
                 var vessel = FlightGlobals.ActiveVessel;
+                if (vessel != null && RuntimeTests.VesselIsProducingLaunchThrust(vessel))
+                    everProducedThrust = true;
                 string activeRecId = flight?.ActiveTreeForSerialization?.ActiveRecordingId;
                 double currentDistance = vessel != null
                     ? Vector3d.Distance(vessel.GetWorldPos3D(), launchWorldPosition)
@@ -10330,17 +10374,46 @@ namespace Parsek.InGameTests
                     && (string.IsNullOrEmpty(expectedRecordingId) || activeRecId == expectedRecordingId)
                     && currentDistance >= minimumDistanceMeters)
                 {
+                    RuntimeTests.LogThrottleReasserts("WaitForRecordingToClearPad", throttleReasserts);
                     yield break;
                 }
 
                 yield return null;
             }
+            RuntimeTests.LogThrottleReasserts("WaitForRecordingToClearPad", throttleReasserts);
 
             var timedOutFlight = ParsekFlight.Instance;
             var timedOutVessel = FlightGlobals.ActiveVessel;
             double finalDistance = timedOutVessel != null
                 ? Vector3d.Distance(timedOutVessel.GetWorldPos3D(), launchWorldPosition)
                 : double.NaN;
+            // "Still on the pad" here means grounded (or never properly launched) inside the
+            // minimum radius: a craft that burned its engines yet could not clear the pad is a
+            // craft-performance problem, the same environmental class as the leave-prelaunch wait.
+            bool stillOnPad = timedOutVessel != null
+                && (timedOutVessel.situation == Vessel.Situations.PRELAUNCH
+                    || timedOutVessel.LandedOrSplashed)
+                && !double.IsNaN(finalDistance)
+                && finalDistance < minimumDistanceMeters;
+            switch (RuntimeTests.ClassifyLaunchWaitTimeout(
+                timedOutVessel != null,
+                stillOnPad,
+                everProducedThrust,
+                RuntimeTests.VesselIsProducingLaunchThrust(timedOutVessel)))
+            {
+                case RuntimeTests.LaunchWaitTimeoutOutcome.SkipNoThrust:
+                    InGameAssert.Skip(
+                        "active pad vessel produced no launch thrust after staging (no ignited engine), so it " +
+                        "never cleared the pad; cannot exercise the staged-launch scene-exit flow on this craft");
+                    break;
+                case RuntimeTests.LaunchWaitTimeoutOutcome.SkipNeverLiftedOff:
+                    InGameAssert.Skip(string.Format(CultureInfo.InvariantCulture,
+                        "active vessel burned its engines but stayed within {0:F0}m of the launch position " +
+                        "after {1:F0}s (got {2:F1}m, situation={3}); the craft's own performance is holding " +
+                        "it down, so the staged-launch scene-exit flow cannot be exercised on this craft",
+                        minimumDistanceMeters, timeoutSeconds, finalDistance, timedOutVessel.situation));
+                    break;
+            }
             InGameAssert.Fail(
                 $"WaitForRecordingToClearPad timed out after {timeoutSeconds:F0}s " +
                 $"(minimumDistance={minimumDistanceMeters:F0}m, actualDistance={finalDistance:F1}m, " +
@@ -12137,6 +12210,14 @@ namespace Parsek.InGameTests
 
                 yield return new WaitForSeconds(0.5f);
 
+                // Mirror the proven launch sequence (Quickload_MidRecording / AutoRecordOnLaunch):
+                // after a batch-baseline quickload the stock stage manager and the
+                // FlightInputHandler state need to settle or the throttle write does not stick.
+                // Staging without these waits ignited the SRBs (throttle-independent) but left
+                // the liquid core engine at zero thrust for the whole launch window
+                // (2026-06-10 retest: engines=4 at stop here vs engines=5 in the ready-gated tests).
+                yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
+                yield return RuntimeTests.WaitForFlightInputStateReady(5f);
                 FlightInputHandler.state.mainThrottle = 1f;
                 KSP.UI.Screens.StageManager.ActivateNextStage();
 
@@ -12303,11 +12384,19 @@ namespace Parsek.InGameTests
 
                 yield return new WaitForSeconds(0.5f);
 
+                // Mirror the proven launch sequence (Quickload_MidRecording / AutoRecordOnLaunch):
+                // after a batch-baseline quickload the stock stage manager and the
+                // FlightInputHandler state need to settle or the throttle write does not stick.
+                // Staging without these waits ignited the SRBs (throttle-independent) but left
+                // the liquid core engine at zero thrust for the whole launch window
+                // (2026-06-10 retest: engines=4 at stop here vs engines=5 in the ready-gated tests).
+                yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
+                yield return RuntimeTests.WaitForFlightInputStateReady(5f);
                 FlightInputHandler.state.mainThrottle = 1f;
                 KSP.UI.Screens.StageManager.ActivateNextStage();
 
                 yield return WaitForRecordingToLeavePrelaunch(activeRecId, 30f);
-                yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 10f);
+                yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 30f);
                 yield return new WaitForSeconds(0.5f);
 
                 TriggerSaveAndExitToSpaceCenter();
@@ -12490,11 +12579,19 @@ namespace Parsek.InGameTests
 
                 yield return new WaitForSeconds(0.5f);
 
+                // Mirror the proven launch sequence (Quickload_MidRecording / AutoRecordOnLaunch):
+                // after a batch-baseline quickload the stock stage manager and the
+                // FlightInputHandler state need to settle or the throttle write does not stick.
+                // Staging without these waits ignited the SRBs (throttle-independent) but left
+                // the liquid core engine at zero thrust for the whole launch window
+                // (2026-06-10 retest: engines=4 at stop here vs engines=5 in the ready-gated tests).
+                yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
+                yield return RuntimeTests.WaitForFlightInputStateReady(5f);
                 FlightInputHandler.state.mainThrottle = 1f;
                 KSP.UI.Screens.StageManager.ActivateNextStage();
 
                 yield return WaitForRecordingToLeavePrelaunch(activeRecId, 30f);
-                yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 10f);
+                yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 30f);
                 yield return new WaitForSeconds(0.5f);
 
                 TriggerSaveAndExitToSpaceCenter();

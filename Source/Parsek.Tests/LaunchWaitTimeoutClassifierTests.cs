@@ -17,7 +17,7 @@ namespace Parsek.Tests
         {
             Assert.Equal(RuntimeTests.LaunchWaitTimeoutOutcome.SkipNoThrust,
                 RuntimeTests.ClassifyLaunchWaitTimeout(
-                    vesselPresent: true, stillPrelaunch: true,
+                    vesselPresent: true, stillOnPad: true,
                     everProducedThrust: false, producingThrustNow: false));
         }
 
@@ -29,7 +29,7 @@ namespace Parsek.Tests
             // 10s deadline expired before the PRELAUNCH transition.
             Assert.Equal(RuntimeTests.LaunchWaitTimeoutOutcome.SkipNeverLiftedOff,
                 RuntimeTests.ClassifyLaunchWaitTimeout(
-                    vesselPresent: true, stillPrelaunch: true,
+                    vesselPresent: true, stillOnPad: true,
                     everProducedThrust: true, producingThrustNow: true));
         }
 
@@ -40,7 +40,7 @@ namespace Parsek.Tests
             // the deadline. Still a craft-performance problem, not a regression.
             Assert.Equal(RuntimeTests.LaunchWaitTimeoutOutcome.SkipNeverLiftedOff,
                 RuntimeTests.ClassifyLaunchWaitTimeout(
-                    vesselPresent: true, stillPrelaunch: true,
+                    vesselPresent: true, stillOnPad: true,
                     everProducedThrust: true, producingThrustNow: false));
         }
 
@@ -52,7 +52,7 @@ namespace Parsek.Tests
             // so this is still environmental.
             Assert.Equal(RuntimeTests.LaunchWaitTimeoutOutcome.SkipNeverLiftedOff,
                 RuntimeTests.ClassifyLaunchWaitTimeout(
-                    vesselPresent: true, stillPrelaunch: true,
+                    vesselPresent: true, stillOnPad: true,
                     everProducedThrust: false, producingThrustNow: true));
         }
 
@@ -64,7 +64,7 @@ namespace Parsek.Tests
             // true: a real product failure that must NOT be skipped.
             Assert.Equal(RuntimeTests.LaunchWaitTimeoutOutcome.FailRecordingContract,
                 RuntimeTests.ClassifyLaunchWaitTimeout(
-                    vesselPresent: true, stillPrelaunch: false,
+                    vesselPresent: true, stillOnPad: false,
                     everProducedThrust: true, producingThrustNow: true));
         }
 
@@ -73,8 +73,53 @@ namespace Parsek.Tests
         {
             Assert.Equal(RuntimeTests.LaunchWaitTimeoutOutcome.FailRecordingContract,
                 RuntimeTests.ClassifyLaunchWaitTimeout(
-                    vesselPresent: false, stillPrelaunch: false,
+                    vesselPresent: false, stillOnPad: false,
                     everProducedThrust: true, producingThrustNow: false));
+        }
+    }
+
+    /// <summary>
+    /// Covers the launch-wait throttle re-assert seam: the null-input no-op (the only
+    /// branch reachable outside a live KSP scene) and the corrections summary log line.
+    /// </summary>
+    [Collection("Sequential")]
+    public class LaunchThrottleReassertTests : System.IDisposable
+    {
+        private readonly System.Collections.Generic.List<string> logLines =
+            new System.Collections.Generic.List<string>();
+
+        public LaunchThrottleReassertTests()
+        {
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+        }
+
+        [Fact]
+        public void Reassert_NoFlightInputState_ReturnsFalse()
+        {
+            // Outside a live FLIGHT scene FlightInputHandler.state is null; the
+            // re-assert must be a safe no-op so the waits can call it every frame.
+            Assert.False(RuntimeTests.ReassertFullLaunchThrottle());
+        }
+
+        [Fact]
+        public void LogThrottleReasserts_ZeroCorrections_LogsNothing()
+        {
+            RuntimeTests.LogThrottleReasserts("SomeWait", 0);
+            Assert.DoesNotContain(logLines, l => l.Contains("re-asserted full throttle"));
+        }
+
+        [Fact]
+        public void LogThrottleReasserts_Corrections_LogsWaitNameAndCount()
+        {
+            RuntimeTests.LogThrottleReasserts("WaitForRecordingToClearPad", 7);
+            Assert.Contains(logLines, l => l.Contains("[TestRunner]")
+                && l.Contains("WaitForRecordingToClearPad")
+                && l.Contains("7 frame(s)"));
         }
     }
 }
