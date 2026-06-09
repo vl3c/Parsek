@@ -352,6 +352,27 @@ namespace Parsek.Tests
             Assert.Equal(true, args[1]);
         }
 
+        // KSP 1.12.5 only exposes SetVessel(Vessel, bool); the TS Fly canary probes
+        // through this resolver instead of GetMethod with a one-arg signature.
+        [Fact]
+        public void FindTrackingStationSetVesselMethod_TwoArgumentOnlyType_ResolvesStockSignature()
+        {
+            var method = GhostMapPresence.FindTrackingStationSetVesselMethod(
+                typeof(FakeTrackingStationWithTwoArgumentSetVessel),
+                typeof(object));
+
+            Assert.NotNull(method);
+            Assert.Equal(2, method.GetParameters().Length);
+        }
+
+        [Fact]
+        public void FindTrackingStationSetVesselMethod_NoSetVessel_ReturnsNull()
+        {
+            Assert.Null(GhostMapPresence.FindTrackingStationSetVesselMethod(
+                typeof(object),
+                typeof(object)));
+        }
+
         [Fact]
         public void TryInvokeTrackingStationVesselListRefresh_WithBuildMethod_RebuildsListAndLogs()
         {

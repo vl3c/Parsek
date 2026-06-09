@@ -214,6 +214,99 @@ namespace Parsek.Tests
                 "zero-drift worst " + zeroDriftWorst + " should be <= the best fixed multiple " + fixedM9);
         }
 
+        [Fact]
+        public void Schedule_NCycleResolve_ResidualBoundedNoAccumulation()
+        {
+            // 4.1 (INV-1 + INV-8). Phase A hardening: the EXISTING non-accumulation test
+            // (MunCase_ZeroDrift_NeverWorseThanFixedCadence_AndDoesNotAccumulate above) chains the
+            // NextJointNearCoincidenceUT HELPER directly; this test exercises the SAME stock
+            // Kerbin-rotation + Mun-orbit math but THROUGH the assembled MissionRelaunchSchedule
+            // object (TryResolveActiveLaunch / NextLaunchAfter) over many resolves - the gap the
+            // helper chain does not cover (the consumed schedule object across the consumption API).
+            //
+            // The schedule anchors on the Mun orbit and drops the Kerbin pad rotation (the same
+            // shape Schedule_Deterministic_TwoIndependentBuildsResolveIdentically builds). ut0 == 0,
+            // so a resolved launchUT is k*MunOrbit directly; the anchor (Mun) residual is exactly 0
+            // and the OTHER-constraint residual is CircularPhaseError(launchUT, KerbinRotation).
+            //
+            // CAVEAT (plan R2 / INV-1): the "<= the m=9 fixed residual (~993 s)" bound is the
+            // WITHIN-TOLERANCE 2-constraint stock Mun case. That is exactly this fixture: every
+            // resolved launch finds a within-tolerance window (asserted below), so the oracle is
+            // scoped to the proven within-tol set per R2(i). The residual is BOUNDED (stays under
+            // the rotation tolerance, ~15 s) and does NOT monotonically grow like a fixed-cadence
+            // 993, 1986, 2978 s drift.
+            double tolRot = KerbinRotation * (0.25 / 360.0);
+            var schedule = new MissionRelaunchSchedule(
+                ut0: 0.0, anchorPeriod: MunOrbit,
+                otherPeriods: new double[] { KerbinRotation },
+                otherTolerances: new double[] { tolRot },
+                floorUT: 5000.0, lookaheadMultiples: 4096);
+            Assert.False(double.IsNaN(schedule.FirstLaunchUT));
+
+            // INV-8: a resolve at a pre-first-launch UT returns NO active launch. FirstLaunchUT sits
+            // far after ut0 (the first faithful Mun window past the floor), so any UT below it parks.
+            Assert.True(schedule.FirstLaunchUT > 5000.0);
+            Assert.False(schedule.TryResolveActiveLaunch(1000.0, out _, out _));
+            Assert.False(schedule.TryResolveActiveLaunch(5000.0, out _, out _));
+
+            // The best fixed multiple (m=9) residual - the bound the zero-drift schedule must beat.
+            double fixedM9 = MissionPeriodicity.CircularPhaseError(9.0 * MunOrbit, KerbinRotation);
+
+            const int K = 80; // >= 64
+            double worst = 0.0;
+            double prevLaunch = double.NegativeInfinity;
+            long prevIndex = -1;
+            var resids = new List<double>();
+
+            double launchUT = schedule.FirstLaunchUT;
+            for (int k = 0; k < K; k++)
+            {
+                // Resolve THROUGH the schedule object: at the launch instant the active launch is the
+                // launch itself, at the 0-based list index k (NOT a negative dense cycle index).
+                Assert.True(schedule.TryResolveActiveLaunch(launchUT, out double activeUT, out long idx),
+                    "resolve at launch " + k + " (UT " + launchUT + ") should find an active launch");
+                Assert.Equal(launchUT, activeUT, 6);
+                Assert.True(idx >= 0, "list index is 0-based, never negative; was " + idx);
+                Assert.True(idx > prevIndex, "list index strictly increasing");
+                Assert.True(launchUT > prevLaunch, "launches strictly increasing (monotonic schedule)");
+                prevIndex = idx;
+                prevLaunch = launchUT;
+
+                // Anchor (Mun) residual is exactly 0 at every launch: launchUT == k'*MunOrbit (ut0=0).
+                double anchorResid = MissionPeriodicity.CircularPhaseError(launchUT, MunOrbit);
+                Assert.Equal(0.0, anchorResid, 3);
+
+                // Other-constraint (Kerbin rotation) residual: the quantity that must NOT accumulate.
+                double otherResid = MissionPeriodicity.CircularPhaseError(launchUT - 0.0, KerbinRotation);
+                resids.Add(otherResid);
+                if (otherResid > worst) worst = otherResid;
+
+                // Each resolved launch is a WITHIN-TOLERANCE window (the proven 2-constraint set).
+                Assert.True(otherResid <= tolRot + 1e-6,
+                    "launch " + k + " other-residual " + otherResid + " should be within tol " + tolRot);
+
+                // Step to the next scheduled launch via the schedule object's UI/warp target API.
+                launchUT = schedule.NextLaunchAfter(launchUT);
+                Assert.False(double.IsNaN(launchUT), "schedule must produce launch " + (k + 1) + " within the cap");
+            }
+
+            // Bounded: the worst other-residual stays FAR below the fixed-cadence m=9 drift (~993 s),
+            // and below the rotation tolerance the schedule selects on.
+            Assert.True(worst <= fixedM9 + 1e-6,
+                "zero-drift worst residual " + worst + " should be <= the m=9 fixed residual " + fixedM9);
+            Assert.True(worst <= tolRot + 1e-6,
+                "every resolved launch is within tolerance, so worst " + worst + " <= tol " + tolRot);
+
+            // NOT monotonically increasing: a fixed cadence would grow 993, 1986, 2978, ...; the
+            // zero-drift schedule's residual stream rises and falls within the band. At least one
+            // consecutive pair must DECREASE (proves it is not an accumulating ramp).
+            bool sawDecrease = false;
+            for (int i = 1; i < resids.Count; i++)
+                if (resids[i] < resids[i - 1] - 1e-9) { sawDecrease = true; break; }
+            Assert.True(sawDecrease,
+                "the per-launch residual must not monotonically accumulate (a fixed cadence would)");
+        }
+
         // ===================== TryBuildRelaunchSchedule: gating =====================
 
         [Fact]
@@ -443,13 +536,24 @@ namespace Parsek.Tests
             Assert.False(double.IsNaN(schedule.FirstLaunchUT));
 
             // currentUT astronomically beyond what 8192 launches at ~0.001 spacing can reach.
-            Assert.True(schedule.TryResolveActiveLaunch(1e9, out double launchUT, out _));
+            Assert.True(schedule.TryResolveActiveLaunch(1e9, out double launchUT, out long parkedIdx));
             Assert.True(launchUT <= 1e9);
             Assert.False(double.IsNaN(launchUT)); // parked at the last cached launch
 
             Assert.True(double.IsNaN(schedule.NextLaunchAfter(1e9)));
             Assert.Contains(logLines, l =>
                 l.Contains("[MissionPeriodicity]") && l.Contains("MaxScheduleSteps"));
+
+            // 4.6 (INV-5a cap boundedness): once the MaxScheduleSteps cap is reached the cache cannot
+            // grow further, so a SECOND far-future resolve (even further out) parks at the SAME last
+            // cached launch + the SAME 0-based index - the resolver stays bounded and consistent
+            // (no crash, no infinite extend, no past target) rather than churning per call. The
+            // parked index is the last cached launch's 0-based position, which is <= MaxScheduleSteps.
+            Assert.True(schedule.TryResolveActiveLaunch(2e9, out double launchUT2, out long parkedIdx2));
+            Assert.Equal(launchUT, launchUT2, 6);
+            Assert.Equal(parkedIdx, parkedIdx2);
+            Assert.True(parkedIdx >= 0 && parkedIdx < MissionPeriodicity.MaxScheduleSteps,
+                "the parked list index stays within the safety cap; was " + parkedIdx);
         }
 
         [Fact]
@@ -462,6 +566,23 @@ namespace Parsek.Tests
                 0.0, 100.0, new double[] { 31.0 }, new double[] { 2.0 }, 0.0, 100);
 
             Assert.True(schedule.TryResolveActiveLaunch(50000.0, out double aFar, out long cFar));
+
+            // 4.6 (INV-5a, far-future warp): a SINGLE far-future resolve returns the active launch
+            // (the largest launch <= currentUT, idx its 0-based list index) in ONE call - no
+            // per-launch replay catch-up. Synthetic 100/31 launches: 900, 1300, 1800, ...; at 50000
+            // the active launch is 49600 at list index 79. The list index is 0-based, never negative.
+            Assert.Equal(49600.0, aFar, 6);
+            Assert.Equal(79, cFar);
+            Assert.True(cFar >= 0, "list index is 0-based, never negative");
+            Assert.True(aFar <= 50000.0);
+
+            // INV-5a idempotence: a SECOND resolve at a NEARBY UT (still below the next launch, 50500)
+            // returns the SAME active launch + index. The cache already covers this UT, so the
+            // resolve hits the grown cache via binary search and does NOT re-extend.
+            Assert.True(schedule.TryResolveActiveLaunch(50001.0, out double aNear, out long cNear));
+            Assert.Equal(aFar, aNear, 6);
+            Assert.Equal(cFar, cNear);
+
             // Now resolve an earlier time.
             Assert.True(schedule.TryResolveActiveLaunch(1500.0, out double aMid, out long cMid));
             Assert.Equal(1300.0, aMid, 6);
@@ -477,8 +598,9 @@ namespace Parsek.Tests
 
         // A schedule with launches at UT 900, 1300, 1800, ... (synthetic 100/31 case), used to drive
         // the span clock. The span is 50 s, far shorter than the ~400 s relaunch interval, so the
-        // clock parks (inter-cycle tail) between launches.
-        private static MissionRelaunchSchedule SyntheticSchedule()
+        // clock parks (inter-cycle tail) between launches. Internal so the Flight==TS param-forwarding
+        // parity sweep in MissionSpanClockTests reuses this single factory (4.2) instead of cloning it.
+        internal static MissionRelaunchSchedule SyntheticSchedule()
             => new MissionRelaunchSchedule(
                 0.0, 100.0, new double[] { 31.0 }, new double[] { 2.0 }, floorUT: 0.0,
                 lookaheadMultiples: 100);

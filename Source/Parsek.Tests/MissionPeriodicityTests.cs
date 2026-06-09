@@ -1199,6 +1199,198 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Build_Scheduled_HasNoLoiterCutsOrArrivalHold()
+        {
+            // INV-3 (4.3): the schedule branch of the span clock (TryComputeSpanLoopUT) returns early
+            // BEFORE the loiterCut / arrival-hold remap. That early return is correct ONLY because a
+            // scheduled unit is mutually exclusive with cuts/hold BY CONSTRUCTION: the schedule attaches
+            // exclusively in the same-parent phase-locked block, and the re-aim (cross-parent) block -
+            // the only producer of LoiterCuts / ArrivalHoldSeconds - sets RelaunchSchedule=null. This
+            // test drives the live Build if-chain (NOT the private TryBuildMissionUnit) with a same-parent
+            // drifting Mun config and asserts the mutual-exclusion delta directly on the LoopUnit: a unit
+            // with a non-null schedule carries NO loiter cuts and a zero arrival hold, so the span clock's
+            // bypass can never silently drop a cut/hold. The first three assertions overlap the existing
+            // Build_SupportedSameParentMun.../Build_DriftingLongSpan... tests; the LoiterCuts/ArrivalHold
+            // pair is the new INV-3 delta.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithSoiEntry(transfer, 1600, 2000, "Mun");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+            var committed = new List<Recording>(tree.Recordings.Values);
+
+            double ut0 = 1000.0;
+            double spanEnd = 2000.0;            // last member end = the first play's span end
+            double span = spanEnd - ut0;
+            double anchorEnable = ut0 + 1.5 * MunOrbit;
+            var mission = LoopMissionFor("t", anchorEnable);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            // Schedule attached, anchored on its own first launch, throttled to >= the span (overlap
+            // invariant). These overlap the existing same-parent / long-span tests.
+            Assert.NotNull(unit.RelaunchSchedule);
+            Assert.Equal(unit.RelaunchSchedule.FirstLaunchUT, unit.PhaseAnchorUT, 3);
+            Assert.True(unit.RelaunchSchedule.MinIntervalSeconds >= span);
+            // The INV-3 mutual-exclusion delta: a scheduled unit NEVER carries a loiter cut or an arrival
+            // hold (those are re-aim-only, and re-aim nulls the schedule). The span clock's early return
+            // before the cut/hold remap is therefore safe.
+            Assert.Null(unit.LoiterCuts);
+            Assert.Equal(0.0, unit.ArrivalHoldSeconds);
+        }
+
+        [Theory]
+        // configKind drives which same-parent (or unsupported) tree is built; each must attach NO schedule.
+        [InlineData("single-kerbin")]   // single Rotation(Kerbin) constraint - no drift -> fixed cadence
+        [InlineData("tidal-mun")]       // a Mun surface<->orbit handoff (tidally-locked body) - no drift
+        [InlineData("cross-parent")]    // UnsupportedCrossParent (Kerbin -> Duna) - never phase-locks
+        public void Build_NonDriftingOrUnsupportedConfigs_AttachNoSchedule(string configKind)
+        {
+            // Matrix (complements Build_SingleConstraint_NoZeroDriftSchedule... at :1145 and
+            // Build_UnsupportedCrossParent... at :1248, driven through the live Build if-chain): a
+            // single-constraint config, a tidally-locked-body handoff, and an UnsupportedCrossParent
+            // config all leave RelaunchSchedule NULL (only a same-parent DRIFTING multi-constraint config
+            // attaches the zero-drift schedule). Asserting the matrix here pins that the schedule-attach
+            // gate is selective, not "attach for anything supported".
+            RecordingTree tree;
+            switch (configKind)
+            {
+                case "single-kerbin":
+                {
+                    // Kerbin surface ascent + Kerbin orbit handoff = ONE Rotation(Kerbin) constraint.
+                    var surface = SurfaceLeg("s", 1000, 1100, "Kerbin");
+                    var orbit = OrbitLeg("o", 1100, 5000, "Kerbin");
+                    surface.ChainId = "C"; surface.ChainIndex = 0;
+                    orbit.ChainId = "C"; orbit.ChainIndex = 1;
+                    tree = TreeOf("t", surface, orbit);
+                    break;
+                }
+                case "tidal-mun":
+                {
+                    // A Mun-only surface<->orbit handoff: the only constraint is Rotation(Mun) (the body is
+                    // tidally locked, rotationPeriod == orbit period), so there is nothing incommensurate to
+                    // drift against -> no schedule. No Kerbin pad rotation in the included set.
+                    var munSurface = SurfaceLeg("s", 1000, 1100, "Mun");
+                    var munOrbit = OrbitLeg("o", 1100, 5000, "Mun");
+                    munSurface.ChainId = "C"; munSurface.ChainIndex = 0;
+                    munOrbit.ChainId = "C"; munOrbit.ChainIndex = 1;
+                    tree = TreeOf("t", munSurface, munOrbit);
+                    break;
+                }
+                case "cross-parent":
+                {
+                    // Kerbin ascent + a heliocentric Duna SOI entry = UnsupportedCrossParent.
+                    var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+                    var transfer = OrbitLeg("o", 1100, 5000, "Kerbin");
+                    WithSoiEntry(transfer, 5000, 6000, "Duna");
+                    ascent.ChainId = "C"; ascent.ChainIndex = 0;
+                    transfer.ChainId = "C"; transfer.ChainIndex = 1;
+                    tree = TreeOf("t", ascent, transfer);
+                    break;
+                }
+                default:
+                    throw new ArgumentException("unknown configKind " + configKind);
+            }
+
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", 123456.0);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Null(unit.RelaunchSchedule);
+            // No schedule => the cut/hold remap is also absent (re-aim-only), so the mutual-exclusion
+            // delta holds vacuously here too.
+            Assert.Null(unit.LoiterCuts);
+            Assert.Equal(0.0, unit.ArrivalHoldSeconds);
+        }
+
+        [Fact]
+        public void Schedule_SaveLoadRoundTrip_RederivesIdentical()
+        {
+            // INV-4 (4.5): the MissionRelaunchSchedule is NEVER serialized; it is rebuilt on every load
+            // from the persisted Mission.LoopAnchorUT plus the live body geometry (folded into
+            // MissionLoopUnitBuilder.BuildSignature). So a save/reload must re-derive a BYTE-IDENTICAL
+            // launch sequence, or the engine would relaunch at different UTs after a reload than before.
+            //
+            // We model the round-trip with the actually-serialized inputs: Mission.LoopAnchorUT survives
+            // OnSave/OnLoad as a scalar, and the body geometry is re-read each Build from the live
+            // IBodyInfo seam (the same value StockFake() returns on every call). We do NOT drive
+            // ParsekScenario.OnSave/OnLoad in xUnit (Planetarium / GameEvents are unguarded there); the
+            // source-gate / pure equivalent is: persist LoopAnchorUT through a ConfigNode scalar, rebuild
+            // a SECOND Mission from the parsed value, Build both with a freshly-constructed StockFake()
+            // body digest, and assert the resolved launch sequence over k=0..K is identical.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithSoiEntry(transfer, 1600, 2000, "Mun");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+            var committed = new List<Recording>(tree.Recordings.Values);
+
+            double anchorEnable = 1000.0 + 1.5 * MunOrbit;
+
+            // --- PRE-SAVE: build the schedule from the in-memory mission. ---
+            var missionBefore = LoopMissionFor("t", anchorEnable);
+            var setBefore = MissionLoopUnitBuilder.Build(
+                new[] { missionBefore }, new[] { tree }, committed, 30.0, StockFake());
+            Assert.True(setBefore.TryGetUnitForMember(0, out var unitBefore));
+            Assert.NotNull(unitBefore.RelaunchSchedule);
+
+            // --- SAVE: the only persisted schedule INPUT is the LoopAnchorUT scalar (round-tripped via a
+            // ConfigNode value using the project's InvariantCulture "R" contract). ---
+            var node = new ConfigNode("MISSION");
+            node.AddValue("LoopAnchorUT",
+                missionBefore.LoopAnchorUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+
+            // --- LOAD: parse the scalar back and reconstruct a fresh Mission. The body geometry is NOT
+            // persisted; it is re-read from a freshly-constructed StockFake() (the live-seam equivalent). ---
+            double parsedAnchorUT = double.Parse(
+                node.GetValue("LoopAnchorUT"), System.Globalization.CultureInfo.InvariantCulture);
+            Assert.Equal(missionBefore.LoopAnchorUT, parsedAnchorUT, 6); // the scalar survives the trip
+            var missionAfter = LoopMissionFor("t", parsedAnchorUT);
+            var setAfter = MissionLoopUnitBuilder.Build(
+                new[] { missionAfter }, new[] { tree }, committed, 30.0, StockFake());
+            Assert.True(setAfter.TryGetUnitForMember(0, out var unitAfter));
+            Assert.NotNull(unitAfter.RelaunchSchedule);
+
+            // --- ASSERT: the re-derived schedule resolves an IDENTICAL launch sequence. ---
+            var a = unitBefore.RelaunchSchedule;
+            var b = unitAfter.RelaunchSchedule;
+            Assert.Equal(a.FirstLaunchUT, b.FirstLaunchUT, 6);
+            Assert.Equal(unitBefore.PhaseAnchorUT, unitAfter.PhaseAnchorUT, 6);
+            Assert.Equal(a.MinIntervalSeconds, b.MinIntervalSeconds, 6);
+
+            // Resolve over k=0..K through the assembled schedule object: every launch UT + cycle index
+            // matches pre/post. Sweep UTs that step across the first ~K launches (one anchor period per
+            // step easily clears each non-uniform relaunch gap), plus a pre-first-launch parked probe and
+            // a far-future warp probe.
+            const int K = 64;
+            double firstLaunch = a.FirstLaunchUT;
+            var probes = new List<double> { firstLaunch - MunOrbit }; // parked before L_0
+            for (int k = 0; k <= K; k++)
+                probes.Add(firstLaunch + k * MunOrbit);
+            probes.Add(firstLaunch + 5e8); // far-future warp
+
+            foreach (double probe in probes)
+            {
+                bool ra = a.TryResolveActiveLaunch(probe, out double la, out long ca);
+                bool rb = b.TryResolveActiveLaunch(probe, out double lb, out long cb);
+                Assert.Equal(ra, rb);
+                if (ra)
+                {
+                    Assert.Equal(la, lb, 6);
+                    Assert.Equal(ca, cb);
+                }
+                Assert.Equal(a.NextLaunchAfter(probe), b.NextLaunchAfter(probe), 6);
+            }
+        }
+
+        [Fact]
         public void Build_LoopAnchorBeforeFirstPlay_ClampsAnchorToAfterTheFirstPlay()
         {
             // Guards: a looped mission must never relaunch before its first real play completes - the

@@ -1162,6 +1162,14 @@ namespace Parsek
             // hit the same short anchor-step gap). NaN when not scheduled.
             public double ScheduledTypicalIntervalSeconds;
 
+            // R3: the SCHEDULE's own worst-launch tolerance flag - true iff every resolved scheduled
+            // launch found a within-tolerance window, false once any fell to bounded-best (a genuinely
+            // over-tolerance launch). The T- amber tint reads THIS for a scheduled unit, not the fixed
+            // m*P-fit Solution.WithinTolerance (which is false for the in-tolerance stock Mun). True (the
+            // benign default) when not scheduled, so the non-scheduled amber path is unchanged. See
+            // docs/dev/plans/zero-drift-reschedule-hardening.md section 6 R2/R3.
+            public bool ScheduleAllLaunchesWithinTolerance;
+
             // Supported + constrained: the loop is phase-locked to a real period P (not the free
             // MinCycleDuration). This is the state where the period cell shows P + basis label and
             // the T- cell shows a live countdown.
@@ -1256,6 +1264,11 @@ namespace Parsek
             result.ScheduledTypicalIntervalSeconds = result.IsScheduled
                 ? unit.RelaunchSchedule.AverageIntervalSeconds
                 : double.NaN;
+            // R3: surface the schedule's OWN worst-launch tolerance for the amber tint. Benign default
+            // true when not scheduled (the non-scheduled amber path then reads Solution.WithinTolerance,
+            // unchanged). For a scheduled unit this reflects whether any cached launch fell to bounded-best.
+            result.ScheduleAllLaunchesWithinTolerance = !result.IsScheduled
+                || unit.RelaunchSchedule.AllLaunchesWithinTolerance;
 
             // Re-aim (cross-parent interplanetary): the unit carries a synodic schedule the faithful
             // periodicity Solve cannot represent (it reports UnsupportedCrossParent). Surface it so the
@@ -1326,10 +1339,16 @@ namespace Parsek
                 periodicity.NowUT,
                 periodicity.IsReaim);
 
-            // Tint a live countdown amber when the best-effort window misses its physics tolerance
-            // (over-constrained config - the user may want to re-trim), matching the design's
-            // green/amber readout intent. Continuous / not-aligned / blank states read plain.
-            bool amber = periodicity.IsPhaseLockedConstrained && !periodicity.Solution.WithinTolerance;
+            // Tint a live countdown amber when the actual relaunch alignment misses its physics tolerance
+            // (over-constrained config - the user may want to re-trim), matching the design's green/amber
+            // readout intent. Continuous / not-aligned / blank states read plain. For a SCHEDULED
+            // (zero-drift) unit this reads the SCHEDULE's own worst-launch flag, NOT the fixed m*P-fit
+            // Solution.WithinTolerance (R3 fix, see ShouldTintTMinusAmber).
+            bool amber = ShouldTintTMinusAmber(
+                periodicity.IsPhaseLockedConstrained,
+                periodicity.IsScheduled,
+                periodicity.ScheduleAllLaunchesWithinTolerance,
+                periodicity.Solution.WithinTolerance);
             Color prev = GUI.contentColor;
             if (amber)
                 GUI.contentColor = LoopPeriodClampColor;
@@ -1338,6 +1357,41 @@ namespace Parsek
         }
 
         // ----- Pure display helpers (unit-tested; the IMGUI layout above is playtest-verified) -----
+
+        /// <summary>
+        /// Whether the "Time to launch" countdown cell should tint amber (R3, see
+        /// docs/dev/plans/zero-drift-reschedule-hardening.md section 6). The cell tints amber when the
+        /// loop's ACTUAL relaunch alignment misses its physics tolerance - the user may want to re-trim.
+        /// The amber source DIFFERS between scheduled and non-scheduled units:
+        /// - A SCHEDULED (zero-drift) unit relaunches at NON-UNIFORM, within-tolerance-when-reachable
+        ///   windows; its real tolerance is the SCHEDULE's own worst launch
+        ///   (<paramref name="scheduleAllLaunchesWithinTolerance"/>), NOT the fixed m*P-fit
+        ///   <paramref name="fixedFitWithinTolerance"/>. The fixed fit is FALSE for the stock Mun (~993 s
+        ///   residual at m=9) even though every ACTUAL scheduled launch is within tolerance by construction,
+        ///   so tinting off the fixed fit wrongly ambers a faithful unit. Tinting off the schedule flag
+        ///   correctly ambers only a genuinely over-tolerance (bounded-best) schedule and stays green for
+        ///   the in-tolerance stock Mun.
+        /// - A NON-scheduled (fixed-cadence) unit has no schedule; its tolerance IS the fixed m*P fit, so it
+        ///   tints off <paramref name="fixedFitWithinTolerance"/> exactly as before (no behavior change).
+        /// In BOTH cases the unit must be phase-locked + constrained
+        /// (<paramref name="isPhaseLockedConstrained"/>) to tint at all; continuous / not-aligned / blank
+        /// states read plain. NOT tinted unconditionally off <paramref name="isScheduled"/> - that would
+        /// hide a real over-tolerance schedule. Pure (no Unity); unit-tested.
+        /// </summary>
+        internal static bool ShouldTintTMinusAmber(
+            bool isPhaseLockedConstrained,
+            bool isScheduled,
+            bool scheduleAllLaunchesWithinTolerance,
+            bool fixedFitWithinTolerance)
+        {
+            if (!isPhaseLockedConstrained)
+                return false;
+            // Scheduled: amber iff some scheduled launch was over tolerance (bounded-best).
+            // Non-scheduled: amber iff the fixed m*P fit missed tolerance (unchanged behavior).
+            return isScheduled
+                ? !scheduleAllLaunchesWithinTolerance
+                : !fixedFitWithinTolerance;
+        }
 
         /// <summary>
         /// The engine's ACTUAL next relaunch UT for a built loop unit, derived from the SAME schedule
