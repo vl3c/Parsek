@@ -106,30 +106,27 @@ namespace Parsek
         // recording reset; the historical 1 -> 12 bump trail is preserved
         // in git log. Any future change to the .pann algorithm output for
         // the same input must bump this stamp so existing files invalidate
-        // via alg-stamp-drift on first load (HR-10).
-        internal const int AlgorithmStampVersion = 0;
+        // via alg-stamp-drift on first load (HR-10). Bumped to 1 when the
+        // useAnchorTaxonomy + useOutlierRejection rollout flags were removed
+        // and their bytes dropped from the configuration-hash encoding.
+        internal const int AlgorithmStampVersion = 1;
         private const int CanonicalEncoderVersion = 0;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +
         // splineType(1) + tension(4) + minSamples(4) + maxKnots(4) +
         // outlierAccelAtm(4) + outlierAccelExoPropulsive(4) +
-        // anchorPriority(10) + useAnchorTaxonomy(1) +
+        // anchorPriority(10) +
         // outlierAccelExoBallistic(4) + outlierAccelSurfaceMobile(4) +
         // outlierAccelSurfaceStationary(4) + outlierAccelApproach(4) +
         // outlierBubbleRadius(4) + outlierAltitudeFloor(4) +
-        // outlierAltitudeCeilingMargin(4) + outlierClusterRate(4) +
-        // useOutlierRejection(1) = 73 bytes. The 13 bytes formerly occupied
-        // by the co-bubble persisted tunables (blendMaxWindow + resampleHz)
-        // and the useCoBubbleBlend rollout flag were removed in v0.9.3
-        // when the co-bubble subsystem retired. The byte-shrink drifts the
-        // cache key of every existing .pann via config-hash-drift (HR-10),
-        // and the recompute path overwrites them with the post-retirement
-        // encoding on next load. Any future change to the outlier
-        // thresholds or to the rollout flag also drifts the cache key
-        // (HR-10 freshness): the writer emits an empty OutlierFlagsList
-        // when the flag is off; flipping to on without invalidating would
-        // let a stale empty block masquerade as fresh.
-        private const int CanonicalEncodingLength = 73;
+        // outlierAltitudeCeilingMargin(4) + outlierClusterRate(4) = 71 bytes.
+        // The useAnchorTaxonomy(1) + useOutlierRejection(1) rollout-flag bytes
+        // were dropped when those flags were removed (the pipeline is now
+        // unconditionally on); AlgorithmStampVersion bumped to 1 alongside so
+        // every existing .pann invalidates via alg-stamp-drift on first load.
+        // Any future change to the outlier thresholds or smoothing config also
+        // drifts the cache key via config-hash-drift (HR-10).
+        private const int CanonicalEncodingLength = 71;
 
         /// <summary>
         /// Probes the file header. Returns <c>true</c> with
@@ -551,67 +548,23 @@ namespace Parsek
 
         /// <summary>
         /// Computes the SHA-256 cache key over a fully-pinned canonical
-        /// encoding of <paramref name="cfg"/> (design doc §17.3.1
-        /// "Configuration Cache Key"). The encoding is endian-fixed and
-        /// field-order-fixed: future phases append fields, never reorder.
-        /// Phase 1 fills the smoothing-related fields and pads the reserved
-        /// bytes with zero.
+        /// encoding of <paramref name="cfg"/> plus the outlier thresholds
+        /// (design doc §17.3.1 "Configuration Cache Key"). The encoding is
+        /// endian-fixed and field-order-fixed: future phases append fields,
+        /// never reorder.
         /// </summary>
         internal static byte[] ComputeConfigurationHash(SmoothingConfiguration cfg)
         {
-            // Backward-compatible overload kept for tests wired before the
-            // Phase 6 / Phase 8 rollout flags were threaded through. The
-            // flag values here match the pre-Phase-N defaults so legacy
-            // hashes stay stable under existing tests. Production callers
-            // must use the three-argument overload below so a flag flip
-            // actually invalidates cached .pann files.
-            return ComputeConfigurationHash(cfg, useAnchorTaxonomy: true,
-                useOutlierRejection: true);
+            return ComputeConfigurationHash(cfg, OutlierThresholds.Default);
         }
 
         /// <summary>
-        /// Phase 6 follow-up: two-argument overload kept for any caller that
-        /// was wired before Phase 8. The remaining flag value is frozen at
-        /// the pre-Phase-8 level so legacy hashes stay stable.
-        /// </summary>
-        internal static byte[] ComputeConfigurationHash(
-            SmoothingConfiguration cfg, bool useAnchorTaxonomy)
-        {
-            return ComputeConfigurationHash(cfg, useAnchorTaxonomy,
-                useOutlierRejection: true);
-        }
-
-        /// <summary>
-        /// Phase 8: extends the canonical encoding to include outlier
-        /// thresholds and the <c>useOutlierRejection</c> rollout flag. The
-        /// previously-reserved outlier accel bytes at [21..28] are promoted
-        /// to <c>OutlierThresholds.Default</c>'s Atmospheric and
-        /// ExoPropulsive ceilings; bytes [40..71] add the remaining four
-        /// environment ceilings, the bubble radius, the altitude floor /
-        /// ceiling margin, and the cluster-rate threshold; byte [72] holds
-        /// <c>useOutlierRejection</c>. Flipping the flag changes the
-        /// derived <c>OutlierFlagsList</c> output (writer emits an empty
-        /// block when off, populated when on), so HR-10 freshness requires
-        /// the flag to participate in the cache key.
-        /// </summary>
-        internal static byte[] ComputeConfigurationHash(
-            SmoothingConfiguration cfg,
-            bool useAnchorTaxonomy,
-            bool useOutlierRejection)
-        {
-            return ComputeConfigurationHash(cfg, OutlierThresholds.Default,
-                useAnchorTaxonomy, useOutlierRejection);
-        }
-
-        /// <summary>
-        /// Phase 8 explicit-thresholds overload — used by tests that perturb
+        /// Explicit-thresholds overload — used by tests that perturb
         /// individual outlier thresholds to verify HR-10 cache-key freshness.
         /// </summary>
         internal static byte[] ComputeConfigurationHash(
             SmoothingConfiguration cfg,
-            OutlierThresholds outlier,
-            bool useAnchorTaxonomy,
-            bool useOutlierRejection)
+            OutlierThresholds outlier)
         {
             byte[] buffer = new byte[CanonicalEncodingLength];
             using (var ms = new MemoryStream(buffer, writable: true))
@@ -623,20 +576,17 @@ namespace Parsek
                 w.Write(cfg.Tension);                      // [9..12]
                 w.Write(cfg.MinSamplesPerSection);         // [13..16]
                 w.Write(cfg.MaxKnotCount);                 // [17..20]
-                w.Write(outlier.AccelCeilingAtmospheric);  // [21..24] outlierAccelAtmospheric (Phase 8)
-                w.Write(outlier.AccelCeilingExoPropulsive); // [25..28] outlierAccelExoPropulsive (Phase 8)
-                for (int i = 0; i < 10; i++) w.Write((byte)0); // [29..38] anchorPriorityVector (reserved)
-                w.Write((byte)(useAnchorTaxonomy ? 1 : 0)); // [39] useAnchorTaxonomy (Phase 6)
-                // Phase 8 additions
-                w.Write(outlier.AccelCeilingExoBallistic);     // [40..43]
-                w.Write(outlier.AccelCeilingSurfaceMobile);    // [44..47]
-                w.Write(outlier.AccelCeilingSurfaceStationary); // [48..51]
-                w.Write(outlier.AccelCeilingApproach);         // [52..55]
-                w.Write(outlier.MaxSingleTickPositionDeltaMeters); // [56..59]
-                w.Write(outlier.AltitudeFloorMeters);          // [60..63]
-                w.Write(outlier.AltitudeCeilingMargin);        // [64..67]
-                w.Write(outlier.ClusterRateThreshold);         // [68..71]
-                w.Write((byte)(useOutlierRejection ? 1 : 0));  // [72]
+                w.Write(outlier.AccelCeilingAtmospheric);  // [21..24]
+                w.Write(outlier.AccelCeilingExoPropulsive); // [25..28]
+                for (int i = 0; i < 10; i++) w.Write((byte)0); // [29..38] reserved
+                w.Write(outlier.AccelCeilingExoBallistic);     // [39..42]
+                w.Write(outlier.AccelCeilingSurfaceMobile);    // [43..46]
+                w.Write(outlier.AccelCeilingSurfaceStationary); // [47..50]
+                w.Write(outlier.AccelCeilingApproach);         // [51..54]
+                w.Write(outlier.MaxSingleTickPositionDeltaMeters); // [55..58]
+                w.Write(outlier.AltitudeFloorMeters);          // [59..62]
+                w.Write(outlier.AltitudeCeilingMargin);        // [63..66]
+                w.Write(outlier.ClusterRateThreshold);         // [67..70]
             }
 
             using (var sha = SHA256.Create())

@@ -45,10 +45,7 @@ namespace Parsek.Tests.Rendering
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             SectionAnnotationStore.ResetForTesting();
             TrajectoryMath.FrameTransform.ResetForTesting();
-            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings
-            {
-                useSmoothingSplines = true,
-            };
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings();
 
             fakeKerbin = TestBodyRegistry.CreateBody("Kerbin", radius: 600000.0, gravParameter: 3.5316e12);
             CelestialBody capturedKerbin = fakeKerbin;
@@ -129,35 +126,6 @@ namespace Parsek.Tests.Rendering
             // miss path). The gate must reject it — store keys are non-negative.
             bool result = ParsekFlight.TryComputeLateUpdateSplineWorldPositionPure(
                 recordingId: "rec", sectionIndex: -1, pointUT: 100.0, body: fakeKerbin,
-                unknownFrameTagWarnedKeys: null, out _);
-            Assert.False(result);
-        }
-
-        [Fact]
-        public void Pure_NullSettings_ReturnsFalse()
-        {
-            // What makes it fail: ParsekSettings.Current is null between
-            // scene transitions; the gate must not throw, just fall through.
-            ParsekSettings.CurrentOverrideForTesting = null;
-            SectionAnnotationStore.PutSmoothingSpline("rec", 0,
-                MakeConstantSpline(frameTag: 0, ut: 100.0, valueLatLonAlt: new Vector3d(1, 2, 3)));
-            bool result = ParsekFlight.TryComputeLateUpdateSplineWorldPositionPure(
-                recordingId: "rec", sectionIndex: 0, pointUT: 100.0, body: fakeKerbin,
-                unknownFrameTagWarnedKeys: null, out _);
-            Assert.False(result);
-        }
-
-        [Fact]
-        public void Pure_FlagOff_ReturnsFalse()
-        {
-            // What makes it fail: rollout flag toggles must short-circuit the
-            // gate before the store lookup. Otherwise an operator disabling
-            // useSmoothingSplines mid-session would still see Phase 1 effects.
-            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings { useSmoothingSplines = false };
-            SectionAnnotationStore.PutSmoothingSpline("rec", 0,
-                MakeConstantSpline(frameTag: 0, ut: 100.0, valueLatLonAlt: new Vector3d(1, 2, 3)));
-            bool result = ParsekFlight.TryComputeLateUpdateSplineWorldPositionPure(
-                recordingId: "rec", sectionIndex: 0, pointUT: 100.0, body: fakeKerbin,
                 unknownFrameTagWarnedKeys: null, out _);
             Assert.False(result);
         }

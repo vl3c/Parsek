@@ -22,16 +22,11 @@ namespace Parsek.Tests.Rendering
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             SectionAnnotationStore.ResetForTesting();
-            AnchorCandidateBuilder.ResetForTesting();
-            // Phase 6 flag default: on. Tests that need the flag off
-            // override locally.
-            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
         }
 
         public void Dispose()
         {
             SectionAnnotationStore.ResetForTesting();
-            AnchorCandidateBuilder.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -658,23 +653,6 @@ namespace Parsek.Tests.Rendering
             // monotonic by UT.
             for (int i = 1; i < arr.Length; i++)
                 Assert.True(arr[i].UT >= arr[i - 1].UT);
-        }
-
-        [Fact]
-        public void FlagOff_NoCandidatesEmitted()
-        {
-            // What makes it fail: the rollout-gate must early-out before
-            // any work runs. A buggy gate would silently emit candidates
-            // even with the flag off, defeating the regression-bisection
-            // use case.
-            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = false;
-
-            var rec = MakeRecording("rec-flag-off",
-                MakeSection(ReferenceFrame.Absolute, SegmentEnvironment.SurfaceMobile, 0, 100));
-            AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree: null);
-
-            Assert.False(SectionAnnotationStore.TryGetAnchorCandidates(rec.RecordingId, 0, out _));
-            Assert.Equal(0, SectionAnnotationStore.GetAnchorCandidateSectionCountForRecording(rec.RecordingId));
         }
 
         // --- AnchorCandidate bit-pack round-trip --------------------------

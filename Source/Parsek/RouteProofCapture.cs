@@ -278,7 +278,8 @@ namespace Parsek
             ICollection<uint> endpointPartPersistentIds,
             RouteEndpoint? endpointAtDock,
             int transferEndpointSituation,
-            ConfigNode endpointPreCoupleSnapshot = null)
+            ConfigNode endpointPreCoupleSnapshot = null,
+            ConfigNode transportPreCoupleSnapshot = null)
         {
             if (transferTargetVesselPid == 0 || dockedSnapshot == null)
                 return null;
@@ -313,6 +314,21 @@ namespace Parsek
                 ? endpointPreCoupleSnapshot
                 : dockedSnapshot;
 
+            // Symmetrically, when the caller provides a pre-couple TRANSPORT snapshot,
+            // prefer it for the transport baseline. The merged-vessel snapshot is captured
+            // frames after the couple, so any same-frame stock crossfeed equalisation that
+            // drained the transport tank into the depot deflates DOCK_TRANSPORT_RESOURCES;
+            // a later undock reading then looks like a pickup and trips the strict
+            // MixedPickupDelivery gate on an otherwise clean delivery run. The selection is
+            // self-validating: a pre-couple snapshot is only used when it actually contains
+            // the transport part PID set, so a stale / mismatched snapshot can never produce
+            // a wrong manifest (it falls back to the merged snapshot, current behaviour).
+            ConfigNode transportSnapshotForBaseline =
+                (transportPreCoupleSnapshot != null
+                 && SnapshotContainsAnyPartPersistentId(transportPreCoupleSnapshot, transportPids))
+                    ? transportPreCoupleSnapshot
+                    : dockedSnapshot;
+
             var window = new RouteConnectionWindow
             {
                 WindowId = BuildWindowId(dockUT, transferTargetVesselPid),
@@ -324,11 +340,11 @@ namespace Parsek
                 TransportPartPersistentIds = transportPids,
                 EndpointPartPersistentIds = endpointPids,
                 DockTransportResources =
-                    VesselSpawner.ExtractResourceManifest(dockedSnapshot, transportPids),
+                    VesselSpawner.ExtractResourceManifest(transportSnapshotForBaseline, transportPids),
                 DockEndpointResources =
                     VesselSpawner.ExtractResourceManifest(endpointSnapshotForBaseline, endpointPids),
                 DockTransportInventory =
-                    VesselSpawner.ExtractInventoryPayloadItems(dockedSnapshot, transportPids),
+                    VesselSpawner.ExtractInventoryPayloadItems(transportSnapshotForBaseline, transportPids),
                 DockEndpointInventory =
                     VesselSpawner.ExtractInventoryPayloadItems(endpointSnapshotForBaseline, endpointPids),
                 EndpointAtDock = endpointAtDock,

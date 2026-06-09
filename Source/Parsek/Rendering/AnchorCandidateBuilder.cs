@@ -24,21 +24,6 @@ namespace Parsek.Rendering
     /// </summary>
     internal static class AnchorCandidateBuilder
     {
-        /// <summary>
-        /// Phase 6 settings-flag gate. Mirrors the
-        /// <see cref="ParsekSettings.useAnchorTaxonomy"/> property; set by
-        /// callers that need to early-out without standing up the full
-        /// KSP <c>HighLogic.CurrentGame</c>. Production code reads
-        /// <see cref="ParsekSettings.Current"/> directly via
-        /// <see cref="ResolveUseAnchorTaxonomy"/>.
-        /// </summary>
-        internal static bool? UseAnchorTaxonomyOverrideForTesting;
-
-        // Dedup the "skipping, flag off" Verbose so per-recording bursts
-        // don't spam the log. Cleared by ResetForTesting.
-        private static readonly object s_flagOffLogLock = new object();
-        private static bool s_flagOffLogged;
-
         // Reviewer Nit removed: TreeLookupOverrideForTesting was an
         // unused public surface left over from an earlier sketch.
         // BuildAndStorePerSection takes the RecordingTree explicitly,
@@ -95,25 +80,10 @@ namespace Parsek.Rendering
         /// <see cref="SectionAnnotationStore"/>. Mirrors
         /// <see cref="SmoothingPipeline.FitAndStorePerSection"/> in shape:
         /// clear-then-populate (HR-10), Verbose batch summary at the end.
-        /// No-op when the <see cref="ParsekSettings.useAnchorTaxonomy"/>
-        /// flag is off.
         /// </summary>
         internal static void BuildAndStorePerSection(Recording rec, RecordingTree tree)
         {
             if (rec == null) return;
-            if (!ResolveUseAnchorTaxonomy())
-            {
-                lock (s_flagOffLogLock)
-                {
-                    if (!s_flagOffLogged)
-                    {
-                        s_flagOffLogged = true;
-                        ParsekLog.Verbose("Pipeline-Anchor",
-                            "useAnchorTaxonomy=false, skipping AnchorCandidateBuilder");
-                    }
-                }
-                return;
-            }
 
             string recordingId = rec.RecordingId;
 
@@ -216,36 +186,6 @@ namespace Parsek.Rendering
                 totalCandidates,
                 dockCount, splitCount, relCount, orbitCount, soiCount,
                 bubbleEntryCount, bubbleExitCount, surfaceCount, loopCount, otherCount));
-        }
-
-        /// <summary>
-        /// Resolve the live <see cref="ParsekSettings.useAnchorTaxonomy"/>
-        /// value, with a test override hook. Default true (Phase 6 ships
-        /// with the flag on).
-        /// </summary>
-        internal static bool ResolveUseAnchorTaxonomy()
-        {
-            if (UseAnchorTaxonomyOverrideForTesting.HasValue)
-                return UseAnchorTaxonomyOverrideForTesting.Value;
-            try
-            {
-                ParsekSettings cur = ParsekSettings.Current;
-                if (cur != null) return cur.useAnchorTaxonomy;
-            }
-            catch
-            {
-                // ParsekSettings.Current can throw under xUnit (HighLogic
-                // unavailable). Treat as "use the compiled default" which
-                // for Phase 6 is true.
-            }
-            return true;
-        }
-
-        /// <summary>Test-only: resets dedup + override hooks.</summary>
-        internal static void ResetForTesting()
-        {
-            UseAnchorTaxonomyOverrideForTesting = null;
-            lock (s_flagOffLogLock) { s_flagOffLogged = false; }
         }
 
         // -------------------------------------------------------------------
