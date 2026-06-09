@@ -175,6 +175,24 @@ just BEFORE a closed orbit (e.g. on the ascent leg before the parking ellipse) i
 NOT treated as on the closed orbit: its backward run (the ascent) still draws, up
 to the ellipse start.
 
+**The run spans the whole CHAIN, not one recording (revised 2026-06-09 after
+playtest 4).** A chain (`Recording.ChainId`) splits one logical flight across
+multiple recordings at handoff seams, and chain members partition one shared
+recorded-UT axis. A run computed per recording cannot span the seam: a launch
+segment that hands off before reaching orbit carries ZERO OrbitSegments (no
+window at all while the icon rides it, so the ascent leg drew alone), and after
+the handoff the next member's run only reached its OWN legs (the ascent leg
+vanished) — the playtest-4 symptom. The run pass therefore collects every
+committed member of the icon's chain (`CollectChainRunMembers`, StartUT-ordered),
+computes the window over the CONCATENATED per-member effective segments
+(re-coalesced chain-wide so a same-orbit coast split across a member boundary
+still reads as one full-loop stop), and enqueues run legs/arcs from EVERY
+member's leg set / conics — refreshing hidden siblings' leg caches on demand and
+mirroring the walk's recording-level static gates for them. The run is decided
+ONCE per chain per frame (the first non-hidden member the walk reaches; for a
+looped chain that is exactly the active member). Forward legs of sibling members
+stay `forward=true`, so the ownership contract is untouched.
+
 ### Step 1 — Pure forward-window computation (always available, unit-tested)
 
 Add a standalone, Unity-free helper (in `TrajectoryMath.cs`, or a small new

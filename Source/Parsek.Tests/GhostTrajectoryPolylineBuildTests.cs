@@ -1630,5 +1630,152 @@ namespace Parsek.Tests
                 null, 0.0, 200.0, 50.0, DunaSurface(), scratch2);
             Assert.Empty(scratch2);
         }
+
+        // ====================================================================
+        // Chain-aware run membership (playtest-4 chain-boundary fix)
+        // CollectChainRunMembers
+        // ====================================================================
+
+        private static Recording MakeChainMember(string id, string chainId, double startUT)
+        {
+            var rec = new Recording { RecordingId = id, ChainId = chainId };
+            rec.Points.Add(MakePoint(startUT, 0.0, 0.0, 70.0));
+            rec.Points.Add(MakePoint(startUT + 100.0, 0.0, 0.0, 100.0));
+            return rec;
+        }
+
+        // A standalone (non-chain) recording collects as a single member carrying its committed index:
+        // byte-identical to the pre-chain forward pass.
+        [Fact]
+        public void CollectChainRunMembers_StandaloneRecording_SingleMember()
+        {
+            var rec = MakeChainMember("rec-solo", chainId: null, startUT: 100.0);
+            var committed = new List<Recording> { MakeChainMember("rec-other", null, 0.0), rec };
+            var members = new List<(int index, Recording rec)>();
+
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(committed, rec, 1, members);
+
+            Assert.Single(members);
+            Assert.Equal(1, members[0].index);
+            Assert.Same(rec, members[0].rec);
+        }
+
+        // Chain members are collected from the committed list regardless of committed ORDER, returned
+        // sorted by StartUT (the shared recorded-UT axis the run window is computed on), each carrying
+        // its own committed index (the resolver key for ResolveEffectiveMapOrbitSegments).
+        [Fact]
+        public void CollectChainRunMembers_ChainMembers_SortedByStartUT_OthersExcluded()
+        {
+            const string chain = "chain-a";
+            var launch = MakeChainMember("rec-launch", chain, startUT: 100.0);
+            var middle = MakeChainMember("rec-middle", chain, startUT: 300.0);
+            var tail = MakeChainMember("rec-tail", chain, startUT: 600.0);
+            var otherChain = MakeChainMember("rec-other-chain", "chain-b", startUT: 200.0);
+            var standalone = MakeChainMember("rec-standalone", null, startUT: 400.0);
+            // Committed order deliberately scrambled relative to time order.
+            var committed = new List<Recording> { tail, standalone, launch, otherChain, middle };
+            var members = new List<(int index, Recording rec)>();
+
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(committed, middle, 4, members);
+
+            Assert.Equal(3, members.Count);
+            Assert.Same(launch, members[0].rec);
+            Assert.Same(middle, members[1].rec);
+            Assert.Same(tail, members[2].rec);
+            // Committed indices preserved per member.
+            Assert.Equal(2, members[0].index);
+            Assert.Equal(4, members[1].index);
+            Assert.Equal(0, members[2].index);
+        }
+
+        // A chain recording missing from the committed list (detached caller input) falls back to the
+        // single-member run instead of an empty member set (the pass must still draw something).
+        [Fact]
+        public void CollectChainRunMembers_ChainRecordingNotInCommitted_FallsBackToSelf()
+        {
+            var rec = MakeChainMember("rec-detached", "chain-x", startUT: 100.0);
+            var committed = new List<Recording> { MakeChainMember("rec-unrelated", null, 0.0) };
+            var members = new List<(int index, Recording rec)>();
+
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(committed, rec, 7, members);
+
+            Assert.Single(members);
+            Assert.Equal(7, members[0].index);
+            Assert.Same(rec, members[0].rec);
+        }
+
+        // Null committed list / null rec are tolerated (single-member fallback / empty fill).
+        [Fact]
+        public void CollectChainRunMembers_NullInputs_Tolerated()
+        {
+            var rec = MakeChainMember("rec-null-committed", "chain-y", startUT: 100.0);
+            var members = new List<(int index, Recording rec)> { (9, rec) }; // stale entry must clear
+
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(null, rec, 3, members);
+            Assert.Single(members);
+            Assert.Equal(3, members[0].index);
+
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(
+                new List<Recording>(), null, 0, members);
+            Assert.Empty(members);
+
+            // Null scratch tolerated (no throw).
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(null, rec, 0, null);
+        }
+
+        // The playtest-4 scenario at the window level: the LAUNCH chain member carries ZERO
+        // OrbitSegments (handoff below orbit), the NEXT member carries the suborbital ascent conic +
+        // the full-loop parking ellipse. Computed over the CONCATENATED chain segments, the run window
+        // spans from the trajectory start (-inf: the launch leg is included) up to the ellipse start -
+        // both while the icon still rides the launch leg AND after the handoff - so the composite
+        // pad-to-ellipse line draws as one run. Per-member windows could not do this: the launch member
+        // alone has no segments (no run at all), and the next member alone cannot reach the launch leg.
+        [Fact]
+        public void ChainConcatenatedWindow_LaunchMemberInheritsRunFromNextMember()
+        {
+            // Next member's effective segments (the launch member contributes none).
+            double muKerbin = 3.5316e12;
+            var ascentConic = new OrbitSegment
+            {
+                startUT = 500.0, endUT = 900.0, bodyName = "Kerbin",
+                eccentricity = 0.4, semiMajorAxis = 500000.0
+            };
+            // Parking ellipse spanning >= one period (full loop): T(700km, Kerbin) ~ 5240s.
+            var parkingEllipse = new OrbitSegment
+            {
+                startUT = 900.0, endUT = 11000.0, bodyName = "Kerbin",
+                eccentricity = 0.001, semiMajorAxis = 700000.0
+            };
+            var concat = new List<OrbitSegment> { ascentConic, parkingEllipse };
+            Func<string, double> mu = _ => muKerbin;
+
+            // Icon on the LAUNCH leg (before the first conic): run reaches back to -inf (launch leg
+            // included) and stops at the ellipse start.
+            var preHandoff = ForwardRenderWindow.ComputeForwardWindow(concat, 200.0, mu);
+            Assert.True(preHandoff.HasForwardRange);
+            Assert.Equal(double.NegativeInfinity, preHandoff.RunStartUT);
+            Assert.Equal(900.0, preHandoff.StopUT);
+            // The launch member's ascent leg [100,450] overlaps the run and is the CURRENT head leg ->
+            // drawn by the head-gated pass, not the forward pass.
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                100.0, 450.0, preHandoff.RunStartUT, preHandoff.StopUT, headUT: 200.0));
+            // The next member's coast leg [600,700] is a run leg already pre-handoff.
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                600.0, 700.0, preHandoff.RunStartUT, preHandoff.StopUT, headUT: 200.0));
+
+            // After the handoff (icon on the next member's ascent conic), the LAUNCH member's leg
+            // PERSISTS as a run leg: same window, leg no longer under the head.
+            var postHandoff = ForwardRenderWindow.ComputeForwardWindow(concat, 600.0, mu);
+            Assert.True(postHandoff.HasForwardRange);
+            Assert.Equal(double.NegativeInfinity, postHandoff.RunStartUT);
+            Assert.Equal(900.0, postHandoff.StopUT);
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                100.0, 450.0, postHandoff.RunStartUT, postHandoff.StopUT, headUT: 600.0));
+
+            // Icon ON the parking ellipse: the run clears (stock draws the repeating ellipse) - the
+            // launch leg clears with it, matching the reset-at-boundary rule.
+            var onEllipse = ForwardRenderWindow.ComputeForwardWindow(concat, 1000.0, mu);
+            Assert.False(onEllipse.HasForwardRange);
+        }
     }
 }

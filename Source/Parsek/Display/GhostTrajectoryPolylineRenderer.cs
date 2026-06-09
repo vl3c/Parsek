@@ -662,6 +662,48 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// Chain-aware run membership (playtest-4 chain-boundary fix): the recordings whose legs/arcs
+        /// participate in ONE render run. A chain (shared <c>Recording.ChainId</c>) splits one logical
+        /// flight across multiple recordings at handoff seams, so a run computed over a single member
+        /// cannot span the seam: a launch segment that hands off before reaching orbit carries ZERO
+        /// OrbitSegments (no window at all while the icon rides it, so the ascent leg draws alone), and
+        /// after the handoff the next member's run only reaches its OWN legs (the ascent leg vanishes) -
+        /// exactly the playtest-4 symptom. Returns every committed member of <paramref name="rec"/>'s
+        /// chain ordered by StartUT (chain members partition one shared recorded-UT axis, so run-window
+        /// boundaries computed over the concatenated effective segments are directly comparable), or just
+        /// <paramref name="rec"/> itself for a standalone recording. Fills the caller's scratch list
+        /// (clear-and-fill, per-frame hot path). Pure; xUnit-testable without Unity.
+        /// </summary>
+        internal static void CollectChainRunMembers(
+            IReadOnlyList<Recording> committed, Recording rec, int recordingIndex,
+            List<(int index, Recording rec)> members)
+        {
+            if (members == null) return;
+            members.Clear();
+            if (rec == null) return;
+            if (!rec.IsChainRecording || committed == null)
+            {
+                members.Add((recordingIndex, rec));
+                return;
+            }
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var m = committed[i];
+                if (m == null || string.IsNullOrEmpty(m.RecordingId)) continue;
+                if (!string.Equals(m.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                members.Add((i, m));
+            }
+            if (members.Count == 0)
+            {
+                // Defensive: rec itself was not in the committed list (caller passed a detached
+                // recording) - fall back to the single-member run so the pass still works.
+                members.Add((recordingIndex, rec));
+                return;
+            }
+            members.Sort((a, b) => a.rec.StartUT.CompareTo(b.rec.StartUT));
+        }
+
+        /// <summary>
         /// Run-arc cache key (Step 3 Cache bullet): the run-arc VectorLine set is re-sampled only when the
         /// SELECTED segment set (the indices <see cref="SelectForwardArcSegmentIndices"/> returned) or the
         /// re-aim synodic WINDOW changes. Keying on the actual selected set (not currentElementIndex) is
@@ -2012,6 +2054,27 @@ namespace Parsek.Display
             // pass), so one shared scratch is safe; consumed immediately within DecideForwardWindowForRecording.
             private readonly List<int> forwardArcIndexScratch = new List<int>();
 
+            // Chain-aware run scratch (playtest-4 chain-boundary fix): one render run spans every
+            // member of a recording CHAIN, but the per-recording walk only reaches the VISIBLE member
+            // (looped-chain siblings are renderHidden), so the run pass resolves the sibling members'
+            // effective segments + leg caches itself. Per-Driver reusable buffers, consumed
+            // synchronously within DecideForwardWindowForRecording (single-threaded LateUpdate decide
+            // pass, one chain at a time), so shared scratch is safe.
+            private readonly List<(int index, Recording rec)> chainRunMemberScratch =
+                new List<(int index, Recording rec)>();
+            private readonly List<List<OrbitSegment>> chainRunMemberSegsScratch =
+                new List<List<OrbitSegment>>();
+            private readonly List<long> chainRunMemberReaimScratch = new List<long>();
+            private readonly List<OrbitSegment> chainRunConcatScratch = new List<OrbitSegment>();
+
+            // Chains whose run was already decided this frame: the run is computed ONCE per chain per
+            // frame, by the first non-hidden member the walk reaches (for a looped chain that is
+            // exactly the active member). Later visible members of the same chain skip, which also
+            // prevents double-enqueueing the same run legs/arcs for historical non-loop chains where
+            // every member passes the renderHidden gate. Cleared at the top of every LateUpdate.
+            private readonly HashSet<string> chainRunProcessedThisFrame =
+                new HashSet<string>(StringComparer.Ordinal);
+
             // De-dupe: onPreCull can fire more than once per frame (multiple
             // cameras), but the map camera filter + this frame guard keep the
             // draw pass to exactly one run per frame.
@@ -2138,6 +2201,8 @@ namespace Parsek.Display
                 pendingDraws.Clear();
                 pendingForwardArcs.Clear();
                 pendingDrawsFrame = -1;
+                // Chain-run dedupe set is per-frame: each chain's run is decided once per LateUpdate.
+                chainRunProcessedThisFrame.Clear();
 
                 // Scene gate: v1 ships TRACKSTATION + FLIGHT only (§1.1).
                 var scene = HighLogic.LoadedScene;
@@ -2476,7 +2541,7 @@ namespace Parsek.Display
                     // resolved (renderHidden already continued above) plus the Director's gap-hold.
                     DecideForwardWindowForRecording(
                         scene, recordingIndex, rec, set, headUT, currentUT, loopUnits,
-                        ghostPid, drawFrame, surface,
+                        ghostPid, drawFrame, surface, committed, suppressed,
                         ref frameForwardLegs, ref frameForwardArcs, ref frameForwardSkippedGapHold);
                 }
 
@@ -2869,9 +2934,19 @@ namespace Parsek.Display
                 GameScenes scene, int recordingIndex, Recording rec, LegPolylineSet set,
                 double headUT, double currentUT, GhostPlaybackLogic.LoopUnitSet loopUnits,
                 uint ghostPid, int drawFrame, BodySurfaceProvider surface,
+                IReadOnlyList<Recording> committed, HashSet<string> suppressedIds,
                 ref int frameForwardLegs, ref int frameForwardArcs, ref int frameForwardSkippedGapHold)
             {
                 if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return;
+
+                // CHAIN DEDUPE (playtest-4 chain-boundary fix): the run below is computed over the WHOLE
+                // chain, so it must run ONCE per chain per frame. The first non-hidden member the walk
+                // reaches runs it - for a looped chain that is exactly the active member (siblings are
+                // renderHidden). A later visible member of the same chain (historical non-loop chains,
+                // where every member passes the renderHidden gate) skips, which also prevents
+                // double-enqueueing the same run legs/arcs.
+                if (rec.IsChainRecording && !chainRunProcessedThisFrame.Add(rec.ChainId))
+                    return;
 
                 // GAP-HOLD gate: a ghost-bearing recording the Director is NOT tracking this frame is held
                 // / hidden in an interior gap (re-aim trim / FlexibleSoi). Draw no forward range. A pid-0
@@ -2891,18 +2966,47 @@ namespace Parsek.Display
                     return;
                 }
 
-                // CRITICAL sourcing: re-aimed EFFECTIVE segments (== recorded by reference for faithful
-                // members) + the synodic window index for the forward-arc cache key.
-                List<OrbitSegment> effective = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
-                    recordingIndex, rec.RecordingId, rec.OrbitSegments, currentUT, loopUnits,
-                    out long reaimWindowIndex);
+                // CHAIN-AWARE RUN MEMBERSHIP (playtest-4 fix): a chain splits one logical flight across
+                // multiple recordings at handoff seams, so the run window and the run legs/arcs must span
+                // the chain - a launch segment with zero OrbitSegments inherits its window from the next
+                // member's conics (ascent leg no longer draws alone), and after the handoff the previous
+                // member's legs persist as run legs (the ascent leg no longer vanishes). Standalone
+                // recordings collect as a single member, byte-identical to the pre-chain behaviour.
+                CollectChainRunMembers(committed, rec, recordingIndex, chainRunMemberScratch);
 
-                // Reuse CoalesceSameOrbitFragments so a fragmented same-body coast (recorder mode
-                // transition) does not split the forward chain (plan: gaps-between-same-body-segments).
-                List<OrbitSegment> coalesced = TrajectoryMath.CoalesceSameOrbitFragments(effective);
+                // Resolve per-member EFFECTIVE segments (CRITICAL sourcing: re-aim-resolved, == recorded
+                // by reference for faithful members) + the per-member synodic window index for the arc
+                // cache keys, and CONCATENATE into the chain-wide window source. Per-member coalesce
+                // first (plan: gaps-between-same-body-segments must not split the forward chain).
+                chainRunMemberSegsScratch.Clear();
+                chainRunMemberReaimScratch.Clear();
+                chainRunConcatScratch.Clear();
+                for (int mi = 0; mi < chainRunMemberScratch.Count; mi++)
+                {
+                    var member = chainRunMemberScratch[mi];
+                    List<OrbitSegment> memberEffective = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                        member.index, member.rec.RecordingId, member.rec.OrbitSegments, currentUT,
+                        loopUnits, out long memberReaimWindow);
+                    List<OrbitSegment> memberCoalesced =
+                        TrajectoryMath.CoalesceSameOrbitFragments(memberEffective);
+                    chainRunMemberSegsScratch.Add(memberCoalesced);
+                    chainRunMemberReaimScratch.Add(memberReaimWindow);
+                    if (memberCoalesced != null)
+                        chainRunConcatScratch.AddRange(memberCoalesced);
+                }
+
+                // Window source: members are StartUT-ordered and partition the recorded-UT axis, so the
+                // concatenation is time-sorted. RE-coalesce the chain-wide list so a same-orbit coast
+                // split ACROSS a member boundary (e.g. a full-loop parking orbit entered in one segment
+                // and left in the next, where each fragment alone spans < one period) reads as ONE
+                // segment for the full-loop stop test. Single member -> its own coalesced list,
+                // byte-identical to the pre-chain behaviour.
+                List<OrbitSegment> windowSegs = chainRunMemberScratch.Count <= 1
+                    ? (chainRunMemberSegsScratch.Count > 0 ? chainRunMemberSegsScratch[0] : null)
+                    : TrajectoryMath.CoalesceSameOrbitFragments(chainRunConcatScratch);
 
                 ForwardRenderWindow.ForwardWindow window =
-                    ForwardRenderWindow.ComputeForwardWindow(coalesced, headUT, ResolveBodyMu);
+                    ForwardRenderWindow.ComputeForwardWindow(windowSegs, headUT, ResolveBodyMu);
                 if (!window.HasForwardRange)
                     return; // icon ON a full-loop closed orbit / no element -> line clears (no run)
 
@@ -2914,62 +3018,94 @@ namespace Parsek.Display
                 double winStart = window.RunStartUT;
                 double winStop = window.StopUT;
 
-                // ---- (B') RUN LEGS: any non-orbital leg overlapping the run window, EXCLUDING the current
-                // head leg (drawn by the head-gated pass). Enqueued forward=true so they never flip the
-                // ownership signal. The run window now includes PAST legs (revised rule), so the trailing
-                // line persists.
-                if (set.legs != null)
+                for (int mi = 0; mi < chainRunMemberScratch.Count; mi++)
                 {
-                    for (int li = 0; li < set.legs.Length; li++)
+                    var member = chainRunMemberScratch[mi];
+
+                    // ---- (B') RUN LEGS: any non-orbital leg of this member overlapping the run window,
+                    // EXCLUDING the current head leg (drawn by the head-gated pass of the visible member).
+                    // Enqueued forward=true so they never flip the ownership signal.
+                    LegPolylineSet memberSet = default(LegPolylineSet);
+                    bool haveLegs;
+                    if (ReferenceEquals(member.rec, rec))
                     {
-                        var leg = set.legs[li];
-                        if (!ShouldDrawForwardLeg(leg.startUT, leg.endUT, winStart, winStop, headUT))
-                            continue;
-                        CelestialBody legBody = ResolveBodyByName(scene, leg.bodyName);
-                        if (legBody == null) continue;
-                        if (!WillLegDraw(leg.PointCount, true)) continue;
-                        pendingDraws.Add(new PendingLegDraw
-                        {
-                            recordingId = rec.RecordingId,
-                            legIndex = li,
-                            body = legBody,
-                            rec = rec,
-                            ownedByTreatment = false, // forward legs always Driver-direct (no proto to own)
-                            ghostPid = ghostPid,
-                            forward = true,
-                        });
-                        frameForwardLegs++;
+                        memberSet = set;
+                        haveLegs = set.legs != null;
                     }
-                }
-
-                // ---- (C) RUN ARCS: StockConic segments overlapping the run (above-surface, EXCLUDING the
-                // one the icon sits on - stock draws that). Now includes PAST arcs (revised rule), so they
-                // persist. Reuse the per-Driver scratch buffer (clear-and-fill) to avoid a per-frame
-                // List<int> alloc on the hot multi-ghost path. arcIndices is consumed synchronously below.
-                List<int> arcIndices = forwardArcIndexScratch;
-                SelectForwardArcSegmentIndices(
-                    coalesced, winStart, winStop, headUT, surface, arcIndices);
-                if (arcIndices.Count > 0)
-                {
-                    // Key on the ACTUAL selected segment set (+ re-aim window), NOT on currentElementIndex:
-                    // with past arcs included, the same currentElementIndex maps to different selections as
-                    // the icon crosses element boundaries within a run (the excluded current arc changes), so
-                    // an index-only key would serve a stale cached arc set. The selected indices fully
-                    // determine the sampled geometry for a given re-aim window.
-                    string cacheKey = BuildForwardArcKey(arcIndices, reaimWindowIndex);
-                    RefreshForwardArcs(scene, rec.RecordingId, coalesced, arcIndices, cacheKey);
-
-                    if (forwardArcCache.TryGetValue(rec.RecordingId, out var fset) && fset.arcs != null)
+                    else
                     {
-                        for (int a = 0; a < fset.arcs.Length; a++)
+                        // Hidden / sibling member: the walk never vetted it this frame (looped-chain
+                        // visibility keeps exactly one member visible), so mirror the walk's
+                        // RECORDING-level static gates here (suppression / debris / no-points) and build
+                        // its leg cache on demand (content-hash gated, so steady-state cost is a dict hit).
+                        if (ClassifyPolylineStaticSkip(member.rec, suppressedIds)
+                            != PolylineStaticSkipReason.None)
+                            continue; // legs AND arcs of an excluded member stay out of the run
+                        RefreshForRecording(member.rec, surface);
+                        haveLegs = polylineCache.TryGetValue(member.rec.RecordingId, out memberSet)
+                            && memberSet.legs != null;
+                    }
+
+                    if (haveLegs)
+                    {
+                        for (int li = 0; li < memberSet.legs.Length; li++)
                         {
-                            if (fset.arcs[a].vectorLine == null) continue;
-                            pendingForwardArcs.Add(new PendingForwardArcDraw
+                            var leg = memberSet.legs[li];
+                            if (!ShouldDrawForwardLeg(leg.startUT, leg.endUT, winStart, winStop, headUT))
+                                continue;
+                            CelestialBody legBody = ResolveBodyByName(scene, leg.bodyName);
+                            if (legBody == null) continue;
+                            if (!WillLegDraw(leg.PointCount, true)) continue;
+                            pendingDraws.Add(new PendingLegDraw
                             {
-                                recordingId = rec.RecordingId,
-                                arcIndex = a,
+                                recordingId = member.rec.RecordingId,
+                                legIndex = li,
+                                body = legBody,
+                                rec = member.rec,
+                                ownedByTreatment = false, // forward legs always Driver-direct (no proto to own)
+                                ghostPid = ghostPid,
+                                forward = true,
                             });
-                            frameForwardArcs++;
+                            frameForwardLegs++;
+                        }
+                    }
+
+                    // ---- (C) RUN ARCS: this member's StockConic segments overlapping the run
+                    // (above-surface, EXCLUDING the one the icon sits on - stock draws that). Per-member
+                    // selection against the chain-wide window; each member keeps its OWN forwardArcCache
+                    // entry keyed on its own selected set + re-aim window. Reuse the per-Driver scratch
+                    // buffer (clear-and-fill); arcIndices is consumed synchronously below, before the
+                    // next member's selection refills it.
+                    List<OrbitSegment> memberCoalesced = chainRunMemberSegsScratch[mi];
+                    if (memberCoalesced == null || memberCoalesced.Count == 0) continue;
+                    List<int> arcIndices = forwardArcIndexScratch;
+                    SelectForwardArcSegmentIndices(
+                        memberCoalesced, winStart, winStop, headUT, surface, arcIndices);
+                    if (arcIndices.Count > 0)
+                    {
+                        // Key on the ACTUAL selected segment set (+ re-aim window), NOT on
+                        // currentElementIndex: with past arcs included, the same currentElementIndex maps
+                        // to different selections as the icon crosses element boundaries within a run
+                        // (the excluded current arc changes), so an index-only key would serve a stale
+                        // cached arc set. The selected indices fully determine the sampled geometry for a
+                        // given re-aim window.
+                        string cacheKey = BuildForwardArcKey(arcIndices, chainRunMemberReaimScratch[mi]);
+                        RefreshForwardArcs(
+                            scene, member.rec.RecordingId, memberCoalesced, arcIndices, cacheKey);
+
+                        if (forwardArcCache.TryGetValue(member.rec.RecordingId, out var fset)
+                            && fset.arcs != null)
+                        {
+                            for (int a = 0; a < fset.arcs.Length; a++)
+                            {
+                                if (fset.arcs[a].vectorLine == null) continue;
+                                pendingForwardArcs.Add(new PendingForwardArcDraw
+                                {
+                                    recordingId = member.rec.RecordingId,
+                                    arcIndex = a,
+                                });
+                                frameForwardArcs++;
+                            }
                         }
                     }
                 }
@@ -2977,10 +3113,10 @@ namespace Parsek.Display
                 ParsekLog.VerboseRateLimited(DriverTag, "fwd-window." + rec.RecordingId,
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "Render run: rec={0} pid={1} curIdx={2} runStart={3:F1} stopUT={4:F1} reason={5} " +
-                        "runLegs+={6} runArcs+={7} reaimWindow={8} segs={9} headUT={10:F1}",
+                        "runLegs+={6} runArcs+={7} members={8} segs={9} headUT={10:F1}",
                         rec.RecordingId, ghostPid, window.CurrentIndex, winStart, winStop, window.Reason,
-                        frameForwardLegs, frameForwardArcs, reaimWindowIndex,
-                        coalesced != null ? coalesced.Count : 0, headUT),
+                        frameForwardLegs, frameForwardArcs, chainRunMemberScratch.Count,
+                        windowSegs != null ? windowSegs.Count : 0, headUT),
                     2.0);
             }
 
