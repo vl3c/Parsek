@@ -121,6 +121,118 @@ namespace Parsek.Tests
             Assert.DoesNotContain(report.All, d => d.Facet == DivergenceFacet.Reputation);
         }
 
+        // ================================================================
+        // Seeded-pool uplift-clamp demotion (demote-on-uplift policy)
+        // ================================================================
+
+        [Fact]
+        public void Diff_SeededPoolUpliftWithoutAuthoritative_ReportOnly()
+        {
+            // recon ABOVE save, no authoritative time-travel context => the production
+            // drawdown guard would UPLIFT-clamp the patch DOWN to live, so the divergence
+            // is the expected missing-channel surplus: UpliftClampedExpected, report-only
+            // for ALL THREE seeded pools.
+            var save = HealthySave();      // funds 50000 / sci 200 / rep 75
+            var recon = HealthyRecon();
+            recon.Funds = 50123.45;        // +123.45 above save (funds tol 1.0)
+            recon.SciencePool = 290.0;     // +90 above save (science tol 0.1)
+            recon.Reputation = 80.0;       // +5 above save (rep tol 0.1)
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels(),
+                authoritativeReduction: false);
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Funds && d.Kind == DivergenceKind.UpliftClampedExpected);
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.SciencePool && d.Kind == DivergenceKind.UpliftClampedExpected);
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Reputation && d.Kind == DivergenceKind.UpliftClampedExpected);
+
+            // None of them are hard by default (the whole point of demote-on-uplift).
+            Assert.Empty(report.HardFailures(strict: false));
+        }
+
+        [Fact]
+        public void Diff_SeededPoolDownward_StaysHard()
+        {
+            // recon BELOW save: the guard does NOT raise live to meet a lower recon, so
+            // this is the real save-corruption class and stays a HARD ValueMismatch for
+            // all three pools -- regardless of the authoritativeReduction flag.
+            var save = HealthySave();
+            var recon = HealthyRecon();
+            recon.Funds = 40000.0;     // 10000 below save
+            recon.SciencePool = 100.0; // 100 below save
+            recon.Reputation = 50.0;   // 25 below save
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels(),
+                authoritativeReduction: false);
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Funds && d.Kind == DivergenceKind.ValueMismatch);
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.SciencePool && d.Kind == DivergenceKind.ValueMismatch);
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Reputation && d.Kind == DivergenceKind.ValueMismatch);
+
+            var hard = report.HardFailures(strict: false);
+            Assert.Contains(hard, d => d.Facet == DivergenceFacet.Funds);
+            Assert.Contains(hard, d => d.Facet == DivergenceFacet.SciencePool);
+            Assert.Contains(hard, d => d.Facet == DivergenceFacet.Reputation);
+        }
+
+        [Fact]
+        public void Diff_SeededPoolUpliftWithAuthoritative_StaysHard()
+        {
+            // recon ABOVE save BUT an authoritative time-travel context is active: the
+            // guard does NOT clamp (the reduction/restore is authorized), so an over-running
+            // recon is a genuine post-restore mismatch and stays a HARD ValueMismatch.
+            var save = HealthySave();
+            var recon = HealthyRecon();
+            recon.Funds = 50123.45;    // above save
+            recon.SciencePool = 290.0; // above save
+            recon.Reputation = 80.0;   // above save
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels(),
+                authoritativeReduction: true);
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Funds && d.Kind == DivergenceKind.ValueMismatch);
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.SciencePool && d.Kind == DivergenceKind.ValueMismatch);
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Reputation && d.Kind == DivergenceKind.ValueMismatch);
+
+            var hard = report.HardFailures(strict: false);
+            Assert.Contains(hard, d => d.Facet == DivergenceFacet.Funds);
+            Assert.Contains(hard, d => d.Facet == DivergenceFacet.SciencePool);
+            Assert.Contains(hard, d => d.Facet == DivergenceFacet.Reputation);
+        }
+
+        [Fact]
+        public void Diff_SeededPoolUplift_StrictPromotesToHard()
+        {
+            // Even when demoted to report-only, an UpliftClampedExpected divergence is
+            // promoted to hard under StrictPerIdentityForTesting (a clean Parsek-only test
+            // career flown entirely under tracking should have NO surplus).
+            var save = HealthySave();
+            var recon = HealthyRecon();
+            recon.SciencePool = 290.0; // +90 above save, no authoritative context
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels(),
+                authoritativeReduction: false);
+
+            // Report-only by default...
+            Assert.Empty(report.HardFailures(strict: false));
+            // ...promoted under strict.
+            Assert.Contains(report.HardFailures(strict: true), d =>
+                d.Facet == DivergenceFacet.SciencePool
+                && d.Kind == DivergenceKind.UpliftClampedExpected);
+        }
+
         [Fact]
         public void Diff_PhantomSubject_PhantomInRecon()
         {

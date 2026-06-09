@@ -161,7 +161,20 @@ namespace Parsek
         MissingInRecon,
 
         /// <summary>Cross-subsystem consistency violation (e.g. recovery-credit vs present vessel).</summary>
-        Consistency
+        Consistency,
+
+        /// <summary>
+        /// A seeded-pool scalar where the reconstruction (the RAW running balance) runs
+        /// ABOVE the live save value while no authoritative time-travel context is active.
+        /// The production drawdown guard (<see cref="KspStatePatcher.ApplyDrawdownGuard"/>)
+        /// UPLIFT-clamps such a patch DOWN to the live value, so the live career is NOT
+        /// over-credited: the gap is the documented missing-spending-channel surplus on a
+        /// mixed-history career, not save corruption. Report-only by default (promoted under
+        /// strict). A DOWNWARD divergence stays <see cref="ValueMismatch"/> (hard) because the
+        /// guard does NOT raise the live value to meet a lower recon -- that is the
+        /// save-corruption class the harness exists to catch.
+        /// </summary>
+        UpliftClampedExpected
     }
 
     /// <summary>A single comparison disagreement between save and reconstruction.</summary>
@@ -247,6 +260,13 @@ namespace Parsek
         /// scalar (funds/science/rep) or a guid-corroborated vessel-recovery
         /// Consistency violation. Identified via the grep-stable detail marker
         /// "guidCorroborated=true" written by the diff.
+        ///
+        /// EXCEPTION: a seeded-pool scalar tagged <see cref="DivergenceKind.UpliftClampedExpected"/>
+        /// is report-only. That kind means the reconstruction (RAW running balance) runs ABOVE
+        /// the live save with no authoritative time-travel context, so the production drawdown
+        /// guard UPLIFT-clamps the patch DOWN to live and the career is never over-credited -- the
+        /// expected missing-channel surplus on a mixed-history career, not corruption. A DOWNWARD
+        /// seeded-pool divergence stays <see cref="DivergenceKind.ValueMismatch"/> and remains hard.
         /// </summary>
         internal static bool IsAlwaysHard(LedgerDivergence d)
         {
@@ -255,7 +275,7 @@ namespace Parsek
                 case DivergenceFacet.Funds:
                 case DivergenceFacet.SciencePool:
                 case DivergenceFacet.Reputation:
-                    return true;
+                    return d.Kind != DivergenceKind.UpliftClampedExpected;
                 case DivergenceFacet.Vessel:
                     return d.Kind == DivergenceKind.Consistency
                         && d.Detail != null

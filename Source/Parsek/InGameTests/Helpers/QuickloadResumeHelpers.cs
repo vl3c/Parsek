@@ -37,6 +37,39 @@ namespace Parsek.InGameTests.Helpers
         }
 
         /// <summary>
+        /// Saves the live game to the campaign "persistent" slot so a durable marker
+        /// written into ParsekScenario is flushed to disk. FIRE-AND-FORGET: unlike
+        /// <see cref="TriggerQuicksave"/> it does NOT assert on a non-empty result.
+        /// <see cref="GamePersistence.SaveGame"/> returns string.Empty for the
+        /// "persistent" slot when the player has autosave disabled
+        /// (<c>Game.Parameters.Flight.CanAutoSave == false</c>); that is a no-op, not
+        /// a failure, and must NOT throw out of batch capture (it would otherwise
+        /// disable the in-memory + disk-.bak isolation too). A no-op simply means
+        /// crash reconcile is unavailable this run.
+        /// </summary>
+        internal static void TriggerCampaignPersistentSave()
+        {
+            string saveName = HighLogic.SaveFolder;
+            if (string.IsNullOrEmpty(saveName))
+            {
+                ParsekLog.Warn("TestHelper",
+                    "TriggerCampaignPersistentSave: SaveFolder null/empty; skipped");
+                return;
+            }
+
+            string result = GamePersistence.SaveGame("persistent", saveName, SaveMode.OVERWRITE);
+            if (string.IsNullOrEmpty(result))
+            {
+                ParsekLog.Warn("TestHelper",
+                    $"TriggerCampaignPersistentSave: SaveGame returned empty for '{saveName}/persistent' "
+                    + "(autosave likely disabled) — durable crash marker NOT written this run");
+                return;
+            }
+            ParsekLog.Info("TestHelper",
+                $"TriggerCampaignPersistentSave: saved '{saveName}/persistent' ({result})");
+        }
+
+        /// <summary>
         /// Triggers a stock load from the given slot name. Defaults to the
         /// standard "quicksave" slot used by the quickload-resume tests.
         /// Uses KSP's stock programmatic flight-resume backend
@@ -132,7 +165,17 @@ namespace Parsek.InGameTests.Helpers
         /// LoadAndValidateGameForQuickload when the .sfs needs to be
         /// realised into a Game object for the scene change.
         /// </summary>
-        internal static StructurallyValidatedSlot ValidateQuicksaveStructure(string slotName)
+        /// <param name="requireValidActiveVessel">
+        /// When true (the FLIGHT-restore default), an out-of-range
+        /// <c>activeVessel</c> index skips the restore -- the FLIGHT commit
+        /// path (<c>FlightDriver.StartAndFocusVessel</c>) needs a focusable
+        /// vessel. Pass false for a non-FLIGHT (Tracking Station / Space
+        /// Center) baseline: those scenes return via
+        /// <see cref="CommitNonFlightSceneLoad"/> (no vessel focus), and a
+        /// save taken there can legitimately carry <c>activeVessel = -1</c>.
+        /// </param>
+        internal static StructurallyValidatedSlot ValidateQuicksaveStructure(
+            string slotName, bool requireValidActiveVessel = true)
         {
             string saveName = HighLogic.SaveFolder;
             InGameAssert.IsTrue(!string.IsNullOrEmpty(slotName),
@@ -168,7 +211,7 @@ namespace Parsek.InGameTests.Helpers
                 InGameAssert.IsTrue(false,
                     $"ValidateQuicksaveStructure failed: '{saveName}/{slotName}' FLIGHTSTATE has no activeVessel field");
             }
-            if (activeVesselIdx < 0 || activeVesselIdx >= vesselCount)
+            if (requireValidActiveVessel && (activeVesselIdx < 0 || activeVesselIdx >= vesselCount))
             {
                 InGameAssert.Skip(
                     $"ValidateQuicksaveStructure skipped: '{saveName}/{slotName}' had invalid activeVesselIdx={activeVesselIdx} " +
@@ -256,6 +299,83 @@ namespace Parsek.InGameTests.Helpers
                 $"CommitValidatedGameLoad: loading '{load.SaveName}/{load.SlotName}' via FlightDriver.StartAndFocusVessel(activeVesselIdx={load.ActiveVesselIdx})");
         }
 
+        /// <summary>
+        /// Realises a quicksave slot into a <see cref="Game"/> for a NON-FLIGHT
+        /// scene restore (Tracking Station / Space Center). Unlike
+        /// <see cref="LoadAndValidateGameForQuickload"/>, it does NOT require a
+        /// focusable active vessel: a save taken in the Tracking Station can
+        /// carry <c>activeVessel = -1</c>, and the non-flight commit
+        /// (<see cref="CommitNonFlightSceneLoad"/>) does not focus a vessel.
+        /// Like LoadGame everywhere, this clears
+        /// <c>FlightGlobals.PersistentLoaded</c> as a stock side effect; the
+        /// dictionaries are rebuilt by OnLoad on the imminent scene change.
+        /// </summary>
+        internal static Game LoadGameForSceneRestore(string slotName)
+        {
+            string saveName = HighLogic.SaveFolder;
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(slotName),
+                "LoadGameForSceneRestore failed: slotName was null/empty");
+
+            string quicksavePath = GetSavePath(saveName, slotName);
+            EnsureQuicksaveFileReady(quicksavePath, saveName, caller: "LoadGameForSceneRestore");
+
+            Game game = GamePersistence.LoadGame(slotName, saveName, true, false);
+            InGameAssert.IsNotNull(game,
+                $"LoadGameForSceneRestore failed: LoadGame returned null for '{saveName}/{slotName}'");
+            InGameAssert.IsNotNull(game.flightState,
+                $"LoadGameForSceneRestore failed: loaded game for '{saveName}/{slotName}' had null flightState");
+            return game;
+        }
+
+        /// <summary>
+        /// Commits a NON-FLIGHT (Tracking Station / Space Center) scene return
+        /// for a baseline restore by replaying stock KSP's own in-game load
+        /// sequence (decompiled <c>PauseMenu</c> Load button, KSP 1.12.5):
+        /// adopt the freshly-loaded game as <c>HighLogic.CurrentGame</c>,
+        /// <c>GamePersistence.UpdateScenarioModules</c> it (reconciles the
+        /// game's proto-scenario-module list), set its <c>startScene</c> to the
+        /// captured scene, then <c>Game.Start()</c> — which runs
+        /// <c>CrewRoster.Init</c> + sets <c>Status = ONGOING</c> and dispatches
+        /// the scene change (a non-flight <c>startScene</c> resolves to
+        /// <c>HighLogic.LoadScene(startScene)</c>; only a FLIGHT start would go
+        /// through <c>StartAndFocusVessel</c>, and this helper is non-FLIGHT
+        /// only). The destination scene's ScenarioModule.OnLoad (incl.
+        /// <c>ParsekScenario</c>) then runs against the in-memory restored game.
+        /// <c>GamePersistence.LoadGame</c> (called by
+        /// <see cref="LoadGameForSceneRestore"/>) has already cleared the stale
+        /// FlightGlobals persistent-id dictionaries.
+        /// <para>
+        /// We deliberately do NOT use the <c>Game.Updated()</c> + <c>SaveGame</c>
+        /// shape of <c>RuntimeTests.TriggerSaveAndExitToSpaceCenter</c>: that
+        /// helper operates on the ALREADY-STARTED live game and wants to capture
+        /// it. Here <paramref name="game"/> is a fresh, unstarted
+        /// <c>LoadGame</c> result, and <c>Game.Updated()</c> (decompiled) does
+        /// NOT round-trip the game it is called on — while in a planetarium
+        /// scene it rebuilds <c>flightState</c> from the LIVE scene and pulls
+        /// <c>scenarios = ScenarioRunner.GetUpdatedProtoModules()</c> (the live
+        /// global modules), so it would publish the post-test session, and
+        /// re-saving that into <paramref name="slotName"/> would corrupt the
+        /// pristine baseline slot for every subsequent restore. The slot is
+        /// written once at capture and is only ever READ here (the FLIGHT path
+        /// likewise never re-saves it), so this commit leaves it untouched.
+        /// We also deliberately do NOT fire <c>onSceneConfirmExit</c> (that
+        /// simulates a player-initiated flight exit; this is a programmatic
+        /// baseline reload).
+        /// </para>
+        /// </summary>
+        internal static void CommitNonFlightSceneLoad(Game game, string slotName, GameScenes scene)
+        {
+            InGameAssert.IsNotNull(game, "CommitNonFlightSceneLoad requires a loaded Game");
+
+            HighLogic.CurrentGame = game;
+            GamePersistence.UpdateScenarioModules(HighLogic.CurrentGame);
+            HighLogic.CurrentGame.startScene = scene;
+            HighLogic.CurrentGame.Start();
+            ParsekLog.Info("TestHelper",
+                $"CommitNonFlightSceneLoad: loading '{HighLogic.SaveFolder}/{slotName}' into {scene} "
+                + "via HighLogic.CurrentGame.Start() (stock PauseMenu in-game load path)");
+        }
+
         private static string GetSavePath(string saveName, string slotName)
         {
             return Path.Combine(
@@ -275,14 +395,16 @@ namespace Parsek.InGameTests.Helpers
             }
 
             string savePath = GetSavePath(HighLogic.SaveFolder, slotName);
-            if (!File.Exists(savePath))
-                return;
+            string savesDir = Path.GetDirectoryName(savePath);
 
             try
             {
-                File.Delete(savePath);
-                ParsekLog.Verbose("TestHelper",
-                    $"Deleted temporary save slot '{HighLogic.SaveFolder}/{slotName}'");
+                if (File.Exists(savePath))
+                {
+                    File.Delete(savePath);
+                    ParsekLog.Verbose("TestHelper",
+                        $"Deleted temporary save slot '{HighLogic.SaveFolder}/{slotName}'");
+                }
             }
             catch (IOException ioEx)
             {
@@ -294,6 +416,10 @@ namespace Parsek.InGameTests.Helpers
                 ParsekLog.Warn("TestHelper",
                     $"Failed to delete temporary save slot '{HighLogic.SaveFolder}/{slotName}': {accessEx.Message}");
             }
+
+            // KSP may write a sibling <slot>.loadmeta alongside the .sfs; sweep
+            // it too so a test leaves no stray save-slot artifacts behind.
+            FileIOUtils.DeleteSaveSidecarLoadMeta(savesDir, slotName, "TestHelper");
         }
 
         private static long EnsureQuicksaveFileReady(string quicksavePath, string saveName, string caller)

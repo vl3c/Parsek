@@ -79,10 +79,45 @@ namespace Parsek.InGameTests
             typeof(KSP.UI.Screens.StageManager).GetField("rebuildIndexes",
                 BindingFlags.Instance | BindingFlags.NonPublic);
 
+        internal enum BatchIsolationMode { None, InMemoryAndDisk, DiskOnly }
+
+        /// <summary>Two-part disk-revert outcome (persistent.sfs + Parsek/ sidecars are
+        /// independent best-effort operations; a mixed result is NOT a correct disk).</summary>
+        private struct DiskRevertResult
+        {
+            public bool PersistentReverted;
+            public bool SidecarsReverted;
+            public bool FullyReverted => PersistentReverted && SidecarsReverted;
+        }
+
+        /// <summary>Tiny info DTO (slot name + scene) so the restore-degraded alert
+        /// message builder is unit-testable without a live FlightBatchBaselineState
+        /// (which is a private nested type).</summary>
+        internal struct FlightBatchBaselineState_SlotInfo
+        {
+            public string SlotName;
+            public GameScenes CapturedScene;
+        }
+
         private sealed class FlightBatchBaselineState
         {
             public string SlotName;
+            // Scene the baseline was captured in (FLIGHT or TRACKSTATION). The
+            // restore returns to this scene: FLIGHT via StartAndFocusVessel,
+            // non-FLIGHT via CommitNonFlightSceneLoad + LoadScene. A batch's
+            // restore-backed tests are scene-filtered to this scene, so the
+            // prime/post-test restore always lands the player back where the
+            // batch began.
+            public GameScenes CapturedScene;
             public string ParsekSaveSnapshotDirectory;
+            // Batch-start backup of the campaign's persistent.sfs (a sibling
+            // .bak so it never shows in KSP's load menu), restored at teardown.
+            // Tests can write persistent.sfs directly (the scene-exit merge
+            // tests) or trigger a KSP auto-save on a scene change; restoring the
+            // batch-start bytes guarantees the campaign's main save is left
+            // exactly as it was. Null when persistent.sfs was absent or the
+            // backup could not be taken (the run then logs a warning).
+            public string PersistentSaveBackupPath;
             public int CapturedFlightInstanceId;
             public Guid ActiveVesselId;
             public string ActiveVesselName;
@@ -184,6 +219,11 @@ namespace Parsek.InGameTests
         private bool abortBatchAfterRestoreFailure;
         private bool preserveBatchFlightBaselineArtifacts;
         private string preservedBatchFlightBaselineReason;
+        private BatchIsolationMode batchIsolationMode = BatchIsolationMode.None;
+        private string diskOnlyPersistentBackupPath;   // DiskOnly mode (EDITOR / SPACECENTER / FLIGHT-no-vessel)
+        private bool finalBatchRestoreDone;             // guards double final restore
+        private bool stateDirtySinceLastRestore;        // a test body ran since the last successful baseline restore
+        private Guid batchInstanceId;                   // monotonic-per-batch token, stamped on the marker (defensive same-process guard)
 
         // Results summary
         public int Passed { get; private set; }
@@ -261,23 +301,26 @@ namespace Parsek.InGameTests
         public void RunAll()
         {
             if (isRunning) return;
+            ResetBatchIsolationState();
             PerformBetweenRunCleanup("run-all");
             var eligible = PrepareBatchExecution(FilterSceneEligibleBatchCandidates(allTests));
             RecountResults();
+            CaptureBatchBaseline(ClassifyBatchIsolationMode(
+                HighLogic.LoadedScene, HighLogic.CurrentGame != null,
+                !string.IsNullOrEmpty(HighLogic.SaveFolder), FlightGlobals.ActiveVessel != null));
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
         }
 
         public void RunAllIncludingFlightRestore()
         {
             if (isRunning) return;
-            batchFlightBaseline = null;
-            batchFlightBaselinePrimed = false;
-            abortBatchAfterRestoreFailure = false;
-            preserveBatchFlightBaselineArtifacts = false;
-            preservedBatchFlightBaselineReason = null;
+            ResetBatchIsolationState();
             PerformBetweenRunCleanup("run-all+restore");
             var eligible = PrepareBatchExecutionIncludingFlightRestore(
                 FilterSceneEligibleBatchCandidates(allTests));
+            CaptureBatchBaseline(ClassifyBatchIsolationMode(
+                HighLogic.LoadedScene, HighLogic.CurrentGame != null,
+                !string.IsNullOrEmpty(HighLogic.SaveFolder), FlightGlobals.ActiveVessel != null));
             eligible = PrepareBatchFlightRestoreExecution(eligible);
             RecountResults();
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
@@ -286,24 +329,27 @@ namespace Parsek.InGameTests
         public void RunCategory(string category)
         {
             if (isRunning) return;
+            ResetBatchIsolationState();
             PerformBetweenRunCleanup("run-category:" + (category ?? "(null)"));
             var eligible = PrepareBatchExecution(FilterSceneEligibleBatchCandidates(
                 allTests.Where(t => t.Category == category)));
             RecountResults();
+            CaptureBatchBaseline(ClassifyBatchIsolationMode(
+                HighLogic.LoadedScene, HighLogic.CurrentGame != null,
+                !string.IsNullOrEmpty(HighLogic.SaveFolder), FlightGlobals.ActiveVessel != null));
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
         }
 
         public void RunCategoryIncludingFlightRestore(string category)
         {
             if (isRunning) return;
-            batchFlightBaseline = null;
-            batchFlightBaselinePrimed = false;
-            abortBatchAfterRestoreFailure = false;
-            preserveBatchFlightBaselineArtifacts = false;
-            preservedBatchFlightBaselineReason = null;
+            ResetBatchIsolationState();
             PerformBetweenRunCleanup("run-category+restore:" + (category ?? "(null)"));
             var eligible = PrepareBatchExecutionIncludingFlightRestore(
                 FilterSceneEligibleBatchCandidates(allTests.Where(t => t.Category == category)));
+            CaptureBatchBaseline(ClassifyBatchIsolationMode(
+                HighLogic.LoadedScene, HighLogic.CurrentGame != null,
+                !string.IsNullOrEmpty(HighLogic.SaveFolder), FlightGlobals.ActiveVessel != null));
             eligible = PrepareBatchFlightRestoreExecution(eligible);
             RecountResults();
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
@@ -312,11 +358,10 @@ namespace Parsek.InGameTests
         public void RunSingle(InGameTestInfo test)
         {
             if (isRunning) return;
-            batchFlightBaseline = null;
-            batchFlightBaselinePrimed = false;
-            abortBatchAfterRestoreFailure = false;
-            preserveBatchFlightBaselineArtifacts = false;
-            preservedBatchFlightBaselineReason = null;
+            ResetBatchIsolationState();
+            CaptureBatchBaseline(ClassifyBatchIsolationMode(
+                HighLogic.LoadedScene, HighLogic.CurrentGame != null,
+                !string.IsNullOrEmpty(HighLogic.SaveFolder), FlightGlobals.ActiveVessel != null));
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(new List<InGameTestInfo> { test }));
         }
 
@@ -409,6 +454,115 @@ namespace Parsek.InGameTests
             ParsekLog.Info(Tag,
                 $"PerformBetweenRunCleanup: end reason={reason} " +
                 $"ghostsBefore={ghostsBefore} mapPidsBefore={mapPidsBefore} mapPidsAfter={mapPidsAfter}");
+
+            // Safety net: a prior run (or a user Cancel) may have left a stock
+            // Space Center facility building open and the game paused. Force it
+            // closed so the next batch starts from a clean Space Center.
+            ForceCloseOpenSpaceCenterFacilities(reason);
+        }
+
+        /// <summary>
+        /// Pure gate for the facility force-close safety net. Stock Space Center
+        /// facility buildings (R&amp;D / Astronaut Complex / Mission Control /
+        /// Administration) can only be open in the SPACECENTER scene, so the
+        /// safety net is a no-op everywhere else; the cheap scene check keeps
+        /// FLIGHT / TRACKSTATION cleanup from paying for FindObjectOfType scans.
+        /// </summary>
+        internal static bool ShouldForceCloseSpaceCenterFacilities(GameScenes scene)
+        {
+            return scene == GameScenes.SPACECENTER;
+        }
+
+        internal static string FormatFacilityForceCloseSummary(int closedCount, string reason)
+        {
+            return $"ForceCloseOpenSpaceCenterFacilities: closed {closedCount} " +
+                $"open facility(ies) reason={reason ?? "(null)"}";
+        }
+
+        /// <summary>
+        /// Safety net that force-closes any stock Space Center facility building
+        /// (R&amp;D / Astronaut Complex / Mission Control; Administration is
+        /// deliberately omitted -- see the call site) left open by a test. The
+        /// Phase-5 StockUiOverlay tests open a facility
+        /// canvas (which pauses the game) and close it in their own try/finally;
+        /// the runner disposes the test iterator via <see cref="RunCoroutineSafely"/>
+        /// so that finally fires even on a failed assertion. But a user
+        /// <see cref="Cancel"/> stops the coroutine with Unity StopCoroutine,
+        /// which does NOT run the iterator's finally, and a despawn event that
+        /// no-ops in some game state has the same effect: the player is left
+        /// stuck inside the building with the game paused and no automatic
+        /// return to the Space Center (SPACECENTER batches capture no FLIGHT
+        /// baseline to restore). Firing the stock despawn GameEvent is exactly
+        /// what UISpaceCenter's exit button does -- UISpaceCenter listens for it
+        /// to unpause and tear down the canvas.
+        ///
+        /// Each fire is gated on the facility actually being open
+        /// (FindObjectOfType != null) so a despawn event is never fired when
+        /// nothing is open (other listeners, including Parsek's own overlay
+        /// controller, react to it). Idempotent and swallow-on-throw: one broken
+        /// facility close cannot abort cleanup.
+        /// </summary>
+        internal void ForceCloseOpenSpaceCenterFacilities(string reason)
+        {
+            if (!ShouldForceCloseSpaceCenterFacilities(HighLogic.LoadedScene))
+                return;
+
+            int closed = 0;
+            closed += TryForceCloseFacility<KSP.UI.Screens.RDController>("R&D", controller =>
+            {
+                KSP.UI.Screens.RDController.OnRDTreeDespawn.Fire(controller);
+                GameEvents.onGUIRnDComplexDespawn.Fire();
+            });
+            closed += TryForceCloseFacility<KSP.UI.Screens.AstronautComplex>("Astronaut Complex",
+                _ => GameEvents.onGUIAstronautComplexDespawn.Fire());
+            closed += TryForceCloseFacility<KSP.UI.Screens.MissionControl>("Mission Control",
+                _ => GameEvents.onGUIMissionControlDespawn.Fire());
+            // Administration is intentionally excluded: no test opens it as a
+            // real building (the StockUiOverlay tests open R&D / Astronaut
+            // Complex / Mission Control), and the strategy-lifecycle canaries
+            // create a HIDDEN, disabled Administration canvas that still sets
+            // Administration.Instance and stays activeInHierarchy. Force-closing
+            // by FindObjectOfType<Administration> would fire a spurious
+            // onGUIAdministrationFacilityDespawn into that hidden canvas, which
+            // there is no clean programmatic way to distinguish from a real open
+            // building. Since nothing here leaves a real Administration open,
+            // omitting it removes the only false-positive path with no loss.
+            //
+            // The FindObjectOfType detector for the three included facilities
+            // (R&D / Astronaut Complex / Mission Control) is valid on the same
+            // audited invariant, in reverse: no current test creates a HIDDEN
+            // activeInHierarchy canvas for any of those three (only the
+            // Administration strategy canaries do that), so a non-null
+            // FindObjectOfType<T> means a really-open building. If a future
+            // test ever leaves a hidden-active R&D/AC/MC canvas, revisit this.
+
+            if (closed > 0)
+                ParsekLog.Info(Tag, FormatFacilityForceCloseSummary(closed, reason));
+            else
+                ParsekLog.Verbose(Tag,
+                    $"ForceCloseOpenSpaceCenterFacilities: no open facilities reason={reason ?? "(null)"}");
+        }
+
+        private static int TryForceCloseFacility<T>(string facilityName, Action<T> fireDespawn)
+            where T : UnityEngine.Object
+        {
+            T open = UnityEngine.Object.FindObjectOfType<T>();
+            if (open == null)
+                return 0;
+
+            try
+            {
+                ParsekLog.Info(Tag,
+                    $"ForceCloseOpenSpaceCenterFacilities: closing open {facilityName} facility canvas");
+                fireDespawn(open);
+                return 1;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"ForceCloseOpenSpaceCenterFacilities: {facilityName} close threw: {ex.Message}");
+                return 0;
+            }
         }
 
         public void Cancel()
@@ -424,6 +578,14 @@ namespace Parsek.InGameTests
                 coroutineHost.StopCoroutine(activeCoroutine);
             activeCoroutine = null;
 
+            // Unity StopCoroutine above abandons the test iterator WITHOUT
+            // running its try/finally, so a cancel while a building-entry test
+            // is mid-flight would leave the facility canvas open and the game
+            // paused. Force any open facility closed so cancel always returns
+            // to a usable Space Center. Gated to SPACECENTER, so the FLIGHT
+            // baseline-restore-on-cancel path below is unaffected.
+            ForceCloseOpenSpaceCenterFacilities("test-run-cancelled");
+
             if (batchFlightBaseline != null)
             {
                 var baseline = batchFlightBaseline;
@@ -434,6 +596,21 @@ namespace Parsek.InGameTests
                     $"Test run cancelled; restoring isolated batch baseline from slot '{baseline.SlotName}'");
                 activeCoroutine = coroutineHost.StartCoroutine(
                     RestoreBatchBaselineAfterCancel(baseline, previousFlightInstanceId));
+                return;
+            }
+
+            if (batchIsolationMode == BatchIsolationMode.DiskOnly)
+            {
+                // No in-memory restore by design; revert the on-disk persistent.sfs +
+                // sweep, clear the durable marker, synchronously.
+                TeardownDiskOnlyIsolation("cancel");
+                ClearTestBatchMarker("cancel");
+                batchIsolationMode = BatchIsolationMode.None;
+                diskOnlyPersistentBackupPath = null;
+                batchInstanceId = Guid.Empty;
+                isRunning = false;
+                abortBatchAfterRestoreFailure = false;
+                ParsekLog.Info(Tag, "Test run cancelled (disk-only isolation reverted)");
                 return;
             }
 
@@ -615,6 +792,25 @@ namespace Parsek.InGameTests
             return test != null && test.RestoreBatchFlightBaselineAfterExecution;
         }
 
+        /// <summary>
+        /// Decides whether the guaranteed end-of-batch in-memory restore must run. It
+        /// runs whenever an in-memory baseline exists AND state may have been mutated
+        /// since the last successful restore. When the last per-test restore already
+        /// returned the player to baseline and no test ran afterward, the final
+        /// restore is a no-op (avoids a redundant scene reload; keeps FLIGHT/TS byte
+        /// behavior identical to today's restore-backed batches). Robust to test
+        /// ordering: the guarantee rests on stateDirtySinceLastRestore, NOT on
+        /// restore-backed tests sorting last. A RunLast (or any) test that runs after
+        /// the last per-test restore correctly re-arms the dirty flag and triggers
+        /// one final restore.
+        /// </summary>
+        internal static bool ShouldRunFinalBatchRestore(
+            bool hasInMemoryBaseline, bool stateDirtySinceLastRestore, bool restoreAlreadyFailedAndAborted)
+        {
+            if (restoreAlreadyFailedAndAborted) return false; // session untrusted; disk forced separately, don't reload
+            return hasInMemoryBaseline && stateDirtySinceLastRestore;
+        }
+
         internal static List<InGameTestInfo> PrepareBatchExecution(IEnumerable<InGameTestInfo> tests)
         {
             var ordered = OrderForBatchExecution(tests);
@@ -706,11 +902,12 @@ namespace Parsek.InGameTests
 
             try
             {
-                batchFlightBaseline = CaptureFlightBatchBaseline();
+                if (batchFlightBaseline == null)
+                    batchFlightBaseline = CaptureFlightBatchBaseline(); // fallback only if universal capture was None/failed
                 batchFlightBaselinePrimed = false;
                 int restoreCount = ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution);
                 ParsekLog.Info(Tag,
-                    $"Captured batch FLIGHT baseline slot '{batchFlightBaseline.SlotName}' for {restoreCount} restore-after-run test(s)");
+                    $"Using batch baseline slot '{batchFlightBaseline.SlotName}' for {restoreCount} restore-after-run test(s)");
                 return ordered;
             }
             catch (InGameTestSkippedException skipEx)
@@ -728,44 +925,251 @@ namespace Parsek.InGameTests
             }
         }
 
-        private static string GetBatchFlightBaselineUnavailableReason()
+        /// <summary>
+        /// Scenes the automatic batch baseline (quicksave + quickload) restore
+        /// supports. FLIGHT is the original path; TRACKSTATION lets the Tracking
+        /// Station "Fly" canary isolate (it captures a TS baseline and returns
+        /// to it after the test transitions into FLIGHT). Other scenes have no
+        /// quicksave-restorable baseline contract here.
+        /// </summary>
+        internal static bool IsBatchBaselineRestoreSupportedScene(GameScenes scene)
         {
-            if (HighLogic.LoadedScene != GameScenes.FLIGHT)
-                return "Automatic FLIGHT batch restore requires running from the FLIGHT scene.";
-            if (HighLogic.CurrentGame == null)
-                return "Automatic FLIGHT batch restore requires HighLogic.CurrentGame.";
-            if (string.IsNullOrEmpty(HighLogic.SaveFolder))
-                return "Automatic FLIGHT batch restore requires HighLogic.SaveFolder.";
-            if (FlightGlobals.ActiveVessel == null)
+            return scene == GameScenes.FLIGHT || scene == GameScenes.TRACKSTATION;
+        }
+
+        /// <summary>
+        /// Pure availability gate for the automatic batch baseline restore.
+        /// Returns null when a baseline can be captured/restored for the given
+        /// scene + live-state flags, or the reason string otherwise. Only FLIGHT
+        /// requires a focusable active vessel (its restore re-focuses one via
+        /// StartAndFocusVessel); a Tracking Station baseline returns via
+        /// LoadScene and needs no active vessel.
+        /// </summary>
+        internal static string BatchBaselineUnavailableReasonForScene(
+            GameScenes scene, bool hasCurrentGame, bool hasSaveFolder, bool hasActiveVessel)
+        {
+            if (!IsBatchBaselineRestoreSupportedScene(scene))
+                return "Automatic batch restore requires running from the FLIGHT or Tracking Station scene.";
+            if (!hasCurrentGame)
+                return "Automatic batch restore requires HighLogic.CurrentGame.";
+            if (!hasSaveFolder)
+                return "Automatic batch restore requires HighLogic.SaveFolder.";
+            if (scene == GameScenes.FLIGHT && !hasActiveVessel)
                 return "Automatic FLIGHT batch restore requires an active vessel.";
 
             return null;
         }
 
+        private static string GetBatchFlightBaselineUnavailableReason()
+        {
+            return BatchBaselineUnavailableReasonForScene(
+                HighLogic.LoadedScene,
+                HighLogic.CurrentGame != null,
+                !string.IsNullOrEmpty(HighLogic.SaveFolder),
+                FlightGlobals.ActiveVessel != null);
+        }
+
+        /// <summary>
+        /// Pure classifier for how a batch isolates the player's campaign, given the
+        /// scene + live-state flags.
+        ///   FLIGHT (with active vessel) / TRACKSTATION -> InMemoryAndDisk: full
+        ///     in-memory revert (baseline quicksave + final quickload) + on-disk revert.
+        ///     These two are the only scenes whose in-memory restore path is exercised
+        ///     today (FLIGHT via StartAndFocusVessel, TRACKSTATION via the existing
+        ///     non-flight commit canary).
+        ///   FLIGHT (no active vessel) / SPACECENTER / EDITOR -> DiskOnly: persistent.sfs
+        ///     safety .bak only, NO in-memory reload. SPACECENTER's in-memory reload via
+        ///     CommitNonFlightSceneLoad/Game.Start() is structurally available but UNPROVEN
+        ///     in this codebase, so it ships DiskOnly until the in-game validation gate
+        ///     (RuntimeTests SpaceCenterBatchIsolationInMemoryRestore) passes; EDITOR's
+        ///     in-memory reload mid-edit is deliberately out of scope; FLIGHT-no-vessel has
+        ///     no focusable vessel for StartAndFocusVessel.
+        ///   MAINMENU / no loaded game / no save folder -> None (save-mutating tests
+        ///     already skip there).
+        /// </summary>
+        internal static BatchIsolationMode ClassifyBatchIsolationMode(
+            GameScenes scene, bool hasCurrentGame, bool hasSaveFolder, bool hasActiveVessel)
+        {
+            if (!hasCurrentGame || !hasSaveFolder)
+                return BatchIsolationMode.None;
+            switch (scene)
+            {
+                case GameScenes.FLIGHT:
+                    return hasActiveVessel
+                        ? BatchIsolationMode.InMemoryAndDisk
+                        : BatchIsolationMode.DiskOnly;
+                case GameScenes.TRACKSTATION:
+                    return BatchIsolationMode.InMemoryAndDisk;
+                case GameScenes.SPACECENTER:
+                case GameScenes.EDITOR:
+                    return BatchIsolationMode.DiskOnly;
+                default:
+                    return BatchIsolationMode.None;
+            }
+        }
+
+        /// <summary>
+        /// Universal batch-start campaign isolation. InMemoryAndDisk captures the full
+        /// baseline (quicksave slot + Parsek sidecar snapshot + persistent.sfs .bak).
+        /// DiskOnly takes ONLY the persistent.sfs safety .bak (no quicksave, no
+        /// in-memory reload). Writes the crash marker (Piece 4) on every non-None
+        /// mode, in its own try so a marker-write failure (e.g. autosave disabled)
+        /// disables ONLY crash reconcile, never the in-memory or disk revert. A
+        /// capture failure downgrades to None + warn (the batch still runs, without
+        /// auto-revert).
+        /// </summary>
+        private void CaptureBatchBaseline(BatchIsolationMode mode)
+        {
+            batchIsolationMode = mode;
+            if (mode == BatchIsolationMode.None)
+                return;
+
+            batchInstanceId = Guid.NewGuid();
+            try
+            {
+                if (mode == BatchIsolationMode.InMemoryAndDisk)
+                {
+                    batchFlightBaseline = CaptureFlightBatchBaseline(); // existing; slot + snapshot + clean .bak
+                }
+                else // DiskOnly
+                {
+                    diskOnlyPersistentBackupPath =
+                        BackupCampaignPersistentSave(CreateBatchFlightBaselineSlotName());
+                }
+                ParsekLog.Info(Tag, "Batch isolation captured: mode=" + mode
+                    + " slot='" + (batchFlightBaseline?.SlotName ?? "(disk-only)") + "'"
+                    + " persistentBackup='" + (batchFlightBaseline?.PersistentSaveBackupPath
+                        ?? diskOnlyPersistentBackupPath ?? "(none)") + "'"
+                    + " batchInstanceId=" + batchInstanceId.ToString("N"));
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, "Batch isolation capture FAILED (mode=" + mode
+                    + "); the campaign will NOT be auto-reverted this run: " + ex.Message);
+                batchFlightBaseline = null;
+                TryDeletePersistentSaveBackup(diskOnlyPersistentBackupPath);
+                diskOnlyPersistentBackupPath = null;
+                batchIsolationMode = BatchIsolationMode.None;
+                return;
+            }
+
+            // Marker write is SEPARATE and best-effort: a failure here disables ONLY
+            // crash reconcile, not the in-memory / disk revert captured above.
+            try
+            {
+                WriteTestBatchMarker(mode); // Piece 4
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    "Test batch crash marker write FAILED; crash reconcile disabled this run "
+                    + "(in-memory + disk revert remain active): " + ex.Message);
+            }
+        }
+
+        private void ResetBatchIsolationState()
+        {
+            batchFlightBaseline = null;
+            batchFlightBaselinePrimed = false;
+            abortBatchAfterRestoreFailure = false;
+            preserveBatchFlightBaselineArtifacts = false;
+            preservedBatchFlightBaselineReason = null;
+            batchIsolationMode = BatchIsolationMode.None;
+            diskOnlyPersistentBackupPath = null;
+            finalBatchRestoreDone = false;
+            stateDirtySinceLastRestore = false;
+            batchInstanceId = Guid.Empty;
+        }
+
+        private void WriteTestBatchMarker(BatchIsolationMode mode)
+        {
+            string backupPath = batchFlightBaseline?.PersistentSaveBackupPath ?? diskOnlyPersistentBackupPath;
+            if (string.IsNullOrEmpty(backupPath))
+            {
+                ParsekLog.Warn(Tag,
+                    "WriteTestBatchMarker: no persistent backup path; crash reconcile disabled this run");
+                return;
+            }
+            var scenario = UnityEngine.Object.FindObjectOfType<ParsekScenario>();
+            if (scenario == null)
+            {
+                ParsekLog.Warn(Tag,
+                    "WriteTestBatchMarker: no ParsekScenario; crash reconcile disabled this run");
+                return;
+            }
+            scenario.ActiveTestBatchMarker = new TestBatchMarker
+            {
+                ProcessSessionId = ParsekProcess.ProcessSessionId.ToString("N"),
+                BatchInstanceId = batchInstanceId.ToString("N"),
+                PersistentBackupPath = backupPath,
+                // The on-disk Parsek/ sidecar snapshot (<slot>-parsek), where the
+                // LEDGER (Parsek/GameState/events.pgse) lives. Present only in
+                // InMemoryAndDisk mode (DiskOnly takes no snapshot); the crash
+                // finisher reverts the live sidecar dir from this before its
+                // deferred reload so the reloaded ledger comes from the clean
+                // snapshot, not the test-mutated live sidecars. It is a durable
+                // directory under saves/<save>/ that survives a process kill.
+                ParsekSnapshotDir = batchFlightBaseline?.ParsekSaveSnapshotDirectory,
+                SaveFolder = HighLogic.SaveFolder,
+                CapturedScene = HighLogic.LoadedScene.ToString(),
+                StartedRealTime = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
+            };
+            // Make the marker durable in persistent.sfs so a crash leaves it on disk.
+            // Fire-and-forget: a no-op save (CanAutoSave disabled) leaves the in-memory
+            // marker set but no durable copy; crash reconcile is simply unavailable this
+            // run (the in-memory + disk-.bak revert paths are unaffected).
+            Helpers.QuickloadResumeHelpers.TriggerCampaignPersistentSave();
+            ParsekLog.Info(Tag, $"Test batch crash marker written (mode={mode}, backup='{backupPath}')");
+        }
+
+        private void ClearTestBatchMarker(string reason)
+        {
+            var scenario = UnityEngine.Object.FindObjectOfType<ParsekScenario>();
+            if (scenario != null && scenario.ActiveTestBatchMarker != null)
+                scenario.ActiveTestBatchMarker = null;
+            // The DISK marker is removed authoritatively by the success-path
+            // persistent.sfs revert from the clean .bak (CleanupBatchFlightBaselineSave
+            // / TeardownDiskOnlyIsolation), which ran just before this call. This only
+            // drops the in-memory copy so a later in-process OnSave does not re-persist it.
+            ParsekLog.Info(Tag, $"Test batch crash marker cleared ({reason})");
+        }
+
         private static FlightBatchBaselineState CaptureFlightBatchBaseline()
         {
+            GameScenes capturedScene = HighLogic.LoadedScene;
             Vessel vessel = FlightGlobals.ActiveVessel;
-            InGameAssert.IsNotNull(vessel,
-                "Automatic FLIGHT batch restore requires a live active vessel to capture baseline.");
+            // FLIGHT restore re-focuses an active vessel (StartAndFocusVessel),
+            // so it must exist at capture time. A non-FLIGHT (Tracking Station)
+            // baseline returns via LoadScene with no vessel focus, so a null
+            // active vessel there is fine.
+            if (capturedScene == GameScenes.FLIGHT)
+                InGameAssert.IsNotNull(vessel,
+                    "Automatic FLIGHT batch restore requires a live active vessel to capture baseline.");
 
             string slotName = CreateBatchFlightBaselineSlotName();
             string parsekSnapshotDirectory = null;
+            string persistentBackupPath = null;
 
             try
             {
                 Helpers.QuickloadResumeHelpers.TriggerQuicksave(slotName);
                 parsekSnapshotDirectory = CaptureBatchFlightParsekSaveSnapshot(slotName);
+                persistentBackupPath = BackupCampaignPersistentSave(slotName);
 
                 return new FlightBatchBaselineState
                 {
                     SlotName = slotName,
+                    CapturedScene = capturedScene,
                     ParsekSaveSnapshotDirectory = parsekSnapshotDirectory,
+                    PersistentSaveBackupPath = persistentBackupPath,
                     CapturedFlightInstanceId = ParsekFlight.Instance != null
                         ? ParsekFlight.Instance.GetInstanceID()
                         : 0,
-                    ActiveVesselId = vessel.id,
-                    ActiveVesselName = vessel.vesselName,
-                    ActiveVesselSituation = vessel.situation,
+                    ActiveVesselId = vessel != null ? vessel.id : Guid.Empty,
+                    ActiveVesselName = vessel != null ? vessel.vesselName : null,
+                    ActiveVesselSituation = vessel != null
+                        ? vessel.situation
+                        : Vessel.Situations.PRELAUNCH,
                     // P2 review fix: capture the live RecordingStore state
                     // at batch start, before any test mutates it. This is
                     // the rollback target for RestoreBatchFlightBaselineCore's
@@ -780,7 +1184,124 @@ namespace Parsek.InGameTests
                 Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(slotName);
                 if (!string.IsNullOrEmpty(parsekSnapshotDirectory))
                     TryDeleteDirectoryRecursive(parsekSnapshotDirectory);
+                TryDeletePersistentSaveBackup(persistentBackupPath);
                 throw;
+            }
+        }
+
+        private const string CampaignPersistentSaveFileName = "persistent.sfs";
+
+        /// <summary>
+        /// Backs up the campaign's persistent.sfs at batch start so the teardown
+        /// can restore it byte-for-byte. Tests promoted into the isolated batch
+        /// write persistent.sfs directly (the scene-exit merge tests) or trigger
+        /// a KSP scene-change auto-save; without this the campaign's main save
+        /// would be left in the test's mutated state even though the baseline
+        /// reload reverts the in-memory game. The backup is a sibling
+        /// "&lt;slot&gt;-persistent.bak" -- a non-.sfs name so KSP never lists it
+        /// as a loadable save. Defensive: never throws (a failed backup just
+        /// disables the revert for the run, with a warning); returns null then.
+        /// </summary>
+        private static string BackupCampaignPersistentSave(string baselineSlotName)
+        {
+            try
+            {
+                string persistentPath = RecordingPaths.ResolveSaveScopedPath(CampaignPersistentSaveFileName);
+                if (string.IsNullOrEmpty(persistentPath) || !File.Exists(persistentPath))
+                {
+                    ParsekLog.Verbose(Tag,
+                        "Batch baseline: no campaign persistent.sfs present to back up");
+                    return null;
+                }
+
+                string backupPath = RecordingPaths.ResolveSaveScopedPath(
+                    baselineSlotName + "-persistent.bak");
+                if (string.IsNullOrEmpty(backupPath))
+                {
+                    ParsekLog.Warn(Tag,
+                        "Batch baseline: could not resolve a persistent.sfs backup path; "
+                        + "campaign persistent.sfs will NOT be auto-reverted this run");
+                    return null;
+                }
+
+                byte[] bytes = File.ReadAllBytes(persistentPath);
+                FileIOUtils.SafeWriteBytes(bytes, backupPath, Tag);
+                ParsekLog.Info(Tag,
+                    $"Batch baseline: backed up campaign persistent.sfs ({bytes.Length} bytes) "
+                    + $"to '{Path.GetFileName(backupPath)}'");
+                return backupPath;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Batch baseline: failed to back up campaign persistent.sfs: {ex.Message}. "
+                    + "Tests that write persistent.sfs will NOT be auto-reverted this run.");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Restores the campaign's persistent.sfs from the batch-start backup
+        /// via the atomic safe-write (tmp + rename) path. Returns true when the
+        /// backup is consumable (restored, or nothing to restore); false only
+        /// when a backup existed but the restore failed, so the caller keeps the
+        /// .bak for manual recovery. Never throws.
+        /// </summary>
+        private static bool RestoreCampaignPersistentSave(string backupPath)
+        {
+            if (string.IsNullOrEmpty(backupPath))
+                return true;
+            try
+            {
+                if (!File.Exists(backupPath))
+                {
+                    ParsekLog.Warn(Tag,
+                        $"Batch baseline: persistent.sfs backup missing at '{backupPath}'; nothing to restore");
+                    return true;
+                }
+
+                string persistentPath = RecordingPaths.ResolveSaveScopedPath(CampaignPersistentSaveFileName);
+                if (string.IsNullOrEmpty(persistentPath))
+                {
+                    ParsekLog.Warn(Tag,
+                        "Batch baseline: could not resolve persistent.sfs path to restore; "
+                        + "backup preserved for manual recovery");
+                    return false;
+                }
+
+                byte[] bytes = File.ReadAllBytes(backupPath);
+                FileIOUtils.SafeWriteBytes(bytes, persistentPath, Tag);
+                ParsekLog.Info(Tag,
+                    $"Batch baseline: restored campaign persistent.sfs ({bytes.Length} bytes) "
+                    + "from batch-start backup");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Batch baseline: failed to restore campaign persistent.sfs from '{backupPath}': "
+                    + $"{ex.Message}. Backup preserved for manual recovery.");
+                return false;
+            }
+        }
+
+        private static void TryDeletePersistentSaveBackup(string backupPath)
+        {
+            if (string.IsNullOrEmpty(backupPath))
+                return;
+            try
+            {
+                if (File.Exists(backupPath))
+                {
+                    File.Delete(backupPath);
+                    ParsekLog.Verbose(Tag,
+                        $"Batch baseline: deleted persistent.sfs backup '{Path.GetFileName(backupPath)}'");
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Batch baseline: failed to delete persistent.sfs backup '{backupPath}': {ex.Message}");
             }
         }
 
@@ -888,6 +1409,7 @@ namespace Parsek.InGameTests
                     continue;
                 }
 
+                stateDirtySinceLastRestore = true;
                 activeTestCoroutine = coroutineHost.StartCoroutine(RunOneTest(test));
                 yield return activeTestCoroutine;
                 activeTestCoroutine = null;
@@ -901,13 +1423,42 @@ namespace Parsek.InGameTests
                     break;
             }
 
+            // Piece 2: guaranteed final in-memory revert before cleanup.
+            if (ShouldRunFinalBatchRestore(
+                    batchFlightBaseline != null, stateDirtySinceLastRestore, abortBatchAfterRestoreFailure))
+            {
+                yield return coroutineHost.StartCoroutine(RunFinalBatchRestore("batch-complete-final-restore"));
+            }
+            else if (abortBatchAfterRestoreFailure && batchFlightBaseline != null)
+            {
+                // Piece 3: per-test restore already failed + aborted the batch. The
+                // final in-memory restore is skipped (untrusted session), but the
+                // DISK save must still be correct.
+                ForceRevertCampaignDiskToBaseline(batchFlightBaseline, "abort-after-restore-failure");
+            }
+
             isRunning = false;
-            CleanupBatchFlightBaselineSave();
+
+            // Piece 4 + 5: teardown by mode. InMemoryAndDisk reverts persistent.sfs
+            // from the clean .bak + sweeps slot/loadmeta/bak/snapshot; DiskOnly
+            // reverts + sweeps the .bak.
+            if (batchIsolationMode == BatchIsolationMode.DiskOnly)
+                TeardownDiskOnlyIsolation("batch-complete");
+            else
+                CleanupBatchFlightBaselineSave();
+
+            ClearTestBatchMarker("batch-complete");
+
             batchFlightBaseline = null;
             batchFlightBaselinePrimed = false;
             abortBatchAfterRestoreFailure = false;
             preserveBatchFlightBaselineArtifacts = false;
             preservedBatchFlightBaselineReason = null;
+            batchIsolationMode = BatchIsolationMode.None;
+            diskOnlyPersistentBackupPath = null;
+            finalBatchRestoreDone = false;
+            stateDirtySinceLastRestore = false;
+            batchInstanceId = Guid.Empty;
             activeTestCoroutine = null;
             if (sceneEligibilitySkipped > 0)
             {
@@ -966,6 +1517,7 @@ namespace Parsek.InGameTests
             else
             {
                 batchFlightBaselinePrimed = true;
+                stateDirtySinceLastRestore = false;
             }
         }
 
@@ -1010,35 +1562,217 @@ namespace Parsek.InGameTests
             else
             {
                 batchFlightBaselinePrimed = true;
+                stateDirtySinceLastRestore = false;
             }
+        }
+
+        private IEnumerator RunFinalBatchRestore(string reason)
+        {
+            int previousFlightInstanceId = ParsekFlight.Instance != null
+                ? ParsekFlight.Instance.GetInstanceID()
+                : batchFlightBaseline.CapturedFlightInstanceId;
+            ParsekLog.Info(Tag,
+                $"Final batch baseline restore ({reason}) from slot '{batchFlightBaseline.SlotName}' scene={batchFlightBaseline.CapturedScene}");
+            yield return coroutineHost.StartCoroutine(
+                RestoreBatchBaselineWithRecovery(batchFlightBaseline, previousFlightInstanceId, reason));
+            finalBatchRestoreDone = true;
+            stateDirtySinceLastRestore = false;
+        }
+
+        /// <summary>
+        /// Recover-on-failure wrapper around <see cref="RestoreBatchFlightBaselineCore"/>:
+        /// attempts the in-memory restore, retries the load once on a non-skip
+        /// failure, and on a persistent failure forces the on-disk persistent.sfs +
+        /// Parsek/ sidecars back to baseline so the DISK save is always correct. A
+        /// mixed/partial disk revert is the true last resort (preserve artifacts +
+        /// loud alert).
+        /// </summary>
+        private IEnumerator RestoreBatchBaselineWithRecovery(
+            FlightBatchBaselineState baseline, int previousFlightInstanceId, string reason)
+        {
+            // Attempt 1.
+            Exception failure = null;
+            yield return coroutineHost.StartCoroutine(RunCoroutineSafely(
+                RestoreBatchFlightBaselineCore(baseline, previousFlightInstanceId, reason + ":attempt1"),
+                ex => failure = ex));
+
+            // Skips are NOT retried: a skip means the slot/snapshot was structurally
+            // absent (missing file, invalid activeVessel index), which a retry cannot fix.
+            if (failure != null && !(failure is InGameTestSkippedException))
+            {
+                ParsekLog.Warn(Tag,
+                    $"Batch baseline restore attempt 1 failed ({failure.Message}); retrying load once");
+                Exception retryFailure = null;
+                yield return coroutineHost.StartCoroutine(RunCoroutineSafely(
+                    RestoreBatchFlightBaselineCore(baseline, previousFlightInstanceId, reason + ":attempt2"),
+                    ex => retryFailure = ex));
+                failure = retryFailure;
+            }
+
+            if (failure == null)
+            {
+                // Success path: RestoreBatchFlightBaselineCore already swapped the
+                // on-disk Parsek/ snapshot AND the imminent CleanupBatchFlightBaselineSave
+                // reverts persistent.sfs from the clean .bak. No extra disk work here
+                // (keeps the success path byte-identical to today).
+                ParsekLog.Info(Tag, $"Batch baseline restore succeeded ({reason})");
+                yield break;
+            }
+
+            // In-memory load failed (or skipped). Force the on-disk persistent.sfs +
+            // Parsek/ sidecars back to baseline so the DISK save is always correct.
+            DiskRevertResult disk = ForceRevertCampaignDiskToBaseline(baseline, reason + ":recover");
+
+            if (disk.FullyReverted)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Batch baseline IN-MEMORY restore failed ({failure.Message}) but the on-disk "
+                    + "campaign save was fully reverted to baseline; load it (F9 / re-enter the save) to recover.");
+                AlertRestoreDegraded(baseline, failure, diskFullyReverted: true);
+                // Disk is correct; let teardown sweep the artifacts normally.
+            }
+            else
+            {
+                // True last resort: in-memory failed AND the disk revert was
+                // partial/failed (persistent.sfs and Parsek/ may now disagree).
+                // Preserve every artifact and raise a loud in-game alert.
+                // preserveBatchFlightBaselineArtifacts short-circuits the teardown
+                // sweep so the .bak + snapshot survive for manual recovery.
+                preserveBatchFlightBaselineArtifacts = true;
+                preservedBatchFlightBaselineReason =
+                    $"restore failed ({failure.Message}); disk revert partial "
+                    + $"(persistent={disk.PersistentReverted}, sidecars={disk.SidecarsReverted})";
+                ParsekLog.Warn(Tag,
+                    "Batch baseline restore FAILED and disk revert is PARTIAL/FAILED "
+                    + $"(persistent={disk.PersistentReverted}, sidecars={disk.SidecarsReverted}); "
+                    + "artifacts preserved for manual recovery.");
+                AlertRestoreDegraded(baseline, failure, diskFullyReverted: false);
+            }
+        }
+
+        private static DiskRevertResult ForceRevertCampaignDiskToBaseline(
+            FlightBatchBaselineState baseline, string reason)
+        {
+            bool persistentOk = RestoreCampaignPersistentSave(baseline?.PersistentSaveBackupPath);
+            bool sidecarsOk = RestoreParsekSidecarsFromSnapshot(baseline?.ParsekSaveSnapshotDirectory);
+            ParsekLog.Info(Tag,
+                $"Force disk revert ({reason}): persistent={persistentOk} sidecars={sidecarsOk}");
+            return new DiskRevertResult { PersistentReverted = persistentOk, SidecarsReverted = sidecarsOk };
+        }
+
+        private static bool RestoreParsekSidecarsFromSnapshot(string snapshotDirectory)
+        {
+            if (string.IsNullOrEmpty(snapshotDirectory) || !Directory.Exists(snapshotDirectory))
+                return true; // nothing to restore
+            try
+            {
+                string currentParsek = RecordingPaths.ResolveSaveScopedPath("Parsek");
+                if (string.IsNullOrEmpty(currentParsek))
+                    return false;
+                using (var staged = CreateBatchFlightParsekSaveSnapshotStaging(currentParsek, snapshotDirectory))
+                {
+                    staged.Activate(); // copies from the surviving snapshot dir; staged-swap is idempotent
+                }
+                ParsekLog.Info(Tag, "Force disk revert: Parsek/ sidecars reverted to batch-start snapshot");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, $"Force disk revert: Parsek/ sidecar revert failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Builds the loud last-resort restore-degraded alert message. Factored for
+        /// xUnit: takes a tiny info DTO (slot + scene) so it is testable without a
+        /// live FlightBatchBaselineState.
+        /// </summary>
+        internal static string BuildRestoreDegradedAlertMessage(
+            FlightBatchBaselineState_SlotInfo info, string failureMessage, bool diskFullyReverted)
+        {
+            string head = "Parsek test isolation: automatic in-memory restore failed after a test run.";
+            string body = diskFullyReverted
+                ? "Your on-disk campaign save WAS reverted to its pre-test state. "
+                  + "Load it (F9 quickload, or re-enter the save from the main menu) to recover the in-memory game."
+                : "Your on-disk campaign save could NOT be fully reverted. Test artifacts have been "
+                  + "preserved for manual recovery (see KSP.log [TestRunner] lines).";
+            return head + "\n\n" + body + "\n\nSlot: " + (info.SlotName ?? "(unknown)")
+                + " | scene: " + info.CapturedScene + " | detail: " + (failureMessage ?? "(none)");
+        }
+
+        private void AlertRestoreDegraded(
+            FlightBatchBaselineState baseline, Exception failure, bool diskFullyReverted)
+        {
+            try
+            {
+                var info = new FlightBatchBaselineState_SlotInfo
+                {
+                    SlotName = baseline?.SlotName,
+                    CapturedScene = baseline != null ? baseline.CapturedScene : HighLogic.LoadedScene,
+                };
+                string message = BuildRestoreDegradedAlertMessage(
+                    info, failure?.Message, diskFullyReverted);
+                PopupDialog.SpawnPopupDialog(
+                    new Vector2(0.5f, 0.5f),
+                    new Vector2(0.5f, 0.5f),
+                    "ParsekTestRestoreDegraded",
+                    "Parsek Test Isolation",
+                    message,
+                    "OK",
+                    true,
+                    HighLogic.UISkin);
+            }
+            catch (Exception ex)
+            {
+                // A failed popup must never throw out of teardown.
+                ParsekLog.Warn(Tag, $"AlertRestoreDegraded: popup spawn threw: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// DiskOnly teardown (EDITOR / SPACECENTER / FLIGHT-no-vessel): revert the
+        /// on-disk persistent.sfs from the batch-start .bak + delete the .bak. No
+        /// in-memory reload by design. Preserves the .bak when artifacts are flagged
+        /// for manual recovery.
+        /// </summary>
+        private void TeardownDiskOnlyIsolation(string reason)
+        {
+            if (batchIsolationMode != BatchIsolationMode.DiskOnly)
+                return;
+            if (preserveBatchFlightBaselineArtifacts)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Preserving disk-only persistent backup '{diskOnlyPersistentBackupPath}' ({reason})");
+                return;
+            }
+            bool consumable = RestoreCampaignPersistentSave(diskOnlyPersistentBackupPath); // revert disk to baseline
+            if (consumable)
+                TryDeletePersistentSaveBackup(diskOnlyPersistentBackupPath);
+            else
+                ParsekLog.Warn(Tag,
+                    $"Keeping disk-only persistent backup '{diskOnlyPersistentBackupPath}' after failed revert");
+            ParsekLog.Info(Tag, $"Disk-only batch isolation torn down ({reason})");
         }
 
         private IEnumerator RestoreBatchBaselineAfterCancel(
             FlightBatchBaselineState baseline, int previousFlightInstanceId)
         {
-            Exception restoreFailure = null;
             yield return coroutineHost.StartCoroutine(
-                RunCoroutineSafely(
-                    RestoreBatchFlightBaselineCore(
-                        baseline,
-                        previousFlightInstanceId,
-                        "cancelled-batch-restore"),
-                    ex => restoreFailure = ex));
-            if (restoreFailure != null)
-            {
-                ParsekLog.Warn(Tag,
-                    $"Cancelled run failed to restore isolated batch baseline: {restoreFailure.Message}");
-                preserveBatchFlightBaselineArtifacts = true;
-                preservedBatchFlightBaselineReason =
-                    "cancelled batch restore failed: " + restoreFailure.Message;
-            }
+                RestoreBatchBaselineWithRecovery(baseline, previousFlightInstanceId, "cancelled-batch-restore"));
 
             CleanupBatchFlightBaselineSave();
+            ClearTestBatchMarker("cancel");
             batchFlightBaseline = null;
             batchFlightBaselinePrimed = false;
             abortBatchAfterRestoreFailure = false;
             preserveBatchFlightBaselineArtifacts = false;
             preservedBatchFlightBaselineReason = null;
+            batchIsolationMode = BatchIsolationMode.None;
+            diskOnlyPersistentBackupPath = null;
+            finalBatchRestoreDone = false;
+            stateDirtySinceLastRestore = false;
+            batchInstanceId = Guid.Empty;
             activeCoroutine = null;
             activeTestCoroutine = null;
             activeInnerCoroutine = null;
@@ -1176,6 +1910,7 @@ namespace Parsek.InGameTests
             RecordingStoreTestSnapshot preWipeSnapshot = baseline?.RecordingStoreSnapshot;
             bool restoreCommitted = false;
             bool wipePerformed = false;
+            bool isFlightBaseline = baseline.CapturedScene == GameScenes.FLIGHT;
             try
             {
                 // Step 1a: structural pre-validation via ConfigNode.Load.
@@ -1185,8 +1920,12 @@ namespace Parsek.InGameTests
                 // effect). Catches the bulk of failure modes (file
                 // missing/empty, malformed XML, no FLIGHTSTATE node,
                 // no VESSEL nodes, invalid activeVessel index) without
-                // mutating any KSP or Parsek state.
-                Helpers.QuickloadResumeHelpers.ValidateQuicksaveStructure(baseline.SlotName);
+                // mutating any KSP or Parsek state. A non-FLIGHT (Tracking
+                // Station) baseline returns via LoadScene with no vessel
+                // focus, so an out-of-range activeVessel index is tolerated
+                // there (a TS save can carry activeVessel = -1).
+                Helpers.QuickloadResumeHelpers.ValidateQuicksaveStructure(
+                    baseline.SlotName, requireValidActiveVessel: isFlightBaseline);
 
                 using (var stagedSnapshot = CreateBatchFlightParsekSaveSnapshotStaging(baseline))
                 {
@@ -1214,8 +1953,15 @@ namespace Parsek.InGameTests
                 // realisation still failing), FlightGlobals stays
                 // cleared until the user manually reloads. Documented
                 // residual.
-                Helpers.QuickloadResumeHelpers.ValidatedGameLoad validatedLoad =
-                    Helpers.QuickloadResumeHelpers.LoadAndValidateGameForQuickload(baseline.SlotName);
+                // FLIGHT realises via the activeVessel-validated load (its
+                // commit focuses that vessel); a non-FLIGHT baseline realises
+                // via the vessel-tolerant load and returns through LoadScene.
+                Helpers.QuickloadResumeHelpers.ValidatedGameLoad validatedLoad = default;
+                Game nonFlightGame = null;
+                if (isFlightBaseline)
+                    validatedLoad = Helpers.QuickloadResumeHelpers.LoadAndValidateGameForQuickload(baseline.SlotName);
+                else
+                    nonFlightGame = Helpers.QuickloadResumeHelpers.LoadGameForSceneRestore(baseline.SlotName);
 
                 // Step 3: prep wipe runs only after validation succeeded
                 // AND the on-disk Parsek/ has been swapped to BATCH-START.
@@ -1241,17 +1987,43 @@ namespace Parsek.InGameTests
                         onWipeStart: () => wipePerformed = true);
                 }
 
-                // Step 4: commit the scene change.
-                Helpers.QuickloadResumeHelpers.CommitValidatedGameLoad(validatedLoad);
-
-                // Step 5: wait for FLIGHT-ready and the active vessel to
-                // become live. OnLoad fires during this scene change.
-                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
-                    previousFlightInstanceId, timeoutSeconds: 15f);
-                yield return WaitForBatchBaselineVessel(baseline, timeoutSeconds: 10f);
-                PerformBetweenRunCleanup(cleanupReason);
-                if (ShouldWaitForStockStageManager(baseline.ActiveVesselSituation))
-                    yield return WaitForStockStageManagerReady(timeoutSeconds: 10f);
+                // Step 4 + 5: commit the scene change and wait for it to land.
+                // OnLoad (including ParsekScenario, which rebuilds the wiped
+                // Parsek save-scoped stores from the on-disk BATCH-START
+                // snapshot) fires during the transition in either scene.
+                if (isFlightBaseline)
+                {
+                    // FLIGHT: StartAndFocusVessel re-focuses the captured
+                    // active vessel; wait for FLIGHT-ready + that vessel +
+                    // (for a staged baseline) the stock stage manager.
+                    Helpers.QuickloadResumeHelpers.CommitValidatedGameLoad(validatedLoad);
+                    yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                        previousFlightInstanceId, timeoutSeconds: 15f);
+                    yield return WaitForBatchBaselineVessel(baseline, timeoutSeconds: 10f);
+                    PerformBetweenRunCleanup(cleanupReason);
+                    if (ShouldWaitForStockStageManager(baseline.ActiveVesselSituation))
+                        yield return WaitForStockStageManagerReady(timeoutSeconds: 10f);
+                }
+                else
+                {
+                    // Non-FLIGHT (Tracking Station): return via LoadScene; no
+                    // vessel focus / stage manager to wait on. The test that
+                    // ran transitioned into FLIGHT (stock "Fly"), so this
+                    // returns the player to the captured Tracking Station.
+                    //
+                    // Capture the live ParsekScenario instance id BEFORE the
+                    // reload so the wait can require a freshly-rebuilt scenario.
+                    // The prime restore reloads TRACKSTATION while already in
+                    // TRACKSTATION, so a bare "LoadedScene == target" wait would
+                    // return on frame 1 (before the reload tears the scene
+                    // down) and let the canary run against a half-loaded scene.
+                    int previousScenarioInstanceId = CurrentParsekScenarioInstanceId();
+                    Helpers.QuickloadResumeHelpers.CommitNonFlightSceneLoad(
+                        nonFlightGame, baseline.SlotName, baseline.CapturedScene);
+                    yield return WaitForBatchBaselineNonFlightScene(
+                        baseline.CapturedScene, previousScenarioInstanceId, timeoutSeconds: 15f);
+                    PerformBetweenRunCleanup(cleanupReason);
+                }
                 restoreCommitted = true;
             }
             finally
@@ -1304,12 +2076,27 @@ namespace Parsek.InGameTests
             if (preserveBatchFlightBaselineArtifacts)
             {
                 ParsekLog.Warn(Tag,
-                    $"Preserving isolated batch baseline artifacts for recovery: slot='{batchFlightBaseline.SlotName}', snapshot='{batchFlightBaseline.ParsekSaveSnapshotDirectory}', reason='{preservedBatchFlightBaselineReason ?? "restore failure"}'");
+                    $"Disk reverted; in-memory artifacts preserved for recovery: slot='{batchFlightBaseline.SlotName}', snapshot='{batchFlightBaseline.ParsekSaveSnapshotDirectory}', persistentBackup='{batchFlightBaseline.PersistentSaveBackupPath}', reason='{preservedBatchFlightBaselineReason ?? "restore failure"}'");
                 return;
             }
 
+            // Restore the campaign's persistent.sfs to its batch-start bytes
+            // BEFORE deleting the backup. A test may have written persistent.sfs
+            // directly or via a scene-change auto-save; this leaves the player's
+            // main career save exactly as it was. Only delete the backup if the
+            // restore is consumable (succeeded or nothing to restore); a failed
+            // restore keeps the .bak so the player can recover manually.
+            bool persistentRestoreConsumable =
+                RestoreCampaignPersistentSave(batchFlightBaseline.PersistentSaveBackupPath);
+
             Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(batchFlightBaseline.SlotName);
             TryDeleteDirectoryRecursive(batchFlightBaseline.ParsekSaveSnapshotDirectory);
+            if (persistentRestoreConsumable)
+                TryDeletePersistentSaveBackup(batchFlightBaseline.PersistentSaveBackupPath);
+            else
+                ParsekLog.Warn(Tag,
+                    $"Batch baseline: keeping persistent.sfs backup '{batchFlightBaseline.PersistentSaveBackupPath}' "
+                    + "after a failed restore so the campaign save can be recovered manually");
         }
 
         private static StagedBatchFlightParsekSaveSnapshot CreateBatchFlightParsekSaveSnapshotStaging(
@@ -1431,6 +2218,51 @@ namespace Parsek.InGameTests
             }
 
             Directory.Delete(directoryPath, recursive: true);
+        }
+
+        private static int CurrentParsekScenarioInstanceId()
+        {
+            var scenario = UnityEngine.Object.FindObjectOfType<ParsekScenario>();
+            return scenario != null ? scenario.GetInstanceID() : 0;
+        }
+
+        /// <summary>
+        /// Ready predicate for a NON-FLIGHT baseline scene return. Mirrors
+        /// <see cref="Helpers.QuickloadResumeHelpers.IsReloadedFlightReady"/>:
+        /// requires BOTH the target scene loaded AND a freshly-rebuilt
+        /// ParsekScenario, so a same-scene reload (the TRACKSTATION prime restore
+        /// reloading TRACKSTATION) is not reported ready on frame 1 before the
+        /// reload has actually torn down and recreated the scene. Instance id 0
+        /// is the "no scenario" sentinel.
+        /// </summary>
+        internal static bool IsReloadedNonFlightSceneReady(
+            GameScenes targetScene, GameScenes loadedScene,
+            int currentScenarioInstanceId, int previousScenarioInstanceId)
+        {
+            bool replacedScenario = currentScenarioInstanceId != 0
+                && (previousScenarioInstanceId == 0
+                    || currentScenarioInstanceId != previousScenarioInstanceId);
+            return loadedScene == targetScene && replacedScenario;
+        }
+
+        private IEnumerator WaitForBatchBaselineNonFlightScene(
+            GameScenes scene, int previousScenarioInstanceId, float timeoutSeconds)
+        {
+            // Wall-clock: a non-flight scene load can run while the game is
+            // paused (timeScale 0), which would freeze Time.time.
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                if (IsReloadedNonFlightSceneReady(
+                        scene, HighLogic.LoadedScene,
+                        CurrentParsekScenarioInstanceId(), previousScenarioInstanceId))
+                    yield break;
+                yield return null;
+            }
+            InGameAssert.IsTrue(false,
+                $"WaitForBatchBaselineNonFlightScene timed out after {timeoutSeconds:F0}s "
+                + $"(wanted={scene}, current={HighLogic.LoadedScene}, "
+                + $"awaiting a rebuilt ParsekScenario != id={previousScenarioInstanceId})");
         }
 
         private static IEnumerator WaitForBatchBaselineVessel(
@@ -1825,6 +2657,14 @@ namespace Parsek.InGameTests
                 if (go != null) UnityEngine.Object.Destroy(go);
             }
             cleanupRegistry.Clear();
+
+            // Safety net: if a building-entry test failed to close its facility
+            // (its own try/finally is the primary close; this catches a despawn
+            // event that no-op'd or a body that opened a building outside a
+            // finally), force it closed so the NEXT test starts from a clean,
+            // unpaused Space Center instead of running blind behind an open
+            // facility canvas. No-op outside SPACECENTER.
+            ForceCloseOpenSpaceCenterFacilities("post-test:" + (test?.Name ?? "(unknown)"));
         }
 
         private object CreateTestInstance(Type type)
