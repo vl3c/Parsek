@@ -438,14 +438,15 @@ namespace Parsek.Tests
                 IsSurface = false
             };
 
-            // Undock: transport ended at 400 (delivered 100 net to the depot), depot at 400.
+            // Undock: a clean 100 LF delivery. Transport 500 -> 400 (gave 100); depot
+            // (pre-couple baseline 100) -> 200 (received 100). Consistent both sides.
             Dictionary<string, ResourceAmount> undockTransport = new Dictionary<string, ResourceAmount>
             {
                 ["LiquidFuel"] = new ResourceAmount { amount = 400.0, maxAmount = 600.0 }
             };
             Dictionary<string, ResourceAmount> undockEndpoint = new Dictionary<string, ResourceAmount>
             {
-                ["LiquidFuel"] = new ResourceAmount { amount = 400.0, maxAmount = 1000.0 }
+                ["LiquidFuel"] = new ResourceAmount { amount = 200.0, maxAmount = 1000.0 }
             };
 
             // BUG: no transport pre-couple -> DockTransport = 300 -> transportGain = +100.
@@ -475,6 +476,8 @@ namespace Parsek.Tests
             RouteAnalysisResult fixResult = RouteAnalysisEngine.AnalyzeRecording(
                 new Recording { RecordingId = "precouple", RouteConnectionWindows = new List<RouteConnectionWindow> { fix } });
             Assert.NotEqual(RouteAnalysisStatus.MixedPickupDelivery, fixResult.Status);
+            // The clean 100 LF delivery is now accepted.
+            Assert.Equal(RouteAnalysisStatus.Eligible, fixResult.Status);
         }
 
         // --- ComputePartSetDifferences (pure helper) ---
