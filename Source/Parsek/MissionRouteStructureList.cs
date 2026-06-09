@@ -25,13 +25,14 @@ namespace Parsek
         Terminal   = 9
     }
 
-    /// <summary>One row of a structure list: a single event with its time and location.</summary>
+    /// <summary>One row of a structure list: a single event with its time, status and location.</summary>
     internal struct StructureStep
     {
         public double UT;            // event time; NaN for the route Origin pseudo-step (rendered first)
         public StructureStepKind Kind;
-        public string Label;         // "Launch", "Decoupled booster", "Dock", "Deliver (50 LiquidFuel)", "Landed"
-        public string Location;      // "LaunchPad, Kerbin", "Mun", "Orbiting Kerbin", "Mun surface"
+        public string Label;         // "Launch", "Decoupled booster", "Dock", "Deliver (50 LiquidFuel)"
+        public string Status;        // vessel situation: "Prelaunch", "Flying", "Orbiting", "Landed", ...
+        public string Location;      // always "SOI/body, biome" order: "Kerbin, LaunchPad", "Mun, Midlands"
         public string VesselName;    // the controlled vessel / piece this step concerns (may be empty)
         public uint SortPid;         // staging part PID, for a deterministic tiebreak only (not rendered)
     }
@@ -43,35 +44,49 @@ namespace Parsek
     /// </summary>
     internal static class StructureLocationFormatter
     {
-        // Situation + biome + body for a mid-flight event (dock / undock / decouple / eva /
-        // staging), using the SAME formatter as the Recordings window's start position
-        // (`RecordingsTableFormatters.FormatSituationLocation`) so the wording and biome
-        // detail match. The recording supplied is the one whose START coincides with the
-        // event (the child branch for a split / merge, the owning recording for a part
-        // event), so its captured situation / biome / body is the event context. Per-UT
-        // exact coordinate resolution is still deferred; "-" when nothing is recorded.
-        internal static string DescribeMid(Recording rec)
+        // Canonical location text: ALWAYS "SOI/body, biome" order (body first, biome
+        // second). Either part may be empty. "-" when nothing is recorded.
+        internal static string BodyBiome(string body, string biome)
         {
-            if (rec == null) return "";
-            return RecordingsTableFormatters.FormatSituationLocation(
-                rec.StartSituation, rec.StartBiome, rec.StartBodyName, null);
+            bool hasBody = !string.IsNullOrEmpty(body);
+            bool hasBiome = !string.IsNullOrEmpty(biome);
+            if (hasBody && hasBiome) return body + ", " + biome;
+            if (hasBody) return body;
+            if (hasBiome) return biome;
+            return "-";
         }
 
-        // A route endpoint (origin / dock / delivery / undock). RouteEndpoint is a struct
-        // with no backing Recording, so this is purpose-built location text.
-        internal static string DescribeEndpoint(RouteEndpoint ep, bool isKsc)
+        // Mid-flight event (dock / undock / decouple / eva / staging): body + biome from the
+        // recording whose START coincides with the event (the child branch for a split /
+        // merge, the owning recording for a part event), so its captured body / biome is the
+        // event context. Per-UT exact coordinate resolution is still deferred.
+        internal static string MidLocation(Recording rec)
+            => rec == null ? "" : BodyBiome(rec.StartBodyName, rec.StartBiome);
+
+        // The vessel situation at the event (already humanized: "Flying", "Orbiting", ...).
+        internal static string MidStatus(Recording rec)
+            => rec != null && !string.IsNullOrEmpty(rec.StartSituation) ? rec.StartSituation : "";
+
+        // A route endpoint (origin / dock / delivery / undock). RouteEndpoint is a struct with
+        // no backing Recording or biome, so the "biome" slot carries the launch-site name for
+        // KSC and the surface coordinates for a surface endpoint.
+        internal static string EndpointLocation(RouteEndpoint ep, bool isKsc)
         {
             if (isKsc)
-                return string.IsNullOrEmpty(ep.BodyName) ? "KSC" : "KSC, " + ep.BodyName;
-
+                return BodyBiome(string.IsNullOrEmpty(ep.BodyName) ? "Kerbin" : ep.BodyName, "KSC");
             if (string.IsNullOrEmpty(ep.BodyName))
                 return "-";
-
             if (ep.IsSurface)
                 return string.Format(CultureInfo.InvariantCulture,
-                    "{0} surface ({1:F2}, {2:F2})", ep.BodyName, ep.Latitude, ep.Longitude);
+                    "{0} ({1:F2}, {2:F2})", ep.BodyName, ep.Latitude, ep.Longitude);
+            return ep.BodyName;
+        }
 
-            return "Orbiting " + ep.BodyName;
+        // The endpoint's situation for the Status column.
+        internal static string EndpointStatus(RouteEndpoint ep, bool isKsc)
+        {
+            if (isKsc) return "Prelaunch";
+            return ep.IsSurface ? "Landed" : "Orbiting";
         }
     }
 
@@ -107,12 +122,17 @@ namespace Parsek
                 if (!structure.LegsById.TryGetValue(rootId, out MissionLeg leg))
                     continue;
                 Recording rec = Rec(rootId);
+                // Location biome slot = the launch-site name when launched from a site, else
+                // the start biome. Status = the start situation (usually "Prelaunch").
+                string launchBiome = rec == null ? null
+                    : (!string.IsNullOrEmpty(rec.LaunchSiteName) ? rec.LaunchSiteName : rec.StartBiome);
                 steps.Add(new StructureStep
                 {
                     UT = leg.StartUT,
                     Kind = StructureStepKind.Launch,
                     Label = !string.IsNullOrEmpty(leg.EvaCrewName) ? "EVA " + leg.EvaCrewName : "Launch",
-                    Location = rec != null ? RecordingsTableFormatters.FormatStartPosition(rec) : "",
+                    Status = rec != null ? StructureLocationFormatter.MidStatus(rec) : "",
+                    Location = rec != null ? StructureLocationFormatter.BodyBiome(rec.StartBodyName, launchBiome) : "",
                     VesselName = LegLabel(leg)
                 });
             }
@@ -144,12 +164,14 @@ namespace Parsek
                     MissionLeg repLeg = vesselId != null && structure.LegsById.TryGetValue(vesselId, out MissionLeg l) ? l : null;
                     string cause = bp.SplitCause ?? bp.BreakupCause;
 
+                    Recording locRec = Rec(locId);
                     steps.Add(new StructureStep
                     {
                         UT = bp.UT,
                         Kind = ClassifyBranch(bp.Type),
                         Label = MissionCompositionBuilder.BranchEventName(bp.Type, cause),
-                        Location = StructureLocationFormatter.DescribeMid(Rec(locId)),
+                        Status = StructureLocationFormatter.MidStatus(locRec),
+                        Location = StructureLocationFormatter.MidLocation(locRec),
                         VesselName = repLeg != null ? LegLabel(repLeg) : ""
                     });
 
@@ -188,7 +210,8 @@ namespace Parsek
                             UT = pe.ut,
                             Kind = StructureStepKind.Staging,
                             Label = StagingLabel(pe),
-                            Location = StructureLocationFormatter.DescribeMid(rec),
+                            Status = StructureLocationFormatter.MidStatus(rec),
+                            Location = StructureLocationFormatter.MidLocation(rec),
                             VesselName = "",
                             SortPid = pe.partPersistentId
                         });
@@ -201,12 +224,18 @@ namespace Parsek
             {
                 if (!leg.TerminalStateValue.HasValue) continue;
                 Recording rec = Rec(leg.RecordingId);
+                // Body prefers the recorded terminal-orbit body, else the start body.
+                string termBody = rec == null ? null
+                    : (!string.IsNullOrEmpty(rec.TerminalOrbitBody) ? rec.TerminalOrbitBody : rec.StartBodyName);
                 steps.Add(new StructureStep
                 {
                     UT = leg.EndUT,
                     Kind = StructureStepKind.Terminal,
-                    Label = MissionCompositionBuilder.TerminalName(leg.TerminalStateValue),
-                    Location = rec != null ? RecordingsTableFormatters.FormatEndPosition(rec) : "",
+                    // Event = generic "End"; Status carries the terminal situation (Landed /
+                    // Orbiting / Recovered / ...) so the two columns are not redundant.
+                    Label = "End",
+                    Status = MissionCompositionBuilder.TerminalName(leg.TerminalStateValue),
+                    Location = rec != null ? StructureLocationFormatter.BodyBiome(termBody, rec.EndBiome) : "",
                     VesselName = LegLabel(leg)
                 });
             }
@@ -322,7 +351,8 @@ namespace Parsek
                 UT = double.NaN,
                 Kind = StructureStepKind.Origin,
                 Label = route.IsKscOrigin ? "Origin: KSC" : "Origin: depot",
-                Location = StructureLocationFormatter.DescribeEndpoint(route.Origin, route.IsKscOrigin),
+                Status = StructureLocationFormatter.EndpointStatus(route.Origin, route.IsKscOrigin),
+                Location = StructureLocationFormatter.EndpointLocation(route.Origin, route.IsKscOrigin),
                 VesselName = ""
             });
 
@@ -344,8 +374,12 @@ namespace Parsek
                 }
             }
 
-            string endpointLoc = win != null && win.EndpointAtDock.HasValue
-                ? StructureLocationFormatter.DescribeEndpoint(win.EndpointAtDock.Value, false)
+            bool hasEndpoint = win != null && win.EndpointAtDock.HasValue;
+            string endpointLoc = hasEndpoint
+                ? StructureLocationFormatter.EndpointLocation(win.EndpointAtDock.Value, false)
+                : "";
+            string endpointStatus = hasEndpoint
+                ? StructureLocationFormatter.EndpointStatus(win.EndpointAtDock.Value, false)
                 : "";
 
             // Dock.
@@ -356,6 +390,7 @@ namespace Parsek
                     UT = win.DockUT,
                     Kind = StructureStepKind.Dock,
                     Label = "Dock",
+                    Status = endpointStatus,
                     Location = endpointLoc,
                     VesselName = ""
                 });
@@ -381,7 +416,8 @@ namespace Parsek
                     UT = deliveryUT,
                     Kind = StructureStepKind.Delivery,
                     Label = "Deliver" + num + FormatManifestSummary(stop.DeliveryManifest, stop.InventoryDeliveryManifest),
-                    Location = StructureLocationFormatter.DescribeEndpoint(stop.Endpoint, false),
+                    Status = StructureLocationFormatter.EndpointStatus(stop.Endpoint, false),
+                    Location = StructureLocationFormatter.EndpointLocation(stop.Endpoint, false),
                     VesselName = ""
                 });
             }
@@ -394,6 +430,7 @@ namespace Parsek
                     UT = win.UndockUT,
                     Kind = StructureStepKind.Undock,
                     Label = "Undock",
+                    Status = endpointStatus,
                     Location = endpointLoc,
                     VesselName = ""
                 });

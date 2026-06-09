@@ -100,9 +100,12 @@ namespace Parsek.Tests
             Assert.Equal(2, steps.Count);
             Assert.Equal(StructureStepKind.Launch, steps[0].Kind);
             Assert.Equal(0, steps[0].UT);
-            Assert.Contains("LaunchPad", steps[0].Location);
+            // Location is "body, biome/site" order; the launch site fills the biome slot.
+            Assert.Equal("Kerbin, LaunchPad", steps[0].Location);
             Assert.Equal(StructureStepKind.Terminal, steps[1].Kind);
-            Assert.Equal("Landed", steps[1].Label);
+            // Terminal: Event = "End", Status carries the situation.
+            Assert.Equal("End", steps[1].Label);
+            Assert.Equal("Landed", steps[1].Status);
             Assert.Equal(300, steps[1].UT);
         }
 
@@ -239,8 +242,10 @@ namespace Parsek.Tests
             Assert.Equal(4, steps.Count);
             Assert.Equal(StructureStepKind.Origin, steps[0].Kind);
             Assert.Equal("Origin: KSC", steps[0].Label);
-            Assert.Equal("KSC, Kerbin", steps[0].Location);
+            Assert.Equal("Kerbin, KSC", steps[0].Location);   // body, biome-slot (KSC)
+            Assert.Equal("Prelaunch", steps[0].Status);
             Assert.Equal(StructureStepKind.Dock, steps[1].Kind);
+            Assert.Equal("Orbiting", steps[1].Status);        // orbital endpoint
             Assert.Equal(100, steps[1].UT);
             Assert.Equal(StructureStepKind.Delivery, steps[2].Kind);
             Assert.Equal(150, steps[2].UT);
@@ -261,7 +266,8 @@ namespace Parsek.Tests
             var steps = RouteStructureListBuilder.Build(route, id => null);
 
             Assert.Equal("Origin: depot", steps[0].Label);
-            Assert.Contains("Minmus surface", steps[0].Location);
+            Assert.Contains("Minmus", steps[0].Location);   // body first, with surface coords
+            Assert.Equal("Landed", steps[0].Status);         // surface endpoint
         }
 
         [Fact]
@@ -293,14 +299,32 @@ namespace Parsek.Tests
         // --- Location formatter tests ---
 
         [Fact]
+        public void LocationFormatter_BodyBiome_IsAlwaysBodyThenBiome()
+        {
+            Assert.Equal("Kerbin, Shores", StructureLocationFormatter.BodyBiome("Kerbin", "Shores"));
+            Assert.Equal("Mun", StructureLocationFormatter.BodyBiome("Mun", null));
+            Assert.Equal("Shores", StructureLocationFormatter.BodyBiome(null, "Shores"));
+            Assert.Equal("-", StructureLocationFormatter.BodyBiome(null, null));
+        }
+
+        [Fact]
         public void LocationFormatter_Endpoint_KscSurfaceOrbit()
         {
-            Assert.Equal("KSC, Kerbin",
-                StructureLocationFormatter.DescribeEndpoint(new RouteEndpoint { BodyName = "Kerbin" }, true));
-            Assert.Contains("Mun surface",
-                StructureLocationFormatter.DescribeEndpoint(new RouteEndpoint { BodyName = "Mun", IsSurface = true }, false));
-            Assert.Equal("Orbiting Duna",
-                StructureLocationFormatter.DescribeEndpoint(new RouteEndpoint { BodyName = "Duna", IsSurface = false }, false));
+            // KSC: body first, "KSC" in the biome slot; status Prelaunch.
+            Assert.Equal("Kerbin, KSC",
+                StructureLocationFormatter.EndpointLocation(new RouteEndpoint { BodyName = "Kerbin" }, true));
+            Assert.Equal("Prelaunch",
+                StructureLocationFormatter.EndpointStatus(new RouteEndpoint { BodyName = "Kerbin" }, true));
+
+            // Surface: body first + coords; status Landed.
+            RouteEndpoint surf = new RouteEndpoint { BodyName = "Mun", IsSurface = true, Latitude = 1, Longitude = 2 };
+            Assert.StartsWith("Mun", StructureLocationFormatter.EndpointLocation(surf, false));
+            Assert.Equal("Landed", StructureLocationFormatter.EndpointStatus(surf, false));
+
+            // Orbit: body only; status Orbiting.
+            RouteEndpoint orb = new RouteEndpoint { BodyName = "Duna", IsSurface = false };
+            Assert.Equal("Duna", StructureLocationFormatter.EndpointLocation(orb, false));
+            Assert.Equal("Orbiting", StructureLocationFormatter.EndpointStatus(orb, false));
         }
     }
 }

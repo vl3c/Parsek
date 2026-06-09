@@ -37,10 +37,11 @@ namespace Parsek
         private List<StructureStep> steps = new List<StructureStep>();
 
         // Column widths (match the recordings / spawn window conventions).
-        private const float ColW_Time = 115f;
+        private const float ColW_Time = 110f;
         private const float ColW_Event = 0f;     // expand
-        private const float ColW_Location = 220f; // situation + biome + body, like the Recordings tab
-        private const float ColW_Vessel = 150f;
+        private const float ColW_Status = 95f;   // vessel situation (Orbiting / Landed / ...)
+        private const float ColW_Location = 185f; // "SOI/body, biome"
+        private const float ColW_Vessel = 140f;
 
         private const float MinWindowWidth = 420f;
         private const float MinWindowHeight = 160f;
@@ -209,6 +210,7 @@ namespace Parsek
             GUILayout.BeginHorizontal();
             GUILayout.Label("Time", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Time));
             GUILayout.Label("Event", parentUI.GetColumnHeaderStyle(), GUILayout.ExpandWidth(true));
+            GUILayout.Label("Status", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Status));
             GUILayout.Label("Location", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Location));
             GUILayout.Label("Vessel", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Vessel));
             GUILayout.Space(scrollbarWidth);
@@ -223,6 +225,7 @@ namespace Parsek
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(FormatTime(step.UT), GUILayout.Width(ColW_Time));
                 GUILayout.Label(step.Label ?? "", GUILayout.ExpandWidth(true));
+                GUILayout.Label(step.Status ?? "", GUILayout.Width(ColW_Status));
                 GUILayout.Label(step.Location ?? "", GUILayout.Width(ColW_Location));
                 GUILayout.Label(step.VesselName ?? "", GUILayout.Width(ColW_Vessel));
                 GUILayout.EndHorizontal();
