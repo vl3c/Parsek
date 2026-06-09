@@ -10,7 +10,7 @@ All notable changes to Parsek are documented here.
 
 ### UI
 
-- Removed the per-recording loop (`L`) toggle from the Timeline window rows. Looping needs a loop interval, which is only set in the Recordings Manager, so the Timeline toggle was confusing and cluttered the list. Manage looping (and its interval) from the Recordings tab as before.
+- Removed the per-recording loop (`L`) toggle from the Timeline window rows; it cluttered the list without a way to set the required loop interval. Manage looping (and its interval) from the Recordings tab as before.
 
 ### Bug Fixes
 
