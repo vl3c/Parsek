@@ -20,4 +20,4 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyVersion("0.11.0.0")]
 [assembly: AssemblyFileVersion("0.11.0.0")]
 
-[assembly: KSPAssembly("Parsek", 0, 10)]
+[assembly: KSPAssembly("Parsek", 0, 11)]

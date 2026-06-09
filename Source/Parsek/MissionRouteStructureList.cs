@@ -164,8 +164,12 @@ namespace Parsek
                             && handledDecouplerPids.Contains(pe.partPersistentId))
                             continue;
 
-                        string key = (int)pe.eventType + "|" + pe.partPersistentId.ToString(CultureInfo.InvariantCulture)
-                            + "|" + pe.ut.ToString("F1", CultureInfo.InvariantCulture);
+                        // A given part stages once per event kind (a decoupler fires once, a
+                        // fairing jettisons once), so key on (pid, eventType) WITHOUT UT: the same
+                        // physical event recorded on more than one member recording carries the same
+                        // part PID but slightly different sampled UTs, and a UT in the key would let
+                        // the duplicate survive. (A part PID is unique within one launch's tree.)
+                        string key = (int)pe.eventType + "|" + pe.partPersistentId.ToString(CultureInfo.InvariantCulture);
                         if (!seenStaging.Add(key)) continue;
 
                         steps.Add(new StructureStep
@@ -348,7 +352,11 @@ namespace Parsek
 
             // Delivery: fires at the recorded dock phase each cycle (RecordedDockUT), one
             // per stop. Falls back to the connection window dock UT when RecordedDockUT is
-            // unset.
+            // unset. NOTE: the route steps are emitted in logical order (origin, dock,
+            // delivery, undock) and NOT sorted; this stays chronological because v0 lifts
+            // RecordedDockUT FROM the leaf's RouteConnectionWindow.DockUT (Route.cs), so
+            // delivery never precedes dock. If a future capture path makes them diverge, add
+            // a UT sort here (Origin pinned first via its NaN UT).
             double deliveryUT = route.RecordedDockUT >= 0
                 ? route.RecordedDockUT
                 : (win != null ? win.DockUT : double.NaN);

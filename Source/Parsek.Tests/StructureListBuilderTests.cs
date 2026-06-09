@@ -133,6 +133,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Mission_SamePhysicalStaging_RecordedOnTwoRecordings_CollapsesToOneStep()
+        {
+            // The same booster (pid 99) decouples once but is recorded on both the parent
+            // and a continuation recording at slightly different sampled UTs. The (pid,
+            // eventType) dedup must collapse them to a single Staging step.
+            var r1 = Rec("r1", 0, 200, vessel: "Stage1", terminal: TerminalState.Destroyed);
+            var r2 = Rec("r2", 100, 500, vessel: "Stage2", terminal: TerminalState.Landed);
+            r1.PartEvents.Add(new PartEvent { ut = 150.04, eventType = PartEventType.Decoupled, partPersistentId = 99, partName = "booster" });
+            r2.PartEvents.Add(new PartEvent { ut = 150.06, eventType = PartEventType.Decoupled, partPersistentId = 99, partName = "booster" });
+
+            var steps = BuildMission(Tree(new[] { r1, r2 }));
+
+            Assert.Equal(1, steps.Count(s => s.Kind == StructureStepKind.Staging && s.SortPid == 99));
+        }
+
+        [Fact]
         public void Mission_DockThenUndock_AreOrderedByUT()
         {
             var r1 = Rec("r1", 0, 300, vessel: "Tug", terminal: TerminalState.Recovered);
