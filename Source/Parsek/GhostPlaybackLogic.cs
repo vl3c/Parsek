@@ -7226,6 +7226,34 @@ namespace Parsek
             // nothing in the gap). Null schedule -> the uniform path below, byte-identical.
             if (schedule != null)
             {
+                // INV-3 self-defending guard (docs/dev/plans/zero-drift-reschedule-hardening.md Phase B):
+                // a scheduled unit is mutually exclusive with loiter cuts / arrival hold BY CONSTRUCTION
+                // (the builder attaches a schedule ONLY in the same-parent phase-locked block; the re-aim
+                // branch that produces cuts/hold sets relaunchSchedule=null). This branch returns early
+                // before the cut/hold remap, so the predicate below is ALWAYS false on the shipped path
+                // (zero behavior change, byte-identical). It is here ONLY to convert a latent silent-drop
+                // (a future same-parent loiter compression or a re-aim unit that ever co-attached a
+                // schedule) into a LOUD contract violation. This is a per-frame hot path with a documented
+                // purity contract (see the summary above), so the warning is RATE-LIMITED + keyed on
+                // mission identity (phaseAnchorUT + spanStartUT), mirroring the per-loop-hold key below -
+                // a raw per-frame Warn / a throw would spam the log across multiple scenes. Degrading, not
+                // crashing: a future misuse stays visible without breaking playback.
+                if (loiterCuts != null || arrivalHoldSeconds > 0.0)
+                {
+                    var gic = CultureInfo.InvariantCulture;
+                    ParsekLog.VerboseRateLimited(
+                        "MissionPeriodicity",
+                        // Mission identity key: distinct missions get distinct keys (no collision); one
+                        // mission keeps ONE key across all frames, so the key set is bounded by mission
+                        // count, not frame count.
+                        $"sched-mutex-violation.{phaseAnchorUT.ToString("R", gic)}.{spanStartUT.ToString("R", gic)}",
+                        "INV-3 contract violation: a scheduled unit carries " +
+                        $"loiterCuts={(loiterCuts != null ? loiterCuts.Count.ToString(gic) : "0")} " +
+                        $"arrivalHoldSeconds={arrivalHoldSeconds.ToString("R", gic)} - the schedule branch " +
+                        "bypasses the cut/hold remap (schedule and cuts/hold are mutually exclusive by " +
+                        "construction). The cut/hold is silently DROPPED; check the builder routing.");
+                }
+
                 if (!schedule.TryResolveActiveLaunch(currentUT, out double launchUT, out long sIdx))
                     return false; // parked before the first scheduled launch
                 double scheduledPhase = currentUT - launchUT;

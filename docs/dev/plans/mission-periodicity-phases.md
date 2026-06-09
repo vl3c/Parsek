@@ -122,9 +122,12 @@ circular phase error over one step `m*P`, preferring the smallest `m` on a tie. 
 `joint-best-fit` (`m>1`); the residual is the per-cycle drift, surfaced via `WithinTolerance` (the
 existing amber readout). Kerbal X (rotation 21549.425s + Mun 138984.38s) -> `m=9` (~14.5 days),
 pad residual `9688s -> ~993s`. Helpers `FindBestJointMultiple` / `JointStepResidual` are pure +
-unit-tested. The remaining accumulating-drift limitation (a fixed cadence cannot hold incommensurate
-periods aligned forever) is the deferred **zero-drift per-window reschedule** task in
-`todo-and-known-bugs.md` (needs a non-uniform-cadence span clock, a larger engine change).
+unit-tested. The accumulating-drift limitation of THIS fixed-cadence variant (a fixed cadence cannot
+hold incommensurate periods aligned forever) was the motivation for the **zero-drift per-window
+reschedule**, which has since SHIPPED and is now hardened: the loop re-solves each relaunch
+independently to the true next joint near-coincidence (the non-uniform-cadence span clock + larger
+engine change this note once deferred), so the pad error stays bounded instead of accumulating. See
+`docs/dev/done/plans/zero-drift-reschedule.md` for the shipped spec.
 
 **Goal:** correct `P` for any number of constraints, with an honest residual.
 

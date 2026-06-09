@@ -1586,6 +1586,17 @@ namespace Parsek
         private long lastK;        // anchor-multiple index of the last cached launch
         private bool capWarned;     // rate-limit the safety-cap Warn
 
+        // R3 tolerance accounting over the cached prefix (docs/dev/plans/zero-drift-reschedule-hardening.md
+        // section 6 R2/R3). TryFindNextScheduleK reports per-launch withinTolerance + the worst
+        // other-constraint residual; ExtendOnce (and the constructor's L_0 resolve) previously dropped
+        // both via `out _`. We now FOLD them into these running aggregates as the cache grows, so the UI
+        // can tint the T- countdown amber off the SCHEDULE's own worst launch (a genuinely over-tolerance
+        // bounded-best launch) instead of the fixed-fit Solution.WithinTolerance (which is false for the
+        // in-tolerance stock Mun). Additive + cheap (two scalar updates per resolved launch); nothing is
+        // serialized (the schedule is always re-derived).
+        private bool allLaunchesWithinTolerance = true;  // true unless some resolved launch was bounded-best
+        private double worstResidualSeconds;             // max worst-other residual over the cached prefix
+
         /// <summary>The first scheduled relaunch UT (= the unit's phase anchor). NaN if none could
         /// be resolved (degenerate inputs).</summary>
         internal double FirstLaunchUT { get; }
@@ -1608,6 +1619,27 @@ namespace Parsek
         /// <summary>The player throttle (the requested relaunch period). 0 = every faithful window
         /// (the maximum attainable cadence).</summary>
         internal double MinSpacingSeconds => minSpacing;
+
+        /// <summary>
+        /// True iff EVERY launch resolved so far (over the lazily-grown cached prefix) found a
+        /// within-tolerance window; false once any launch fell to the bounded-best fallback (no within-tol
+        /// k in <see cref="MissionPeriodicity.ScheduleLookaheadMultiples"/>), i.e. a genuinely
+        /// OVER-tolerance launch. This is the SCHEDULE's own worst-launch tolerance flag (R3): the UI tints
+        /// the T- countdown amber off THIS, not the fixed m*P-fit <c>PeriodicitySolution.WithinTolerance</c>
+        /// (which is false for the stock Mun whose ACTUAL scheduled launches are within tolerance by
+        /// construction). Grows monotonically more pessimistic as the cache extends (it can only flip
+        /// true -&gt; false, never back), so a far-future warp that uncovers a bounded-best launch keeps the
+        /// flag false. See docs/dev/plans/zero-drift-reschedule-hardening.md section 6 R2/R3.
+        /// </summary>
+        internal bool AllLaunchesWithinTolerance => allLaunchesWithinTolerance;
+
+        /// <summary>
+        /// The worst other-constraint phase residual (seconds) over the cached prefix - the largest amount
+        /// any non-anchor constraint missed its recorded position by, across the launches resolved so far.
+        /// 0 when no launch has been resolved or every residual was 0. Diagnostic companion to
+        /// <see cref="AllLaunchesWithinTolerance"/>; grows monotonically as the cache extends.
+        /// </summary>
+        internal double WorstResidualSeconds => worstResidualSeconds;
 
         internal MissionRelaunchSchedule(
             double ut0, double anchorPeriod,
@@ -1636,11 +1668,12 @@ namespace Parsek
                 kFloor = 1;
             if (!MissionPeriodicity.TryFindNextScheduleK(
                     anchorPeriod, this.otherPeriods, this.otherTolerances,
-                    kFloor, lookaheadMultiples, out long k0, out _, out _))
+                    kFloor, lookaheadMultiples, out long k0, out double r0, out bool w0))
                 return;
             launches.Add(ut0 + k0 * anchorPeriod);
             lastK = k0;
             FirstLaunchUT = launches[0];
+            FoldLaunchTolerance(r0, w0);  // R3: account L_0's tolerance
 
             // Eager prefix to determine BOTH the min interval (defensive gate, see MinIntervalSeconds)
             // and the MEAN interval (the user-facing display cadence). Min often coincides across
@@ -1690,11 +1723,26 @@ namespace Parsek
             long kStart = Math.Max(lastK + 1, throttleK);
             if (!MissionPeriodicity.TryFindNextScheduleK(
                     anchorPeriod, otherPeriods, otherTolerances,
-                    kStart, lookaheadMultiples, out long k, out _, out _))
+                    kStart, lookaheadMultiples, out long k, out double resid, out bool within))
                 return false;
             launches.Add(ut0 + k * anchorPeriod);
             lastK = k;
+            FoldLaunchTolerance(resid, within);  // R3: account this launch's tolerance
             return true;
+        }
+
+        // R3: fold one resolved launch's tolerance into the running aggregates. AllLaunchesWithinTolerance
+        // can only flip true -> false (a single bounded-best launch makes the whole schedule "amber"); the
+        // worst residual is the running max. Cheap: two scalar updates per launch, no allocation. A NaN
+        // residual (degenerate) is ignored for the worst-residual max but a non-within launch still clears
+        // the all-within flag. See docs/dev/plans/zero-drift-reschedule-hardening.md section 6 R2/R3.
+        private void FoldLaunchTolerance(double residualSeconds, bool withinTolerance)
+        {
+            if (!withinTolerance)
+                allLaunchesWithinTolerance = false;
+            if (!double.IsNaN(residualSeconds) && !double.IsInfinity(residualSeconds)
+                && residualSeconds > worstResidualSeconds)
+                worstResidualSeconds = residualSeconds;
         }
 
         /// <summary>
