@@ -662,18 +662,28 @@ namespace Parsek.Display
         }
 
         /// <summary>
-        /// Forward-arc cache key (Step 3 Cache bullet): a forward-arc VectorLine set is re-sampled only
-        /// when the element the icon sits on, its body, or the re-aim synodic WINDOW changes. The recorded
-        /// segment geometry is static, but a re-aim window rollover swaps the EFFECTIVE geometry without
-        /// changing the recorded segment count, so <paramref name="reaimWindowIndex"/> (the
-        /// <c>ResolveEffectiveMapOrbitSegments</c> out window index, also the
-        /// <c>ShadowRenderDriver.BuildChainSignature</c> discriminator) MUST be part of the key or a stale
-        /// wrong-aimed forward arc would survive the rollover. Pure; xUnit-testable.
+        /// Run-arc cache key (Step 3 Cache bullet): the run-arc VectorLine set is re-sampled only when the
+        /// SELECTED segment set (the indices <see cref="SelectForwardArcSegmentIndices"/> returned) or the
+        /// re-aim synodic WINDOW changes. Keying on the actual selected set (not currentElementIndex) is
+        /// required by the revised run rule: with PAST arcs included, the same currentElementIndex maps to
+        /// different selections as the icon crosses element boundaries within a run (the excluded current arc
+        /// changes), so an index-only key would serve a stale arc set. The recorded segment geometry is
+        /// static, but a re-aim window rollover swaps the EFFECTIVE geometry without changing the recorded
+        /// segment count, so <paramref name="reaimWindowIndex"/> (the <c>ResolveEffectiveMapOrbitSegments</c>
+        /// out window index, also the <c>ShadowRenderDriver.BuildChainSignature</c> discriminator) MUST be
+        /// part of the key or a stale wrong-aimed arc would survive the rollover. The selected indices are
+        /// emitted in ascending order (the selector scans ascending), so the key is order-stable. Pure;
+        /// xUnit-testable.
         /// </summary>
         internal static string BuildForwardArcKey(
-            int currentElementIndex, string bodyName, long reaimWindowIndex)
-            => string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                "{0}|{1}|{2}", currentElementIndex, bodyName ?? "?", reaimWindowIndex);
+            List<int> selectedSegmentIndices, long reaimWindowIndex)
+        {
+            string indices = selectedSegmentIndices == null || selectedSegmentIndices.Count == 0
+                ? "-"
+                : string.Join(",", selectedSegmentIndices);
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "{0}|{1}", indices, reaimWindowIndex);
+        }
 
         /// <summary>
         /// Phase 8b.1 no-double-draw routing predicate (Driver side): should this recording's current
@@ -2841,14 +2851,20 @@ namespace Parsek.Display
                 ForwardRenderWindow.ForwardWindow window =
                     ForwardRenderWindow.ComputeForwardWindow(coalesced, headUT, ResolveBodyMu);
                 if (!window.HasForwardRange)
-                    return; // icon on a full-loop closed orbit / no element ahead -> nothing forward to draw
+                    return; // icon ON a full-loop closed orbit / no element -> line clears (no run)
 
-                double winStart = window.CurrentElementStartUT;
+                // The render RUN spans [RunStartUT, StopUT]: RunStartUT reaches BACKWARD to the previous
+                // boundary (or -inf = trajectory start), so PAST legs/arcs persist on screen as the icon
+                // advances, and the whole line resets only at a boundary (ellipse entry / SOI change). The
+                // single element the icon currently sits on is still excluded below (drawn by stock / the
+                // head-gated pass), keeping the additive pass from double-drawing it.
+                double winStart = window.RunStartUT;
                 double winStop = window.StopUT;
 
-                // ---- (B') FUTURE LEGS: any non-orbital leg overlapping the forward window, EXCLUDING the
-                // current head leg (drawn by the head-gated pass). Enqueued forward=true so they never flip
-                // the ownership signal.
+                // ---- (B') RUN LEGS: any non-orbital leg overlapping the run window, EXCLUDING the current
+                // head leg (drawn by the head-gated pass). Enqueued forward=true so they never flip the
+                // ownership signal. The run window now includes PAST legs (revised rule), so the trailing
+                // line persists.
                 if (set.legs != null)
                 {
                     for (int li = 0; li < set.legs.Length; li++)
@@ -2873,20 +2889,21 @@ namespace Parsek.Display
                     }
                 }
 
-                // ---- (C) FUTURE ARCS: forward StockConic segments (above-surface, not the current arc).
-                // Reuse the per-Driver scratch buffer (clear-and-fill) to avoid a per-frame List<int> alloc
-                // on the hot multi-ghost path. arcIndices is consumed synchronously below (RefreshForwardArcs
-                // copies the geometry into the cache before the next recording's decide pass refills it).
+                // ---- (C) RUN ARCS: StockConic segments overlapping the run (above-surface, EXCLUDING the
+                // one the icon sits on - stock draws that). Now includes PAST arcs (revised rule), so they
+                // persist. Reuse the per-Driver scratch buffer (clear-and-fill) to avoid a per-frame
+                // List<int> alloc on the hot multi-ghost path. arcIndices is consumed synchronously below.
                 List<int> arcIndices = forwardArcIndexScratch;
                 SelectForwardArcSegmentIndices(
                     coalesced, winStart, winStop, headUT, surface, arcIndices);
                 if (arcIndices.Count > 0)
                 {
-                    string cacheKey = BuildForwardArcKey(
-                        window.CurrentIndex,
-                        window.CurrentIndex >= 0 && window.CurrentIndex < coalesced.Count
-                            ? coalesced[window.CurrentIndex].bodyName : null,
-                        reaimWindowIndex);
+                    // Key on the ACTUAL selected segment set (+ re-aim window), NOT on currentElementIndex:
+                    // with past arcs included, the same currentElementIndex maps to different selections as
+                    // the icon crosses element boundaries within a run (the excluded current arc changes), so
+                    // an index-only key would serve a stale cached arc set. The selected indices fully
+                    // determine the sampled geometry for a given re-aim window.
+                    string cacheKey = BuildForwardArcKey(arcIndices, reaimWindowIndex);
                     RefreshForwardArcs(scene, rec.RecordingId, coalesced, arcIndices, cacheKey);
 
                     if (forwardArcCache.TryGetValue(rec.RecordingId, out var fset) && fset.arcs != null)
@@ -2906,11 +2923,11 @@ namespace Parsek.Display
 
                 ParsekLog.VerboseRateLimited(DriverTag, "fwd-window." + rec.RecordingId,
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "Forward window: rec={0} pid={1} curIdx={2} winStart={3:F1} stopUT={4:F1} reason={5} " +
-                        "fwdLegs+={6} fwdArcs+={7} reaimWindow={8} segs={9}",
+                        "Render run: rec={0} pid={1} curIdx={2} runStart={3:F1} stopUT={4:F1} reason={5} " +
+                        "runLegs+={6} runArcs+={7} reaimWindow={8} segs={9} headUT={10:F1}",
                         rec.RecordingId, ghostPid, window.CurrentIndex, winStart, winStop, window.Reason,
                         frameForwardLegs, frameForwardArcs, reaimWindowIndex,
-                        coalesced != null ? coalesced.Count : 0),
+                        coalesced != null ? coalesced.Count : 0, headUT),
                     2.0);
             }
 

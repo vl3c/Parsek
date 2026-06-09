@@ -1534,16 +1534,24 @@ namespace Parsek.Tests
                 forwardWindowStartUT: 40.0, forwardStopUT: 40.0, headUT: 50.0));
         }
 
-        // The cache key changes on element advance, body change, or re-aim window rollover.
+        // The cache key changes on the SELECTED segment set or a re-aim window rollover (revised run rule:
+        // keyed on the actual selected set, not currentElementIndex, since past arcs are now included).
         [Fact]
-        public void BuildForwardArcKey_ChangesOnElementBodyOrWindow()
+        public void BuildForwardArcKey_ChangesOnSelectedSetOrWindow()
         {
-            string baseKey = GhostTrajectoryPolylineRenderer.BuildForwardArcKey(2, "Sun", 7);
-            Assert.NotEqual(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(3, "Sun", 7));   // element
-            Assert.NotEqual(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(2, "Kerbin", 7)); // body
-            Assert.NotEqual(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(2, "Sun", 8));    // window
-            // Same inputs -> stable key (cache hit).
-            Assert.Equal(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(2, "Sun", 7));
+            var baseSet = new List<int> { 0, 2, 3 };
+            string baseKey = GhostTrajectoryPolylineRenderer.BuildForwardArcKey(baseSet, 7);
+            // Different selected set -> different key.
+            Assert.NotEqual(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(new List<int> { 0, 2 }, 7));
+            Assert.NotEqual(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(new List<int> { 0, 2, 4 }, 7));
+            // Different re-aim window -> different key.
+            Assert.NotEqual(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(baseSet, 8));
+            // Same set + window -> stable key (cache hit; the selector emits ascending so order is stable).
+            Assert.Equal(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(new List<int> { 0, 2, 3 }, 7));
+            // Empty / null set -> stable sentinel key, distinct from any non-empty selection.
+            string empty = GhostTrajectoryPolylineRenderer.BuildForwardArcKey(new List<int>(), 7);
+            Assert.Equal(empty, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(null, 7));
+            Assert.NotEqual(baseKey, empty);
         }
 
         // The forward-arc selector excludes the CURRENT arc (head bracketing) so the stock current arc is

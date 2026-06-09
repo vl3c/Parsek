@@ -192,12 +192,15 @@ namespace Parsek.Tests
             var mu = Mu(("Sun", SunMu));
 
             double stop = ForwardRenderWindow.ComputeForwardStopUT(segs, currentUT: 50.0, mu);
-            Assert.Equal(400.0, stop, 6); // last element's endUT
+            Assert.True(double.IsPositiveInfinity(stop)); // no forward boundary → run reaches end of data
 
             var w = ForwardRenderWindow.ComputeForwardWindow(segs, 50.0, mu);
             Assert.Equal(ForwardRenderWindow.ForwardStopReason.EndOfData, w.Reason);
             Assert.Equal(0, w.CurrentIndex);
             Assert.Equal(0.0, w.CurrentElementStartUT, 6);
+            Assert.True(double.IsPositiveInfinity(w.StopUT));
+            // Current is the first element → no backward boundary → run reaches the start of data.
+            Assert.True(double.IsNegativeInfinity(w.RunStartUT));
         }
 
         // Icon already on a full-loop closed orbit → empty forward range (stop == its own startUT).
@@ -336,7 +339,96 @@ namespace Parsek.Tests
             ForwardRenderWindow.ComputeForwardWindow(segs, 50.0, mu);
 
             Assert.Contains(_logLines, l =>
-                l.Contains("[ForwardRenderWindow]") && l.Contains("Forward window") && l.Contains("reason=BodyChange"));
+                l.Contains("[ForwardRenderWindow]") && l.Contains("Render run") && l.Contains("reason=BodyChange"));
+        }
+
+        // ---------------------------------------------------------------------
+        // Render run (revised rule 2026-06-09): backward boundary + past persists
+        // ---------------------------------------------------------------------
+
+        // No backward boundary (current element is the first) → RunStartUT = -inf, so all earlier legs
+        // (e.g. the whole ascent before the first orbit segment) are included and PERSIST in the run.
+        [Fact]
+        public void ComputeForwardWindow_RunStartIsNegInfWhenNoBackwardBoundary()
+        {
+            double sma = 700000.0;
+            double period = ForwardRenderWindow.ComputePeriod(sma, KerbinMu);
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 200, ecc: 0.4, sma: sma),                 // current: coast arc
+                Seg("Kerbin", 200, 200 + period + 5.0, ecc: 0.02, sma: sma), // parking loop → forward stop
+            };
+            var mu = Mu(("Kerbin", KerbinMu));
+
+            var w = ForwardRenderWindow.ComputeForwardWindow(segs, currentUT: 150.0, mu);
+            Assert.True(w.HasForwardRange);
+            Assert.True(double.IsNegativeInfinity(w.RunStartUT)); // run reaches data start (earlier legs persist)
+            Assert.Equal(200.0, w.StopUT, 6);                     // parking-loop startUT
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.FullLoopClosedOrbit, w.Reason);
+        }
+
+        // Gap just BEFORE a full-loop closed orbit (icon on the ascent leg before the parking ellipse):
+        // NOT IconOnClosedOrbit — the run is the backward span up to the ellipse start, so the ascent draws.
+        [Fact]
+        public void ComputeForwardWindow_GapBeforeClosedOrbitIsNotIconOnClosed()
+        {
+            double sma = 700000.0;
+            double period = ForwardRenderWindow.ComputePeriod(sma, KerbinMu);
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 100 + period + 5.0, ecc: 0.01, sma: sma), // first orbit element IS the parking loop
+            };
+            var mu = Mu(("Kerbin", KerbinMu));
+
+            // Icon at UT=50, in the gap BEFORE the parking loop (on the ascent leg).
+            var w = ForwardRenderWindow.ComputeForwardWindow(segs, currentUT: 50.0, mu);
+            Assert.NotEqual(ForwardRenderWindow.ForwardStopReason.IconOnClosedOrbit, w.Reason);
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.FullLoopClosedOrbit, w.Reason);
+            Assert.True(w.HasForwardRange);
+            Assert.Equal(100.0, w.StopUT, 6);                     // the ellipse is the forward boundary
+            Assert.True(double.IsNegativeInfinity(w.RunStartUT)); // backward run reaches data start (the ascent)
+        }
+
+        // Backward boundary = a prior full-loop closed orbit: the run starts AFTER it (at its endUT),
+        // so a post-parking transfer run does not redraw the parking ellipse behind it.
+        [Fact]
+        public void ComputeForwardWindow_RunStartsAfterPriorClosedOrbit()
+        {
+            double sma = 700000.0;
+            double period = ForwardRenderWindow.ComputePeriod(sma, KerbinMu);
+            double loopEnd = 100 + period + 5.0;
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, loopEnd, ecc: 0.01, sma: sma),          // prior parking loop (backward boundary)
+                Seg("Kerbin", loopEnd, loopEnd + 100, ecc: 0.6, sma: sma), // current: transfer arc after parking
+                Seg("Sun", loopEnd + 100, 1.0e9, ecc: 0.1, sma: 1.0e10),   // SOI change → forward stop
+            };
+            var mu = Mu(("Kerbin", KerbinMu), ("Sun", SunMu));
+
+            var w = ForwardRenderWindow.ComputeForwardWindow(segs, currentUT: loopEnd + 50.0, mu);
+            Assert.Equal(1, w.CurrentIndex);
+            Assert.Equal(loopEnd, w.RunStartUT, 3);   // run starts AFTER the prior closed orbit
+            Assert.Equal(loopEnd + 100, w.StopUT, 3); // SOI change
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.BodyChange, w.Reason);
+        }
+
+        // Backward boundary = a prior SOI change: the run starts at the first same-SOI element after it.
+        [Fact]
+        public void ComputeForwardWindow_RunStartsAtPriorSoiBoundary()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Sun", 0, 100, ecc: 0.1, sma: 1.0e10),        // prior SOI (Sun)
+                Seg("Kerbin", 100, 200, ecc: 0.7, sma: 700000.0), // current run's first element (Kerbin capture)
+                Seg("Kerbin", 200, 300, ecc: 0.5, sma: 700000.0), // current
+            };
+            var mu = Mu(("Kerbin", KerbinMu), ("Sun", SunMu));
+
+            var w = ForwardRenderWindow.ComputeForwardWindow(segs, currentUT: 250.0, mu);
+            Assert.Equal(2, w.CurrentIndex);
+            Assert.Equal(100.0, w.RunStartUT, 6);             // first same-SOI element after the Sun boundary
+            Assert.True(double.IsPositiveInfinity(w.StopUT)); // no forward boundary → end of data
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.EndOfData, w.Reason);
         }
     }
 }

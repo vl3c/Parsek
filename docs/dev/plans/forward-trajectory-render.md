@@ -13,21 +13,28 @@ advances), and *future* elements are never drawn. The result is that a ghost on
 an ascent or a transfer shows only the short arc under the icon, with no
 indication of where it is heading.
 
-The request: render the **future** portion of the trajectory ahead of the icon
-too, as **one continuous, seamlessly chained line** (orbit arcs and non-orbital
-polylines already meet at shared boundaries — today they are merely drawn
-separately, one at a time), with two hard stop conditions so we never clutter
-the map:
+The request: render the trajectory around the icon as **one continuous,
+seamlessly chained line** (orbit arcs and non-orbital polylines already meet at
+shared boundaries — today they are merely drawn separately, one at a time),
+covering the whole **run** the icon is in, with two hard boundary conditions so
+we never clutter the map:
 
-1. **Past stays gone.** Only render from the icon's current element onward;
-   completed past elements keep disappearing (no change there).
-2. **Stop before the first full-loop closed orbit.** When the forward chain
-   reaches a segment that covers a complete revolution (`ecc < 1` **and**
-   `endUT − startUT ≥ period`), do **not** draw it and stop — we never render a
-   full repeating ellipse.
-3. **Stop at the first SOI change.** Render only what is in the **current
-   reference body / SOI**; the moment the next element is a different
-   `bodyName`, stop (exclude the next-SOI element).
+1. **Past PERSISTS within the run (revised 2026-06-09 after playtest).** Draw the
+   whole run the icon sits in — past + current + future elements — and keep it on
+   screen as the icon advances element-to-element. The trailing part dropping off
+   one element at a time read as distracting in the playtest. The line resets
+   (clears entirely) only when the icon crosses a run **boundary**: it enters a
+   full-loop closed orbit, or it crosses an SOI change. (This REVERSES the
+   original "past stays gone" rule; the render unit is now the run, not a
+   forward-only window.)
+2. **Boundary: the first full-loop closed orbit.** A segment covering a complete
+   revolution (`ecc < 1` **and** `endUT − startUT ≥ period`) bounds the run: the
+   run forward-stops before it (we never render a full repeating ellipse), and a
+   run that follows one starts after it. When the icon is itself ON such an
+   ellipse, the whole line clears (stock draws the ellipse).
+3. **Boundary: an SOI change.** Render only the **current reference body / SOI**;
+   a `bodyName` change bounds the run on both sides (the next-SOI element is
+   excluded; crossing it clears the line and starts the next SOI's run).
 
 ### Confirmed decisions (from the maintainer)
 
@@ -135,23 +142,38 @@ window is computed standalone (Option 1) or surfaced from the already-live chain
 
 ## Design
 
-The unifying concept is a per-ghost **forward render window**
-`[currentElementStartUT, forwardStopUT]`, computed once per frame and honoured by
-both production surfaces so the line reads as one continuous chain.
+The unifying concept is a per-ghost **render run** `[runStartUT, runStopUT]`,
+computed once per frame and honoured by both production surfaces so the whole run
+reads as one continuous chain that PERSISTS as the icon advances within it
+(revised 2026-06-09; the original forward-only window dropped the trail one
+element at a time, which read as distracting in the playtest).
 
 ```
-forwardStopUT = earliest of:
+runStopUT  = earliest BOUNDARY AFTER the icon (else +inf = end of data):
   • StartUT of the first full-loop closed OrbitSegment after the icon
   • the first SOI / body-change boundary after the icon (FlexibleSoi seam)
-  • end of the recording's data
+
+runStartUT = latest BOUNDARY BEFORE the icon (else -inf = start of data):
+  • EndUT of the previous full-loop closed OrbitSegment
+  • the previous SOI / body-change boundary (first same-SOI element's StartUT)
 ```
 
-The **current** element under the icon still renders exactly as today (full
-current orbit segment via stock + its moving icon; full current leg). The new
-work is purely the forward extension from the next element up to
-`forwardStopUT`. If the icon is already on a full-loop closed orbit,
-`forwardStopUT == currentElementStartUT` → empty forward range → current
-behaviour, unchanged.
+Both bounds use ±inf when the run reaches the start/end of the trajectory data,
+so every earlier/later non-orbital leg (e.g. the whole ascent before the first
+orbit segment) is included. The single element the icon currently sits on still
+renders exactly as today (full current orbit segment via stock + its moving icon;
+full current leg, which also publishes ownership) and is EXCLUDED from the
+additive run pass so it is never double-drawn. Everything else in
+`[runStartUT, runStopUT]` — past AND future legs/arcs — is drawn by the additive
+pass and persists.
+
+The line **resets** (clears entirely) only at a boundary: when the icon is itself
+ON a full-loop closed orbit (`runStartUT == runStopUT == its startUT` → empty run;
+the stock OrbitRenderer draws the ellipse), or when it crosses an SOI change (the
+next SOI's run replaces this one, old elements deactivated). A ghost in the gap
+just BEFORE a closed orbit (e.g. on the ascent leg before the parking ellipse) is
+NOT treated as on the closed orbit: its backward run (the ascent) still draws, up
+to the ellipse start.
 
 ### Step 1 — Pure forward-window computation (always available, unit-tested)
 

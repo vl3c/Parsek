@@ -87,10 +87,22 @@ namespace Parsek
         {
             public int CurrentIndex;
             public double CurrentElementStartUT;
+            // The render RUN is the UT interval [RunStartUT, StopUT] used by the leg/arc overlap tests.
+            // RunStartUT is the BACKWARD boundary (the previous full-loop closed orbit's endUT, or the
+            // previous SOI-change boundary), or double.NegativeInfinity when the run reaches the start of the
+            // trajectory data (so EVERY earlier non-orbital leg — e.g. the whole ascent before the first
+            // orbit segment — is included). StopUT is the FORWARD boundary (the next full-loop / SOI element's
+            // startUT), or double.PositiveInfinity when the run reaches the end of data. Past + current +
+            // future elements of the run are all drawn and PERSIST as the icon advances; the line resets only
+            // when the icon crosses a boundary (enters a full-loop closed orbit, or changes SOI).
+            public double RunStartUT;
             public double StopUT;
             public ForwardStopReason Reason;
 
-            public bool HasForwardRange => CurrentIndex >= 0 && StopUT > CurrentElementStartUT;
+            // A run exists (something to draw) unless the icon is itself ON a full-loop closed orbit (the
+            // ellipse is drawn by stock and the line clears) or no element brackets/follows the icon.
+            public bool HasForwardRange =>
+                CurrentIndex >= 0 && Reason != ForwardStopReason.IconOnClosedOrbit && StopUT > RunStartUT;
         }
 
         /// <summary>
@@ -169,6 +181,7 @@ namespace Parsek
             {
                 CurrentIndex = -1,
                 CurrentElementStartUT = currentUT,
+                RunStartUT = currentUT,
                 StopUT = currentUT,
                 Reason = ForwardStopReason.NoCurrentElement,
             };
@@ -178,7 +191,7 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited(Tag, "empty",
                     string.Format(CultureInfo.InvariantCulture,
-                        "No effective segments at UT={0:F1} — no forward window", currentUT));
+                        "No effective segments at UT={0:F1} — no render run", currentUT));
                 return window;
             }
 
@@ -190,7 +203,7 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited(Tag, "nocur",
                     string.Format(CultureInfo.InvariantCulture,
-                        "No element brackets/follows UT={0:F1} (segs={1}) — no forward window",
+                        "No element brackets/follows UT={0:F1} (segs={1}) — no render run",
                         currentUT, count));
                 return window;
             }
@@ -199,67 +212,104 @@ namespace Parsek
             window.CurrentIndex = currentIndex;
             window.CurrentElementStartUT = current.startUT;
 
+            string currentBody = current.bodyName;
             double currentMu = SafeMu(muByBody, current.bodyName);
+            bool bracketed = currentUT >= current.startUT && currentUT < current.endUT;
+            bool currentIsClosed = IsFullLoopClosedOrbit(current, currentMu);
 
-            // 2. Icon already on a full-loop closed orbit → empty forward range.
-            if (IsFullLoopClosedOrbit(current, currentMu))
+            // 2. Icon GENUINELY ON a full-loop closed orbit → no run: the stock OrbitRenderer draws the whole
+            //    ellipse and the chained line clears (the revised reset-on-ellipse rule). This fires ONLY when
+            //    the icon is bracketed BY the closed orbit; a ghost in the gap just BEFORE one (e.g. on the
+            //    ascent leg before a launch-to-parking ellipse) still gets its backward run drawn (step 4).
+            if (bracketed && currentIsClosed)
             {
+                window.RunStartUT = current.startUT;
                 window.StopUT = current.startUT;
                 window.Reason = ForwardStopReason.IconOnClosedOrbit;
                 ParsekLog.VerboseRateLimited(Tag, "iconclosed",
                     string.Format(CultureInfo.InvariantCulture,
                         "Icon on full-loop closed orbit idx={0} body={1} sma={2:F0} ecc={3:F4} " +
-                        "span={4:F1} — empty forward range (stopUT={5:F1})",
+                        "span={4:F1} — line clears (no run)",
                         currentIndex, current.bodyName ?? "?", current.semiMajorAxis,
-                        current.eccentricity, current.endUT - current.startUT, window.StopUT));
+                        current.eccentricity, current.endUT - current.startUT));
                 return window;
             }
 
-            // 3. Advance through later elements; stop at the earliest stop condition.
-            //    Batch-counter convention: one summary line after the walk.
-            string currentBody = current.bodyName;
-            double stopUT = current.endUT; // default: end of the current element's data
-            ForwardStopReason reason = ForwardStopReason.EndOfData;
-            int walked = 0;
-            int closedSkipped = 0; // later elements inspected before a stop fired
-
-            for (int i = currentIndex + 1; i < count; i++)
+            // 3. FORWARD boundary (run stop).
+            double stopUT;
+            ForwardStopReason reason;
+            int walkedFwd = 0;
+            if (!bracketed && currentIsClosed)
             {
-                OrbitSegment next = effectiveSegments[i];
-                walked++;
-
-                // First body / SOI change → stop, excluding the next-SOI element.
-                if (BodyChanged(currentBody, next.bodyName))
+                // Gap just before a full-loop closed orbit: the ellipse is the immediate forward boundary and
+                // is NOT part of the run; the run is the backward span only (step 4).
+                stopUT = current.startUT;
+                reason = ForwardStopReason.FullLoopClosedOrbit;
+            }
+            else
+            {
+                // current is an OPEN element of the run (bracketed on it, or in a gap just before it). Extend
+                // forward through same-SOI open arcs; stop at the first SOI change or full-loop closed orbit,
+                // else run to the end of data (StopUT = +inf so trailing legs past the last orbit segment are
+                // included).
+                stopUT = current.endUT;
+                reason = ForwardStopReason.EndOfData;
+                for (int i = currentIndex + 1; i < count; i++)
                 {
-                    stopUT = next.startUT;
-                    reason = ForwardStopReason.BodyChange;
-                    break;
+                    OrbitSegment next = effectiveSegments[i];
+                    walkedFwd++;
+                    if (BodyChanged(currentBody, next.bodyName))
+                    {
+                        stopUT = next.startUT;
+                        reason = ForwardStopReason.BodyChange;
+                        break;
+                    }
+                    if (IsFullLoopClosedOrbit(next, SafeMu(muByBody, next.bodyName)))
+                    {
+                        stopUT = next.startUT;
+                        reason = ForwardStopReason.FullLoopClosedOrbit;
+                        break;
+                    }
+                    stopUT = next.endUT;
                 }
-
-                // First full-loop closed orbit after the icon → stop at its startUT.
-                double nextMu = SafeMu(muByBody, next.bodyName);
-                if (IsFullLoopClosedOrbit(next, nextMu))
-                {
-                    stopUT = next.startUT;
-                    reason = ForwardStopReason.FullLoopClosedOrbit;
-                    break;
-                }
-
-                // Same-body open / transfer arc: extend the window through it and
-                // keep walking.
-                stopUT = next.endUT;
-                closedSkipped++;
+                if (reason == ForwardStopReason.EndOfData)
+                    stopUT = double.PositiveInfinity; // no forward boundary — include trailing legs
             }
 
+            // 4. BACKWARD boundary (run start). Walk back from the element before the current one to the
+            //    previous boundary: a full-loop closed orbit (run starts AFTER it, at its endUT) or an SOI
+            //    change (run starts at the first same-SOI element after it). If NO backward boundary is found,
+            //    the run reaches the start of the trajectory data → RunStartUT = -inf, so every earlier
+            //    non-orbital leg (e.g. the whole ascent before the first orbit segment) is included.
+            double runStartUT = double.NegativeInfinity;
+            int walkedBack = 0;
+            for (int i = currentIndex - 1; i >= 0; i--)
+            {
+                OrbitSegment prev = effectiveSegments[i];
+                walkedBack++;
+                if (BodyChanged(currentBody, prev.bodyName))
+                {
+                    runStartUT = effectiveSegments[i + 1].startUT;
+                    break;
+                }
+                if (IsFullLoopClosedOrbit(prev, SafeMu(muByBody, prev.bodyName)))
+                {
+                    runStartUT = prev.endUT;
+                    break;
+                }
+                // prev is part of the run; keep walking (RunStartUT stays -inf unless a boundary is found).
+            }
+
+            window.RunStartUT = runStartUT;
             window.StopUT = stopUT;
             window.Reason = reason;
 
             ParsekLog.VerboseRateLimited(Tag, "window",
                 string.Format(CultureInfo.InvariantCulture,
-                    "Forward window curIdx={0} body={1} curStart={2:F1} stopUT={3:F1} reason={4} " +
-                    "walked={5} extendedArcs={6} segs={7} curUT={8:F1}",
-                    currentIndex, currentBody ?? "?", window.CurrentElementStartUT, window.StopUT,
-                    window.Reason, walked, closedSkipped, count, currentUT));
+                    "Render run curIdx={0} body={1} runStart={2:F1} curStart={3:F1} stopUT={4:F1} reason={5} " +
+                    "walkedFwd={6} walkedBack={7} bracketed={8} segs={9} curUT={10:F1}",
+                    currentIndex, currentBody ?? "?", window.RunStartUT, window.CurrentElementStartUT,
+                    window.StopUT, window.Reason, walkedFwd, walkedBack, bracketed, count, currentUT));
 
             return window;
         }
