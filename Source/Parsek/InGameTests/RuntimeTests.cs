@@ -12061,12 +12061,16 @@ namespace Parsek.InGameTests
         /// stock PauseMenu uses. The expected shipped behavior with auto-merge
         /// disabled is a pre-transition merge dialog in FLIGHT whose "Merge to
         /// Timeline" button finalizes and commits the live tree before the
-        /// blocked Space Center scene change resumes. Use a disposable/manual-
-        /// backup save before running it.
+        /// blocked Space Center scene change resumes. Isolated-batch capable:
+        /// Run All + Isolated captures a FLIGHT baseline before the batch and
+        /// quickloads it after this test, so it runs automatically there in
+        /// addition to the row play button. Still start from a disposable/
+        /// manual-backup save in case the automatic restore itself fails.
         /// </summary>
         [InGameTest(Category = "SceneExitMerge", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the pre-transition merge dialog.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the pre-transition merge dialog. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "Space Center exit shows pre-transition merge dialog and Merge to Timeline commits the live tree")]
         public IEnumerator ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree()
         {
@@ -12244,12 +12248,16 @@ namespace Parsek.InGameTests
         /// stock PauseMenu uses. The expected shipped behavior with auto-merge
         /// disabled is a pre-transition merge dialog in FLIGHT whose explicit
         /// "Discard" button finalizes and discards the live tree before the
-        /// blocked Space Center scene change resumes. Use a disposable/manual-
-        /// backup save before running it.
+        /// blocked Space Center scene change resumes. Isolated-batch capable:
+        /// Run All + Isolated captures a FLIGHT baseline before the batch and
+        /// quickloads it after this test, so it runs automatically there in
+        /// addition to the row play button. Still start from a disposable/
+        /// manual-backup save in case the automatic restore itself fails.
         /// </summary>
         [InGameTest(Category = "SceneExitMerge", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the pre-transition merge dialog discard branch.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the pre-transition merge dialog discard branch. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "Space Center exit shows pre-transition merge dialog and Discard clears the live tree without a commit")]
         public IEnumerator ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree()
         {

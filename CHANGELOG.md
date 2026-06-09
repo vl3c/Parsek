@@ -38,6 +38,7 @@ All notable changes to Parsek are documented here.
 ### Internals & Tests
 
 - Added headless test coverage for the career-state apply boundary (the step that writes your funds, science, reputation, tech tree, and facility levels when Parsek rebuilds career state), so its value and clamp decisions are now verified directly in unit tests rather than only in the live game. No gameplay change.
+- The two scene-exit merge-dialog in-game tests (Space Center exit with Merge to Timeline / Discard) now run automatically under the test runner's `Run All + Isolated`, which captures a flight baseline beforehand and quickloads it after each test. Previously they were manual-only rows you had to run one at a time. No gameplay change.
 
 ## 0.10.0
 
