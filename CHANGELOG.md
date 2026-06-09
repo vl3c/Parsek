@@ -44,10 +44,8 @@ All notable changes to Parsek are documented here.
 ### Internals & Tests
 
 - Added an in-game ledger ground-truth verification harness: it quicksaves the live career, parses that save independently of Parsek's bookkeeping, runs the career-state reconstruction, and reports any disagreement between the two. This is the closed self-check that catches a reconstruction drifting from your actual funds, science, reputation, or recovered vessels. Run it from the in-game test runner (Ctrl+Shift+T) under the `LedgerGroundTruth` category.
-
-### Internals & Tests
-
 - Added headless test coverage for the career-state apply boundary (the step that writes your funds, science, reputation, tech tree, and facility levels when Parsek rebuilds career state), so its value and clamp decisions are now verified directly in unit tests rather than only in the live game. No gameplay change.
+- In-game test harness: the manual Tracking Station Fly canary (`TrackingStationMaterializedOrbit_FlyLoadsMaterializedVessel_NotStaleSelection`) had never actually run — it probed for a one-argument `SpaceTracking.SetVessel(Vessel)` that does not exist on KSP 1.12.5 (the stock signature is `SetVessel(Vessel, bool keepFocus)`), so the reflection guard always skipped it. The canary now resolves `SetVessel` through the same signature-tolerant helper the production Tracking Station handoff uses, and the skip message names which member probe failed. No gameplay change.
 
 ## 0.10.0
 

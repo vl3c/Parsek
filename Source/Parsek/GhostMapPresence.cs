@@ -3440,7 +3440,7 @@ namespace Parsek
             return ShouldSkipTrackingStationDuplicateSpawn(rec, realVesselExists);
         }
 
-        private static MethodInfo FindTrackingStationSetVesselMethod(
+        internal static MethodInfo FindTrackingStationSetVesselMethod(
             Type trackingType,
             Type selectionType)
         {

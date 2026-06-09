@@ -5802,12 +5802,11 @@ namespace Parsek.InGameTests
             System.Reflection.FieldInfo selectedField = typeof(KSP.UI.Screens.SpaceTracking).GetField(
                 "selectedVessel",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            System.Reflection.MethodInfo setVesselMethod = typeof(KSP.UI.Screens.SpaceTracking).GetMethod(
-                "SetVessel",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
-                null,
-                new[] { typeof(Vessel) },
-                null);
+            // KSP 1.12.5 has only SetVessel(Vessel v, bool keepFocus) — resolve via the
+            // production helper so the probe tolerates either the one-arg or two-arg shape.
+            System.Reflection.MethodInfo setVesselMethod = GhostMapPresence.FindTrackingStationSetVesselMethod(
+                typeof(KSP.UI.Screens.SpaceTracking),
+                typeof(Vessel));
             System.Reflection.MethodInfo flySelectedMethod = typeof(KSP.UI.Screens.SpaceTracking).GetMethod(
                 "BtnOnClick_FlySelectedVessel",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
@@ -5817,7 +5816,12 @@ namespace Parsek.InGameTests
 
             if (selectedField == null || setVesselMethod == null || flySelectedMethod == null)
             {
-                InGameAssert.Skip("SpaceTracking selection/Fly reflection helpers are unavailable");
+                InGameAssert.Skip(string.Format(CultureInfo.InvariantCulture,
+                    "SpaceTracking selection/Fly reflection helpers are unavailable " +
+                    "(selectedVessel={0} SetVessel={1} BtnOnClick_FlySelectedVessel={2})",
+                    selectedField != null,
+                    setVesselMethod != null,
+                    flySelectedMethod != null));
                 yield break;
             }
 
@@ -5842,13 +5846,17 @@ namespace Parsek.InGameTests
                 }
 
                 selectedField.SetValue(tracking, staleCandidate);
-                setVesselMethod.Invoke(tracking, new object[] { ghost });
+                setVesselMethod.Invoke(tracking,
+                    GhostMapPresence.BuildTrackingStationSetVesselArguments(
+                        setVesselMethod, ghost, keepFocus: true));
 
                 Vessel selectedAfterGhostFocus = selectedField.GetValue(tracking) as Vessel;
                 InGameAssert.IsNull(selectedAfterGhostFocus,
                     "Focusing a Parsek ghost should clear any stale private Tracking Station selection");
 
-                setVesselMethod.Invoke(tracking, new object[] { materialized });
+                setVesselMethod.Invoke(tracking,
+                    GhostMapPresence.BuildTrackingStationSetVesselArguments(
+                        setVesselMethod, materialized, keepFocus: true));
             }
 
             Vessel selectedAfterFocus = selectedField.GetValue(tracking) as Vessel;

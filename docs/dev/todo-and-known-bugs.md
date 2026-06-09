@@ -13,6 +13,12 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done 2026-06-09 - TS Fly canary never ran: SetVessel reflection probe used a nonexistent one-arg signature (branch `fix-ts-fly-canary-probe`)
+
+The manual-only in-game canary `TrackingStationMaterializedOrbit_FlyLoadsMaterializedVessel_NotStaleSelection` (#554/#550) always skipped with "SpaceTracking selection/Fly reflection helpers are unavailable" — confirmed in the 2026-06-09 isolated run (`../logs/2026-06-09_2319_pr1104-test-isolation/`). Decompiling KSP 1.12.5 `Assembly-CSharp.dll` (ilspycmd) showed the cause: stock `SpaceTracking.SetVessel` is `SetVessel(Vessel v, bool keepFocus)`; the test probed `GetMethod("SetVessel", ..., new[] { typeof(Vessel) }, ...)`, which has no match. `selectedVessel` and `BtnOnClick_FlySelectedVessel()` exist as probed.
+
+**Fix:** the canary now resolves `SetVessel` through `GhostMapPresence.FindTrackingStationSetVesselMethod` (widened to `internal`; prefers the two-arg stock signature, falls back to one-arg) and builds invoke args via the already-tested `BuildTrackingStationSetVesselArguments`. The graceful skip is kept for genuinely missing members and now names which probe failed. Note: decompile shows `SetVessel` has a same-frame re-entry guard (`lastSetVesselFrame == Time.frameCount`); the canary's ghost-focus call is prefix-blocked (original body skipped), so the follow-up materialized-vessel call still passes the guard. Unit tests: 2 new direct resolver tests in `GhostTrackingStationPatchTests`. In-game verification: pending next Tracking Station test session (run Isolated; the canary is `AllowBatchExecution=false`).
+
 ## Done 2026-06-09 - Zero-drift per-window reschedule: same-parent (Mun / Minmus) verify-and-harden (branch `zero-drift-harden`, Phases A-C)
 
 **Scope:** SAME-PARENT only (Kerbin -> Mun / Minmus, including land-and-return). The cross-parent "Duna-One-class" single-moon arrival hold is a different subsystem (re-aim, `UnsupportedCrossParent`) and is a separate sibling pass, not part of this work. The mechanism (`MissionPeriodicity` `NextJointNearCoincidenceUT` / `TryBuildRelaunchSchedule` / `MissionRelaunchSchedule`, attached in `MissionLoopUnitBuilder.TryBuildMissionUnit` and consumed by the shared `GhostPlaybackLogic` span clock across flight / KSC / Tracking Station) was already SHIPPED; this work lifted it to a flawless bar by closing the test-coverage / verification gaps, adding the missing self-defending guards, and fixing the stale docs.
