@@ -118,13 +118,14 @@ namespace Parsek
 
                 int currentLevel = facility.FacilityLevel;
 
-                if (currentLevel == targetLevel)
+                FacilityLevelDecision decision = ResolveFacilityLevelPatch(currentLevel, targetLedgerLevel);
+                if (!decision.ShouldWrite)
                 {
                     skippedCount++;
                     continue;
                 }
 
-                facility.SetLevel(targetLevel);
+                facility.SetLevel(decision.TargetKspLevel);
                 patchedCount++;
 
                 ParsekLog.Verbose(Tag,
@@ -208,6 +209,39 @@ namespace Parsek
             if (ledgerLevel <= 1) return 0;
             if (ledgerLevel >= 3) return 2;
             return ledgerLevel - 1;
+        }
+
+        /// <summary>
+        /// Pure decision core for one facility inside <see cref="PatchFacilities"/>
+        /// (apply-boundary test seam, audit gap 4 / rec #5). Maps the ledger tier to KSP's
+        /// zero-based level via <see cref="ToKspFacilityLevel"/> and decides whether a write is
+        /// needed by comparing against the live KSP level. Catches the off-by-one where a
+        /// ledger tier would be compared directly against a (zero-based) KSP level. Pure: no
+        /// KSP singletons touched.
+        /// </summary>
+        internal readonly struct FacilityLevelDecision
+        {
+            /// <summary>True when the live KSP level differs from the mapped target level.</summary>
+            internal readonly bool ShouldWrite;
+            /// <summary>The zero-based KSP level passed to UpgradeableFacility.SetLevel.</summary>
+            internal readonly int TargetKspLevel;
+
+            internal FacilityLevelDecision(bool shouldWrite, int targetKspLevel)
+            {
+                ShouldWrite = shouldWrite;
+                TargetKspLevel = targetKspLevel;
+            }
+        }
+
+        /// <summary>
+        /// Resolves a facility's level patch outcome from the live KSP level + the ledger tier.
+        /// Mirrors <see cref="PatchFacilities"/>: map the ledger tier to a KSP level, then write
+        /// iff it differs from the current KSP level. Pure.
+        /// </summary>
+        internal static FacilityLevelDecision ResolveFacilityLevelPatch(int currentKspLevel, int ledgerLevel)
+        {
+            int targetKspLevel = ToKspFacilityLevel(ledgerLevel);
+            return new FacilityLevelDecision(currentKspLevel != targetKspLevel, targetKspLevel);
         }
 
         /// <summary>

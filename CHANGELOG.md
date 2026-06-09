@@ -8,6 +8,10 @@ All notable changes to Parsek are documented here.
 
 - Maintenance and bug-fix release following up on issues found in post-0.10.0 career playtesting.
 
+### UI
+
+- Removed the per-recording loop (`L`) toggle from the Timeline window rows; it cluttered the list without a way to set the required loop interval. Manage looping (and its interval) from the Recordings tab as before.
+
 ### Settings
 
 - Removed four developer-only toggles (smoothing splines, anchor correction, anchor taxonomy, and outlier rejection) from the career Parsek settings tab. These were rollout gates that had settled on their on-by-default behavior, so the ghost-trajectory rendering pipeline is now always on with no toggle to flip.
@@ -38,6 +42,10 @@ All notable changes to Parsek are documented here.
 ### Internals & Tests
 
 - Added an in-game ledger ground-truth verification harness: it quicksaves the live career, parses that save independently of Parsek's bookkeeping, runs the career-state reconstruction, and reports any disagreement between the two. This is the closed self-check that catches a reconstruction drifting from your actual funds, science, reputation, or recovered vessels. Run it from the in-game test runner (Ctrl+Shift+T) under the `LedgerGroundTruth` category.
+
+### Internals & Tests
+
+- Added headless test coverage for the career-state apply boundary (the step that writes your funds, science, reputation, tech tree, and facility levels when Parsek rebuilds career state), so its value and clamp decisions are now verified directly in unit tests rather than only in the live game. No gameplay change.
 
 ## 0.10.0
 

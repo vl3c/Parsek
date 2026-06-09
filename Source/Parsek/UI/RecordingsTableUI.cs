@@ -5253,15 +5253,6 @@ namespace Parsek
             }
         }
 
-        /// <summary>
-        /// Clears any active loop-period text-edit focus. Called by TimelineWindowUI
-        /// when the L button toggles loop off, so a stale edit field doesn't linger.
-        /// </summary>
-        internal void ClearLoopPeriodFocus()
-        {
-            loopPeriodFocusedRi = -1;
-        }
-
         // --- Loop period cell ---
 
         private void DrawLoopPeriodCell(Recording rec, int ri)
