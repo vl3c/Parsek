@@ -1849,5 +1849,146 @@ namespace Parsek.Tests
             Assert.False(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
                 segs, "Kerbin", legStartUT: 100.0, legEndUT: 160.0));
         }
+
+        // ====================================================================
+        // Seam bridge (playtest-6): TryBuildSeamBridgeLocalPoints /
+        // SeamBridgeAngleRad / SelectBridgeArcIndex
+        // ====================================================================
+
+        // Helper: rotate v about the +Z axis by angle (radians) - the synthetic "planet spin".
+        private static Vector3d RotZ(Vector3d v, double angle)
+        {
+            double c = System.Math.Cos(angle), s = System.Math.Sin(angle);
+            return new Vector3d(v.x * c - v.y * s, v.x * s + v.y * c, v.z);
+        }
+
+        // Synthetic arc B: a gentle curve in the XY plane starting on +X at radius 700 km.
+        private static Vector3d[] MakeArcPoints(int count, double radius)
+        {
+            var pts = new Vector3d[count];
+            for (int i = 0; i < count; i++)
+            {
+                double sweep = 0.002 * i; // ~0.11 deg per sample, a slow prograde arc
+                pts[i] = RotZ(new Vector3d(radius, 0, 0), sweep) * (1.0 + 0.0005 * i);
+            }
+            return pts;
+        }
+
+        [Fact]
+        public void SeamBridge_EndpointsExact()
+        {
+            // endA = B's first sample rotated by 10 deg about Z and 2% closer to the body: the bridge
+            // must START exactly on endA and END exactly on B's merge sample.
+            var arc = MakeArcPoints(80, 700000.0);
+            const double seamAngle = 10.0 * System.Math.PI / 180.0;
+            Vector3d endA = RotZ(arc[0], seamAngle) * 0.98;
+            const int merge = 60;
+            var outPts = new Vector3d[merge + 1];
+
+            bool ok = GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                endA, arc, arcScale: 1.0, mergeCount: merge,
+                maxAngleRad: GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians,
+                outPoints: outPts, seamAngleRad: out double measured);
+
+            Assert.True(ok);
+            Assert.Equal(seamAngle, measured, 6);
+            Assert.True((outPts[0] - endA).magnitude < 1.0,
+                "bridge start must land on the leg end (off by " + (outPts[0] - endA).magnitude + " m)");
+            Assert.True((outPts[merge] - arc[merge]).magnitude < 1.0,
+                "bridge end must land on B's merge sample (off by " + (outPts[merge] - arc[merge]).magnitude + " m)");
+        }
+
+        [Fact]
+        public void SeamBridge_ZeroAngle_DegeneratesToArcLeadIn()
+        {
+            // Seam closed (endA == B[0]): the bridge IS B's lead-in, point for point.
+            var arc = MakeArcPoints(80, 700000.0);
+            const int merge = 60;
+            var outPts = new Vector3d[merge + 1];
+
+            bool ok = GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                arc[0], arc, 1.0, merge,
+                GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians, outPts, out double measured);
+
+            Assert.True(ok);
+            Assert.True(measured < 1e-6);
+            for (int i = 0; i <= merge; i += 15)
+                Assert.True((outPts[i] - arc[i]).magnitude < 1.0,
+                    "zero-angle bridge point " + i + " must equal B's sample");
+        }
+
+        [Fact]
+        public void SeamBridge_AngleTooLarge_NoBridge()
+        {
+            // 90 deg seam > the 45 deg gate: no bridge (honest gap instead of a wild spiral).
+            var arc = MakeArcPoints(80, 700000.0);
+            Vector3d endA = RotZ(arc[0], 90.0 * System.Math.PI / 180.0);
+            var outPts = new Vector3d[61];
+
+            bool ok = GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                endA, arc, 1.0, 60,
+                GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians, outPts, out double measured);
+
+            Assert.False(ok);
+            Assert.Equal(System.Math.PI / 2.0, measured, 6);
+        }
+
+        [Fact]
+        public void SeamBridge_DegenerateInputs_NoBridge()
+        {
+            var arc = MakeArcPoints(80, 700000.0);
+            var outPts = new Vector3d[61];
+            // Zero-length A end.
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                Vector3d.zero, arc, 1.0, 60, 10.0, outPts, out _));
+            // Antiparallel rays (no unique axis) - even with a permissive gate.
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                -arc[0], arc, 1.0, 60, 10.0, outPts, out _));
+            // Null / too-short buffers.
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                arc[0], null, 1.0, 60, 10.0, outPts, out _));
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                arc[0], arc, 1.0, 60, 10.0, new Vector3d[10], out _));
+            // mergeCount beyond the arc sample count.
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                arc[0], MakeArcPoints(30, 700000.0), 1.0, 60, 10.0, outPts, out _));
+        }
+
+        [Fact]
+        public void SeamBridgeAngleRad_MeasuresRayAngle_DegenerateIsInfinite()
+        {
+            Vector3d x = new Vector3d(1000.0, 0, 0);
+            Assert.Equal(System.Math.PI / 2.0,
+                GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(x, new Vector3d(0, 2000.0, 0)), 9);
+            Assert.Equal(0.0, GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(x, x * 5.0), 9);
+            Assert.True(double.IsPositiveInfinity(
+                GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(Vector3d.zero, x)));
+        }
+
+        [Fact]
+        public void SelectBridgeArcIndex_PicksEarliestSameBodyContinuation()
+        {
+            var arcs = new GhostTrajectoryPolylineRenderer.ForwardArc[]
+            {
+                new GhostTrajectoryPolylineRenderer.ForwardArc { bodyName = "Kerbin", startUT = 900.0, endUT = 2000.0 },
+                new GhostTrajectoryPolylineRenderer.ForwardArc { bodyName = "Mun", startUT = 210.0, endUT = 400.0 },
+                new GhostTrajectoryPolylineRenderer.ForwardArc { bodyName = "Kerbin", startUT = 204.0, endUT = 800.0 },
+                new GhostTrajectoryPolylineRenderer.ForwardArc { bodyName = "Kerbin", startUT = 100.0, endUT = 195.0 },
+            };
+            // Leg ends at 200: arc[2] (Kerbin, 204) is the earliest same-body continuation; arc[3]
+            // starts before legEnd-1 (a PAST arc); arc[1] is another body; arc[0] is too late but
+            // within the window - still beaten by arc[2].
+            Assert.Equal(2, GhostTrajectoryPolylineRenderer.SelectBridgeArcIndex(
+                arcs, "Kerbin", legEndUT: 200.0,
+                maxSeamGapSeconds: GhostTrajectoryPolylineRenderer.BridgeMaxSeamGapSeconds));
+            // Gap tolerance: with a 1 s max gap nothing qualifies (arc[2] starts 4 s after).
+            Assert.Equal(-1, GhostTrajectoryPolylineRenderer.SelectBridgeArcIndex(
+                arcs, "Kerbin", legEndUT: 200.0, maxSeamGapSeconds: 1.0));
+            // No same-body arcs / null inputs.
+            Assert.Equal(-1, GhostTrajectoryPolylineRenderer.SelectBridgeArcIndex(
+                arcs, "Duna", 200.0, 120.0));
+            Assert.Equal(-1, GhostTrajectoryPolylineRenderer.SelectBridgeArcIndex(
+                null, "Kerbin", 200.0, 120.0));
+        }
     }
 }

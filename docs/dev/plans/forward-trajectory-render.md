@@ -213,6 +213,25 @@ forward leg whose anchor is residual-rejected. One-sided legs (launch ascent,
 descent-to-surface) draw ONLY under the head, where body-fixed is correct (the
 live ghost is glued to the pad/terrain).
 
+**Seam bridge (playtest 6, 2026-06-10).** While the icon rides a body-fixed head
+leg, the leg's end still trails the first inertial run arc by the
+rotation-over-shift angle (a visible gap that only closes as the icon reaches
+the handoff). A per-frame BRIDGE fills it WITH THE ARC'S OWN CURVATURE: the
+bridge draws the target arc's first `BridgeMergeSampleCount` (60) samples with
+the seam rotation unwound along them — sample i rotated about the seam axis (the
+minimal-rotation axis between B's first-sample ray and A's end ray, which for
+same-latitude seam points IS the body spin axis) by `seamAngle*(1 - i/60)`, with
+a radial blend so point 0 lands EXACTLY on the leg's drawn end and point 60
+lands EXACTLY on the arc. While bridging, the target arc's draw range starts at
+sample 60, so the bridge REPLACES its lead-in (never a double line), and as the
+gap closes the bridge degenerates continuously into the arc itself — no pop at
+handoff. Gated: seam angle <= 45 deg (`BridgeMaxAngleRadians`; a wilder gap
+draws honestly as a gap), seam UT gap <= 120 s (`BridgeMaxSeamGapSeconds`),
+same-body only (`IsBridgeArcCandidate`). Pure geometry in
+`TryBuildSeamBridgeLocalPoints` (Rodrigues, no Unity ECalls, xUnit-covered);
+decide-side arming in `DecideForwardWindowForRecording`; draw in
+`TryDrawSeamBridge` (post-pan onPreCull slot, after legs + arcs).
+
 ### Step 1 — Pure forward-window computation (always available, unit-tested)
 
 Add a standalone, Unity-free helper (in `TrajectoryMath.cs`, or a small new
