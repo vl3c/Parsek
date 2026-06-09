@@ -238,8 +238,9 @@ The sampler emits BODY-LOCAL points; the forward-arc `VectorLine` (Step 3 C) mus
 convert them exactly as the stock patch does:
 `ScaledSpace.LocalToScaledSpace(orbitPoints, line.points3)`
 (`GhostOrbitLinePatch.cs:1091`). It must NOT route through the leg pipeline's
-`CelestialBody.GetWorldSurfacePosition(lat,lon,alt) - body.position`
-(`GhostTrajectoryPolylineRenderer.cs:560`), which is for surface-relative leg
+surface-relative conversion (`GetWorldSurfacePosition(lat,lon,alt)` then
+`bodyCentreScaled + (world - bodyPos) * invScale`, the leg-draw hot path at
+`GhostTrajectoryPolylineRenderer.cs:1528-1531`), which is for surface-relative leg
 points. Both land in absolute scaled space, so the arc<->leg seam stays
 continuous, but the conversion source differs and the forward arc must use the
 Kepler-local one.
