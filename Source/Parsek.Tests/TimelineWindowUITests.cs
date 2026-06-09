@@ -27,13 +27,11 @@ namespace Parsek.Tests
             float watch = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.Watch);
             float fastForward = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.FastForward);
             float rewind = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.Rewind);
-            float loop = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.Loop);
             float goTo = TimelineWindowUI.GetRowActionButtonWidth(TimelineWindowUI.TimelineRowActionButtonKind.GoTo);
 
             Assert.Equal(40f, watch);
             Assert.Equal(watch, fastForward);
             Assert.Equal(watch, rewind);
-            Assert.Equal(watch, loop);
             Assert.Equal(48f, goTo);
             Assert.True(goTo > watch);
         }
@@ -81,56 +79,6 @@ namespace Parsek.Tests
                 entryUT: 430, currentUT: 100, showCountdownTime: true);
 
             Assert.Equal("T-5m 30s", label);
-        }
-
-        [Fact]
-        public void ShouldShowLoopToggle_FutureRecording_ReturnsFalse()
-        {
-            var rec = new Recording { LaunchSiteName = "LaunchPad" };
-
-            Assert.False(TimelineWindowUI.ShouldShowLoopToggle(rec, isFuture: true));
-        }
-
-        [Fact]
-        public void ShouldShowLoopToggle_PastLoopableRecording_ReturnsTrue()
-        {
-            var rec = new Recording { SegmentPhase = "atmo" };
-
-            Assert.True(TimelineWindowUI.ShouldShowLoopToggle(rec, isFuture: false));
-        }
-
-        [Fact]
-        public void ShouldShowLoopToggle_PastActiveLoopOutsideHeuristic_ReturnsTrue()
-        {
-            var rec = new Recording { LoopPlayback = true };
-
-            Assert.True(TimelineWindowUI.ShouldShowLoopToggle(rec, isFuture: false));
-        }
-
-        [Fact]
-        public void ShouldShowLoopToggle_PastNonLoopableInactiveRecording_ReturnsFalse()
-        {
-            var rec = new Recording();
-
-            Assert.False(TimelineWindowUI.ShouldShowLoopToggle(rec, isFuture: false));
-        }
-
-        [Fact]
-        public void ShouldShowLoopToggle_PastLoopableUnfinishedFlight_ReturnsFalse()
-        {
-            var rec = new Recording { SegmentPhase = "atmo" };
-
-            Assert.False(TimelineWindowUI.ShouldShowLoopToggle(
-                rec, isFuture: false, isUnfinishedFlight: true));
-        }
-
-        [Fact]
-        public void ShouldShowLoopToggle_PastActiveLoopUnfinishedFlight_ReturnsFalse()
-        {
-            var rec = new Recording { LoopPlayback = true };
-
-            Assert.False(TimelineWindowUI.ShouldShowLoopToggle(
-                rec, isFuture: false, isUnfinishedFlight: true));
         }
 
         [Fact]

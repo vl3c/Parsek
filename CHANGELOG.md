@@ -8,6 +8,10 @@ All notable changes to Parsek are documented here.
 
 - Maintenance and bug-fix release following up on issues found in post-0.10.0 career playtesting.
 
+### UI
+
+- Removed the per-recording loop (`L`) toggle from the Timeline window rows; it cluttered the list without a way to set the required loop interval. Manage looping (and its interval) from the Recordings tab as before.
+
 ### Bug Fixes
 
 - Fixed a critical data-loss bug where reverting a flight (stock Revert to Launch or Prelaunch) could silently delete your real, separately launched landed or orbiting craft from unrelated missions. A revert now only undoes the flight you actually reverted, and it identifies vessels by their unique launch rather than the craft name, so other craft that merely share a vessel design or its baked id are never removed.
