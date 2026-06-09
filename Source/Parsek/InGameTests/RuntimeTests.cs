@@ -9921,6 +9921,71 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// OrbitArcSampler (Step 2 of docs/dev/plans/forward-trajectory-render.md) is the Unity-coupled
+        /// shared arc sampler the forward-trajectory render path (path C) and the refactored stock-arc patch
+        /// (path A) both call. Its pure anomaly branching (<see cref="Parsek.Patches.ArcAnomalyMath"/>) is
+        /// xUnit-covered, but the live stock-Orbit sampling (EccentricAnomalyAtUT /
+        /// getPositionFromEccAnomalyWithSemiMinorAxis) only runs in-game, so this exercises it against a real
+        /// Orbit exactly as <c>RefreshForwardArcs</c> does: the 8-arg constructor with NO Init(), matching the
+        /// existing orbit-position sites (GhostTrajectoryPolylineRenderer.cs:739 / TrajectoryMath.cs:214) that
+        /// prove the constructor alone is sufficient. This is NOT the visual confirmation (continuous line /
+        /// termination at the parking orbit + SOI edge stays a manual playtest); it proves the sampler yields
+        /// a finite OPEN arc for elliptical + hyperbolic segments and routes degenerate inputs to stock.
+        /// </summary>
+        [InGameTest(Category = "ForwardRender", Scene = GameScenes.FLIGHT,
+            Description = "OrbitArcSampler clips a live stock Orbit to a finite open arc (elliptical / hyperbolic / degenerate)")]
+        public void OrbitArcSampler_ClipsLiveOrbitToOpenArc()
+        {
+            bool Finite(Vector3d v) =>
+                !double.IsNaN(v.x) && !double.IsInfinity(v.x)
+                && !double.IsNaN(v.y) && !double.IsInfinity(v.y)
+                && !double.IsNaN(v.z) && !double.IsInfinity(v.z);
+
+            CelestialBody body = FlightGlobals.GetHomeBody();
+            InGameAssert.IsTrue(body != null, "home body must resolve in FLIGHT");
+
+            double mu = body.gravParameter;
+            double sma = body.Radius + 200000.0; // 200 km above surface: safely above the surface
+            double period = 2.0 * System.Math.PI * System.Math.Sqrt(sma * sma * sma / mu);
+
+            var buffer = new Vector3d[Parsek.Display.GhostTrajectoryPolylineRenderer.ForwardArcSampleCount];
+            InGameAssert.AreEqual(180, buffer.Length, "forward arc sample count is 180");
+
+            // Elliptical partial arc (quarter period): mirrors RefreshForwardArcs (8-arg ctor, no Init).
+            var ell = new Orbit(0.0, 0.1, sma, 0.0, 0.0, 0.0, 0.0, body);
+            Parsek.OrbitArcSampler.ArcSampleResult res =
+                Parsek.OrbitArcSampler.SampleSegmentArc(ell, 0.0, period * 0.25, buffer);
+            InGameAssert.IsTrue(res.Sampled, "elliptical partial arc must sample");
+            InGameAssert.IsFalse(res.Hyperbolic, "ecc<1 must not be flagged hyperbolic");
+            InGameAssert.AreEqual(180, res.Count, "elliptical sample fills the whole buffer");
+            for (int i = 0; i < res.Count; i++)
+                InGameAssert.IsTrue(Finite(buffer[i]), "every elliptical sample point must be finite");
+            InGameAssert.IsTrue(buffer[0].magnitude > body.Radius * 0.5,
+                "sampled points sit at orbital distance from the body centre (body-local)");
+            InGameAssert.IsTrue((buffer[0] - buffer[res.Count - 1]).magnitude > 1000.0,
+                "a quarter-period arc is OPEN: its endpoints are distinct");
+
+            // Hyperbolic arc (ecc>1, negative sma): open, flagged hyperbolic, no periapsis wraparound.
+            var hyp = new Orbit(0.0, 1.5, -(body.Radius + 100000.0), 0.0, 0.0, 0.0, 0.0, body);
+            Parsek.OrbitArcSampler.ArcSampleResult hres =
+                Parsek.OrbitArcSampler.SampleSegmentArc(hyp, -200.0, 200.0, buffer);
+            InGameAssert.IsTrue(hres.Sampled, "hyperbolic arc must sample");
+            InGameAssert.IsTrue(hres.Hyperbolic, "ecc>1 must be flagged hyperbolic");
+            InGameAssert.AreEqual(180, hres.Count, "hyperbolic sample fills the whole buffer");
+            for (int i = 0; i < hres.Count; i++)
+                InGameAssert.IsTrue(Finite(buffer[i]), "every hyperbolic sample point must be finite");
+
+            // Degenerate inputs route to stock (Sampled == false): too-short buffer, then null orbit.
+            var tooShort = new Vector3d[1];
+            InGameAssert.IsFalse(
+                Parsek.OrbitArcSampler.SampleSegmentArc(ell, 0.0, period * 0.25, tooShort).Sampled,
+                "a buffer shorter than 2 must not sample (caller routes to stock)");
+            InGameAssert.IsFalse(
+                Parsek.OrbitArcSampler.SampleSegmentArc(null, 0.0, 1.0, buffer).Sampled,
+                "a null orbit must not sample");
+        }
+
+        /// <summary>
         /// Phase 8c / 8e S4 marker-draw / proto-icon-suppression decision, end-to-end through the
         /// Unity-coupled wrapper <see cref="GhostMapPresence.ShouldDrawNonProtoMarkerForGhost"/> - the
         /// SINGLE source both marker call sites (flight-map <c>DrawMapMarkers</c> + TS

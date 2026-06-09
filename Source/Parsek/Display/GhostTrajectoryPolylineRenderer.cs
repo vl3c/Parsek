@@ -119,6 +119,13 @@ namespace Parsek.Display
         private static readonly Dictionary<string, ForwardArcSet> forwardArcCache =
             new Dictionary<string, ForwardArcSet>(StringComparer.Ordinal);
 
+        // Reusable scratch buffer for OrbitArcSampler.SampleSegmentArc output (body-LOCAL points). The
+        // sampler fills it transiently and RefreshForwardArcs copies the body-relative offsets out into each
+        // arc's own array before the next sample, so a single shared buffer is safe (the map render loop is
+        // single-threaded; RefreshForwardArcs runs sequentially per recording). Avoids a per-cache-miss
+        // 180-element allocation on the multi-ghost map walk.
+        private static readonly Vector3d[] forwardArcSampleScratch = new Vector3d[ForwardArcSampleCount];
+
         /// <summary>
         /// Marker ride-robustness (pan-stability): the last on-line position the marker successfully
         /// rode for a recording, kept so a TRANSIENT ride dropout (the leg was not drawn this frame -
@@ -2939,7 +2946,7 @@ namespace Parsek.Display
                 int sampled = 0;
                 int routedToStock = 0;
                 int bodyMissing = 0;
-                var buffer = new Vector3d[ForwardArcSampleCount];
+                Vector3d[] buffer = forwardArcSampleScratch; // reused; fully consumed into each arc's rel[] below
                 for (int k = 0; k < arcIndices.Count; k++)
                 {
                     int segIdx = arcIndices[k];
