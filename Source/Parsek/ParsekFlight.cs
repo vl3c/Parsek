@@ -759,6 +759,16 @@ namespace Parsek
         // transport parts and gives DOCK_ENDPOINT_RESOURCES = transport + endpoint).
         private ConfigNode pendingDockPartnerSnapshot;
         private uint pendingDockPartnerSnapshotPid;
+        // Pre-couple SELF (transport / recorded vessel) snapshot, captured in OnPartCouple
+        // while data.from and data.to still reference DISTINCT vessels. Mirror of
+        // pendingDockPartnerSnapshot for the transport side: CreateMergeBranch uses it to
+        // build the route window's DOCK_TRANSPORT_RESOURCES baseline from the transport's
+        // pre-dock state, so a same-frame stock crossfeed equalisation that drained the
+        // transport tank into the depot does not deflate the baseline and trip the strict
+        // MixedPickupDelivery pickup gate on a clean delivery run. Cleared with the partner
+        // snapshot.
+        private ConfigNode pendingDockSelfSnapshot;
+        private uint pendingDockSelfSnapshotPid;
         private RouteEndpoint? pendingDockRouteEndpointAtDock;
         private int pendingDockRouteEndpointSituation = -1;
         private bool pendingBoardingTargetInTree;    // true if boarding target is in the tree
@@ -5231,6 +5241,28 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns whichever of <c>data.from.vessel</c> / <c>data.to.vessel</c> is the
+        /// recorder's OWN (transport) vessel, matched by <paramref name="recordingVesselId"/>,
+        /// INCLUDING when that side is the dock survivor (<c>data.to.vessel</c>, whose pid
+        /// becomes the merged pid). Used to capture a pre-couple transport snapshot for the
+        /// route window's DOCK_TRANSPORT_RESOURCES baseline. Returns null when neither side
+        /// matches (the recorder is observing a third vessel), in which case the caller
+        /// falls back to the post-couple merged snapshot (current behaviour). Unlike a dock
+        /// PARTNER, the transport often IS the survivor, so this must NOT pick the
+        /// non-survivor side the way <see cref="ResolveDockPartnerPidFromEvent"/> does.
+        /// </summary>
+        private static Vessel ResolveSelfVessel(
+            GameEvents.FromToAction<Part, Part> data, uint recordingVesselId)
+        {
+            if (recordingVesselId == 0) return null;
+            if (data.from?.vessel != null && data.from.vessel.persistentId == recordingVesselId)
+                return data.from.vessel;
+            if (data.to?.vessel != null && data.to.vessel.persistentId == recordingVesselId)
+                return data.to.vessel;
+            return null;
+        }
+
+        /// <summary>
         /// Validation gate for route-eligibility of a dock partner. Returns true when
         /// the partner has a known Parsek recording — either an entry in the current
         /// <paramref name="activeTreeRecordings"/> (excluding the recorder's own
@@ -5460,6 +5492,14 @@ namespace Parsek
                     endpointPreCoupleSnapshot = pendingDockPartnerSnapshot;
                 }
 
+                // Pre-couple transport baseline captured in OnPartCouple (before the
+                // same-frame stock crossfeed equalisation that the deferred merged
+                // snapshot would otherwise bake in, deflating DOCK_TRANSPORT_RESOURCES and
+                // tripping the MixedPickupDelivery gate). BuildDockRouteConnectionWindow
+                // self-validates it against the transport PID set and falls back to the
+                // merged snapshot when absent / mismatched, so this is unconditional.
+                ConfigNode transportPreCoupleSnapshot = pendingDockSelfSnapshot;
+
                 List<uint> endpointPartPids = null;
                 if (endpointPreCoupleSnapshot != null)
                 {
@@ -5527,7 +5567,8 @@ namespace Parsek
                     endpointPartPids,
                     endpointAtDock,
                     endpointSituation,
-                    endpointPreCoupleSnapshot);
+                    endpointPreCoupleSnapshot,
+                    transportPreCoupleSnapshot);
 
                 if (window != null)
                 {
@@ -10543,6 +10584,8 @@ namespace Parsek
                 // inflates the baseline with the transport's tank.
                 pendingDockPartnerSnapshot = null;
                 pendingDockPartnerSnapshotPid = 0u;
+                pendingDockSelfSnapshot = null;
+                pendingDockSelfSnapshotPid = 0u;
                 if (data.from?.vessel != null && data.to?.vessel != null &&
                     data.from.vessel != data.to.vessel)
                 {
@@ -10575,6 +10618,18 @@ namespace Parsek
                         ParsekLog.Verbose("Flight",
                             $"OnPartCouple: captured pre-couple partner snapshot " +
                             $"partnerPid={pendingDockPartnerSnapshotPid} parts={partner.parts.Count}");
+                    }
+
+                    // Capture the recorder's own (transport) pre-couple snapshot for the
+                    // route window transport baseline (mirror of the partner snapshot above).
+                    Vessel self = ResolveSelfVessel(data, recorder.RecordingVesselId);
+                    if (self != null && self.parts != null && self.parts.Count > 0)
+                    {
+                        pendingDockSelfSnapshot = VesselSpawner.TryBackupSnapshot(self);
+                        pendingDockSelfSnapshotPid = self.persistentId;
+                        ParsekLog.Verbose("Flight",
+                            $"OnPartCouple: captured pre-couple self snapshot " +
+                            $"selfPid={pendingDockSelfSnapshotPid} parts={self.parts.Count}");
                     }
                 }
             }
@@ -10695,6 +10750,8 @@ namespace Parsek
                     // eligibility check so partnerSnapshotCaptured can vote yes.
                     pendingDockPartnerSnapshot = null;
                     pendingDockPartnerSnapshotPid = 0u;
+                    pendingDockSelfSnapshot = null;
+                    pendingDockSelfSnapshotPid = 0u;
                     if (data.from?.vessel != null && data.to?.vessel != null &&
                         data.from.vessel != data.to.vessel)
                     {
@@ -10708,6 +10765,20 @@ namespace Parsek
                             ParsekLog.Verbose("Flight",
                                 $"OnPartCouple (retroactive): captured pre-couple partner snapshot " +
                                 $"partnerPid={pendingDockPartnerSnapshotPid} parts={partnerR.parts.Count}");
+                        }
+
+                        // Mirror: the recorder's own (transport) pre-couple snapshot. In the
+                        // retroactive path the recorder is already stopped and KSP may have
+                        // reparented; this only fires while from/to are still distinct, else
+                        // it stays null and the merged snapshot is used (accepted §5.1 risk).
+                        Vessel selfR = ResolveSelfVessel(data, recorder.RecordingVesselId);
+                        if (selfR != null && selfR.parts != null && selfR.parts.Count > 0)
+                        {
+                            pendingDockSelfSnapshot = VesselSpawner.TryBackupSnapshot(selfR);
+                            pendingDockSelfSnapshotPid = selfR.persistentId;
+                            ParsekLog.Verbose("Flight",
+                                $"OnPartCouple (retroactive): captured pre-couple self snapshot " +
+                                $"selfPid={pendingDockSelfSnapshotPid} parts={selfR.parts.Count}");
                         }
                     }
 
@@ -11761,6 +11832,8 @@ namespace Parsek
                     pendingDockRouteTargetPid = 0;
                     pendingDockPartnerSnapshot = null;
                     pendingDockPartnerSnapshotPid = 0u;
+                    pendingDockSelfSnapshot = null;
+                    pendingDockSelfSnapshotPid = 0u;
                     pendingDockRouteEndpointAtDock = null;
                     pendingDockRouteEndpointSituation = -1;
                     dockConfirmFrames = 0;
@@ -11898,6 +11971,8 @@ namespace Parsek
             pendingDockRouteTargetPid = 0;
             pendingDockPartnerSnapshot = null;
             pendingDockPartnerSnapshotPid = 0u;
+            pendingDockSelfSnapshot = null;
+            pendingDockSelfSnapshotPid = 0u;
             pendingDockRouteEndpointAtDock = null;
             pendingDockRouteEndpointSituation = -1;
         }
@@ -11973,6 +12048,8 @@ namespace Parsek
             pendingDockRouteTargetPid = 0;
             pendingDockPartnerSnapshot = null;
             pendingDockPartnerSnapshotPid = 0u;
+            pendingDockSelfSnapshot = null;
+            pendingDockSelfSnapshotPid = 0u;
             pendingDockRouteEndpointAtDock = null;
             pendingDockRouteEndpointSituation = -1;
             dockConfirmFrames = 0;
