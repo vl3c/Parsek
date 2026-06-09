@@ -39,26 +39,13 @@ namespace Parsek.Rendering
     /// </summary>
     internal static class SmoothingPipeline
     {
-        // Cached configuration hash. Computed once per (config,
-        // useAnchorTaxonomy, useOutlierRejection) tuple. The
-        // `useSmoothingSplines` toggle is intentionally NOT in the hash —
-        // toggling it does not invalidate fitted splines, it just controls
-        // whether the consumer reads them. The `useAnchorTaxonomy` toggle
-        // IS in the hash (Phase 6 follow-up, ultrareview P1-A): the
-        // candidate writer emits an empty AnchorCandidatesList when the
-        // flag is off, and a populated one when on, so a stale cached hash
-        // would false-positive against a freshly-flipped flag and let the
-        // load path skip the lazy-recompute. The hash is keyed on the flag
-        // values so a flip blows out the cache, and ClassifyDrift compares
-        // the probed file's hash against the current one — flag flip →
-        // drift → discard + recompute.
+        // Cached configuration hash, computed once per process over the
+        // smoothing config + outlier thresholds (both compile-time
+        // constants today). ClassifyDrift compares a probed .pann's stored
+        // hash against this one, so changing a threshold or the spline
+        // config drifts every cached .pann and forces a recompute (HR-10).
         private static readonly object s_configHashLock = new object();
         private static byte[] s_cachedConfigurationHash;
-        private static bool s_cachedConfigurationHashAnchorFlag;
-        // Phase 8 (design doc §14, §17.3.1 ConfigurationHash table). The
-        // useOutlierRejection flag participates in the cache key so a flip
-        // invalidates every cached .pann via config-hash-drift (HR-10).
-        private static bool s_cachedConfigurationHashOutlierFlag;
 
         // Phase 8 cluster-warn dedup (design doc §19.2 Outlier Rejection
         // "Cluster threshold exceeded → low-fidelity tag" Warn). Per-session
@@ -136,8 +123,7 @@ namespace Parsek.Rendering
                 $"fitOk={fitOk} fitFailed={fitFailed} skipped={skipped}");
 
             // Phase 6: emit anchor candidates for the same recording. The
-            // builder is a pure function, gated internally by the
-            // useAnchorTaxonomy flag. Resolved on the same call site as
+            // builder is a pure function resolved on the same call site as
             // spline-fit so loaders and committers see candidates and splines
             // populate / persist together.
             RecordingTree tree = ResolveTree(recordingId);
@@ -204,27 +190,21 @@ namespace Parsek.Rendering
             // Phase 8 (design doc §14, §18 Phase 8): classify samples
             // before the spline is fit so kraken-event single-frame
             // teleports do not deflect the spline through their
-            // implausible coordinates. The classifier is gated on the
-            // useOutlierRejection rollout flag; off → null flags →
-            // legacy fit-everything behaviour.
-            OutlierFlags outliers = null;
-            if (ResolveUseOutlierRejection())
+            // implausible coordinates.
+            OutlierThresholds thresholds = OutlierThresholds.Default;
+            Func<string, CelestialBody> classifierBodyResolver = ResolveBody;
+            OutlierFlags outliers = OutlierClassifier.Classify(
+                rec, i, thresholds, classifierBodyResolver);
+            if (outliers != null && outliers.RejectedCount > 0)
             {
-                OutlierThresholds thresholds = OutlierThresholds.Default;
-                Func<string, CelestialBody> classifierBodyResolver = ResolveBody;
-                outliers = OutlierClassifier.Classify(
-                    rec, i, thresholds, classifierBodyResolver);
-                if (outliers != null && outliers.RejectedCount > 0)
-                {
-                    SectionAnnotationStore.PutOutlierFlags(recordingId, i, outliers);
-                    // Cluster warn (§19.2 "Cluster threshold exceeded →
-                    // low-fidelity tag"). Per-session dedup so a flag-
-                    // flip recompute does not double-log.
-                    bool clusterBitSet = (outliers.ClassifierMask
-                        & (byte)OutlierClassifier.ClassifierBit.Cluster) != 0;
-                    if (clusterBitSet)
-                        EmitClusterWarnOnce(recordingId, i, outliers, thresholds);
-                }
+                SectionAnnotationStore.PutOutlierFlags(recordingId, i, outliers);
+                // Cluster warn (§19.2 "Cluster threshold exceeded →
+                // low-fidelity tag"). Per-session dedup so a recompute
+                // does not double-log.
+                bool clusterBitSet = (outliers.ClassifierMask
+                    & (byte)OutlierClassifier.ClassifierBit.Cluster) != 0;
+                if (clusterBitSet)
+                    EmitClusterWarnOnce(recordingId, i, outliers, thresholds);
             }
 
             var sw = Stopwatch.StartNew();
@@ -595,8 +575,6 @@ namespace Parsek.Rendering
             lock (s_configHashLock)
             {
                 s_cachedConfigurationHash = null;
-                s_cachedConfigurationHashAnchorFlag = false;
-                s_cachedConfigurationHashOutlierFlag = false;
             }
             lock (s_frameDecisionLock)
             {
@@ -608,8 +586,6 @@ namespace Parsek.Rendering
             }
             BodyResolverForTesting = null;
             TreeResolverForTesting = null;
-            UseOutlierRejectionResolverForTesting = null;
-            AnchorCandidateBuilder.ResetForTesting();
         }
 
         // ---- helpers ----
@@ -691,44 +667,19 @@ namespace Parsek.Rendering
 
         private static byte[] CurrentConfigurationHash()
         {
-            // Read the flags through their resolver helpers so the test
-            // overrides and production settings flow through one path. The
-            // cache is invalidated whenever any flag flips.
-            bool anchorFlag = AnchorCandidateBuilder.ResolveUseAnchorTaxonomy();
-            bool outlierFlag = ResolveUseOutlierRejection();
+            // The smoothing config + outlier thresholds are compile-time
+            // constants, so the hash is computed once and cached for the
+            // process (it still drifts cached .pann files whenever those
+            // constants or the AlgorithmStampVersion change — HR-10).
             lock (s_configHashLock)
             {
-                if (s_cachedConfigurationHash == null
-                    || s_cachedConfigurationHashAnchorFlag != anchorFlag
-                    || s_cachedConfigurationHashOutlierFlag != outlierFlag)
+                if (s_cachedConfigurationHash == null)
                 {
                     s_cachedConfigurationHash = PannotationsSidecarBinary.ComputeConfigurationHash(
-                        SmoothingConfiguration.Default, anchorFlag, outlierFlag);
-                    s_cachedConfigurationHashAnchorFlag = anchorFlag;
-                    s_cachedConfigurationHashOutlierFlag = outlierFlag;
+                        SmoothingConfiguration.Default);
                 }
                 return s_cachedConfigurationHash;
             }
-        }
-
-        /// <summary>
-        /// Phase 8 test seam: when set, returned in place of
-        /// <see cref="ParsekSettings.useOutlierRejection"/>.
-        /// </summary>
-        internal static System.Func<bool> UseOutlierRejectionResolverForTesting;
-
-        /// <summary>
-        /// Resolves the Phase 8 <c>useOutlierRejection</c> flag through the
-        /// test seam first, then through <see cref="ParsekSettings.Current"/>.
-        /// Defaults to true when <c>Current</c> is null (matches the shipped
-        /// default).
-        /// </summary>
-        internal static bool ResolveUseOutlierRejection()
-        {
-            var seam = UseOutlierRejectionResolverForTesting;
-            if (seam != null) return seam();
-            ParsekSettings settings = ParsekSettings.Current;
-            return settings?.useOutlierRejection ?? true;
         }
 
         private static long SafeFileLength(string path)

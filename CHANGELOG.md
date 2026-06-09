@@ -8,6 +8,10 @@ All notable changes to Parsek are documented here.
 
 - Maintenance and bug-fix release following up on issues found in post-0.10.0 career playtesting.
 
+### Settings
+
+- Removed four developer-only toggles (smoothing splines, anchor correction, anchor taxonomy, and outlier rejection) from the career Parsek settings tab. These were rollout gates that had settled on their on-by-default behavior, so the ghost-trajectory rendering pipeline is now always on with no toggle to flip.
+
 ### Bug Fixes
 
 - Fixed a critical data-loss bug where reverting a flight (stock Revert to Launch or Prelaunch) could silently delete your real, separately launched landed or orbiting craft from unrelated missions. A revert now only undoes the flight you actually reverted, and it identifies vessels by their unique launch rather than the craft name, so other craft that merely share a vessel design or its baked id are never removed.

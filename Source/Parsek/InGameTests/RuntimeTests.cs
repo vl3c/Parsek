@@ -20237,8 +20237,6 @@ namespace Parsek.InGameTests
 
             Parsek.Rendering.RenderSessionState.ResetForTesting();
             Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-            Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
-            Parsek.Rendering.AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
 
             var l1 = MakeAnchorTestRecording("dag-l1", bpUT1, -0.097, -74.55, 100.0);
             var l2u = MakeAnchorTestRecording("dag-l2u", bpUT1, -0.097, -74.55, 100.0);
@@ -20313,7 +20311,6 @@ namespace Parsek.InGameTests
 
             Parsek.Rendering.RenderSessionState.ResetForTesting();
             Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-            Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
             yield break;
         }
 
@@ -20395,7 +20392,6 @@ namespace Parsek.InGameTests
 
             Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
             Parsek.Rendering.SmoothingPipeline.ResetForTesting();
-            Parsek.Rendering.SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
 
             var rec = new Recording
             {
@@ -20502,8 +20498,7 @@ namespace Parsek.InGameTests
 
             // Clear test seams so subsequent in-game tests in the same
             // session start from a clean slate; ResetForTesting clears
-            // BodyResolverForTesting and UseOutlierRejectionResolverForTesting
-            // alongside the dedup sets.
+            // BodyResolverForTesting alongside the dedup sets.
             Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
             Parsek.Rendering.SmoothingPipeline.ResetForTesting();
             yield break;
@@ -20753,9 +20748,7 @@ namespace Parsek.InGameTests
 
             Parsek.Rendering.RenderSessionState.ResetForTesting();
             Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-            Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
             Parsek.Rendering.AnchorPropagator.ResetForTesting();
-            Parsek.Rendering.AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
 
             var parent = MakeAnchorTestRecording("dock-parent", bpUT, 0, 0, 100);
             var child = MakeAnchorTestRecording("dock-child", bpUT, 0, 0, 100);
@@ -20803,7 +20796,6 @@ namespace Parsek.InGameTests
 
             Parsek.Rendering.RenderSessionState.ResetForTesting();
             Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-            Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
             Parsek.Rendering.AnchorPropagator.ResetForTesting();
             yield break;
         }
@@ -20825,7 +20817,6 @@ namespace Parsek.InGameTests
             // child must receive no anchor slot.
             Parsek.Rendering.RenderSessionState.ResetForTesting();
             Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-            Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
             Parsek.Rendering.AnchorPropagator.ResetForTesting();
 
             const double bpUT = 1234.0;
@@ -20844,8 +20835,6 @@ namespace Parsek.InGameTests
 
             try
             {
-                Parsek.Rendering.AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
-
                 var seed = new Vector3d(7.0, 0.0, 0.0);
                 Parsek.Rendering.RenderSessionState.PutAnchorForTesting(
                     new Parsek.Rendering.AnchorCorrection(
@@ -20881,7 +20870,6 @@ namespace Parsek.InGameTests
             {
                 Parsek.Rendering.RenderSessionState.ResetForTesting();
                 Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-                Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
                 Parsek.Rendering.AnchorPropagator.ResetForTesting();
             }
             yield break;
@@ -20908,9 +20896,7 @@ namespace Parsek.InGameTests
 
             Parsek.Rendering.RenderSessionState.ResetForTesting();
             Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-            Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
             Parsek.Rendering.AnchorPropagator.ResetForTesting();
-            Parsek.Rendering.AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
 
             var rec = MakeAnchorTestRecording(testName + "-rec", anchorUT, 0, 0, 100);
             if (source == Parsek.Rendering.AnchorSource.Loop)
@@ -20959,7 +20945,6 @@ namespace Parsek.InGameTests
 
             Parsek.Rendering.RenderSessionState.ResetForTesting();
             Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-            Parsek.Rendering.AnchorCandidateBuilder.ResetForTesting();
             Parsek.Rendering.AnchorPropagator.ResetForTesting();
         }
 
