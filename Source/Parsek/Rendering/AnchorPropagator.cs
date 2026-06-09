@@ -131,13 +131,6 @@ namespace Parsek.Rendering
         /// </summary>
         internal static void Run(ReFlySessionMarker marker)
         {
-            if (!AnchorCandidateBuilder.ResolveUseAnchorTaxonomy())
-            {
-                ParsekLog.Verbose("Pipeline-AnchorPropagate",
-                    "useAnchorTaxonomy=false, skipping AnchorPropagator.Run");
-                return;
-            }
-
             var recordings = new List<Recording>();
             try
             {
@@ -194,13 +187,6 @@ namespace Parsek.Rendering
             Func<string, double, double, double, Vector3d> surfaceLookup,
             IAnchorWorldFrameResolver resolver = null)
         {
-            if (!AnchorCandidateBuilder.ResolveUseAnchorTaxonomy())
-            {
-                ParsekLog.Verbose("Pipeline-AnchorPropagate",
-                    "useAnchorTaxonomy=false, skipping AnchorPropagator.Run");
-                return;
-            }
-
             string sessionId = marker?.SessionId ?? "<no-id>";
             string treeId = marker?.TreeId ?? "<no-id>";
             string activeReFly = marker?.ActiveReFlyRecordingId ?? "<no-id>";

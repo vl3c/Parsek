@@ -15,7 +15,7 @@ namespace Parsek.Tests.Rendering
     /// live KSP scene (CelestialBody, FlightGlobals); the in-game
     /// <c>Pipeline_Anchor_LiveSeparation</c> test pins the integration end to
     /// end. These xUnit tests pin the static gate's six branches: null id,
-    /// negative section, null settings, flag off, store miss, and the
+    /// negative section, store miss, and the
     /// happy-path lookup hit.
     /// <para>
     /// Touches static state (<see cref="RenderSessionState"/> map +
@@ -74,40 +74,6 @@ namespace Parsek.Tests.Rendering
             // gate must reject this — store keys are non-negative.
             bool result = ParsekFlight.allowAnchorCorrection(
                 recordingId: "rec", sectionIndex: -1,
-                out AnchorCorrection ac);
-            Assert.False(result);
-        }
-
-        [Fact]
-        public void AllowAnchorCorrection_NullSettings_ReturnsFalse()
-        {
-            // What makes it fail: production reads
-            // ParsekSettings.Current via HighLogic.CurrentGame which can be
-            // null between scene transitions. A null settings object must
-            // disable the gate, not throw — otherwise the playback frame
-            // hot path would crash mid-scene-load.
-            ParsekSettings.CurrentOverrideForTesting = null;
-            bool result = ParsekFlight.allowAnchorCorrection(
-                recordingId: "rec", sectionIndex: 0,
-                out AnchorCorrection ac);
-            Assert.False(result);
-        }
-
-        [Fact]
-        public void AllowAnchorCorrection_FlagOff_ReturnsFalse()
-        {
-            // What makes it fail: the rollout flag exists so a regression
-            // can be debugged via toggle. If the gate ignored the flag,
-            // operators could not disable Phase 2 without a code change.
-            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings
-            {
-                useAnchorCorrection = false
-            };
-            // Seed a real anchor so a buggy gate would return true; the
-            // assertion proves the flag short-circuits BEFORE the lookup.
-            SeedAnchor("rec", 0, new Vector3d(1, 2, 3));
-            bool result = ParsekFlight.allowAnchorCorrection(
-                recordingId: "rec", sectionIndex: 0,
                 out AnchorCorrection ac);
             Assert.False(result);
         }

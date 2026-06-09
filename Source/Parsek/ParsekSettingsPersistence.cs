@@ -45,10 +45,6 @@ namespace Parsek
         private const string GhostRenderTracingKey = "ghostRenderTracing";
         private const string MapRenderTracingKey = "mapRenderTracing";
         private const string LedgerTracingKey = "ledgerTracing";
-        private const string UseSmoothingSplinesKey = "useSmoothingSplines";
-        private const string UseAnchorCorrectionKey = "useAnchorCorrection";
-        private const string UseAnchorTaxonomyKey = "useAnchorTaxonomy";
-        private const string UseOutlierRejectionKey = "useOutlierRejection";
         private const string WarpYearKey = "warpYear";
         private const string WarpDayKey = "warpDay";
         private const string WarpHourKey = "warpHour";
@@ -62,10 +58,6 @@ namespace Parsek
         private static bool? storedGhostRenderTracing;
         private static bool? storedMapRenderTracing;
         private static bool? storedLedgerTracing;
-        private static bool? storedUseSmoothingSplines;
-        private static bool? storedUseAnchorCorrection;
-        private static bool? storedUseAnchorTaxonomy;
-        private static bool? storedUseOutlierRejection;
         // Warp-to-time draft inputs (Timeline window). Pure UI state persisted across
         // sessions so the user need not re-type a frequently-used target date.
         private static int? storedWarpYear;
@@ -73,16 +65,6 @@ namespace Parsek
         private static int? storedWarpHour;
         private static int? storedWarpMinute;
         private static bool loaded;
-
-        /// <summary>
-        /// True once <see cref="ApplyTo"/> has reconciled the store into a live
-        /// <see cref="ParsekSettings"/> instance. Until then, <c>ParsekSettings.Current</c>
-        /// may still hold whatever KSP restored from the .sfs (or the compiled
-        /// default for a fresh game) - trusting it would let a stale save value
-        /// overwrite a correct stored preference. Reset only via
-        /// <see cref="ResetForTesting"/>.
-        /// </summary>
-        private static bool reconciledWithLiveSettings;
 
         /// <summary>
         /// Resolves the settings file path under GameData/Parsek/PluginData/.
@@ -200,50 +182,6 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {LedgerTracingKey} — using default");
                 }
 
-                string useSplinesStr = root.GetValue(UseSmoothingSplinesKey);
-                if (!string.IsNullOrEmpty(useSplinesStr)
-                    && bool.TryParse(useSplinesStr, out bool useSplines))
-                {
-                    storedUseSmoothingSplines = useSplines;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseSmoothingSplinesKey} — using default");
-                }
-
-                string useAnchorStr = root.GetValue(UseAnchorCorrectionKey);
-                if (!string.IsNullOrEmpty(useAnchorStr)
-                    && bool.TryParse(useAnchorStr, out bool useAnchor))
-                {
-                    storedUseAnchorCorrection = useAnchor;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseAnchorCorrectionKey} — using default");
-                }
-
-                string useTaxonomyStr = root.GetValue(UseAnchorTaxonomyKey);
-                if (!string.IsNullOrEmpty(useTaxonomyStr)
-                    && bool.TryParse(useTaxonomyStr, out bool useTaxonomy))
-                {
-                    storedUseAnchorTaxonomy = useTaxonomy;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseAnchorTaxonomyKey} — using default");
-                }
-
-                string useOutlierStr = root.GetValue(UseOutlierRejectionKey);
-                if (!string.IsNullOrEmpty(useOutlierStr)
-                    && bool.TryParse(useOutlierStr, out bool useOutlier))
-                {
-                    storedUseOutlierRejection = useOutlier;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseOutlierRejectionKey} — using default");
-                }
-
                 storedWarpYear = ParseStoredInt(root, WarpYearKey);
                 storedWarpDay = ParseStoredInt(root, WarpDayKey);
                 storedWarpHour = ParseStoredInt(root, WarpHourKey);
@@ -256,11 +194,7 @@ namespace Parsek
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<default>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<default>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<default>")}" +
-                    $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<default>")}" +
-                    $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}" +
-                    $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<default>")}" +
-                    $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<default>")}" +
-                    $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<default>")}");
+                    $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<default>")}");
             }
             catch (Exception ex)
             {
@@ -367,53 +301,6 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"Restored ledgerTracing {prev} -> {storedLedgerTracing.Value} from persistent store");
             }
-
-            if (storedUseSmoothingSplines.HasValue
-                && storedUseSmoothingSplines.Value != settings.useSmoothingSplines)
-            {
-                bool prev = settings.useSmoothingSplines;
-                // Property setter emits Notify on change; explicit Notify call
-                // removed (would double-fire the Pipeline-Smoothing flip Info).
-                settings.useSmoothingSplines = storedUseSmoothingSplines.Value;
-                ParsekLog.Info(Tag,
-                    $"Restored useSmoothingSplines {prev} -> {storedUseSmoothingSplines.Value} from persistent store");
-            }
-
-            if (storedUseAnchorCorrection.HasValue
-                && storedUseAnchorCorrection.Value != settings.useAnchorCorrection)
-            {
-                bool prev = settings.useAnchorCorrection;
-                // Property setter emits Notify on change.
-                settings.useAnchorCorrection = storedUseAnchorCorrection.Value;
-                ParsekLog.Info(Tag,
-                    $"Restored useAnchorCorrection {prev} -> {storedUseAnchorCorrection.Value} from persistent store");
-            }
-
-            if (storedUseAnchorTaxonomy.HasValue
-                && storedUseAnchorTaxonomy.Value != settings.useAnchorTaxonomy)
-            {
-                bool prev = settings.useAnchorTaxonomy;
-                // Property setter emits Notify on change.
-                settings.useAnchorTaxonomy = storedUseAnchorTaxonomy.Value;
-                ParsekLog.Info(Tag,
-                    $"Restored useAnchorTaxonomy {prev} -> {storedUseAnchorTaxonomy.Value} from persistent store");
-            }
-
-            if (storedUseOutlierRejection.HasValue
-                && storedUseOutlierRejection.Value != settings.useOutlierRejection)
-            {
-                bool prev = settings.useOutlierRejection;
-                // Property setter emits Notify on change.
-                settings.useOutlierRejection = storedUseOutlierRejection.Value;
-                ParsekLog.Info(Tag,
-                    $"Restored useOutlierRejection {prev} -> {storedUseOutlierRejection.Value} from persistent store");
-            }
-
-            // PR #328 P2-A: mark reconciled AFTER writes complete. Only now is
-            // ParsekSettings.Current authoritative enough for the persisting
-            // property setters to trust it. Before this flag flips, any early
-            // call must treat the store as the source of truth.
-            reconciledWithLiveSettings = true;
         }
 
         /// <summary>
@@ -501,95 +388,6 @@ namespace Parsek
             }
         }
 
-        internal static void RecordUseSmoothingSplines(bool value)
-        {
-            // SecurityException guard: under xUnit, KSPUtil.ApplicationRootPath
-            // throws SecurityException.
-            // The in-memory store is still updated below — that's what the tests
-            // (and the in-process value precedence) actually depend on.
-            try { LoadIfNeeded(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordUseSmoothingSplines: LoadIfNeeded threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
-            }
-            // Idempotent: if the persistent store already has this value,
-            // skip Save() to avoid disk I/O on the restore-then-apply
-            // round-trip (the property setter calls Record on every real
-            // change, including the one that ApplyTo triggers when it
-            // restores the stored value into the live ParsekSettings).
-            if (storedUseSmoothingSplines.HasValue && storedUseSmoothingSplines.Value == value) return;
-            storedUseSmoothingSplines = value;
-            try { Save(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordUseSmoothingSplines: Save threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
-            }
-        }
-
-        internal static void RecordUseAnchorCorrection(bool value)
-        {
-            try { LoadIfNeeded(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordUseAnchorCorrection: LoadIfNeeded threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
-            }
-            if (storedUseAnchorCorrection.HasValue && storedUseAnchorCorrection.Value == value) return;
-            storedUseAnchorCorrection = value;
-            try { Save(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordUseAnchorCorrection: Save threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
-            }
-        }
-
-        internal static void RecordUseAnchorTaxonomy(bool value)
-        {
-            try { LoadIfNeeded(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordUseAnchorTaxonomy: LoadIfNeeded threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
-            }
-            if (storedUseAnchorTaxonomy.HasValue && storedUseAnchorTaxonomy.Value == value) return;
-            storedUseAnchorTaxonomy = value;
-            try { Save(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordUseAnchorTaxonomy: Save threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
-            }
-        }
-
-        internal static void RecordUseOutlierRejection(bool value)
-        {
-            try { LoadIfNeeded(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordUseOutlierRejection: LoadIfNeeded threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
-            }
-            if (storedUseOutlierRejection.HasValue && storedUseOutlierRejection.Value == value) return;
-            storedUseOutlierRejection = value;
-            try { Save(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordUseOutlierRejection: Save threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
-            }
-        }
-
         /// <summary>
         /// Writes the current store to disk via the shared safe-write helper.
         /// </summary>
@@ -611,14 +409,6 @@ namespace Parsek
                     root.AddValue(MapRenderTracingKey, storedMapRenderTracing.Value.ToString());
                 if (storedLedgerTracing.HasValue)
                     root.AddValue(LedgerTracingKey, storedLedgerTracing.Value.ToString());
-                if (storedUseSmoothingSplines.HasValue)
-                    root.AddValue(UseSmoothingSplinesKey, storedUseSmoothingSplines.Value.ToString());
-                if (storedUseAnchorCorrection.HasValue)
-                    root.AddValue(UseAnchorCorrectionKey, storedUseAnchorCorrection.Value.ToString());
-                if (storedUseAnchorTaxonomy.HasValue)
-                    root.AddValue(UseAnchorTaxonomyKey, storedUseAnchorTaxonomy.Value.ToString());
-                if (storedUseOutlierRejection.HasValue)
-                    root.AddValue(UseOutlierRejectionKey, storedUseOutlierRejection.Value.ToString());
                 if (storedWarpYear.HasValue)
                     root.AddValue(WarpYearKey, storedWarpYear.Value.ToString(CultureInfo.InvariantCulture));
                 if (storedWarpDay.HasValue)
@@ -635,11 +425,7 @@ namespace Parsek
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<null>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<null>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<null>")}" +
-                    $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<null>")}" +
-                    $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}" +
-                    $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<null>")}" +
-                    $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<null>")}" +
-                    $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<null>")}");
+                    $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<null>")}");
             }
             catch (Exception ex)
             {
@@ -649,9 +435,6 @@ namespace Parsek
 
         /// <summary>
         /// Test-only: clears the static store so LoadIfNeeded re-reads the file.
-        /// Also resets the reconciliation flag — tests that exercise the
-        /// live-wins precedence must either call <see cref="ApplyTo"/> with a
-        /// settings instance or <see cref="MarkReconciledForTesting"/> first.
         /// </summary>
         internal static void ResetForTesting()
         {
@@ -661,60 +444,11 @@ namespace Parsek
             storedGhostRenderTracing = null;
             storedMapRenderTracing = null;
             storedLedgerTracing = null;
-            storedUseSmoothingSplines = null;
-            storedUseAnchorCorrection = null;
-            storedUseAnchorTaxonomy = null;
-            storedUseOutlierRejection = null;
             storedWarpYear = null;
             storedWarpDay = null;
             storedWarpHour = null;
             storedWarpMinute = null;
             loaded = false;
-            reconciledWithLiveSettings = false;
-        }
-
-        /// <summary>
-        /// Test-only: flip the reconciled-with-live-settings flag without
-        /// needing to stand up a full <see cref="ParsekSettings"/> + call
-        /// <see cref="ApplyTo"/>. Mirrors the effect
-        /// <c>ParsekScenario.OnLoad → ApplyTo</c> has in production.
-        /// </summary>
-        internal static void MarkReconciledForTesting()
-        {
-            reconciledWithLiveSettings = true;
-        }
-
-        /// <summary>Test-only: current reconciliation-flag state.</summary>
-        internal static bool IsReconciledForTesting => reconciledWithLiveSettings;
-
-        /// <summary>
-        /// True after <see cref="ApplyTo"/> has reconciled the persistent
-        /// store with live <see cref="ParsekSettings"/>. Property setters
-        /// that persist (useSmoothingSplines, useAnchorCorrection) check
-        /// this before calling <c>Record*</c>, so an early KSP-load assign
-        /// of a stale per-save value cannot clobber the user's persisted
-        /// intent before <c>ApplyTo</c> has had a chance to restore it
-        /// (PR #328 P2-A).
-        ///
-        /// <see cref="ParsekSettings.OnLoad"/> resets this flag to false
-        /// BEFORE calling <c>base.OnLoad</c> so the per-load cycle starts
-        /// fresh — the latch is not a one-way process-wide flip.
-        /// </summary>
-        internal static bool IsReconciled => reconciledWithLiveSettings;
-
-        /// <summary>
-        /// Reset the reconciliation latch to false. Called by
-        /// <see cref="ParsekSettings.OnLoad"/> at the start of each KSP
-        /// settings-load cycle so the property setters' persistence gate
-        /// closes again before <c>base.OnLoad</c> deserializes the .sfs
-        /// node. Otherwise a long-running KSP process would keep the
-        /// latch true after the first <see cref="ApplyTo"/> and the
-        /// second + subsequent loads would let stale .sfs values clobber
-        /// the persistent store.
-        /// </summary>
-        internal static void InvalidateReconciliation()
-        {
-            reconciledWithLiveSettings = false;
         }
 
         /// <summary>
@@ -731,14 +465,6 @@ namespace Parsek
         internal static bool? GetStoredMapRenderTracing() => storedMapRenderTracing;
 
         internal static bool? GetStoredLedgerTracing() => storedLedgerTracing;
-
-        internal static bool? GetStoredUseSmoothingSplines() => storedUseSmoothingSplines;
-
-        internal static bool? GetStoredUseAnchorCorrection() => storedUseAnchorCorrection;
-
-        internal static bool? GetStoredUseAnchorTaxonomy() => storedUseAnchorTaxonomy;
-
-        internal static bool? GetStoredUseOutlierRejection() => storedUseOutlierRejection;
 
         internal static int? GetStoredWarpYear() => storedWarpYear;
         internal static int? GetStoredWarpDay() => storedWarpDay;
@@ -792,30 +518,6 @@ namespace Parsek
         internal static void SetStoredLedgerTracingForTesting(bool? value)
         {
             storedLedgerTracing = value;
-            loaded = true;
-        }
-
-        internal static void SetStoredUseSmoothingSplinesForTesting(bool? value)
-        {
-            storedUseSmoothingSplines = value;
-            loaded = true;
-        }
-
-        internal static void SetStoredUseAnchorCorrectionForTesting(bool? value)
-        {
-            storedUseAnchorCorrection = value;
-            loaded = true;
-        }
-
-        internal static void SetStoredUseAnchorTaxonomyForTesting(bool? value)
-        {
-            storedUseAnchorTaxonomy = value;
-            loaded = true;
-        }
-
-        internal static void SetStoredUseOutlierRejectionForTesting(bool? value)
-        {
-            storedUseOutlierRejection = value;
             loaded = true;
         }
     }

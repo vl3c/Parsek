@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using ClickThroughFix;
-using Parsek.Logistics;
 using UnityEngine;
 
 namespace Parsek
@@ -28,7 +27,6 @@ namespace Parsek
             Watch,
             FastForward,
             Rewind,
-            Loop,
             GoTo
         }
 
@@ -1190,44 +1188,6 @@ namespace Parsek
                         GUI.enabled = true;
                     }
 
-                    // L (loop toggle) — show for past/active recordings that are loopable,
-                    // or any recording already looping so the timeline can still disable it.
-                    // Uses the shared toggleButtonStyle so the "on" state looks pressed in
-                    // (same idiom as the filter/tab toggles); text color stays default.
-                    // Suppressed for Unfinished Flight recordings: loop on a crashed
-                    // sibling that the user is meant to re-fly is misleading. Mirrors
-                    // the rec window's hide-loop-checkbox treatment for the virtual
-                    // "Unfinished Flights" group.
-                    bool isUnfinishedFlight = EffectiveState.IsUnfinishedFlight(rec);
-                    if (ShouldShowLoopToggle(rec, isFuture, isUnfinishedFlight))
-                    {
-                        // Mutual exclusion (design §0.6): grey the per-recording "L"
-                        // loop toggle OFF when this recording's tree is bound to a
-                        // supply route, and block the commit. This timeline "L"
-                        // writes Recording.LoopPlayback directly (bypassing
-                        // MissionStore), so the commit guard is the only thing
-                        // preventing a route-vs-manual owner collision. Mirrors the
-                        // Recordings-tab per-recording rowRouteBound pattern.
-                        bool rowRouteBound = ShouldBlockTimelineLoopToggle(rec);
-                        string lTooltip = rowRouteBound
-                            ? "Looped by route (per-recording loop disabled)"
-                            : (rec.LoopPlayback ? "Disable looping" : "Enable looping (uses saved interval)");
-                        bool prevLoopEnabled = GUI.enabled;
-                        if (rowRouteBound) GUI.enabled = false;
-                        bool newLoop = GUILayout.Toggle(rec.LoopPlayback, new GUIContent("L", lTooltip),
-                            toggleButtonStyle, GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.Loop)));
-                        GUI.enabled = prevLoopEnabled;
-                        if (newLoop != rec.LoopPlayback && TryCommitTimelineLoopToggle(rec, newLoop))
-                        {
-                            rec.LoopPlayback = newLoop;
-                            RecordingsTableUI.ApplyAutoLoopRange(rec, rec.LoopPlayback);
-                            if (!rec.LoopPlayback)
-                                tableUI?.ClearLoopPeriodFocus();
-                            ParsekLog.Info("UI",
-                                $"Timeline loop toggled {(rec.LoopPlayback ? "ON" : "OFF")} for \"{rec.VesselName}\" id={rec.RecordingId}");
-                        }
-                    }
-
                     // GoTo button — always last, right-aligned
                     if (GUILayout.Button(
                             new GUIContent("GoTo", "Show in Recordings Manager"),
@@ -1247,7 +1207,7 @@ namespace Parsek
             {
                 // Separation row: tree-child split point. UF flavour gets
                 // Fly/Seal actions; the plain post-merge / non-UF flavour
-                // just gets GoTo. No Watch / Loop / R / FF — those are
+                // just gets GoTo. No Watch / R / FF — those are
                 // launch-playback affordances, not split affordances.
                 var rec = FindRecordingById(entry.RecordingId);
                 if (rec != null)
@@ -1399,52 +1359,6 @@ namespace Parsek
             return actionKind == TimelineRowActionButtonKind.GoTo
                 ? GoToButtonWidth
                 : RowActionButtonWidth;
-        }
-
-        internal static bool ShouldShowLoopToggle(Recording rec, bool isFuture, bool isUnfinishedFlight = false)
-        {
-            return !isFuture
-                && !isUnfinishedFlight
-                && rec != null
-                && (rec.LoopPlayback || Recording.IsLoopableRecording(rec));
-        }
-
-        /// <summary>
-        /// Mutual-exclusion guard (design §0.6) for the timeline per-recording "L"
-        /// loop toggle: TRUE when this recording's tree is bound to an active
-        /// supply route, in which case the toggle is greyed OFF and its
-        /// Recording.LoopPlayback write is blocked at commit. A null recording or
-        /// a recording with no tree id never binds (returns FALSE).
-        /// </summary>
-        internal static bool ShouldBlockTimelineLoopToggle(Recording rec)
-        {
-            if (rec == null || string.IsNullOrEmpty(rec.TreeId))
-                return false;
-            return RouteTreeGuard.IsTreeBoundToActiveRoute(rec.TreeId);
-        }
-
-        /// <summary>
-        /// Commit gate for the timeline per-recording "L" loop write. Returns TRUE
-        /// when the caller may proceed to write <see cref="Recording.LoopPlayback"/>.
-        /// Returns FALSE (and Info-logs the blocked attempt with the recording id +
-        /// tree id) when the recording's tree is bound to an active supply route
-        /// (design §0.6 mutual exclusion). The timeline "L" writes LoopPlayback
-        /// directly, bypassing MissionStore, so this commit gate is the only thing
-        /// preventing a route-vs-manual owner collision when the greyed toggle is
-        /// somehow flipped.
-        /// </summary>
-        internal static bool TryCommitTimelineLoopToggle(Recording rec, bool requestedLoop)
-        {
-            if (rec == null)
-                return false;
-            if (ShouldBlockTimelineLoopToggle(rec))
-            {
-                ParsekLog.Info("RouteGuard",
-                    $"Timeline per-recording Loop blocked for \"{rec.VesselName}\" " +
-                    $"(tree={rec.TreeId} bound by route); request={requestedLoop} ignored id={rec.RecordingId}");
-                return false;
-            }
-            return true;
         }
 
         internal static bool ShouldShowWatchButton(bool inFlightMode, Recording rec)
