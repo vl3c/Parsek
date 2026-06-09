@@ -26,7 +26,11 @@ we never clutter the map:
    (clears entirely) only when the icon crosses a run **boundary**: it enters a
    full-loop closed orbit, or it crosses an SOI change. (This REVERSES the
    original "past stays gone" rule; the render unit is now the run, not a
-   forward-only window.)
+   forward-only window.) **Body-fixed exception (playtest 5):** a leg that can
+   only draw BODY-FIXED (not conic-anchorable: launch ascent, descent-to-surface,
+   residual-rejected) rotates with the planet against the inertial arcs under a
+   loop shift — the playtest-5 gap-then-overlap sweep — so it draws ONLY while
+   the icon is on it (head-gated pass) and never persists as a run leg.
 2. **Boundary: the first full-loop closed orbit.** A segment covering a complete
    revolution (`ecc < 1` **and** `endUT − startUT ≥ period`) bounds the run: the
    run forward-stops before it (we never render a full repeating ellipse), and a
@@ -192,6 +196,22 @@ mirroring the walk's recording-level static gates for them. The run is decided
 ONCE per chain per frame (the first non-hidden member the walk reaches; for a
 looped chain that is exactly the active member). Forward legs of sibling members
 stay `forward=true`, so the ownership contract is untouched.
+
+**Body-fixed run legs are HIDDEN, not persisted (playtest 5, 2026-06-09).**
+Legs draw body-fixed via `GetWorldSurfacePosition` (live planet rotation), while
+arcs + conic-anchored legs draw recorded-inertial. Under a loop shift the two
+frames disagree by the body rotation accrued over the shift, and the body-fixed
+piece SWEEPS with the live planet while the inertial geometry stands still — in
+playtest 5 the launch ascent's gap to the inertial run closed as the icon
+approached the handoff (the 'Duna One' cadence is exactly 912 Kerbin rotations,
+so the alignment is perfect exactly when the icon arrives), then re-opened as
+overlap behind it. Rule: a persistent run leg must be drawable in the INERTIAL
+frame. Decide-side, `IsRunLegAnchorCandidate` (both-side same-body conic bracket
+in the leg's own recording — the `TryAnchorLegToConicSeam` precondition) gates
+the run enqueue; draw-side, `TryDrawLeg(requireConicAnchor: true)` skips a
+forward leg whose anchor is residual-rejected. One-sided legs (launch ascent,
+descent-to-surface) draw ONLY under the head, where body-fixed is correct (the
+live ghost is glued to the pad/terrain).
 
 ### Step 1 — Pure forward-window computation (always available, unit-tested)
 

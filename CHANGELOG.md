@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
-- A ghost's map and tracking-station trajectory now draws its full path through the current sphere of influence as one continuous line (the whole ascent and transfer, not just the short arc under the icon), and keeps it on screen as the icon travels along it, including across the segments of a chained flight. The line stops before the first full repeating orbit and at the first change of sphere of influence, and clears once the icon reaches that orbit or crosses into the next sphere of influence, so it never clutters the map.
+- A ghost's map and tracking-station trajectory now draws its full path through the current sphere of influence as one continuous line (the whole ascent and transfer, not just the short arc under the icon), keeps it on screen as the icon travels along it (including across the segments of a chained flight), and stops before the first full repeating orbit and at the first change of sphere of influence. Path pieces that turn with the planet (launch ascent, final descent) are shown only while the ghost is flying them, so the line never drifts or overlaps as the planet rotates.
 
 ---
 

@@ -1764,18 +1764,90 @@ namespace Parsek.Tests
                 600.0, 700.0, preHandoff.RunStartUT, preHandoff.StopUT, headUT: 200.0));
 
             // After the handoff (icon on the next member's ascent conic), the LAUNCH member's leg
-            // PERSISTS as a run leg: same window, leg no longer under the head.
+            // still overlaps the run window (no longer under the head)...
             var postHandoff = ForwardRenderWindow.ComputeForwardWindow(concat, 600.0, mu);
             Assert.True(postHandoff.HasForwardRange);
             Assert.Equal(double.NegativeInfinity, postHandoff.RunStartUT);
             Assert.Equal(900.0, postHandoff.StopUT);
             Assert.True(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
                 100.0, 450.0, postHandoff.RunStartUT, postHandoff.StopUT, headUT: 600.0));
+            // ...but the body-fixed hide rule (playtest 5) DROPS it from the persistent run: the launch
+            // member carries no conics, so the leg is not conic-anchorable and would rotate with the
+            // planet against the inertial arcs (the observed gap-then-overlap sweep). It draws only
+            // while the icon rides it (head-gated pass).
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                new List<OrbitSegment>(), "Kerbin", 100.0, 450.0));
 
             // Icon ON the parking ellipse: the run clears (stock draws the repeating ellipse) - the
             // launch leg clears with it, matching the reset-at-boundary rule.
             var onEllipse = ForwardRenderWindow.ComputeForwardWindow(concat, 1000.0, mu);
             Assert.False(onEllipse.HasForwardRange);
+        }
+
+        // ====================================================================
+        // Body-fixed run-leg hide (playtest-5 rule)
+        // IsRunLegAnchorCandidate
+        // ====================================================================
+
+        // A vacuum-maneuver leg bracketed by a same-body conic on BOTH sides (the escape burn / orbit
+        // raise) is conic-anchorable: it participates in the persistent run (drawn in the inertial frame).
+        [Fact]
+        public void IsRunLegAnchorCandidate_BothSideBracket_True()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 0.0, endUT = 100.0, bodyName = "Kerbin", semiMajorAxis = 700000.0 },
+                new OrbitSegment { startUT = 160.0, endUT = 400.0, bodyName = "Kerbin", semiMajorAxis = 900000.0 },
+            };
+            Assert.True(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                segs, "Kerbin", legStartUT: 100.0, legEndUT: 160.0));
+        }
+
+        // A launch ascent (after-only bracket) stays body-fixed -> NOT a persistent run leg.
+        [Fact]
+        public void IsRunLegAnchorCandidate_AscentAfterOnly_False()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 200.0, endUT = 500.0, bodyName = "Kerbin", semiMajorAxis = 700000.0 },
+            };
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                segs, "Kerbin", legStartUT: 50.0, legEndUT: 200.0));
+        }
+
+        // A descent-to-surface (before-only bracket) stays body-fixed -> NOT a persistent run leg.
+        [Fact]
+        public void IsRunLegAnchorCandidate_DescentBeforeOnly_False()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 0.0, endUT = 300.0, bodyName = "Duna", semiMajorAxis = 400000.0 },
+            };
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                segs, "Duna", legStartUT: 300.0, legEndUT: 380.0));
+        }
+
+        // No conics at all (the launch chain segment, atmospheric-only recordings) -> body-fixed only.
+        [Fact]
+        public void IsRunLegAnchorCandidate_NoConics_False()
+        {
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                new List<OrbitSegment>(), "Kerbin", 100.0, 200.0));
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                null, "Kerbin", 100.0, 200.0));
+        }
+
+        // Conics of a DIFFERENT body never bracket (the lookup is same-body by contract).
+        [Fact]
+        public void IsRunLegAnchorCandidate_OtherBodyConics_False()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 0.0, endUT = 100.0, bodyName = "Mun", semiMajorAxis = 300000.0 },
+                new OrbitSegment { startUT = 160.0, endUT = 400.0, bodyName = "Mun", semiMajorAxis = 300000.0 },
+            };
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                segs, "Kerbin", legStartUT: 100.0, legEndUT: 160.0));
         }
     }
 }

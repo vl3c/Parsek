@@ -846,6 +846,27 @@ namespace Parsek.Display
             return relResid > AnchorMaxRelResidual;
         }
 
+        /// <summary>
+        /// PURE run-leg frame classifier (playtest-5 rule, 2026-06-09): may this leg participate in the
+        /// PERSISTENT render run (drawn while the icon is NOT on it)? True only when the leg is bracketed
+        /// by a same-body conic on BOTH sides - the precondition for <see cref="TryAnchorLegToConicSeam"/>
+        /// to rotate it onto the INERTIAL conic seam. A one-sided leg (launch ascent = after-only,
+        /// descent-to-surface = before-only, no conics at all) stays BODY-FIXED when drawn, so as a
+        /// persistent run leg it would visibly rotate with the planet against the inertial arcs (the
+        /// observed gap-then-overlap sweep at the chain handoff); such legs draw ONLY while the icon is on
+        /// them (the head-gated pass, where body-fixed is correct - the live ghost is glued to the
+        /// pad/terrain). The bracket lookup uses the leg's OWN recording's segments - the same list the
+        /// draw-time anchor consults - so decide and draw can never disagree on candidacy.
+        /// xUnit-testable (no Unity).
+        /// </summary>
+        internal static bool IsRunLegAnchorCandidate(
+            List<OrbitSegment> segs, string bodyName, double legStartUT, double legEndUT)
+        {
+            FindBracketingOrbitSegments(
+                segs, bodyName, legStartUT, legEndUT, out int beforeIdx, out int afterIdx);
+            return beforeIdx >= 0 && afterIdx >= 0;
+        }
+
         internal static void FindBracketingOrbitSegments(
             List<OrbitSegment> segs, string bodyName, double legStartUT, double legEndUT,
             out int beforeIdx, out int afterIdx)
@@ -1740,7 +1761,8 @@ namespace Parsek.Display
         /// </summary>
         internal static bool TryDrawLeg(
             ref LegPolyline leg, Recording rec, CelestialBody body,
-            int targetLayer, int drawFrame, string recordingId, int legIndex)
+            int targetLayer, int drawFrame, string recordingId, int legIndex,
+            bool requireConicAnchor = false)
         {
             int m = leg.PointCount;
             if (m < 2) return false;
@@ -1823,7 +1845,27 @@ namespace Parsek.Display
             // conic seam so the leg CONNECTS the loiter/hyperbola lines instead of drawing
             // ~96 deg off under the loop shift. No-op for legs not bracketed both sides (launch
             // ascent / descent-to-surface) and where body-fixed already matches the conic.
-            TryAnchorLegToConicSeam(rec, leg, body, scaledXform);
+            bool anchored = TryAnchorLegToConicSeam(rec, leg, body, scaledXform);
+
+            // RUN-LEG body-fixed hide (playtest-5 rule, 2026-06-09): a persistent run leg (icon NOT on
+            // it, requireConicAnchor=true) that could not be anchored to the inertial conic seam would
+            // draw BODY-FIXED and visibly rotate with the planet against the inertial arcs (the observed
+            // gap-then-overlap sweep at the chain handoff). Skip the draw - the deactivation sweep hides
+            // any previously drawn line this frame. The decide-side IsRunLegAnchorCandidate pre-filter
+            // already drops one-sided legs; this catches the residual-rejected remainder (the
+            // seam-does-not-meet-the-leg guard inside TryAnchorLegToConicSeam, e.g. a mis-bracketed
+            // arrival hyperbola). Head-gated current legs (requireConicAnchor=false) keep drawing
+            // body-fixed - the live ghost is glued to the pad/terrain there, so body-fixed is correct.
+            if (requireConicAnchor && !anchored)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "runleg-anchor-reject." + recordingId,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Run leg hidden (conic anchor unavailable): rec={0} leg={1} [{2:F1},{3:F1}] " +
+                        "body={4} - body-fixed leg would rotate against the inertial run",
+                        recordingId, legIndex, leg.startUT, leg.endUT, leg.bodyName ?? "(null)"),
+                    3.0);
+                return false;
+            }
 
             CopyLegIntoVectorLine(leg.vectorLine, leg.scratchScaledSpace, 0);
             leg.vectorLine.drawStart = 0;
@@ -2650,11 +2692,15 @@ namespace Parsek.Display
                         continue;
                     }
                     var leg = set.legs[p.legIndex];
+                    // forward legs require the conic anchor to SUCCEED (playtest-5 body-fixed hide):
+                    // a persistent run leg that cannot be rotated onto the inertial seam is skipped
+                    // here rather than drawn body-fixed, where it would sweep with the planet.
                     bool legDrawn = p.ownedByTreatment
                         ? Parsek.MapRender.TracedPathTreatment.TryDrawOwnedLeg(
                             ref leg, p.rec, p.body, pendingTargetLayer, frame, p.recordingId, p.legIndex, p.ghostPid)
                         : TryDrawLeg(
-                            ref leg, p.rec, p.body, pendingTargetLayer, frame, p.recordingId, p.legIndex);
+                            ref leg, p.rec, p.body, pendingTargetLayer, frame, p.recordingId, p.legIndex,
+                            requireConicAnchor: p.forward);
                     // Persist the lazily-inflated line + the lastDrawnFrame stamp back into the cached
                     // array (set.legs is the same array reference the dict holds).
                     set.legs[p.legIndex] = leg;
@@ -3018,6 +3064,10 @@ namespace Parsek.Display
                 double winStart = window.RunStartUT;
                 double winStop = window.StopUT;
 
+                // Body-fixed run legs hidden this decide pass (playtest-5 rule): one-sided legs that
+                // cannot be conic-anchored draw only under the head, never as persistent run legs.
+                int runLegsBodyFixedHidden = 0;
+
                 for (int mi = 0; mi < chainRunMemberScratch.Count; mi++)
                 {
                     var member = chainRunMemberScratch[mi];
@@ -3053,6 +3103,17 @@ namespace Parsek.Display
                             var leg = memberSet.legs[li];
                             if (!ShouldDrawForwardLeg(leg.startUT, leg.endUT, winStart, winStop, headUT))
                                 continue;
+                            // Body-fixed hide (playtest-5 rule): a persistent run leg must be drawable
+                            // in the INERTIAL frame (conic-anchorable, both-side bracketed in its OWN
+                            // recording). A one-sided leg (launch ascent / descent / no conics) stays
+                            // body-fixed and would rotate with the planet against the inertial arcs -
+                            // the observed gap-then-overlap sweep - so it draws only under the head.
+                            if (!IsRunLegAnchorCandidate(
+                                    member.rec.OrbitSegments, leg.bodyName, leg.startUT, leg.endUT))
+                            {
+                                runLegsBodyFixedHidden++;
+                                continue;
+                            }
                             CelestialBody legBody = ResolveBodyByName(scene, leg.bodyName);
                             if (legBody == null) continue;
                             if (!WillLegDraw(leg.PointCount, true)) continue;
@@ -3113,9 +3174,10 @@ namespace Parsek.Display
                 ParsekLog.VerboseRateLimited(DriverTag, "fwd-window." + rec.RecordingId,
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "Render run: rec={0} pid={1} curIdx={2} runStart={3:F1} stopUT={4:F1} reason={5} " +
-                        "runLegs+={6} runArcs+={7} members={8} segs={9} headUT={10:F1}",
+                        "runLegs+={6} runArcs+={7} bodyFixedHidden={8} members={9} segs={10} headUT={11:F1}",
                         rec.RecordingId, ghostPid, window.CurrentIndex, winStart, winStop, window.Reason,
-                        frameForwardLegs, frameForwardArcs, chainRunMemberScratch.Count,
+                        frameForwardLegs, frameForwardArcs, runLegsBodyFixedHidden,
+                        chainRunMemberScratch.Count,
                         windowSegs != null ? windowSegs.Count : 0, headUT),
                     2.0);
             }
