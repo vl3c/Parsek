@@ -307,7 +307,7 @@ namespace Parsek
         /// Formats situation + biome + body into a compact location string.
         /// "Flying, Shores, Kerbin" or "Orbiting, Kerbin" or "Kerbin" etc.
         /// </summary>
-        private static string FormatSituationLocation(string situation, string biome, string body, string prefix)
+        internal static string FormatSituationLocation(string situation, string biome, string body, string prefix)
         {
             bool hasSit = !string.IsNullOrEmpty(situation);
             bool hasBiome = !string.IsNullOrEmpty(biome);

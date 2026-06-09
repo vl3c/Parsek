@@ -43,13 +43,18 @@ namespace Parsek
     /// </summary>
     internal static class StructureLocationFormatter
     {
-        // Coarse body label for a mid-flight event (dock / undock / decouple / staging).
-        // Per-step coordinate / situation resolution is deferred (plan decision #3); the
-        // recording's body is the honest coarse value and keeps the builder pure.
+        // Situation + biome + body for a mid-flight event (dock / undock / decouple / eva /
+        // staging), using the SAME formatter as the Recordings window's start position
+        // (`RecordingsTableFormatters.FormatSituationLocation`) so the wording and biome
+        // detail match. The recording supplied is the one whose START coincides with the
+        // event (the child branch for a split / merge, the owning recording for a part
+        // event), so its captured situation / biome / body is the event context. Per-UT
+        // exact coordinate resolution is still deferred; "-" when nothing is recorded.
         internal static string DescribeMid(Recording rec)
         {
             if (rec == null) return "";
-            return !string.IsNullOrEmpty(rec.StartBodyName) ? rec.StartBodyName : "-";
+            return RecordingsTableFormatters.FormatSituationLocation(
+                rec.StartSituation, rec.StartBiome, rec.StartBodyName, null);
         }
 
         // A route endpoint (origin / dock / delivery / undock). RouteEndpoint is a struct
@@ -127,10 +132,16 @@ namespace Parsek
                         || bp.Type == BranchPointType.Terminal)
                         continue;
 
-                    string repId = FirstControlled(bp.ParentRecordingIds, structure)
+                    // Vessel name = the acting / continuing vessel (parent first); location =
+                    // the event-coincident recording (the CHILD branch created at the event,
+                    // whose captured start situation / biome / body IS the event context;
+                    // parent's start is its earlier launch context, so it would mislabel
+                    // biome). Fall back across each preference.
+                    string vesselId = FirstControlled(bp.ParentRecordingIds, structure)
                         ?? FirstControlled(bp.ChildRecordingIds, structure);
-                    MissionLeg repLeg = repId != null && structure.LegsById.TryGetValue(repId, out MissionLeg l) ? l : null;
-                    Recording repRec = Rec(repId);
+                    string locId = FirstControlled(bp.ChildRecordingIds, structure)
+                        ?? FirstControlled(bp.ParentRecordingIds, structure);
+                    MissionLeg repLeg = vesselId != null && structure.LegsById.TryGetValue(vesselId, out MissionLeg l) ? l : null;
                     string cause = bp.SplitCause ?? bp.BreakupCause;
 
                     steps.Add(new StructureStep
@@ -138,7 +149,7 @@ namespace Parsek
                         UT = bp.UT,
                         Kind = ClassifyBranch(bp.Type),
                         Label = MissionCompositionBuilder.BranchEventName(bp.Type, cause),
-                        Location = StructureLocationFormatter.DescribeMid(repRec),
+                        Location = StructureLocationFormatter.DescribeMid(Rec(locId)),
                         VesselName = repLeg != null ? LegLabel(repLeg) : ""
                     });
 

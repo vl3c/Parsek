@@ -39,7 +39,7 @@ namespace Parsek
         // Column widths (match the recordings / spawn window conventions).
         private const float ColW_Time = 115f;
         private const float ColW_Event = 0f;     // expand
-        private const float ColW_Location = 190f;
+        private const float ColW_Location = 220f; // situation + biome + body, like the Recordings tab
         private const float ColW_Vessel = 150f;
 
         private const float MinWindowWidth = 420f;
@@ -198,17 +198,25 @@ namespace Parsek
                 return;
             }
 
-            // Header row.
+            // Header row. Reserve the vertical-scrollbar gutter on the right so the fixed
+            // column right-edges line up with the scrolled rows below (the same trick
+            // RecordingsTableUI uses; the scrollview claims a fixed-width strip for its bar).
+            float scrollbarWidth = GUI.skin.verticalScrollbar != null
+                ? GUI.skin.verticalScrollbar.fixedWidth
+                : 16f;
+            if (scrollbarWidth <= 0f) scrollbarWidth = 16f;
+
             GUILayout.BeginHorizontal();
             GUILayout.Label("Time", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Time));
             GUILayout.Label("Event", parentUI.GetColumnHeaderStyle(), GUILayout.ExpandWidth(true));
             GUILayout.Label("Location", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Location));
             GUILayout.Label("Vessel", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Vessel));
+            GUILayout.Space(scrollbarWidth);
             GUILayout.EndHorizontal();
 
-            // Step rows.
+            // Step rows. Drawn directly in the scroll view (no GUI.skin.box wrapper, whose
+            // left/right padding would shift the columns out of line with the header).
             scrollPos = GUILayout.BeginScrollView(scrollPos, GUILayout.ExpandHeight(true));
-            GUILayout.BeginVertical(GUI.skin.box);
             for (int i = 0; i < steps.Count; i++)
             {
                 StructureStep step = steps[i];
@@ -219,7 +227,6 @@ namespace Parsek
                 GUILayout.Label(step.VesselName ?? "", GUILayout.Width(ColW_Vessel));
                 GUILayout.EndHorizontal();
             }
-            GUILayout.EndVertical();
             GUILayout.EndScrollView();
 
             // Bottom bar.
