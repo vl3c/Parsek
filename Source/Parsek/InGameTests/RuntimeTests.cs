@@ -5846,6 +5846,9 @@ namespace Parsek.InGameTests
                 }
 
                 selectedField.SetValue(tracking, staleCandidate);
+                // keepFocus: true keeps the TS map camera where it is (the production
+                // handoff passes false to re-focus the player's selection; this canary
+                // only asserts on selectedVessel, so the camera should not move).
                 setVesselMethod.Invoke(tracking,
                     GhostMapPresence.BuildTrackingStationSetVesselArguments(
                         setVesselMethod, ghost, keepFocus: true));
