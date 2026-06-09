@@ -4,14 +4,6 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## 0.11.0
-
-### Bug Fixes
-
-- Fixed a bug where a clean cargo-delivery Supply Run could be wrongly rejected as a mixed pickup/delivery run when the transport and the destination shared a fuel type that stock crossfeed equalised during docking. Route eligibility now reads the transport's fuel level from just before docking, so the equalisation no longer looks like the transport picking cargo back up.
-
----
-
 ## 0.10.1
 
 - Maintenance and bug-fix release following up on issues found in post-0.10.0 career playtesting.
@@ -26,6 +18,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Fixed a bug where a clean cargo-delivery Supply Run could be wrongly rejected as a mixed pickup/delivery run when the transport and the destination shared a fuel type that stock crossfeed equalised during docking. Route eligibility now reads the transport's fuel level from just before docking, so the equalisation no longer looks like the transport picking cargo back up.
 - Fixed a critical data-loss bug where reverting a flight (stock Revert to Launch or Prelaunch) could silently delete your real, separately launched landed or orbiting craft from unrelated missions. A revert now only undoes the flight you actually reverted, and it identifies vessels by their unique launch rather than the craft name, so other craft that merely share a vessel design or its baked id are never removed.
 - Fixed a critical bug where cold-loading (Resume Saved Game) an established career wiped the stock economy: funds collapsed to the starting seed and science dropped to zero, even with no Parsek feature in use. On a fresh load the universe clock is not ready yet, so the ledger replay was cutting the entire career off at time zero; it now replays the full committed history and only applies a time-based cutoff once the clock is valid, which still keeps post-rewind future rewards from being paid out early.
 - Fixed a critical career-corruption bug where science and world-first funds earned after time-warping to another body (for example recovering Mun science on a recorded Mun mission) were silently wiped on return to the Space Center, even though no Parsek feature was used. Career captures tagged to the live recording are now committed to the ledger even when they land past the recording's last on-rails trajectory point, so the scene-change recalc no longer patches the player's science and funds down to a target that was missing those earnings.

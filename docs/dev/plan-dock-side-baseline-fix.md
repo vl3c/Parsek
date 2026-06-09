@@ -213,14 +213,12 @@ the format `VesselSpawner.ExtractResourceManifest` reads.
    the `[Flight]` verbose line is emitted (canonical `TestSinkForTesting` pattern,
    `[Collection("Sequential")]`).
 
-## Version / docs (confirm-point)
+## Version / docs
 
-Main is `0.10.1`. This is a route-creation correctness fix and coordinates with the
-in-flight structure-window PR #1107, which already bumps to `0.11.0`. Plan: target
-`0.11.0` (bump `AssemblyInfo.cs` + `KSPAssembly` tag + `Parsek.version`, add a Bug
-Fixes entry under `## 0.11.0`). When both PRs land, the second resolves a trivial
-CHANGELOG/version overlap (same target version). Confirm 0.11.0 vs folding into a
-different release.
+Ships under the existing `## 0.10.1` section (no version bump): a Bug Fixes entry is
+added there and `AssemblyInfo.cs` / `KSPAssembly` tag / `Parsek.version` stay at
+`0.10.1`. (The structure-window PR #1107 and the dispatch-now docs PR #1108 also land
+under 0.10.1.)
 
 CHANGELOG wording (user-facing, no em dashes):
 > Fixed a bug where a clean cargo-delivery Supply Run could be wrongly rejected as a
