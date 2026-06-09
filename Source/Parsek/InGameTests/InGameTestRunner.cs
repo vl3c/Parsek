@@ -409,6 +409,98 @@ namespace Parsek.InGameTests
             ParsekLog.Info(Tag,
                 $"PerformBetweenRunCleanup: end reason={reason} " +
                 $"ghostsBefore={ghostsBefore} mapPidsBefore={mapPidsBefore} mapPidsAfter={mapPidsAfter}");
+
+            // Safety net: a prior run (or a user Cancel) may have left a stock
+            // Space Center facility building open and the game paused. Force it
+            // closed so the next batch starts from a clean Space Center.
+            ForceCloseOpenSpaceCenterFacilities(reason);
+        }
+
+        /// <summary>
+        /// Pure gate for the facility force-close safety net. Stock Space Center
+        /// facility buildings (R&amp;D / Astronaut Complex / Mission Control /
+        /// Administration) can only be open in the SPACECENTER scene, so the
+        /// safety net is a no-op everywhere else; the cheap scene check keeps
+        /// FLIGHT / TRACKSTATION cleanup from paying for FindObjectOfType scans.
+        /// </summary>
+        internal static bool ShouldForceCloseSpaceCenterFacilities(GameScenes scene)
+        {
+            return scene == GameScenes.SPACECENTER;
+        }
+
+        internal static string FormatFacilityForceCloseSummary(int closedCount, string reason)
+        {
+            return $"ForceCloseOpenSpaceCenterFacilities: closed {closedCount} " +
+                $"open facility(ies) reason={reason ?? "(null)"}";
+        }
+
+        /// <summary>
+        /// Safety net that force-closes any stock Space Center facility building
+        /// (R&amp;D / Astronaut Complex / Mission Control / Administration) left
+        /// open by a test. The Phase-5 StockUiOverlay tests open a facility
+        /// canvas (which pauses the game) and close it in their own try/finally;
+        /// the runner disposes the test iterator via <see cref="RunCoroutineSafely"/>
+        /// so that finally fires even on a failed assertion. But a user
+        /// <see cref="Cancel"/> stops the coroutine with Unity StopCoroutine,
+        /// which does NOT run the iterator's finally, and a despawn event that
+        /// no-ops in some game state has the same effect: the player is left
+        /// stuck inside the building with the game paused and no automatic
+        /// return to the Space Center (SPACECENTER batches capture no FLIGHT
+        /// baseline to restore). Firing the stock despawn GameEvent is exactly
+        /// what UISpaceCenter's exit button does -- UISpaceCenter listens for it
+        /// to unpause and tear down the canvas.
+        ///
+        /// Each fire is gated on the facility actually being open
+        /// (FindObjectOfType != null) so a despawn event is never fired when
+        /// nothing is open (other listeners, including Parsek's own overlay
+        /// controller, react to it). Idempotent and swallow-on-throw: one broken
+        /// facility close cannot abort cleanup.
+        /// </summary>
+        internal void ForceCloseOpenSpaceCenterFacilities(string reason)
+        {
+            if (!ShouldForceCloseSpaceCenterFacilities(HighLogic.LoadedScene))
+                return;
+
+            int closed = 0;
+            closed += TryForceCloseFacility<KSP.UI.Screens.RDController>("R&D", controller =>
+            {
+                KSP.UI.Screens.RDController.OnRDTreeDespawn.Fire(controller);
+                GameEvents.onGUIRnDComplexDespawn.Fire();
+            });
+            closed += TryForceCloseFacility<KSP.UI.Screens.AstronautComplex>("Astronaut Complex",
+                _ => GameEvents.onGUIAstronautComplexDespawn.Fire());
+            closed += TryForceCloseFacility<KSP.UI.Screens.MissionControl>("Mission Control",
+                _ => GameEvents.onGUIMissionControlDespawn.Fire());
+            closed += TryForceCloseFacility<KSP.UI.Screens.Administration>("Administration",
+                _ => GameEvents.onGUIAdministrationFacilityDespawn.Fire());
+
+            if (closed > 0)
+                ParsekLog.Info(Tag, FormatFacilityForceCloseSummary(closed, reason));
+            else
+                ParsekLog.Verbose(Tag,
+                    $"ForceCloseOpenSpaceCenterFacilities: no open facilities reason={reason ?? "(null)"}");
+        }
+
+        private static int TryForceCloseFacility<T>(string facilityName, Action<T> fireDespawn)
+            where T : UnityEngine.Object
+        {
+            T open = UnityEngine.Object.FindObjectOfType<T>();
+            if (open == null)
+                return 0;
+
+            try
+            {
+                ParsekLog.Info(Tag,
+                    $"ForceCloseOpenSpaceCenterFacilities: closing open {facilityName} facility canvas");
+                fireDespawn(open);
+                return 1;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"ForceCloseOpenSpaceCenterFacilities: {facilityName} close threw: {ex.Message}");
+                return 0;
+            }
         }
 
         public void Cancel()
@@ -423,6 +515,14 @@ namespace Parsek.InGameTests
             if (activeCoroutine != null)
                 coroutineHost.StopCoroutine(activeCoroutine);
             activeCoroutine = null;
+
+            // Unity StopCoroutine above abandons the test iterator WITHOUT
+            // running its try/finally, so a cancel while a building-entry test
+            // is mid-flight would leave the facility canvas open and the game
+            // paused. Force any open facility closed so cancel always returns
+            // to a usable Space Center. Gated to SPACECENTER, so the FLIGHT
+            // baseline-restore-on-cancel path below is unaffected.
+            ForceCloseOpenSpaceCenterFacilities("test-run-cancelled");
 
             if (batchFlightBaseline != null)
             {
@@ -1825,6 +1925,14 @@ namespace Parsek.InGameTests
                 if (go != null) UnityEngine.Object.Destroy(go);
             }
             cleanupRegistry.Clear();
+
+            // Safety net: if a building-entry test failed to close its facility
+            // (its own try/finally is the primary close; this catches a despawn
+            // event that no-op'd or a body that opened a building outside a
+            // finally), force it closed so the NEXT test starts from a clean,
+            // unpaused Space Center instead of running blind behind an open
+            // facility canvas. No-op outside SPACECENTER.
+            ForceCloseOpenSpaceCenterFacilities("post-test:" + (test?.Name ?? "(unknown)"));
         }
 
         private object CreateTestInstance(Type type)

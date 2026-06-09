@@ -672,5 +672,41 @@ namespace Parsek.Tests
         {
             Assert.False(InGameTestRunner.ShouldRestoreBatchFlightBaselineAfterTest(null));
         }
+
+        [Fact]
+        public void ShouldForceCloseSpaceCenterFacilities_OnlyTrueInSpaceCenter()
+        {
+            Assert.True(InGameTestRunner.ShouldForceCloseSpaceCenterFacilities(GameScenes.SPACECENTER));
+
+            foreach (var scene in new[]
+            {
+                GameScenes.FLIGHT,
+                GameScenes.TRACKSTATION,
+                GameScenes.EDITOR,
+                GameScenes.MAINMENU,
+                GameScenes.SETTINGS,
+                GameScenes.CREDITS,
+                GameScenes.LOADING,
+            })
+            {
+                Assert.False(InGameTestRunner.ShouldForceCloseSpaceCenterFacilities(scene),
+                    $"facility force-close must be a no-op outside the Space Center (scene={scene})");
+            }
+        }
+
+        [Fact]
+        public void FormatFacilityForceCloseSummary_IncludesCountAndReason()
+        {
+            string summary = InGameTestRunner.FormatFacilityForceCloseSummary(2, "post-test:Foo");
+            Assert.Contains("closed 2", summary);
+            Assert.Contains("reason=post-test:Foo", summary);
+        }
+
+        [Fact]
+        public void FormatFacilityForceCloseSummary_NullReason_RendersPlaceholder()
+        {
+            string summary = InGameTestRunner.FormatFacilityForceCloseSummary(1, null);
+            Assert.Contains("reason=(null)", summary);
+        }
     }
 }
