@@ -13,6 +13,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done 2026-06-09 - Zero-drift per-window reschedule: same-parent (Mun / Minmus) verify-and-harden (branch `zero-drift-harden`, Phases A-C)
+
+**Scope:** SAME-PARENT only (Kerbin -> Mun / Minmus, including land-and-return). The cross-parent "Duna-One-class" single-moon arrival hold is a different subsystem (re-aim, `UnsupportedCrossParent`) and is a separate sibling pass, not part of this work. The mechanism (`MissionPeriodicity` `NextJointNearCoincidenceUT` / `TryBuildRelaunchSchedule` / `MissionRelaunchSchedule`, attached in `MissionLoopUnitBuilder.TryBuildMissionUnit` and consumed by the shared `GhostPlaybackLogic` span clock across flight / KSC / Tracking Station) was already SHIPPED; this work lifted it to a flawless bar by closing the test-coverage / verification gaps, adding the missing self-defending guards, and fixing the stale docs.
+
+**Done:** the same-parent zero-drift hardening (tests + span-clock guard + the R3 amber-tint fix that stops the launch-window status showing a false amber warning when the schedule is actually on target). Plan + per-phase breakdown: `docs/dev/plans/zero-drift-reschedule-hardening.md`; shipped spec: `docs/dev/done/plans/zero-drift-reschedule.md`.
+
+**Carried forward (deferred to a follow-up):** the Phase D in-game VISUAL-parity tier (per-frame ghost activation, scheduled debris render, and three-scene visual parity) is NOT closed by this work and is deferred to a follow-up; Phases A-C shipped on branch `zero-drift-harden`. The two Tracking-Station playtest-pending lines below also remain open (they need a live playtest, not closed here).
+
 ## Done 2026-06-08 - Bug 1 (funds-economy-divergence): a stock contract re-fire baked N copies of the reward into the ledger
 
 **Symptom (log-verified):** a single contract completion fired the stock award sequence 4 times within 22 ms (and a second contract 3 times), and Parsek recorded a `ContractCompleted` row per fire. Evidence: `logs/2026-06-08_2110_funds-bug/KSP.log`. `KSP.log:17201, 17227, 17250, 17271` (19:15:43.089-.111): four `Awarding 63250 funds to player for contract completion` STOCK lines for ONE contract (`1eb2baf9-afce-48c7-82d6-364dae85f57a`, "Science data from surface of The Mun"), live funds 305131 -> 494881. `KSP.log:17225, 17247, 17269, 17289` (`AddEvent: ContractCompleted ... total=33..36`): four store rows, same contractId / UT 475409.6 / recordingId tag. At commit those convert to four `ContractComplete` ledger rows (4 x 63250 = 253000).
