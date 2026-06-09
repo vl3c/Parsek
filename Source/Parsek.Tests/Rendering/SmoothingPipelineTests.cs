@@ -654,13 +654,12 @@ namespace Parsek.Tests.Rendering
         [Fact]
         public void AlgorithmStampBump_V1FilesInvalidatedAsAlgStampDrift()
         {
-            // What makes it fail: HR-10 — a Phase-3-shipped .pann (alg stamp
-            // v1, body-fixed splines) must NOT be silently reused under the
-            // Phase 4 binary (alg stamp v2, inertial splines). The reason
-            // token "alg-stamp-drift" is the canonical signal that this
-            // happened; tests pin to it so a future bump that forgets to
-            // change AlgorithmStampVersion shows up as a green test that
-            // shouldn't be green.
+            // What makes it fail: HR-10 — a .pann written under an older alg
+            // stamp must NOT be silently reused under the current binary's
+            // stamp. The reason token "alg-stamp-drift" is the canonical
+            // signal that this happened; tests pin to it so a future bump
+            // that forgets to change AlgorithmStampVersion shows up as a
+            // green test that shouldn't be green.
             string pannPath = Path.Combine(tempDir, "rec-v1stamp.pann");
             byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
             PannotationsSidecarBinary.Write(pannPath, "rec-v1stamp",
@@ -668,10 +667,10 @@ namespace Parsek.Tests.Rendering
                 sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
                 configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
 
-            // Mutate AlgorithmStampVersion (offset 8..11) to 1 — represents
-            // a .pann written by the Phase 3 build before the Phase 4 bump.
+            // Mutate AlgorithmStampVersion (offset 8..11) to 0 — represents
+            // a .pann written by an older build before the current stamp bump.
             byte[] bytes = File.ReadAllBytes(pannPath);
-            bytes[8] = 1; bytes[9] = 0; bytes[10] = 0; bytes[11] = 0;
+            bytes[8] = 0; bytes[9] = 0; bytes[10] = 0; bytes[11] = 0;
             File.WriteAllBytes(pannPath, bytes);
 
             var rec = MakeRecording("rec-v1stamp",
@@ -794,92 +793,6 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(PannotationsSidecarBinary.AlgorithmStampVersion, probe.AlgorithmStampVersion);
         }
 
-        // ---- ultrareview P1-A: useAnchorTaxonomy flag in ConfigurationHash ----
-
-        [Fact]
-        public void ConfigurationHash_DiffersByUseAnchorTaxonomy()
-        {
-            // What makes it fail: a hash that ignores the flag would let a
-            // .pann written when the flag was off cache-hit when the flag
-            // is on (and vice-versa). Phase 6's writer emits an empty
-            // AnchorCandidatesList when off and a populated one when on,
-            // so the two are NOT equivalent — the cache key must reflect
-            // that.
-            byte[] hashOn = PannotationsSidecarBinary.ComputeConfigurationHash(
-                SmoothingConfiguration.Default, useAnchorTaxonomy: true);
-            byte[] hashOff = PannotationsSidecarBinary.ComputeConfigurationHash(
-                SmoothingConfiguration.Default, useAnchorTaxonomy: false);
-            Assert.NotEqual(hashOn, hashOff);
-        }
-
-        [Fact]
-        public void ConfigurationHash_SingleArgOverload_DefaultsToFlagOn()
-        {
-            // What makes it fail: existing call sites (test fixtures pinned
-            // before P1-A landed) pass the single-arg overload. They must
-            // continue to compute the same hash they always did, which
-            // means defaulting to the shipped Phase 6 default (true).
-            byte[] singleArg = PannotationsSidecarBinary.ComputeConfigurationHash(
-                SmoothingConfiguration.Default);
-            byte[] explicitOn = PannotationsSidecarBinary.ComputeConfigurationHash(
-                SmoothingConfiguration.Default, useAnchorTaxonomy: true);
-            Assert.Equal(singleArg, explicitOn);
-        }
-
-
-        [Fact]
-        public void LoadOrCompute_DiscardsAndRecomputesOn_UseAnchorTaxonomy_FlagFlip()
-        {
-            // What makes it fail: the canonical regression for ultrareview
-            // P1-A. Write a .pann while the flag is off, then load it
-            // while the flag is on. Without the flag in the
-            // ConfigurationHash the load path treats the file as fresh
-            // and skips the lazy-recompute → §7.4-§7.10 anchors never
-            // re-emit. With the flag in the hash, the load surfaces
-            // config-hash-drift and the recompute fires.
-            var rec = MakeRecording("rec-flag-flip",
-                MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
-            string pannPath = Path.Combine(tempDir, "rec-flag-flip.pann");
-
-            // Write .pann with flag off.
-            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = false;
-            try { SmoothingPipeline.PersistAfterCommit(rec, pannPath); }
-            finally { AnchorCandidateBuilder.ResetForTesting(); }
-            Assert.True(File.Exists(pannPath));
-
-            // Re-read with flag on. The cached hash should differ from
-            // the hash baked into the file → ClassifyDrift returns
-            // config-hash-drift → orchestrator logs invalidation, runs
-            // FitAndStorePerSection, rewrites .pann.
-            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
-            // Reset the cached hash so CurrentConfigurationHash recomputes
-            // for the new flag value. ResetForTesting also reseats the
-            // body resolver / surface lookup seams the test ctor injected,
-            // so we re-install them after the reset.
-            SmoothingPipeline.ResetForTesting();
-            CelestialBody capturedKerbin = fakeKerbin;
-            SmoothingPipeline.BodyResolverForTesting = name => name == "Kerbin" ? capturedKerbin : null;
-            TrajectoryMath.FrameTransform.RotationPeriodForTesting = b =>
-                object.ReferenceEquals(b, capturedKerbin) ? KerbinRotationPeriod : double.NaN;
-            AnchorCandidateBuilder.UseAnchorTaxonomyOverrideForTesting = true;
-            try { SmoothingPipeline.LoadOrCompute(rec, pannPath); }
-            finally { AnchorCandidateBuilder.ResetForTesting(); }
-
-            // The Pipeline-Sidecar invalidation Info line should fire with
-            // reason=config-hash-drift (the canonical token for hash
-            // mismatch).
-            Assert.Contains(logLines,
-                l => l.Contains("[INFO][Pipeline-Sidecar]")
-                    && l.Contains("Pannotations whole-file invalidation")
-                    && l.Contains("recordingId=rec-flag-flip")
-                    && l.Contains("reason=config-hash-drift"));
-            Assert.Contains(logLines,
-                l => l.Contains("[INFO][Pipeline-Smoothing]")
-                    && l.Contains("Lazy compute")
-                    && l.Contains("recordingId=rec-flag-flip")
-                    && l.Contains("reason=config-hash-drift"));
-        }
-
         // --- Phase 8 outlier-rejection wiring ---
 
         private static List<TrajectoryPoint> MakeFramesWithVelocity(
@@ -915,7 +828,6 @@ namespace Parsek.Tests.Rendering
             // doesn't store flags. Either way the spline silently smooths
             // through a kraken spike — the visible regression Phase 8 is
             // designed to prevent.
-            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
             var rec = new Recording
             {
                 RecordingId = "rec-k",
@@ -948,45 +860,12 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void FitAndStorePerSection_ClassifierOff_NoFlagsStored()
-        {
-            // What makes it fail: rollout-gate broken. With the gate off the
-            // classifier must NOT run.
-            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => false;
-            var rec = new Recording
-            {
-                RecordingId = "rec-koff",
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
-                SidecarEpoch = 1
-            };
-            var frames = MakeFramesWithVelocity(12, 100.0, 1.0, krakenIndex: 5);
-            rec.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.ExoBallistic,
-                referenceFrame = ReferenceFrame.Absolute,
-                source = TrackSectionSource.Active,
-                startUT = 100.0,
-                endUT = 111.0,
-                anchorVesselId = 0,
-                frames = frames,
-                checkpoints = new List<OrbitSegment>(),
-                sampleRateHz = 1f,
-            });
-            SmoothingPipeline.FitAndStorePerSection(rec);
-
-            Assert.False(SectionAnnotationStore.TryGetOutlierFlags("rec-koff", 0, out _));
-            Assert.Equal(0, SectionAnnotationStore.GetOutlierFlagsCountForRecording("rec-koff"));
-        }
-
-        [Fact]
         public void FitAndStorePerSection_TooManyOutliers_FitFailsAndWarns()
         {
             // 6-sample section with alternating kraken accels so every
             // interior transition fires the Acceleration classifier. After
             // rejection the kept count drops below 4 → fit invalid →
             // Pipeline-Smoothing Warn surfaces.
-            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
             var frames = new List<TrajectoryPoint>();
             // velocities: 10, 50000, 10, 50001, 10, 50002 — every adjacent
             // pair has a 50000 m/s delta over 1 sec ≫ 50 m/s² ExoBallistic
@@ -1041,7 +920,6 @@ namespace Parsek.Tests.Rendering
         {
             // Write a .pann with outlier flags, clear store, load → flags
             // re-installed under the recording id.
-            SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
             var rec = new Recording
             {
                 RecordingId = "rec-rt",
@@ -1074,20 +952,6 @@ namespace Parsek.Tests.Rendering
             Assert.True(SectionAnnotationStore.TryGetOutlierFlags("rec-rt", 0, out var roundTripped));
             // SampleCount backfilled from the live section's frames count.
             Assert.Equal(frames.Count, roundTripped.SampleCount);
-        }
-
-        [Fact]
-        public void FitAndStorePerSection_ConfigHash_OutlierFlagFlip_ChangesHash()
-        {
-            // Phase 8 freshness: useOutlierRejection participates in the
-            // ConfigurationHash so a flip invalidates cached .pann files.
-            byte[] flagOn = PannotationsSidecarBinary.ComputeConfigurationHash(
-                SmoothingConfiguration.Default,
-                useAnchorTaxonomy: true, useOutlierRejection: true);
-            byte[] flagOff = PannotationsSidecarBinary.ComputeConfigurationHash(
-                SmoothingConfiguration.Default,
-                useAnchorTaxonomy: true, useOutlierRejection: false);
-            Assert.NotEqual(flagOn, flagOff);
         }
     }
 }

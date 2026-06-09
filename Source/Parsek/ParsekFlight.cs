@@ -22042,8 +22042,7 @@ namespace Parsek
         /// Phase 1 spline-positioning gate (design doc §6.1, §17.3.1).
         /// Returns <c>true</c> with a populated <paramref name="spline"/>
         /// when (a) the caller supplied both a recording id and a non-negative
-        /// section index, (b) the <c>useSmoothingSplines</c> rollout flag is
-        /// on, and (c) <see cref="SectionAnnotationStore"/> holds a valid
+        /// section index and (b) <see cref="SectionAnnotationStore"/> holds a valid
         /// spline for the (recordingId, sectionIndex) pair. Any miss is a
         /// silent fall-through to legacy lerp positioning (HR-9 — "no spline
         /// yet" is a normal state, not a failure).
@@ -22053,10 +22052,6 @@ namespace Parsek
         {
             spline = default(Parsek.Rendering.SmoothingSpline);
             if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
-                return false;
-
-            ParsekSettings settings = ParsekSettings.Current;
-            if (settings == null || !settings.useSmoothingSplines)
                 return false;
 
             if (!Parsek.Rendering.SectionAnnotationStore.TryGetSmoothingSpline(
@@ -22071,8 +22066,7 @@ namespace Parsek
         /// §6.4 single-anchor case / §7.1 / §18 Phase 2 / §26.1 HR-15).
         /// Returns <c>true</c> with a populated <paramref name="ac"/> when
         /// (a) the caller supplied both a recording id and a non-negative
-        /// section index, (b) the <c>useAnchorCorrection</c> rollout flag is
-        /// on, and (c) <see cref="Parsek.Rendering.RenderSessionState"/>
+        /// section index and (b) <see cref="Parsek.Rendering.RenderSessionState"/>
         /// holds a start-side anchor for the (recordingId, sectionIndex)
         /// pair.
         ///
@@ -22100,10 +22094,6 @@ namespace Parsek
             if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
                 return false;
 
-            ParsekSettings settings = ParsekSettings.Current;
-            if (settings == null || !settings.useAnchorCorrection)
-                return false;
-
             return Parsek.Rendering.RenderSessionState.TryLookup(
                 recordingId, sectionIndex, Parsek.Rendering.AnchorSide.Start, out ac);
         }
@@ -22112,8 +22102,7 @@ namespace Parsek
         /// Phase 3 multi-anchor-lerp gate (design doc §6.4 / §8 / §18 Phase 3
         /// / §19.2 Stage 4 log table). Returns <c>true</c> with a populated
         /// <paramref name="epsilon"/> when (a) the caller supplied both a
-        /// recording id and a non-negative section index, (b) the
-        /// <c>useAnchorCorrection</c> rollout flag is on, and (c)
+        /// recording id and a non-negative section index and (b)
         /// <see cref="Parsek.Rendering.RenderSessionState"/> holds at least
         /// one anchor (start or end side) for the (recordingId, sectionIndex)
         /// pair. The returned ε is evaluated at <paramref name="targetUT"/>
@@ -22139,10 +22128,6 @@ namespace Parsek
         {
             epsilon = default(Vector3d);
             if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
-                return false;
-
-            ParsekSettings settings = ParsekSettings.Current;
-            if (settings == null || !settings.useAnchorCorrection)
                 return false;
 
             Parsek.Rendering.AnchorCorrectionInterval? maybeInterval =
@@ -22357,10 +22342,9 @@ namespace Parsek
         /// Pure-static core of <see cref="TryComputeLateUpdateSplineWorldPosition"/>.
         /// Returns <c>true</c> with a populated <paramref name="worldPos"/>
         /// when (a) the lookup key is valid (non-empty recordingId + non-
-        /// negative sectionIndex), (b) the <c>useSmoothingSplines</c> rollout
-        /// flag is on, (c) <see cref="Parsek.Rendering.SectionAnnotationStore"/>
-        /// holds a valid spline for the pair, (d) the body reference is non-
-        /// null, and (e) the spline's FrameTag dispatches to a finite world
+        /// negative sectionIndex), (b) <see cref="Parsek.Rendering.SectionAnnotationStore"/>
+        /// holds a valid spline for the pair, (c) the body reference is non-
+        /// null, and (d) the spline's FrameTag dispatches to a finite world
         /// position. Any miss falls through silently — the caller uses the
         /// legacy raw-lerp bracket. Unknown FrameTag values also return false;
         /// the Warn fires through <paramref name="unknownFrameTagWarnedKeys"/>
@@ -22379,10 +22363,6 @@ namespace Parsek
         {
             worldPos = default(Vector3d);
             if (string.IsNullOrEmpty(recordingId) || sectionIndex < 0)
-                return false;
-
-            ParsekSettings settings = ParsekSettings.Current;
-            if (settings == null || !settings.useSmoothingSplines)
                 return false;
 
             if (!Parsek.Rendering.SectionAnnotationStore.TryGetSmoothingSpline(

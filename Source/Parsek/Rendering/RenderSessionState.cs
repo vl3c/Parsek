@@ -880,9 +880,7 @@ namespace Parsek.Rendering
             // Phase 6 (design doc §18 Phase 6, §19.2 Stage 3b): immediately
             // after the Phase-2 LiveSeparation anchors land, walk the DAG to
             // emit the remaining §7.2 — §7.10 anchor types and propagate ε
-            // along BranchPoint edges per §9.1. AnchorPropagator gates on
-            // useAnchorTaxonomy internally, so a flag-off install gets the
-            // Phase-2-only behaviour for free.
+            // along BranchPoint edges per §9.1.
             RunAnchorPropagator(marker, recordings, treeLookup);
         }
 
