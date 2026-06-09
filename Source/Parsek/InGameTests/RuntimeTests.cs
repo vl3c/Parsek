@@ -3028,8 +3028,56 @@ namespace Parsek.InGameTests
             return false;
         }
 
+        // A launch test stages the active vessel and waits for it to leave PRELAUNCH. If the craft has
+        // launch clamps in a LATER stage than the engines, a single ActivateNextStage() ignites the
+        // engines but leaves the clamps holding the vessel on the pad forever (situation stays
+        // PRELAUNCH while thrust > 0). Stock LaunchClamp.Release() (a public KSPEvent) calls
+        // part.decouple() in FLIGHT, freeing the vessel. The launch waits release any still-attached
+        // clamps so a clamped career craft can still exercise the real launch flow instead of timing
+        // out. Returns the number of clamps released this call.
+        internal static int ReleaseLaunchClampsOnActiveVessel()
+        {
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel?.parts == null)
+                return 0;
+            int released = 0;
+            for (int p = 0; p < vessel.parts.Count; p++)
+            {
+                Part part = vessel.parts[p];
+                var clamp = part?.FindModuleImplementing<LaunchClamp>();
+                // part.parent == null clamps are no-ops in stock Release(); skip them so the count is honest.
+                if (clamp != null && part.parent != null)
+                {
+                    clamp.Release();
+                    released++;
+                }
+            }
+            if (released > 0)
+                ParsekLog.Info("TestRunner",
+                    $"ReleaseLaunchClampsOnActiveVessel: released {released} launch clamp(s) on " +
+                    $"'{vessel.vesselName}' so the staged launch can lift off the pad");
+            return released;
+        }
+
+        internal static bool ActiveVesselHasLaunchClamps()
+        {
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel?.parts == null)
+                return false;
+            for (int p = 0; p < vessel.parts.Count; p++)
+            {
+                Part part = vessel.parts[p];
+                if (part?.FindModuleImplementing<LaunchClamp>() != null && part.parent != null)
+                    return true;
+            }
+            return false;
+        }
+
         internal static IEnumerator WaitForLaunchAutoRecordStart(float timeoutSeconds)
         {
+            // Free any launch clamps so a clamped pad craft can actually lift off (engines may already
+            // be ignited and producing thrust while the clamps bolt it to the pad).
+            ReleaseLaunchClampsOnActiveVessel();
             float deadline = Time.time + timeoutSeconds;
             bool everProducedThrust = false;
             while (Time.time < deadline)
@@ -5901,7 +5949,13 @@ namespace Parsek.InGameTests
             double currentUT,
             string label)
         {
-            double startUT = currentUT - 60.0;
+            // Anchor the recording window AT the live UT (not 60 s in the past) so the
+            // tracking-station create path does not classify it as a historical recording
+            // the player already progressed past. With startUT < currentUT - tolerance and
+            // no replay-scope entry, GhostMapPresence's BUG-B guard
+            // (PlaybackScopeTracker.IsHistoricalNeverReplayed) suppresses the ghost
+            // (skipReason="historical-not-replayed") and no ghost PID is ever created.
+            double startUT = currentUT;
             double endUT = currentUT + 600.0;
             string safeLabel = string.IsNullOrEmpty(label) ? "canary" : label;
 
@@ -10027,6 +10081,9 @@ namespace Parsek.InGameTests
 
         private static IEnumerator WaitForRecordingToLeavePrelaunch(string expectedRecordingId, float timeoutSeconds)
         {
+            // Free any launch clamps so a clamped pad craft can actually lift off (engines may already
+            // be ignited and producing thrust while the clamps bolt it to the pad).
+            RuntimeTests.ReleaseLaunchClampsOnActiveVessel();
             float deadline = Time.time + timeoutSeconds;
             bool everProducedThrust = false;
             while (Time.time < deadline)
@@ -12728,6 +12785,18 @@ namespace Parsek.InGameTests
             {
                 InGameAssert.Skip(
                     $"requires a landed/prelaunch vessel for the Real Spawn Control pad transient canary (situation={activeVessel.situation})");
+                yield break;
+            }
+            // A clamped pad craft never leaves PRELAUNCH, so a forward time-jump produces no active-vessel
+            // situation transition for the suppression path to skip; the skipCount assertion below would
+            // fail for an environmental reason rather than a product regression. (Do NOT release the
+            // clamps here — this canary must keep the real pad vessel focused and unmoved.)
+            if (RuntimeTests.ActiveVesselHasLaunchClamps())
+            {
+                InGameAssert.Skip(
+                    "active pad vessel has launch clamps holding it on the pad; it never produces a launch " +
+                    "situation transition during the warp, so the time-jump transient suppression path " +
+                    "cannot be exercised on this craft");
                 yield break;
             }
             if (ParsekSettings.Current == null)
@@ -16618,8 +16687,11 @@ namespace Parsek.InGameTests
             string failureMessage,
             float timeoutSeconds)
         {
-            float deadline = Time.time + timeoutSeconds;
-            while (Time.time < deadline)
+            // Realtime deadline: the facility pause freezes Time.time (see
+            // WaitUntilTrue), so a Time.time deadline would hang the suite with the
+            // player stuck inside the paused Astronaut Complex building.
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (Time.realtimeSinceStartup < deadline)
             {
                 CrewListItem row = FindCrewListItemByName(Object.FindObjectOfType<AstronautComplex>(), kerbalName);
                 if (row != null && CountNamedChildren(row.transform, overlayName) == 1)
@@ -16673,10 +16745,16 @@ namespace Parsek.InGameTests
             float timeoutSeconds)
         {
             InGameAssert.IsNotNull(result, "Mission Control contract row result holder is required");
-            float deadline = Time.time + timeoutSeconds;
+            // Realtime deadline: EnterBuilding pauses the game (timeScale 0), which
+            // freezes Time.time. A Time.time deadline never expires while Mission
+            // Control is open, so a save with no offered contracts would spin this
+            // loop forever, leaving the player stuck inside the paused building (and
+            // the runner's post-test facility force-close never runs because this
+            // coroutine never returns). Mirrors WaitUntilTrue.
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
             string lastSkipReason = null;
 
-            while (Time.time < deadline)
+            while (Time.realtimeSinceStartup < deadline)
             {
                 MissionControl missionControl = Object.FindObjectOfType<MissionControl>();
                 if (TryPickMissionControlOfferedContractRow(
@@ -16783,8 +16861,11 @@ namespace Parsek.InGameTests
             string failureMessage,
             float timeoutSeconds)
         {
-            float deadline = Time.time + timeoutSeconds;
-            while (Time.time < deadline)
+            // Realtime deadline: the facility pause freezes Time.time (see
+            // WaitUntilTrue), so a Time.time deadline would hang the suite with the
+            // player stuck inside the paused Mission Control building.
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (Time.realtimeSinceStartup < deadline)
             {
                 MCListItem row = FindMissionControlRowByContractKey(Object.FindObjectOfType<MissionControl>(), contractKey);
                 if (row != null && CountNamedChildren(row.transform, overlayName) == 1)
