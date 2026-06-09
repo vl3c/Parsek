@@ -2066,7 +2066,7 @@ namespace Parsek.InGameTests
                 FlightInputHandler.state.mainThrottle = 1f;
                 KSP.UI.Screens.StageManager.ActivateNextStage();
 
-                yield return WaitForLaunchAutoRecordStart(10f);
+                yield return WaitForLaunchAutoRecordStart(30f);
                 yield return new WaitForSeconds(0.5f);
 
                 int autoStartCount = captured.Count(
@@ -3073,6 +3073,38 @@ namespace Parsek.InGameTests
             return false;
         }
 
+        internal enum LaunchWaitTimeoutOutcome
+        {
+            /// <summary>Vessel left PRELAUNCH but the recording-side wait conditions never
+            /// became true (no live recording / wrong recording id): a real product Fail.</summary>
+            FailRecordingContract,
+            /// <summary>Still PRELAUNCH and no engine ever produced thrust (clamp-only or
+            /// empty first stage): the craft cannot exercise the launch flow. Skip.</summary>
+            SkipNoThrust,
+            /// <summary>Still PRELAUNCH although engines burned the whole window and the
+            /// clamps were already released by the wait: craft performance (TWR &lt; 1 or a
+            /// liftoff slower than the deadline) is environmental, not a regression. Skip.</summary>
+            SkipNeverLiftedOff,
+        }
+
+        // Classifies a launch-wait timeout so craft-specific liftoff problems Skip instead of
+        // logging a misleading product-regression Fail. Both launch waits release any launch
+        // clamps up front, so a craft still PRELAUNCH at the deadline with thrust produced has
+        // nothing holding it but its own engines (career craft with a TWR<1 first stage burn
+        // on the pad; a marginal-TWR craft can also need >10s to creep off the pad — observed
+        // on a 4xShrimp first stage that took ~8s to reach FLYING).
+        internal static LaunchWaitTimeoutOutcome ClassifyLaunchWaitTimeout(
+            bool vesselPresent, bool stillPrelaunch, bool everProducedThrust, bool producingThrustNow)
+        {
+            if (vesselPresent && stillPrelaunch)
+            {
+                if (!everProducedThrust && !producingThrustNow)
+                    return LaunchWaitTimeoutOutcome.SkipNoThrust;
+                return LaunchWaitTimeoutOutcome.SkipNeverLiftedOff;
+            }
+            return LaunchWaitTimeoutOutcome.FailRecordingContract;
+        }
+
         internal static IEnumerator WaitForLaunchAutoRecordStart(float timeoutSeconds)
         {
             // Free any launch clamps so a clamped pad craft can actually lift off (engines may already
@@ -3099,16 +3131,23 @@ namespace Parsek.InGameTests
 
             var timedOutFlight = ParsekFlight.Instance;
             var timedOutVessel = FlightGlobals.ActiveVessel;
-            // The pad craft never produced launch thrust and stayed on the pad: this session's active
-            // vessel cannot lift off, so the launch flow is untestable here (not a product regression).
-            if (timedOutVessel != null
-                && timedOutVessel.situation == Vessel.Situations.PRELAUNCH
-                && !everProducedThrust
-                && !VesselIsProducingLaunchThrust(timedOutVessel))
+            switch (ClassifyLaunchWaitTimeout(
+                timedOutVessel != null,
+                timedOutVessel?.situation == Vessel.Situations.PRELAUNCH,
+                everProducedThrust,
+                VesselIsProducingLaunchThrust(timedOutVessel)))
             {
-                InGameAssert.Skip(
-                    "active pad vessel produced no launch thrust after staging (no ignited engine), so it " +
-                    "never left PRELAUNCH; cannot exercise the launch auto-record flow on this craft");
+                case LaunchWaitTimeoutOutcome.SkipNoThrust:
+                    InGameAssert.Skip(
+                        "active pad vessel produced no launch thrust after staging (no ignited engine), so it " +
+                        "never left PRELAUNCH; cannot exercise the launch auto-record flow on this craft");
+                    break;
+                case LaunchWaitTimeoutOutcome.SkipNeverLiftedOff:
+                    InGameAssert.Skip(
+                        $"active pad vessel burned its engines but never left PRELAUNCH within {timeoutSeconds:F0}s " +
+                        "(clamps already released, so the craft's own performance — TWR < 1 or a slow liftoff — is " +
+                        "holding it down); cannot exercise the launch auto-record flow on this craft");
+                    break;
             }
             InGameAssert.Fail(
                 $"WaitForLaunchAutoRecordStart timed out after {timeoutSeconds:F0}s " +
@@ -10107,16 +10146,23 @@ namespace Parsek.InGameTests
 
             var timedOutFlight = ParsekFlight.Instance;
             var timedOutVessel = FlightGlobals.ActiveVessel;
-            // The pad craft never produced launch thrust and stayed on the pad: it cannot lift off in
-            // this session, so the staged-launch revert flow is untestable here (not a regression).
-            if (timedOutVessel != null
-                && timedOutVessel.situation == Vessel.Situations.PRELAUNCH
-                && !everProducedThrust
-                && !RuntimeTests.VesselIsProducingLaunchThrust(timedOutVessel))
+            switch (RuntimeTests.ClassifyLaunchWaitTimeout(
+                timedOutVessel != null,
+                timedOutVessel?.situation == Vessel.Situations.PRELAUNCH,
+                everProducedThrust,
+                RuntimeTests.VesselIsProducingLaunchThrust(timedOutVessel)))
             {
-                InGameAssert.Skip(
-                    "active pad vessel produced no launch thrust after staging (no ignited engine), so it " +
-                    "never left PRELAUNCH; cannot exercise the staged-launch flow on this craft");
+                case RuntimeTests.LaunchWaitTimeoutOutcome.SkipNoThrust:
+                    InGameAssert.Skip(
+                        "active pad vessel produced no launch thrust after staging (no ignited engine), so it " +
+                        "never left PRELAUNCH; cannot exercise the staged-launch flow on this craft");
+                    break;
+                case RuntimeTests.LaunchWaitTimeoutOutcome.SkipNeverLiftedOff:
+                    InGameAssert.Skip(
+                        $"active pad vessel burned its engines but never left PRELAUNCH within {timeoutSeconds:F0}s " +
+                        "(clamps already released, so the craft's own performance — TWR < 1 or a slow liftoff — is " +
+                        "holding it down); cannot exercise the staged-launch flow on this craft");
+                    break;
             }
             InGameAssert.Fail(
                 $"WaitForRecordingToLeavePrelaunch timed out after {timeoutSeconds:F0}s " +
@@ -11921,7 +11967,7 @@ namespace Parsek.InGameTests
                     FlightInputHandler.state.mainThrottle = 1f;
                     KSP.UI.Screens.StageManager.ActivateNextStage();
 
-                    yield return RuntimeTests.WaitForLaunchAutoRecordStart(10f);
+                    yield return RuntimeTests.WaitForLaunchAutoRecordStart(30f);
                     yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
                     yield return new WaitForSeconds(0.5f);
 
@@ -12083,7 +12129,7 @@ namespace Parsek.InGameTests
                 FlightInputHandler.state.mainThrottle = 1f;
                 KSP.UI.Screens.StageManager.ActivateNextStage();
 
-                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 30f);
                 yield return new WaitForSeconds(1.0f);
 
                 bool canRevert = (bool)(FlightDriverCanRevertProperty.GetValue(null, null) ?? false);
@@ -12249,7 +12295,7 @@ namespace Parsek.InGameTests
                 FlightInputHandler.state.mainThrottle = 1f;
                 KSP.UI.Screens.StageManager.ActivateNextStage();
 
-                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 30f);
                 yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 10f);
                 yield return new WaitForSeconds(0.5f);
 
@@ -12436,7 +12482,7 @@ namespace Parsek.InGameTests
                 FlightInputHandler.state.mainThrottle = 1f;
                 KSP.UI.Screens.StageManager.ActivateNextStage();
 
-                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 30f);
                 yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 10f);
                 yield return new WaitForSeconds(0.5f);
 

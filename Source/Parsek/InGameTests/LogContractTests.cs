@@ -207,7 +207,7 @@ namespace Parsek.InGameTests
             if (recordings == null || recordings.Count == 0)
                 InGameAssert.Skip("No committed recordings to validate");
 
-            int validated = 0, skippedRoots = 0, skippedPreservedSinglePointDebris = 0, skippedNeverLeftPad = 0;
+            int validated = 0, skippedRoots = 0, skippedPreservedSinglePointDebris = 0, skippedNeverLeftGround = 0;
             foreach (var rec in recordings)
             {
                 // Tree roots are containers, not trajectory recordings
@@ -226,13 +226,14 @@ namespace Parsek.InGameTests
                     continue;
                 }
 
-                // A craft that never leaves the pad (e.g. launch clamps held it in PRELAUNCH the whole
-                // recording) legitimately captures only a single grounded trajectory point before the
-                // recording stops. That is a valid degenerate shape, not a corrupt recording, so it is
-                // exempt from the >=2-point playable contract.
-                if (IsNeverLeftPadSinglePointRecording(rec))
+                // A vessel that never leaves the surface (launch clamps held it in PRELAUNCH the
+                // whole recording, or a stationary EVA kerbal sealed on the ground) legitimately
+                // captures only a single grounded trajectory point before the recording stops.
+                // That is a valid degenerate shape, not a corrupt recording, so it is exempt from
+                // the >=2-point playable contract.
+                if (IsNeverLeftGroundSinglePointRecording(rec))
                 {
-                    skippedNeverLeftPad++;
+                    skippedNeverLeftGround++;
                     continue;
                 }
 
@@ -252,7 +253,7 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose("TestRunner",
                 $"REC-002: Validated {validated} recordings, {skippedRoots} tree roots skipped, " +
                 $"{skippedPreservedSinglePointDebris} preserved single-point in-flight debris leaf/leaves skipped, " +
-                $"{skippedNeverLeftPad} never-left-pad single-point recording(s) skipped");
+                $"{skippedNeverLeftGround} never-left-ground single-point recording(s) skipped");
         }
 
         internal static bool ShouldSkipStopMetricsValidation(Recording rec)
@@ -260,18 +261,24 @@ namespace Parsek.InGameTests
             return ParsekFlight.IsStopMetricsExemptSinglePointDebrisLeaf(rec);
         }
 
-        // A craft held on the pad by launch clamps (or otherwise never leaving the launch surface)
-        // captures only one grounded trajectory point before the recording stops, committing as a
-        // single-point Landed recording with no orbit. This is a valid degenerate recording, not
-        // corruption, so it is exempt from the >=2-point playable-metrics contract. Kept narrow:
-        // exactly one point, no orbit segments, terminal state Landed.
-        internal static bool IsNeverLeftPadSinglePointRecording(Recording rec)
+        // A vessel that never leaves the surface captures only one grounded trajectory point
+        // before the recording stops, committing as a single-point recording with no orbit.
+        // Two observed shapes: a craft held on the pad by launch clamps (stops with terminal
+        // state Landed), and a stationary EVA kerbal sealed without a terminal-state stamp
+        // but with a landed/splashed TerminalPosition (career playtest 2026-06-09, 'Lars
+        // Kerman' rec). Both are valid degenerate recordings, not corruption, so they are
+        // exempt from the >=2-point playable-metrics contract. Kept narrow: exactly one
+        // point, no orbit segments, and positive grounded evidence (terminal state Landed,
+        // or a recorded surface TerminalPosition, which is only set for landed/splashed
+        // endpoints).
+        internal static bool IsNeverLeftGroundSinglePointRecording(Recording rec)
         {
             if (rec == null) return false;
             if (rec.Points.Count != 1) return false;
             if (rec.OrbitSegments.Count > 0) return false;
-            if (!rec.TerminalStateValue.HasValue) return false;
-            return rec.TerminalStateValue.Value == TerminalState.Landed;
+            if (rec.TerminalStateValue.HasValue)
+                return rec.TerminalStateValue.Value == TerminalState.Landed;
+            return rec.TerminalPosition.HasValue;
         }
 
         // --- RES-001 / RES-002: Resource values ---
