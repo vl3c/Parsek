@@ -166,8 +166,28 @@ namespace Parsek.InGameTests
                 var facilityMaxLevels = BuildFacilityMaxLevels();
 
                 // ---- Step 8: diff. ----
+                // Recompute the production drawdown-guard authoritative-reduction signal
+                // (mirrors LedgerOrchestrator.RecalculateAndPatchCore). tombstonePath is
+                // always false here: tombstones run only inside a re-fly merge, which the
+                // Step 1 live/pending-tree guard already skips. When false, a seeded pool
+                // whose RAW running reconstruction runs ABOVE the live save is UPLIFT-clamped
+                // DOWN to live by the guard, so the diff demotes that (upward) divergence to
+                // report-only; a downward divergence stays hard.
+                bool authoritativeReduction = LedgerOrchestrator.IsAuthoritativeReduction(
+                    RewindContext.IsRewinding,
+                    ParsekScenario.Instance?.ActiveReFlySessionMarker != null,
+                    ParsekScenario.Instance?.ActiveMergeJournal != null,
+                    tombstonePath: false,
+                    RewindContext.RewindResourceAdjustmentInProgress);
+                ParsekLog.Verbose(Tag,
+                    $"diff: authoritativeReduction={authoritativeReduction.ToString(IC)} " +
+                    $"(rewinding={RewindContext.IsRewinding.ToString(IC)} " +
+                    $"reFlyMarker={(ParsekScenario.Instance?.ActiveReFlySessionMarker != null).ToString(IC)} " +
+                    $"mergeJournal={(ParsekScenario.Instance?.ActiveMergeJournal != null).ToString(IC)} " +
+                    $"rewindResAdjust={RewindContext.RewindResourceAdjustmentInProgress.ToString(IC)})");
+
                 LedgerDivergenceReport report = LedgerGroundTruthDiff.Compare(
-                    save, recon, FacetTolerances.Default, facilityMaxLevels);
+                    save, recon, FacetTolerances.Default, facilityMaxLevels, authoritativeReduction);
 
                 // ---- Step 9: vessel parse-sanity (REPORT-ONLY). ----
                 ReportVesselParseSanity(save);

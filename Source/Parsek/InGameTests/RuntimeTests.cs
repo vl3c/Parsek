@@ -15683,6 +15683,32 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(LedgerOrchestrator.Science, "ScienceModule should be initialized after RecalculateAndPatch");
                 InGameAssert.IsNotNull(LedgerOrchestrator.Reputation, "ReputationModule should be initialized after RecalculateAndPatch");
 
+                // On a mixed-history surplus career the ledger running balance already sits
+                // at/above live, so the synthetic probe credit pushes running ABOVE live and the
+                // production drawdown guard UPLIFT-clamps the funds/science patch DOWN to live: the
+                // probe delta is intentionally NOT written and no change event fires. Both the value
+                // assertions and the one-event-per-delta assertions below assume the probe deltas
+                // land, which is false in that case. Skip rather than false-fail; the test still runs
+                // its real contract on a clean Parsek-only career where no uplift clamp fires. (No
+                // time-travel context here, so the guard is active. After the patch, an uplift clamp
+                // shows as running > live: the guard holds live, so the running balance still exceeds it.)
+                bool authoritativeReduction = LedgerOrchestrator.IsAuthoritativeReduction(
+                    RewindContext.IsRewinding,
+                    ParsekScenario.Instance?.ActiveReFlySessionMarker != null,
+                    ParsekScenario.Instance?.ActiveMergeJournal != null,
+                    tombstonePath: false,
+                    RewindContext.RewindResourceAdjustmentInProgress);
+                if (!authoritativeReduction
+                    && (LedgerOrchestrator.Funds.GetRunningBalance() > Funding.Instance.Funds + 0.01
+                        || LedgerOrchestrator.Science.GetRunningScience() > ResearchAndDevelopment.Instance.Science + 0.001))
+                {
+                    InGameAssert.Skip(
+                        "ledger reconstruction runs above live and the drawdown guard uplift-clamped the "
+                        + "funds/science patch (mixed-history surplus career); the probe-delta value and "
+                        + "event-count contracts cannot be verified here. Run on a clean Parsek-only career.");
+                    return;
+                }
+
                 AssertDoubleNear(Funding.Instance.Funds, LedgerOrchestrator.Funds.GetAvailableFunds(), 0.01,
                     "Funding.Instance.Funds should match FundsModule.GetAvailableFunds() after §5.4 patching");
                 AssertDoubleNear(ResearchAndDevelopment.Instance.Science, LedgerOrchestrator.Science.GetAvailableScience(), 0.01,

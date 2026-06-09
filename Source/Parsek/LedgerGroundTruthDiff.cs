@@ -46,7 +46,8 @@ namespace Parsek
             CareerSaveSnapshot save,
             LedgerReconstructionSnapshot recon,
             FacetTolerances tol,
-            IReadOnlyDictionary<string, int> facilityMaxLevels)
+            IReadOnlyDictionary<string, int> facilityMaxLevels,
+            bool authoritativeReduction = false)
         {
             var report = new LedgerDivergenceReport();
 
@@ -58,9 +59,9 @@ namespace Parsek
                 return report;
             }
 
-            CompareFunds(save, recon, tol, report);
-            CompareSciencePool(save, recon, tol, report);
-            CompareReputation(save, recon, tol, report);
+            CompareFunds(save, recon, tol, report, authoritativeReduction);
+            CompareSciencePool(save, recon, tol, report, authoritativeReduction);
+            CompareReputation(save, recon, tol, report, authoritativeReduction);
             CompareSubjectScience(save, recon, tol, report);
             CompareFacilities(save, recon, facilityMaxLevels, report);
             CompareContracts(save, recon, report);
@@ -82,9 +83,25 @@ namespace Parsek
         // Scalar pools (HARD, within tolerance)
         // ----------------------------------------------------------------
 
+        // Classifies a seeded-pool divergence kind. Mirrors the production drawdown guard
+        // (KspStatePatcher.ApplyDrawdownGuard / IsGuardableUplift): when no authoritative
+        // time-travel context is active and the reconstruction (RAW running balance) runs ABOVE
+        // the live save (reconValue beyond tol), the guard would UPLIFT-clamp the patch DOWN to
+        // live, so the divergence is the expected missing-channel surplus and is tagged
+        // UpliftClampedExpected (report-only). Every other case -- a downward divergence (recon
+        // below save), or any divergence while authoritativeReduction is true (guard does not
+        // clamp) -- is a hard ValueMismatch. Pure: no Unity / live state.
+        internal static DivergenceKind ClassifySeededPoolKind(
+            double saveValue, double reconValue, double tol, bool authoritativeReduction)
+        {
+            if (!authoritativeReduction && reconValue > saveValue + tol)
+                return DivergenceKind.UpliftClampedExpected;
+            return DivergenceKind.ValueMismatch;
+        }
+
         private static void CompareFunds(
             CareerSaveSnapshot save, LedgerReconstructionSnapshot recon,
-            FacetTolerances tol, LedgerDivergenceReport report)
+            FacetTolerances tol, LedgerDivergenceReport report, bool authoritativeReduction)
         {
             if (!save.HasFunds)
             {
@@ -101,21 +118,24 @@ namespace Parsek
 
             if (!within)
             {
+                DivergenceKind kind = ClassifySeededPoolKind(
+                    save.Funds, recon.Funds, tol.Funds, authoritativeReduction);
                 report.All.Add(new LedgerDivergence
                 {
                     Facet = DivergenceFacet.Funds,
-                    Kind = DivergenceKind.ValueMismatch,
+                    Kind = kind,
                     Identity = "",
                     ExpectedFromSave = save.Funds,
                     Reconstructed = recon.Funds,
-                    Detail = $"funds delta={delta.ToString("R", IC)} tol={tol.Funds.ToString("R", IC)}"
+                    Detail = $"funds delta={delta.ToString("R", IC)} tol={tol.Funds.ToString("R", IC)} " +
+                             $"kind={kind} authoritativeReduction={authoritativeReduction.ToString(IC)}"
                 });
             }
         }
 
         private static void CompareSciencePool(
             CareerSaveSnapshot save, LedgerReconstructionSnapshot recon,
-            FacetTolerances tol, LedgerDivergenceReport report)
+            FacetTolerances tol, LedgerDivergenceReport report, bool authoritativeReduction)
         {
             if (!save.HasScience)
             {
@@ -132,21 +152,24 @@ namespace Parsek
 
             if (!within)
             {
+                DivergenceKind kind = ClassifySeededPoolKind(
+                    save.SciencePool, recon.SciencePool, tol.SciencePool, authoritativeReduction);
                 report.All.Add(new LedgerDivergence
                 {
                     Facet = DivergenceFacet.SciencePool,
-                    Kind = DivergenceKind.ValueMismatch,
+                    Kind = kind,
                     Identity = "",
                     ExpectedFromSave = save.SciencePool,
                     Reconstructed = recon.SciencePool,
-                    Detail = $"sciencePool delta={delta.ToString("R", IC)} tol={tol.SciencePool.ToString("R", IC)}"
+                    Detail = $"sciencePool delta={delta.ToString("R", IC)} tol={tol.SciencePool.ToString("R", IC)} " +
+                             $"kind={kind} authoritativeReduction={authoritativeReduction.ToString(IC)}"
                 });
             }
         }
 
         private static void CompareReputation(
             CareerSaveSnapshot save, LedgerReconstructionSnapshot recon,
-            FacetTolerances tol, LedgerDivergenceReport report)
+            FacetTolerances tol, LedgerDivergenceReport report, bool authoritativeReduction)
         {
             if (!save.HasRep)
             {
@@ -163,14 +186,17 @@ namespace Parsek
 
             if (!within)
             {
+                DivergenceKind kind = ClassifySeededPoolKind(
+                    save.Reputation, recon.Reputation, tol.Reputation, authoritativeReduction);
                 report.All.Add(new LedgerDivergence
                 {
                     Facet = DivergenceFacet.Reputation,
-                    Kind = DivergenceKind.ValueMismatch,
+                    Kind = kind,
                     Identity = "",
                     ExpectedFromSave = save.Reputation,
                     Reconstructed = recon.Reputation,
-                    Detail = $"reputation delta={delta.ToString("R", IC)} tol={tol.Reputation.ToString("R", IC)}"
+                    Detail = $"reputation delta={delta.ToString("R", IC)} tol={tol.Reputation.ToString("R", IC)} " +
+                             $"kind={kind} authoritativeReduction={authoritativeReduction.ToString(IC)}"
                 });
             }
         }
