@@ -296,24 +296,38 @@ namespace Parsek.InGameTests.Helpers
 
         /// <summary>
         /// Commits a NON-FLIGHT (Tracking Station / Space Center) scene return
-        /// for a baseline restore, mirroring the one proven in-repo non-flight
-        /// scene resume (<c>RuntimeTests.TriggerSaveAndExitToSpaceCenter</c>):
-        /// adopt the loaded game as <c>HighLogic.CurrentGame</c>, call
-        /// <c>Game.Updated()</c> (which refreshes the scenario modules and
-        /// re-publishes the game so the destination scene + every
-        /// ScenarioModule.OnLoad, incl. <c>ParsekScenario</c>, see the restored
-        /// save), persist it to the slot, then <c>HighLogic.LoadScene</c> into
-        /// the destination scene. <c>GamePersistence.LoadGame</c> (called by
+        /// for a baseline restore by replaying stock KSP's own in-game load
+        /// sequence (decompiled <c>PauseMenu</c> Load button, KSP 1.12.5):
+        /// adopt the freshly-loaded game as <c>HighLogic.CurrentGame</c>,
+        /// <c>GamePersistence.UpdateScenarioModules</c> it (reconciles the
+        /// game's proto-scenario-module list), set its <c>startScene</c> to the
+        /// captured scene, then <c>Game.Start()</c> — which runs
+        /// <c>CrewRoster.Init</c> + sets <c>Status = ONGOING</c> and dispatches
+        /// the scene change (a non-flight <c>startScene</c> resolves to
+        /// <c>HighLogic.LoadScene(startScene)</c>; only a FLIGHT start would go
+        /// through <c>StartAndFocusVessel</c>, and this helper is non-FLIGHT
+        /// only). The destination scene's ScenarioModule.OnLoad (incl.
+        /// <c>ParsekScenario</c>) then runs against the in-memory restored game.
+        /// <c>GamePersistence.LoadGame</c> (called by
         /// <see cref="LoadGameForSceneRestore"/>) has already cleared the stale
-        /// FlightGlobals persistent-id dictionaries. We deliberately do NOT fire
-        /// <c>onSceneConfirmExit</c> (that simulates a player-initiated flight
-        /// exit; this is a programmatic baseline reload).
+        /// FlightGlobals persistent-id dictionaries.
         /// <para>
-        /// As in the proven pattern, the destination scene's
-        /// ScenarioModule.OnLoad runs from the in-memory <c>HighLogic.CurrentGame</c>
-        /// (= the freshly-loaded <paramref name="game"/>), while the disposable
-        /// slot is persisted from the round-tripped <c>refreshed</c> copy; both
-        /// derive from the same loaded save, and the slot is deleted at teardown.
+        /// We deliberately do NOT use the <c>Game.Updated()</c> + <c>SaveGame</c>
+        /// shape of <c>RuntimeTests.TriggerSaveAndExitToSpaceCenter</c>: that
+        /// helper operates on the ALREADY-STARTED live game and wants to capture
+        /// it. Here <paramref name="game"/> is a fresh, unstarted
+        /// <c>LoadGame</c> result, and <c>Game.Updated()</c> (decompiled) does
+        /// NOT round-trip the game it is called on — while in a planetarium
+        /// scene it rebuilds <c>flightState</c> from the LIVE scene and pulls
+        /// <c>scenarios = ScenarioRunner.GetUpdatedProtoModules()</c> (the live
+        /// global modules), so it would publish the post-test session, and
+        /// re-saving that into <paramref name="slotName"/> would corrupt the
+        /// pristine baseline slot for every subsequent restore. The slot is
+        /// written once at capture and is only ever READ here (the FLIGHT path
+        /// likewise never re-saves it), so this commit leaves it untouched.
+        /// We also deliberately do NOT fire <c>onSceneConfirmExit</c> (that
+        /// simulates a player-initiated flight exit; this is a programmatic
+        /// baseline reload).
         /// </para>
         /// </summary>
         internal static void CommitNonFlightSceneLoad(Game game, string slotName, GameScenes scene)
@@ -321,14 +335,12 @@ namespace Parsek.InGameTests.Helpers
             InGameAssert.IsNotNull(game, "CommitNonFlightSceneLoad requires a loaded Game");
 
             HighLogic.CurrentGame = game;
-            Game refreshed = HighLogic.CurrentGame.Updated();
-            InGameAssert.IsNotNull(refreshed,
-                "CommitNonFlightSceneLoad failed: Game.Updated() returned null");
-            GamePersistence.SaveGame(refreshed, slotName, HighLogic.SaveFolder, SaveMode.OVERWRITE);
-            HighLogic.LoadScene(scene);
+            GamePersistence.UpdateScenarioModules(HighLogic.CurrentGame);
+            HighLogic.CurrentGame.startScene = scene;
+            HighLogic.CurrentGame.Start();
             ParsekLog.Info("TestHelper",
                 $"CommitNonFlightSceneLoad: loading '{HighLogic.SaveFolder}/{slotName}' into {scene} "
-                + "via Game.Updated() + HighLogic.LoadScene");
+                + "via HighLogic.CurrentGame.Start() (stock PauseMenu in-game load path)");
         }
 
         private static string GetSavePath(string saveName, string slotName)

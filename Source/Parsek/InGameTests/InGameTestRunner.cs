@@ -497,6 +497,14 @@ namespace Parsek.InGameTests
             // there is no clean programmatic way to distinguish from a real open
             // building. Since nothing here leaves a real Administration open,
             // omitting it removes the only false-positive path with no loss.
+            //
+            // The FindObjectOfType detector for the three included facilities
+            // (R&D / Astronaut Complex / Mission Control) is valid on the same
+            // audited invariant, in reverse: no current test creates a HIDDEN
+            // activeInHierarchy canvas for any of those three (only the
+            // Administration strategy canaries do that), so a non-null
+            // FindObjectOfType<T> means a really-open building. If a future
+            // test ever leaves a hidden-active R&D/AC/MC canvas, revisit this.
 
             if (closed > 0)
                 ParsekLog.Info(Tag, FormatFacilityForceCloseSummary(closed, reason));
