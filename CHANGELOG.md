@@ -4,6 +4,14 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.11.0
+
+### Bug Fixes
+
+- Fixed a bug where a clean cargo-delivery Supply Run could be wrongly rejected as a mixed pickup/delivery run when the transport and the destination shared a fuel type that stock crossfeed equalised during docking. Route eligibility now reads the transport's fuel level from just before docking, so the equalisation no longer looks like the transport picking cargo back up.
+
+---
+
 ## 0.10.1
 
 - Maintenance and bug-fix release following up on issues found in post-0.10.0 career playtesting.

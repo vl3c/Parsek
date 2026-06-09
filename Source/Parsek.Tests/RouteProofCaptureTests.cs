@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using Parsek;
+using Parsek.Logistics;
 using Xunit;
 
 namespace Parsek.Tests
@@ -307,6 +308,173 @@ namespace Parsek.Tests
             Assert.NotNull(window);
             Assert.Equal(80.0, window.DockTransportResources["LiquidFuel"].amount);
             Assert.Equal(200.0, window.DockEndpointResources["LiquidFuel"].amount);
+        }
+
+        // --- Dock-side TRANSPORT baseline is post-couple (symmetric transport fix) ---
+        // The merged snapshot is captured frames after the couple, so a same-frame stock
+        // crossfeed equalisation that drained the transport tank into the depot deflates
+        // DOCK_TRANSPORT_RESOURCES; a later undock reading then looks like a pickup and
+        // trips the strict MixedPickupDelivery gate. A pre-couple transport snapshot fixes
+        // the baseline, mirroring the endpointPreCoupleSnapshot mechanism above.
+
+        [Fact]
+        public void BuildDockRouteConnectionWindow_TransportPreCoupleSnapshot_UsesPreCoupleTransportBaseline()
+        {
+            // Merged (post-couple, equalisation drained the transport tank): transport 300/600.
+            ConfigNode dockedMergedSnapshot = MakeVessel(
+                MakePart(100, "transportTank", MakeResource("LiquidFuel", 300.0, 600.0)),
+                MakePart(200, "endpointTank", MakeResource("LiquidFuel", 300.0, 1000.0)));
+            // Pre-couple transport (true pre-dock level): 500/600.
+            ConfigNode transportPreCouple = MakeVessel(
+                MakePart(100, "transportTank", MakeResource("LiquidFuel", 500.0, 600.0)));
+
+            RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(
+                100.0, 9001, RouteConnectionKind.DockingPort,
+                dockedMergedSnapshot,
+                new List<uint> { 100 },
+                new List<uint> { 200 },
+                endpointAtDock: null,
+                transferEndpointSituation: -1,
+                endpointPreCoupleSnapshot: null,
+                transportPreCoupleSnapshot: transportPreCouple);
+
+            Assert.NotNull(window);
+            Assert.Equal(500.0, window.DockTransportResources["LiquidFuel"].amount);
+            Assert.Equal(600.0, window.DockTransportResources["LiquidFuel"].maxAmount);
+        }
+
+        [Fact]
+        public void BuildDockRouteConnectionWindow_NoTransportOverride_UsesMergedSnapshotForTransportBaseline()
+        {
+            ConfigNode dockedMergedSnapshot = MakeVessel(
+                MakePart(100, "transportTank", MakeResource("LiquidFuel", 300.0, 600.0)),
+                MakePart(200, "endpointTank", MakeResource("LiquidFuel", 300.0, 1000.0)));
+
+            RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(
+                100.0, 9001, RouteConnectionKind.DockingPort,
+                dockedMergedSnapshot,
+                new List<uint> { 100 },
+                new List<uint> { 200 },
+                endpointAtDock: null,
+                transferEndpointSituation: -1);
+
+            Assert.NotNull(window);
+            // No override -> existing contract preserved (merged snapshot baseline).
+            Assert.Equal(300.0, window.DockTransportResources["LiquidFuel"].amount);
+        }
+
+        [Fact]
+        public void BuildDockRouteConnectionWindow_TransportPreCoupleSnapshot_MissingTransportPids_FallsBackToMerged()
+        {
+            ConfigNode dockedMergedSnapshot = MakeVessel(
+                MakePart(100, "transportTank", MakeResource("LiquidFuel", 300.0, 600.0)),
+                MakePart(200, "endpointTank", MakeResource("LiquidFuel", 300.0, 1000.0)));
+            // A snapshot that does NOT contain the transport PID (100) must be rejected by
+            // the self-validation and the merged snapshot used instead.
+            ConfigNode unrelatedSnapshot = MakeVessel(
+                MakePart(999, "someOtherPart", MakeResource("LiquidFuel", 500.0, 600.0)));
+
+            RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(
+                100.0, 9001, RouteConnectionKind.DockingPort,
+                dockedMergedSnapshot,
+                new List<uint> { 100 },
+                new List<uint> { 200 },
+                endpointAtDock: null,
+                transferEndpointSituation: -1,
+                endpointPreCoupleSnapshot: null,
+                transportPreCoupleSnapshot: unrelatedSnapshot);
+
+            Assert.NotNull(window);
+            Assert.Equal(300.0, window.DockTransportResources["LiquidFuel"].amount);
+        }
+
+        [Fact]
+        public void BuildDockRouteConnectionWindow_TransportPreCoupleSnapshot_ScopesInventoryBaseline()
+        {
+            // Merged transport bay has no kit (moved/equalised during dock); the pre-couple
+            // transport snapshot still carries it. DOCK_TRANSPORT_INVENTORY must use it.
+            ConfigNode dockedMergedSnapshot = MakeVessel(
+                MakePart(100, "transportBay", MakeResource("LiquidFuel", 300.0, 600.0)),
+                MakePart(200, "endpointTank", MakeResource("LiquidFuel", 300.0, 1000.0)));
+            ConfigNode transportPreCouple = MakeVessel(
+                MakePart(100, "transportBay",
+                    MakeResource("LiquidFuel", 500.0, 600.0),
+                    MakeInventoryModule(MakeStoredPart("evaJetpack", "white", 1))));
+
+            RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(
+                100.0, 9001, RouteConnectionKind.DockingPort,
+                dockedMergedSnapshot,
+                new List<uint> { 100 },
+                new List<uint> { 200 },
+                endpointAtDock: null,
+                transferEndpointSituation: -1,
+                endpointPreCoupleSnapshot: null,
+                transportPreCoupleSnapshot: transportPreCouple);
+
+            Assert.NotNull(window);
+            Assert.Equal(500.0, window.DockTransportResources["LiquidFuel"].amount);
+            Assert.NotNull(window.DockTransportInventory);
+            Assert.Single(window.DockTransportInventory);
+        }
+
+        // End-to-end (the actual user-visible bug): a deflated dock-transport baseline makes
+        // a clean delivery run read as a pickup (transportGain = undock - dock > 0) and get
+        // rejected as MixedPickupDelivery; the pre-couple transport baseline removes the
+        // false positive while everything else about the window is identical.
+        [Fact]
+        public void AnalyzeRecording_DeflatedDockTransportBaseline_FalselyRejects_PreCoupleBaselineDoesNot()
+        {
+            ConfigNode merged = MakeVessel(
+                MakePart(100, "transportTank", MakeResource("LiquidFuel", 300.0, 600.0)),
+                MakePart(200, "endpointTank", MakeResource("LiquidFuel", 300.0, 1000.0)));
+            ConfigNode transportPreCouple = MakeVessel(
+                MakePart(100, "transportTank", MakeResource("LiquidFuel", 500.0, 600.0)));
+            ConfigNode endpointPreCouple = MakeVessel(
+                MakePart(200, "endpointTank", MakeResource("LiquidFuel", 100.0, 1000.0)));
+            RouteEndpoint endpoint = new RouteEndpoint
+            {
+                VesselPersistentId = 9001,
+                BodyName = "Mun",
+                IsSurface = false
+            };
+
+            // Undock: transport ended at 400 (delivered 100 net to the depot), depot at 400.
+            Dictionary<string, ResourceAmount> undockTransport = new Dictionary<string, ResourceAmount>
+            {
+                ["LiquidFuel"] = new ResourceAmount { amount = 400.0, maxAmount = 600.0 }
+            };
+            Dictionary<string, ResourceAmount> undockEndpoint = new Dictionary<string, ResourceAmount>
+            {
+                ["LiquidFuel"] = new ResourceAmount { amount = 400.0, maxAmount = 1000.0 }
+            };
+
+            // BUG: no transport pre-couple -> DockTransport = 300 -> transportGain = +100.
+            RouteConnectionWindow bug = RouteProofCapture.BuildDockRouteConnectionWindow(
+                100.0, 9001, RouteConnectionKind.DockingPort, merged,
+                new List<uint> { 100 }, new List<uint> { 200 },
+                endpoint, transferEndpointSituation: 4,
+                endpointPreCoupleSnapshot: endpointPreCouple,
+                transportPreCoupleSnapshot: null);
+            bug.UndockUT = 200.0;
+            bug.UndockTransportResources = undockTransport;
+            bug.UndockEndpointResources = undockEndpoint;
+            RouteAnalysisResult bugResult = RouteAnalysisEngine.AnalyzeRecording(
+                new Recording { RecordingId = "deflated", RouteConnectionWindows = new List<RouteConnectionWindow> { bug } });
+            Assert.Equal(RouteAnalysisStatus.MixedPickupDelivery, bugResult.Status);
+
+            // FIX: transport pre-couple -> DockTransport = 500 -> transportGain = -100.
+            RouteConnectionWindow fix = RouteProofCapture.BuildDockRouteConnectionWindow(
+                100.0, 9001, RouteConnectionKind.DockingPort, merged,
+                new List<uint> { 100 }, new List<uint> { 200 },
+                endpoint, transferEndpointSituation: 4,
+                endpointPreCoupleSnapshot: endpointPreCouple,
+                transportPreCoupleSnapshot: transportPreCouple);
+            fix.UndockUT = 200.0;
+            fix.UndockTransportResources = undockTransport;
+            fix.UndockEndpointResources = undockEndpoint;
+            RouteAnalysisResult fixResult = RouteAnalysisEngine.AnalyzeRecording(
+                new Recording { RecordingId = "precouple", RouteConnectionWindows = new List<RouteConnectionWindow> { fix } });
+            Assert.NotEqual(RouteAnalysisStatus.MixedPickupDelivery, fixResult.Status);
         }
 
         // --- ComputePartSetDifferences (pure helper) ---
