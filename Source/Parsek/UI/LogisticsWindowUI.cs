@@ -1231,14 +1231,14 @@ namespace Parsek
             // fragments; the short id moves to the hover tooltip.
             DrawSourceRecordingsLine(route);
 
-            // "Structure": opens the chronological step-list window for this route
+            // "Log": opens the chronological step-list window for this route
             // (origin, dock, delivery, undock). Free-form detail panel, so no fixed-width
             // action-cell constraint.
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Structure", GUILayout.Width(110)))
+            if (GUILayout.Button("Log", GUILayout.Width(64)))
             {
                 ParsekLog.Info("UI",
-                    $"Route Structure button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} name='{route.Name ?? ""}'");
+                    $"Route Log button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} name='{route.Name ?? ""}'");
                 parentUI.OpenStructureWindowForRoute(route.Id, route.Name);
             }
             GUILayout.FlexibleSpace();

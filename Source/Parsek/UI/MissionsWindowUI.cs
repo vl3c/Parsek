@@ -100,7 +100,7 @@ namespace Parsek
         private const float MissionHeaderRightBlockWidth =
             ColW_StartTime + ColW_StartEvent + ColW_EndEvent + ColW_EndTime + ColW_TMinus + ColW_ReFly + ColW_Archive + 6 * 4f
             + MissionHeaderPeriodSlack
-            // Plus the added "Structure" header button (one ColW_HeaderButton + its inter-control margin)
+            // Plus the added "Log" header button (one ColW_HeaderButton + its inter-control margin)
             // so the period label still fits on one line.
             + ColW_HeaderButton + 4f;
         // Re-Fly column (mirrors the recordings window's Re-Fly/Fly-Seal column width): a per-vessel
@@ -787,12 +787,12 @@ namespace Parsek
             // matches the existing "Warp to..." convention; the adjacent TTL column says "to what".
             DrawMissionWarpToWindowButton(mission, periodicity);
 
-            // "Structure": opens the chronological step-list window for this mission (launch,
+            // "Log": opens the chronological step-list window for this mission (launch,
             // staging, dock / undock, terminal). Shares the header-button group width.
-            if (GUILayout.Button("Structure", GUILayout.Width(ColW_HeaderButton)))
+            if (GUILayout.Button("Log", GUILayout.Width(ColW_HeaderButton)))
             {
                 ParsekLog.Info("UI",
-                    $"Mission Structure button: tree={mission.TreeId ?? "<null>"} name='{mission.Name ?? ""}'");
+                    $"Mission Log button: tree={mission.TreeId ?? "<null>"} name='{mission.Name ?? ""}'");
                 parentUI.OpenStructureWindowForMission(mission.TreeId, mission.Name);
             }
 

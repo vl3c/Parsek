@@ -228,9 +228,9 @@ New:
 - `Source/Parsek.Tests/StructureListBuilderTests.cs` (xUnit)
 
 Edited:
-- `Source/Parsek/UI/MissionsWindowUI.cs` — one "Structure" button + open call;
+- `Source/Parsek/UI/MissionsWindowUI.cs` — one "Log" button + open call;
   bump `MissionHeaderRightBlockWidth` by `ColW_HeaderButton + 4f`
-- `Source/Parsek/UI/LogisticsWindowUI.cs` — one "Structure" button in
+- `Source/Parsek/UI/LogisticsWindowUI.cs` — one "Log" button in
   `DrawRouteDetail` + open call
 - `Source/Parsek/ParsekUI.cs` — own + draw the sub-window, two open methods;
   `Source/Parsek/ParsekFlight.cs` + `Source/Parsek/ParsekKSC.cs` — host draw call
@@ -328,8 +328,7 @@ Edited:
 - The only shared-state touch is `ParsekUI` owning one more sub-window; follows the
   existing sub-window ownership pattern exactly.
 
-## CHANGELOG entry (wording, user-facing, 1–2 sentences)
-> Added a Structure window (opened from a mission's "Structure" button on the
-> Missions tab and a route's "Structure" button in the Logistics window) that lists
-> a run step by step — launch, staging, dock/undock, deliveries, and the
-> landing/terminal — each with its time and location.
+## CHANGELOG entry (wording, user-facing, 1-2 sentences)
+> Added a step-by-step run log, opened from a "Log" button on each mission (Missions
+> tab) and each supply route (Logistics window): it lists launch, staging, dock and
+> undock, deliveries, and the landing or terminal, each with its time and location.

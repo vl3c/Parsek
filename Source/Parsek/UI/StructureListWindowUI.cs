@@ -190,8 +190,8 @@ namespace Parsek
             if (steps.Count == 0)
             {
                 GUILayout.Label(mode == TargetMode.Route
-                    ? "No structure to show (source recording unavailable)."
-                    : "No structure to show.");
+                    ? "Nothing to show (source recording unavailable)."
+                    : "Nothing to show.");
                 if (GUILayout.Button("Close", GUILayout.Width(132)))
                     Close();
                 GUI.DragWindow();
