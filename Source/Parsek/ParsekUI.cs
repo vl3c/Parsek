@@ -1643,6 +1643,49 @@ namespace Parsek
                 }
             }
 
+            // Playtest-13 (map view): a chain ghost destroyed MID-PHASE - the engine retires it at the
+            // below-surface Duna descent boundary ('chain-loop unit member outside its window') - leaves
+            // the recording with NO ghostStates entry, so the pid-keyed walk above never considers it and
+            // the icon vanished on the landing chord while the polyline kept drawing it. Recording-keyed
+            // fallback (the TS atmospheric-marker equivalent): any committed recording that the walk
+            // above did NOT cover and whose polyline OWNS the current phase (exactly one per chain - the
+            // head-gated active member) draws its labeled marker riding the drawn line. The ride
+            // self-gates on the leg having actually drawn THIS frame, so an undrawn phase can never
+            // paint a marker.
+            if (isMapView)
+            {
+                for (int ri = 0; ri < committed.Count; ri++)
+                {
+                    var rec = committed[ri];
+                    if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                    if (flight.Engine.ghostStates.TryGetValue(ri, out var coveredState)
+                        && coveredState != null)
+                        continue; // covered (drawn or intentionally skipped) by the pid-keyed walk
+                    if (!Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(
+                            rec.RecordingId))
+                        continue;
+                    double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                        ri, rec.StartUT, rec.EndUT, currentUT,
+                        flight.Engine.CurrentLoopUnits, out bool ghostlessHidden);
+                    if (ghostlessHidden) continue;
+                    if (!Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                            rec.RecordingId, effUT, out Vector3 onLinePos))
+                        continue;
+                    VesselType ghostlessType = GhostMapPresence.ResolveVesselType(rec.VesselSnapshot);
+                    DrawMapMarkerAt(
+                        onLinePos, rec.RecordingId, rec.VesselName ?? "Ghost",
+                        GetGhostMarkerColorForType(ghostlessType), ghostlessType);
+                    summary.Drawn++;
+                    ParsekLog.VerboseRateLimited("GhostMap",
+                        "ghostless-polyline-marker." + rec.RecordingId,
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Ghost-less polyline marker: rec={0} recId={1} effUT={2:F1} " +
+                            "(engine ghost absent; marker rides the drawn leg)",
+                            ri, rec.RecordingId, effUT),
+                        5.0);
+                }
+            }
+
             LogMapMarkerSummary(summary);
         }
 
