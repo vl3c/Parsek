@@ -401,7 +401,7 @@ Pre-1.0 development rule: no legacy migration paths. The Mission nodes are addit
 
 ## 14. Open Questions (deferred gaps)
 
-These are settled-as-deferred; see `docs/dev/design-mission-abstractions.md` open questions 1-8 and `docs/dev/design-mission-periodicity.md` Phase 4 for the full discussion.
+These are settled-as-deferred; see `docs/dev/design-mission-abstractions.md` open questions 1-8 and `docs/dev/design-mission-periodicity.md` Phase 4 for the full discussion. The ordered, investigated completion plan for these gaps (with requirements and reuse mandates) is the **M-MIS milestone roadmap** at the top of `docs/dev/todo-and-known-bugs.md`: 14.1 -> M-MIS-7, 14.2 -> M-MIS-4, 14.3 -> M-MIS-6, 14.4 -> M-MIS-3 (high-inclination) + M-MIS-5 (multi-moon).
 
 ### 14.1 New branches default to included
 A genuinely new branch added after a Mission was defined (most realistically a re-fly supersede split) defaults to INCLUDED under the excluded-id persistence model. Acceptable for v1. Making new branches default-excluded would require recording the known head-id set at definition time; revisit when logistics starts persisting routes on top of Missions.

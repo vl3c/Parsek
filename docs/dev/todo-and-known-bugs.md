@@ -13,6 +13,69 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## TODO - Missions feature completion milestones (M-MIS roadmap; investigated 2026-06-10)
+
+The single ordered list of what remains to call the Missions feature (`docs/parsek-missions-design.md`, shipped core) COMPLETE. Ordered by necessity / priority: each milestone was code-investigated on 2026-06-10 (implemented-already? viable? what exactly remains?) and the findings are recorded inline. Detailed history for each item lives in the per-item entries further down this file (cross-referenced); this list is the planning surface.
+
+### Reuse mandate (applies to every solver-flavored milestone below)
+
+Do NOT re-implement intercept / window math from scratch. The 2026-05-28 prior-art survey (recorded in `docs/dev/done/plans/reaim-interplanetary-transfers.md` + the prior-art note in the phase-lock entry below) already settled the sourcing:
+
+- **`Reaim/UvLambert.cs`** is OUR owned, unit-tested (Curtis Algorithm 5.2) full-3D universal-variables Lambert solver. Extend it; do not replace it.
+- **`Reaim/ITransferSolver.cs`** is the deliberate swap seam. The sanctioned fallback if UvLambert robustness proves insufficient (multi-rev, near-180-deg singularity) is porting **MechJebLib's Gooding solver** (permissive license: public domain / Unlicense; ~577 lines + `V3`/`Statics` deps) behind that seam - a port, not a rewrite.
+- **`Reaim/TransferWindowMath.cs`** already carries the KerbalAlarmClock-derived (MIT, attributed) phase-angle + synodic math. TransferWindowPlanner2's porkchop grid was evaluated and deliberately NOT needed (the congruent-window model uses recorded tof + synodic spacing). KSTS / Principia: surveyed, not applicable.
+- The launch-side zero-drift near-coincidence primitive (`MissionPeriodicity.NextJointNearCoincidenceUT` / `TryBuildRelaunchSchedule`) and the unwired `Reaim/DestinationArrivalSolver.SolveArrivalWindow` are the in-repo multi-constraint window search. New milestones REUSE these, never re-derive them.
+
+### M-MIS-0 - Land the Structure window (PR #1107) [in flight]
+
+- **Status:** implemented; full xUnit suite green; **in-game playtest pending**, then merge. Read-only, additive (mission + route step list).
+- **Requirement:** playtest in KSC + Flight (mission header button, logistics route detail button), then merge. No design work left.
+
+### M-MIS-1 - Re-aim resolver reliability: deterministic E2E + congruent-window hardening
+
+- **Why first:** every later re-aim milestone (M-MIS-2/3/5) builds on `ReaimPlaybackResolver.TryResolveWindowSegments`; today it fails INTERMITTENTLY (see the "Re-aim E2E in-game test ... is FLAKY" entry below: three distinct live-UT-dependent failure modes across 2026-06-06/07 runs).
+- **Investigated 2026-06-10:** `ReaimEndToEndInGameTest.Reaim_KerbinToDuna_EveryWindowResolvesSaneTransfer` seeds its departure off the LIVE `Planetarium.GetUniversalTime()` (ReaimEndToEndInGameTest.cs:48), so failures are irreproducible by construction. Window-resolution failure conditions are enumerable (no heliocentric leg in window; body lookup; Lambert synthesis non-convergent across the +/-6% tof search, ReaimPlaybackResolver.cs:189-210; heliocentric-leg replacement returns null) - so a pinned-UT harness can binary-search the failing geometry.
+- **Requirements:** (1) make the E2E deterministic (pinned departure UT(s), including at least one UT from each observed failure mode); (2) measure before any knob math (per the re-aim seam guidance); (3) "the faithful render is good enough for window k" is a valid outcome - the fix may be widening the tof search or simply classifying the window unresolvable-by-design, NOT stacking solver heuristics.
+- **Viability:** high; pure investigation + test work first, bounded solver tuning second.
+
+### M-MIS-2 - Re-aim Phase-4 completion for the SUPPORTED shape (single Sun-child destination, <=1 moon)
+
+- **Investigated 2026-06-10:** of the Phase-4 ladder, P1 (`Reaim/DestinationArrivalSolver.SolveArrivalWindow`) EXISTS but is UNWIRED (no production caller); P2 (`DestinationConstraintExtractor.ExtractDestinationConstraints`) is wired into `ArrivalHoldPlanner.cs:57-58`; P3a-c + the per-loop hold `W_N` SHIPPED (PR #1030, Duna One validated). Remaining per `docs/dev/plans/reaim-destination-arrival-alignment.md` sect. 7: **P4 loiter re-timer** - `ArrivalHoldPlanner.ComputeArrivalHold` REJECTS any destination with post-arrival loiter cuts (ArrivalHoldPlanner.cs:70-75), so a recorded destination parking loiter disables alignment entirely; needs the `keepRevs` API on `ReaimLoiterCompressor` (re-time the loiter instead of refusing). **P5 render-path threading validation** - an in-game canary asserting the director orbit + body-fixed polyline read the SAME loop shift. **P6 tolerance UI** - tooltip widening only; its on-camera landing acceptance is GATED on the deferred S4 descent re-stitch (see the "#27 Problem 2 / S4 arrival-restitch" entry below - a playback-engine change, fix direction specified: rigid transform of the recorded arrival about the destination center).
+- **Requirements:** implement P4 -> P5 -> P6 in order; wire `SolveArrivalWindow` only when a consumer needs the multi-constraint window pick (M-MIS-5 is that consumer; do not wire speculatively). S4 re-stitch carries a product decision (rotate approach only = land at recorded site, vs approach + descent = re-aimed site) - decide before building.
+- **Viability:** high for P4/P5/P6 (designs written); S4 is the one risky piece (playback-engine change on the re-aim seam).
+
+### M-MIS-3 - High-inclination targets (Moho-class intercepts)
+
+- **Investigated 2026-06-10 (answers the open uncertainty):** the limitation is NOT the solver. `UvLambert` is already full-3D; the decline comes from a deliberate v1 simplification in `ReaimTransferSynthesizer.cs:130-153`: the target endpoint r2 is PROJECTED onto the launch body's orbital plane (to dodge the near-180-deg Lambert plane singularity), and the SOI proximity check then measures against the target's ACTUAL position - for Duna (inc ~0.06 deg) the out-of-plane offset (~2.4e7 m) stays inside the SOI; for Moho (inc ~7 deg, small SOI) the projected aim point is FAR outside the real SOI, the encounter check fails, and the window declines to faithful. `ReaimWindowPlanner` (synodic spacing) is already inclination-agnostic - no change needed there.
+- **Requirements:** (1) make the projection CONDITIONAL - use the true 3D r2 except inside a guard band around the ~180-deg transfer-angle singularity (or: skip projection whenever the out-of-plane offset `a*sin(inc)` exceeds a fraction of the target SOI, where projection guarantees a miss anyway); (2) for the residual near-180-deg windows of an inclined target, first try widening the existing +/-6% tof search, and only if that proves insufficient port the Gooding multi-rev solver behind `ITransferSolver` (per the reuse mandate - never a new solver); (3) validation = a deterministic synthetic Moho window test built on the M-MIS-1 pinned-UT harness.
+- **Viability:** high - removing a scoped simplification, not new math. Depends on M-MIS-1 (deterministic harness) to validate.
+
+### M-MIS-4 - Dock as an interval boundary + docked composition counts [GATED: after logistics v0 integration]
+
+- **Investigated 2026-06-10:** confirmed still unimplemented - `MissionCompositionBuilder` interval edges come only from structural-peel UTs (MissionComposition.cs:132-143), never Dock/Board merge UTs, so a docked "AB" stretch cannot be looped in isolation and docked labels undercount (controllers gained at dock are never added). FEASIBLE with data already present: every leg carries `OriginBranchPointType` (set at MissionStructure.cs:378, includes Dock/Board), so the builder can emit a merge-UT edge on the continuing line when a leg begins via Dock/Board (+ add the joining vessel's controllers to the interval label).
+- **Requirements:** keep the recorded decision (no auto Mission lifecycle on dock; topology-only). Do the boundary + the label undercount TOGETHER (they are one model change). Stays deferred until logistics/supply-routes v0 integration settles what a "docked stretch loop" must mean for routes - do not fix piecemeal (see the "docking/undocking effect on mission structure" entry below).
+- **Viability:** high mechanically; gated on logistics sequencing, not on missing data.
+
+### M-MIS-5 - Multi-moon destinations: the looped "Jool-5" mission [needs a short design note first]
+
+- **Investigated 2026-06-10 (answers the open uncertainty):** today a Jool-5 recording loops on the FAITHFUL path only: `ReaimClassifier` supports the Kerbin->Jool transfer (Jool is a direct Sun child) but `DestinationConstraintExtractor` fails closed at 2+ SOI-entered moons, so nothing aligns the moons; each moon-relative block self-anchors to the LIVE moon while the Jool-centric inter-moon arcs replay inertially, so every encounter seam renders disconnected (the Mun-desync mechanism, once per moon). What makes it tractable WITHOUT new math: (a) all encounters shift TOGETHER under one arrival hold, so alignment needs the moons' joint CONFIGURATION to recur, not each moon independently; (b) stock Laythe:Vall:Tylo are an exact 1:2:4 resonance, so the inner-three configuration recurs every Tylo period (~211,926 s) - a per-loop hold in `[0, T_config)` aligns an inner-three tour exactly like the shipped `W_N` destination-rotation hold (substitute T_config for T_rot); (c) the stock major moons are tidally locked, so landing-rotation constraints collapse into orbital phase (the tidal-lock collapse `MissionPeriodicity` already implements); (d) Bop/Pol are incommensurate with the inner three - a full 5-moon tight alignment is effectively non-recurring, so those legs get Loose tolerance via the near-coincidence search or the mission fails closed to faithful (a VALID outcome, surfaced in the UI, never silent).
+- **Requirements:** (1) short design note first (this is the "2+-moon mini star systems" deferred item, design doc sect. 14.4); (2) REUSE: wire the existing unwired `DestinationArrivalSolver.SolveArrivalWindow` (multi-constraint window pick over k*synodic) + generalize the per-loop hold from T_rot to a joint configuration period; (3) build the failing synthetic multi-moon test BEFORE any knob math (re-aim seam guidance); (4) explicitly OUT of the first cut: intra-SOI re-aim (per-leg Lambert re-solves inside the destination system - the recursive "mini star system" model); that is a major new subsystem and only justified if the hold-based model proves insufficient in playtest.
+- **Viability:** moderate - the resonant-inner-three + tidally-locked case maps onto shipped primitives; the general (Bop/Pol, non-resonant packs) case intentionally degrades to loose/faithful.
+
+### M-MIS-6 - Cross-tree foreign dock: loop a shared docked journey from the partner's side
+
+- **Investigated 2026-06-10:** playback ALREADY follows cross-tree dock links via PID matching - `GhostChainWalker.MergeCrossTreeLinks` (GhostChainWalker.cs:487-574) merges chains across trees. The Missions side is single-tree by construction (`Mission.TreeId`; `MissionStructureBuilder.BuildBranchLinks` walks one tree's BranchPoints, MissionStructure.cs:331-392). The gap is a Missions-view + selection-model change (a selection spanning two trees), not a data problem.
+- **Requirements:** follow the same PID dock-link pattern `GhostChainWalker` uses; decide the persistence shape (multi-tree mission vs linked-mission pairing) before building - it touches `Mission` serialization. Lowest functional urgency (UX nicety; the controller-side loop already works).
+- **Viability:** moderate; bounded but touches persistence + UI.
+
+### M-MIS-7 - New-branch inclusion policy (re-fly supersede splits default to INCLUDED) [revisit with logistics route persistence]
+
+- **Investigated 2026-06-10:** confirmed by design - `Mission` persists only the EXCLUDED sets (Mission.cs), there is no definition-time head-id snapshot, and `MissionStore.ReconcileSelections` (MissionStore.cs:101-162) only drops stale excluded ids (one-way). A genuinely new branch silently joins every Mission on the tree.
+- **Requirements:** becomes a real (not cosmetic) issue the moment logistics persists routes on top of Missions (a supersede split silently joining a route-backing selection changes deliveries). Fix shape when scheduled: record the known head-id set at definition time, or a per-mission "new branches: include/exclude" toggle. Small, but coordinate with logistics M1 (scenario lifecycle) scheduling.
+- **Viability:** high; deliberately parked.
+
+---
+
 ## Done 2026-06-09 - TS Fly canary never ran: SetVessel reflection probe used a nonexistent one-arg signature (branch `fix-ts-fly-canary-probe`)
 
 The manual-only in-game canary `TrackingStationMaterializedOrbit_FlyLoadsMaterializedVessel_NotStaleSelection` (#554/#550) always skipped with "SpaceTracking selection/Fly reflection helpers are unavailable", confirmed in the 2026-06-09 isolated run (`../logs/2026-06-09_2319_pr1104-test-isolation/`). Decompiling KSP 1.12.5 `Assembly-CSharp.dll` (ilspycmd) showed the cause: stock `SpaceTracking.SetVessel` is `SetVessel(Vessel v, bool keepFocus)`; the test probed `GetMethod("SetVessel", ..., new[] { typeof(Vessel) }, ...)`, which has no match. `selectedVessel` and `BtnOnClick_FlySelectedVessel()` exist as probed.
@@ -366,6 +429,8 @@ Also surfaced by the review; pre-existing. `ParsekScenario.Update` fires `RouteO
 
 ## Open - Re-aim E2E in-game test `Reaim_KerbinToDuna_EveryWindowResolvesSaneTransfer` is FLAKY (congruent-window resolver reliability)
 
+**Tracked as M-MIS-1** in the Missions feature completion milestones at the top of this file (first re-aim milestone; the deterministic pinned-UT harness is the entry step).
+
 Surfaced while fixing the five frame/anomaly in-game test models (PR #1083), where it was deliberately left untouched because it is a real product weakness, not a test-model defect like its five siblings. This SPACECENTER test (`ReaimEndToEndInGameTest`) seeds its known-good departure off the live `Planetarium.GetUniversalTime()` and drives `ReaimPlaybackResolver.TryResolveWindowSegments` across several consecutive synodic windows. It fails INTERMITTENTLY, with the failure mode varying by the live UT at run time:
 - 2026-06-06: all 5 windows resolved but the transfer orientation did not rotate across windows (`lan0=lanLast=0.00`, failed "the transfer orientation must rotate across windows").
 - 2026-06-06 (later run): `window k=2 must resolve a re-aimed transfer` (a window failed to resolve at all).
@@ -518,6 +583,7 @@ The map/TS render cutover is COMPLETE (see the DONE entry above): the modular Di
 
 ## ~~OPEN~~ DUNA ONE CLOSED (per-loop arrival hold SHIPPED in PR #1030, validated 2026-06-05); Phase-4 GENERALIZATION still deferred - v0.10.0 Looped re-aimed interplanetary LANDING: destination rotation-alignment across the loop shift (Bug 2, s15 "Duna One")
 
+- **Tracked as M-MIS-2 (P4/P5/P6 + S4 for the supported shape), M-MIS-3 (high-inclination targets), and M-MIS-5 (multi-moon / Jool)** in the Missions feature completion milestones at the top of this file.
 - **STATUS (2026-06-06): Duna One CLOSED.** PR #1030 shipped the destination-SOI arrival HOLD (base: `GhostPlaybackLogic.ComputeArrivalAlignHoldSeconds` / `ApplyArrivalHoldToPhase` threaded through `TryComputeSpanLoopUT`, built by `ArrivalHoldPlanner.ComputeArrivalHold` from `MissionLoopUnitBuilder`) AND the dynamic PER-LOOP hold `W_N` (`ComputePerLoopArrivalHoldSeconds`) that cancels the per-loop rotation drift, plus the descent-icon polyline-ride fix; validated end-to-end on s15 "Duna One." The "design, no code yet" and "FIX DESIGNED, NOT IMPLEMENTED" notes below are SUPERSEDED (kept for design history). STILL DEFERRED (the Phase-4 generalization beyond Duna One, parked pending a real multi-moon playtest): destination parking loiter, 2+ moon destinations, atmo-direct entry, and a non-tidally-locked inner moon's orbital-phase lever.
 - Reported in playtest 6 (2026-06-03, s15 "Duna One", Kerbin -> Duna landing): the low circular Duna arrival orbit (director StockConic, inertial epoch+shift) is drawn ~131 deg off the body-fixed landing site, the icon overshoots the landing, then teleports onto the body-fixed descent polyline (a ~180,554 km seam, logged `ReaimSeam`). The descent itself is correctly body-fixed and lands at the true geographic site; the mismatch is between the inertial capture orbit and the rotating-surface landing.
 - **Root cause (NOT a render bug, NOT the conic-anchor, NOT inherent):** re-aim pad-aligns the LAUNCH body only (`ReaimWindowPlanner.PadAlignLaunch` snaps the relaunch to whole sidereal days of KERBIN's rotation). Nothing aligns the DESTINATION body's rotation phase across the loop shift (~1.572e9 s for s15), so Duna rotates an arbitrary fraction of a turn under the recorded inertial orbit and the two diverge. The in-SOI arrival/loiter/landing arcs are all recorded RELATIVE to entry, so they replay faithfully relative to their own recorded clock the moment we fix WHEN that clock starts; only the destination rotation phase (and any single inner-moon orbital phase) are misaligned, and both are pure periodic functions of absolute UT.
@@ -595,6 +661,8 @@ The map/TS render cutover is COMPLETE (see the DONE entry above): the modular Di
 ---
 
 ## TODO - v0.10.0 Missions: docking/undocking effect on mission structure (decision recorded, gaps deferred)
+
+**Tracked as M-MIS-4 (gaps 1+2, dock interval boundary + docked composition) and M-MIS-6 (gap 4, cross-tree foreign dock)** in the Missions feature completion milestones at the top of this file.
 
 - **Decision (2026-05-26 design chat, recorded in `docs/dev/design-mission-abstractions.md` "Docking & undocking (v1)"):** dock / undock affect the mission structure ONLY as tree topology (the existing Dock/Board merge + Undock fork branch points). NO Mission-entity lifecycle is auto-created/closed on dock/undock; loopable segments are interval-level Mission selections over that topology. "Main controller A or B" is not a choice we impose - the docked stack has one KSP active controller and the combined leg records into its tree.
 - **Verified loopable today:** A-solo / B-solo (pre-dock), A-after / B-after undock (undock is a structural peel so the line splits + the departing vessel is its own offshoot), peeled offshoots, and a whole-vessel journey. Audited against `MissionLoopUnitBuilder` (drives looping from `Mission.ExcludedIntervalKeys` via `MissionIntervalSelection`) + `MissionCompositionBuilder` (intervals split at structural peels).
