@@ -104,7 +104,8 @@ namespace Parsek
             else if (mode == TargetMode.Route)
             {
                 if (Logistics.RouteStore.TryGetRoute(targetId, out Logistics.Route route))
-                    steps = RouteStructureListBuilder.Build(route, FindCommittedRecording);
+                    steps = RouteStructureListBuilder.Build(
+                        route, FindCommittedRecording, VesselSpawner.TryResolveBiome);
             }
         }
 

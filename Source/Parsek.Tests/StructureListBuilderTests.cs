@@ -385,5 +385,41 @@ namespace Parsek.Tests
             Assert.Equal("Duna", StructureLocationFormatter.EndpointLocation(orb, false));
             Assert.Equal("Orbiting", StructureLocationFormatter.EndpointStatus(orb, false));
         }
+
+        [Fact]
+        public void LocationFormatter_SurfaceEndpoint_BiomeResolverReplacesCoordinates()
+        {
+            RouteEndpoint surf = new RouteEndpoint { BodyName = "Mun", IsSurface = true, Latitude = 1, Longitude = 2 };
+
+            // With a resolver: "body, biome" replaces the coordinate fallback.
+            Assert.Equal("Mun, Midlands",
+                StructureLocationFormatter.EndpointLocation(surf, false, (body, lat, lon) => "Midlands"));
+            // Resolver yielding nothing -> coordinate fallback survives.
+            Assert.StartsWith("Mun (",
+                StructureLocationFormatter.EndpointLocation(surf, false, (body, lat, lon) => null));
+            // KSC ignores the resolver (keeps "KSC" in the biome slot).
+            Assert.Equal("Kerbin, KSC",
+                StructureLocationFormatter.EndpointLocation(
+                    new RouteEndpoint { BodyName = "Kerbin" }, true, (body, lat, lon) => "Shores"));
+        }
+
+        [Fact]
+        public void Route_SurfaceEndpoint_UsesInjectedBiomeResolver()
+        {
+            var route = new RouteFixtureBuilder()
+                .WithKscOrigin(true)
+                .WithOrigin(new RouteEndpoint { BodyName = "Kerbin" })
+                .WithDockBinding(150, "missing")
+                .WithStop(new RouteStop
+                {
+                    Endpoint = new RouteEndpoint { BodyName = "Kerbin", IsSurface = true, Latitude = -0.04, Longitude = -74.72 }
+                })
+                .Build();
+
+            var steps = RouteStructureListBuilder.Build(route, id => null, (body, lat, lon) => "Shores");
+
+            StructureStep delivery = steps.Single(s => s.Kind == StructureStepKind.Delivery);
+            Assert.Equal("Kerbin, Shores", delivery.Location);
+        }
     }
 }

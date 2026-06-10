@@ -69,17 +69,27 @@ namespace Parsek
             => rec != null && !string.IsNullOrEmpty(rec.StartSituation) ? rec.StartSituation : "";
 
         // A route endpoint (origin / dock / delivery / undock). RouteEndpoint is a struct with
-        // no backing Recording or biome, so the "biome" slot carries the launch-site name for
-        // KSC and the surface coordinates for a surface endpoint.
-        internal static string EndpointLocation(RouteEndpoint ep, bool isKsc)
+        // no backing Recording and NO recorded biome, so for a surface endpoint the biome is
+        // resolved at DISPLAY time from body + lat/lon via the injected resolver (the window
+        // passes VesselSpawner.TryResolveBiome; headless tests pass null). When no biome
+        // resolves, fall back to the surface coordinates. KSC keeps "KSC" in the biome slot.
+        internal static string EndpointLocation(
+            RouteEndpoint ep, bool isKsc, Func<string, double, double, string> biomeResolver = null)
         {
             if (isKsc)
                 return BodyBiome(string.IsNullOrEmpty(ep.BodyName) ? "Kerbin" : ep.BodyName, "KSC");
             if (string.IsNullOrEmpty(ep.BodyName))
                 return "-";
             if (ep.IsSurface)
+            {
+                string biome = biomeResolver != null
+                    ? biomeResolver(ep.BodyName, ep.Latitude, ep.Longitude)
+                    : null;
+                if (!string.IsNullOrEmpty(biome))
+                    return BodyBiome(ep.BodyName, biome);
                 return string.Format(CultureInfo.InvariantCulture,
                     "{0} ({1:F2}, {2:F2})", ep.BodyName, ep.Latitude, ep.Longitude);
+            }
             return ep.BodyName;
         }
 
@@ -420,10 +430,16 @@ namespace Parsek
         /// <summary>
         /// Builds a route's step list in logical/chronological order: origin, dock,
         /// delivery (per stop), undock. Pure. <paramref name="sourceLookup"/> resolves a
-        /// recording id to its committed <see cref="Recording"/> (injected so the builder
-        /// stays free of the <c>RecordingStore</c> singleton and is headless-testable).
+        /// recording id to its committed <see cref="Recording"/>, and
+        /// <paramref name="biomeResolver"/> resolves (bodyName, lat, lon) to a biome name
+        /// for surface endpoints (the window passes <c>VesselSpawner.TryResolveBiome</c>;
+        /// null in headless tests falls back to coordinates). Both injected so the builder
+        /// stays free of singletons / live KSP and is headless-testable.
         /// </summary>
-        internal static List<StructureStep> Build(Logistics.Route route, Func<string, Recording> sourceLookup)
+        internal static List<StructureStep> Build(
+            Logistics.Route route,
+            Func<string, Recording> sourceLookup,
+            Func<string, double, double, string> biomeResolver = null)
         {
             var steps = new List<StructureStep>();
             if (route == null)
@@ -440,7 +456,7 @@ namespace Parsek
                 Kind = StructureStepKind.Origin,
                 Label = route.IsKscOrigin ? "Origin: KSC" : "Origin: depot",
                 Status = StructureLocationFormatter.EndpointStatus(route.Origin, route.IsKscOrigin),
-                Location = StructureLocationFormatter.EndpointLocation(route.Origin, route.IsKscOrigin),
+                Location = StructureLocationFormatter.EndpointLocation(route.Origin, route.IsKscOrigin, biomeResolver),
                 VesselName = ""
             });
 
@@ -478,7 +494,7 @@ namespace Parsek
 
             bool hasEndpoint = win != null && win.EndpointAtDock.HasValue;
             string endpointLoc = hasEndpoint
-                ? StructureLocationFormatter.EndpointLocation(win.EndpointAtDock.Value, false)
+                ? StructureLocationFormatter.EndpointLocation(win.EndpointAtDock.Value, false, biomeResolver)
                 : "";
             string endpointStatus = hasEndpoint
                 ? StructureLocationFormatter.EndpointStatus(win.EndpointAtDock.Value, false)
@@ -519,7 +535,7 @@ namespace Parsek
                     Kind = StructureStepKind.Delivery,
                     Label = "Deliver" + num + FormatManifestSummary(stop.DeliveryManifest, stop.InventoryDeliveryManifest),
                     Status = StructureLocationFormatter.EndpointStatus(stop.Endpoint, false),
-                    Location = StructureLocationFormatter.EndpointLocation(stop.Endpoint, false),
+                    Location = StructureLocationFormatter.EndpointLocation(stop.Endpoint, false, biomeResolver),
                     VesselName = ""
                 });
             }
