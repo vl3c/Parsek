@@ -26,11 +26,14 @@ we never clutter the map:
    (clears entirely) only when the icon crosses a run **boundary**: it enters a
    full-loop closed orbit, or it crosses an SOI change. (This REVERSES the
    original "past stays gone" rule; the render unit is now the run, not a
-   forward-only window.) **Body-fixed exception (playtest 5):** a leg that can
-   only draw BODY-FIXED (not conic-anchorable: launch ascent, descent-to-surface,
-   residual-rejected) rotates with the planet against the inertial arcs under a
-   loop shift — the playtest-5 gap-then-overlap sweep — so it draws ONLY while
-   the icon is on it (head-gated pass) and never persists as a run leg.
+   forward-only window.) **Body-fixed exception (playtest 5, revised playtest
+   7):** a leg that can only draw BODY-FIXED (not conic-anchorable: launch
+   ascent, descent-to-surface, residual-rejected) rotates with the planet
+   against the inertial arcs under a loop shift. Once the icon moves PAST it,
+   it hides (the trailing sweep read as overlap in playtest 5); while it is
+   AHEAD of the icon it draws body-fixed (the landing descent must be visible
+   before the icon arrives — playtest 7), connected to the inertial run by the
+   seam bridges with the signed-gap rule.
 2. **Boundary: the first full-loop closed orbit.** A segment covering a complete
    revolution (`ecc < 1` **and** `endUT − startUT ≥ period`) bounds the run: the
    run forward-stops before it (we never render a full repeating ellipse), and a
@@ -197,40 +200,52 @@ ONCE per chain per frame (the first non-hidden member the walk reaches; for a
 looped chain that is exactly the active member). Forward legs of sibling members
 stay `forward=true`, so the ownership contract is untouched.
 
-**Body-fixed run legs are HIDDEN, not persisted (playtest 5, 2026-06-09).**
-Legs draw body-fixed via `GetWorldSurfacePosition` (live planet rotation), while
-arcs + conic-anchored legs draw recorded-inertial. Under a loop shift the two
-frames disagree by the body rotation accrued over the shift, and the body-fixed
-piece SWEEPS with the live planet while the inertial geometry stands still — in
-playtest 5 the launch ascent's gap to the inertial run closed as the icon
-approached the handoff (the 'Duna One' cadence is exactly 912 Kerbin rotations,
-so the alignment is perfect exactly when the icon arrives), then re-opened as
-overlap behind it. Rule: a persistent run leg must be drawable in the INERTIAL
-frame. Decide-side, `IsRunLegAnchorCandidate` (both-side same-body conic bracket
-in the leg's own recording — the `TryAnchorLegToConicSeam` precondition) gates
-the run enqueue; draw-side, `TryDrawLeg(requireConicAnchor: true)` skips a
-forward leg whose anchor is residual-rejected. One-sided legs (launch ascent,
-descent-to-surface) draw ONLY under the head, where body-fixed is correct (the
-live ghost is glued to the pad/terrain).
+**PAST body-fixed run legs are HIDDEN (playtest 5, scoped to past-only in
+playtest 7).** Legs draw body-fixed via `GetWorldSurfacePosition` (live planet
+rotation), while arcs + conic-anchored legs draw recorded-inertial. Under a
+loop shift the two frames disagree by the body rotation accrued over the shift,
+and the body-fixed piece SWEEPS with the live planet while the inertial
+geometry stands still — in playtest 5 the launch ascent's trailing line swept
+into overlap behind the icon. Rule (`ShouldHideBodyFixedRunLeg`): a TRAILING
+run leg must be drawable in the INERTIAL frame — decide-side via
+`IsRunLegAnchorCandidate` (both-side same-body conic bracket in the leg's own
+recording, the `TryAnchorLegToConicSeam` precondition), draw-side via
+`TryDrawLeg(requireConicAnchor: true)` for past legs (a residual-rejected past
+leg is skipped rather than drawn body-fixed). FUTURE legs draw regardless
+(anchored when possible, body-fixed otherwise — playtest 7: the Duna landing
+descent must be visible before the icon arrives), bridged to the inertial run.
+The head-gated current leg always draws body-fixed when not anchorable — the
+live ghost is glued to the pad/terrain there.
 
-**Seam bridge (playtest 6, 2026-06-10).** While the icon rides a body-fixed head
-leg, the leg's end still trails the first inertial run arc by the
-rotation-over-shift angle (a visible gap that only closes as the icon reaches
-the handoff). A per-frame BRIDGE fills it WITH THE ARC'S OWN CURVATURE: the
-bridge draws the target arc's first `BridgeMergeSampleCount` (60) samples with
-the seam rotation unwound along them — sample i rotated about the seam axis (the
-minimal-rotation axis between B's first-sample ray and A's end ray, which for
-same-latitude seam points IS the body spin axis) by `seamAngle*(1 - i/60)`, with
-a radial blend so point 0 lands EXACTLY on the leg's drawn end and point 60
-lands EXACTLY on the arc. While bridging, the target arc's draw range starts at
-sample 60, so the bridge REPLACES its lead-in (never a double line), and as the
-gap closes the bridge degenerates continuously into the arc itself — no pop at
-handoff. Gated: seam angle <= 45 deg (`BridgeMaxAngleRadians`; a wilder gap
-draws honestly as a gap), seam UT gap <= 120 s (`BridgeMaxSeamGapSeconds`),
-same-body only (`IsBridgeArcCandidate`). Pure geometry in
-`TryBuildSeamBridgeLocalPoints` (Rodrigues, no Unity ECalls, xUnit-covered);
-decide-side arming in `DecideForwardWindowForRecording`; draw in
-`TryDrawSeamBridge` (post-pan onPreCull slot, after legs + arcs).
+**Seam bridges (playtest 6, GENERALIZED playtest 7, 2026-06-10).** Body-fixed
+legs (drawn at the LIVE planet rotation) and the inertial conics disagree by the
+rotation-over-shift angle plus any static recorded seam offset — a visible gap
+or overlap at each body-fixed<->inertial seam. Per-frame BRIDGES fill the gaps
+WITH THE CONIC'S OWN CURVATURE, on BOTH SIDES of every drawn body-fixed/future
+leg (`DecideSeamBridges`): the adjacent above-surface conic per side is found
+across chain members (`IsBridgeAdjacentConic`); its inertial samples come from
+the matching cached forward arc — whose pending draw is CLIPPED at the merge
+sample (`drawStartIndex`/`drawEndIndex`) so bridge + arc never double-draw — or
+from on-demand sampling (`GetBridgeConicSamples`, 61 `getPositionAtUT` points
+cached per segment+side) when the conic is the stock-drawn CURRENT element. The
+bridge unwinds the seam rotation along the conic's lead-in (end-side bridge) or
+REVERSED tail (start-side bridge) via `TryBuildSeamBridgeLocalPoints`
+(Rodrigues, no Unity ECalls, xUnit-covered): sample i rotated about the
+minimal-rotation seam axis by `seamAngle*(1 - i/60)` with a radial blend, so
+point 0 lands EXACTLY on the leg's drawn endpoint and point 60 EXACTLY on the
+conic; as the gap closes the bridge degenerates continuously into the conic
+itself (no pop). Gates: seam angle in (`BridgeMinAngleRadians`,
+`BridgeMaxAngleRadians` = 45 deg]; seam UT gap <= `BridgeMaxSeamGapSeconds`
+(120 s); and the SIGNED-GAP rule (`IsSeamGapAhead`, maintainer rule): a bridge
+only fills a REAL gap — when the previous element's end has rotated PAST the
+next element's start (overshoot, the lines already overlap), no bridge draws.
+Every bridge endpoint recomputes per frame from the leg's fresh scaled scratch +
+the inertial samples, so bridges track the rotating legs at any warp and any
+icon position. Visibility rule feeding this (`ShouldHideBodyFixedRunLeg`,
+playtest-7 revision of the playtest-5 hide): only PAST body-fixed legs hide;
+FUTURE ones (the Duna landing descent) draw body-fixed — previously they were
+hidden until the icon arrived, which read as the landing line "appearing at the
+end".
 
 ### Step 1 — Pure forward-window computation (always available, unit-tested)
 

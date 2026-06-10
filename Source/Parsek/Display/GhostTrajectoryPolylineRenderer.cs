@@ -126,11 +126,12 @@ namespace Parsek.Display
         // 180-element allocation on the multi-ghost map walk.
         private static readonly Vector3d[] forwardArcSampleScratch = new Vector3d[ForwardArcSampleCount];
 
-        // SEAM BRIDGE line per run-owning recording (playtest 6): the filler connecting the body-fixed
-        // head leg's end to the first inertial run arc. One fixed-size (BridgeMergeSampleCount+1)
-        // VectorLine per recording, rebuilt point-wise per frame while bridging; hidden by the bridge
-        // deactivation sweep when not drawn. Destroyed with the forward arcs in Clear() /
-        // ReleaseForRecording so no Vectrosity GameObject leaks.
+        // SEAM BRIDGE lines (playtest 6, generalized playtest 7): fillers connecting each drawn
+        // body-fixed leg to its adjacent inertial conics. Keyed per (legRecordingId|legIndex|side) so
+        // a leg can carry a start-side AND an end-side bridge simultaneously (the Duna descent legs).
+        // One fixed-size (BridgeMergeSampleCount+1) VectorLine per key, rebuilt point-wise per frame
+        // while bridging; hidden by the bridge deactivation sweep when not drawn. Destroyed with the
+        // forward arcs in Clear() / ReleaseForRecording so no Vectrosity GameObject leaks.
         private sealed class BridgeLineEntry
         {
             public VectorLine line;
@@ -139,6 +140,63 @@ namespace Parsek.Display
 
         private static readonly Dictionary<string, BridgeLineEntry> bridgeLineByRecording =
             new Dictionary<string, BridgeLineEntry>(StringComparer.Ordinal);
+
+        // On-demand bridge conic samples (playtest 7): 61 inertial body-relative points along a
+        // conic's lead-in or tail third, for bridge sides whose conic is NOT a cached forward arc
+        // (the CURRENT element - e.g. the final orbit the icon rides while the landing leg lies
+        // ahead). Sampled once per (recording|segment|side) via Orbit.getPositionAtUT (the offsets
+        // are inertial-stable, like ForwardArc.bodyRelOffsets); capped and cleared with the forward
+        // caches.
+        private static readonly Dictionary<string, Vector3d[]> bridgeConicSampleCache =
+            new Dictionary<string, Vector3d[]>(StringComparer.Ordinal);
+
+        /// <summary>Cap for <see cref="bridgeConicSampleCache"/>; on overflow the whole cache is
+        /// dropped (entries are cheap to resample).</summary>
+        private const int BridgeConicSampleCacheCap = 32;
+
+        /// <summary>
+        /// Returns 61 inertial body-relative samples along <paramref name="seg"/>'s lead-in
+        /// (<paramref name="tail"/>=false: [startUT, startUT+span]) or tail (true:
+        /// [endUT-span, endUT]) third, cached per (recording|segment|side). Null on a degenerate
+        /// segment / orbit construction fault (the caller skips the bridge).
+        /// </summary>
+        private static Vector3d[] GetBridgeConicSamples(
+            string recordingId, OrbitSegment seg, CelestialBody body, bool tail)
+        {
+            if (body == null || seg.endUT <= seg.startUT) return null;
+            string key = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "{0}|{1:F1}|{2:F1}|{3}", recordingId, seg.startUT, seg.endUT, tail ? "t" : "l");
+            if (bridgeConicSampleCache.TryGetValue(key, out var cached))
+                return cached;
+
+            double span = System.Math.Max((seg.endUT - seg.startUT) / 3.0, 1.0);
+            double t0 = tail ? seg.endUT - span : seg.startUT;
+            var pts = new Vector3d[BridgeMergeSampleCount + 1];
+            try
+            {
+                var orbit = new Orbit(
+                    seg.inclination, seg.eccentricity, seg.semiMajorAxis,
+                    seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
+                    seg.meanAnomalyAtEpoch, seg.epoch, body);
+                Vector3d bodyPos = body.position;
+                for (int i = 0; i <= BridgeMergeSampleCount; i++)
+                {
+                    double ut = t0 + span * i / BridgeMergeSampleCount;
+                    Vector3d world = orbit.getPositionAtUT(ut);
+                    if (!IsFiniteVec(world)) return null;
+                    pts[i] = world - bodyPos;
+                }
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+
+            if (bridgeConicSampleCache.Count >= BridgeConicSampleCacheCap)
+                bridgeConicSampleCache.Clear();
+            bridgeConicSampleCache[key] = pts;
+            return pts;
+        }
 
         /// <summary>
         /// Marker ride-robustness (pan-stability): the last on-line position the marker successfully
@@ -536,13 +594,30 @@ namespace Parsek.Display
             if (forwardArcCache.TryGetValue(recordingId, out var fwd))
                 DestroyForwardArcLines(fwd.arcs);
             forwardArcCache.Remove(recordingId);
-            // Seam-bridge line (playtest 6): same lifecycle as the forward arcs it connects to.
-            if (bridgeLineByRecording.TryGetValue(recordingId, out var bridge) && bridge.line != null)
+            // Seam-bridge lines (playtest 6/7): same lifecycle as the forward arcs they connect to.
+            // Keys are (recordingId|legIndex|side); collect the recording's keys first (cannot mutate
+            // while enumerating). The conic-sample cache entries for this recording drop too (cheap to
+            // resample; key prefix is the recording id).
+            List<string> staleBridgeKeys = null;
+            foreach (var kvp in bridgeLineByRecording)
             {
-                var bl = bridge.line;
-                VectorLine.Destroy(ref bl);
+                if (!kvp.Key.StartsWith(recordingId, StringComparison.Ordinal)) continue;
+                (staleBridgeKeys ?? (staleBridgeKeys = new List<string>())).Add(kvp.Key);
             }
-            bridgeLineByRecording.Remove(recordingId);
+            if (staleBridgeKeys != null)
+            {
+                for (int i = 0; i < staleBridgeKeys.Count; i++)
+                {
+                    var entry = bridgeLineByRecording[staleBridgeKeys[i]];
+                    if (entry.line != null)
+                    {
+                        var bl = entry.line;
+                        VectorLine.Destroy(ref bl);
+                    }
+                    bridgeLineByRecording.Remove(staleBridgeKeys[i]);
+                }
+            }
+            bridgeConicSampleCache.Clear();
             // Drop the marker hold for this recording so a reused RecordingId (supersede / delete +
             // re-add) never inherits a stale held on-line point.
             lastGoodOnLine.Remove(recordingId);
@@ -577,7 +652,8 @@ namespace Parsek.Display
             foreach (var kvp in forwardArcCache)
                 DestroyForwardArcLines(kvp.Value.arcs);
             forwardArcCache.Clear();
-            // Seam-bridge lines (playtest 6): same cross-save / test-reset lifecycle.
+            // Seam-bridge lines + conic sample cache (playtest 6/7): same cross-save / test-reset
+            // lifecycle.
             foreach (var kvp in bridgeLineByRecording)
             {
                 var bl = kvp.Value.line;
@@ -585,6 +661,7 @@ namespace Parsek.Display
                     VectorLine.Destroy(ref bl);
             }
             bridgeLineByRecording.Clear();
+            bridgeConicSampleCache.Clear();
             if (polylineCache.Count == 0)
             {
                 if (fwdDropped > 0)
@@ -930,6 +1007,13 @@ namespace Parsek.Display
         internal const double BridgeMaxSeamGapSeconds = 120.0;
 
         /// <summary>
+        /// Min seam angle (radians, ~0.006 deg) below which no bridge draws: the leg already meets the
+        /// conic (an anchored leg calibrated onto the seam, or a closed rotation gap) and a degenerate
+        /// bridge would only clip the arc's lead-in for nothing.
+        /// </summary>
+        internal const double BridgeMinAngleRadians = 1e-4;
+
+        /// <summary>
         /// PURE: angle (radians) between two body-relative rays, used by the decide-side bridge gate.
         /// Returns PositiveInfinity for a degenerate (near-zero) input so the gate always rejects it.
         /// xUnit-testable (System.Math only, no Unity ECalls).
@@ -1028,42 +1112,50 @@ namespace Parsek.Display
         /// none. xUnit-testable (operates on the cached arc metadata only).
         /// </summary>
         /// <summary>
-        /// PURE per-arc bridge-candidate rule: an arc CONTINUES the body-fixed head leg when it shares
-        /// the leg's body and starts at/just after the leg's endUT (1 s shared-boundary tolerance)
-        /// within <paramref name="maxSeamGapSeconds"/>. The single load-bearing predicate behind both
-        /// <see cref="SelectBridgeArcIndex"/> and the Driver's inline cross-member candidate tracking,
-        /// so the tested rule IS the production rule. xUnit-testable.
+        /// PURE adjacency rule (playtest-7 generalized bridges): is this conic the inertial NEIGHBOUR of
+        /// a body-fixed leg at the given seam? <paramref name="atLegStart"/>=true tests the PREV side
+        /// (the conic ENDS at/just before the leg's startUT, 1 s shared-boundary tolerance forward);
+        /// false tests the NEXT side (the conic STARTS at/just after the leg's endUT). Same-body only;
+        /// the seam UT gap is bounded by <paramref name="maxSeamGapSeconds"/>. The single load-bearing
+        /// predicate behind the Driver's adjacent-conic search, so the tested rule IS the production
+        /// rule. xUnit-testable.
         /// </summary>
-        internal static bool IsBridgeArcCandidate(
-            string arcBodyName, double arcStartUT,
-            string legBodyName, double legEndUT, double maxSeamGapSeconds)
+        internal static bool IsBridgeAdjacentConic(
+            string segBodyName, double segStartUT, double segEndUT,
+            string legBodyName, double legSeamUT, bool atLegStart, double maxSeamGapSeconds)
         {
             if (string.IsNullOrEmpty(legBodyName)) return false;
-            if (!string.Equals(arcBodyName, legBodyName, StringComparison.Ordinal)) return false;
-            if (arcStartUT < legEndUT - 1.0) return false;
-            return arcStartUT - legEndUT <= maxSeamGapSeconds;
+            if (!string.Equals(segBodyName, legBodyName, StringComparison.Ordinal)) return false;
+            return atLegStart
+                ? segEndUT >= legSeamUT - maxSeamGapSeconds && segEndUT <= legSeamUT + 1.0
+                : segStartUT >= legSeamUT - 1.0 && segStartUT <= legSeamUT + maxSeamGapSeconds;
         }
 
-        internal static int SelectBridgeArcIndex(
-            ForwardArc[] arcs, string legBodyName, double legEndUT, double maxSeamGapSeconds)
-        {
-            if (arcs == null) return -1;
-            int best = -1;
-            double bestStart = double.PositiveInfinity;
-            for (int i = 0; i < arcs.Length; i++)
-            {
-                var arc = arcs[i];
-                if (!IsBridgeArcCandidate(
-                        arc.bodyName, arc.startUT, legBodyName, legEndUT, maxSeamGapSeconds))
-                    continue;
-                if (arc.startUT < bestStart)
-                {
-                    bestStart = arc.startUT;
-                    best = i;
-                }
-            }
-            return best;
-        }
+        /// <summary>
+        /// PURE signed-gap rule (playtest-7, maintainer rule): a bridge fills a REAL trajectory gap -
+        /// the previous element's drawn end sits BEHIND the next element's drawn start along the
+        /// direction of travel. When the previous end has rotated PAST the next start (overshoot, the
+        /// two lines already overlap), drawing a bridge would double back - skip it. The displacement
+        /// from the previous end to the next start projected on the travel direction decides:
+        /// positive = real gap (bridge), non-positive = overshoot/contact (no bridge). All three
+        /// vectors are body-relative in the same frame; scale-invariant. xUnit-testable.
+        /// </summary>
+        internal static bool IsSeamGapAhead(
+            Vector3d prevEndRel, Vector3d nextStartRel, Vector3d travelDir)
+            => Vector3d.Dot(nextStartRel - prevEndRel, travelDir) > 0.0;
+
+        /// <summary>
+        /// PURE run-leg visibility rule (playtest-7 revision of the playtest-5 hide): a body-fixed
+        /// (non-anchorable) run leg is hidden only when it is entirely in the PAST (the icon has moved
+        /// beyond its end) - the trailing piece would rotate-sweep into the inertial line behind the
+        /// icon. A FUTURE body-fixed leg (the Duna landing descent) DRAWS, body-fixed where the planet
+        /// rotation currently places it, connected to the inertial run by the seam bridges; previously
+        /// it was hidden until the icon reached it, which read as the landing line "appearing at the
+        /// end". xUnit-testable.
+        /// </summary>
+        internal static bool ShouldHideBodyFixedRunLeg(
+            bool anchorCandidate, double legEndUT, double headUT)
+            => !anchorCandidate && legEndUT <= headUT;
 
         internal static void FindBracketingOrbitSegments(
             List<OrbitSegment> segs, string bodyName, double legStartUT, double legEndUT,
@@ -2271,6 +2363,11 @@ namespace Parsek.Display
                 // anyDrawn / ownership accounting, so they NEVER flip drewNonOrbitalLegRecordings (the
                 // CRITICAL Step 3 ownership prerequisite: forward draws must not suppress the current arc).
                 public bool forward;
+                // Playtest-7 past/future split: PAST run legs must anchor (a past body-fixed leg would
+                // rotate-sweep into the inertial line behind the icon - the playtest-5 rule); FUTURE run
+                // legs draw regardless (anchored when possible, body-fixed otherwise - the Duna landing
+                // descent), connected to the inertial run by the seam bridges.
+                public bool requireConicAnchor;
             }
             private readonly List<PendingLegDraw> pendingDraws = new List<PendingLegDraw>();
             private int pendingDrawsFrame = -1;
@@ -2283,29 +2380,52 @@ namespace Parsek.Display
             {
                 public string recordingId;
                 public int arcIndex;
-                // SEAM BRIDGE (playtest 6): when this arc is the bridge target, its draw range starts
-                // at BridgeMergeSampleCount so the bridge REPLACES the arc's lead-in (never a double
-                // line). 0 = draw the full arc (no bridge this frame).
+                // SEAM BRIDGE (playtest 6): when this arc is a bridge's NEXT-side target, its draw
+                // range starts at BridgeMergeSampleCount so the bridge REPLACES the arc's lead-in
+                // (never a double line). 0 = draw from the first sample.
                 public int drawStartIndex;
+                // SEAM BRIDGE (playtest 7): when this arc is a bridge's PREV-side source, its draw
+                // range ends at (len-1 - BridgeMergeSampleCount) so the bridge REPLACES the arc's
+                // tail. -1 = draw to the last sample.
+                public int drawEndIndex;
             }
             private readonly List<PendingForwardArcDraw> pendingForwardArcs =
                 new List<PendingForwardArcDraw>();
 
-            // SEAM BRIDGE pending draw (playtest 6): decided in the -50 pass alongside the run
-            // legs/arcs, drawn in the post-pan onPreCull slot AFTER the head leg (whose fresh
-            // scratchScaledSpace supplies the bridge's A-end) and the arcs. Single bridge per frame:
-            // only the run-owning chain whose HEAD leg is body-fixed needs one.
+            // SEAM BRIDGE pending draws (playtest 6, generalized playtest 7): decided in the -50 pass
+            // alongside the run legs/arcs, drawn in the post-pan onPreCull slot AFTER the legs (whose
+            // fresh scratchScaledSpace supplies each bridge's leg-side endpoint) and the arcs. One
+            // entry per (drawn body-fixed leg, side) that passed the adjacency + angle + signed-gap
+            // gates - the Duna descent legs carry a start-side AND an end-side bridge simultaneously.
             private struct PendingBridgeDraw
             {
                 public string legRecordingId;
                 public int legIndex;
-                public string arcRecordingId;
-                public int arcIndex;
+                public bool atLegStart;      // true: prev-conic-end -> leg start; false: leg end -> next-conic-start
+                public string arcRecordingId; // cached forward-arc source (null when on-demand sampled)
+                public int arcIndex;          // cached forward-arc index (-1 when on-demand sampled)
+                public string sampleKeyRecordingId; // on-demand source: owning recording id
+                public OrbitSegment sampleSegment;  // on-demand source: the conic to sample
             }
-            private PendingBridgeDraw pendingBridge;
+            private readonly List<PendingBridgeDraw> pendingBridges = new List<PendingBridgeDraw>();
             private int pendingBridgeFrame = -1;
 
-            // Reusable scratch for the bridge's body-relative output points (fixed size: merge count + 1).
+            // Drawn body-fixed legs of the chain being decided (bridge candidates): filled per chain
+            // pass, consumed by DecideSeamBridges within the same call.
+            private struct BridgeLegCandidate
+            {
+                public string recordingId;
+                public Recording rec;
+                public int legIndex;
+                public double startUT;
+                public double endUT;
+                public string bodyName;
+            }
+            private readonly List<BridgeLegCandidate> bridgeLegScratch = new List<BridgeLegCandidate>();
+
+            // Reusable scratches for the bridge geometry (fixed size: merge count + 1): the arc-side
+            // sample slice (lead-in forward / tail reversed) and the unwound output points.
+            private readonly Vector3d[] bridgeArcSliceScratch = new Vector3d[BridgeMergeSampleCount + 1];
             private readonly Vector3d[] bridgePointScratch = new Vector3d[BridgeMergeSampleCount + 1];
 
             // Per-Driver reusable scratch buffer for the forward-arc index selection (forward-render review
@@ -2412,6 +2532,7 @@ namespace Parsek.Display
                 pendingForwardArcs.Clear();
                 pendingDrawsFrame = -1;
                 precullDrawnFrame = -1;
+                pendingBridges.Clear();
                 pendingBridgeFrame = -1;
             }
 
@@ -2436,6 +2557,7 @@ namespace Parsek.Display
                 pendingForwardArcs.Clear();
                 pendingDrawsFrame = -1;
                 precullDrawnFrame = -1;
+                pendingBridges.Clear();
                 pendingBridgeFrame = -1;
             }
 
@@ -2464,6 +2586,7 @@ namespace Parsek.Display
                 pendingDraws.Clear();
                 pendingForwardArcs.Clear();
                 pendingDrawsFrame = -1;
+                pendingBridges.Clear();
                 pendingBridgeFrame = -1;
                 // Chain-run dedupe set is per-frame: each chain's run is decided once per LateUpdate.
                 chainRunProcessedThisFrame.Clear();
@@ -2914,15 +3037,17 @@ namespace Parsek.Display
                         continue;
                     }
                     var leg = set.legs[p.legIndex];
-                    // forward legs require the conic anchor to SUCCEED (playtest-5 body-fixed hide):
-                    // a persistent run leg that cannot be rotated onto the inertial seam is skipped
-                    // here rather than drawn body-fixed, where it would sweep with the planet.
+                    // PAST run legs require the conic anchor to SUCCEED (playtest-5/7 body-fixed hide):
+                    // a trailing leg that cannot be rotated onto the inertial seam is skipped here
+                    // rather than drawn body-fixed, where it would sweep with the planet. FUTURE run
+                    // legs and the head-gated current leg draw regardless (anchored when possible,
+                    // body-fixed otherwise), connected by the seam bridges.
                     bool legDrawn = p.ownedByTreatment
                         ? Parsek.MapRender.TracedPathTreatment.TryDrawOwnedLeg(
                             ref leg, p.rec, p.body, pendingTargetLayer, frame, p.recordingId, p.legIndex, p.ghostPid)
                         : TryDrawLeg(
                             ref leg, p.rec, p.body, pendingTargetLayer, frame, p.recordingId, p.legIndex,
-                            requireConicAnchor: p.forward);
+                            requireConicAnchor: p.requireConicAnchor);
                     // Persist the lazily-inflated line + the lastDrawnFrame stamp back into the cached
                     // array (set.legs is the same array reference the dict holds).
                     set.legs[p.legIndex] = leg;
@@ -2977,7 +3102,9 @@ namespace Parsek.Display
                         continue;
                     if (fp.arcIndex < 0 || fp.arcIndex >= fset.arcs.Length) continue;
                     var arc = fset.arcs[fp.arcIndex];
-                    if (DrawForwardArc(fwdScene, ref arc, pendingTargetLayer, frame, fp.drawStartIndex))
+                    if (DrawForwardArc(
+                            fwdScene, ref arc, pendingTargetLayer, frame,
+                            fp.drawStartIndex, fp.drawEndIndex))
                         fwdArcsDrawn++;
                     fset.arcs[fp.arcIndex] = arc; // persist the lastDrawnFrame stamp (same array ref)
 
@@ -2999,12 +3126,18 @@ namespace Parsek.Display
                             fwdScene, fwdArcsDrawn, drawn, TimeWarp.CurrentRate),
                         5.0);
 
-                // SEAM BRIDGE draw (playtest 6): runs AFTER the legs (the head leg's fresh
-                // scratchScaledSpace supplies the bridge's A-end) and AFTER the arcs (the target arc
-                // already drew with its lead-in clipped at the merge sample). Single bridge per frame.
+                // SEAM BRIDGE draws (playtest 6/7): run AFTER the legs (each leg's fresh
+                // scratchScaledSpace supplies its bridge endpoints) and AFTER the arcs (clipped at
+                // their merge samples). One draw per armed (leg, side) pair.
                 int bridgeDrawn = 0;
-                if (pendingBridgeFrame == frame && TryDrawSeamBridge(fwdScene, frame))
-                    bridgeDrawn = 1;
+                if (pendingBridgeFrame == frame)
+                {
+                    for (int b = 0; b < pendingBridges.Count; b++)
+                    {
+                        if (TryDrawSeamBridge(fwdScene, pendingBridges[b], frame))
+                            bridgeDrawn++;
+                    }
+                }
 
                 // Deactivation sweep MOVES here so it runs in the same slot as the draws: a leg drawn
                 // this frame has lastDrawnFrame == frame and is NOT hidden, while any cached leg not
@@ -3041,37 +3174,64 @@ namespace Parsek.Display
             }
 
             /// <summary>
-            /// SEAM BRIDGE draw (playtest 6): connects the body-fixed head leg's drawn end to the first
-            /// inertial run arc with the arc's OWN curvature, the seam rotation unwound along it (see
-            /// <see cref="TryBuildSeamBridgeLocalPoints"/>). The A-end comes from the head leg's
-            /// scratchScaledSpace (fresh - the leg drew earlier in this same onPreCull pass); the arc
-            /// samples are the cached body-relative offsets re-projected with the same strobe-free
-            /// scaled-centre geometry the arc draw uses. Returns false (and the sweep hides any prior
-            /// bridge) when the leg did not actually draw this frame, the caches are gone, the body is
-            /// unresolvable, or the seam geometry is degenerate.
+            /// SEAM BRIDGE draw, one (leg, side) pair (playtest 6, generalized playtest 7): connects
+            /// the leg's drawn endpoint to the adjacent inertial conic with the CONIC'S OWN curvature,
+            /// the seam rotation unwound along it (<see cref="TryBuildSeamBridgeLocalPoints"/>). The
+            /// leg endpoint comes from its scratchScaledSpace (fresh - the leg drew earlier in this
+            /// same onPreCull pass, so the bridge tracks it EVERY frame at any warp); the conic
+            /// samples are the cached forward-arc offsets (lead-in for an end-side bridge, tail
+            /// REVERSED for a start-side bridge) or the on-demand samples for a stock-drawn current
+            /// element, re-projected with the same strobe-free scaled-centre geometry the arc draw
+            /// uses. Returns false (the sweep hides any prior line) when the leg did not draw this
+            /// frame, the caches are gone, the body is unresolvable, or the seam is degenerate.
             /// </summary>
-            private bool TryDrawSeamBridge(GameScenes scene, int frame)
+            private bool TryDrawSeamBridge(GameScenes scene, PendingBridgeDraw bridge, int frame)
             {
-                if (!polylineCache.TryGetValue(pendingBridge.legRecordingId, out var legSet)
+                if (!polylineCache.TryGetValue(bridge.legRecordingId, out var legSet)
                     || legSet.legs == null
-                    || pendingBridge.legIndex < 0 || pendingBridge.legIndex >= legSet.legs.Length)
+                    || bridge.legIndex < 0 || bridge.legIndex >= legSet.legs.Length)
                     return false;
-                var leg = legSet.legs[pendingBridge.legIndex];
+                var leg = legSet.legs[bridge.legIndex];
                 int m = leg.PointCount;
-                // The head leg must have ACTUALLY drawn this frame: its scratchScaledSpace is then
-                // fresh for this frame's camera, and a bridge without its A-line would float alone.
+                // The leg must have ACTUALLY drawn this frame: its scratchScaledSpace is then fresh
+                // for this frame's camera, and a bridge without its leg line would float alone.
                 if (m < 1 || leg.scratchScaledSpace == null || leg.lastDrawnFrame != frame)
                     return false;
 
-                if (!forwardArcCache.TryGetValue(pendingBridge.arcRecordingId, out var fset)
-                    || fset.arcs == null
-                    || pendingBridge.arcIndex < 0 || pendingBridge.arcIndex >= fset.arcs.Length)
-                    return false;
-                var arc = fset.arcs[pendingBridge.arcIndex];
-                if (arc.bodyRelOffsets == null || arc.bodyRelOffsets.Length <= BridgeMergeSampleCount)
-                    return false;
+                // Conic-side sample slice into the fixed 61-point scratch. End-side bridges unwind the
+                // conic's LEAD-IN forward (slice[0]=conic start gets the full seam rotation, lands on
+                // the leg end). Start-side bridges unwind the conic's TAIL reversed (slice[0]=conic end
+                // gets the full rotation, lands on the leg start; slice[60]=the tail merge sample) -
+                // the output polyline's point order does not matter for rendering.
+                string bodyName;
+                if (bridge.arcIndex >= 0)
+                {
+                    if (!forwardArcCache.TryGetValue(bridge.arcRecordingId, out var fset)
+                        || fset.arcs == null
+                        || bridge.arcIndex >= fset.arcs.Length)
+                        return false;
+                    var arc = fset.arcs[bridge.arcIndex];
+                    var offs = arc.bodyRelOffsets;
+                    if (offs == null || offs.Length <= BridgeMergeSampleCount) return false;
+                    int last = offs.Length - 1;
+                    for (int i = 0; i <= BridgeMergeSampleCount; i++)
+                        bridgeArcSliceScratch[i] = bridge.atLegStart ? offs[last - i] : offs[i];
+                    bodyName = arc.bodyName;
+                }
+                else
+                {
+                    CelestialBody sampleBody = ResolveBodyByName(scene, bridge.sampleSegment.bodyName);
+                    var samples = GetBridgeConicSamples(
+                        bridge.sampleKeyRecordingId, bridge.sampleSegment, sampleBody,
+                        tail: bridge.atLegStart);
+                    if (samples == null || samples.Length <= BridgeMergeSampleCount) return false;
+                    for (int i = 0; i <= BridgeMergeSampleCount; i++)
+                        bridgeArcSliceScratch[i] = bridge.atLegStart
+                            ? samples[BridgeMergeSampleCount - i] : samples[i];
+                    bodyName = bridge.sampleSegment.bodyName;
+                }
 
-                CelestialBody body = ResolveBodyByName(scene, arc.bodyName);
+                CelestialBody body = ResolveBodyByName(scene, bodyName);
                 if (body == null) return false;
                 var scaledBody = body.scaledBody;
                 Transform scaledXform = scaledBody != null ? scaledBody.transform : null;
@@ -3079,22 +3239,25 @@ namespace Parsek.Display
                     ? scaledXform.position
                     : (Vector3)ScaledSpace.LocalToScaledSpace(body.position);
 
-                // A-end in scaled space, body-relative (the leg's points are absolute scaled positions).
-                Vector3d endARel = (Vector3d)(leg.scratchScaledSpace[m - 1] - center);
+                // Leg endpoint in scaled space, body-relative (the leg's points are absolute scaled).
+                int pi = bridge.atLegStart ? 0 : m - 1;
+                Vector3d legEndRel = (Vector3d)(leg.scratchScaledSpace[pi] - center);
                 if (!TryBuildSeamBridgeLocalPoints(
-                        endARel, arc.bodyRelOffsets, ScaledSpace.InverseScaleFactor,
+                        legEndRel, bridgeArcSliceScratch, ScaledSpace.InverseScaleFactor,
                         BridgeMergeSampleCount, BridgeMaxAngleRadians, bridgePointScratch,
                         out double seamAngleRad))
                     return false;
 
-                if (!bridgeLineByRecording.TryGetValue(pendingBridge.legRecordingId, out var entry))
+                string lineKey = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "{0}|{1}|{2}", bridge.legRecordingId, bridge.legIndex,
+                    bridge.atLegStart ? "s" : "e");
+                if (!bridgeLineByRecording.TryGetValue(lineKey, out var entry))
                 {
                     entry = new BridgeLineEntry
                     {
-                        line = BuildLegVectorLine(
-                            pendingBridge.legRecordingId, -1, BridgeMergeSampleCount + 1),
+                        line = BuildLegVectorLine(lineKey, -1, BridgeMergeSampleCount + 1),
                     };
-                    bridgeLineByRecording[pendingBridge.legRecordingId] = entry;
+                    bridgeLineByRecording[lineKey] = entry;
                 }
                 var line = entry.line;
                 if (line == null) return false;
@@ -3115,13 +3278,13 @@ namespace Parsek.Display
                 line.Draw3D();
                 entry.lastDrawnFrame = frame;
 
-                ParsekLog.VerboseRateLimited(DriverTag, "bridge-draw." + pendingBridge.legRecordingId,
+                ParsekLog.VerboseRateLimited(DriverTag, "bridge-draw." + lineKey,
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "Seam bridge drawn: rec={0} leg={1} -> arc={2}/{3} angleDeg={4:F2} body={5} " +
+                        "Seam bridge drawn: rec={0} leg={1} side={2} src={3} angleDeg={4:F2} body={5} " +
                         "merge={6}",
-                        pendingBridge.legRecordingId, pendingBridge.legIndex,
-                        pendingBridge.arcRecordingId, pendingBridge.arcIndex,
-                        seamAngleRad * (180.0 / System.Math.PI), arc.bodyName ?? "?",
+                        bridge.legRecordingId, bridge.legIndex, bridge.atLegStart ? "start" : "end",
+                        bridge.arcIndex >= 0 ? "cached-arc" : "sampled-conic",
+                        seamAngleRad * (180.0 / System.Math.PI), bodyName ?? "?",
                         BridgeMergeSampleCount),
                     2.0);
                 return true;
@@ -3390,39 +3553,38 @@ namespace Parsek.Display
                 double winStart = window.RunStartUT;
                 double winStop = window.StopUT;
 
-                // Body-fixed run legs hidden this decide pass (playtest-5 rule): one-sided legs that
-                // cannot be conic-anchored draw only under the head, never as persistent run legs.
+                // Body-fixed run legs hidden this decide pass (playtest-7 rule): only PAST body-fixed
+                // legs hide (they would rotate-sweep into the inertial line behind the icon); FUTURE
+                // body-fixed legs (the Duna landing descent) draw, connected by the seam bridges.
                 int runLegsBodyFixedHidden = 0;
 
-                // SEAM BRIDGE candidate state (playtest 6): when the active member's HEAD leg is
-                // body-fixed (not conic-anchorable), it visibly trails the inertial run by the
-                // planet-rotation-over-the-shift angle until the icon reaches the handoff. Track the
-                // earliest same-body forward arc that continues the head leg; after the member loop the
-                // angle gate decides whether to arm a bridge from the leg's end onto that arc.
-                int bridgeHeadLegIndex = -1;
-                string bridgeHeadLegBody = null;
-                double bridgeHeadLegEndUT = 0.0;
+                // SEAM BRIDGE candidates (playtest 7, generalized): every drawn body-fixed-or-future
+                // leg of this chain is bridge-eligible on BOTH sides; DecideSeamBridges below finds the
+                // adjacent conics and applies the angle + signed-gap gates. The HEAD leg (drawn by the
+                // head-gated pass) is a candidate when it is body-fixed (an anchorable head leg is
+                // rotated onto the conic seam by the draw-time anchor, so it already connects).
+                bridgeLegScratch.Clear();
                 if (set.legs != null)
                 {
                     for (int li = 0; li < set.legs.Length; li++)
                     {
                         var hl = set.legs[li];
                         if (!ShouldDrawLegAtHeadUT(hl.startUT, hl.endUT, headUT)) continue;
-                        // Only a BODY-FIXED head leg needs a bridge: an anchorable head leg is rotated
-                        // onto the conic seam by TryDrawLeg's conic anchor, so it already connects.
                         if (IsRunLegAnchorCandidate(rec.OrbitSegments, hl.bodyName, hl.startUT, hl.endUT))
                             break;
                         if (!WillLegDraw(hl.PointCount, true)) break;
-                        bridgeHeadLegIndex = li;
-                        bridgeHeadLegBody = hl.bodyName;
-                        bridgeHeadLegEndUT = hl.endUT;
+                        bridgeLegScratch.Add(new BridgeLegCandidate
+                        {
+                            recordingId = rec.RecordingId,
+                            rec = rec,
+                            legIndex = li,
+                            startUT = hl.startUT,
+                            endUT = hl.endUT,
+                            bodyName = hl.bodyName,
+                        });
                         break;
                     }
                 }
-                double bridgeBestArcStartUT = double.PositiveInfinity;
-                string bridgeArcRecordingId = null;
-                int bridgeArcIndex = -1;
-                int bridgePendingListIndex = -1;
 
                 for (int mi = 0; mi < chainRunMemberScratch.Count; mi++)
                 {
@@ -3459,13 +3621,14 @@ namespace Parsek.Display
                             var leg = memberSet.legs[li];
                             if (!ShouldDrawForwardLeg(leg.startUT, leg.endUT, winStart, winStop, headUT))
                                 continue;
-                            // Body-fixed hide (playtest-5 rule): a persistent run leg must be drawable
-                            // in the INERTIAL frame (conic-anchorable, both-side bracketed in its OWN
-                            // recording). A one-sided leg (launch ascent / descent / no conics) stays
-                            // body-fixed and would rotate with the planet against the inertial arcs -
-                            // the observed gap-then-overlap sweep - so it draws only under the head.
-                            if (!IsRunLegAnchorCandidate(
-                                    member.rec.OrbitSegments, leg.bodyName, leg.startUT, leg.endUT))
+                            // Past/future split (playtest-7 revision of the playtest-5 hide): a PAST
+                            // body-fixed leg hides (it would rotate-sweep into the inertial line behind
+                            // the icon); a FUTURE leg always draws - anchored when possible, body-fixed
+                            // otherwise (the Duna landing descent) - connected by the seam bridges.
+                            bool anchorCandidate = IsRunLegAnchorCandidate(
+                                member.rec.OrbitSegments, leg.bodyName, leg.startUT, leg.endUT);
+                            bool isPast = leg.endUT <= headUT;
+                            if (ShouldHideBodyFixedRunLeg(anchorCandidate, leg.endUT, headUT))
                             {
                                 runLegsBodyFixedHidden++;
                                 continue;
@@ -3482,8 +3645,25 @@ namespace Parsek.Display
                                 ownedByTreatment = false, // forward legs always Driver-direct (no proto to own)
                                 ghostPid = ghostPid,
                                 forward = true,
+                                requireConicAnchor = isPast,
                             });
                             frameForwardLegs++;
+
+                            // FUTURE legs are bridge-eligible on both sides. Anchored future legs are
+                            // harmless to include: the draw-time anchor puts them ON the conic seam, so
+                            // their bridge degenerates into the arc's own (clipped) lead-in/tail.
+                            if (!isPast)
+                            {
+                                bridgeLegScratch.Add(new BridgeLegCandidate
+                                {
+                                    recordingId = member.rec.RecordingId,
+                                    rec = member.rec,
+                                    legIndex = li,
+                                    startUT = leg.startUT,
+                                    endUT = leg.endUT,
+                                    bodyName = leg.bodyName,
+                                });
+                            }
                         }
                     }
 
@@ -3520,92 +3700,211 @@ namespace Parsek.Display
                                 {
                                     recordingId = member.rec.RecordingId,
                                     arcIndex = a,
+                                    drawEndIndex = -1,
                                 });
                                 frameForwardArcs++;
-
-                                // SEAM BRIDGE candidate (playtest 6): the earliest arc that continues
-                                // the body-fixed head leg (the tested IsBridgeArcCandidate rule).
-                                // Cross-member by construction: the launch leg's continuation conic
-                                // lives in the NEXT chain member.
-                                if (bridgeHeadLegIndex >= 0
-                                    && IsBridgeArcCandidate(
-                                        fset.arcs[a].bodyName, fset.arcs[a].startUT,
-                                        bridgeHeadLegBody, bridgeHeadLegEndUT, BridgeMaxSeamGapSeconds)
-                                    && fset.arcs[a].startUT < bridgeBestArcStartUT)
-                                {
-                                    bridgeBestArcStartUT = fset.arcs[a].startUT;
-                                    bridgeArcRecordingId = member.rec.RecordingId;
-                                    bridgeArcIndex = a;
-                                    bridgePendingListIndex = pendingForwardArcs.Count - 1;
-                                }
                             }
                         }
                     }
                 }
 
-                // SEAM BRIDGE arming (playtest 6): angle-gate in metre space (rotation angles are
-                // scale-invariant, so the gate needs no scaled conversion), then flag the target arc's
-                // pending draw to start at the merge sample (the bridge REPLACES its lead-in) and hand
-                // the pair to the onPreCull bridge draw.
-                bool bridgeArmed = false;
-                double bridgeAngleDeg = 0.0;
-                if (bridgePendingListIndex >= 0
-                    && forwardArcCache.TryGetValue(bridgeArcRecordingId, out var bridgeSet)
-                    && bridgeSet.arcs != null && bridgeArcIndex < bridgeSet.arcs.Length
-                    && bridgeSet.arcs[bridgeArcIndex].bodyRelOffsets != null
-                    && bridgeSet.arcs[bridgeArcIndex].bodyRelOffsets.Length > BridgeMergeSampleCount)
-                {
-                    var headLeg = set.legs[bridgeHeadLegIndex];
-                    CelestialBody headLegBody = ResolveBodyByName(scene, headLeg.bodyName);
-                    int hm = headLeg.PointCount;
-                    if (headLegBody != null && hm >= 1)
-                    {
-                        Vector3d endARel = headLegBody.GetWorldSurfacePosition(
-                            headLeg.lats[hm - 1], headLeg.lons[hm - 1], headLeg.alts[hm - 1])
-                            - headLegBody.position;
-                        double angleRad = SeamBridgeAngleRad(
-                            endARel, bridgeSet.arcs[bridgeArcIndex].bodyRelOffsets[0]);
-                        bridgeAngleDeg = angleRad * (180.0 / System.Math.PI);
-                        if (angleRad <= BridgeMaxAngleRadians)
-                        {
-                            var pendingArc = pendingForwardArcs[bridgePendingListIndex];
-                            pendingArc.drawStartIndex = BridgeMergeSampleCount;
-                            pendingForwardArcs[bridgePendingListIndex] = pendingArc;
-                            pendingBridge = new PendingBridgeDraw
-                            {
-                                legRecordingId = rec.RecordingId,
-                                legIndex = bridgeHeadLegIndex,
-                                arcRecordingId = bridgeArcRecordingId,
-                                arcIndex = bridgeArcIndex,
-                            };
-                            pendingBridgeFrame = drawFrame;
-                            bridgeArmed = true;
-                        }
-                        else
-                        {
-                            ParsekLog.VerboseRateLimited(DriverTag, "bridge-angle." + rec.RecordingId,
-                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                    "Seam bridge skipped (angle too large): rec={0} leg={1} arc={2}/{3} " +
-                                    "angleDeg={4:F1} max={5:F1}",
-                                    rec.RecordingId, bridgeHeadLegIndex, bridgeArcRecordingId,
-                                    bridgeArcIndex, bridgeAngleDeg,
-                                    BridgeMaxAngleRadians * (180.0 / System.Math.PI)),
-                                5.0);
-                        }
-                    }
-                }
+                // SEAM BRIDGES (playtest 7, generalized): for every bridge-eligible leg collected
+                // above, find the adjacent conics on both sides and arm a bridge wherever a REAL gap
+                // exists (angle in (min, max], previous end BEHIND the next start along the travel
+                // direction - the maintainer's overshoot rule).
+                int bridgesArmed = DecideSeamBridges(scene, surface, drawFrame);
 
                 ParsekLog.VerboseRateLimited(DriverTag, "fwd-window." + rec.RecordingId,
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "Render run: rec={0} pid={1} curIdx={2} runStart={3:F1} stopUT={4:F1} reason={5} " +
                         "runLegs+={6} runArcs+={7} bodyFixedHidden={8} members={9} segs={10} headUT={11:F1} " +
-                        "bridge={12} bridgeAngleDeg={13:F2}",
+                        "bridges+={12} bridgeLegs={13}",
                         rec.RecordingId, ghostPid, window.CurrentIndex, winStart, winStop, window.Reason,
                         frameForwardLegs, frameForwardArcs, runLegsBodyFixedHidden,
                         chainRunMemberScratch.Count,
                         windowSegs != null ? windowSegs.Count : 0, headUT,
-                        bridgeArmed, bridgeAngleDeg),
+                        bridgesArmed, bridgeLegScratch.Count),
                     2.0);
+            }
+
+            /// <summary>
+            /// SEAM BRIDGE decide pass (playtest 7): for each bridge-eligible leg in
+            /// <see cref="bridgeLegScratch"/> (the body-fixed head leg + every FUTURE run leg of the
+            /// chain), examines BOTH sides: the conic ENDING at the leg's startUT (prev side) and the
+            /// conic STARTING at the leg's endUT (next side), found across all chain members via the
+            /// tested <see cref="IsBridgeAdjacentConic"/> rule (below-surface conics excluded - they are
+            /// not drawn). Geometry source per side: the matching cached forward arc's inertial samples
+            /// when one exists (its pending draw is then CLIPPED at the merge sample so bridge + arc
+            /// never double-draw), else on-demand inertial samples from the conic itself
+            /// (<see cref="GetBridgeConicSamples"/> - the CURRENT element the icon rides, drawn by
+            /// stock, which cannot be clipped; the bridge converges into it). Gates per side: seam
+            /// angle in (<see cref="BridgeMinAngleRadians"/>, <see cref="BridgeMaxAngleRadians"/>] and
+            /// the signed-gap rule <see cref="IsSeamGapAhead"/> (no bridge when the previous element's
+            /// end OVERSHOOTS the next element's start - the maintainer's overshoot rule). Returns the
+            /// number of bridges armed.
+            /// </summary>
+            private int DecideSeamBridges(
+                GameScenes scene, BodySurfaceProvider surface, int drawFrame)
+            {
+                int armed = 0;
+                for (int ci = 0; ci < bridgeLegScratch.Count; ci++)
+                {
+                    var cand = bridgeLegScratch[ci];
+                    if (!polylineCache.TryGetValue(cand.recordingId, out var candSet)
+                        || candSet.legs == null
+                        || cand.legIndex < 0 || cand.legIndex >= candSet.legs.Length)
+                        continue;
+                    var leg = candSet.legs[cand.legIndex];
+                    if (leg.PointCount < 1) continue;
+                    CelestialBody body = ResolveBodyByName(scene, cand.bodyName);
+                    if (body == null) continue;
+
+                    for (int side = 0; side < 2; side++)
+                    {
+                        bool atLegStart = side == 0;
+                        double seamUT = atLegStart ? cand.startUT : cand.endUT;
+
+                        // 1. Adjacent ABOVE-SURFACE conic across the chain members (closest seam wins).
+                        OrbitSegment seg = default(OrbitSegment);
+                        string segRecordingId = null;
+                        double bestSeamDist = double.PositiveInfinity;
+                        for (int mi = 0; mi < chainRunMemberScratch.Count; mi++)
+                        {
+                            var segs = chainRunMemberSegsScratch[mi];
+                            if (segs == null) continue;
+                            for (int si = 0; si < segs.Count; si++)
+                            {
+                                var s = segs[si];
+                                if (s.endUT <= s.startUT) continue;
+                                if (IsOrbitSegmentBelowSurface(s, surface)) continue;
+                                if (!IsBridgeAdjacentConic(
+                                        s.bodyName, s.startUT, s.endUT, cand.bodyName, seamUT,
+                                        atLegStart, BridgeMaxSeamGapSeconds))
+                                    continue;
+                                double dist = atLegStart
+                                    ? System.Math.Abs(seamUT - s.endUT)
+                                    : System.Math.Abs(s.startUT - seamUT);
+                                if (dist < bestSeamDist)
+                                {
+                                    bestSeamDist = dist;
+                                    seg = s;
+                                    segRecordingId = chainRunMemberScratch[mi].rec.RecordingId;
+                                }
+                            }
+                        }
+                        if (segRecordingId == null) continue;
+
+                        // 2. Conic-side geometry: prefer the matching cached forward arc (clippable);
+                        //    fall back to on-demand sampling (the stock-drawn current element).
+                        Vector3d seamRel, travelDir;
+                        string cachedArcRec = null;
+                        int cachedArcIdx = -1;
+                        if (forwardArcCache.TryGetValue(segRecordingId, out var fset) && fset.arcs != null)
+                        {
+                            for (int a = 0; a < fset.arcs.Length; a++)
+                            {
+                                var arc = fset.arcs[a];
+                                if (arc.bodyRelOffsets == null
+                                    || arc.bodyRelOffsets.Length <= BridgeMergeSampleCount) continue;
+                                if (!string.Equals(arc.bodyName, seg.bodyName, StringComparison.Ordinal))
+                                    continue;
+                                if (System.Math.Abs(arc.startUT - seg.startUT) > 0.5
+                                    || System.Math.Abs(arc.endUT - seg.endUT) > 0.5) continue;
+                                cachedArcRec = segRecordingId;
+                                cachedArcIdx = a;
+                                break;
+                            }
+                        }
+                        if (cachedArcIdx >= 0)
+                        {
+                            var offs = forwardArcCache[cachedArcRec].arcs[cachedArcIdx].bodyRelOffsets;
+                            int last = offs.Length - 1;
+                            seamRel = atLegStart ? offs[last] : offs[0];
+                            travelDir = atLegStart ? offs[last] - offs[last - 1] : offs[1] - offs[0];
+                        }
+                        else
+                        {
+                            var samples = GetBridgeConicSamples(segRecordingId, seg, body, tail: atLegStart);
+                            if (samples == null) continue;
+                            seamRel = atLegStart
+                                ? samples[BridgeMergeSampleCount] : samples[0];
+                            travelDir = atLegStart
+                                ? samples[BridgeMergeSampleCount] - samples[BridgeMergeSampleCount - 1]
+                                : samples[1] - samples[0];
+                        }
+
+                        // 3. Leg-side endpoint, body-fixed at the LIVE rotation (metre space - the same
+                        //    frame as the conic samples; angles/signs are scale-invariant).
+                        int pi = atLegStart ? 0 : leg.PointCount - 1;
+                        Vector3d legRel = body.GetWorldSurfacePosition(
+                            leg.lats[pi], leg.lons[pi], leg.alts[pi]) - body.position;
+
+                        // 4. Gates: angle window + the signed-gap (overshoot) rule.
+                        double angleRad = SeamBridgeAngleRad(legRel, seamRel);
+                        if (double.IsInfinity(angleRad) || angleRad <= BridgeMinAngleRadians
+                            || angleRad > BridgeMaxAngleRadians)
+                        {
+                            if (angleRad > BridgeMaxAngleRadians && !double.IsInfinity(angleRad))
+                                ParsekLog.VerboseRateLimited(DriverTag,
+                                    "bridge-angle." + cand.recordingId + "." + cand.legIndex,
+                                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                        "Seam bridge skipped (angle too large): rec={0} leg={1} side={2} " +
+                                        "angleDeg={3:F1} max={4:F1}",
+                                        cand.recordingId, cand.legIndex, atLegStart ? "start" : "end",
+                                        angleRad * (180.0 / System.Math.PI),
+                                        BridgeMaxAngleRadians * (180.0 / System.Math.PI)),
+                                    5.0);
+                            continue;
+                        }
+                        bool gapAhead = atLegStart
+                            ? IsSeamGapAhead(seamRel, legRel, travelDir)  // prev=conic end, next=leg start
+                            : IsSeamGapAhead(legRel, seamRel, travelDir); // prev=leg end, next=conic start
+                        if (!gapAhead)
+                        {
+                            ParsekLog.VerboseRateLimited(DriverTag,
+                                "bridge-overshoot." + cand.recordingId + "." + cand.legIndex,
+                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "Seam bridge skipped (overshoot): rec={0} leg={1} side={2} " +
+                                    "angleDeg={3:F2} - previous end passed the next start, no real gap",
+                                    cand.recordingId, cand.legIndex, atLegStart ? "start" : "end",
+                                    angleRad * (180.0 / System.Math.PI)),
+                                5.0);
+                            continue;
+                        }
+
+                        // 5. Arm + clip the cached arc's pending draw at the merge sample.
+                        pendingBridges.Add(new PendingBridgeDraw
+                        {
+                            legRecordingId = cand.recordingId,
+                            legIndex = cand.legIndex,
+                            atLegStart = atLegStart,
+                            arcRecordingId = cachedArcRec,
+                            arcIndex = cachedArcIdx,
+                            sampleKeyRecordingId = segRecordingId,
+                            sampleSegment = seg,
+                        });
+                        pendingBridgeFrame = drawFrame;
+                        armed++;
+
+                        if (cachedArcIdx >= 0)
+                        {
+                            for (int p = 0; p < pendingForwardArcs.Count; p++)
+                            {
+                                var pd = pendingForwardArcs[p];
+                                if (pd.arcIndex != cachedArcIdx
+                                    || !string.Equals(pd.recordingId, cachedArcRec, StringComparison.Ordinal))
+                                    continue;
+                                int len = forwardArcCache[cachedArcRec].arcs[cachedArcIdx]
+                                    .bodyRelOffsets.Length;
+                                if (atLegStart) pd.drawEndIndex = len - 1 - BridgeMergeSampleCount;
+                                else pd.drawStartIndex = BridgeMergeSampleCount;
+                                pendingForwardArcs[p] = pd;
+                                break;
+                            }
+                        }
+                    }
+                }
+                return armed;
             }
 
             /// <summary>
@@ -3725,7 +4024,7 @@ namespace Parsek.Display
             /// </summary>
             private bool DrawForwardArc(
                 GameScenes scene, ref ForwardArc arc, int targetLayer, int drawFrame,
-                int drawStartIndex = 0)
+                int drawStartIndex = 0, int drawEndIndex = -1)
             {
                 var line = arc.vectorLine;
                 if (line == null || arc.bodyRelOffsets == null || arc.scratchScaledSpace == null)
@@ -3756,11 +4055,13 @@ namespace Parsek.Display
                 }
 
                 CopyLegIntoVectorLine(line, arc.scratchScaledSpace, 0);
-                // SEAM BRIDGE (playtest 6): when this arc is the bridge target, its draw range starts
-                // at the merge sample - the bridge draws the (rotation-unwound) lead-in instead, so
-                // the two can never double-draw. 0 (no bridge) draws the full arc as before.
+                // SEAM BRIDGE clips (playtest 6/7): when this arc is a bridge's NEXT-side target, its
+                // draw range starts at the merge sample (the bridge draws the rotation-unwound lead-in
+                // instead); when it is a PREV-side source, the range ends at the tail merge sample (the
+                // bridge draws the unwound tail). Either way bridge + arc never double-draw. Defaults
+                // (0 / -1) draw the full arc.
                 line.drawStart = drawStartIndex > 0 && drawStartIndex < m - 1 ? drawStartIndex : 0;
-                line.drawEnd = m - 1;
+                line.drawEnd = drawEndIndex > line.drawStart && drawEndIndex < m ? drawEndIndex : m - 1;
 
                 line.rectTransform.gameObject.layer = targetLayer;
                 var xform = line.rectTransform;

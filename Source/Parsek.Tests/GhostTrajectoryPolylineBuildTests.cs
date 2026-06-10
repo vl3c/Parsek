@@ -1965,30 +1965,97 @@ namespace Parsek.Tests
                 GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(Vector3d.zero, x)));
         }
 
+        // The adjacency rule, both sides (playtest 7): a conic neighbours a leg seam when it shares
+        // the body and ends (start-side) / starts (end-side) within [seam - maxGap, seam + 1s].
         [Fact]
-        public void SelectBridgeArcIndex_PicksEarliestSameBodyContinuation()
+        public void IsBridgeAdjacentConic_BothSides()
         {
-            var arcs = new GhostTrajectoryPolylineRenderer.ForwardArc[]
-            {
-                new GhostTrajectoryPolylineRenderer.ForwardArc { bodyName = "Kerbin", startUT = 900.0, endUT = 2000.0 },
-                new GhostTrajectoryPolylineRenderer.ForwardArc { bodyName = "Mun", startUT = 210.0, endUT = 400.0 },
-                new GhostTrajectoryPolylineRenderer.ForwardArc { bodyName = "Kerbin", startUT = 204.0, endUT = 800.0 },
-                new GhostTrajectoryPolylineRenderer.ForwardArc { bodyName = "Kerbin", startUT = 100.0, endUT = 195.0 },
-            };
-            // Leg ends at 200: arc[2] (Kerbin, 204) is the earliest same-body continuation; arc[3]
-            // starts before legEnd-1 (a PAST arc); arc[1] is another body; arc[0] is too late but
-            // within the window - still beaten by arc[2].
-            Assert.Equal(2, GhostTrajectoryPolylineRenderer.SelectBridgeArcIndex(
-                arcs, "Kerbin", legEndUT: 200.0,
-                maxSeamGapSeconds: GhostTrajectoryPolylineRenderer.BridgeMaxSeamGapSeconds));
-            // Gap tolerance: with a 1 s max gap nothing qualifies (arc[2] starts 4 s after).
-            Assert.Equal(-1, GhostTrajectoryPolylineRenderer.SelectBridgeArcIndex(
-                arcs, "Kerbin", legEndUT: 200.0, maxSeamGapSeconds: 1.0));
-            // No same-body arcs / null inputs.
-            Assert.Equal(-1, GhostTrajectoryPolylineRenderer.SelectBridgeArcIndex(
-                arcs, "Duna", 200.0, 120.0));
-            Assert.Equal(-1, GhostTrajectoryPolylineRenderer.SelectBridgeArcIndex(
-                null, "Kerbin", 200.0, 120.0));
+            // END side (conic CONTINUES the leg): leg ends at 200, conic [204, 800] qualifies.
+            Assert.True(GhostTrajectoryPolylineRenderer.IsBridgeAdjacentConic(
+                "Kerbin", 204.0, 800.0, "Kerbin", legSeamUT: 200.0, atLegStart: false,
+                maxSeamGapSeconds: 120.0));
+            // ...but not with a 1 s gap budget (starts 4 s after).
+            Assert.False(GhostTrajectoryPolylineRenderer.IsBridgeAdjacentConic(
+                "Kerbin", 204.0, 800.0, "Kerbin", 200.0, false, 1.0));
+            // A conic starting BEFORE the leg end (a past arc) never continues it.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsBridgeAdjacentConic(
+                "Kerbin", 100.0, 195.0, "Kerbin", 200.0, false, 120.0));
+
+            // START side (conic PRECEDES the leg): leg starts at 500, conic [100, 496] qualifies.
+            Assert.True(GhostTrajectoryPolylineRenderer.IsBridgeAdjacentConic(
+                "Duna", 100.0, 496.0, "Duna", legSeamUT: 500.0, atLegStart: true,
+                maxSeamGapSeconds: 120.0));
+            // A conic ending AFTER the leg start (overlapping forward) does not precede it.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsBridgeAdjacentConic(
+                "Duna", 100.0, 502.0, "Duna", 500.0, true, 120.0));
+            // Other body never neighbours.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsBridgeAdjacentConic(
+                "Ike", 100.0, 496.0, "Duna", 500.0, true, 120.0));
+        }
+
+        // The signed-gap (overshoot) rule (playtest 7, maintainer rule): bridge only when the previous
+        // element's end sits BEHIND the next element's start along the direction of travel.
+        [Fact]
+        public void IsSeamGapAhead_GapVsOvershoot()
+        {
+            Vector3d travelDir = new Vector3d(1.0, 0.0, 0.0);
+            Vector3d prevEnd = new Vector3d(100.0, 50.0, 0.0);
+            // Next start AHEAD of the previous end along travel: a real gap -> bridge.
+            Assert.True(GhostTrajectoryPolylineRenderer.IsSeamGapAhead(
+                prevEnd, new Vector3d(140.0, 50.0, 0.0), travelDir));
+            // Next start BEHIND the previous end (overshoot, lines already overlap) -> no bridge.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsSeamGapAhead(
+                prevEnd, new Vector3d(60.0, 50.0, 0.0), travelDir));
+            // Coincident (anchored leg sitting exactly on the seam) -> no bridge.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsSeamGapAhead(
+                prevEnd, prevEnd, travelDir));
+        }
+
+        // The past/future visibility rule (playtest 7): only PAST body-fixed legs hide; future
+        // body-fixed legs (the Duna landing descent) and all anchorable legs draw.
+        [Fact]
+        public void ShouldHideBodyFixedRunLeg_OnlyPastNonAnchorable()
+        {
+            // Past + body-fixed: hidden (would rotate-sweep behind the icon).
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldHideBodyFixedRunLeg(
+                anchorCandidate: false, legEndUT: 100.0, headUT: 200.0));
+            // FUTURE body-fixed (the landing descent): draws.
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldHideBodyFixedRunLeg(
+                anchorCandidate: false, legEndUT: 300.0, headUT: 200.0));
+            // Anchorable legs never hide, past or future.
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldHideBodyFixedRunLeg(
+                anchorCandidate: true, legEndUT: 100.0, headUT: 200.0));
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldHideBodyFixedRunLeg(
+                anchorCandidate: true, legEndUT: 300.0, headUT: 200.0));
+        }
+
+        // A START-side bridge feeds the conic's TAIL REVERSED through the same pure helper: slice[0]
+        // (the conic's end, full seam rotation) must land exactly on the leg start, slice[M] (the tail
+        // merge sample) exactly on the conic.
+        [Fact]
+        public void SeamBridge_ReversedTailSlice_EndpointsExact()
+        {
+            var arc = MakeArcPoints(80, 400000.0);
+            const int merge = 60;
+            // Reversed tail slice: slice[i] = arc[last - i].
+            var slice = new Vector3d[merge + 1];
+            int lastIdx = arc.Length - 1;
+            for (int i = 0; i <= merge; i++) slice[i] = arc[lastIdx - i];
+            // Leg start = the conic end rotated 8 deg about Z (the landing leg under live rotation).
+            const double seamAngle = 8.0 * System.Math.PI / 180.0;
+            Vector3d legStart = RotZ(arc[lastIdx], seamAngle);
+            var outPts = new Vector3d[merge + 1];
+
+            bool ok = GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                legStart, slice, 1.0, merge,
+                GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians, outPts, out double measured);
+
+            Assert.True(ok);
+            Assert.Equal(seamAngle, measured, 6);
+            Assert.True((outPts[0] - legStart).magnitude < 1.0,
+                "reversed-tail bridge must start exactly on the leg start");
+            Assert.True((outPts[merge] - arc[lastIdx - merge]).magnitude < 1.0,
+                "reversed-tail bridge must end exactly on the conic's tail merge sample");
         }
     }
 }
