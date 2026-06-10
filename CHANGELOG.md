@@ -10,7 +10,7 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
-- Added a step-by-step run log, opened from a "Log" button on each mission (Missions tab) and each supply route (Logistics window): it lists launch, staging, dock and undock, deliveries, and the landing or terminal, each with its time and location.
+- Added a step-by-step run log, opened from a "Log" button on each mission (Missions tab) and each supply route (Logistics window): it lists launch, staging, dock and undock, deliveries, and the run's end, each with its time, status, and location. Identical events that happen at the same instant (like several boosters separating at once) collapse into a single "xN" line.
 
 ### UI
 

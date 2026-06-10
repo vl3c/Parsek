@@ -7,12 +7,12 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Structure-list window: a flat, chronological step list of one mission or supply
-    /// route (launch, staging, dock / undock, deliveries, terminal), each with its time
-    /// and location. Opened from a mission's "Structure" button (Missions tab) or a
-    /// route's "Structure" button (Logistics window). One reusable instance owned by
-    /// <see cref="ParsekUI"/>; reopening retargets it. Read-only over already-recorded
-    /// data; the ordered step list comes from the pure
+    /// Log window: a flat, chronological step list of one mission or supply route
+    /// (launch, staging, dock / undock, deliveries, terminal), each with its time,
+    /// status, and location. Opened from a mission's "Log" button (Missions tab) or a
+    /// route's "Log (Route)" / "Log (Mission)" buttons (Logistics window). One reusable
+    /// instance owned by <see cref="ParsekUI"/>; reopening retargets it. Read-only over
+    /// already-recorded data; the ordered step list comes from the pure
     /// <see cref="MissionStructureListBuilder"/> / <see cref="RouteStructureListBuilder"/>.
     /// </summary>
     internal class StructureListWindowUI
@@ -80,7 +80,7 @@ namespace Parsek
         }
 
         // Resolves the target's data and (re)builds the step list. Kept off the per-frame
-        // path: only called on open (and a defensive rebuild when the window first draws).
+        // path: only called on open (reopening retargets and rebuilds).
         private void Rebuild()
         {
             steps = new List<StructureStep>();
@@ -114,7 +114,7 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(recordingId)) return null;
             // [ERS-exempt] Physical by-id resolve of a route's bound dock-member recording
-            // to read its immutable RouteConnectionWindow proof — not a visibility / supersede
+            // to read its immutable RouteConnectionWindow proof, not a visibility / supersede
             // scoped enumeration. Same physical-data-lookup rationale as MissionsWindowUI /
             // TimelineWindowUI / RecordingsTableUI (see scripts/ers-els-audit-allowlist.txt).
             var committed = RecordingStore.CommittedRecordings;
@@ -217,8 +217,12 @@ namespace Parsek
             GUILayout.EndHorizontal();
 
             // Step rows. Drawn directly in the scroll view (no GUI.skin.box wrapper, whose
-            // left/right padding would shift the columns out of line with the header).
-            scrollPos = GUILayout.BeginScrollView(scrollPos, GUILayout.ExpandHeight(true));
+            // left/right padding would shift the columns out of line with the header). The
+            // vertical scrollbar is FORCED (alwaysShowVertical: true) so the gutter the
+            // header reserved above is always actually taken; with auto scrollbars a short
+            // list would show none and the rows would sit 16px right of the headers (same
+            // reasoning as RecordingsTableUI's always-on vertical bar).
+            scrollPos = GUILayout.BeginScrollView(scrollPos, false, true, GUILayout.ExpandHeight(true));
             for (int i = 0; i < steps.Count; i++)
             {
                 StructureStep step = steps[i];

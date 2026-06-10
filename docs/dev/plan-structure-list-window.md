@@ -17,9 +17,9 @@ toward feature-complete", first bullet) asks for:
 > the terminal / landing. For a route: origin, the connection / dock point, the
 > delivery point, undock, and any stops.
 
-Design doc cross-reference: `docs/parsek-logistics-supply-routes-design.md` §17
+Design doc cross-reference: `docs/parsek-logistics-supply-routes-design.md` section 17
 ("Map view integration" is a *separate, still-deferred* item; this list window is
-the readable alternative the roadmap chose over map route lines) and §17.1 Tier 1,
+the readable alternative the roadmap chose over map route lines) and section 17.1 Tier 1,
 which classifies this as "mostly feature-specific UI over existing data ... adds no
 new capture or scheduler systems".
 
@@ -29,7 +29,7 @@ Ship the full Tier-1 item in one PR: one reusable popup window driven by an orde
 step read-model, with two pure builders (mission + route) and two entry points
 (Missions tab, Logistics window). Mission and route both land together.
 
-Out of scope (explicit): map route lines (§17 "Map view integration", still
+Out of scope (explicit): map route lines (section 17 "Map view integration", still
 deferred); any change to recording capture, the scheduler, or the route data model;
 clickable steps that warp/seek (a possible later enhancement, not this PR).
 
@@ -38,13 +38,13 @@ clickable steps that warp/seek (a possible later enhancement, not this PR).
 ### Mission steps
 `MissionStructureBuilder.Build(RecordingTree)` already produces the controlled-leg
 fork tree, and the Missions window caches it per tree per frame
-(`MissionsWindowUI.GetCompositionRoots` → `compositionCache`). Each `MissionLeg`
+(`MissionsWindowUI.GetCompositionRoots` -> `compositionCache`). Each `MissionLeg`
 carries everything the step list needs for the controlled spine:
 
 - `StartUT` / `EndUT`
 - `OriginBranchPointType` + `OriginCause`, `EndBranchPointType` + `EndCause`
   (Launch / Decoupled / Undocked / Docked / Boarded / EVA / Broke up / Broke off)
-- `TerminalStateValue` (Landed / Splashed / Orbiting / Recovered / Destroyed / …)
+- `TerminalStateValue` (Landed / Splashed / Orbiting / Recovered / Destroyed / ...)
 - `VesselName`, `EvaCrewName`
 
 Labels reuse the existing pure helpers `MissionCompositionBuilder.BranchEventName`
@@ -54,7 +54,7 @@ Staging / separation events that drop **debris** are excluded from `MissionLeg`
 (debris is not a leg). Those come from the recordings' `PartEvents`:
 `Decoupled`, `FairingJettisoned`, `ShroudJettisoned`, plus `Docked` / `Undocked`
 as a cross-check against the branch-point spine. `Recording.PartEvents` is a
-`List<PartEvent>` of `{ double ut; PartEventType type; … }`.
+`List<PartEvent>` of `{ double ut; PartEventType type; ... }`.
 
 ### Route steps
 - `Route.Origin` (`RouteEndpoint`: `BodyName`, `Latitude/Longitude/Altitude`,
@@ -98,7 +98,7 @@ internal struct StructureStep
     public double UT;
     public StructureStepKind Kind;
     public string Label;      // "Launch", "Decoupled booster", "Dock with Station Alpha", "Landed"
-    public string Location;   // "Kerbin – Launch Pad", "Mun – Midlands (Landed)", "Kerbin orbit"
+    public string Location;   // "Kerbin - Launch Pad", "Mun - Midlands (Landed)", "Kerbin orbit"
     public string VesselName; // the controlled vessel / piece this step concerns (may be empty)
 }
 
@@ -132,7 +132,7 @@ internal static class RouteStructureListBuilder
       The two recorder paths stamp slightly different UTs, so UT-equality dedup
       would miss and double-count. A *debris* decouple produces a `Decoupled`
       PartEvent but no controlled-leg branch point (debris is not a leg), so the
-      PartEvent and branch-point sets are deliberately not 1:1 — this is exactly the
+      PartEvent and branch-point sets are deliberately not 1:1 - this is exactly the
       "staging that drops debris" we want to surface.
     - `FairingJettisoned` / `ShroudJettisoned` have no branch-point counterpart and
       pass through unconditionally (no dedup).
@@ -149,17 +149,17 @@ internal static class RouteStructureListBuilder
   stop's `DeliveryOffsetSeconds`, labeled with the delivered manifest summary),
   `Undock` (`UndockUT`), and a `Stop` per `Route.Stops` entry. Reads the connection
   window from `DockMemberRecordingId` via the injected `sourceLookup`. Note
-  `Route.Origin` is a `struct` (`RouteEndpoint`), so it is never null — treat an
+  `Route.Origin` is a `struct` (`RouteEndpoint`), so it is never null - treat an
   empty `BodyName` as the "unresolved origin" signal, not a null check.
 - A shared pure helper `StructureLocationFormatter.Describe(...)` (in the same file)
   produces the `Location` string. For a mission step it reuses
-  `RecordingsTableFormatters`: the public `FormatStartPosition(Recording, …)` /
-  `FormatEndPosition(Recording, …)` take a whole `Recording`; the loose
+  `RecordingsTableFormatters`: the public `FormatStartPosition(Recording, ...)` /
+  `FormatEndPosition(Recording, ...)` take a whole `Recording`; the loose
   situation+biome+body helper `FormatSituationLocation` is currently **`private`**
   and must be promoted to `internal static` to reuse it for an arbitrary
   body/situation/biome (a one-line visibility change in
   `RecordingsTableFormatters.cs`). For a `RouteEndpoint` (body + lat/lon/alt +
-  `IsSurface`, no backing `Recording`) there is **no existing formatter** — that
+  `IsSurface`, no backing `Recording`) there is **no existing formatter** - that
   path is new code in `StructureLocationFormatter`. All numeric output (coords,
   altitude, manifest amounts) uses `CultureInfo.InvariantCulture` per the hard rule.
 - Each `Build` emits ONE `Verbose` summary line (`[Mission]` / `[Route]` subsystem,
@@ -170,7 +170,7 @@ internal static class RouteStructureListBuilder
 ### 2. Renderer: `Source/Parsek/UI/StructureListWindowUI.cs` (one reusable sub-window)
 
 - Owned by `ParsekUI` like the `SpawnControlUI` / `CareerStateWindowUI` sub-windows
-  (NOT `GroupPickerUI` — that one is owned by `RecordingsTableUI`, so it is the wrong
+  (NOT `GroupPickerUI` - that one is owned by `RecordingsTableUI`, so it is the wrong
   model). The exact pattern, verified against the code:
   - The **sub-window class owns its own state**: its `Rect`, its `IsOpen` flag
     (`public bool IsOpen { get; set; }`, cf. `SpawnControlUI.cs:50`), and its
@@ -199,7 +199,7 @@ internal static class RouteStructureListBuilder
 ### 3. Entry points (two buttons, existing button styling)
 
 - Missions tab: add a `"Structure"` button in `MissionsWindowUI.DrawMissionHeader`
-  (the Clone / Delete / Warp-to… group, `MissionsWindowUI.cs:770`), sharing
+  (the Clone / Delete / Warp-to... group, `MissionsWindowUI.cs:770`), sharing
   `ColW_HeaderButton` so it reads as one group. **Layout caveat:** that group sits
   in a fixed-width right block `MissionHeaderRightBlockWidth`
   (`MissionsWindowUI.cs:100`, used at `:765`) that is already ~6px from overflow
@@ -211,7 +211,7 @@ internal static class RouteStructureListBuilder
   `LogisticsWindowUI.DrawRouteDetail` (the expand panel, `LogisticsWindowUI.cs:1161`),
   **not** in the per-row action cell. The row action cell is a fixed-width
   `GUILayout.Width(ColW_Actions)` with `ColW_Actions = 190f` (`:246`) that is already
-  densely packed (Send Once 79 + Activate 64 + delete 22 ≈ 165px) and would overflow.
+  densely packed (Send Once 79 + Activate 64 + delete 22 ~ 165px) and would overflow.
   `DrawRouteDetail` is a free-form `GUILayout.BeginVertical(GUI.skin.box)` with no
   width constraint, so the button drops in cleanly next to the existing detail
   controls. Opens the window in Route mode for that route.
@@ -228,21 +228,21 @@ New:
 - `Source/Parsek.Tests/StructureListBuilderTests.cs` (xUnit)
 
 Edited:
-- `Source/Parsek/UI/MissionsWindowUI.cs` — one "Log" button + open call;
+- `Source/Parsek/UI/MissionsWindowUI.cs` - one "Log" button + open call;
   bump `MissionHeaderRightBlockWidth` by `ColW_HeaderButton + 4f`
-- `Source/Parsek/UI/LogisticsWindowUI.cs` — one "Log" button in
+- `Source/Parsek/UI/LogisticsWindowUI.cs` - one "Log" button in
   `DrawRouteDetail` + open call
-- `Source/Parsek/ParsekUI.cs` — own + draw the sub-window, two open methods;
-  `Source/Parsek/ParsekFlight.cs` + `Source/Parsek/ParsekKSC.cs` — host draw call
-- `scripts/ers-els-audit-allowlist.txt` — allowlist the window's by-id dock-member
+- `Source/Parsek/ParsekUI.cs` - own + draw the sub-window, two open methods;
+  `Source/Parsek/ParsekFlight.cs` + `Source/Parsek/ParsekKSC.cs` - host draw call
+- `scripts/ers-els-audit-allowlist.txt` - allowlist the window's by-id dock-member
   resolve (physical connection-window proof, not a visibility-scoped enumeration)
 - (Deviation from plan: `RecordingsTableFormatters.FormatSituationLocation` was NOT
-  promoted — the mid-event location uses a pure body-only resolver in
+  promoted - the mid-event location uses a pure body-only resolver in
   `StructureLocationFormatter.DescribeMid`, and launch/terminal reuse the already-
   `internal` `FormatStartPosition` / `FormatEndPosition`. No formatter change needed.)
 - `CHANGELOG.md` (a `### Features` entry under the existing `## 0.10.1` section; no
   version bump), `docs/roadmap.md` (mark Tier-1 item), `docs/dev/todo-and-known-bugs.md`
-- `docs/parsek-logistics-supply-routes-design.md` — note the §17.1 Tier-1 item shipped
+- `docs/parsek-logistics-supply-routes-design.md` - note the section 17.1 Tier-1 item shipped
 
 ## Data-model / scope decisions (validate with plan reviewer)
 
@@ -269,19 +269,19 @@ Edited:
 
 ## Tests
 
-### Builder unit tests (xUnit, pure, headless) — `StructureListBuilderTests.cs`
-- Mission: single-leg launch→landed run → exactly `Launch` + `Terminal`, ordered,
+### Builder unit tests (xUnit, pure, headless) - `StructureListBuilderTests.cs`
+- Mission: single-leg launch->landed run -> exactly `Launch` + `Terminal`, ordered,
   correct labels/locations.
-- Mission: decouple fork (booster debris) → `Launch`, `Separation` at the decouple
+- Mission: decouple fork (booster debris) -> `Launch`, `Separation` at the decouple
   UT, `Terminal`; debris separation present even though debris is not a leg.
-- Mission: dock + undock run → `Dock` then `Undock` in UT order, correct partner
+- Mission: dock + undock run -> `Dock` then `Undock` in UT order, correct partner
   label.
-- Mission: EVA → `Eva` step with the kerbal name.
+- Mission: EVA -> `Eva` step with the kerbal name.
 - Determinism: two builds of the same tree produce byte-identical step lists.
-- Route: KSC-origin route with one stop → `Origin (KSC)`, `Dock`, `Delivery`,
+- Route: KSC-origin route with one stop -> `Origin (KSC)`, `Dock`, `Delivery`,
   `Undock`, ordered; delivery label summarizes the manifest.
-- Route: vessel-origin route → `Origin` shows the depot, not KSC.
-- Route: missing source recording (`sourceLookup` returns null) → empty list +
+- Route: vessel-origin route -> `Origin` shows the depot, not KSC.
+- Route: missing source recording (`sourceLookup` returns null) -> empty list +
   logged reason, no throw.
 - Location formatter: launch-site, surface biome, and orbit cases.
 
@@ -298,14 +298,14 @@ Edited:
   `WithOrigin` / `WithKscOrigin` / `WithStop` / `WithDockBinding(recordedDockUT,
   dockMemberRecId)` / `WithSourceRef`), so a `Route` with origin/stops/dock-binding
   is buildable without Unity. A connection-window-bearing `Recording` is built inline
-  today (`new Recording { RouteConnectionWindows = new List<RouteConnectionWindow>{…} }`,
+  today (`new Recording { RouteConnectionWindows = new List<RouteConnectionWindow>{...} }`,
   cf. `RouteAnalysisEngineTests`). The injected `Func<string,Recording> sourceLookup`
   is satisfied in tests by `id => dict[id]`.
 - In inline-`Recording` mission fixtures, `StartUT`/`EndUT` are **computed
   properties**; set `ExplicitStartUT` / `ExplicitEndUT` (as `MissionStructureTests.Leg`
   does), not `StartUT`/`EndUT` directly.
-- Staging-dedup tests use `RecordingBuilder.AddPartEvent(ut, pid, type, …)` (or a
-  direct `PartEvents.Add(new PartEvent{…})`) and assert that a `Decoupled` event
+- Staging-dedup tests use `RecordingBuilder.AddPartEvent(ut, pid, type, ...)` (or a
+  direct `PartEvents.Add(new PartEvent{...})`) and assert that a `Decoupled` event
   sharing a Separation branch point's `DecouplerPartId` is dropped while a
   debris-only `Decoupled` (no matching branch point) and fairing/shroud pass through.
 

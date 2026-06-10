@@ -56,10 +56,11 @@ namespace Parsek
             return "-";
         }
 
-        // Mid-flight event (dock / undock / decouple / eva / staging): body + biome from the
-        // recording whose START coincides with the event (the child branch for a split /
-        // merge, the owning recording for a part event), so its captured body / biome is the
-        // event context. Per-UT exact coordinate resolution is still deferred.
+        // Mid-flight event: body + biome from the supplied recording's START context. This
+        // is event-accurate for BRANCH events (the child branch's recording starts AT the
+        // split / merge), but only start-accurate for part events; the staging emit site
+        // gates on event-to-start freshness before using it. Per-UT exact coordinate
+        // resolution is still deferred.
         internal static string MidLocation(Recording rec)
             => rec == null ? "" : BodyBiome(rec.StartBodyName, rec.StartBiome);
 
@@ -183,11 +184,21 @@ namespace Parsek
             // 3. Staging part events across all member recordings. Decoupled events are
             //    dropped when a controlled Separation branch point already covers the same
             //    decoupler PID; fairing / shroud have no branch-point counterpart and pass
-            //    through. Self-dedup guards the same physical event recorded twice.
-            var seenStaging = new HashSet<string>();
+            //    through. Cross-recording dedup is UT-TOLERANT, not UT-blind: the same
+            //    physical event recorded on more than one member recording carries the same
+            //    (pid, eventType) at NEARLY the same UT (sub-second recorder skew), so a
+            //    same-key event within the tolerance is a duplicate. A same-key event FAR
+            //    outside it is a genuinely DISTINCT staging of a craft-baked PID - e.g. a
+            //    Re-Fly fork of the same craft living in the same tree re-jettisoning its
+            //    fairing - and must survive (persistentId is craft-baked, NOT launch-unique).
+            //    Recordings iterate in RecordingId order so the surviving representative is
+            //    stable across save/load (Dictionary enumeration order is not).
+            var seenStagingUts = new Dictionary<string, List<double>>();
             if (tree.Recordings != null)
             {
-                foreach (Recording rec in tree.Recordings.Values)
+                var orderedRecs = new List<Recording>(tree.Recordings.Values);
+                orderedRecs.Sort((a, b) => string.CompareOrdinal(a?.RecordingId, b?.RecordingId));
+                foreach (Recording rec in orderedRecs)
                 {
                     if (rec?.PartEvents == null) continue;
                     foreach (PartEvent pe in rec.PartEvents)
@@ -197,21 +208,40 @@ namespace Parsek
                             && handledDecouplerPids.Contains(pe.partPersistentId))
                             continue;
 
-                        // A given part stages once per event kind (a decoupler fires once, a
-                        // fairing jettisons once), so key on (pid, eventType) WITHOUT UT: the same
-                        // physical event recorded on more than one member recording carries the same
-                        // part PID but slightly different sampled UTs, and a UT in the key would let
-                        // the duplicate survive. (A part PID is unique within one launch's tree.)
                         string key = (int)pe.eventType + "|" + pe.partPersistentId.ToString(CultureInfo.InvariantCulture);
-                        if (!seenStaging.Add(key)) continue;
+                        if (!seenStagingUts.TryGetValue(key, out List<double> uts))
+                        {
+                            uts = new List<double>();
+                            seenStagingUts[key] = uts;
+                        }
+                        bool duplicate = false;
+                        for (int u = 0; u < uts.Count; u++)
+                        {
+                            if (System.Math.Abs(uts[u] - pe.ut) <= StagingDedupToleranceSeconds)
+                            {
+                                duplicate = true;
+                                break;
+                            }
+                        }
+                        if (duplicate) continue;
+                        uts.Add(pe.ut);
 
+                        // Status / biome honesty: the owning recording's START context is only
+                        // accurate near the recording start. A part event far into the segment
+                        // (e.g. a fairing jettisoned mid-ascent on a pad-to-orbit recording)
+                        // would wrongly read "Prelaunch / LaunchPad", so beyond the freshness
+                        // window we keep only the segment-stable body and blank the rest
+                        // (blank beats wrong; per-UT resolution is deferred).
+                        bool contextFresh = pe.ut - rec.StartUT <= StagingContextMaxAgeSeconds;
                         steps.Add(new StructureStep
                         {
                             UT = pe.ut,
                             Kind = StructureStepKind.Staging,
                             Label = StagingLabel(pe),
-                            Status = StructureLocationFormatter.MidStatus(rec),
-                            Location = StructureLocationFormatter.MidLocation(rec),
+                            Status = contextFresh ? StructureLocationFormatter.MidStatus(rec) : "",
+                            Location = contextFresh
+                                ? StructureLocationFormatter.MidLocation(rec)
+                                : StructureLocationFormatter.BodyBiome(rec.StartBodyName, null),
                             VesselName = "",
                             SortPid = pe.partPersistentId
                         });
@@ -296,10 +326,21 @@ namespace Parsek
             || t == PartEventType.ShroudJettisoned;
 
         // Two events are the "same simultaneous batch" when everything visible is identical
-        // and they fall within a tight time window (same-frame separations share a recorded
-        // UT; the window absorbs a tick or two of sampling jitter without merging genuinely
-        // distinct stages seconds apart).
-        private const double SimultaneousWindowSeconds = 1.0;
+        // and they fall within a tight time window. Same-frame separations share a recorded
+        // UT and cross-recording samples of one frame differ by well under 0.1s, so 0.25s
+        // absorbs all real jitter while NOT merging quick-succession ripple staging (e.g.
+        // booster pairs dropped half a second apart are distinct stages, not one batch).
+        private const double SimultaneousWindowSeconds = 0.25;
+
+        // Cross-recording staging dedup tolerance: the same physical event recorded on two
+        // member recordings lands within this window; a same-(pid,kind) event further apart
+        // is a distinct staging (Re-Fly fork of the same craft-baked PID) and survives.
+        private const double StagingDedupToleranceSeconds = 5.0;
+
+        // Staging Status/biome freshness: the owning recording's start-captured context is
+        // trusted only this close to the recording start (see the honesty note at the
+        // staging emit site).
+        private const double StagingContextMaxAgeSeconds = 30.0;
 
         // Collapses runs of identical simultaneous events (the already-sorted list groups them
         // adjacently) into one row, appending " xN" to the label. Compares each candidate to
@@ -410,13 +451,27 @@ namespace Parsek
                 : null;
             if (dockRec?.RouteConnectionWindows != null && dockRec.RouteConnectionWindows.Count > 0)
             {
-                // Last completed window is the delivery binding.
+                // Prefer the last COMPLETE window (the delivery binding; v0 dock members
+                // carry exactly one), falling back to the last non-null window so a Dock
+                // row still renders for a degenerate incomplete capture.
                 for (int i = dockRec.RouteConnectionWindows.Count - 1; i >= 0; i--)
                 {
-                    if (dockRec.RouteConnectionWindows[i] != null)
+                    RouteConnectionWindow w = dockRec.RouteConnectionWindows[i];
+                    if (w != null && w.IsComplete)
                     {
-                        win = dockRec.RouteConnectionWindows[i];
+                        win = w;
                         break;
+                    }
+                }
+                if (win == null)
+                {
+                    for (int i = dockRec.RouteConnectionWindows.Count - 1; i >= 0; i--)
+                    {
+                        if (dockRec.RouteConnectionWindows[i] != null)
+                        {
+                            win = dockRec.RouteConnectionWindows[i];
+                            break;
+                        }
                     }
                 }
             }

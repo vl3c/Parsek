@@ -152,6 +152,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Mission_SamePidStaging_FarApartInTime_BothSurvive()
+        {
+            // A Re-Fly fork re-launches the same craft inside the same tree: the fairing
+            // carries the same craft-baked PID but jettisons HOURS later. The UT-tolerant
+            // dedup must keep BOTH rows (only near-simultaneous same-pid events are
+            // recorder duplicates of one physical staging).
+            var r1 = Rec("r1", 0, 300, vessel: "Run1", terminal: TerminalState.Orbiting);
+            var r2 = Rec("r2", 7200, 7500, vessel: "Run2", terminal: TerminalState.Orbiting);
+            r1.PartEvents.Add(new PartEvent { ut = 120.0, eventType = PartEventType.FairingJettisoned, partPersistentId = 77, partName = "fairing" });
+            r2.PartEvents.Add(new PartEvent { ut = 7320.0, eventType = PartEventType.FairingJettisoned, partPersistentId = 77, partName = "fairing" });
+
+            var steps = BuildMission(Tree(new[] { r1, r2 }));
+
+            Assert.Equal(2, steps.Count(s => s.Kind == StructureStepKind.Staging && s.SortPid == 77));
+        }
+
+        [Fact]
+        public void Mission_StaleStagingContext_BlanksStatusKeepsBody()
+        {
+            // The owning recording starts on the pad (Prelaunch); the fairing jettisons
+            // 120s later. The start context is stale at the event, so Status blanks and
+            // Location keeps only the segment-stable body (no launch-pad biome).
+            var r1 = Rec("r1", 0, 300, vessel: "Stack", terminal: TerminalState.Orbiting,
+                body: "Kerbin", launchSite: "LaunchPad");
+            r1.StartSituation = "Prelaunch";
+            r1.StartBiome = "Shores";
+            r1.PartEvents.Add(new PartEvent { ut = 120.0, eventType = PartEventType.FairingJettisoned, partPersistentId = 60, partName = "fairing" });
+            r1.PartEvents.Add(new PartEvent { ut = 10.0, eventType = PartEventType.ShroudJettisoned, partPersistentId = 61, partName = "shroud" });
+
+            var steps = BuildMission(Tree(new[] { r1 }));
+
+            StructureStep stale = steps.Single(s => s.Kind == StructureStepKind.Staging && s.SortPid == 60);
+            Assert.Equal("", stale.Status);
+            Assert.Equal("Kerbin", stale.Location);
+            // Within the freshness window the full start context is kept.
+            StructureStep fresh = steps.Single(s => s.Kind == StructureStepKind.Staging && s.SortPid == 61);
+            Assert.Equal("Prelaunch", fresh.Status);
+            Assert.Equal("Kerbin, Shores", fresh.Location);
+        }
+
+        [Fact]
         public void Mission_SimultaneousIdenticalStaging_CollapsesToCountedRow()
         {
             // Four engine shrouds jettison in the same frame (same label + UT, distinct PIDs);
