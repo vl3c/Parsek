@@ -1482,5 +1482,784 @@ namespace Parsek.Tests
                 "rec-released", headUT: 1000.0, frame: 100, out _, out _);
             Assert.False(held);
         }
+
+        // ====================================================================
+        // Forward additive pass (Step 3, forward-trajectory-render plan)
+        // ShouldDrawForwardLeg / BuildForwardArcKey / SelectForwardArcSegmentIndices
+        // ====================================================================
+
+        // A future leg overlapping the forward window (and NOT under the head) draws forward.
+        [Fact]
+        public void ShouldDrawForwardLeg_FutureLegOverlappingWindow_Draws()
+        {
+            // head at 50 (on the current element), window (40, 300]; a future leg [200,260] overlaps.
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                legStartUT: 200.0, legEndUT: 260.0,
+                forwardWindowStartUT: 40.0, forwardStopUT: 300.0, headUT: 50.0));
+        }
+
+        // The CURRENT leg (head inside its span) is drawn by the head-gated pass, never the forward pass.
+        [Fact]
+        public void ShouldDrawForwardLeg_CurrentLeg_NotForward()
+        {
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                legStartUT: 40.0, legEndUT: 100.0,
+                forwardWindowStartUT: 40.0, forwardStopUT: 300.0, headUT: 50.0));
+        }
+
+        // A leg entirely AFTER the forward stop is excluded (next-SOI / past full-loop element).
+        [Fact]
+        public void ShouldDrawForwardLeg_LegPastStop_NotDrawn()
+        {
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                legStartUT: 320.0, legEndUT: 380.0,
+                forwardWindowStartUT: 40.0, forwardStopUT: 300.0, headUT: 50.0));
+        }
+
+        // A leg entirely BEFORE the window (a completed past leg) is excluded.
+        [Fact]
+        public void ShouldDrawForwardLeg_PastLeg_NotDrawn()
+        {
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                legStartUT: 0.0, legEndUT: 30.0,
+                forwardWindowStartUT: 40.0, forwardStopUT: 300.0, headUT: 50.0));
+        }
+
+        // An empty forward range (stop <= windowStart, e.g. icon on a full-loop closed orbit) draws nothing.
+        [Fact]
+        public void ShouldDrawForwardLeg_EmptyRange_NeverDraws()
+        {
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                legStartUT: 200.0, legEndUT: 260.0,
+                forwardWindowStartUT: 40.0, forwardStopUT: 40.0, headUT: 50.0));
+        }
+
+        // The cache key changes on the SELECTED segment set or a re-aim window rollover (revised run rule:
+        // keyed on the actual selected set, not currentElementIndex, since past arcs are now included).
+        [Fact]
+        public void BuildForwardArcKey_ChangesOnSelectedSetOrWindow()
+        {
+            var baseSet = new List<int> { 0, 2, 3 };
+            string baseKey = GhostTrajectoryPolylineRenderer.BuildForwardArcKey(baseSet, 7);
+            // Different selected set -> different key.
+            Assert.NotEqual(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(new List<int> { 0, 2 }, 7));
+            Assert.NotEqual(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(new List<int> { 0, 2, 4 }, 7));
+            // Different re-aim window -> different key.
+            Assert.NotEqual(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(baseSet, 8));
+            // Same set + window -> stable key (cache hit; the selector emits ascending so order is stable).
+            Assert.Equal(baseKey, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(new List<int> { 0, 2, 3 }, 7));
+            // Empty / null set -> stable sentinel key, distinct from any non-empty selection.
+            string empty = GhostTrajectoryPolylineRenderer.BuildForwardArcKey(new List<int>(), 7);
+            Assert.Equal(empty, GhostTrajectoryPolylineRenderer.BuildForwardArcKey(null, 7));
+            Assert.NotEqual(baseKey, empty);
+        }
+
+        // The forward-arc selector excludes the CURRENT arc (head bracketing) so the stock current arc is
+        // never double-drawn, and includes a later same-body above-surface transfer arc.
+        [Fact]
+        public void SelectForwardArcSegmentIndices_ExcludesCurrentArc_IncludesFutureArc()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                CleanDunaSegment(0.0, 100.0),    // current: head brackets this
+                CleanDunaSegment(100.0, 200.0),  // future arc (above surface)
+            };
+            // head=50 on seg 0; window (0, 200].
+            var picked = GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                segs, forwardWindowStartUT: 0.0, forwardStopUT: 200.0, headUT: 50.0, surface: DunaSurface());
+            Assert.Equal(new[] { 1 }, picked.ToArray());
+        }
+
+        // A below-surface descent segment is NOT selected as a forward ARC (it draws as a forward LEG B').
+        [Fact]
+        public void SelectForwardArcSegmentIndices_BelowSurfaceSegment_ExcludedFromArcs()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                CleanDunaSegment(0.0, 100.0),       // current
+                DegenerateDunaSegment(100.0, 200.0) // below-surface descent -> leg, not arc
+            };
+            var picked = GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                segs, forwardWindowStartUT: 0.0, forwardStopUT: 200.0, headUT: 50.0, surface: DunaSurface());
+            Assert.Empty(picked);
+        }
+
+        // An empty forward range selects no arcs.
+        [Fact]
+        public void SelectForwardArcSegmentIndices_EmptyRange_SelectsNothing()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                CleanDunaSegment(0.0, 100.0),
+                CleanDunaSegment(100.0, 200.0),
+            };
+            var picked = GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                segs, forwardWindowStartUT: 0.0, forwardStopUT: 0.0, headUT: 50.0, surface: DunaSurface());
+            Assert.Empty(picked);
+        }
+
+        // The hot-path buffer overload (forward-render review finding) clears-and-fills a reused scratch
+        // list with the SAME selection as the allocating overload, so the per-frame List<int> alloc is gone
+        // without changing which segments are picked. Reusing the buffer across calls never carries stale
+        // indices (Clear() runs first), even when a later call selects fewer or zero arcs.
+        [Fact]
+        public void SelectForwardArcSegmentIndices_BufferOverload_ClearsAndFills_SameAsAllocating()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                CleanDunaSegment(0.0, 100.0),    // current: head brackets this
+                CleanDunaSegment(100.0, 200.0),  // future arc (above surface)
+            };
+            var scratch = new List<int> { 99, 98 }; // pre-seeded stale entries that MUST be cleared
+            GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                segs, forwardWindowStartUT: 0.0, forwardStopUT: 200.0, headUT: 50.0,
+                surface: DunaSurface(), indices: scratch);
+            Assert.Equal(new[] { 1 }, scratch.ToArray()); // stale 99/98 gone, only the future arc kept
+
+            // Re-fill the SAME buffer with an empty-range call: it must come back empty (no leftover).
+            GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                segs, forwardWindowStartUT: 0.0, forwardStopUT: 0.0, headUT: 50.0,
+                surface: DunaSurface(), indices: scratch);
+            Assert.Empty(scratch);
+
+            // A null buffer is tolerated (no throw); a null segment list clears the buffer.
+            GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                null, 0.0, 200.0, 50.0, DunaSurface(), null);
+            var scratch2 = new List<int> { 7 };
+            GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                null, 0.0, 200.0, 50.0, DunaSurface(), scratch2);
+            Assert.Empty(scratch2);
+        }
+
+        // ====================================================================
+        // Chain-aware run membership (playtest-4 chain-boundary fix)
+        // CollectChainRunMembers
+        // ====================================================================
+
+        private static Recording MakeChainMember(string id, string chainId, double startUT)
+        {
+            var rec = new Recording { RecordingId = id, ChainId = chainId };
+            rec.Points.Add(MakePoint(startUT, 0.0, 0.0, 70.0));
+            rec.Points.Add(MakePoint(startUT + 100.0, 0.0, 0.0, 100.0));
+            return rec;
+        }
+
+        // A standalone (non-chain) recording collects as a single member carrying its committed index:
+        // byte-identical to the pre-chain forward pass.
+        [Fact]
+        public void CollectChainRunMembers_StandaloneRecording_SingleMember()
+        {
+            var rec = MakeChainMember("rec-solo", chainId: null, startUT: 100.0);
+            var committed = new List<Recording> { MakeChainMember("rec-other", null, 0.0), rec };
+            var members = new List<(int index, Recording rec)>();
+
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(committed, rec, 1, members);
+
+            Assert.Single(members);
+            Assert.Equal(1, members[0].index);
+            Assert.Same(rec, members[0].rec);
+        }
+
+        // Chain members are collected from the committed list regardless of committed ORDER, returned
+        // sorted by StartUT (the shared recorded-UT axis the run window is computed on), each carrying
+        // its own committed index (the resolver key for ResolveEffectiveMapOrbitSegments).
+        [Fact]
+        public void CollectChainRunMembers_ChainMembers_SortedByStartUT_OthersExcluded()
+        {
+            const string chain = "chain-a";
+            var launch = MakeChainMember("rec-launch", chain, startUT: 100.0);
+            var middle = MakeChainMember("rec-middle", chain, startUT: 300.0);
+            var tail = MakeChainMember("rec-tail", chain, startUT: 600.0);
+            var otherChain = MakeChainMember("rec-other-chain", "chain-b", startUT: 200.0);
+            var standalone = MakeChainMember("rec-standalone", null, startUT: 400.0);
+            // Committed order deliberately scrambled relative to time order.
+            var committed = new List<Recording> { tail, standalone, launch, otherChain, middle };
+            var members = new List<(int index, Recording rec)>();
+
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(committed, middle, 4, members);
+
+            Assert.Equal(3, members.Count);
+            Assert.Same(launch, members[0].rec);
+            Assert.Same(middle, members[1].rec);
+            Assert.Same(tail, members[2].rec);
+            // Committed indices preserved per member.
+            Assert.Equal(2, members[0].index);
+            Assert.Equal(4, members[1].index);
+            Assert.Equal(0, members[2].index);
+        }
+
+        // A chain recording missing from the committed list (detached caller input) falls back to the
+        // single-member run instead of an empty member set (the pass must still draw something).
+        [Fact]
+        public void CollectChainRunMembers_ChainRecordingNotInCommitted_FallsBackToSelf()
+        {
+            var rec = MakeChainMember("rec-detached", "chain-x", startUT: 100.0);
+            var committed = new List<Recording> { MakeChainMember("rec-unrelated", null, 0.0) };
+            var members = new List<(int index, Recording rec)>();
+
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(committed, rec, 7, members);
+
+            Assert.Single(members);
+            Assert.Equal(7, members[0].index);
+            Assert.Same(rec, members[0].rec);
+        }
+
+        // Null committed list / null rec are tolerated (single-member fallback / empty fill).
+        [Fact]
+        public void CollectChainRunMembers_NullInputs_Tolerated()
+        {
+            var rec = MakeChainMember("rec-null-committed", "chain-y", startUT: 100.0);
+            var members = new List<(int index, Recording rec)> { (9, rec) }; // stale entry must clear
+
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(null, rec, 3, members);
+            Assert.Single(members);
+            Assert.Equal(3, members[0].index);
+
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(
+                new List<Recording>(), null, 0, members);
+            Assert.Empty(members);
+
+            // Null scratch tolerated (no throw).
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(null, rec, 0, null);
+        }
+
+        // The playtest-4 scenario at the window level: the LAUNCH chain member carries ZERO
+        // OrbitSegments (handoff below orbit), the NEXT member carries the suborbital ascent conic +
+        // the full-loop parking ellipse. Computed over the CONCATENATED chain segments, the run window
+        // spans from the trajectory start (-inf: the launch leg is included) up to the ellipse start -
+        // both while the icon still rides the launch leg AND after the handoff - so the composite
+        // pad-to-ellipse line draws as one run. Per-member windows could not do this: the launch member
+        // alone has no segments (no run at all), and the next member alone cannot reach the launch leg.
+        [Fact]
+        public void ChainConcatenatedWindow_LaunchMemberInheritsRunFromNextMember()
+        {
+            // Next member's effective segments (the launch member contributes none).
+            double muKerbin = 3.5316e12;
+            var ascentConic = new OrbitSegment
+            {
+                startUT = 500.0, endUT = 900.0, bodyName = "Kerbin",
+                eccentricity = 0.4, semiMajorAxis = 500000.0
+            };
+            // Parking ellipse spanning >= one period (full loop): T(700km, Kerbin) ~ 5240s.
+            var parkingEllipse = new OrbitSegment
+            {
+                startUT = 900.0, endUT = 11000.0, bodyName = "Kerbin",
+                eccentricity = 0.001, semiMajorAxis = 700000.0
+            };
+            var concat = new List<OrbitSegment> { ascentConic, parkingEllipse };
+            Func<string, double> mu = _ => muKerbin;
+
+            // Icon on the LAUNCH leg (before the first conic): run reaches back to -inf (launch leg
+            // included) and stops at the ellipse start.
+            var preHandoff = ForwardRenderWindow.ComputeForwardWindow(concat, 200.0, mu);
+            Assert.True(preHandoff.HasForwardRange);
+            Assert.Equal(double.NegativeInfinity, preHandoff.RunStartUT);
+            Assert.Equal(900.0, preHandoff.StopUT);
+            // The launch member's ascent leg [100,450] overlaps the run and is the CURRENT head leg ->
+            // drawn by the head-gated pass, not the forward pass.
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                100.0, 450.0, preHandoff.RunStartUT, preHandoff.StopUT, headUT: 200.0));
+            // The next member's coast leg [600,700] is a run leg already pre-handoff.
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                600.0, 700.0, preHandoff.RunStartUT, preHandoff.StopUT, headUT: 200.0));
+
+            // After the handoff (icon on the next member's ascent conic), the LAUNCH member's leg
+            // still overlaps the run window (no longer under the head)...
+            var postHandoff = ForwardRenderWindow.ComputeForwardWindow(concat, 600.0, mu);
+            Assert.True(postHandoff.HasForwardRange);
+            Assert.Equal(double.NegativeInfinity, postHandoff.RunStartUT);
+            Assert.Equal(900.0, postHandoff.StopUT);
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldDrawForwardLeg(
+                100.0, 450.0, postHandoff.RunStartUT, postHandoff.StopUT, headUT: 600.0));
+            // ...but the body-fixed hide rule (playtest 5) DROPS it from the persistent run: the launch
+            // member carries no conics, so the leg is not conic-anchorable and would rotate with the
+            // planet against the inertial arcs (the observed gap-then-overlap sweep). It draws only
+            // while the icon rides it (head-gated pass).
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                new List<OrbitSegment>(), "Kerbin", 100.0, 450.0));
+
+            // Icon ON the parking ellipse: the run clears (stock draws the repeating ellipse) - the
+            // launch leg clears with it, matching the reset-at-boundary rule.
+            var onEllipse = ForwardRenderWindow.ComputeForwardWindow(concat, 1000.0, mu);
+            Assert.False(onEllipse.HasForwardRange);
+        }
+
+        // ====================================================================
+        // Body-fixed run-leg hide (playtest-5 rule)
+        // IsRunLegAnchorCandidate
+        // ====================================================================
+
+        // A vacuum-maneuver leg bracketed by a same-body conic on BOTH sides (the escape burn / orbit
+        // raise) is conic-anchorable: it participates in the persistent run (drawn in the inertial frame).
+        [Fact]
+        public void IsRunLegAnchorCandidate_BothSideBracket_True()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 0.0, endUT = 100.0, bodyName = "Kerbin", semiMajorAxis = 700000.0 },
+                new OrbitSegment { startUT = 160.0, endUT = 400.0, bodyName = "Kerbin", semiMajorAxis = 900000.0 },
+            };
+            Assert.True(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                segs, "Kerbin", legStartUT: 100.0, legEndUT: 160.0));
+        }
+
+        // A launch ascent (after-only bracket) stays body-fixed -> NOT a persistent run leg.
+        [Fact]
+        public void IsRunLegAnchorCandidate_AscentAfterOnly_False()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 200.0, endUT = 500.0, bodyName = "Kerbin", semiMajorAxis = 700000.0 },
+            };
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                segs, "Kerbin", legStartUT: 50.0, legEndUT: 200.0));
+        }
+
+        // A descent-to-surface (before-only bracket) stays body-fixed -> NOT a persistent run leg.
+        [Fact]
+        public void IsRunLegAnchorCandidate_DescentBeforeOnly_False()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 0.0, endUT = 300.0, bodyName = "Duna", semiMajorAxis = 400000.0 },
+            };
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                segs, "Duna", legStartUT: 300.0, legEndUT: 380.0));
+        }
+
+        // No conics at all (the launch chain segment, atmospheric-only recordings) -> body-fixed only.
+        [Fact]
+        public void IsRunLegAnchorCandidate_NoConics_False()
+        {
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                new List<OrbitSegment>(), "Kerbin", 100.0, 200.0));
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                null, "Kerbin", 100.0, 200.0));
+        }
+
+        // Conics of a DIFFERENT body never bracket (the lookup is same-body by contract).
+        [Fact]
+        public void IsRunLegAnchorCandidate_OtherBodyConics_False()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 0.0, endUT = 100.0, bodyName = "Mun", semiMajorAxis = 300000.0 },
+                new OrbitSegment { startUT = 160.0, endUT = 400.0, bodyName = "Mun", semiMajorAxis = 300000.0 },
+            };
+            Assert.False(GhostTrajectoryPolylineRenderer.IsRunLegAnchorCandidate(
+                segs, "Kerbin", legStartUT: 100.0, legEndUT: 160.0));
+        }
+
+        // ====================================================================
+        // Seam bridge (playtest-6): TryBuildSeamBridgeLocalPoints /
+        // SeamBridgeAngleRad / SelectBridgeArcIndex
+        // ====================================================================
+
+        // Helper: rotate v about the +Z axis by angle (radians) - the synthetic "planet spin".
+        private static Vector3d RotZ(Vector3d v, double angle)
+        {
+            double c = System.Math.Cos(angle), s = System.Math.Sin(angle);
+            return new Vector3d(v.x * c - v.y * s, v.x * s + v.y * c, v.z);
+        }
+
+        // Synthetic arc B: a gentle curve in the XY plane starting on +X at radius 700 km.
+        private static Vector3d[] MakeArcPoints(int count, double radius)
+        {
+            var pts = new Vector3d[count];
+            for (int i = 0; i < count; i++)
+            {
+                double sweep = 0.002 * i; // ~0.11 deg per sample, a slow prograde arc
+                pts[i] = RotZ(new Vector3d(radius, 0, 0), sweep) * (1.0 + 0.0005 * i);
+            }
+            return pts;
+        }
+
+        [Fact]
+        public void SeamBridge_EndpointsExact()
+        {
+            // endA = B's first sample rotated by 10 deg about Z and 2% closer to the body: the bridge
+            // must START exactly on endA and END exactly on B's merge sample.
+            var arc = MakeArcPoints(80, 700000.0);
+            const double seamAngle = 10.0 * System.Math.PI / 180.0;
+            Vector3d endA = RotZ(arc[0], seamAngle) * 0.98;
+            const int merge = 60;
+            var outPts = new Vector3d[merge + 1];
+
+            bool ok = GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                endA, arc, arcScale: 1.0, mergeCount: merge,
+                maxAngleRad: GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians,
+                outPoints: outPts, seamAngleRad: out double measured);
+
+            Assert.True(ok);
+            Assert.Equal(seamAngle, measured, 6);
+            Assert.True((outPts[0] - endA).magnitude < 1.0,
+                "bridge start must land on the leg end (off by " + (outPts[0] - endA).magnitude + " m)");
+            Assert.True((outPts[merge] - arc[merge]).magnitude < 1.0,
+                "bridge end must land on B's merge sample (off by " + (outPts[merge] - arc[merge]).magnitude + " m)");
+        }
+
+        [Fact]
+        public void SeamBridge_ZeroAngle_DegeneratesToArcLeadIn()
+        {
+            // Seam closed (endA == B[0]): the bridge IS B's lead-in, point for point.
+            var arc = MakeArcPoints(80, 700000.0);
+            const int merge = 60;
+            var outPts = new Vector3d[merge + 1];
+
+            bool ok = GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                arc[0], arc, 1.0, merge,
+                GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians, outPts, out double measured);
+
+            Assert.True(ok);
+            Assert.True(measured < 1e-6);
+            for (int i = 0; i <= merge; i += 15)
+                Assert.True((outPts[i] - arc[i]).magnitude < 1.0,
+                    "zero-angle bridge point " + i + " must equal B's sample");
+        }
+
+        [Fact]
+        public void SeamBridge_AngleTooLarge_NoBridge()
+        {
+            // 90 deg seam > the 45 deg gate: no bridge (honest gap instead of a wild spiral).
+            var arc = MakeArcPoints(80, 700000.0);
+            Vector3d endA = RotZ(arc[0], 90.0 * System.Math.PI / 180.0);
+            var outPts = new Vector3d[61];
+
+            bool ok = GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                endA, arc, 1.0, 60,
+                GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians, outPts, out double measured);
+
+            Assert.False(ok);
+            Assert.Equal(System.Math.PI / 2.0, measured, 6);
+        }
+
+        [Fact]
+        public void SeamBridge_DegenerateInputs_NoBridge()
+        {
+            var arc = MakeArcPoints(80, 700000.0);
+            var outPts = new Vector3d[61];
+            // Zero-length A end.
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                Vector3d.zero, arc, 1.0, 60, 10.0, outPts, out _));
+            // Antiparallel rays (no unique axis) - even with a permissive gate.
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                -arc[0], arc, 1.0, 60, 10.0, outPts, out _));
+            // Null / too-short buffers.
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                arc[0], null, 1.0, 60, 10.0, outPts, out _));
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                arc[0], arc, 1.0, 60, 10.0, new Vector3d[10], out _));
+            // mergeCount beyond the arc sample count.
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                arc[0], MakeArcPoints(30, 700000.0), 1.0, 60, 10.0, outPts, out _));
+        }
+
+        [Fact]
+        public void SeamBridgeAngleRad_MeasuresRayAngle_DegenerateIsInfinite()
+        {
+            Vector3d x = new Vector3d(1000.0, 0, 0);
+            Assert.Equal(System.Math.PI / 2.0,
+                GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(x, new Vector3d(0, 2000.0, 0)), 9);
+            Assert.Equal(0.0, GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(x, x * 5.0), 9);
+            Assert.True(double.IsPositiveInfinity(
+                GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(Vector3d.zero, x)));
+        }
+
+        // The adjacency rule, both sides (playtest 7): a conic neighbours a leg seam when it shares
+        // the body and ends (start-side) / starts (end-side) within [seam - maxGap, seam + 1s].
+        [Fact]
+        public void IsBridgeAdjacentConic_BothSides()
+        {
+            // END side (conic CONTINUES the leg): leg ends at 200, conic [204, 800] qualifies.
+            Assert.True(GhostTrajectoryPolylineRenderer.IsBridgeAdjacentConic(
+                "Kerbin", 204.0, 800.0, "Kerbin", legSeamUT: 200.0, atLegStart: false,
+                maxSeamGapSeconds: 120.0));
+            // ...but not with a 1 s gap budget (starts 4 s after).
+            Assert.False(GhostTrajectoryPolylineRenderer.IsBridgeAdjacentConic(
+                "Kerbin", 204.0, 800.0, "Kerbin", 200.0, false, 1.0));
+            // A conic starting BEFORE the leg end (a past arc) never continues it.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsBridgeAdjacentConic(
+                "Kerbin", 100.0, 195.0, "Kerbin", 200.0, false, 120.0));
+
+            // START side (conic PRECEDES the leg): leg starts at 500, conic [100, 496] qualifies.
+            Assert.True(GhostTrajectoryPolylineRenderer.IsBridgeAdjacentConic(
+                "Duna", 100.0, 496.0, "Duna", legSeamUT: 500.0, atLegStart: true,
+                maxSeamGapSeconds: 120.0));
+            // A conic ending AFTER the leg start (overlapping forward) does not precede it.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsBridgeAdjacentConic(
+                "Duna", 100.0, 502.0, "Duna", 500.0, true, 120.0));
+            // Other body never neighbours.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsBridgeAdjacentConic(
+                "Ike", 100.0, 496.0, "Duna", 500.0, true, 120.0));
+        }
+
+        // The signed-gap (overshoot) rule (playtest 7, maintainer rule): bridge only when the previous
+        // element's end sits BEHIND the next element's start along the direction of travel.
+        [Fact]
+        public void IsSeamGapAhead_GapVsOvershoot()
+        {
+            Vector3d travelDir = new Vector3d(1.0, 0.0, 0.0);
+            Vector3d prevEnd = new Vector3d(100.0, 50.0, 0.0);
+            // Next start AHEAD of the previous end along travel: a real gap -> bridge.
+            Assert.True(GhostTrajectoryPolylineRenderer.IsSeamGapAhead(
+                prevEnd, new Vector3d(140.0, 50.0, 0.0), travelDir));
+            // Next start BEHIND the previous end (overshoot, lines already overlap) -> no bridge.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsSeamGapAhead(
+                prevEnd, new Vector3d(60.0, 50.0, 0.0), travelDir));
+            // Coincident (anchored leg sitting exactly on the seam) -> no bridge.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsSeamGapAhead(
+                prevEnd, prevEnd, travelDir));
+        }
+
+        // The past/future visibility rule (playtest 7): only PAST body-fixed legs hide; future
+        // body-fixed legs (the Duna landing descent) and all anchorable legs draw.
+        [Fact]
+        public void ShouldHideBodyFixedRunLeg_OnlyPastNonAnchorable()
+        {
+            // Past + body-fixed: hidden (would rotate-sweep behind the icon).
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldHideBodyFixedRunLeg(
+                anchorCandidate: false, legEndUT: 100.0, headUT: 200.0));
+            // FUTURE body-fixed (the landing descent): draws.
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldHideBodyFixedRunLeg(
+                anchorCandidate: false, legEndUT: 300.0, headUT: 200.0));
+            // Anchorable legs never hide, past or future.
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldHideBodyFixedRunLeg(
+                anchorCandidate: true, legEndUT: 100.0, headUT: 200.0));
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldHideBodyFixedRunLeg(
+                anchorCandidate: true, legEndUT: 300.0, headUT: 200.0));
+        }
+
+        // The on-demand bridge sample span (playtest-8 star fix): duration/3 for short conics, but
+        // clamped by period/3 for multi-revolution segments - the ~660-rev parking-ellipse loiter
+        // previously sampled 61 points tens of thousands of seconds apart (arbitrary orbit phases),
+        // which drew as a star polygon around Kerbin.
+        [Fact]
+        public void ComputeBridgeSampleSpan_PeriodClampsMultiRevSegments()
+        {
+            // Multi-rev ellipse: duration 11.4M s, period 5240 s -> span = period/3, NOT duration/3.
+            Assert.Equal(5240.0 / 3.0, GhostTrajectoryPolylineRenderer.ComputeBridgeSampleSpanSeconds(
+                0.0, 11400000.0, periodSeconds: 5240.0), 9);
+            // Short conic (sub-period): duration/3.
+            Assert.Equal(858.0 / 3.0, GhostTrajectoryPolylineRenderer.ComputeBridgeSampleSpanSeconds(
+                100.0, 958.0, periodSeconds: 2680.0), 9);
+            // Hyperbolic / unknown mu (NaN period): duration/3 fallback.
+            Assert.Equal(900.0 / 3.0, GhostTrajectoryPolylineRenderer.ComputeBridgeSampleSpanSeconds(
+                0.0, 900.0, periodSeconds: double.NaN), 9);
+            // Degenerate segment -> 0 (caller skips); tiny segments floor at 1 s.
+            Assert.Equal(0.0, GhostTrajectoryPolylineRenderer.ComputeBridgeSampleSpanSeconds(
+                100.0, 100.0, 5000.0));
+            Assert.Equal(1.0, GhostTrajectoryPolylineRenderer.ComputeBridgeSampleSpanSeconds(
+                100.0, 101.5, 5000.0));
+        }
+
+        // Terminal-leg exception input (playtest 11): the past-hide rule applies only when an
+        // ABOVE-SURFACE conic follows the leg within the run - the Duna landing trail (nothing after
+        // it) stays visible; below-surface conics never count (they are not drawn).
+        [Fact]
+        public void AnyAboveSurfaceConicStartsAtOrAfter_TerminalVsFollowed()
+        {
+            var followed = new List<OrbitSegment>
+            {
+                CleanDunaSegment(100.0, 400.0),
+                CleanDunaSegment(500.0, 900.0),
+            };
+            // Leg ending at 480: the conic at 500 follows within the window -> hide applies.
+            Assert.True(GhostTrajectoryPolylineRenderer.AnyAboveSurfaceConicStartsAtOrAfter(
+                followed, ut: 480.0, windowStopUT: 1000.0, surface: DunaSurface()));
+            // Window stops before the follower -> nothing follows IN THE RUN.
+            Assert.False(GhostTrajectoryPolylineRenderer.AnyAboveSurfaceConicStartsAtOrAfter(
+                followed, 480.0, windowStopUT: 500.0, surface: DunaSurface()));
+            // Terminal landing trail: every conic starts before the leg end -> keep visible.
+            Assert.False(GhostTrajectoryPolylineRenderer.AnyAboveSurfaceConicStartsAtOrAfter(
+                followed, ut: 950.0, windowStopUT: double.PositiveInfinity, surface: DunaSurface()));
+            // A BELOW-SURFACE follower does not count (never drawn).
+            var belowOnly = new List<OrbitSegment> { DegenerateDunaSegment(500.0, 900.0) };
+            Assert.False(GhostTrajectoryPolylineRenderer.AnyAboveSurfaceConicStartsAtOrAfter(
+                belowOnly, 480.0, double.PositiveInfinity, DunaSurface()));
+            // Null list tolerated.
+            Assert.False(GhostTrajectoryPolylineRenderer.AnyAboveSurfaceConicStartsAtOrAfter(
+                null, 480.0, double.PositiveInfinity, DunaSurface()));
+        }
+
+        // Chord-deviation diagnostic (playtest-11 straightness instrumentation): a circular arc
+        // bulges from its chord; collinear points read ~0.
+        [Fact]
+        public void MaxChordDeviation_ArcVsStraight()
+        {
+            // Quarter circle of radius 1000: max chord deviation = r*(1 - cos(45 deg)) ~ 292.9.
+            var arc = new Vector3d[31];
+            for (int i = 0; i <= 30; i++)
+            {
+                double a = (System.Math.PI / 2.0) * i / 30.0;
+                arc[i] = new Vector3d(1000.0 * System.Math.Cos(a), 1000.0 * System.Math.Sin(a), 0);
+            }
+            double dev = GhostTrajectoryPolylineRenderer.MaxChordDeviation(arc, 31);
+            Assert.True(System.Math.Abs(dev - 292.89) < 1.0, "quarter-circle deviation was " + dev);
+
+            // Collinear points: ~0.
+            var line = new Vector3d[10];
+            for (int i = 0; i < 10; i++) line[i] = new Vector3d(i * 100.0, i * 50.0, 0);
+            Assert.True(GhostTrajectoryPolylineRenderer.MaxChordDeviation(line, 10) < 1e-9);
+
+            // Degenerate inputs -> 0.
+            Assert.Equal(0.0, GhostTrajectoryPolylineRenderer.MaxChordDeviation(null, 10));
+            Assert.Equal(0.0, GhostTrajectoryPolylineRenderer.MaxChordDeviation(line, 2));
+        }
+
+        // The TS marker OrbitSegmentActive veto (playtest-12 icon fix): a recorded conic covering the
+        // current UT vetoes the marker ONLY while the polyline does NOT own the phase. When it owns
+        // (proto line/icon hidden - or the proto destroyed on a below-surface descent), the marker is
+        // the sole position indicator and must draw.
+        [Fact]
+        public void ClassifyAtmosphericMarkerSkip_OrbitSegmentVeto_BypassedWhenPolylineOwns()
+        {
+            var rec = new Recording { RecordingId = "rec-veto-bypass" };
+            rec.Points.Add(MakePoint(100.0, 0.0, 0.0, 60000.0, "Duna"));
+            rec.Points.Add(MakePoint(400.0, 0.0, 1.0, 50000.0, "Duna"));
+            rec.OrbitSegments.Add(DegenerateDunaSegment(150.0, 350.0)); // covers currentUT below
+
+            // Not owned: the covering conic vetoes the marker (the orbit icon is presumed to draw).
+            GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting("rec-veto-bypass", false);
+            Assert.Equal(
+                ParsekTrackingStation.AtmosphericMarkerSkipReason.OrbitSegmentActive,
+                ParsekTrackingStation.ClassifyAtmosphericMarkerSkip(
+                    rec, recordingIndex: 0, currentUT: 250.0, suppressedIds: null));
+
+            // Polyline owns the phase: the marker is the sole indicator -> the veto is bypassed.
+            GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting("rec-veto-bypass", true);
+            Assert.Equal(
+                ParsekTrackingStation.AtmosphericMarkerSkipReason.None,
+                ParsekTrackingStation.ClassifyAtmosphericMarkerSkip(rec, 0, 250.0, null));
+        }
+
+        // RecordedLongitudeAtUT is the exact inverse of BodyFixedLongitudeAtUT (playtest-12
+        // gap-fill): a conic sample converted through the live rotation, counter-rotated to the
+        // recorded basis, must roundtrip back through the draw path's forward correction.
+        [Fact]
+        public void RecordedLongitudeAtUT_RoundtripsWithBodyFixedLongitudeAtUT()
+        {
+            const double rotationPeriod = 65517.859; // Duna
+            const double sampleUT = 70963500.0;
+            const double liveUT = 2410196581.0;
+            const double lonAtLive = 42.5;
+
+            double recorded = GhostTrajectoryPolylineRenderer.RecordedLongitudeAtUT(
+                lonAtLive, sampleUT, liveUT, rotationPeriod);
+            double roundtrip = GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(
+                recorded, sampleUT, liveUT, rotationPeriod);
+            Assert.Equal(lonAtLive, roundtrip, 6);
+
+            // Degenerate rotation period: identity.
+            Assert.Equal(lonAtLive, GhostTrajectoryPolylineRenderer.RecordedLongitudeAtUT(
+                lonAtLive, sampleUT, liveUT, 0.0), 9);
+        }
+
+        // The frameless-gap conic fill (playtest-12 straight-chord fix): a 208 s recorded-data gap
+        // covered by a BELOW-SURFACE conic gains interior points sampled from that conic; short gaps,
+        // uncovered gaps, and above-surface conics (which split the leg instead) are untouched.
+        [Fact]
+        public void FillFramelessGapsFromConics_FillsOnlyCoveredLongGaps()
+        {
+            var rec = new Recording { RecordingId = "rec-gapfill" };
+            // The below-surface descent conic covering the long gap (the seg-21 shape).
+            rec.OrbitSegments.Add(DegenerateDunaSegment(1000.0, 1210.0));
+
+            var pts = new List<TrajectoryPoint>
+            {
+                MakePoint(990.0, 0.0, 10.0, 58000.0, "Duna"),
+                MakePoint(1000.0, 0.0, 11.0, 57000.0, "Duna"),   // gap start
+                MakePoint(1208.0, 0.0, 30.0, 50100.0, "Duna"),   // 208 s frameless gap
+                MakePoint(1212.0, 0.0, 30.2, 50000.0, "Duna"),
+            };
+
+            int sampled = 0;
+            GhostTrajectoryPolylineRenderer.ConicGapSampler sampler =
+                (OrbitSegment seg, double ut, out double lat, out double lon, out double alt) =>
+                {
+                    sampled++;
+                    lat = 0.0;
+                    lon = 11.0 + (ut - 1000.0) * (19.0 / 208.0); // synthetic curve interior
+                    alt = 57000.0 - (ut - 1000.0) * 33.0;
+                    return true;
+                };
+
+            int inserted = GhostTrajectoryPolylineRenderer.FillFramelessGapsFromConics(
+                pts, rec, DunaSurface(), sampler);
+
+            Assert.True(inserted > 0, "the covered 208 s gap must gain interior points");
+            Assert.Equal(sampled, inserted);
+            Assert.True(inserted <= GhostTrajectoryPolylineRenderer.GapFillMaxPointsPerGap);
+            // All inserted points sit strictly inside the gap.
+            for (int i = 4; i < pts.Count; i++)
+                Assert.True(pts[i].ut > 1000.0 && pts[i].ut < 1208.0,
+                    "inserted point at " + pts[i].ut + " must lie inside the gap");
+
+            // No sampler / no surface provider -> no-op.
+            var pts2 = new List<TrajectoryPoint>(pts.GetRange(0, 4));
+            Assert.Equal(0, GhostTrajectoryPolylineRenderer.FillFramelessGapsFromConics(
+                pts2, rec, DunaSurface(), null));
+            Assert.Equal(0, GhostTrajectoryPolylineRenderer.FillFramelessGapsFromConics(
+                pts2, rec, null, sampler));
+
+            // An ABOVE-surface conic covering the gap does not fill (the cover splits the leg there
+            // instead; filling would double-draw the arc).
+            var recAbove = new Recording { RecordingId = "rec-gapfill-above" };
+            recAbove.OrbitSegments.Add(CleanDunaSegment(1000.0, 1210.0));
+            Assert.Equal(0, GhostTrajectoryPolylineRenderer.FillFramelessGapsFromConics(
+                pts2, recAbove, DunaSurface(), sampler));
+
+            // A short gap (under GapFillMinSeconds) is untouched.
+            var shortPts = new List<TrajectoryPoint>
+            {
+                MakePoint(1000.0, 0.0, 11.0, 57000.0, "Duna"),
+                MakePoint(1010.0, 0.0, 12.0, 56800.0, "Duna"),
+            };
+            Assert.Equal(0, GhostTrajectoryPolylineRenderer.FillFramelessGapsFromConics(
+                shortPts, rec, DunaSurface(), sampler));
+        }
+
+        // The rotating-frame drift predicate (playtest-9): at low altitude KSP's world frame
+        // co-rotates with the main body, freezing once-captured "inertial" offsets against the live
+        // frame; any InverseRotAngle drift beyond epsilon must trigger the in-place resample.
+        [Fact]
+        public void HasFrameRotationDrift_DetectsRotation()
+        {
+            // No drift: inertial-frame era (angle frozen) -> cache holds.
+            Assert.False(GhostTrajectoryPolylineRenderer.HasFrameRotationDrift(123.456, 123.456));
+            Assert.False(GhostTrajectoryPolylineRenderer.HasFrameRotationDrift(123.456, 123.456 + 1e-9));
+            // One frame of Kerbin rotation at 1x (~0.0003 deg) is far above epsilon -> resample.
+            Assert.True(GhostTrajectoryPolylineRenderer.HasFrameRotationDrift(123.456, 123.4563));
+            // Wrap-scale changes obviously drift.
+            Assert.True(GhostTrajectoryPolylineRenderer.HasFrameRotationDrift(359.9, 0.1));
+        }
+
+        // A START-side bridge feeds the conic's TAIL REVERSED through the same pure helper: slice[0]
+        // (the conic's end, full seam rotation) must land exactly on the leg start, slice[M] (the tail
+        // merge sample) exactly on the conic.
+        [Fact]
+        public void SeamBridge_ReversedTailSlice_EndpointsExact()
+        {
+            var arc = MakeArcPoints(80, 400000.0);
+            const int merge = 60;
+            // Reversed tail slice: slice[i] = arc[last - i].
+            var slice = new Vector3d[merge + 1];
+            int lastIdx = arc.Length - 1;
+            for (int i = 0; i <= merge; i++) slice[i] = arc[lastIdx - i];
+            // Leg start = the conic end rotated 8 deg about Z (the landing leg under live rotation).
+            const double seamAngle = 8.0 * System.Math.PI / 180.0;
+            Vector3d legStart = RotZ(arc[lastIdx], seamAngle);
+            var outPts = new Vector3d[merge + 1];
+
+            bool ok = GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeLocalPoints(
+                legStart, slice, 1.0, merge,
+                GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians, outPts, out double measured);
+
+            Assert.True(ok);
+            Assert.Equal(seamAngle, measured, 6);
+            Assert.True((outPts[0] - legStart).magnitude < 1.0,
+                "reversed-tail bridge must start exactly on the leg start");
+            Assert.True((outPts[merge] - arc[lastIdx - merge]).magnitude < 1.0,
+                "reversed-tail bridge must end exactly on the conic's tail merge sample");
+        }
     }
 }

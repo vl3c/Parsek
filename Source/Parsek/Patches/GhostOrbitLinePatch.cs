@@ -1054,37 +1054,21 @@ namespace Parsek.Patches
             double startUTRaw = arcDirectorDrive ? startUT : GhostMapPresence.MapLiveUTToEffUT(startUT, arcShift);
             double endUTRaw = arcDirectorDrive ? endUT : GhostMapPresence.MapLiveUTToEffUT(endUT, arcShift);
 
-            // Convert UT bounds to eccentric anomaly (same as PatchRendering/Trajectory)
-            double fromE = orbit.EccentricAnomalyAtUT(startUTRaw);
-            double toE = orbit.EccentricAnomalyAtUT(endUTRaw);
-
-            // NaN guard — degenerate orbits or UT outside validity
-            if (double.IsNaN(fromE) || double.IsNaN(toE)) return true;
-
-            // Handle wraparound (periapsis crossing), ELLIPTICAL ONLY, same logic as
-            // Trajectory.UpdateFromOrbit. GetTrueAnomaly returns [0, 2pi] for E in [0, 2pi). When
-            // fromV > toV, the arc wraps through periapsis (V=0). Making fromE negative creates a
-            // monotonically increasing range that crosses E=0. A hyperbola is monotonic in
-            // (eccentric) anomaly H and never wraps, so it MUST NOT get this correction; applying
-            // it would fabricate a bogus reversed range. (fromV/toV computed for the diagnostic
-            // log either way; only the ellipse uses them to adjust fromE.)
-            double fromV = orbit.GetTrueAnomaly(fromE);
-            double toV = orbit.GetTrueAnomaly(toE);
-            if (!hyperbolic && ArcAnomalyMath.NeedsPeriapsisWraparound(fromV, toV))
-                fromE = ArcAnomalyMath.ApplyPeriapsisWraparound(fromE);
-
-            // Sample the partial arc across all available points. The stock sampler
-            // getPositionFromEccAnomalyWithSemiMinorAxis and orbit.semiMinorAxis both dispatch on
-            // the orbit's eccentricity internally (cos/sin for ecc<1, cosh/sinh for ecc>1), so the
-            // identical loop produces the correct elliptical OR hyperbolic arc between fromE..toE.
+            // Sample the open arc via the shared OrbitArcSampler (the single copy of this
+            // eccentric-anomaly clip math, shared with the forward-arc renderer). Behaviour is
+            // byte-identical to the inlined block this replaced: same EccentricAnomalyAtUT bounds,
+            // same NaN-fall-through-to-stock, same elliptical-only periapsis wraparound, same
+            // 180-sample open sweep into the stock OrbitPoints buffer. The caller still owns the
+            // full-period early-return above (a full revolution draws the stock complete ellipse),
+            // the scaled-space conversion, the draw-range, and the diagnostic log below.
             var orbitPoints = __instance.OrbitPoints;
-            double semiMinorAxis = orbit.semiMinorAxis;
-            int count = orbitPoints.Length; // 180 at stock sampleResolution=2.0
-            double interval = (toE - fromE) / (count - 1);
+            OrbitArcSampler.ArcSampleResult arc =
+                OrbitArcSampler.SampleSegmentArc(orbit, startUTRaw, endUTRaw, orbitPoints);
+            if (!arc.Sampled) return true; // degenerate / parabolic / out-of-validity → stock
 
-            for (int i = 0; i < count; i++)
-                orbitPoints[i] = orbit.getPositionFromEccAnomalyWithSemiMinorAxis(
-                    fromE + interval * (double)i, semiMinorAxis);
+            double fromE = arc.FromE;
+            double toE = arc.ToE;
+            int count = arc.Count;
 
             // Convert to scaled space and set draw range (open arc, no loop closing)
             var line = __instance.OrbitLine;

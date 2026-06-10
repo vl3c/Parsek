@@ -535,14 +535,36 @@ namespace Parsek
                 if (!atmosCachedIndices.ContainsKey(i))
                     atmosCachedIndices[i] = -1;
                 int cached = atmosCachedIndices[i];
-                if (!TryResolveRecordingWorldPosition(
-                        rec,
-                        effUT,
-                        ref cached,
-                        out Vector3d worldPos,
-                        out _,
-                        out TrajectoryPoint sampledPoint,
-                        out string resolveReason))
+                bool rodePolyline = false;
+                bool resolved = TryResolveRecordingWorldPosition(
+                    rec,
+                    effUT,
+                    ref cached,
+                    out Vector3d worldPos,
+                    out _,
+                    out TrajectoryPoint sampledPoint,
+                    out string resolveReason);
+                if (resolved)
+                {
+                    atmosCachedIndices[i] = cached;
+                }
+                else if (Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                        rec.RecordingId, effUT, out Vector3 riddenWorldPos))
+                {
+                    // Playtest-12 follow-up (icon vanished on the gap-filled landing chord): the
+                    // recording-side resolver has nothing to bracket inside a FRAMELESS recorded span
+                    // (the OrbitalCheckpoint section under the below-surface descent), but the POLYLINE
+                    // is drawing that span - including the conic gap-fill points, which live only in
+                    // the renderer's leg cache. RIDE the drawn line (the same contract the flight-map
+                    // marker and the TS overlap-instance markers use) so the icon stays on the curve
+                    // instead of vanishing. The ride self-gates on the leg having drawn this frame
+                    // (or the short HeldLastGood pan-hold of a recently-on-line position), so this can
+                    // never paint a marker for an undrawn phase.
+                    worldPos = riddenWorldPos;
+                    rodePolyline = true;
+                    resolved = true;
+                }
+                if (!resolved)
                 {
                     if (resolveReason == "body-missing")
                         summary.MissingBody++;
@@ -551,7 +573,6 @@ namespace Parsek
                     EmitMarkerDecision(MapRenderTrace.MarkerOutcome.SkippedPositionFail);
                     continue;
                 }
-                atmosCachedIndices[i] = cached;
 
                 VesselType vtype = ResolveVesselTypeWithFallback(committed, rec);
                 Color markerColor = MapMarkerRenderer.GetColorForType(vtype);
@@ -572,7 +593,8 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
                     $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
                     $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
-                    $"lat={sampledPoint.latitude:F2} lon={sampledPoint.longitude:F2} alt={sampledPoint.altitude:F0}");
+                    $"lat={sampledPoint.latitude:F2} lon={sampledPoint.longitude:F2} alt={sampledPoint.altitude:F0} " +
+                    $"rodePolyline={rodePolyline}");
 
                 // MapRenderTrace IMGUI surface coverage (AtmosphericMarker). Decision-only: this
                 // marker draws here in OnGUI, so the position IS the truth (no end-of-frame
@@ -741,7 +763,16 @@ namespace Parsek
                 return AtmosphericMarkerSkipReason.OutsideTimeRange;
             if (suppressedIds != null && suppressedIds.Contains(rec.RecordingId))
                 return AtmosphericMarkerSkipReason.SuppressedByChainFilter;
+            // OrbitSegmentActive veto - BYPASSED when the polyline OWNS this recording's current
+            // phase (playtest-12 icon fix): ownership means the proto orbit line/icon is hidden (or
+            // the proto is destroyed entirely, e.g. the below-surface Duna descent), so the marker is
+            // the SOLE position indicator. Without the bypass, a recorded conic covering the current
+            // UT - including a BELOW-SURFACE one that draws no arc, or short mid-burn fragments under
+            // an owned leg - silently vetoed the marker and the icon vanished on the landing chord
+            // and on the escape-burn leg. When the polyline does NOT own the phase the veto keeps its
+            // original job: no duplicate marker next to a live proto orbit icon.
             if (rec.HasOrbitSegments
+                && !Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(rec.RecordingId)
                 && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue)
                 return AtmosphericMarkerSkipReason.OrbitSegmentActive;
             return AtmosphericMarkerSkipReason.None;
