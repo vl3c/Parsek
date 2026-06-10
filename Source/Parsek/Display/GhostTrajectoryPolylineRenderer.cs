@@ -1209,6 +1209,32 @@ namespace Parsek.Display
         /// none. xUnit-testable (operates on the cached arc metadata only).
         /// </summary>
         /// <summary>
+        /// PURE diagnostic: max perpendicular deviation of the interior points from the straight chord
+        /// (points[0] -> points[count-1]), in the points' own units. Quantifies a bridge's CURVATURE
+        /// in the draw log (playtest-11 "the bridge looks straight" report): a genuinely straight
+        /// bridge reads ~0, a healthy conic-tail bridge reads a substantial fraction of its length.
+        /// xUnit-testable.
+        /// </summary>
+        internal static double MaxChordDeviation(Vector3d[] points, int count)
+        {
+            if (points == null || count < 3 || points.Length < count) return 0.0;
+            Vector3d a = points[0];
+            Vector3d ab = points[count - 1] - a;
+            double abLen = ab.magnitude;
+            if (abLen < 1e-9) return 0.0;
+            Vector3d dir = ab / abLen;
+            double max = 0.0;
+            for (int i = 1; i < count - 1; i++)
+            {
+                Vector3d ap = points[i] - a;
+                Vector3d perp = ap - dir * Vector3d.Dot(ap, dir);
+                double d = perp.magnitude;
+                if (d > max) max = d;
+            }
+            return max;
+        }
+
+        /// <summary>
         /// PURE adjacency rule (playtest-7 generalized bridges): is this conic the inertial NEIGHBOUR of
         /// a body-fixed leg at the given seam? <paramref name="atLegStart"/>=true tests the PREV side
         /// (the conic ENDS at/just before the leg's startUT, 1 s shared-boundary tolerance forward);
@@ -1253,6 +1279,33 @@ namespace Parsek.Display
         internal static bool ShouldHideBodyFixedRunLeg(
             bool anchorCandidate, double legEndUT, double headUT)
             => !anchorCandidate && legEndUT <= headUT;
+
+        /// <summary>
+        /// PURE terminal-leg exception input (playtest 11): does any ABOVE-SURFACE conic in this
+        /// segment list start at/after <paramref name="ut"/> (1 s shared-boundary tolerance) and
+        /// before <paramref name="windowStopUT"/>? The past-hide rule exists because a trailing
+        /// body-fixed leg SWEEPS INTO inertial geometry that FOLLOWS it (the launch ascent under the
+        /// suborbital conic). A TERMINAL past leg - the Duna landing trail, with nothing after it in
+        /// the run - cannot overlap anything and stays visible (glued to its landing site, bridged to
+        /// the orbit behind it); hiding it at touchdown read as "the landing line disappeared while
+        /// the rest of the trajectory stayed". Below-surface conics do not count: they are never
+        /// drawn. xUnit-testable (surface seam injected).
+        /// </summary>
+        internal static bool AnyAboveSurfaceConicStartsAtOrAfter(
+            List<OrbitSegment> segs, double ut, double windowStopUT, BodySurfaceProvider surface)
+        {
+            if (segs == null) return false;
+            for (int i = 0; i < segs.Count; i++)
+            {
+                var s = segs[i];
+                if (s.endUT <= s.startUT) continue;
+                if (s.startUT < ut - 1.0) continue;
+                if (s.startUT >= windowStopUT) continue;
+                if (IsOrbitSegmentBelowSurface(s, surface)) continue;
+                return true;
+            }
+            return false;
+        }
 
         internal static void FindBracketingOrbitSegments(
             List<OrbitSegment> segs, string bodyName, double legStartUT, double legEndUT,
@@ -3428,14 +3481,22 @@ namespace Parsek.Display
                 line.Draw3D();
                 entry.lastDrawnFrame = frame;
 
+                // Lazy: the chord-deviation + slice-span diagnostics (playtest-11 straightness report)
+                // compute only when the rate limit actually emits. Both scratches are consumed
+                // synchronously within this call, so the capture is safe.
                 ParsekLog.VerboseRateLimited(DriverTag, "bridge-draw." + lineKey,
-                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "Seam bridge drawn: rec={0} leg={1} side={2} src={3} angleDeg={4:F2} body={5} " +
-                        "merge={6}",
+                        "merge={6} chordDevKm={7:F1} sliceSpanDeg={8:F2}",
                         bridge.legRecordingId, bridge.legIndex, bridge.atLegStart ? "start" : "end",
                         bridge.arcIndex >= 0 ? "cached-arc" : "sampled-conic",
                         seamAngleRad * (180.0 / System.Math.PI), bodyName ?? "?",
-                        BridgeMergeSampleCount),
+                        BridgeMergeSampleCount,
+                        MaxChordDeviation(bridgePointScratch, BridgeMergeSampleCount + 1)
+                            * ScaledSpace.ScaleFactor / 1000.0,
+                        SeamBridgeAngleRad(
+                            bridgeArcSliceScratch[0], bridgeArcSliceScratch[BridgeMergeSampleCount])
+                            * (180.0 / System.Math.PI)),
                     2.0);
                 return true;
             }
@@ -3780,16 +3841,34 @@ namespace Parsek.Display
                             if (!ShouldDrawForwardLeg(leg.startUT, leg.endUT, winStart, winStop, headUT))
                                 continue;
                             // Past/future split (playtest-7 revision of the playtest-5 hide): a PAST
-                            // body-fixed leg hides (it would rotate-sweep into the inertial line behind
-                            // the icon); a FUTURE leg always draws - anchored when possible, body-fixed
-                            // otherwise (the Duna landing descent) - connected by the seam bridges.
+                            // body-fixed leg hides when inertial run geometry FOLLOWS it (it would
+                            // rotate-sweep into that line behind the icon - the launch ascent case);
+                            // a TERMINAL past body-fixed leg (the Duna landing trail, nothing after it
+                            // in the run - playtest 11) stays visible, glued to its landing site and
+                            // bridged to the orbit behind it. FUTURE legs always draw - anchored when
+                            // possible, body-fixed otherwise - connected by the seam bridges.
                             bool anchorCandidate = IsRunLegAnchorCandidate(
                                 member.rec.OrbitSegments, leg.bodyName, leg.startUT, leg.endUT);
                             bool isPast = leg.endUT <= headUT;
+                            bool keptTerminalPast = false;
                             if (ShouldHideBodyFixedRunLeg(anchorCandidate, leg.endUT, headUT))
                             {
-                                runLegsBodyFixedHidden++;
-                                continue;
+                                bool inertialFollows = false;
+                                for (int fmi = 0; fmi < chainRunMemberSegsScratch.Count; fmi++)
+                                {
+                                    if (AnyAboveSurfaceConicStartsAtOrAfter(
+                                            chainRunMemberSegsScratch[fmi], leg.endUT, winStop, surface))
+                                    {
+                                        inertialFollows = true;
+                                        break;
+                                    }
+                                }
+                                if (inertialFollows)
+                                {
+                                    runLegsBodyFixedHidden++;
+                                    continue;
+                                }
+                                keptTerminalPast = true;
                             }
                             CelestialBody legBody = ResolveBodyByName(scene, leg.bodyName);
                             if (legBody == null) continue;
@@ -3803,14 +3882,17 @@ namespace Parsek.Display
                                 ownedByTreatment = false, // forward legs always Driver-direct (no proto to own)
                                 ghostPid = ghostPid,
                                 forward = true,
-                                requireConicAnchor = isPast,
+                                // A kept terminal past leg CANNOT anchor (one-sided by construction) -
+                                // it draws body-fixed; other past legs keep the anchor requirement.
+                                requireConicAnchor = isPast && anchorCandidate,
                             });
                             frameForwardLegs++;
 
-                            // FUTURE legs are bridge-eligible on both sides. Anchored future legs are
-                            // harmless to include: the draw-time anchor puts them ON the conic seam, so
-                            // their bridge degenerates into the arc's own (clipped) lead-in/tail.
-                            if (!isPast)
+                            // FUTURE legs and kept TERMINAL past legs are bridge-eligible. Anchored
+                            // future legs are harmless to include: the draw-time anchor puts them ON
+                            // the conic seam, so their bridge degenerates into the arc's own (clipped)
+                            // lead-in/tail.
+                            if (!isPast || keptTerminalPast)
                             {
                                 bridgeLegScratch.Add(new BridgeLegCandidate
                                 {

@@ -2052,6 +2052,60 @@ namespace Parsek.Tests
                 100.0, 101.5, 5000.0));
         }
 
+        // Terminal-leg exception input (playtest 11): the past-hide rule applies only when an
+        // ABOVE-SURFACE conic follows the leg within the run - the Duna landing trail (nothing after
+        // it) stays visible; below-surface conics never count (they are not drawn).
+        [Fact]
+        public void AnyAboveSurfaceConicStartsAtOrAfter_TerminalVsFollowed()
+        {
+            var followed = new List<OrbitSegment>
+            {
+                CleanDunaSegment(100.0, 400.0),
+                CleanDunaSegment(500.0, 900.0),
+            };
+            // Leg ending at 480: the conic at 500 follows within the window -> hide applies.
+            Assert.True(GhostTrajectoryPolylineRenderer.AnyAboveSurfaceConicStartsAtOrAfter(
+                followed, ut: 480.0, windowStopUT: 1000.0, surface: DunaSurface()));
+            // Window stops before the follower -> nothing follows IN THE RUN.
+            Assert.False(GhostTrajectoryPolylineRenderer.AnyAboveSurfaceConicStartsAtOrAfter(
+                followed, 480.0, windowStopUT: 500.0, surface: DunaSurface()));
+            // Terminal landing trail: every conic starts before the leg end -> keep visible.
+            Assert.False(GhostTrajectoryPolylineRenderer.AnyAboveSurfaceConicStartsAtOrAfter(
+                followed, ut: 950.0, windowStopUT: double.PositiveInfinity, surface: DunaSurface()));
+            // A BELOW-SURFACE follower does not count (never drawn).
+            var belowOnly = new List<OrbitSegment> { DegenerateDunaSegment(500.0, 900.0) };
+            Assert.False(GhostTrajectoryPolylineRenderer.AnyAboveSurfaceConicStartsAtOrAfter(
+                belowOnly, 480.0, double.PositiveInfinity, DunaSurface()));
+            // Null list tolerated.
+            Assert.False(GhostTrajectoryPolylineRenderer.AnyAboveSurfaceConicStartsAtOrAfter(
+                null, 480.0, double.PositiveInfinity, DunaSurface()));
+        }
+
+        // Chord-deviation diagnostic (playtest-11 straightness instrumentation): a circular arc
+        // bulges from its chord; collinear points read ~0.
+        [Fact]
+        public void MaxChordDeviation_ArcVsStraight()
+        {
+            // Quarter circle of radius 1000: max chord deviation = r*(1 - cos(45 deg)) ~ 292.9.
+            var arc = new Vector3d[31];
+            for (int i = 0; i <= 30; i++)
+            {
+                double a = (System.Math.PI / 2.0) * i / 30.0;
+                arc[i] = new Vector3d(1000.0 * System.Math.Cos(a), 1000.0 * System.Math.Sin(a), 0);
+            }
+            double dev = GhostTrajectoryPolylineRenderer.MaxChordDeviation(arc, 31);
+            Assert.True(System.Math.Abs(dev - 292.89) < 1.0, "quarter-circle deviation was " + dev);
+
+            // Collinear points: ~0.
+            var line = new Vector3d[10];
+            for (int i = 0; i < 10; i++) line[i] = new Vector3d(i * 100.0, i * 50.0, 0);
+            Assert.True(GhostTrajectoryPolylineRenderer.MaxChordDeviation(line, 10) < 1e-9);
+
+            // Degenerate inputs -> 0.
+            Assert.Equal(0.0, GhostTrajectoryPolylineRenderer.MaxChordDeviation(null, 10));
+            Assert.Equal(0.0, GhostTrajectoryPolylineRenderer.MaxChordDeviation(line, 2));
+        }
+
         // The rotating-frame drift predicate (playtest-9): at low altitude KSP's world frame
         // co-rotates with the main body, freezing once-captured "inertial" offsets against the live
         // frame; any InverseRotAngle drift beyond epsilon must trigger the in-place resample.
