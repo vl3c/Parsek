@@ -62,6 +62,14 @@ namespace Parsek
             /// T-ROUTEMODULE-OBSERVE.</summary>
             internal int CreditedCycles;
 
+            /// <summary>Count of <see cref="GameActionType.RouteCargoDebited"/> rows that look like
+            /// PHYSICAL origin debits (non-empty resource manifest with zero KSC funds cost; M1).
+            /// DIAGNOSTIC ONLY - the physical removal happened live at emit time
+            /// (<c>RouteOrchestrator.EmitDispatchDebit</c> loop path) and is reverted by the rewind
+            /// quicksave restore, NOT by this walk. RouteModule observes the row and mutates
+            /// nothing (T-ROUTEMODULE-OBSERVE).</summary>
+            internal int PhysicalDebits;
+
             /// <summary>True once a <see cref="GameActionType.RoutePaused"/> row has been processed.
             /// Skeleton scope: this flag survives subsequent <see cref="GameActionType.RouteDispatched"/>
             /// rows on the same route — the skeleton accepts the dispatch with a warn and still
@@ -157,6 +165,7 @@ namespace Parsek
             int totalDispatched = 0;
             int totalDelivered = 0;
             int totalCredited = 0;
+            int totalPhysicalDebits = 0;
 
             foreach (var kv in byRoute)
             {
@@ -165,6 +174,7 @@ namespace Parsek
                 totalDispatched += kv.Value.DispatchedCycles;
                 totalDelivered += kv.Value.DeliveredStops;
                 totalCredited += kv.Value.CreditedCycles;
+                totalPhysicalDebits += kv.Value.PhysicalDebits;
             }
 
             ParsekLog.Verbose(Tag,
@@ -172,7 +182,8 @@ namespace Parsek
                 $"paused={paused.ToString(IC)}, endpointLost={endpointLost.ToString(IC)}, " +
                 $"totalDispatched={totalDispatched.ToString(IC)}, " +
                 $"totalDelivered={totalDelivered.ToString(IC)}, " +
-                $"totalCredited={totalCredited.ToString(IC)}");
+                $"totalCredited={totalCredited.ToString(IC)}, " +
+                $"physicalDebits={totalPhysicalDebits.ToString(IC)}");
         }
 
         // ================================================================
@@ -219,6 +230,17 @@ namespace Parsek
                 $"ut={action.UT.ToString("R", IC)}");
         }
 
+        /// <summary>
+        /// Observes a <see cref="GameActionType.RouteCargoDebited"/> row.
+        /// OBSERVE-ONLY (T-ROUTEMODULE-OBSERVE): the M1 physical origin debit
+        /// is applied LIVE at emit time by the orchestrator's loop path and
+        /// reverted by the rewind quicksave restore; this walk only counts the
+        /// row (heuristic: non-empty manifest with zero funds = physical
+        /// debit) and logs its attribution fields. The funds component alone
+        /// replays through <see cref="FundsModule"/>. A future edit MUST NOT
+        /// mutate vessel cargo from here - rewriting tanks from the recalc
+        /// walk is the one thing the apply pattern forbids.
+        /// </summary>
         private void ProcessCargoDebited(GameAction action)
         {
             if (!TryGetOrCreateState(action, "RouteCargoDebited", out RouteWalkState state, out string routeId))
@@ -227,12 +249,18 @@ namespace Parsek
             state.LastActionUT = action.UT;
 
             int manifestSize = action.RouteResourceManifest?.Count ?? 0;
+            int requestedSize = action.RouteRequestedResourceManifest?.Count ?? 0;
+            if (manifestSize > 0 && action.RouteKscFundsCost == 0f)
+                state.PhysicalDebits++;
+
             ParsekLog.Verbose(Tag,
                 $"Processed RouteCargoDebited for route={routeId}, " +
                 $"cycleId={action.RouteCycleId ?? "(none)"}, " +
                 $"resources={manifestSize.ToString(IC)}, " +
+                $"requested={requestedSize.ToString(IC)}, " +
+                $"originPid={action.RouteOriginVesselPid.ToString(IC)}, " +
                 $"kscFundsCost={action.RouteKscFundsCost.ToString("R", IC)}, " +
-                $"ut={action.UT.ToString("R", IC)}");
+                $"ut={action.UT.ToString("R", IC)} (observe-only, no cargo mutation)");
         }
 
         private void ProcessCargoDelivered(GameAction action)

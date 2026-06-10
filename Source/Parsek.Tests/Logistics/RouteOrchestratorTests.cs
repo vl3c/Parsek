@@ -28,11 +28,13 @@ namespace Parsek.Tests.Logistics
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RouteStore.ResetForTesting();
             Ledger.ResetForTesting();
+            RouteOrchestrator.OriginDebitApplierForTesting = null;
             logLines.Clear();
         }
 
         public void Dispose()
         {
+            RouteOrchestrator.OriginDebitApplierForTesting = null;
             RouteStore.ResetForTesting();
             Ledger.ResetForTesting();
             ParsekLog.ResetTestOverrides();
@@ -502,6 +504,48 @@ namespace Parsek.Tests.Logistics
                 Assert.True(debited.RouteResourceManifest.TryGetValue(kv.Key, out double v));
                 Assert.Equal(kv.Value, v);
             }
+        }
+
+        // catches (M1, D11 legacy-path containment): the legacy non-loop
+        // self-timer path applying the physical origin debit. ApplyDispatch
+        // fires at cycle start (not the recorded dock phase) and has no replay
+        // backstop, so EmitDispatchDebit MUST receive
+        // applyPhysicalOriginDebit=false from it: the seam is never invoked,
+        // the row keeps the v0 shape (CostManifest clone, no requested
+        // manifest, pid 0), and the Verbose skip breadcrumb fires. The
+        // companion pin is Tick_NonKscOrigin_CostManifestPopulated_FundsCostZero
+        // staying green UNCHANGED above.
+        [Fact]
+        public void LegacyDispatchPath_NonKscOrigin_SkipsPhysicalDebit_Logs()
+        {
+            var route = BuildActiveDueKscRoute();
+            route.IsKscOrigin = false; // non-KSC, non-loop (no BackingMissionTreeId)
+            RouteStore.AddRoute(route);
+            int seamCalls = 0;
+            RouteOrchestrator.OriginDebitApplierForTesting = (r, ut, env) =>
+            {
+                seamCalls++;
+                return new RouteOrchestrator.OriginDebitOutcome { OriginVesselPid = 999u };
+            };
+
+            RouteOrchestrator.Tick(200.0, new FakeRouteRuntimeEnvironment());
+
+            // Dispatched through the legacy path, physical debit skipped.
+            Assert.Equal(RouteStatus.InTransit, route.Status);
+            Assert.Equal(0, seamCalls);
+            var debited = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDebited);
+            Assert.NotNull(debited);
+            // v0 row shape byte-identical: CostManifest clone, no requested
+            // manifest, no origin pid.
+            Assert.NotNull(debited.RouteResourceManifest);
+            Assert.NotSame(route.CostManifest, debited.RouteResourceManifest);
+            Assert.Equal(route.CostManifest.Count, debited.RouteResourceManifest.Count);
+            Assert.Null(debited.RouteRequestedResourceManifest);
+            Assert.Equal(0u, debited.RouteOriginVesselPid);
+            // The D11 skip breadcrumb names the legacy path.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("legacy dispatch path: physical origin debit skipped"));
         }
 
         // catches: Sandbox + KSC origin dispatch silently charging funds.

@@ -977,8 +977,11 @@ namespace Parsek.Logistics
             }
 
             // Dispatch + debit half (RouteDispatched Sequence 0, RouteCargoDebited
-            // Sequence 1, origin/funds debit, sets KscDispatchFundsCost).
-            EmitDispatchDebit(route, currentUT, env, cycleId);
+            // Sequence 1, origin/funds debit, sets KscDispatchFundsCost). The loop
+            // crossing is the recorded dock phase and sits behind the ELS replay
+            // backstop above, so this is the ONLY caller that applies the M1
+            // physical origin debit (design D11).
+            EmitDispatchDebit(route, currentUT, env, cycleId, applyPhysicalOriginDebit: true);
 
             // Recovery-credit deferral (logistics-recovery-credit section 5.2): this
             // cycle just dispatched a (potential) Career-KSC charge, so it now OWES a
@@ -1027,6 +1030,149 @@ namespace Parsek.Logistics
         /// </summary>
         internal static System.Action<Route, double, IRouteRuntimeEnvironment> DeliveryApplierForTesting;
 
+        /// <summary>
+        /// Result of the physical origin debit half (M1, design D12): the
+        /// row inputs <see cref="EmitDispatchDebit"/> populates the
+        /// <c>RouteCargoDebited</c> action from. Unlike the delivery seam
+        /// (which replaces the whole half INCLUDING its row emission), the
+        /// debit row is constructed by <see cref="EmitDispatchDebit"/> itself,
+        /// so the seam must RETURN the actuals rather than emit.
+        /// </summary>
+        internal struct OriginDebitOutcome
+        {
+            /// <summary>Per-resource amounts ACTUALLY removed from the origin; null when nothing was removed (serializes as no manifest).</summary>
+            public Dictionary<string, double> ActualDebited;
+            /// <summary>Requested amounts for resources whose actual fell short; null on a full debit (design D3).</summary>
+            public Dictionary<string, double> RequestedOnShortfall;
+            /// <summary>Persistent id of the debited origin vessel; 0 when unresolved.</summary>
+            public uint OriginVesselPid;
+            /// <summary>True when at least one resource's actual fell short of the required amount.</summary>
+            public bool Short;
+            /// <summary>True when the origin vessel could not be resolved at apply time (zero actuals, full requested manifest).</summary>
+            public bool Unresolved;
+        }
+
+        /// <summary>
+        /// Test seam for the physical origin debit half of
+        /// <see cref="EmitDispatchDebit"/> (M1, design D12). Production leaves
+        /// it null so the loop path calls <see cref="ApplyOriginDebit"/>
+        /// verbatim (which needs a live <c>Vessel</c>); xUnit assigns a fake
+        /// that returns a hand-built <see cref="OriginDebitOutcome"/> so the
+        /// debited-row population (actuals, requested-on-shortfall, origin
+        /// pid) is verifiable without Planetarium / Vessel statics. Only
+        /// consulted on the loop path for non-KSC origins - the legacy path
+        /// and KSC origins never reach it (design D11).
+        /// </summary>
+        internal static System.Func<Route, double, IRouteRuntimeEnvironment, OriginDebitOutcome> OriginDebitApplierForTesting;
+
+        /// <summary>
+        /// Production physical origin debit (M1; same signature as the
+        /// <see cref="OriginDebitApplierForTesting"/> seam). Resolves the live
+        /// origin vessel via the env, captures the loaded gate ONCE, plans the
+        /// per-resource removal via <see cref="RouteOriginDebitPlanner"/> over
+        /// a <see cref="LiveOriginCargoProbe"/>, applies it via
+        /// <see cref="LiveOriginDebitWriters"/>, and returns the actuals /
+        /// requested-on-shortfall / origin pid for the debited row.
+        ///
+        /// <para><b>Unresolved rule (D12):</b> a resolution that returns
+        /// <c>false</c> OR returns <c>true</c> with a null vessel counts as
+        /// UNRESOLVED: Warn, zero actuals, FULL requested manifest (honest
+        /// bookkeeping - the eligibility gate passed this tick, so this is a
+        /// one-tick race, mirroring the delivery side's
+        /// endpoint-lost-at-delivery handling).</para>
+        /// </summary>
+        private static OriginDebitOutcome ApplyOriginDebit(
+            Route route, double currentUT, IRouteRuntimeEnvironment env)
+        {
+            Vessel originVessel = null;
+            string resolveReason = null;
+            bool resolved = false;
+            try
+            {
+                resolved = env.TryResolveEndpointVessel(route.Origin, out originVessel, out resolveReason);
+            }
+            catch (Exception ex)
+            {
+                resolveReason = $"resolver-threw-{ex.GetType().Name}";
+                resolved = false;
+            }
+
+            if (!resolved || originVessel == null)
+            {
+                string reason = resolved ? "resolved-null-vessel" : (resolveReason ?? "unknown");
+                ParsekLog.Warn(Tag,
+                    $"OriginDebit: route {ShortIdForLog(route)} origin unresolved at debit " +
+                    $"(reason={reason}) - emitting requested manifest with zero actuals");
+                return new OriginDebitOutcome
+                {
+                    ActualDebited = null,
+                    RequestedOnShortfall = CloneManifest(route.CostManifest),
+                    OriginVesselPid = 0u,
+                    Short = true,
+                    Unresolved = true,
+                };
+            }
+
+            // Capture the loaded gate ONCE and thread it into both the probe
+            // and the writers so the plan and the mutation read from the SAME
+            // loaded/unloaded branch (same rationale as the delivery side's
+            // destinationIsLoaded, ApplyDelivery STEP 3).
+            bool originIsLoaded = originVessel.loaded && !originVessel.packed;
+            var probe = new LiveOriginCargoProbe(originVessel, originIsLoaded);
+            OriginDebitPlan plan = RouteOriginDebitPlanner.PrepareDebit(route, probe);
+
+            // One plan line per debit (bounded: one resource set per cycle).
+            ParsekLog.Info(Tag,
+                $"OriginDebit plan: route={ShortIdForLog(route)} ut={currentUT.ToString("R", IC)} " +
+                $"resources={(plan.Resources?.Count ?? 0).ToString(IC)} " +
+                $"short={(plan.IsShort ? "1" : "0")} " +
+                $"path={(originIsLoaded ? "loaded" : "unloaded")} " +
+                $"origin={originVessel.vesselName ?? "<none>"} " +
+                $"pid={originVessel.persistentId.ToString(IC)}");
+
+            var writers = new LiveOriginDebitWriters(route, originVessel, plan, originIsLoaded);
+            Dictionary<string, double> actualManifest = null;
+            Dictionary<string, double> requestedManifest = null;
+            bool anyShort = false;
+            if (plan.Resources != null)
+            {
+                for (int i = 0; i < plan.Resources.Count; i++)
+                {
+                    OriginDebitLine line = plan.Resources[i];
+                    if (line.Available > 0.0)
+                        writers.WriteResourceDebit(line.Name, line.Available);
+                    double actual = writers.ReadActualDebited(line.Name);
+                    if (actual > 0.0)
+                    {
+                        if (actualManifest == null)
+                            actualManifest = new Dictionary<string, double>(plan.Resources.Count, StringComparer.Ordinal);
+                        actualManifest[line.Name] = actual;
+                    }
+                    // Requested-on-shortfall covers BOTH a short plan (stored <
+                    // required at plan time) and a writer-level drift (actual <
+                    // planned available) - the row records required for every
+                    // resource whose actual fell short (design D3, mirroring
+                    // the delivery side's RouteRequestedResourceManifest).
+                    if (actual < line.Required)
+                    {
+                        anyShort = true;
+                        if (requestedManifest == null)
+                            requestedManifest = new Dictionary<string, double>(plan.Resources.Count, StringComparer.Ordinal);
+                        requestedManifest[line.Name] = line.Required;
+                    }
+                }
+            }
+
+            return new OriginDebitOutcome
+            {
+                ActualDebited = actualManifest,
+                RequestedOnShortfall = requestedManifest,
+                OriginVesselPid = originVessel.persistentId,
+                Short = anyShort,
+                Unresolved = false,
+            };
+        }
+
         // ==================================================================
         // Outcome appliers
         // ==================================================================
@@ -1052,9 +1198,13 @@ namespace Parsek.Logistics
             // (both counters start at 0).
             string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
 
-            // Emit the dispatch + debit pair + the origin/funds debit (shared
-            // with the loop-clock path via EmitDispatchDebit).
-            EmitDispatchDebit(route, currentUT, env, cycleId);
+            // Emit the dispatch + debit pair + the funds debit (shared with the
+            // loop-clock path via EmitDispatchDebit). The M1 physical origin
+            // debit is LOOP-PATH-ONLY (design D11): this legacy self-timer path
+            // fires at cycle start, not the recorded dock phase (spec 19.2.5
+            // rule 2), and has no replay backstop, so it keeps the v0 rows
+            // byte-identical and never touches origin tanks.
+            EmitDispatchDebit(route, currentUT, env, cycleId, applyPhysicalOriginDebit: false);
 
             // State transition: Active/Wait* → InTransit, advance the next-due
             // UT by one DispatchInterval, clear the retry timer. (Loop-routes do
@@ -1088,9 +1238,25 @@ namespace Parsek.Logistics
         /// alone never debits origin / charges funds and trips
         /// <c>RouteModule.ProcessCargoDelivered</c>'s out-of-order guard
         /// (DispatchedCycles == 0).
+        ///
+        /// <para><b>Physical origin debit (M1, design D11: LOOP-PATH-ONLY).</b>
+        /// When <paramref name="applyPhysicalOriginDebit"/> is <c>true</c> and
+        /// the route's origin is non-KSC, the planned cargo is PHYSICALLY
+        /// removed from the live origin vessel BEFORE the rows are built (via
+        /// the <see cref="OriginDebitApplierForTesting"/> seam or the production
+        /// <see cref="ApplyOriginDebit"/>), and the debited row carries the
+        /// ACTUAL removed amounts plus requested-on-shortfall and the origin
+        /// pid. Only <see cref="EmitLoopCycle"/> passes <c>true</c>: the loop
+        /// crossing IS the recorded dock phase (spec 19.2.5 rule 2) and sits
+        /// behind the ELS replay backstop. The legacy <see cref="ApplyDispatch"/>
+        /// path passes <c>false</c> - it fires at cycle start (not the dock
+        /// phase) and has no replay backstop - keeping its rows byte-identical
+        /// to v0 (unconditional <c>CostManifest</c> clone, no physical write).
+        /// KSC origins never debit physically; funds carry the cost.</para>
         /// </summary>
         internal static void EmitDispatchDebit(
-            Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId)
+            Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId,
+            bool applyPhysicalOriginDebit)
         {
             // Funds cost: only meaningful for Career + KSC origin. We compute it
             // unconditionally so the persisted KscDispatchFundsCost stays in sync
@@ -1106,6 +1272,47 @@ namespace Parsek.Logistics
                 // truncation, intentional because GameAction defines the field
                 // as float.
                 route.KscDispatchFundsCost = computedCost;
+            }
+
+            // Physical origin debit half (M1, design D11/D12). Runs BEFORE the
+            // row construction so the debited row records what was ACTUALLY
+            // removed. Routed through the OriginDebitApplierForTesting seam so
+            // xUnit can verify the row population without a live Vessel
+            // (production leaves the seam null -> ApplyOriginDebit).
+            bool physicalDebitApplied = false;
+            OriginDebitOutcome originDebit = default(OriginDebitOutcome);
+            if (!route.IsKscOrigin)
+            {
+                if (applyPhysicalOriginDebit)
+                {
+                    var originDebitApplier = OriginDebitApplierForTesting;
+                    originDebit = originDebitApplier != null
+                        ? originDebitApplier(route, currentUT, env)
+                        : ApplyOriginDebit(route, currentUT, env);
+                    physicalDebitApplied = true;
+
+                    // D3 clamp-and-warn: the gate passed this tick, so a short
+                    // apply is a mid-tick drift. The row records the
+                    // actual-vs-requested split; warn so the clamp is visible.
+                    // The unresolved case already warned inside the applier.
+                    if (originDebit.Short && !originDebit.Unresolved)
+                    {
+                        ParsekLog.Warn(Tag,
+                            $"OriginDebit: route {ShortIdForLog(route)} cycle={cycleId} SHORT at apply - " +
+                            "clamped to stored; requested manifest recorded on the debited row " +
+                            $"(debitedResources={(originDebit.ActualDebited?.Count ?? 0).ToString(IC)} " +
+                            $"requestedResources={(originDebit.RequestedOnShortfall?.Count ?? 0).ToString(IC)})");
+                    }
+                }
+                else
+                {
+                    // D11: the legacy self-timer path keeps v0 behavior
+                    // byte-identical (no physical write, unconditional
+                    // CostManifest clone below).
+                    ParsekLog.Verbose(Tag,
+                        $"DispatchDebit: route {ShortIdForLog(route)} cycle={cycleId} " +
+                        "legacy dispatch path: physical origin debit skipped");
+                }
             }
 
             // RouteDispatched — the scheduler-decision marker. No manifest;
@@ -1124,6 +1331,11 @@ namespace Parsek.Logistics
             // manifest (resource amounts) and the KSC funds cost. Sequence=1
             // pins the debit AFTER the dispatched row at the same UT, which
             // matters for any future walker that orders by (UT, Sequence).
+            // On the physical-debit path the manifest is the ACTUAL removed
+            // amounts (zero actuals serialize as no manifest) plus the sparse
+            // requested-on-shortfall manifest and origin pid; on the KSC and
+            // legacy paths the v0 shape is preserved byte-identical
+            // (unconditional CostManifest clone, no requested manifest, pid 0).
             var debitedAction = new GameAction
             {
                 Type = GameActionType.RouteCargoDebited,
@@ -1132,7 +1344,15 @@ namespace Parsek.Logistics
                 RouteCycleId = cycleId,
                 RouteStopIndex = -1,
                 Sequence = 1,
-                RouteResourceManifest = CloneManifest(route.CostManifest),
+                RouteResourceManifest = physicalDebitApplied
+                    ? originDebit.ActualDebited
+                    : CloneManifest(route.CostManifest),
+                RouteRequestedResourceManifest = physicalDebitApplied
+                    ? originDebit.RequestedOnShortfall
+                    : null,
+                RouteOriginVesselPid = physicalDebitApplied
+                    ? originDebit.OriginVesselPid
+                    : 0u,
                 // RouteKscFundsCost is float-typed on GameAction by design;
                 // double precision is preserved on Route.KscDispatchFundsCost
                 // for diagnostics.
@@ -1141,11 +1361,17 @@ namespace Parsek.Logistics
 
             Ledger.AddActions(new[] { dispatchedAction, debitedAction });
 
+            string physicalSuffix = physicalDebitApplied
+                ? $" originPid={originDebit.OriginVesselPid.ToString(IC)}" +
+                  $" debitedResources={(originDebit.ActualDebited?.Count ?? 0).ToString(IC)}" +
+                  $" short={(originDebit.Short ? "1" : "0")}" +
+                  $" unresolved={(originDebit.Unresolved ? "1" : "0")}"
+                : string.Empty;
             ParsekLog.Info(Tag,
                 $"DispatchDebit: route {ShortIdForLog(route)} cycle={cycleId} " +
                 $"ut={currentUT.ToString("R", IC)} " +
                 $"cost={computedCost.ToString("R", IC)} " +
-                $"careerKsc={(isCareerKsc ? "1" : "0")}");
+                $"careerKsc={(isCareerKsc ? "1" : "0")}" + physicalSuffix);
         }
 
         /// <summary>
