@@ -547,7 +547,7 @@ Surfaced by the clean review of the batch-promotion above; pre-existing, not int
 
 ### Open - background `RouteOrchestrator.Tick` can re-enter a logistics test's synthetic route (pre-existing)
 
-Also surfaced by the review; pre-existing. `ParsekScenario.Update` fires `RouteOrchestrator.Tick(currentUT)` every `TickIntervalSec = 1.0` UT-second (`RouteOrchestrator.cs`). While a logistics in-game test's synthetic route is in `RouteStore.CommittedRoutes` (and, for `LoopFire`, the resolver seam is armed), a background tick during the test's single-frame `yield return null` could process the synthetic route if game UT advanced >= 1s that frame (only under time warp). Extremely low probability at normal rate; the tests use unique synthetic route ids and remove them in finally. Unchanged by the promotion (the same exposure existed on the row-play-button path). Flagged for completeness; a real fix would gate the orchestrator tick during a runner-driven test or namespace test routes out of the live tick.
+Also surfaced by the review; pre-existing. `ParsekScenario.Update` fires `RouteOrchestrator.Tick(currentUT)` every `TickIntervalSec = 1.0` UT-second (`RouteOrchestrator.cs`). While a logistics in-game test's synthetic route is in `RouteStore.CommittedRoutes` (and, for `LoopFire`, the resolver seam is armed), a background tick during the test's single-frame `yield return null` could process the synthetic route if game UT advanced >= 1s that frame (only under time warp). Extremely low probability at normal rate; the tests use unique synthetic route ids and remove them in finally. Unchanged by the promotion (the same exposure existed on the row-play-button path). Flagged for completeness; a real fix would gate the orchestrator tick during a runner-driven test or namespace test routes out of the live tick. The M1 `LogisticsOriginDebitRuntimeTests` (2026-06-10) run isolated and sidestep this window structurally: the orchestrator-driven cases are synchronous (no yields, so no background tick can interleave with the armed seams or the stored synthetic route), and the save round-trip case arms no seams, stores no route, and pauses/restores time warp across its yield.
 
 ---
 
@@ -998,7 +998,9 @@ asserts only 2 emits total.
 
 ---
 
-## Open - Logistics scenario-lifecycle coverage relies on source-text gates
+## ~~Open~~ RESOLVED 2026-06-10 (M1 Phase 6) - Logistics scenario-lifecycle coverage relies on source-text gates
+
+**Resolution (the 3-layer harness shape, plan-logistics-m1-origin-debit design D10):** (a) xUnit codec layer - route round-trips including dispatch priority + the non-KSC origin endpoint descriptor (`RouteStoreScenarioIntegrationTests.Scenario_RoundTrip_PreservesPriorityAndNonKscOriginDescriptor`, `RouteCodecTests`) and the `RouteCargoDebited` actuals/requested/pid round-trips (`GameActionSerializationTests`); (b) `Scenario_OnSaveAndOnLoad_InvokeRouteStoreCodec` upgraded from presence-only to an ORDERED gate (`LoadRoutesFrom` index must precede `RevalidateSources("OnLoad")` within `ParsekScenario.cs`; the save-side and Tick gates stay presence); (c) in-game lifecycle tests `LogisticsOriginDebitRuntimeTests` covering the loaded AND unloaded (proto-snapshot) origin debit through the production `RouteOrchestrator.Tick` crossing, the empty-origin hold, and the unloaded debit surviving a real `GamePersistence.SaveGame` round-trip. The full Unity-shim harness (~120 affected files) was deliberately NOT built: layers (a)+(c) cover the M1 risk (state-mutation correctness + persistence) a shim would not cover better.
 
 - The route system has three `ParsekScenario` lifecycle hookups (`RouteStore.SaveRoutesTo`, `LoadRoutesFrom`, `RevalidateSources`) and they are pinned by `RouteStoreScenarioIntegrationTests.Scenario_OnSaveAndOnLoad_InvokeRouteStoreCodec`, which greps the source for the three literal strings. The pattern matches existing precedents (`ChainSaveLoadTests`, `GrepAuditTests`, `Bug278SnapshotPersistenceTests`, etc.) but only verifies presence, not surrounding state or order.
 - xUnit cannot drive `ParsekScenario.OnSave`/`OnLoad` end-to-end because both call `Planetarium.GetUniversalTime()` unguarded and the OnLoad path depends on `stateRecorder.Subscribe`, `SubscribeVesselLifecycleEvents` (Unity `GameEvents`), and `StartCoroutine` (Unity `MonoBehaviour`). No Unity-shim base class exists in `Source/Parsek.Tests/`.
@@ -1009,7 +1011,7 @@ asserts only 2 emits total.
 
 **Mitigation in the meantime:** When new hookups land in items 4-5, tighten the corresponding source-text gate to assert on an **ordered multi-string pattern** of the surrounding phase, not just presence. Example: gate for item 5's scheduler init should grep that `LoadRoutesFrom` precedes `RevalidateSources` precedes the scheduler init within the same load-phase block. `ChainSaveLoadTests` already has precedents for both presence-of and absence-of assertions.
 
-**Status:** OPEN. Filed 2026-05-16 alongside the items 1-3 blind-spot audit.
+**Status:** RESOLVED 2026-06-10 with logistics M1 (see the resolution block above). Filed 2026-05-16 alongside the items 1-3 blind-spot audit.
 
 ---
 
