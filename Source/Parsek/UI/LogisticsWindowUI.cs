@@ -297,8 +297,14 @@ namespace Parsek
 
             if (windowRect.width < 1f)
             {
+                // First-open default. MUST be >= MinWindowWidth/Height: HandleResizeDrag only
+                // enforces the minimum during a resize drag, so a smaller default would open
+                // the window below its own minimum and snap on first touch (the old 1360
+                // default predated the 1410 minimum bump and did exactly that). 1556 is the
+                // playtest-preferred width (2026-06-10 log: last resize ended w=1556 h=500),
+                // which also fits the widened Next column.
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, 1360, 500);
+                windowRect = new Rect(x, mainWindowRect.y, 1556, 500);
                 ParsekLog.Verbose("UI",
                     $"Logistics window initial position: x={windowRect.x.ToString("F0", CultureInfo.InvariantCulture)} y={windowRect.y.ToString("F0", CultureInfo.InvariantCulture)}");
             }
