@@ -1081,6 +1081,14 @@ namespace Parsek.Logistics
         /// one-tick race, mirroring the delivery side's
         /// endpoint-lost-at-delivery handling).</para>
         /// </summary>
+        /// <summary>
+        /// Shortfall tolerance for writer-accumulated actuals (mirrors
+        /// RouteAnalysisEngine.ResourceEpsilon). Multi-tank drains sum
+        /// independently rounded per-tank deltas, so exact comparison
+        /// against the planned Required flags phantom shortfalls.
+        /// </summary>
+        private const double OriginDebitShortfallEpsilon = 1e-9;
+
         private static OriginDebitOutcome ApplyOriginDebit(
             Route route, double currentUT, IRouteRuntimeEnvironment env)
         {
@@ -1106,7 +1114,11 @@ namespace Parsek.Logistics
                 return new OriginDebitOutcome
                 {
                     ActualDebited = null,
-                    RequestedOnShortfall = CloneManifest(route.CostManifest),
+                    // Positive entries only, matching the gate
+                    // (RouteOriginCargoCheck) and planner skip of <= 0
+                    // manifest entries - the short and unresolved paths
+                    // must agree on row content.
+                    RequestedOnShortfall = ClonePositiveManifest(route.CostManifest),
                     OriginVesselPid = 0u,
                     Short = true,
                     Unresolved = true,
@@ -1153,7 +1165,11 @@ namespace Parsek.Logistics
                     // planned available) - the row records required for every
                     // resource whose actual fell short (design D3, mirroring
                     // the delivery side's RouteRequestedResourceManifest).
-                    if (actual < line.Required)
+                    // Epsilon, not exact: the writer accumulates per-tank
+                    // deltas, so a complete multi-tank debit can land 1 ULP
+                    // below Required; an exact compare would persist a bogus
+                    // requested manifest + Warn every such cycle.
+                    if (actual < line.Required - OriginDebitShortfallEpsilon)
                     {
                         anyShort = true;
                         if (requestedManifest == null)
@@ -2257,6 +2273,23 @@ namespace Parsek.Logistics
         {
             if (source == null) return null;
             return new Dictionary<string, double>(source);
+        }
+
+        /// <summary>
+        /// Clone keeping positive entries only - the origin-debit gate and
+        /// planner skip non-positive manifest entries, so row manifests
+        /// built from CostManifest on the unresolved path must match.
+        /// </summary>
+        private static Dictionary<string, double> ClonePositiveManifest(Dictionary<string, double> source)
+        {
+            if (source == null) return null;
+            var clone = new Dictionary<string, double>(source.Count, StringComparer.Ordinal);
+            foreach (var kv in source)
+            {
+                if (kv.Value > 0.0)
+                    clone[kv.Key] = kv.Value;
+            }
+            return clone;
         }
 
         private static string ShortIdForLog(Route route)

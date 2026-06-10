@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 
 namespace Parsek.Logistics
 {
@@ -36,7 +35,6 @@ namespace Parsek.Logistics
     internal sealed class LiveOriginCargoProbe : IOriginCargoProbe
     {
         private const string Tag = RouteOrchestrator.Tag;
-        private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         private readonly Vessel vessel;
         // Injected by the caller - captured once per gate-check / debit and

@@ -130,12 +130,16 @@ namespace Parsek.Logistics
             // a resolution miss first; this is the defensive re-resolve at
             // the cargo gate. A true-with-null-vessel resolution counts as a
             // miss (the probe would have nothing to read).
-            if (!RouteEndpointResolver.TryResolveEndpoint(route.Origin, out Vessel originVessel, out string resolveReason)
-                || originVessel == null)
+            bool originResolved = RouteEndpointResolver.TryResolveEndpoint(
+                route.Origin, out Vessel originVessel, out string resolveReason);
+            if (!originResolved || originVessel == null)
             {
-                string reason = originVessel == null && string.IsNullOrEmpty(resolveReason)
+                // Same labeling as ApplyOriginDebit: resolved-true-with-null-
+                // vessel is "resolved-null-vessel" regardless of any reason
+                // text, so the gate and debit sites log identically.
+                string reason = originResolved
                     ? "resolved-null-vessel"
-                    : resolveReason;
+                    : (string.IsNullOrEmpty(resolveReason) ? "unknown" : resolveReason);
                 lackingResource = "origin-unresolved:" + reason;
                 ParsekLog.VerboseRateLimited(Tag, "origin-unresolved-" + route.Id,
                     $"OriginHasCargo: route {ShortIdForRoute(route)} origin unresolved (reason={reason})");

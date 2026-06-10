@@ -250,7 +250,10 @@ namespace Parsek
 
             int manifestSize = action.RouteResourceManifest?.Count ?? 0;
             int requestedSize = action.RouteRequestedResourceManifest?.Count ?? 0;
-            if (manifestSize > 0 && action.RouteKscFundsCost == 0f)
+            // Origin pid is set only by actual physical debits (M1 loop-path
+            // emit); legacy non-loop non-KSC rows carry a CostManifest clone
+            // with zero funds but no pid, and must not count as physical.
+            if (action.RouteOriginVesselPid != 0u)
                 state.PhysicalDebits++;
 
             ParsekLog.Verbose(Tag,
