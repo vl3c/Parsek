@@ -43,6 +43,22 @@ namespace Parsek.Reaim
         }
 
         /// <summary>
+        /// Longitude of periapsis (degrees, wrapped to [0,360)): LAN + argumentOfPeriapsis. The
+        /// ROBUST orientation metric for near-equatorial orbits, where LAN alone is degenerate:
+        /// at inclination ~0 the ascending node is undefined and KSP's element extraction
+        /// (Orbit.UpdateFromFixedVectors, KSP 1.12.5) substitutes the +X axis for the degenerate
+        /// node, pinning LAN to exactly 0 while argumentOfPeriapsis becomes the in-plane angle
+        /// from +X to the eccentricity vector - i.e. AoP IS the periapsis longitude there. With a
+        /// tiny noise inclination LAN and AoP are measured from the SAME (noise-chosen) node, so
+        /// their SUM remains the well-defined periapsis longitude in both regimes. NaN/Infinity
+        /// inputs propagate. Pure.
+        /// </summary>
+        internal static double LongitudeOfPeriapsisDegrees(double lanDegrees, double aopDegrees)
+        {
+            return ClampDegrees360(lanDegrees + aopDegrees);
+        }
+
+        /// <summary>
         /// Synodic period (seconds) of two bodies orbiting the same parent: the time between identical
         /// relative geometries, <c>1 / |1/P_target - 1/P_origin|</c>. Returns +Infinity for equal or
         /// degenerate periods (no relative drift -> never realigns), so callers can guard it. Pure.

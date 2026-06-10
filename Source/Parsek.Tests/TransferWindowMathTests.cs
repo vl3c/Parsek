@@ -132,5 +132,27 @@ namespace Parsek.Tests
             Assert.True(double.IsNaN(TransferWindowMath.HohmannPhaseAngleTargetDegrees(0.0, MarsSma)));
             Assert.True(double.IsNaN(TransferWindowMath.HohmannTransferTimeSeconds(EarthSma, MarsSma, 0.0)));
         }
+
+        // M-MIS-1 (docs/dev/plans/reaim-resolver-reliability.md): the robust orientation metric
+        // for near-equatorial transfers, where LAN alone is degenerate (KSP pins LAN to 0 with a
+        // +X default node, so the rotation lives in AoP; the sum is well-defined in both regimes).
+        [Theory]
+        [InlineData(0.0, 0.0, 0.0)]       // equatorial degenerate case: LAN pinned to 0
+        [InlineData(0.0, 123.4, 123.4)]   // equatorial: AoP carries the periapsis longitude
+        [InlineData(40.0, 30.0, 70.0)]    // plain sum
+        [InlineData(350.0, 20.0, 10.0)]   // wraps past 360
+        [InlineData(180.0, 180.0, 0.0)]   // wraps exactly to 0
+        [InlineData(-30.0, 10.0, 340.0)]  // negative input wraps into [0,360)
+        public void LongitudeOfPeriapsis_SumsAndWraps(double lan, double aop, double expected)
+        {
+            Assert.Equal(expected, TransferWindowMath.LongitudeOfPeriapsisDegrees(lan, aop), 6);
+        }
+
+        [Fact]
+        public void LongitudeOfPeriapsis_NaNPropagates()
+        {
+            Assert.True(double.IsNaN(TransferWindowMath.LongitudeOfPeriapsisDegrees(double.NaN, 10.0)));
+            Assert.True(double.IsNaN(TransferWindowMath.LongitudeOfPeriapsisDegrees(10.0, double.NaN)));
+        }
     }
 }

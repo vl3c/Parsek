@@ -1,86 +1,405 @@
+using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using Parsek.Reaim;
-using UnityEngine;
 
 namespace Parsek.InGameTests
 {
-    // Phase 3c end-to-end re-aim verification (docs/dev/plans/reaim-interplanetary-transfers.md).
-    // Where the C2 canary proves a SINGLE synthesized transfer can encounter Duna, this proves the
-    // CONGRUENT-WINDOW model end to end: build a re-aim plan + synodic schedule anchored on a
-    // known-good Kerbin->Duna departure (found by scanning), then drive the live
-    // ReaimPlaybackResolver.TryResolveWindowSegments for several consecutive synodic windows and assert
-    // EVERY window resolves a sane 3-segment re-aimed trajectory (parking / Sun transfer / Duna
-    // arrival). This is the load-bearing claim of the model: because each window is congruent to the
-    // recorded departure and uses the RECORDED tof, the transfer stays sane at every window (not just
-    // ~7/36 of arbitrary departures), and the per-window orientation rotates while the shape is fixed.
-    // Runs at the Space Center (no vessel). Skips cleanly on a non-stock body graph.
+    // Phase 3c end-to-end re-aim verification, made DETERMINISTIC for M-MIS-1
+    // (docs/dev/plans/reaim-resolver-reliability.md). Where the C2 canary proves a SINGLE
+    // synthesized transfer can encounter Duna, these tests prove the CONGRUENT-WINDOW model end
+    // to end: build a re-aim plan + synodic schedule anchored on a known-good Kerbin->Duna
+    // departure, then drive the live ReaimPlaybackResolver.TryResolveWindowSegments for several
+    // consecutive synodic windows.
+    //
+    // DETERMINISM (the M-MIS-1 fix): the old test seeded its departure scan off the live
+    // Planetarium.GetUniversalTime() and took the FIRST departure that synthesized. That made
+    // every run a different geometry (irreproducible failures) and parked the chosen departure
+    // on the leading EDGE of the feasibility band by construction (first success in scan order),
+    // where eccentric-target drift across synodic windows (Duna ecc 0.051 breaks exact synodic
+    // recurrence) pushes later windows outside the resolver's +-6% recorded-tof search. Now the
+    // scan base is a PINNED constant: stock ephemerides are functions of UT and nothing in the
+    // driven path reads the live clock (the resolver's currentUT is synthesized from the
+    // schedule fields).
+    //
+    // Determinism is PER-FRAME, not absolute (measured, 2026-06-10 in-game run): KSP re-bases
+    // each body orbit's epoch/meanAnomalyAtEpoch every frame, so positions at a FIXED UT carry
+    // ~1e-15 relative frame-dependent rounding noise. Within one frame results are exactly
+    // reproducible (the band-edge test's cache-cleared re-solve check); across frames only
+    // KNIFE-EDGE scan entries flip (observed feasible=17..20 of 48, edge index flickering 1<->2,
+    // while the contiguous band and its center index stayed fixed in every invocation). The
+    // tests are insensitive by design: the strict test picks the band CENTER (stable), and the
+    // band-edge test asserts the resolve-or-decline-cleanly CONTRACT, not which departure is the
+    // edge.
+    //
+    // Three tests:
+    //  1. Strict (mid-band): every window must resolve a sane re-aimed transfer, and the
+    //     orientation must rotate across windows - asserted on the LONGITUDE OF PERIAPSIS
+    //     (LAN + AoP), because the plane-constrained transfer is near-equatorial and LAN alone
+    //     is degenerate there (the old "lan0=lanLast=0.00" intermittent failure).
+    //  2. Band-edge (weak contract): the deterministic pin of the old test's accidental
+    //     band-edge pick. Each window must either resolve sane segments or DECLINE CLEANLY to
+    //     faithful (null segments, correct window index), deterministically. Makes NO claim
+    //     that any window resolves; all-decline is a valid fail-closed outcome.
+    //  3. Feasibility sweep (manual-only diagnostic): the M-MIS-1 "measure before knob math"
+    //     artifact - maps the whole departure band x window grid into KSP.log.
+    //
+    // All tests run at the Space Center (no vessel), use PRIVATE resolver instances (never
+    // ReaimPlaybackResolver.Shared, so the real playback cache is untouched), and skip cleanly
+    // on a non-stock body graph.
     public class ReaimEndToEndInGameTest
     {
+        // Arbitrary fixed scan base (roughly Kerbin year 24). NOT derived from any observed
+        // failure; any fixed value gives full determinism (see header). Changing it changes the
+        // pinned geometry, so treat it as part of the test contract.
+        private const double PinnedScanBaseUT = 5000000.0;
+        private const int ScanSteps = 48;
+        private const int WindowsToCheck = 5;
+
+        private sealed class ScanContext
+        {
+            public CelestialBody Kerbin;
+            public CelestialBody Duna;
+            public double TofSeconds;          // Hohmann tof (stands in for the recorded tof)
+            public double SynodicSeconds;
+            public bool[] Scan;                // per scan step: window-0 transfer synthesizes?
+            public double[] ScanDepartureUTs;  // per scan step: candidate departure UT
+        }
+
         [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
-            Description = "Re-aim end-to-end: every synodic window resolves a sane re-aimed Kerbin->Duna transfer (congruent-window model)")]
+            Description = "Re-aim end-to-end (deterministic, mid-band departure): every synodic window resolves a sane re-aimed Kerbin->Duna transfer whose orientation rotates (congruent-window model)")]
         public void Reaim_KerbinToDuna_EveryWindowResolvesSaneTransfer()
         {
             var ic = CultureInfo.InvariantCulture;
+            ScanContext ctx = BuildPinnedScanOrSkip();
+            if (ctx == null)
+                return;
+
+            int midIdx = ReaimFeasibilityScan.CenterOfLongestRunIndex(ctx.Scan, cyclic: true);
+            if (midIdx < 0)
+            {
+                InGameAssert.Skip("no good Kerbin->Duna departure found in the pinned synodic scan (unexpected on stock)");
+                return;
+            }
+            double goodDep = ctx.ScanDepartureUTs[midIdx];
+
+            BuildMemberAndPlan(ctx, goodDep,
+                out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
+                out double spanStart, out double spanEnd);
+            ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
+                ctx.Kerbin.orbit.period, ctx.Duna.orbit.period, goodDep, ctx.TofSeconds,
+                spanStart, spanEnd, referenceUT: goodDep - 1.0);
+            InGameAssert.IsTrue(sched.Valid, "window schedule must be valid: " + (sched.Reason ?? ""));
+            InGameAssert.IsTrue(System.Math.Abs(sched.FirstDepartureUT - goodDep) < 1.0,
+                "window 0 should be the pinned departure");
+
+            // Drive the resolver for several consecutive windows; assert EVERY one resolves a
+            // sane 3-segment re-aimed trajectory. Private resolver instance: clean cache, and
+            // the Shared playback cache stays untouched.
+            var resolver = new ReaimPlaybackResolver();
+            string memberId = "reaim-e2e-mid-" + midIdx.ToString(ic);
+            double span = spanEnd - spanStart;
+            int resolved = 0;
+            double firstEcc = double.NaN, firstSma = double.NaN;
+            double firstInc = double.NaN, lastInc = double.NaN;
+            double firstLan = double.NaN, lastLan = double.NaN;
+            double firstAop = double.NaN, lastAop = double.NaN;
+            for (long k = 0; k < WindowsToCheck; k++)
+            {
+                // A synthetic live UT inside window k's recorded span (phaseAnchor + k*cadence + mid-span).
+                double currentUT = sched.PhaseAnchorUT + k * sched.CadenceSeconds + 0.5 * span;
+                bool ok = resolver.TryResolveWindowSegments(
+                    memberId, memberSegments, plan, sched,
+                    sched.PhaseAnchorUT, spanStart, spanEnd, sched.CadenceSeconds, currentUT,
+                    out List<OrbitSegment> segs, out long windowIndex);
+
+                InGameAssert.IsTrue(ok, $"window k={k} must resolve a re-aimed transfer (congruent-window model, mid-band departure)");
+                InGameAssert.AreEqual(k, windowIndex, $"resolved window index must equal k={k}");
+                AssertSaneWindowSegments(segs, plan, goodDep, spanEnd, k);
+
+                OrbitSegment transfer = segs[1];
+                if (k == 0)
+                {
+                    firstEcc = transfer.eccentricity;
+                    firstSma = transfer.semiMajorAxis;
+                    firstInc = transfer.inclination;
+                    firstLan = transfer.longitudeOfAscendingNode;
+                    firstAop = transfer.argumentOfPeriapsis;
+                }
+                lastInc = transfer.inclination;
+                lastLan = transfer.longitudeOfAscendingNode;
+                lastAop = transfer.argumentOfPeriapsis;
+                resolved++;
+            }
+
+            double firstLpe = TransferWindowMath.LongitudeOfPeriapsisDegrees(firstLan, firstAop);
+            double lastLpe = TransferWindowMath.LongitudeOfPeriapsisDegrees(lastLan, lastAop);
+            ParsekLog.Info("ReaimE2E",
+                $"Kerbin->Duna congruent windows (pinned mid-band): checked={WindowsToCheck} resolved={resolved} " +
+                $"scanIdx={midIdx} goodDep={goodDep.ToString("F1", ic)} tof={ctx.TofSeconds.ToString("F0", ic)} synodic={ctx.SynodicSeconds.ToString("F0", ic)} " +
+                $"ecc0={firstEcc.ToString("R", ic)} sma0={firstSma.ToString("R", ic)} " +
+                $"w0 inc={firstInc.ToString("F4", ic)} lan={firstLan.ToString("F2", ic)} aop={firstAop.ToString("F2", ic)} lpe={firstLpe.ToString("F2", ic)} | " +
+                $"wLast inc={lastInc.ToString("F4", ic)} lan={lastLan.ToString("F2", ic)} aop={lastAop.ToString("F2", ic)} lpe={lastLpe.ToString("F2", ic)}");
+
+            InGameAssert.AreEqual(WindowsToCheck, resolved,
+                "every congruent synodic window must resolve a sane re-aimed transfer (the model's core claim)");
+            // Re-aimed, not transplanted: the conic SHAPE is preserved across windows (congruent)
+            // while the inertial ORIENTATION rotates (it aims at where Duna actually is each
+            // window). Asserted on the longitude of periapsis (LAN + AoP): the plane-constrained
+            // transfer is near-equatorial, where LAN alone is degenerate (KSP pins it to 0 with a
+            // +X default node - the old intermittent lan0=lanLast=0.00 failure), while LAN + AoP
+            // stays the well-defined periapsis longitude. Wrapped delta so a 360 wrap cannot mask
+            // or fake the rotation.
+            double lpeDelta = System.Math.Abs(TransferWindowMath.ClampDegrees180(lastLpe - firstLpe));
+            InGameAssert.IsTrue(lpeDelta > 1.0,
+                $"the transfer orientation must rotate across windows (longitude of periapsis delta={lpeDelta.ToString("F2", ic)} deg; lpe0={firstLpe.ToString("F2", ic)} lpeLast={lastLpe.ToString("F2", ic)})");
+        }
+
+        [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
+            Description = "Re-aim end-to-end (deterministic, band-edge departure): every synodic window either resolves a sane transfer or declines cleanly to faithful, with identical outcome on re-solve")]
+        public void Reaim_KerbinToDuna_BandEdgeWindows_ResolveOrDeclineCleanly()
+        {
+            var ic = CultureInfo.InvariantCulture;
+            ScanContext ctx = BuildPinnedScanOrSkip();
+            if (ctx == null)
+                return;
+
+            int edgeIdx = ReaimFeasibilityScan.FirstSuccessIndex(ctx.Scan);
+            if (edgeIdx < 0)
+            {
+                InGameAssert.Skip("no good Kerbin->Duna departure found in the pinned synodic scan (unexpected on stock)");
+                return;
+            }
+            double edgeDep = ctx.ScanDepartureUTs[edgeIdx];
+
+            BuildMemberAndPlan(ctx, edgeDep,
+                out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
+                out double spanStart, out double spanEnd);
+            ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
+                ctx.Kerbin.orbit.period, ctx.Duna.orbit.period, edgeDep, ctx.TofSeconds,
+                spanStart, spanEnd, referenceUT: edgeDep - 1.0);
+            InGameAssert.IsTrue(sched.Valid, "window schedule must be valid: " + (sched.Reason ?? ""));
+
+            // The WEAK (designed) contract at the band edge: per window, resolve sane segments OR
+            // decline cleanly to faithful (fail closed, never garbage), and do so DETERMINISTICALLY
+            // (cache-cleared re-solve gives the identical outcome). This is the pinned regression
+            // case for the old intermittent "window k must resolve" failures: those runs had
+            // accidentally picked this band-edge departure off the live clock. Deliberately makes
+            // NO claim that any window resolves here; the strong claim is test 1's, on the
+            // mid-band departure.
+            var resolver = new ReaimPlaybackResolver();
+            string memberId = "reaim-e2e-edge-" + edgeIdx.ToString(ic);
+            double span = spanEnd - spanStart;
+            int resolvedCount = 0, declinedCount = 0;
+            var map = new StringBuilder(WindowsToCheck);
+            for (long k = 0; k < WindowsToCheck; k++)
+            {
+                double currentUT = sched.PhaseAnchorUT + k * sched.CadenceSeconds + 0.5 * span;
+                bool ok = resolver.TryResolveWindowSegments(
+                    memberId, memberSegments, plan, sched,
+                    sched.PhaseAnchorUT, spanStart, spanEnd, sched.CadenceSeconds, currentUT,
+                    out List<OrbitSegment> segs, out long windowIndex);
+                InGameAssert.AreEqual(k, windowIndex, $"window index must equal k={k} on resolve AND on decline");
+                if (ok)
+                {
+                    AssertSaneWindowSegments(segs, plan, edgeDep, spanEnd, k);
+                    resolvedCount++;
+                    map.Append('R');
+                }
+                else
+                {
+                    InGameAssert.IsTrue(segs == null,
+                        $"window k={k} decline must return null segments (clean fall-back to faithful)");
+                    declinedCount++;
+                    map.Append('d');
+                }
+
+                // Determinism: a cache-cleared re-solve of the SAME window must reproduce the
+                // outcome (and the same transfer conic when resolved). Also locks cache-vs-fresh
+                // equivalence.
+                resolver.Clear();
+                bool ok2 = resolver.TryResolveWindowSegments(
+                    memberId, memberSegments, plan, sched,
+                    sched.PhaseAnchorUT, spanStart, spanEnd, sched.CadenceSeconds, currentUT,
+                    out List<OrbitSegment> segs2, out long windowIndex2);
+                InGameAssert.IsTrue(ok == ok2,
+                    $"window k={k} outcome must be deterministic (first={ok} re-solve={ok2})");
+                InGameAssert.AreEqual(windowIndex, windowIndex2, $"window k={k} re-solve index must match");
+                if (ok && ok2)
+                {
+                    OrbitSegment a = segs[1], b = segs2[1];
+                    InGameAssert.IsTrue(
+                        NearlyEqual(a.semiMajorAxis, b.semiMajorAxis) && NearlyEqual(a.eccentricity, b.eccentricity)
+                        && NearlyEqual(a.inclination, b.inclination)
+                        && NearlyEqual(a.longitudeOfAscendingNode, b.longitudeOfAscendingNode)
+                        && NearlyEqual(a.argumentOfPeriapsis, b.argumentOfPeriapsis),
+                        $"window k={k} re-solved transfer conic must match the first solve");
+                }
+            }
+
+            ParsekLog.Info("ReaimE2E",
+                $"Kerbin->Duna band-edge windows (pinned): scanIdx={edgeIdx} edgeDep={edgeDep.ToString("F1", ic)} " +
+                $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} " +
+                $"(decline = clean faithful fall-back; all-decline is a valid fail-closed outcome)");
+        }
+
+        // The M-MIS-1 "measure before knob math" artifact: maps the WHOLE pinned departure scan
+        // (one synodic period, 48 steps) x 5 windows into KSP.log. Manual-only: tens of seconds
+        // of Lambert/CalculatePatch work, not for the shared batch. Per-departure lines are the
+        // measurement product (bounded by the feasible-band size, typically a fraction of 48);
+        // infeasible departures are skipped (their window-0 synth already failed in the scan) and
+        // appear only in the final band map.
+        [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
+            AllowBatchExecution = false,
+            BatchSkipReason = "diagnostic measurement sweep (M-MIS-1); run manually from the test runner",
+            Description = "Re-aim feasibility sweep: per-departure x per-window resolve/decline map for the pinned Kerbin->Duna scan (measurement artifact, manual-only)")]
+        public IEnumerator Reaim_KerbinToDuna_FeasibilitySweep_Diagnostic()
+        {
+            var ic = CultureInfo.InvariantCulture;
+            ScanContext ctx = BuildPinnedScanOrSkip();
+            if (ctx == null)
+                yield break;
+
+            int feasible = 0;
+            var bandMap = new StringBuilder(ScanSteps);
+            for (int i = 0; i < ScanSteps; i++)
+            {
+                bandMap.Append(ctx.Scan[i] ? 'X' : '.');
+                if (ctx.Scan[i])
+                    feasible++;
+            }
+            int firstIdx = ReaimFeasibilityScan.FirstSuccessIndex(ctx.Scan);
+            int centerIdx = ReaimFeasibilityScan.CenterOfLongestRunIndex(ctx.Scan, cyclic: true);
+            var perWindowResolved = new int[WindowsToCheck];
+
+            for (int i = 0; i < ScanSteps; i++)
+            {
+                if (!ctx.Scan[i])
+                    continue;
+                double dep = ctx.ScanDepartureUTs[i];
+                BuildMemberAndPlan(ctx, dep,
+                    out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
+                    out double spanStart, out double spanEnd);
+                ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
+                    ctx.Kerbin.orbit.period, ctx.Duna.orbit.period, dep, ctx.TofSeconds,
+                    spanStart, spanEnd, referenceUT: dep - 1.0);
+                if (!sched.Valid)
+                {
+                    ParsekLog.Warn("ReaimE2E", $"sweep dep={i}/{ScanSteps} schedule invalid ({sched.Reason}) - skipped");
+                    continue;
+                }
+
+                var resolver = new ReaimPlaybackResolver();
+                string memberId = "reaim-e2e-sweep-" + i.ToString(ic);
+                double span = spanEnd - spanStart;
+                var map = new StringBuilder(WindowsToCheck);
+                int resolvedCount = 0;
+                for (long k = 0; k < WindowsToCheck; k++)
+                {
+                    double currentUT = sched.PhaseAnchorUT + k * sched.CadenceSeconds + 0.5 * span;
+                    bool ok = resolver.TryResolveWindowSegments(
+                        memberId, memberSegments, plan, sched,
+                        sched.PhaseAnchorUT, spanStart, spanEnd, sched.CadenceSeconds, currentUT,
+                        out List<OrbitSegment> _, out long _);
+                    if (ok)
+                    {
+                        resolvedCount++;
+                        perWindowResolved[k]++;
+                    }
+                    map.Append(ok ? 'R' : 'd');
+                }
+                ParsekLog.Info("ReaimE2E",
+                    $"sweep dep={i}/{ScanSteps} depUT={dep.ToString("F1", ic)} windows={map} resolved={resolvedCount}/{WindowsToCheck}");
+                yield return null; // keep the scene responsive; progress is observable per departure
+            }
+
+            var perWindow = new StringBuilder();
+            for (int k = 0; k < WindowsToCheck; k++)
+                perWindow.Append(k == 0 ? "k0=" : $" k{k.ToString(ic)}=").Append(perWindowResolved[k].ToString(ic));
+            ParsekLog.Info("ReaimE2E",
+                $"sweep summary: feasible={feasible}/{ScanSteps} band={bandMap} first={firstIdx} center={centerIdx} " +
+                $"perWindowResolved {perWindow} (resolver declines are the fail-closed faithful path; " +
+                $"this map is the M-MIS-1 measurement input for the widen-vs-classify decision)");
+        }
+
+        // Builds the pinned deterministic scan shared by all three tests, or returns null after
+        // InGameAssert.Skip on a non-stock body graph / degenerate geometry.
+        private static ScanContext BuildPinnedScanOrSkip()
+        {
             CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
             CelestialBody duna = FlightGlobals.Bodies?.Find(b => b.bodyName == "Duna");
             if (kerbin == null || duna == null)
             {
                 InGameAssert.Skip("Kerbin/Duna not in FlightGlobals.Bodies (non-stock pack)");
-                return;
+                return null;
             }
             if (kerbin.referenceBody == null || kerbin.referenceBody != duna.referenceBody)
             {
                 InGameAssert.Skip("Kerbin and Duna do not share a parent in this pack");
-                return;
+                return null;
             }
 
             double muSun = kerbin.referenceBody.gravParameter;
-            double aK = kerbin.orbit.semiMajorAxis, aD = duna.orbit.semiMajorAxis;
-            double pK = kerbin.orbit.period, pD = duna.orbit.period;
-            double tof = TransferWindowMath.HohmannTransferTimeSeconds(aK, aD, muSun);
-            double synodic = TransferWindowMath.SynodicPeriodSeconds(pK, pD);
+            double tof = TransferWindowMath.HohmannTransferTimeSeconds(
+                kerbin.orbit.semiMajorAxis, duna.orbit.semiMajorAxis, muSun);
+            double synodic = TransferWindowMath.SynodicPeriodSeconds(kerbin.orbit.period, duna.orbit.period);
             InGameAssert.IsTrue(tof > 0.0 && !double.IsInfinity(synodic) && synodic > 0.0,
                 "Hohmann tof + synodic period must be finite/positive");
 
-            // 1. Find a KNOWN-GOOD departure: scan one synodic period for the first departure whose
-            //    (Hohmann-tof) transfer encounters Duna. This stands in for the recorded mission's
-            //    actual departure; the congruent-window model relaunches at this geometry every synodic.
-            double now = Planetarium.GetUniversalTime();
-            double goodDep = double.NaN;
-            const int steps = 48;
-            for (int i = 0; i < steps; i++)
+            // One pinned synodic period of candidate departures: which synthesize a window-0
+            // transfer (Hohmann tof, prograde)? Batch-counted; per-candidate detail is the sweep
+            // test's job.
+            var scan = new bool[ScanSteps];
+            var depUTs = new double[ScanSteps];
+            int hits = 0;
+            for (int i = 0; i < ScanSteps; i++)
             {
-                double tDep = now + (synodic * i) / steps;
-                if (ReaimTransferSynthesizer.TrySynthesizeTransfer(
-                        kerbin, duna, tDep, tof, prograde: true,
-                        out _, out _, out _, out _))
-                {
-                    goodDep = tDep;
-                    break;
-                }
+                double tDep = PinnedScanBaseUT + (synodic * i) / ScanSteps;
+                depUTs[i] = tDep;
+                scan[i] = ReaimTransferSynthesizer.TrySynthesizeTransfer(
+                    kerbin, duna, tDep, tof, prograde: true,
+                    out _, out _, out _, out _);
+                if (scan[i])
+                    hits++;
             }
-            if (double.IsNaN(goodDep))
-            {
-                InGameAssert.Skip("no good Kerbin->Duna departure found in a synodic scan (unexpected on stock)");
-                return;
-            }
+            ParsekLog.Verbose("ReaimE2E",
+                $"pinned scan base={PinnedScanBaseUT.ToString("F0", CultureInfo.InvariantCulture)} steps={ScanSteps} feasible={hits}");
 
-            // 2. Build a synthetic re-aim plan + the member's OWN recorded segments: Kerbin parking just
-            //    before, Sun heliocentric leg = [goodDep, goodDep+tof], Duna arrival just after.
-            string parent = kerbin.referenceBody.bodyName;
-            double spanStart = goodDep - 600.0;
-            double recordedArrivalUT = goodDep + tof;
-            double spanEnd = recordedArrivalUT + 600.0;
-            var memberSegments = new System.Collections.Generic.List<OrbitSegment>
+            return new ScanContext
             {
-                new OrbitSegment { bodyName = "Kerbin", startUT = spanStart, endUT = goodDep,
+                Kerbin = kerbin,
+                Duna = duna,
+                TofSeconds = tof,
+                SynodicSeconds = synodic,
+                Scan = scan,
+                ScanDepartureUTs = depUTs
+            };
+        }
+
+        // Builds the synthetic member segments + re-aim plan for one departure: Kerbin parking
+        // just before, Sun heliocentric leg = [dep, dep+tof], Duna arrival just after. Stands in
+        // for a recorded mission's segment list; the congruent-window model relaunches this
+        // geometry every synodic period.
+        private static void BuildMemberAndPlan(
+            ScanContext ctx, double departureUT,
+            out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
+            out double spanStart, out double spanEnd)
+        {
+            string parent = ctx.Kerbin.referenceBody.bodyName;
+            spanStart = departureUT - 600.0;
+            double recordedArrivalUT = departureUT + ctx.TofSeconds;
+            spanEnd = recordedArrivalUT + 600.0;
+            memberSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment { bodyName = "Kerbin", startUT = spanStart, endUT = departureUT,
                     semiMajorAxis = 700000.0, eccentricity = 0.0, epoch = spanStart },
-                new OrbitSegment { bodyName = parent, startUT = goodDep, endUT = recordedArrivalUT,
-                    semiMajorAxis = 1.5e10, eccentricity = 0.2, epoch = goodDep }, // recorded heliocentric leg
+                new OrbitSegment { bodyName = parent, startUT = departureUT, endUT = recordedArrivalUT,
+                    semiMajorAxis = 1.5e10, eccentricity = 0.2, epoch = departureUT }, // recorded heliocentric leg
                 new OrbitSegment { bodyName = "Duna", startUT = recordedArrivalUT, endUT = spanEnd,
                     semiMajorAxis = 500000.0, eccentricity = 0.1, epoch = recordedArrivalUT },
             };
-            var plan = new ReaimMissionPlan
+            plan = new ReaimMissionPlan
             {
                 Supported = true,
                 LaunchBody = "Kerbin",
@@ -89,73 +408,44 @@ namespace Parsek.InGameTests
                 ParkingOrbit = memberSegments[0],
                 HeliocentricLeg = memberSegments[1],
                 ArrivalLeg = memberSegments[2],
-                RecordedDepartureUT = goodDep,
+                RecordedDepartureUT = departureUT,
                 RecordedArrivalUT = recordedArrivalUT,
-                RecordedTransferTofSeconds = tof
+                RecordedTransferTofSeconds = ctx.TofSeconds
             };
+        }
 
-            // 3. Plan the synodic schedule (congruent windows = goodDep + k*synodic, recorded tof).
-            ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
-                pK, pD, goodDep, tof, spanStart, spanEnd, referenceUT: goodDep - 1.0);
-            InGameAssert.IsTrue(sched.Valid, "window schedule must be valid: " + (sched.Reason ?? ""));
-            InGameAssert.IsTrue(System.Math.Abs(sched.FirstDepartureUT - goodDep) < 1.0,
-                "window 0 should be the recorded departure");
+        // The shared per-window sanity assertions: 3 segments (Kerbin parking / re-aimed Sun
+        // transfer / Duna arrival), sane elliptic transfer conic, recorded-span placement.
+        private static void AssertSaneWindowSegments(
+            List<OrbitSegment> segs, ReaimMissionPlan plan, double departureUT, double spanEnd, long k)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            InGameAssert.IsTrue(segs != null && segs.Count == 3,
+                $"window k={k} must keep 3 segments (Kerbin parking / re-aimed Sun transfer / Duna arrival)");
+            OrbitSegment transfer = segs[1];
+            InGameAssert.AreEqual(plan.CommonAncestor, transfer.bodyName,
+                $"window k={k} transfer must be Sun-bodied");
+            InGameAssert.IsTrue(
+                ReaimTransferSynthesizer.IsSaneTransferConic(transfer.eccentricity, transfer.semiMajorAxis),
+                $"window k={k} transfer must be a sane elliptic conic (ecc={transfer.eccentricity.ToString("R", ic)} sma={transfer.semiMajorAxis.ToString("R", ic)})");
+            // Per-member: only the Sun leg is re-aimed (placed at [departure, recordedArrival]);
+            // the Kerbin parking + Duna arrival legs keep their recorded UTs + bodies.
+            InGameAssert.AreEqual("Kerbin", segs[0].bodyName, $"window k={k} must keep the Kerbin parking leg");
+            InGameAssert.AreEqual("Duna", segs[2].bodyName, $"window k={k} must keep the Duna arrival leg");
+            InGameAssert.IsTrue(System.Math.Abs(segs[1].startUT - departureUT) < 1.0,
+                $"window k={k} transfer must start at the recorded departure (recorded-span)");
+            InGameAssert.IsTrue(System.Math.Abs(segs[2].endUT - spanEnd) < 1.0,
+                $"window k={k} arrival must keep its recorded span end (fits span)");
+        }
 
-            // 4. Drive the resolver for several consecutive windows; assert EVERY one resolves a sane
-            //    3-segment re-aimed trajectory. Use a fresh member id so the cache is clean.
-            ReaimPlaybackResolver.Shared.Clear();
-            string memberId = "reaim-e2e-" + goodDep.ToString("F0", ic);
-            double span = spanEnd - spanStart;
-            const int windowsToCheck = 5;
-            int resolved = 0;
-            double firstEcc = double.NaN, firstSma = double.NaN;
-            double window0Lan = double.NaN, lastLan = double.NaN;
-            for (long k = 0; k < windowsToCheck; k++)
-            {
-                // A live UT that lands inside window k's recorded span (phaseAnchor + k*cadence + mid-span).
-                double currentUT = sched.PhaseAnchorUT + k * sched.CadenceSeconds + 0.5 * span;
-                bool ok = ReaimPlaybackResolver.Shared.TryResolveWindowSegments(
-                    memberId, memberSegments, plan, sched,
-                    sched.PhaseAnchorUT, spanStart, spanEnd, sched.CadenceSeconds, currentUT,
-                    out System.Collections.Generic.List<OrbitSegment> segs, out long windowIndex);
-
-                InGameAssert.IsTrue(ok, $"window k={k} must resolve a re-aimed transfer (congruent-window model)");
-                InGameAssert.AreEqual(k, windowIndex, $"resolved window index must equal k={k}");
-                InGameAssert.IsTrue(segs != null && segs.Count == 3,
-                    $"window k={k} must keep 3 segments (Kerbin parking / re-aimed Sun transfer / Duna arrival)");
-
-                OrbitSegment transfer = segs[1];
-                InGameAssert.AreEqual(plan.CommonAncestor, transfer.bodyName,
-                    $"window k={k} transfer must be Sun-bodied");
-                InGameAssert.IsTrue(
-                    ReaimTransferSynthesizer.IsSaneTransferConic(transfer.eccentricity, transfer.semiMajorAxis),
-                    $"window k={k} transfer must be a sane elliptic conic (ecc={transfer.eccentricity.ToString("R", ic)} sma={transfer.semiMajorAxis.ToString("R", ic)})");
-                // Per-member: only the Sun leg is re-aimed (placed at [goodDep, recordedArrivalUT]); the
-                // Kerbin parking + Duna arrival legs keep their recorded UTs + bodies (follow their bodies).
-                InGameAssert.AreEqual("Kerbin", segs[0].bodyName, $"window k={k} must keep the Kerbin parking leg");
-                InGameAssert.AreEqual("Duna", segs[2].bodyName, $"window k={k} must keep the Duna arrival leg");
-                InGameAssert.IsTrue(System.Math.Abs(segs[1].startUT - goodDep) < 1.0,
-                    $"window k={k} transfer must start at the recorded departure (recorded-span)");
-                InGameAssert.IsTrue(System.Math.Abs(segs[2].endUT - spanEnd) < 1.0,
-                    $"window k={k} arrival must keep its recorded span end (fits span)");
-
-                if (k == 0) { firstEcc = transfer.eccentricity; firstSma = transfer.semiMajorAxis; window0Lan = transfer.longitudeOfAscendingNode; }
-                lastLan = transfer.longitudeOfAscendingNode;
-                resolved++;
-            }
-
-            ParsekLog.Info("ReaimE2E",
-                $"Kerbin->Duna congruent windows: checked={windowsToCheck} resolved={resolved} " +
-                $"goodDep={goodDep.ToString("F1", ic)} tof={tof.ToString("F0", ic)} synodic={synodic.ToString("F0", ic)} " +
-                $"ecc0={firstEcc.ToString("R", ic)} sma0={firstSma.ToString("R", ic)} " +
-                $"lan0={window0Lan.ToString("F2", ic)} lanLast={lastLan.ToString("F2", ic)}");
-
-            InGameAssert.AreEqual(windowsToCheck, resolved,
-                "every congruent synodic window must resolve a sane re-aimed transfer (the model's core claim)");
-            // Re-aimed, not transplanted: the conic SHAPE is preserved across windows (congruent) while
-            // the inertial ORIENTATION rotates (it aims at where Duna actually is each window).
-            InGameAssert.IsTrue(System.Math.Abs(lastLan - window0Lan) > 1.0,
-                "the transfer orientation must rotate across windows (re-aimed at the live target), not be identical");
+        // Identical-solve comparison: the re-solve runs the same FP path on the same inputs, so
+        // bitwise equality is expected; the tiny relative margin only guards exotic FP modes.
+        private static bool NearlyEqual(double a, double b)
+        {
+            if (double.IsNaN(a) && double.IsNaN(b))
+                return true;
+            double scale = System.Math.Max(1.0, System.Math.Max(System.Math.Abs(a), System.Math.Abs(b)));
+            return System.Math.Abs(a - b) <= 1e-9 * scale;
         }
     }
 }
