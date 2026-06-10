@@ -142,13 +142,19 @@ namespace Parsek.Display
             new Dictionary<string, BridgeLineEntry>(StringComparer.Ordinal);
 
         // On-demand bridge conic samples (playtest 7): 61 inertial body-relative points along a
-        // conic's lead-in or tail third, for bridge sides whose conic is NOT a cached forward arc
-        // (the CURRENT element - e.g. the final orbit the icon rides while the landing leg lies
-        // ahead). Sampled once per (recording|segment|side) via Orbit.getPositionAtUT (the offsets
-        // are inertial-stable, like ForwardArc.bodyRelOffsets); capped and cleared with the forward
-        // caches.
-        private static readonly Dictionary<string, Vector3d[]> bridgeConicSampleCache =
-            new Dictionary<string, Vector3d[]>(StringComparer.Ordinal);
+        // conic's lead-in or tail, for bridge sides whose conic is NOT a cached forward arc (the
+        // CURRENT element - e.g. the final orbit the icon rides while the landing leg lies ahead).
+        // Sampled per (recording|segment|side) via Orbit.getPositionAtUT and RESAMPLED IN PLACE when
+        // the co-rotating world frame turns under the capture (playtest-9, see
+        // ForwardArcSet.captureInverseRotAngle); capped and cleared with the forward caches.
+        private sealed class BridgeConicSamples
+        {
+            public Vector3d[] pts;
+            public double captureInverseRotAngle;
+        }
+
+        private static readonly Dictionary<string, BridgeConicSamples> bridgeConicSampleCache =
+            new Dictionary<string, BridgeConicSamples>(StringComparer.Ordinal);
 
         /// <summary>Cap for <see cref="bridgeConicSampleCache"/>; on overflow the whole cache is
         /// dropped (entries are cheap to resample).</summary>
@@ -187,15 +193,51 @@ namespace Parsek.Display
             if (body == null || seg.endUT <= seg.startUT) return null;
             string key = string.Format(System.Globalization.CultureInfo.InvariantCulture,
                 "{0}|{1:F1}|{2:F1}|{3}", recordingId, seg.startUT, seg.endUT, tail ? "t" : "l");
+            double liveRotAngle = Planetarium.InverseRotAngle;
             if (bridgeConicSampleCache.TryGetValue(key, out var cached))
-                return cached;
+            {
+                // Rotating-frame staleness (playtest 9): when the co-rotating world frame turned
+                // since capture, refill the SAME array (orbit evaluation is frame-correct per call).
+                if (!HasFrameRotationDrift(cached.captureInverseRotAngle, liveRotAngle))
+                    return cached.pts;
+                if (FillBridgeConicSamples(seg, body, tail, cached.pts))
+                {
+                    cached.captureInverseRotAngle = liveRotAngle;
+                    return cached.pts;
+                }
+                return cached.pts; // resample fault: keep the stale frame rather than dropping the bridge
+            }
 
+            var pts = new Vector3d[BridgeMergeSampleCount + 1];
+            if (!FillBridgeConicSamples(seg, body, tail, pts))
+                return null;
+
+            if (bridgeConicSampleCache.Count >= BridgeConicSampleCacheCap)
+                bridgeConicSampleCache.Clear();
+            bridgeConicSampleCache[key] = new BridgeConicSamples
+            {
+                pts = pts,
+                captureInverseRotAngle = liveRotAngle,
+            };
+            return pts;
+        }
+
+        /// <summary>
+        /// Samples <paramref name="seg"/>'s lead-in/tail span into <paramref name="pts"/> (in place;
+        /// the rotating-frame resample reuses the cached array). False on a degenerate segment /
+        /// orbit fault / non-finite sample - the array is then left untouched past the failure point,
+        /// so callers must not publish a half-filled FRESH array (the in-place resample tolerates it:
+        /// a stale-but-coherent frame beats a torn one only when the prior content was coherent,
+        /// which a cache hit guarantees).
+        /// </summary>
+        private static bool FillBridgeConicSamples(
+            OrbitSegment seg, CelestialBody body, bool tail, Vector3d[] pts)
+        {
             double span = ComputeBridgeSampleSpanSeconds(
                 seg.startUT, seg.endUT,
                 ForwardRenderWindow.ComputePeriod(seg.semiMajorAxis, body.gravParameter));
-            if (span <= 0.0) return null;
+            if (span <= 0.0) return false;
             double t0 = tail ? seg.endUT - span : seg.startUT;
-            var pts = new Vector3d[BridgeMergeSampleCount + 1];
             try
             {
                 var orbit = new Orbit(
@@ -207,19 +249,15 @@ namespace Parsek.Display
                 {
                     double ut = t0 + span * i / BridgeMergeSampleCount;
                     Vector3d world = orbit.getPositionAtUT(ut);
-                    if (!IsFiniteVec(world)) return null;
+                    if (!IsFiniteVec(world)) return false;
                     pts[i] = world - bodyPos;
                 }
             }
             catch (Exception)
             {
-                return null;
+                return false;
             }
-
-            if (bridgeConicSampleCache.Count >= BridgeConicSampleCacheCap)
-                bridgeConicSampleCache.Clear();
-            bridgeConicSampleCache[key] = pts;
-            return pts;
+            return true;
         }
 
         /// <summary>
@@ -517,6 +555,14 @@ namespace Parsek.Display
 
             /// <summary><c>Time.frameCount</c> of the last frame this arc drew (deactivation sweep).</summary>
             public int lastDrawnFrame;
+
+            /// <summary>
+            /// The OrbitSegment this arc was sampled from (playtest-9 rotating-frame fix): kept so the
+            /// offsets can be RESAMPLED IN PLACE when KSP's co-rotating world frame turns under them
+            /// (see <see cref="ForwardArcSet.captureInverseRotAngle"/>) without rebuilding the
+            /// VectorLines.
+            /// </summary>
+            public OrbitSegment sourceSegment;
         }
 
         /// <summary>
@@ -532,7 +578,27 @@ namespace Parsek.Display
 
             /// <summary>The (currentElementIndex|bodyName|reaimWindowIndex) key the arcs were sampled for.</summary>
             public string cacheKey;
+
+            /// <summary>
+            /// <c>Planetarium.InverseRotAngle</c> at sample time (playtest-9 rotating-frame fix). At
+            /// LOW altitude KSP's world frame CO-ROTATES with the main body; a "frame-stable" inertial
+            /// offset captured once then effectively rotates WITH the planet (the true inertial orbit
+            /// counter-rotates in that frame), freezing the arc/bridge geometry against the body-fixed
+            /// legs until the next cache rebuild - the playtest-9 "bridges only update at transitions"
+            /// symptom. When the live angle drifts from this capture, the offsets are resampled IN
+            /// PLACE (orbit evaluation is frame-correct); in inertial-frame eras the angle does not
+            /// move, so the cache holds exactly as before.
+            /// </summary>
+            public double captureInverseRotAngle;
         }
+
+        /// <summary>
+        /// PURE drift predicate for the rotating-frame resample (playtest-9): the world frame has
+        /// rotated since capture when the two <c>Planetarium.InverseRotAngle</c> readings differ
+        /// beyond a tiny epsilon (degrees). xUnit-testable.
+        /// </summary>
+        internal static bool HasFrameRotationDrift(double captureAngleDeg, double currentAngleDeg)
+            => System.Math.Abs(captureAngleDeg - currentAngleDeg) > 1e-7;
 
         /// <summary>
         /// Refreshes the cache for one recording. Recomputes the cheap
@@ -3198,6 +3264,40 @@ namespace Parsek.Display
             }
 
             /// <summary>
+            /// Resamples one cached forward arc's body-relative offsets IN PLACE from its source
+            /// segment (playtest-9 rotating-frame fix): same VectorLine, same arrays - only the
+            /// values refresh, evaluated through the live (frame-correct) Orbit. False on a body /
+            /// orbit / sampler fault; the stale offsets are then kept (a coherent stale frame beats
+            /// a torn one).
+            /// </summary>
+            private bool ResampleForwardArcOffsetsInPlace(GameScenes scene, ref ForwardArc arc)
+            {
+                if (arc.bodyRelOffsets == null) return false;
+                CelestialBody body = ResolveBodyByName(scene, arc.bodyName);
+                if (body == null) return false;
+                var seg = arc.sourceSegment;
+                Orbit orbit;
+                try
+                {
+                    orbit = new Orbit(
+                        seg.inclination, seg.eccentricity, seg.semiMajorAxis,
+                        seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
+                        seg.meanAnomalyAtEpoch, seg.epoch, body);
+                }
+                catch (Exception)
+                {
+                    return false;
+                }
+                OrbitArcSampler.ArcSampleResult res =
+                    OrbitArcSampler.SampleSegmentArc(orbit, seg.startUT, seg.endUT, forwardArcSampleScratch);
+                if (!res.Sampled || res.Count != arc.bodyRelOffsets.Length) return false;
+                Vector3d bodyPos = body.position;
+                for (int i = 0; i < res.Count; i++)
+                    arc.bodyRelOffsets[i] = forwardArcSampleScratch[i] - bodyPos;
+                return true;
+            }
+
+            /// <summary>
             /// SEAM BRIDGE draw, one (leg, side) pair (playtest 6, generalized playtest 7): connects
             /// the leg's drawn endpoint to the adjacent inertial conic with the CONIC'S OWN curvature,
             /// the seam rotation unwound along it (<see cref="TryBuildSeamBridgeLocalPoints"/>). The
@@ -3960,7 +4060,31 @@ namespace Parsek.Display
                 if (forwardArcCache.TryGetValue(recordingId, out var existing)
                     && string.Equals(existing.cacheKey, cacheKey, StringComparison.Ordinal))
                 {
-                    return; // cache hit: same element / body / re-aim window -> reuse the sampled arcs
+                    // Cache hit: same element / body / re-aim window. Rotating-frame staleness
+                    // (playtest 9): at low altitude KSP's world frame CO-ROTATES with the main body,
+                    // so offsets captured once freeze against the live frame (arcs/bridges only
+                    // updated at cache rebuilds). When Planetarium.InverseRotAngle drifted from the
+                    // capture, RESAMPLE the offsets IN PLACE (same segments, same VectorLines - only
+                    // the values refresh); in inertial-frame eras the angle does not move and this is
+                    // the same cheap early-return as before.
+                    double liveRot = Planetarium.InverseRotAngle;
+                    if (HasFrameRotationDrift(existing.captureInverseRotAngle, liveRot))
+                    {
+                        int resampled = 0, faults = 0;
+                        for (int k = 0; k < existing.arcs.Length; k++)
+                        {
+                            if (ResampleForwardArcOffsetsInPlace(scene, ref existing.arcs[k])) resampled++;
+                            else faults++;
+                        }
+                        existing.captureInverseRotAngle = liveRot;
+                        forwardArcCache[recordingId] = existing;
+                        ParsekLog.VerboseRateLimited(DriverTag, "fwd-arc-rot-resample." + recordingId,
+                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Forward-arc rotating-frame resample: rec={0} arcs={1} faults={2}",
+                                recordingId, resampled, faults),
+                            5.0);
+                    }
+                    return;
                 }
 
                 // Key changed: destroy the prior arc lines before rebuilding.
@@ -4025,6 +4149,7 @@ namespace Parsek.Display
                         scratchScaledSpace = new Vector3[cnt],
                         vectorLine = BuildForwardArcVectorLine(recordingId, sampled, cnt),
                         lastDrawnFrame = -1,
+                        sourceSegment = seg,
                     };
                     if (arc.vectorLine == null) continue;
                     arcs.Add(arc);
@@ -4035,6 +4160,7 @@ namespace Parsek.Display
                 {
                     arcs = arcs.ToArray(),
                     cacheKey = cacheKey,
+                    captureInverseRotAngle = Planetarium.InverseRotAngle,
                 };
 
                 ParsekLog.Verbose(DriverTag,

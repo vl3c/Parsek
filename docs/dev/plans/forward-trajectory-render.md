@@ -245,7 +245,13 @@ on-demand sampling drew a star polygon; the on-demand span is also
 period-clamped via `ComputeBridgeSampleSpanSeconds` as defense-in-depth).
 Every bridge endpoint recomputes per frame from the leg's fresh scaled scratch +
 the inertial samples, so bridges track the rotating legs at any warp and any
-icon position. Visibility rule feeding this (`ShouldHideBodyFixedRunLeg`,
+icon position. **Co-rotating frame (playtest 9):** at low altitude KSP's world
+frame rotates WITH the main body, so inertial offsets captured once at cache
+build freeze against the live frame (arcs/bridges only updated at element
+transitions). Every offset cache stamps `Planetarium.InverseRotAngle` at
+capture; on drift (`HasFrameRotationDrift`) the offsets are RESAMPLED IN PLACE
+through the live frame-correct Orbit (same VectorLines/arrays, values only).
+In inertial-frame eras the angle does not move and the caches hold as before. Visibility rule feeding this (`ShouldHideBodyFixedRunLeg`,
 playtest-7 revision of the playtest-5 hide): only PAST body-fixed legs hide;
 FUTURE ones (the Duna landing descent) draw body-fixed — previously they were
 hidden until the icon arrived, which read as the landing line "appearing at the

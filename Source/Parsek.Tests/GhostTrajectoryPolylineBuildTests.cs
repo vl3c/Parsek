@@ -2052,6 +2052,21 @@ namespace Parsek.Tests
                 100.0, 101.5, 5000.0));
         }
 
+        // The rotating-frame drift predicate (playtest-9): at low altitude KSP's world frame
+        // co-rotates with the main body, freezing once-captured "inertial" offsets against the live
+        // frame; any InverseRotAngle drift beyond epsilon must trigger the in-place resample.
+        [Fact]
+        public void HasFrameRotationDrift_DetectsRotation()
+        {
+            // No drift: inertial-frame era (angle frozen) -> cache holds.
+            Assert.False(GhostTrajectoryPolylineRenderer.HasFrameRotationDrift(123.456, 123.456));
+            Assert.False(GhostTrajectoryPolylineRenderer.HasFrameRotationDrift(123.456, 123.456 + 1e-9));
+            // One frame of Kerbin rotation at 1x (~0.0003 deg) is far above epsilon -> resample.
+            Assert.True(GhostTrajectoryPolylineRenderer.HasFrameRotationDrift(123.456, 123.4563));
+            // Wrap-scale changes obviously drift.
+            Assert.True(GhostTrajectoryPolylineRenderer.HasFrameRotationDrift(359.9, 0.1));
+        }
+
         // A START-side bridge feeds the conic's TAIL REVERSED through the same pure helper: slice[0]
         // (the conic's end, full seam rotation) must land exactly on the leg start, slice[M] (the tail
         // merge sample) exactly on the conic.
