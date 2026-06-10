@@ -2029,6 +2029,29 @@ namespace Parsek.Tests
                 anchorCandidate: true, legEndUT: 300.0, headUT: 200.0));
         }
 
+        // The on-demand bridge sample span (playtest-8 star fix): duration/3 for short conics, but
+        // clamped by period/3 for multi-revolution segments - the ~660-rev parking-ellipse loiter
+        // previously sampled 61 points tens of thousands of seconds apart (arbitrary orbit phases),
+        // which drew as a star polygon around Kerbin.
+        [Fact]
+        public void ComputeBridgeSampleSpan_PeriodClampsMultiRevSegments()
+        {
+            // Multi-rev ellipse: duration 11.4M s, period 5240 s -> span = period/3, NOT duration/3.
+            Assert.Equal(5240.0 / 3.0, GhostTrajectoryPolylineRenderer.ComputeBridgeSampleSpanSeconds(
+                0.0, 11400000.0, periodSeconds: 5240.0), 9);
+            // Short conic (sub-period): duration/3.
+            Assert.Equal(858.0 / 3.0, GhostTrajectoryPolylineRenderer.ComputeBridgeSampleSpanSeconds(
+                100.0, 958.0, periodSeconds: 2680.0), 9);
+            // Hyperbolic / unknown mu (NaN period): duration/3 fallback.
+            Assert.Equal(900.0 / 3.0, GhostTrajectoryPolylineRenderer.ComputeBridgeSampleSpanSeconds(
+                0.0, 900.0, periodSeconds: double.NaN), 9);
+            // Degenerate segment -> 0 (caller skips); tiny segments floor at 1 s.
+            Assert.Equal(0.0, GhostTrajectoryPolylineRenderer.ComputeBridgeSampleSpanSeconds(
+                100.0, 100.0, 5000.0));
+            Assert.Equal(1.0, GhostTrajectoryPolylineRenderer.ComputeBridgeSampleSpanSeconds(
+                100.0, 101.5, 5000.0));
+        }
+
         // A START-side bridge feeds the conic's TAIL REVERSED through the same pure helper: slice[0]
         // (the conic's end, full seam rotation) must land exactly on the leg start, slice[M] (the tail
         // merge sample) exactly on the conic.

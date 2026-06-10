@@ -155,10 +155,31 @@ namespace Parsek.Display
         private const int BridgeConicSampleCacheCap = 32;
 
         /// <summary>
+        /// PURE on-demand bridge sample span (playtest-8 star fix): a third of the segment's duration
+        /// OR of one orbital period, whichever is SHORTER (>= 1 s). Without the period clamp, a
+        /// multi-revolution segment (the ~660-rev parking-ellipse loiter) yields 61 samples tens of
+        /// thousands of seconds apart - arbitrary orbit phases that drew as a star polygon around
+        /// Kerbin. A non-finite period (hyperbolic / unknown mu) falls back to duration/3.
+        /// xUnit-testable.
+        /// </summary>
+        internal static double ComputeBridgeSampleSpanSeconds(
+            double segStartUT, double segEndUT, double periodSeconds)
+        {
+            double duration = segEndUT - segStartUT;
+            if (duration <= 0.0) return 0.0;
+            double baseSpan = duration;
+            if (!double.IsNaN(periodSeconds) && !double.IsInfinity(periodSeconds)
+                && periodSeconds > 0.0 && periodSeconds < baseSpan)
+                baseSpan = periodSeconds;
+            return System.Math.Max(baseSpan / 3.0, 1.0);
+        }
+
+        /// <summary>
         /// Returns 61 inertial body-relative samples along <paramref name="seg"/>'s lead-in
         /// (<paramref name="tail"/>=false: [startUT, startUT+span]) or tail (true:
-        /// [endUT-span, endUT]) third, cached per (recording|segment|side). Null on a degenerate
-        /// segment / orbit construction fault (the caller skips the bridge).
+        /// [endUT-span, endUT]), span per <see cref="ComputeBridgeSampleSpanSeconds"/> (duration- AND
+        /// period-clamped), cached per (recording|segment|side). Null on a degenerate segment / orbit
+        /// construction fault (the caller skips the bridge).
         /// </summary>
         private static Vector3d[] GetBridgeConicSamples(
             string recordingId, OrbitSegment seg, CelestialBody body, bool tail)
@@ -169,7 +190,10 @@ namespace Parsek.Display
             if (bridgeConicSampleCache.TryGetValue(key, out var cached))
                 return cached;
 
-            double span = System.Math.Max((seg.endUT - seg.startUT) / 3.0, 1.0);
+            double span = ComputeBridgeSampleSpanSeconds(
+                seg.startUT, seg.endUT,
+                ForwardRenderWindow.ComputePeriod(seg.semiMajorAxis, body.gravParameter));
+            if (span <= 0.0) return null;
             double t0 = tail ? seg.endUT - span : seg.startUT;
             var pts = new Vector3d[BridgeMergeSampleCount + 1];
             try
@@ -3777,6 +3801,14 @@ namespace Parsek.Display
                                 var s = segs[si];
                                 if (s.endUT <= s.startUT) continue;
                                 if (IsOrbitSegmentBelowSurface(s, surface)) continue;
+                                // Full-loop closed orbits are RUN BOUNDARIES (playtest-8 star fix):
+                                // they are never drawn by the run, so bridging into one both violates
+                                // the stop-before-the-repeating-ellipse rule and (pre-fix) sampled a
+                                // multi-revolution segment at arbitrary phases - the star-polygon
+                                // artifact around Kerbin. The seam there needs no bridge anyway: the
+                                // anchored leg ends exactly ON the ellipse seam.
+                                if (ForwardRenderWindow.IsFullLoopClosedOrbit(s, ResolveBodyMu(s.bodyName)))
+                                    continue;
                                 if (!IsBridgeAdjacentConic(
                                         s.bodyName, s.startUT, s.endUT, cand.bodyName, seamUT,
                                         atLegStart, BridgeMaxSeamGapSeconds))

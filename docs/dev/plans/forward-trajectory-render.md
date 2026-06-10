@@ -236,9 +236,13 @@ point 0 lands EXACTLY on the leg's drawn endpoint and point 60 EXACTLY on the
 conic; as the gap closes the bridge degenerates continuously into the conic
 itself (no pop). Gates: seam angle in (`BridgeMinAngleRadians`,
 `BridgeMaxAngleRadians` = 45 deg]; seam UT gap <= `BridgeMaxSeamGapSeconds`
-(120 s); and the SIGNED-GAP rule (`IsSeamGapAhead`, maintainer rule): a bridge
+(120 s); the SIGNED-GAP rule (`IsSeamGapAhead`, maintainer rule): a bridge
 only fills a REAL gap — when the previous element's end has rotated PAST the
-next element's start (overshoot, the lines already overlap), no bridge draws.
+next element's start (overshoot, the lines already overlap), no bridge draws;
+and FULL-LOOP closed orbits are never bridge targets (playtest-8 star fix:
+they are run BOUNDARIES, never drawn by the run, and the multi-revolution
+on-demand sampling drew a star polygon; the on-demand span is also
+period-clamped via `ComputeBridgeSampleSpanSeconds` as defense-in-depth).
 Every bridge endpoint recomputes per frame from the leg's fresh scaled scratch +
 the inertial samples, so bridges track the rotating legs at any warp and any
 icon position. Visibility rule feeding this (`ShouldHideBodyFixedRunLeg`,
