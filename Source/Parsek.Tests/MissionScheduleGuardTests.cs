@@ -220,6 +220,28 @@ namespace Parsek.Tests
                 scheduleAllLaunchesWithinTolerance: false, fixedFitWithinTolerance: false));
         }
 
+        [Fact]
+        public void ShouldTintTMinusAmber_DriftAmberReason_TintsIndependentOfToleranceFlags()
+        {
+            // M4a D3: a station-drift reason tints a phase-locked cell even when every tolerance
+            // flag is green (alignment is to the LIVE orbit; the amber flags that the recorded
+            // approach may seam against the drifted station).
+            Assert.True(MissionsWindowUI.ShouldTintTMinusAmber(
+                isPhaseLockedConstrained: true, isScheduled: true,
+                scheduleAllLaunchesWithinTolerance: true, fixedFitWithinTolerance: true,
+                driftAmberReason: "station orbit drifted ~5.6% since recording"));
+            // The phase-locked gate still wins: not phase-locked never tints, drift or not.
+            Assert.False(MissionsWindowUI.ShouldTintTMinusAmber(
+                isPhaseLockedConstrained: false, isScheduled: false,
+                scheduleAllLaunchesWithinTolerance: true, fixedFitWithinTolerance: true,
+                driftAmberReason: "station orbit drifted ~5.6% since recording"));
+            // And a null reason leaves the existing tolerance-flag behavior untouched.
+            Assert.False(MissionsWindowUI.ShouldTintTMinusAmber(
+                isPhaseLockedConstrained: true, isScheduled: false,
+                scheduleAllLaunchesWithinTolerance: true, fixedFitWithinTolerance: true,
+                driftAmberReason: null));
+        }
+
         // ===================== (c) R2 branch (ii): bounded-best same-parent fixture =====================
 
         [Fact]

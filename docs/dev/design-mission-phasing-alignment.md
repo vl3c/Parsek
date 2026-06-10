@@ -6,7 +6,9 @@ profile), and the general per-cycle phasing-loiter knob that makes those windows
 Scoped, per the milestone, as a general Missions looping tool with the station route as the
 prime consumer. This note records the decisions; implementation follows in separate phases.*
 
-**Status:** decisions recorded, not implemented. Parent doc: `docs/parsek-missions-design.md`
+**Status:** decisions recorded; M4a (Tier 1 `VesselOrbital`, section 5) IMPLEMENTED on branch
+`mission-vesselorbital-tier1` per `docs/dev/plans/mission-vesselorbital-tier1.md`; M4b (the
+loiter knob) and M4c (Tier 2) not yet implemented. Parent doc: `docs/parsek-missions-design.md`
 (sections 7.4 / 7.5 / 14). Consumers: logistics supply routes
 (`docs/parsek-logistics-supply-routes-design.md`), M-MIS-2 P4 (the destination-loiter
 re-timer shares the knob built here).
