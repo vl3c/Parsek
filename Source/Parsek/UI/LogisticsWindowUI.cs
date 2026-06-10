@@ -241,6 +241,9 @@ namespace Parsek
         // and the expand-panel detail line.
         private const float ColW_Cycles = 80f;     // "3 / 1 skipped" fits without clipping (QW5)
         private const float ColW_NextDelivery = 135f; // H1 "Next delivery" countdown ("T-12m 5s"); +50% for room
+        // Uniform width for the route-detail Name-row buttons (Rename / Log (Route) /
+        // Log (Mission)) so they read as one group; sized for the widest label.
+        private const float RouteDetailButtonWidth = 104f;
         private const float ColW_Status = 240f;     // plain-English reason text; H3 badge now carries the at-a-glance verdict so the reason can wrap
         private const float ColW_Badge = 120f;      // H3 "Flying, not delivering" / "Delivering" badge
         private const float ColW_Actions = 190f;   // fixed action cell so Name-expand is identical every row
@@ -1392,7 +1395,7 @@ namespace Parsek
             if (!editingThis)
             {
                 GUILayout.Label(route.Name ?? "<unnamed>", detailStyle, GUILayout.ExpandWidth(true));
-                if (GUILayout.Button(new GUIContent("Rename", "Edit this route's name"), GUILayout.Width(70f)))
+                if (GUILayout.Button(new GUIContent("Rename", "Edit this route's name"), GUILayout.Width(RouteDetailButtonWidth)))
                 {
                     // Editing the interval and the name at once would cross-wire the
                     // two deferred commits; the interval edit-start already suppresses
@@ -1411,7 +1414,7 @@ namespace Parsek
                 // mission's step log (identical to the Missions-tab Log for that tree).
                 if (GUILayout.Button(new GUIContent("Log (Route)",
                         "Step-by-step log of this route: origin, dock, delivery, undock"),
-                        GUILayout.Width(92f)))
+                        GUILayout.Width(RouteDetailButtonWidth)))
                 {
                     ParsekLog.Info("UI",
                         $"Route Log (Route) button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} name='{route.Name ?? ""}'");
@@ -1422,7 +1425,7 @@ namespace Parsek
                 GUI.enabled = !string.IsNullOrEmpty(sourceTreeId);
                 if (GUILayout.Button(new GUIContent("Log (Mission)",
                         "Step-by-step log of the source mission this route was built from"),
-                        GUILayout.Width(104f)))
+                        GUILayout.Width(RouteDetailButtonWidth)))
                 {
                     ParsekLog.Info("UI",
                         $"Route Log (Mission) button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} tree={sourceTreeId ?? "<null>"}");
