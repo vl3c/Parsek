@@ -37,6 +37,7 @@ namespace Parsek
         private List<StructureStep> steps = new List<StructureStep>();
 
         // Column widths (match the recordings / spawn window conventions).
+        private const float ColW_Index = 28f;    // "#" step number, 1-based
         private const float ColW_Time = 110f;
         private const float ColW_Event = 0f;     // expand
         private const float ColW_Status = 95f;   // vessel situation (Orbiting / Landed / ...)
@@ -193,7 +194,7 @@ namespace Parsek
                 GUILayout.Label(mode == TargetMode.Route
                     ? "Nothing to show (source recording unavailable)."
                     : "Nothing to show.");
-                if (GUILayout.Button("Close", GUILayout.Width(132)))
+                if (GUILayout.Button("Close"))
                     Close();
                 GUI.DragWindow();
                 return;
@@ -208,6 +209,7 @@ namespace Parsek
             if (scrollbarWidth <= 0f) scrollbarWidth = 16f;
 
             GUILayout.BeginHorizontal();
+            GUILayout.Label("#", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Index));
             GUILayout.Label("Time", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Time));
             GUILayout.Label("Event", parentUI.GetColumnHeaderStyle(), GUILayout.ExpandWidth(true));
             GUILayout.Label("Status", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Status));
@@ -227,6 +229,7 @@ namespace Parsek
             {
                 StructureStep step = steps[i];
                 GUILayout.BeginHorizontal();
+                GUILayout.Label((i + 1).ToString(CultureInfo.InvariantCulture), GUILayout.Width(ColW_Index));
                 GUILayout.Label(FormatTime(step.UT), GUILayout.Width(ColW_Time));
                 GUILayout.Label(step.Label ?? "", GUILayout.ExpandWidth(true));
                 GUILayout.Label(step.Status ?? "", GUILayout.Width(ColW_Status));
@@ -236,13 +239,9 @@ namespace Parsek
             }
             GUILayout.EndScrollView();
 
-            // Bottom bar.
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(string.Format(CultureInfo.InvariantCulture, "{0} steps", steps.Count));
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Close", GUILayout.Width(132)))
+            // Full-width Close, matching the other Parsek windows.
+            if (GUILayout.Button("Close"))
                 Close();
-            GUILayout.EndHorizontal();
 
             ParsekUI.DrawResizeHandle(windowRect, ref isResizing, "Structure window");
             GUI.DragWindow();
