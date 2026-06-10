@@ -46,7 +46,7 @@ Three coupled gaps, all forms of "the loop relaunches at an arbitrary phase":
 | D1 | Anchor-source policy: the anchor vessel must EXIST in the save (loaded or on-rails); the constraint reads its live orbit. A vanished anchor fails closed to faithful. No recorded-orbit derivation fallback (section 3) |
 | D2 | Loop playback keeps the live-PID-only anchor contract; loops do NOT gain the recorded-anchor-trajectory fallback in this milestone (section 3.3) |
 | D3 | Divergence policy: constraint re-derives from live every build; amber-flag when live vs recorded station orbit diverges past tolerance; composition/mass changes are ignored for phasing (section 3.4) |
-| D4 | The phasing-loiter knob is a GENERAL Missions looping tool: automatic when a compressible loiter is detected on a looping mission, with a per-mission opt-out toggle ("Replay full loiter"); first play is always the faithful full recording (section 4) |
+| D4 | The phasing-loiter knob is a GENERAL Missions looping tool and FULLY AUTOMATIC: the kept-rev count is DERIVED from the solved relaunch schedule, never a player choice; no toggle ships (opt-out only on playtest demand); first play is always the faithful full recording (section 4) |
 | D5 | Per-cycle kept-rev count k_N: a NEW small two-variable enumeration (pad window x kept revs) built ON the existing zero-drift primitives (anchor-pinned window scan + CircularPhaseError + schedule machinery); no new solver math; whole-rev quantization only (section 4.2) |
 | D6 | k_N bounds: cutting down to 1 rev AND extending past the recorded rev count are both allowed, extension capped (default +10 revs); unreachable phase within bounds = amber + faithful phase (section 4.3) |
 | D7 | Tier 1 = a new `VesselOrbital` constraint kind fed to the existing solver; `HasRendezvousWithinWindow` flips from blanket reject to extraction for the supported shape: exactly ONE same-parent closed-orbit vessel anchor; later same-vessel rendezvous events align automatically by timeline rigidity, which restricts knob cuts to before the FIRST rendezvous (sections 4.3, 5.2) |
@@ -195,12 +195,20 @@ absorbed by the constraint tolerance (the station capture tolerance, section 5.3
 - Unreachable within bounds: amber in the period cell, launch on cadence with the faithful
   (uncompressed, k_N = recorded) loiter phase - fail closed, never a partial rev.
 
-### 4.4 Automatic with opt-out (D4), first play faithful
+### 4.4 Fully automatic (D4), first play faithful
 
 - The knob engages AUTOMATICALLY for a looping mission when `ComputeCuts` detects a
   compressible loiter, matching the shipped re-aim behavior (which already compresses with
-  no toggle). A per-mission "Replay full loiter" opt-out toggle (persisted on `Mission`,
-  default off = compression on) covers the player who wants the recorded dead time.
+  no toggle), and the kept-rev count is DERIVED per cycle from the solved relaunch
+  schedule (4.2): the loiter is a consequence of the decided cadence/window, never an
+  independent player choice.
+- NO per-mission opt-out toggle ships. The recorded loiter was the player's own
+  phase-matching instrument, not content; shipped re-aim has auto-compressed with no
+  toggle since PR #982 without demand for one; and the project direction is to cull
+  speculative settings (0.10.1 removed four settled ones). Correctness against
+  mis-detected loiters is the job of the fail-closed detection rules plus the 4.3
+  cut-placement guard, not a setting. An opt-out is an additive one-bool change to add
+  later IF playtest produces a recording where automatic compression is wrong.
 - The FIRST play (the pre-loop live flight and the first-play-floor render) is always the
   faithful full recording; compression and k_N apply to loop cycles only. This matches the
   existing first-play floor invariant.
@@ -273,12 +281,15 @@ Still rejected (fail closed, reason string preserved):
 
 The `VesselOrbital` constraint feeds the EXISTING machinery unchanged: dominant-constraint
 lock, joint best-fit, and the zero-drift schedule (`TryBuildRelaunchSchedule`) with the pad
-as the exact anchor and the station as an "other" constraint. Station periods are short
-(minutes-hours), so joint pad+station windows are FREQUENT, on the order of HOURS: the
-pad-station synodic period for a ~6 h sidereal day and a ~35 min LKO orbit is ~40 min, so
-candidate coincidences recur sub-hourly and a 1-degree tolerance admits one within a few
-pad days at worst even before the knob; with the section-4 knob the recorded-loiter
-inflation disappears too.
+as the exact anchor and the station as an "other" constraint. Window frequency, honestly
+stated: WITHOUT the knob the schedule has no free variable, so a pad window must land
+within the station tolerance by luck. For a ~6 h sidereal day, a ~33 min LKO orbit, and the
+1-degree default tolerance, roughly 0.5% of pad windows qualify - an aligned launch every
+~150-200 pad windows, i.e. tens of Kerbin days. Correct and fail-closed, but far too rare
+for a route. WITH the section-4 knob, k_N is the free variable and nearly every pad window
+becomes alignable (per-cycle dead-time cost bounded by 4.3), and the recorded-loiter span
+inflation disappears with the same stroke. This is why the knob is load-bearing for the
+logistics profile rather than an optimization.
 
 Tolerance: a station phase tolerance expressed in seconds,
 `T_station * (StationPhaseToleranceDegrees / 360)` with a default of 1 degree (for a 100 km
@@ -290,8 +301,7 @@ player setting in v1; revisit with the Loose/Tight pattern only if playtest need
 
 - Period cell basis label: `"~2.1h (station window)"` when the dominant/locking constraint
   is `VesselOrbital`; `"varies"` zero-drift display unchanged; amber states for drifted
-  (3.4) and unreachable-k (4.3).
-- The "Replay full loiter" opt-out (4.4) sits with the existing per-mission loop controls.
+  (3.4) and unreachable-k (4.3). No new toggles or controls (4.4).
 
 ## 6. Design B Tier 2: cross-parent station (destination-orbit rendezvous)
 
@@ -332,23 +342,25 @@ so the hold is cheap and achievable every window.
   still-unsupported shapes (batch-counted per build, suppressible via the existing
   `SuppressLogging` flags).
 - `[Mission]` knob lines: loiter detected (runs, revs), per-window chosen k_N + residual
-  (VerboseRateLimited per mission), opt-out state changes (Info).
+  (VerboseRateLimited per mission).
 - Amber states (drifted anchor, unreachable k_N, dual-constraint destination) log once per
   transition at Info with the reason string the UI shows.
-- Build-signature inputs grow (anchor orbit identity, knob toggle), so the signature gate
-  keeps suppressing rebuild spam; the route-side resolve stays under the PR #1108-era
-  suppression flags.
+- Build-signature inputs grow (anchor orbit identity), so the signature gate keeps
+  suppressing rebuild spam; the route-side resolve stays under the existing suppression
+  flags.
 
 ## 9. Build order and phasing (D9)
 
-- **M4a - Tier 1 `VesselOrbital`** (smallest, immediate logistics value): constraint kind +
-  extraction flip + solver/tolerance + period-cell label + tests. No engine changes; the
-  zero-drift schedule already handles the added constraint. The 100-rev recordings still
-  loop with dead time until M4b, but their WINDOWS already align.
-- **M4b - the phasing-loiter knob**: general ComputeCuts invocation + per-cycle k_N solve +
-  the per-cycle cuts engine seam (4.5) + opt-out toggle + k_N exposure to routes. Own plan
-  doc before building (the span-clock contract change earns it). Shared deliverable with
-  M-MIS-2 P4 (the keepRevs API).
+- **M4a - Tier 1 `VesselOrbital`** (smallest; the constraint layer the knob solves
+  against): constraint kind + extraction flip + solver/tolerance + period-cell label +
+  tests. No engine changes; the zero-drift schedule already handles the added constraint.
+  Honest standalone value: structural (extraction, amber states, display) plus
+  occasional aligned windows - alignment stays RARE until M4b supplies the free variable
+  (5.3), so M4b follows promptly.
+- **M4b - the phasing-loiter knob** (the cadence unlock): general ComputeCuts invocation +
+  per-cycle k_N solve + the per-cycle cuts engine seam (4.5) + k_N exposure to routes. Own
+  plan doc before building (the span-clock contract change earns it). Shared deliverable
+  with M-MIS-2 P4 (the keepRevs API).
 - **M4c - Tier 2 destination-station hold**: extractor shape + T_station hold; wire
   `SolveArrivalWindow` only if the dual-constraint case is actually pursued.
 
@@ -360,6 +372,8 @@ delivery half).
 
 ## 10. Open questions (deliberately deferred)
 
+- A per-mission compression opt-out ("Replay full loiter"): deliberately NOT shipped (4.4);
+  add only on playtest evidence of a recording where automatic compression is wrong.
 - Recorded-anchor trajectory fallback on LOOP paths (D2 says no for now; revisit on
   playtest evidence of missing finals).
 - Multi-rendezvous windows (two distinct stations in one mission): rejected in v1; would
