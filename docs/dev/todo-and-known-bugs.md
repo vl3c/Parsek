@@ -190,6 +190,19 @@ A 2026-06-10 online sweep of what KSP players actually fly (stock career contrac
 
 ---
 
+## Done 2026-06-10 - Logistics M1: non-KSC origin debit, the network unlock (branch `logistics-m1-origin-debit`, 0.10.2-dev)
+
+**Milestone M1 of the logistics roadmap shipped** (design `docs/parsek-logistics-supply-routes-design.md` 19.4 M1, which now carries per-item as-built notes; plan `docs/dev/plan-logistics-m1-origin-debit.md`). Six deliverables, one commit per phase:
+
+1. **Physical origin debit:** `LiveOriginDebitWriters` + pure `RouteOriginDebitPlanner` drain the route's `CostManifest` from the live origin vessel at each loop dock crossing (loaded `PartResource.amount` / unloaded `ProtoPartResourceSnapshot` split, shared flow gate); the `RouteCargoDebited` row carries actual-debited manifest, requested-on-shortfall, and origin pid (additive codec). Direct write at emit time in `EmitDispatchDebit`, LOOP-PATH-ONLY (plan D11: legacy `ApplyDispatch` keeps v0 rows byte-identical); `RouteModule` stays observe-only (T-ROUTEMODULE-OBSERVE; the design doc's "applier through RouteModule" wording was corrected in 19.4/19.7). Test seam `OriginDebitApplierForTesting` returns an `OriginDebitOutcome` (plan D12; true-with-null-vessel resolution counts as unresolved).
+2. **`OriginHasCargo` un-stub:** `LiveOriginCargoProbe` (stored deliverable amounts) + pure `RouteOriginCargoCheck.HasRequired` gate all-or-nothing against `CostManifest`, naming the first short resource ordinal-first; inventory-payload routes hold with `inventory-origin-debit-unsupported` (plan D6, deferred to M3).
+3. **Origin endpoint descriptor capture:** `OriginPartnerCandidate` / `RouteOriginProof` carry the docked partner's body/coords/situation (excluded from the proof hash so existing routes stay stable); `RouteBuilder` builds a surface-typed origin endpoint reaching the destination-style proximity rebuild fallback.
+4. **Undocked-start workflow rejection:** `RouteAnalysisStatus.UndockedStartOrigin` at analysis with workflow guidance text (start docked / record the mining / launch from KSC).
+5. **Dispatch priority:** persisted sparse `Route.DispatchPriority` (lower first, floor 0), `CompareRoutesForTick` (priority, `NextDispatchUT`, ordinal id) on the tick snapshot, detail-panel stepper.
+6. **Scenario-lifecycle harness (3-layer, plan D10):** codec round-trips + ordered source-text gates + in-game `LogisticsOriginDebitRuntimeTests` (loaded/unloaded debit through the production tick, empty-origin hold, save round-trip of the proto debit). See the RESOLVED scenario-gates entry below for detail.
+
+**Test delta:** +63 xUnit cases (14898 -> 14961, all green) + 4 new isolated-run in-game tests. In-game validation of the new runtime tests is pending the next FLIGHT test session.
+
 ## Done 2026-06-09 - TS Fly canary never ran: SetVessel reflection probe used a nonexistent one-arg signature (branch `fix-ts-fly-canary-probe`)
 
 The manual-only in-game canary `TrackingStationMaterializedOrbit_FlyLoadsMaterializedVessel_NotStaleSelection` (#554/#550) always skipped with "SpaceTracking selection/Fly reflection helpers are unavailable", confirmed in the 2026-06-09 isolated run (`../logs/2026-06-09_2319_pr1104-test-isolation/`). Decompiling KSP 1.12.5 `Assembly-CSharp.dll` (ilspycmd) showed the cause: stock `SpaceTracking.SetVessel` is `SetVessel(Vessel v, bool keepFocus)`; the test probed `GetMethod("SetVessel", ..., new[] { typeof(Vessel) }, ...)`, which has no match. `selectedVessel` and `BtnOnClick_FlySelectedVessel()` exist as probed.
