@@ -144,7 +144,7 @@ namespace Parsek
             if (windowRect.width < 1f)
             {
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, 770, 320);
+                windowRect = new Rect(x, mainWindowRect.y, 820, 320);
             }
 
             ParsekUI.HandleResizeDrag(ref windowRect, ref isResizing,
