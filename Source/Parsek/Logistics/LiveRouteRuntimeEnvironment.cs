@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek.Logistics
 {
@@ -19,14 +20,19 @@ namespace Parsek.Logistics
     /// shared between this env and <see cref="RouteOrchestrator.ProcessOneRoute"/>;
     /// it stays on RouteOrchestrator as <c>internal static</c> after the split.
     ///
-    /// v0 eligibility-gate contract (intentional, not a TODO):
+    /// Eligibility-gate contract (intentional, not a TODO):
     /// <list type="bullet">
-    ///   <item><c>OriginHasCargo</c>: non-KSC origins return <c>false</c>
-    ///     with reason <c>"non-ksc-origin-unsupported-in-v0"</c> so those
-    ///     routes hold in <c>WaitingForResources</c> until live origin-cargo
-    ///     gating ships (post-v0). KSC origins return <c>true</c>
-    ///     unconditionally; funds are gated separately via
-    ///     <see cref="KscFundsAvailable"/>.</item>
+    ///   <item><c>OriginHasCargo</c> (M1): KSC origins return <c>true</c>
+    ///     unconditionally (funds are gated separately via
+    ///     <see cref="KscFundsAvailable"/>). Non-KSC origins resolve the live
+    ///     origin vessel and gate ALL-OR-NOTHING against the route's recorded
+    ///     <c>CostManifest</c> via <see cref="LiveOriginCargoProbe"/> +
+    ///     <see cref="RouteOriginCargoCheck"/> (design D1/D3/D4); a short
+    ///     origin holds the route in <c>WaitingForResources</c> naming the
+    ///     first short resource. Inventory payloads are deferred (design D6):
+    ///     a non-KSC route with a non-empty <c>InventoryCostManifest</c> holds
+    ///     with reason <c>inventory-origin-debit-unsupported</c> until M3
+    ///     ships the stock-slot-identity removal.</item>
     ///   <item><c>DestinationHasCapacity</c>: returns <c>true</c> by design.
     ///     v0 enforces capacity at apply time via
     ///     <see cref="RouteDeliveryPlanner.PrepareDelivery"/> +
@@ -40,6 +46,7 @@ namespace Parsek.Logistics
     internal sealed class LiveRouteRuntimeEnvironment : IRouteRuntimeEnvironment
     {
         private const string Tag = RouteOrchestrator.Tag;
+        private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         // Per-tick ERS cache. Built lazily on first call and shared across
         // every method on this instance — multiple env queries during the
@@ -101,18 +108,66 @@ namespace Parsek.Logistics
                 return true;
             }
 
-            // v0 contract: non-KSC origins do not dispatch. Returning true
-            // here would let a route dispatch without verifying the live
-            // origin vessel has the manifest — a silent correctness bug.
-            // Returning false with a stable reason holds non-KSC routes
-            // in WaitingForResources; post-v0 work wires live origin-cargo
-            // gating that replaces this stub.
-            lackingResource = "non-ksc-origin-unsupported-in-v0";
-            ParsekLog.VerboseRateLimited(Tag, "non-ksc-origin-stub",
-                $"OriginHasCargo: non-KSC origin path is stubbed in v0; " +
-                $"route {ShortIdForRoute(route)} held in WaitingForResources " +
-                "until live origin-cargo gating ships");
-            return false;
+            // M1 inventory deferral (design D6): exact STOREDPART removal by
+            // identity is the M3 stock-slot-identity work, and delivering
+            // items without debiting them would duplicate matter. Hold the
+            // route; the reason token is named in the log (the window shows
+            // the generic per-status text until M6).
+            if (RouteOriginCargoCheck.RequiresInventoryDebit(route))
+            {
+                lackingResource = "inventory-origin-debit-unsupported";
+                ParsekLog.VerboseRateLimited(Tag, "origin-inventory-hold-" + route.Id,
+                    $"OriginHasCargo: route {ShortIdForRoute(route)} " +
+                    "inventory-origin-debit-unsupported (non-KSC origin with a " +
+                    $"non-empty InventoryCostManifest, {route.InventoryCostManifest.Count.ToString(IC)} item(s)) " +
+                    "- inventory origin debit is deferred to M3; holding in WaitingForResources");
+                return false;
+            }
+
+            // M1 un-stub: resolve the live origin vessel and gate
+            // all-or-nothing against the recorded CostManifest (design
+            // D1/D3). The evaluator's step-5 endpoint check normally catches
+            // a resolution miss first; this is the defensive re-resolve at
+            // the cargo gate. A true-with-null-vessel resolution counts as a
+            // miss (the probe would have nothing to read).
+            if (!RouteEndpointResolver.TryResolveEndpoint(route.Origin, out Vessel originVessel, out string resolveReason)
+                || originVessel == null)
+            {
+                string reason = originVessel == null && string.IsNullOrEmpty(resolveReason)
+                    ? "resolved-null-vessel"
+                    : resolveReason;
+                lackingResource = "origin-unresolved:" + reason;
+                ParsekLog.VerboseRateLimited(Tag, "origin-unresolved-" + route.Id,
+                    $"OriginHasCargo: route {ShortIdForRoute(route)} origin unresolved (reason={reason})");
+                return false;
+            }
+
+            // Capture the loaded gate ONCE and thread it into the probe so a
+            // mid-tick packed-state flip cannot split the read across branches
+            // (same contract as the delivery side's destinationIsLoaded).
+            bool originIsLoaded = originVessel.loaded && !originVessel.packed;
+            var probe = new LiveOriginCargoProbe(originVessel, originIsLoaded);
+            bool covered = RouteOriginCargoCheck.HasRequired(
+                route.CostManifest, probe.ProbeResourceStored,
+                out string shortResource, out double shortfall);
+            if (!covered)
+            {
+                lackingResource = shortResource;
+                double need = 0.0;
+                if (route.CostManifest != null)
+                    route.CostManifest.TryGetValue(shortResource, out need);
+                double have = need - shortfall;
+                ParsekLog.VerboseRateLimited(Tag, "origin-short-" + route.Id,
+                    $"OriginHasCargo: route {ShortIdForRoute(route)} " +
+                    $"origin={originVessel.vesselName ?? "<none>"} " +
+                    $"pid={originVessel.persistentId.ToString(IC)} " +
+                    $"short resource={shortResource} " +
+                    $"have={have.ToString("R", IC)} " +
+                    $"need={need.ToString("R", IC)} " +
+                    $"path={(originIsLoaded ? "loaded" : "unloaded")}");
+                return false;
+            }
+            return true;
         }
 
         public bool KscFundsAvailable(Route route, out double shortfall)
