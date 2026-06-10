@@ -322,6 +322,17 @@ namespace Parsek.Logistics
             for (int i = 0; i < initialCount; i++)
                 snapshot[i] = routes[i];
 
+            // Deterministic tick order (M1, design D8): lower DispatchPriority
+            // dispatches first when several routes contend in the same tick;
+            // ties fall to NextDispatchUT, then ordinal route id. Sorting the
+            // snapshot (not the store) keeps the commit-list order untouched.
+            Array.Sort(snapshot, CompareRoutesForTick);
+            if (initialCount > 1)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "route-tick-order",
+                    () => $"Tick order: [{DescribeTickOrder(snapshot)}]");
+            }
+
             int tickedRoutes = 0;
             int dispatched = 0;
             int transitioned = 0;
@@ -354,6 +365,55 @@ namespace Parsek.Logistics
                 $"transitioned={transitioned.ToString(IC)} " +
                 $"skipped={skipped.ToString(IC)} " +
                 $"errored={errored.ToString(IC)}");
+        }
+
+        /// <summary>
+        /// Deterministic per-tick processing order (M1, design D8): ascending
+        /// <see cref="Route.DispatchPriority"/> (lower value dispatches first),
+        /// then <see cref="Route.NextDispatchUT"/>, then ordinal
+        /// <see cref="Route.Id"/>. Null routes sort last. TOTALITY: the double
+        /// mid-key MUST compare via <see cref="double.CompareTo(double)"/>, never
+        /// relational operators: a NaN <c>NextDispatchUT</c> under relational
+        /// compares makes the comparator intransitive and
+        /// <see cref="Array.Sort(Array)"/> throws on intransitive comparators;
+        /// <c>CompareTo</c> totally orders NaN below every other value. The
+        /// unique ordinal-id final key makes <c>Array.Sort</c>'s instability moot.
+        /// </summary>
+        internal static int CompareRoutesForTick(Route a, Route b)
+        {
+            if (ReferenceEquals(a, b)) return 0;
+            if (a == null) return 1;
+            if (b == null) return -1;
+
+            int byPriority = a.DispatchPriority.CompareTo(b.DispatchPriority);
+            if (byPriority != 0) return byPriority;
+
+            int byNextDispatchUT = a.NextDispatchUT.CompareTo(b.NextDispatchUT);
+            if (byNextDispatchUT != 0) return byNextDispatchUT;
+
+            return string.CompareOrdinal(a.Id, b.Id);
+        }
+
+        // Formats the sorted per-tick snapshot as "id:prio,id:prio,..." for the
+        // route-tick-order breadcrumb (bounded by the committed-route count, built
+        // only when the rate limiter actually emits via the factory overload).
+        private static string DescribeTickOrder(Route[] ordered)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < ordered.Length; i++)
+            {
+                if (i > 0) sb.Append(',');
+                Route route = ordered[i];
+                if (route == null)
+                {
+                    sb.Append("<null>");
+                    continue;
+                }
+                sb.Append(ShortIdForLog(route))
+                  .Append(':')
+                  .Append(route.DispatchPriority.ToString(IC));
+            }
+            return sb.ToString();
         }
 
         /// <summary>

@@ -221,6 +221,42 @@ namespace Parsek.Tests.Logistics
             Assert.Null(route.NextEligibilityCheckUT);
         }
 
+        // catches (M1, D8): the per-tick snapshot not being sorted by the
+        // dispatch-priority comparator. The lower-priority-VALUE route must be
+        // processed first even though it was committed later, has a LATER
+        // NextDispatchUT, and a LATER ordinal id (so only priority explains the
+        // order). Order is asserted via the per-route "Dispatch:" log lines plus
+        // the route-tick-order breadcrumb.
+        [Fact]
+        public void Tick_ProcessesRoutesInPriorityOrder()
+        {
+            var late = BuildActiveDueKscRoute(id: "route-a", nextDispatchUT: 100.0);
+            late.DispatchPriority = 1;
+            var early = BuildActiveDueKscRoute(id: "route-z", nextDispatchUT: 150.0);
+            early.DispatchPriority = 0;
+            // Commit-list order deliberately contradicts priority order.
+            RouteStore.AddRoute(late);
+            RouteStore.AddRoute(early);
+            var env = new FakeRouteRuntimeEnvironment();
+
+            RouteOrchestrator.Tick(200.0, env);
+
+            // Both dispatched, priority-0 route first.
+            int earlyIdx = logLines.FindIndex(l =>
+                l.Contains("[Route]") && l.Contains("Dispatch: route route-z"));
+            int lateIdx = logLines.FindIndex(l =>
+                l.Contains("[Route]") && l.Contains("Dispatch: route route-a"));
+            Assert.True(earlyIdx >= 0, "priority-0 route must dispatch");
+            Assert.True(lateIdx >= 0, "priority-1 route must dispatch");
+            Assert.True(earlyIdx < lateIdx,
+                "lower priority value must be processed first within the tick");
+
+            // The applied order is breadcrumbed once per tick (count > 1).
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("Tick order:")
+                && l.Contains("route-z:0,route-a:1"));
+        }
+
         // catches: item-6 contract broken — arrival not setting PendingDeliveryUT
         // or flipping status away from InTransit prematurely.
         [Fact]
