@@ -45,7 +45,7 @@ Three coupled gaps, all forms of "the loop relaunches at an arbitrary phase":
 
 | # | Decision |
 |---|----------|
-| D1 | Anchor-source policy: the anchor vessel must EXIST in the save (loaded or on-rails); the constraint reads its live orbit. A vanished anchor fails closed to faithful. No recorded-orbit derivation fallback (section 3) |
+| D1 | Anchor-source policy: the anchor vessel must EXIST in the save (loaded or on-rails); the constraint reads its live orbit. Identity resolves via the section pid or, in the recorder's normal anchor-recording-only shape, through the committed anchor recording (pid + launch guid). A vanished anchor or a different launch of the same craft fails closed to faithful. No recorded-orbit derivation (section 3) |
 | D2 | Loop playback keeps the live-PID-only anchor contract; loops do NOT gain the recorded-anchor-trajectory fallback in this milestone (section 3.3) |
 | D3 | Divergence policy: constraint re-derives from live every build; amber-flag when live vs recorded station orbit diverges past tolerance; composition/mass changes are ignored for phasing (section 3.4) |
 | D4 | The phasing-loiter knob is a GENERAL Missions looping tool and FULLY AUTOMATIC: the kept-rev count is DERIVED from the solved relaunch schedule, never a player choice; no toggle ships (opt-out only on playtest demand); first play is always the faithful full recording (section 4) |
@@ -81,15 +81,23 @@ The `VesselOrbital` constraint's period (and phase reference) derives, per loop-
    existing vessel always carries an orbit). Read T_station and the phase reference from
    its CURRENT orbit. The live station is where the approach will visually land, so the
    live orbit is the alignment truth.
-2. **Fail closed otherwise** (vanished class-b anchors, recovered stations, anything that
-   does not resolve): no constraint; the mission stays on the existing
-   `UnsupportedRendezvous`-style faithful path with an amber reason. Never guess a period
-   from stale Relative offsets, and never derive one from the anchor RECORDING's
-   OrbitSegments: a window display computed from recorded data while the live anchor is
-   gone would advertise an alignment whose approach member loop playback skips/retires
-   (the anchor-unloaded contract), an incoherent UX. The recording-side
-   `anchorRecordingId` stays a diagnostic (it names which recording the anchor was), not a
-   derivation source.
+2. **Identity resolution (corrected by the 2026-06-11 playtest)**: the recorder
+   deliberately ZEROES the section's `anchorVesselId` whenever it stamps an
+   `anchorRecordingId` (FlightRecorder serialization checkpoints), so the
+   anchor-recording-only shape is the NORMAL recorded form of a station rendezvous, not an
+   edge case. The pid therefore resolves in order: the section's `anchorVesselId` when
+   non-zero, else THROUGH the committed anchor recording (its recorded pid plus launch
+   guid). The guid rides along into the live lookup because persistentId is craft-baked,
+   not launch-unique: a fresh launch of the same craft reuses the pid and must not read as
+   the recorded station (the VesselLaunchIdentity contract).
+3. **Fail closed otherwise** (vanished class-b anchors, recovered stations, an anchor
+   recording id that resolves to nothing committed, a different launch of the same craft):
+   no constraint; the mission stays on the existing `UnsupportedRendezvous`-style faithful
+   path with an amber reason. Never guess a period from stale Relative offsets, and never
+   derive one from the anchor RECORDING's OrbitSegments: the recording resolves the
+   anchor's IDENTITY, never its orbit - a window display computed from recorded orbit data
+   while the live anchor is gone would advertise an alignment whose approach member loop
+   playback skips/retires (the anchor-unloaded contract), an incoherent UX.
 
 Asteroid-redirect missions are one-shot by nature: looping one replays it faithfully (the
 asteroid is class b; once moved/expended, the vanished-anchor rule applies). No re-aim of an

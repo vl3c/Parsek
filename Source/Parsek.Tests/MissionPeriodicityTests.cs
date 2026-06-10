@@ -68,9 +68,16 @@ namespace Parsek.Tests
             public double SoiRadius(string b) => Soi.TryGetValue(b ?? "", out double v) ? v : double.NaN;
             public double OrbitalVelocity(string b) => Velocity.TryGetValue(b ?? "", out double v) ? v : double.NaN;
             public double GravParameter(string b) => Mu.TryGetValue(b ?? "", out double v) ? v : double.NaN;
-            public bool TryGetVesselOrbit(uint pid, out double periodSeconds, out string orbitBodyName)
+            // M4a: optional LIVE launch guid per pid; a recorded guid that conclusively
+            // differs makes the pid a DIFFERENT launch of the same craft (craft-baked pid), so
+            // it does not resolve. Absent entry = unknown live guid = pid-only fallback.
+            public readonly Dictionary<uint, string> VesselGuids = new Dictionary<uint, string>();
+
+            public bool TryGetVesselOrbit(uint pid, string recordedVesselGuid, out double periodSeconds, out string orbitBodyName)
             {
-                if (VesselOrbits.TryGetValue(pid, out var o))
+                if (VesselOrbits.TryGetValue(pid, out var o)
+                    && !(VesselGuids.TryGetValue(pid, out string liveGuid)
+                        && VesselLaunchIdentity.GuidsConclusivelyDiffer(recordedVesselGuid, liveGuid)))
                 {
                     periodSeconds = o.period;
                     orbitBodyName = o.body;
@@ -240,9 +247,11 @@ namespace Parsek.Tests
         }
 
         private static ConstraintExtraction Extract(RecordingTree tree, IBodyInfo bodyInfo,
-            HashSet<string> excluded = null)
+            HashSet<string> excluded = null, List<Recording> extraCommitted = null)
         {
             var committed = new List<Recording>(tree.Recordings.Values);
+            if (extraCommitted != null)
+                committed.AddRange(extraCommitted); // e.g. a station's own recording (another tree)
             var (view, compRoots) = Models(tree);
             return MissionPeriodicity.ExtractConstraints(
                 view, compRoots, committed, excluded ?? new HashSet<string>(), bodyInfo);
@@ -829,15 +838,46 @@ namespace Parsek.Tests
             Assert.DoesNotContain(ex.Constraints, c => c.Kind == ConstraintKind.VesselOrbital);
         }
 
+        // A committed station recording (its own flight, typically another tree) the
+        // anchor-recording-only sections resolve through.
+        private static Recording StationRecording(string recId, uint pid, string guid = null)
+            => new Recording { RecordingId = recId, VesselPersistentId = pid, RecordedVesselGuid = guid };
+
         [Fact]
-        public void Extract_PidlessAnchorSection_UnsupportedRendezvous()
+        public void Extract_AnchorRecordingOnlySection_ResolvesThroughCommittedRecording()
         {
-            // Test 4: a pid==0 / anchor-recording-only Relative section is unresolvable live
-            // (no vessel to read an orbit from) - fail closed, even when another section's pid
-            // would resolve.
+            // Test 4 (contract OVERTURNED by the 2026-06-11 playtest): the recorder deliberately
+            // ZEROES anchorVesselId whenever it stamps anchorRecordingId (FlightRecorder
+            // serialization checkpoints), so anchor-recording-only is the NORMAL recorded shape
+            // for a station rendezvous. The pid resolves through the committed anchor recording
+            // (recorded pid + launch guid), then the live orbit as usual.
             var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
             var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
-            WithRendezvous(rendezvous, 1200, 1500, 0, "station-rec"); // pid unrecorded
+            WithRendezvous(rendezvous, 1200, 1500, 0, "station-rec");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+            var fake = StationFake();
+            fake.VesselGuids[StationPid] = "11111111-1111-1111-1111-111111111111";
+            var station = StationRecording("station-rec", StationPid,
+                "11111111-1111-1111-1111-111111111111");
+
+            var ex = Extract(tree, fake, extraCommitted: new List<Recording> { station });
+
+            Assert.Equal(Support.Supported, ex.Support);
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal(StationPid, vo.AnchorVesselPid);
+            Assert.Equal(200.0, vo.PhaseOffsetSeconds);
+        }
+
+        [Fact]
+        public void Extract_AnchorRecordingNotCommitted_UnsupportedRendezvous()
+        {
+            // An anchor-recording-only section whose recording id resolves to NOTHING in the
+            // committed set cannot identify the live anchor - fail closed.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1200, 1500, 0, "station-rec");
             ascent.ChainId = "C"; ascent.ChainIndex = 0;
             rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
             var tree = TreeOf("t", ascent, rendezvous);
@@ -845,7 +885,76 @@ namespace Parsek.Tests
             var ex = Extract(tree, StationFake());
 
             Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
-            Assert.Contains("pid unrecorded", ex.UnsupportedReason);
+            Assert.Contains("not in the committed set", ex.UnsupportedReason);
+        }
+
+        [Fact]
+        public void Extract_AnchorRecordingIsDifferentLaunch_UnsupportedRendezvous()
+        {
+            // The craft-baked-pid trap: the live vessel carrying the recorded pid is a DIFFERENT
+            // launch of the same craft (launch guids conclusively differ) - it must not read as
+            // the recorded station.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1200, 1500, 0, "station-rec");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+            var fake = StationFake();
+            fake.VesselGuids[StationPid] = "22222222-2222-2222-2222-222222222222";
+            var station = StationRecording("station-rec", StationPid,
+                "11111111-1111-1111-1111-111111111111");
+
+            var ex = Extract(tree, fake, extraCommitted: new List<Recording> { station });
+
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("different launch", ex.UnsupportedReason);
+        }
+
+        [Fact]
+        public void Extract_MixedPidAndRecordingSections_SameAnchor_OneConstraintAtEarliest()
+        {
+            // One pid-stamped section and one anchor-recording-only section to the SAME station
+            // merge into a single constraint at the EARLIEST rendezvous (timeline rigidity,
+            // design note 5.2).
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1200, 1250, 0, "station-rec"); // earliest, recId shape
+            WithRendezvous(rendezvous, 1300, 1400, StationPid);       // later, pid shape
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+            var station = StationRecording("station-rec", StationPid);
+
+            var ex = Extract(tree, StationFake(), extraCommitted: new List<Recording> { station });
+
+            Assert.Equal(Support.Supported, ex.Support);
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal(200.0, vo.PhaseOffsetSeconds); // 1200 - ut0(1000)
+        }
+
+        [Fact]
+        public void Extract_SamePidDifferentLaunches_UnsupportedRendezvous()
+        {
+            // Two anchor recordings share the craft-baked pid but are conclusively different
+            // launches: two distinct physical anchors - multi-rendezvous, fail closed.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1200, 1250, 0, "station-a");
+            WithRendezvous(rendezvous, 1300, 1400, 0, "station-b");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+            var stations = new List<Recording>
+            {
+                StationRecording("station-a", StationPid, "11111111-1111-1111-1111-111111111111"),
+                StationRecording("station-b", StationPid, "22222222-2222-2222-2222-222222222222"),
+            };
+
+            var ex = Extract(tree, StationFake(), extraCommitted: stations);
+
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("multi-rendezvous", ex.UnsupportedReason);
         }
 
         [Fact]

@@ -9,6 +9,19 @@ lookup goes through `FlightRecorder.FindVesselByPid` (the exact resolution loop 
 uses) rather than a raw `FlightGlobals.FindVessel` - it carries the ghost-map-vessel guard,
 so a Parsek map proto ghost can never read as a live anchor, and it is xUnit-safe.
 
+**Playtest correction (2026-06-11, logs `2026-06-11_0009_m4a-station-playtest`):** the
+plan's rule 1 (pid==0 sections reject) was WRONG for real recordings - the recorder
+deliberately zeroes `anchorVesselId` whenever it stamps `anchorRecordingId`
+(`FlightRecorder.cs` serialization checkpoints), so anchor-recording-only is the NORMAL
+recorded shape of a station rendezvous and the headline scenario was rejected with
+"anchor pid unrecorded". Fixed on this branch: the classifier now resolves the pid THROUGH
+the committed anchor recording (recorded pid + launch guid), the seam gained the guid
+parameter (`TryGetVesselOrbit(pid, recordedVesselGuid, ...)`) so a craft-baked pid reused
+by a different launch fails closed, and entries recorded under both shapes merge on the
+resolved pid. The 810s vessel pile-up in the same playtest was the pre-existing
+faithful-path self-overlap (Auto overlap cadence = span/20), not an M4a defect; the anchor
+fix routes the mission onto the schedule path instead.
+
 Scope per the design note section 5 + section 9 (M4a): constraint kind + extraction flip +
 solver/tolerance + period-cell label + tests. NO engine changes, NO loiter knob (M4b), NO
 cross-parent station hold (M4c). Honest standalone value: the constraint layer plus
