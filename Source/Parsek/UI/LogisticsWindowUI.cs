@@ -240,7 +240,10 @@ namespace Parsek
         // the window; the transit value now rides in the Interval cell's "Nx" tooltip
         // and the expand-panel detail line.
         private const float ColW_Cycles = 80f;     // "3 / 1 skipped" fits without clipping (QW5)
-        private const float ColW_NextDelivery = 90f; // H1 "Next delivery" countdown ("T-12m 5s")
+        private const float ColW_NextDelivery = 135f; // H1 "Next delivery" countdown ("T-12m 5s"); +50% for room
+        // Uniform width for the route-detail Name-row buttons (Rename / Log (Route) /
+        // Log (Mission)) so they read as one group; sized for the widest label.
+        private const float RouteDetailButtonWidth = 104f;
         private const float ColW_Status = 240f;     // plain-English reason text; H3 badge now carries the at-a-glance verdict so the reason can wrap
         private const float ColW_Badge = 120f;      // H3 "Flying, not delivering" / "Delivering" badge
         private const float ColW_Actions = 190f;   // fixed action cell so Name-expand is identical every row
@@ -294,8 +297,14 @@ namespace Parsek
 
             if (windowRect.width < 1f)
             {
+                // First-open default. MUST be >= MinWindowWidth/Height: HandleResizeDrag only
+                // enforces the minimum during a resize drag, so a smaller default would open
+                // the window below its own minimum and snap on first touch (the old 1360
+                // default predated the 1410 minimum bump and did exactly that). 1556 is the
+                // playtest-preferred width (2026-06-10 log: last resize ended w=1556 h=500),
+                // which also fits the widened Next column.
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, 1360, 500);
+                windowRect = new Rect(x, mainWindowRect.y, 1556, 500);
                 ParsekLog.Verbose("UI",
                     $"Logistics window initial position: x={windowRect.x.ToString("F0", CultureInfo.InvariantCulture)} y={windowRect.y.ToString("F0", CultureInfo.InvariantCulture)}");
             }
@@ -1392,7 +1401,7 @@ namespace Parsek
             if (!editingThis)
             {
                 GUILayout.Label(route.Name ?? "<unnamed>", detailStyle, GUILayout.ExpandWidth(true));
-                if (GUILayout.Button(new GUIContent("Rename", "Edit this route's name"), GUILayout.Width(70f)))
+                if (GUILayout.Button(new GUIContent("Rename", "Edit this route's name"), GUILayout.Width(RouteDetailButtonWidth)))
                 {
                     // Editing the interval and the name at once would cross-wire the
                     // two deferred commits; the interval edit-start already suppresses
@@ -1406,6 +1415,29 @@ namespace Parsek
                     ParsekLog.Verbose("UI",
                         $"Logistics: rename started route={ShortId(route.Id)} current='{route.Name}'");
                 }
+
+                // Two log buttons next to Rename: the route's own step log, and the source
+                // mission's step log (identical to the Missions-tab Log for that tree).
+                if (GUILayout.Button(new GUIContent("Log (Route)",
+                        "Step-by-step log of this route: origin, dock, delivery, undock"),
+                        GUILayout.Width(RouteDetailButtonWidth)))
+                {
+                    ParsekLog.Info("UI",
+                        $"Route Log (Route) button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} name='{route.Name ?? ""}'");
+                    parentUI.OpenStructureWindowForRoute(route.Id, route.Name);
+                }
+
+                string sourceTreeId = ResolveRouteSourceTreeId(route);
+                GUI.enabled = !string.IsNullOrEmpty(sourceTreeId);
+                if (GUILayout.Button(new GUIContent("Log (Mission)",
+                        "Step-by-step log of the source mission this route was built from"),
+                        GUILayout.Width(RouteDetailButtonWidth)))
+                {
+                    ParsekLog.Info("UI",
+                        $"Route Log (Mission) button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} tree={sourceTreeId ?? "<null>"}");
+                    parentUI.OpenStructureWindowForMission(sourceTreeId, ResolveTreeDisplayName(sourceTreeId));
+                }
+                GUI.enabled = true;
             }
             else
             {

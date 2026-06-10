@@ -8,6 +8,10 @@ All notable changes to Parsek are documented here.
 
 - Maintenance and bug-fix release following up on issues found in post-0.10.0 career playtesting.
 
+### Features
+
+- Added a step-by-step run log, opened from a "Log" button on each mission (Missions tab) and each supply route (Logistics window): it lists launch, staging, dock and undock, deliveries, and the run's end, each with its time, status, and location. Identical events that happen at the same instant (like several boosters separating at once) collapse into a single "xN" line.
+
 ### UI
 
 - Removed the per-recording loop (`L`) toggle from the Timeline window rows; it cluttered the list without a way to set the required loop interval. Manage looping (and its interval) from the Recordings tab as before.
