@@ -219,8 +219,9 @@ In-game (the deliverable itself): tests 1-3 above. Expected first-run outcomes o
    then run the sweep test manually.
 3. `python scripts/collect-logs.py reaim-mmis1-sweep` and read the band map + per-window
    declines from KSP.log.
-4. Re-run once more (any UT) and diff the two summary lines: they must be identical
-   (determinism proof).
+4. Re-run once more (any UT): both runs must pass, with the same band-center index and the
+   same per-window outcomes on the strict test. (Exact summary-line equality is NOT expected;
+   see section 9 - KSP's per-frame orbit re-basing adds knife-edge jitter.)
 
 ## 7. Documentation updates (same commit)
 
@@ -245,3 +246,40 @@ In-game (the deliverable itself): tests 1-3 above. Expected first-run outcomes o
   (Lambert + CalculatePatch). Lambert and CalculatePatch are millisecond-scale; tens of
   seconds worst case as a manual-only test is acceptable. The sweep logs progress per
   departure so a long run is observable.
+
+## 9. Measurement results (2026-06-10 in-game run, logs `2026-06-10_2213_reaim-mmis1-sweep`)
+
+All four Periodicity tests PASSED across two batch runs plus the manual sweep, on the
+0.10.0-line DLL built from this branch (signature strings verified in the deployed DLL and
+the log).
+
+**Mode A fix validated directly.** For the SAME window-0 transfer, one run reported
+`lan=0.00 aop=36.99` and another `lan=259.52 aop=137.46` (inc=0.0000 both): KSP's LAN/AoP
+split flipped completely on noise, while the longitude of periapsis was 36.99 in both. The
+old LAN-only assertion would have flaked again; the LPe assertion held, and the orientation
+rotated ~36.99 -> ~209 degrees across the 5 windows as the model predicts.
+
+**Resolver robustness measured.** 17-18 of 48 scan departures feasible; band map
+`.XXXXXXX.X.XXX.XXXXX.....X......` (a solid contiguous band at indices 1-7 plus scattered
+marginal singles). EVERY departure in the contiguous band resolved ALL 5 windows
+(per-window resolve counts 17,16,17,17,17). Observed declines were exclusively at isolated
+knife-edge departures: dep=25 window 1 (Lambert non-convergence across the +-6% search,
+both sweeps) and, in the second sweep only, dep=43/44 (the ~180-degree retrograde-branch
+direction mismatch). All declines were clean fail-closed faithful fallbacks.
+
+**Determinism is per-frame, not absolute (claim corrected).** The feasible count flickered
+17..20 and the band-EDGE index flipped 1<->2 across invocations seconds apart, while the
+contiguous band and its CENTER (index 4) were stable in every invocation, and the band-edge
+test's same-frame cache-cleared re-solve matched exactly every time. Cause: KSP re-bases
+each body orbit's epoch/meanAnomalyAtEpoch every frame, so positions at a FIXED UT carry
+~1e-15 relative frame-dependent rounding noise, which only flips knife-edge entries. The
+tests are insensitive by design (band-center selection; edge test asserts the contract, not
+the edge identity); both batch runs passed.
+
+**M-MIS-1 classification decision: NO tof-search widening.** The +-6% recorded-tof search
+resolves every window across the entire contiguous feasibility band; declines occur only at
+departures that are themselves marginal (their very feasibility flickers with frame noise),
+and a real recorded mission's departure lies inside the band by definition (the player flew
+that transfer). Knife-edge window declines are hereby classified UNRESOLVABLE-BY-DESIGN:
+the fail-closed faithful fallback is the correct, designed behavior. Geometry-aware tof
+centering remains M-MIS-3 scope (eccentric/inclined targets), unchanged by this decision.

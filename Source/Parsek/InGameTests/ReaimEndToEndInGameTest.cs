@@ -19,9 +19,19 @@ namespace Parsek.InGameTests
     // on the leading EDGE of the feasibility band by construction (first success in scan order),
     // where eccentric-target drift across synodic windows (Duna ecc 0.051 breaks exact synodic
     // recurrence) pushes later windows outside the resolver's +-6% recorded-tof search. Now the
-    // scan base is a PINNED constant: stock ephemerides are pure functions of UT and nothing in
-    // the driven path reads the live clock (the resolver's currentUT is synthesized from the
-    // schedule fields), so every run sees the identical geometry and outcome.
+    // scan base is a PINNED constant: stock ephemerides are functions of UT and nothing in the
+    // driven path reads the live clock (the resolver's currentUT is synthesized from the
+    // schedule fields).
+    //
+    // Determinism is PER-FRAME, not absolute (measured, 2026-06-10 in-game run): KSP re-bases
+    // each body orbit's epoch/meanAnomalyAtEpoch every frame, so positions at a FIXED UT carry
+    // ~1e-15 relative frame-dependent rounding noise. Within one frame results are exactly
+    // reproducible (the band-edge test's cache-cleared re-solve check); across frames only
+    // KNIFE-EDGE scan entries flip (observed feasible=17..20 of 48, edge index flickering 1<->2,
+    // while the contiguous band and its center index stayed fixed in every invocation). The
+    // tests are insensitive by design: the strict test picks the band CENTER (stable), and the
+    // band-edge test asserts the resolve-or-decline-cleanly CONTRACT, not which departure is the
+    // edge.
     //
     // Three tests:
     //  1. Strict (mid-band): every window must resolve a sane re-aimed transfer, and the
