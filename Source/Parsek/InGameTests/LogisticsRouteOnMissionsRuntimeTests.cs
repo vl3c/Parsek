@@ -277,6 +277,16 @@ namespace Parsek.InGameTests
                     $"Active vessel '{activeVessel.vesselName}' has no part with a LiquidFuel resource; " +
                     "skipping — pick a vessel with at least one LF tank to run this test");
 
+            // Same loaded-path dependency as LogisticsDeliveryRuntimeTests: the live delivery writer
+            // only mutates the live PartResource (the tank this test asserts INCREASES) when the
+            // destination is loaded+unpacked. A PRELAUNCH/pad vessel reports unloaded and the delivery
+            // writes the proto snapshot instead, so the live tank stays flat. Skip rather than false-fail.
+            if (!(activeVessel.loaded && !activeVessel.packed))
+                InGameAssert.Skip(
+                    $"Active vessel '{activeVessel.vesselName}' is not loaded+unpacked " +
+                    $"(loaded={activeVessel.loaded}, packed={activeVessel.packed}); the loop-fire delivery would take " +
+                    "the unloaded proto-snapshot path which does not mutate the live PartResource this test reads");
+
             // PRE-DRAIN so there is headroom for the synthetic delivery. Same shape
             // as LogisticsDeliveryRuntimeTests: cap the drain so a tiny tank still
             // receives at least some of the manifest, and clamp the expected fill to

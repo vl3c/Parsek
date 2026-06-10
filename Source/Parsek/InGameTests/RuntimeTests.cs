@@ -2066,7 +2066,7 @@ namespace Parsek.InGameTests
                 FlightInputHandler.state.mainThrottle = 1f;
                 KSP.UI.Screens.StageManager.ActivateNextStage();
 
-                yield return WaitForLaunchAutoRecordStart(10f);
+                yield return WaitForLaunchAutoRecordStart(30f);
                 yield return new WaitForSeconds(0.5f);
 
                 int autoStartCount = captured.Count(
@@ -3028,12 +3028,123 @@ namespace Parsek.InGameTests
             return false;
         }
 
+        // A launch test stages the active vessel and waits for it to leave PRELAUNCH. If the craft has
+        // launch clamps in a LATER stage than the engines, a single ActivateNextStage() ignites the
+        // engines but leaves the clamps holding the vessel on the pad forever (situation stays
+        // PRELAUNCH while thrust > 0). Stock LaunchClamp.Release() (a public KSPEvent) calls
+        // part.decouple() in FLIGHT, freeing the vessel. The launch waits release any still-attached
+        // clamps so a clamped career craft can still exercise the real launch flow instead of timing
+        // out. Returns the number of clamps released this call.
+        internal static int ReleaseLaunchClampsOnActiveVessel()
+        {
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel?.parts == null)
+                return 0;
+            int released = 0;
+            for (int p = 0; p < vessel.parts.Count; p++)
+            {
+                Part part = vessel.parts[p];
+                var clamp = part?.FindModuleImplementing<LaunchClamp>();
+                // part.parent == null clamps are no-ops in stock Release(); skip them so the count is honest.
+                if (clamp != null && part.parent != null)
+                {
+                    clamp.Release();
+                    released++;
+                }
+            }
+            if (released > 0)
+                ParsekLog.Info("TestRunner",
+                    $"ReleaseLaunchClampsOnActiveVessel: released {released} launch clamp(s) on " +
+                    $"'{vessel.vesselName}' so the staged launch can lift off the pad");
+            return released;
+        }
+
+        internal static bool ActiveVesselHasLaunchClamps()
+        {
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel?.parts == null)
+                return false;
+            for (int p = 0; p < vessel.parts.Count; p++)
+            {
+                Part part = vessel.parts[p];
+                if (part?.FindModuleImplementing<LaunchClamp>() != null && part.parent != null)
+                    return true;
+            }
+            return false;
+        }
+
+        internal enum LaunchWaitTimeoutOutcome
+        {
+            /// <summary>Vessel left the launch surface but the recording-side wait conditions
+            /// never became true (no live recording / wrong recording id): a real product Fail.</summary>
+            FailRecordingContract,
+            /// <summary>Still on the pad and no engine ever produced thrust (clamp-only or
+            /// empty first stage): the craft cannot exercise the launch flow. Skip.</summary>
+            SkipNoThrust,
+            /// <summary>Still on the pad although engines burned the whole window and the
+            /// clamps were already released by the wait: craft performance (TWR &lt; 1 or a
+            /// liftoff slower than the deadline) is environmental, not a regression. Skip.</summary>
+            SkipNeverLiftedOff,
+        }
+
+        // Classifies a launch-wait timeout so craft-specific liftoff problems Skip instead of
+        // logging a misleading product-regression Fail. The launch waits release any launch
+        // clamps up front, so a craft still on the pad at the deadline with thrust produced has
+        // nothing holding it but its own engines (career craft with a TWR<1 first stage burn
+        // on the pad; a marginal-TWR craft can also need >10s to creep off the pad — observed
+        // on a 4xShrimp first stage that took ~8s to reach FLYING). stillOnPad means "still
+        // grounded at/near the launch site": PRELAUNCH for the leave-prelaunch wait, any
+        // landed/splashed-or-PRELAUNCH state inside the minimum radius for the clear-pad wait.
+        internal static LaunchWaitTimeoutOutcome ClassifyLaunchWaitTimeout(
+            bool vesselPresent, bool stillOnPad, bool everProducedThrust, bool producingThrustNow)
+        {
+            if (vesselPresent && stillOnPad)
+            {
+                if (!everProducedThrust && !producingThrustNow)
+                    return LaunchWaitTimeoutOutcome.SkipNoThrust;
+                return LaunchWaitTimeoutOutcome.SkipNeverLiftedOff;
+            }
+            return LaunchWaitTimeoutOutcome.FailRecordingContract;
+        }
+
+        // A batch-baseline quickload can leave FlightInputHandler.state.mainThrottle at 0 even
+        // after a test wrote 1f just before staging (2026-06-10 retest: the staged liquid core
+        // idled at zero thrust for a full 30s window while the SRBs, which ignore throttle,
+        // burned). The launch waits re-assert full throttle every frame and report how many
+        // frames needed correcting, so a throttle-zeroing source shows up in the log as data
+        // instead of as an unexplained liftoff timeout. Returns true when a correction was made.
+        internal static bool ReassertFullLaunchThrottle()
+        {
+            var state = FlightInputHandler.state;
+            if (state == null || state.mainThrottle >= 0.99f)
+                return false;
+            state.mainThrottle = 1f;
+            return true;
+        }
+
+        // Batch-counting convention: one summary line per wait, only when a correction
+        // actually happened (silence means the throttle write before staging stuck).
+        internal static void LogThrottleReasserts(string waitName, int reasserts)
+        {
+            if (reasserts <= 0)
+                return;
+            ParsekLog.Info("TestRunner",
+                $"{waitName}: re-asserted full throttle on {reasserts} frame(s) — something " +
+                "external zeroed FlightInputHandler.state.mainThrottle during the staged launch");
+        }
+
         internal static IEnumerator WaitForLaunchAutoRecordStart(float timeoutSeconds)
         {
+            // Free any launch clamps so a clamped pad craft can actually lift off (engines may already
+            // be ignited and producing thrust while the clamps bolt it to the pad).
+            ReleaseLaunchClampsOnActiveVessel();
             float deadline = Time.time + timeoutSeconds;
             bool everProducedThrust = false;
+            int throttleReasserts = 0;
             while (Time.time < deadline)
             {
+                if (ReassertFullLaunchThrottle())
+                    throttleReasserts++;
                 var flight = ParsekFlight.Instance;
                 var vessel = FlightGlobals.ActiveVessel;
                 if (vessel != null && VesselIsProducingLaunchThrust(vessel))
@@ -3043,24 +3154,33 @@ namespace Parsek.InGameTests
                     && vessel != null
                     && vessel.situation != Vessel.Situations.PRELAUNCH)
                 {
+                    LogThrottleReasserts("WaitForLaunchAutoRecordStart", throttleReasserts);
                     yield break;
                 }
 
                 yield return null;
             }
+            LogThrottleReasserts("WaitForLaunchAutoRecordStart", throttleReasserts);
 
             var timedOutFlight = ParsekFlight.Instance;
             var timedOutVessel = FlightGlobals.ActiveVessel;
-            // The pad craft never produced launch thrust and stayed on the pad: this session's active
-            // vessel cannot lift off, so the launch flow is untestable here (not a product regression).
-            if (timedOutVessel != null
-                && timedOutVessel.situation == Vessel.Situations.PRELAUNCH
-                && !everProducedThrust
-                && !VesselIsProducingLaunchThrust(timedOutVessel))
+            switch (ClassifyLaunchWaitTimeout(
+                timedOutVessel != null,
+                timedOutVessel?.situation == Vessel.Situations.PRELAUNCH,
+                everProducedThrust,
+                VesselIsProducingLaunchThrust(timedOutVessel)))
             {
-                InGameAssert.Skip(
-                    "active pad vessel produced no launch thrust after staging (no ignited engine), so it " +
-                    "never left PRELAUNCH; cannot exercise the launch auto-record flow on this craft");
+                case LaunchWaitTimeoutOutcome.SkipNoThrust:
+                    InGameAssert.Skip(
+                        "active pad vessel produced no launch thrust after staging (no ignited engine), so it " +
+                        "never left PRELAUNCH; cannot exercise the launch auto-record flow on this craft");
+                    break;
+                case LaunchWaitTimeoutOutcome.SkipNeverLiftedOff:
+                    InGameAssert.Skip(
+                        $"active pad vessel burned its engines but never left PRELAUNCH within {timeoutSeconds:F0}s " +
+                        "(clamps already released, so the craft's own performance — TWR < 1 or a slow liftoff — is " +
+                        "holding it down); cannot exercise the launch auto-record flow on this craft");
+                    break;
             }
             InGameAssert.Fail(
                 $"WaitForLaunchAutoRecordStart timed out after {timeoutSeconds:F0}s " +
@@ -5761,9 +5881,10 @@ namespace Parsek.InGameTests
             }
         }
 
-        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Manual-only — this canary drives stock Tracking Station Fly on a spawned orbital vessel and transitions the session to FLIGHT. Run it from a disposable Tracking Station session after an orbital recording has spawned.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — this canary drives stock Tracking Station Fly on a spawned orbital vessel and transitions the session to FLIGHT. Run All + Isolated from the Tracking Station captures a TS baseline and returns to it afterward; or use the row play button in a disposable Tracking Station session after an orbital recording has spawned.",
             Description = "#554/#550: spawned orbital TS vessel can be selected/flown without loading a stale asteroid/comet")]
         public IEnumerator TrackingStationMaterializedOrbit_FlyLoadsMaterializedVessel_NotStaleSelection()
         {
@@ -5802,12 +5923,11 @@ namespace Parsek.InGameTests
             System.Reflection.FieldInfo selectedField = typeof(KSP.UI.Screens.SpaceTracking).GetField(
                 "selectedVessel",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            System.Reflection.MethodInfo setVesselMethod = typeof(KSP.UI.Screens.SpaceTracking).GetMethod(
-                "SetVessel",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
-                null,
-                new[] { typeof(Vessel) },
-                null);
+            // KSP 1.12.5 has only SetVessel(Vessel v, bool keepFocus) — resolve via the
+            // production helper so the probe tolerates either the one-arg or two-arg shape.
+            System.Reflection.MethodInfo setVesselMethod = GhostMapPresence.FindTrackingStationSetVesselMethod(
+                typeof(KSP.UI.Screens.SpaceTracking),
+                typeof(Vessel));
             System.Reflection.MethodInfo flySelectedMethod = typeof(KSP.UI.Screens.SpaceTracking).GetMethod(
                 "BtnOnClick_FlySelectedVessel",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
@@ -5817,7 +5937,12 @@ namespace Parsek.InGameTests
 
             if (selectedField == null || setVesselMethod == null || flySelectedMethod == null)
             {
-                InGameAssert.Skip("SpaceTracking selection/Fly reflection helpers are unavailable");
+                InGameAssert.Skip(string.Format(CultureInfo.InvariantCulture,
+                    "SpaceTracking selection/Fly reflection helpers are unavailable " +
+                    "(selectedVessel={0} SetVessel={1} BtnOnClick_FlySelectedVessel={2})",
+                    selectedField != null,
+                    setVesselMethod != null,
+                    flySelectedMethod != null));
                 yield break;
             }
 
@@ -5842,13 +5967,20 @@ namespace Parsek.InGameTests
                 }
 
                 selectedField.SetValue(tracking, staleCandidate);
-                setVesselMethod.Invoke(tracking, new object[] { ghost });
+                // keepFocus: true keeps the TS map camera where it is (the production
+                // handoff passes false to re-focus the player's selection; this canary
+                // only asserts on selectedVessel, so the camera should not move).
+                setVesselMethod.Invoke(tracking,
+                    GhostMapPresence.BuildTrackingStationSetVesselArguments(
+                        setVesselMethod, ghost, keepFocus: true));
 
                 Vessel selectedAfterGhostFocus = selectedField.GetValue(tracking) as Vessel;
                 InGameAssert.IsNull(selectedAfterGhostFocus,
                     "Focusing a Parsek ghost should clear any stale private Tracking Station selection");
 
-                setVesselMethod.Invoke(tracking, new object[] { materialized });
+                setVesselMethod.Invoke(tracking,
+                    GhostMapPresence.BuildTrackingStationSetVesselArguments(
+                        setVesselMethod, materialized, keepFocus: true));
             }
 
             Vessel selectedAfterFocus = selectedField.GetValue(tracking) as Vessel;
@@ -5900,7 +6032,13 @@ namespace Parsek.InGameTests
             double currentUT,
             string label)
         {
-            double startUT = currentUT - 60.0;
+            // Anchor the recording window AT the live UT (not 60 s in the past) so the
+            // tracking-station create path does not classify it as a historical recording
+            // the player already progressed past. With startUT < currentUT - tolerance and
+            // no replay-scope entry, GhostMapPresence's BUG-B guard
+            // (PlaybackScopeTracker.IsHistoricalNeverReplayed) suppresses the ghost
+            // (skipReason="historical-not-replayed") and no ghost PID is ever created.
+            double startUT = currentUT;
             double endUT = currentUT + 600.0;
             string safeLabel = string.IsNullOrEmpty(label) ? "canary" : label;
 
@@ -7329,6 +7467,17 @@ namespace Parsek.InGameTests
             Description = "Dropped vessel snapshot re-hydrates from its _vessel.craft sidecar")]
         public void VesselSnapshotRehydratesFromSidecar()
         {
+            // No loaded game (main menu / loading): HighLogic.SaveFolder is a stale
+            // leftover, so writing the sidecar + EnsureRecordingsDirectory below would
+            // create a phantom saves/<stale>/Parsek/Recordings/ that lingers in the
+            // load menu. Skip: this exercises the live save-context resolver, which
+            // only has a real target inside a loaded game.
+            if (HighLogic.CurrentGame == null || string.IsNullOrEmpty(HighLogic.SaveFolder))
+            {
+                InGameAssert.Skip("requires a loaded game (writes a save-scoped sidecar)");
+                return;
+            }
+
             // End-to-end of the spawn-time re-hydration that the orbital-payload
             // bug needed: the in-memory snapshot is dropped in-session, but the
             // terminal-spawn path reloads it from the durable sidecar via the
@@ -7764,9 +7913,15 @@ namespace Parsek.InGameTests
             Description = "RecordingPaths.EnsureRecordingsDirectory creates/resolves the dir")]
         public void RecordingsDirectoryExists()
         {
-            if (string.IsNullOrEmpty(HighLogic.SaveFolder))
+            // No loaded game (main menu / loading): HighLogic.SaveFolder is a stale
+            // leftover from the last-played save, so EnsureRecordingsDirectory below
+            // would create a phantom saves/<stale>/Parsek/Recordings/ that lingers in
+            // the load menu. (Checking SaveFolder alone is insufficient — it is
+            // non-empty at the main menu.) Skip: there is no real save to test the
+            // path against without a loaded game.
+            if (HighLogic.CurrentGame == null || string.IsNullOrEmpty(HighLogic.SaveFolder))
             {
-                ParsekLog.Verbose("TestRunner", "No SaveFolder set — skipping directory check");
+                InGameAssert.Skip("requires a loaded game (creates save-scoped recordings directory)");
                 return;
             }
 
@@ -10009,10 +10164,16 @@ namespace Parsek.InGameTests
 
         private static IEnumerator WaitForRecordingToLeavePrelaunch(string expectedRecordingId, float timeoutSeconds)
         {
+            // Free any launch clamps so a clamped pad craft can actually lift off (engines may already
+            // be ignited and producing thrust while the clamps bolt it to the pad).
+            RuntimeTests.ReleaseLaunchClampsOnActiveVessel();
             float deadline = Time.time + timeoutSeconds;
             bool everProducedThrust = false;
+            int throttleReasserts = 0;
             while (Time.time < deadline)
             {
+                if (RuntimeTests.ReassertFullLaunchThrottle())
+                    throttleReasserts++;
                 var flight = ParsekFlight.Instance;
                 var vessel = FlightGlobals.ActiveVessel;
                 if (vessel != null && RuntimeTests.VesselIsProducingLaunchThrust(vessel))
@@ -10024,24 +10185,33 @@ namespace Parsek.InGameTests
                     && vessel.situation != Vessel.Situations.PRELAUNCH
                     && (string.IsNullOrEmpty(expectedRecordingId) || activeRecId == expectedRecordingId))
                 {
+                    RuntimeTests.LogThrottleReasserts("WaitForRecordingToLeavePrelaunch", throttleReasserts);
                     yield break;
                 }
 
                 yield return null;
             }
+            RuntimeTests.LogThrottleReasserts("WaitForRecordingToLeavePrelaunch", throttleReasserts);
 
             var timedOutFlight = ParsekFlight.Instance;
             var timedOutVessel = FlightGlobals.ActiveVessel;
-            // The pad craft never produced launch thrust and stayed on the pad: it cannot lift off in
-            // this session, so the staged-launch revert flow is untestable here (not a regression).
-            if (timedOutVessel != null
-                && timedOutVessel.situation == Vessel.Situations.PRELAUNCH
-                && !everProducedThrust
-                && !RuntimeTests.VesselIsProducingLaunchThrust(timedOutVessel))
+            switch (RuntimeTests.ClassifyLaunchWaitTimeout(
+                timedOutVessel != null,
+                timedOutVessel?.situation == Vessel.Situations.PRELAUNCH,
+                everProducedThrust,
+                RuntimeTests.VesselIsProducingLaunchThrust(timedOutVessel)))
             {
-                InGameAssert.Skip(
-                    "active pad vessel produced no launch thrust after staging (no ignited engine), so it " +
-                    "never left PRELAUNCH; cannot exercise the staged-launch flow on this craft");
+                case RuntimeTests.LaunchWaitTimeoutOutcome.SkipNoThrust:
+                    InGameAssert.Skip(
+                        "active pad vessel produced no launch thrust after staging (no ignited engine), so it " +
+                        "never left PRELAUNCH; cannot exercise the staged-launch flow on this craft");
+                    break;
+                case RuntimeTests.LaunchWaitTimeoutOutcome.SkipNeverLiftedOff:
+                    InGameAssert.Skip(
+                        $"active pad vessel burned its engines but never left PRELAUNCH within {timeoutSeconds:F0}s " +
+                        "(clamps already released, so the craft's own performance — TWR < 1 or a slow liftoff — is " +
+                        "holding it down); cannot exercise the staged-launch flow on this craft");
+                    break;
             }
             InGameAssert.Fail(
                 $"WaitForRecordingToLeavePrelaunch timed out after {timeoutSeconds:F0}s " +
@@ -10184,10 +10354,16 @@ namespace Parsek.InGameTests
             float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
+            bool everProducedThrust = false;
+            int throttleReasserts = 0;
             while (Time.time < deadline)
             {
+                if (RuntimeTests.ReassertFullLaunchThrottle())
+                    throttleReasserts++;
                 var flight = ParsekFlight.Instance;
                 var vessel = FlightGlobals.ActiveVessel;
+                if (vessel != null && RuntimeTests.VesselIsProducingLaunchThrust(vessel))
+                    everProducedThrust = true;
                 string activeRecId = flight?.ActiveTreeForSerialization?.ActiveRecordingId;
                 double currentDistance = vessel != null
                     ? Vector3d.Distance(vessel.GetWorldPos3D(), launchWorldPosition)
@@ -10198,17 +10374,46 @@ namespace Parsek.InGameTests
                     && (string.IsNullOrEmpty(expectedRecordingId) || activeRecId == expectedRecordingId)
                     && currentDistance >= minimumDistanceMeters)
                 {
+                    RuntimeTests.LogThrottleReasserts("WaitForRecordingToClearPad", throttleReasserts);
                     yield break;
                 }
 
                 yield return null;
             }
+            RuntimeTests.LogThrottleReasserts("WaitForRecordingToClearPad", throttleReasserts);
 
             var timedOutFlight = ParsekFlight.Instance;
             var timedOutVessel = FlightGlobals.ActiveVessel;
             double finalDistance = timedOutVessel != null
                 ? Vector3d.Distance(timedOutVessel.GetWorldPos3D(), launchWorldPosition)
                 : double.NaN;
+            // "Still on the pad" here means grounded (or never properly launched) inside the
+            // minimum radius: a craft that burned its engines yet could not clear the pad is a
+            // craft-performance problem, the same environmental class as the leave-prelaunch wait.
+            bool stillOnPad = timedOutVessel != null
+                && (timedOutVessel.situation == Vessel.Situations.PRELAUNCH
+                    || timedOutVessel.LandedOrSplashed)
+                && !double.IsNaN(finalDistance)
+                && finalDistance < minimumDistanceMeters;
+            switch (RuntimeTests.ClassifyLaunchWaitTimeout(
+                timedOutVessel != null,
+                stillOnPad,
+                everProducedThrust,
+                RuntimeTests.VesselIsProducingLaunchThrust(timedOutVessel)))
+            {
+                case RuntimeTests.LaunchWaitTimeoutOutcome.SkipNoThrust:
+                    InGameAssert.Skip(
+                        "active pad vessel produced no launch thrust after staging (no ignited engine), so it " +
+                        "never cleared the pad; cannot exercise the staged-launch scene-exit flow on this craft");
+                    break;
+                case RuntimeTests.LaunchWaitTimeoutOutcome.SkipNeverLiftedOff:
+                    InGameAssert.Skip(string.Format(CultureInfo.InvariantCulture,
+                        "active vessel burned its engines but stayed within {0:F0}m of the launch position " +
+                        "after {1:F0}s (got {2:F1}m, situation={3}); the craft's own performance is holding " +
+                        "it down, so the staged-launch scene-exit flow cannot be exercised on this craft",
+                        minimumDistanceMeters, timeoutSeconds, finalDistance, timedOutVessel.situation));
+                    break;
+            }
             InGameAssert.Fail(
                 $"WaitForRecordingToClearPad timed out after {timeoutSeconds:F0}s " +
                 $"(minimumDistance={minimumDistanceMeters:F0}m, actualDistance={finalDistance:F1}m, " +
@@ -11583,19 +11788,30 @@ namespace Parsek.InGameTests
             var preFlight = ParsekFlight.Instance;
             InGameAssert.IsNotNull(preFlight, "ParsekFlight.Instance must be non-null before quickload");
 
-            Helpers.QuickloadResumeHelpers.TriggerQuicksave();
-            yield return new WaitForSeconds(0.5f);
+            // Use a unique disposable slot, never the player's stock "quicksave"
+            // slot — clobbering that would destroy the player's manual quicksave.
+            // Deleted in finally so the test leaves no save artifact behind.
+            string testSlot = "parsek-test-bridge-" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            try
+            {
+                Helpers.QuickloadResumeHelpers.TriggerQuicksave(testSlot);
+                yield return new WaitForSeconds(0.5f);
 
-            Helpers.QuickloadResumeHelpers.TriggerQuickload();
-            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
-                preFlight.GetInstanceID(), 15f);
+                Helpers.QuickloadResumeHelpers.TriggerQuickload(testSlot);
+                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                    preFlight.GetInstanceID(), 15f);
 
-            // The same singleton must survive — DontDestroyOnLoad keeps it alive
-            var postInstance = TestRunnerShortcut.Instance;
-            InGameAssert.IsNotNull(postInstance,
-                "TestRunnerShortcut.Instance must be non-null after quickload (DontDestroyOnLoad)");
-            InGameAssert.AreEqual(preInstance.GetInstanceID(), postInstance.GetInstanceID(),
-                "TestRunnerShortcut instance must be the SAME object after quickload");
+                // The same singleton must survive — DontDestroyOnLoad keeps it alive
+                var postInstance = TestRunnerShortcut.Instance;
+                InGameAssert.IsNotNull(postInstance,
+                    "TestRunnerShortcut.Instance must be non-null after quickload (DontDestroyOnLoad)");
+                InGameAssert.AreEqual(preInstance.GetInstanceID(), postInstance.GetInstanceID(),
+                    "TestRunnerShortcut instance must be the SAME object after quickload");
+            }
+            finally
+            {
+                Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(testSlot);
+            }
         }
 
         /// <summary>
@@ -11798,6 +12014,9 @@ namespace Parsek.InGameTests
             var captured = new List<string>();
             var priorObserver = ParsekLog.TestObserverForTesting;
             var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            // Unique disposable slot, never the player's stock "quicksave" slot;
+            // deleted in finally so the test leaves no save artifact behind.
+            string testSlot = "parsek-test-midrec-" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
 
             try
             {
@@ -11832,7 +12051,7 @@ namespace Parsek.InGameTests
                     FlightInputHandler.state.mainThrottle = 1f;
                     KSP.UI.Screens.StageManager.ActivateNextStage();
 
-                    yield return RuntimeTests.WaitForLaunchAutoRecordStart(10f);
+                    yield return RuntimeTests.WaitForLaunchAutoRecordStart(30f);
                     yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
                     yield return new WaitForSeconds(0.5f);
 
@@ -11881,11 +12100,11 @@ namespace Parsek.InGameTests
                     $"startedRecordingForTest={startedRecordingForTest}");
 
                 // F5
-                Helpers.QuickloadResumeHelpers.TriggerQuicksave();
+                Helpers.QuickloadResumeHelpers.TriggerQuicksave(testSlot);
                 yield return new WaitForSeconds(2f); // accumulate post-F5 data
 
                 // F9
-                Helpers.QuickloadResumeHelpers.TriggerQuickload();
+                Helpers.QuickloadResumeHelpers.TriggerQuickload(testSlot);
                 yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
                     preFlightInstanceId, 15f);
                 yield return Helpers.QuickloadResumeHelpers.WaitForActiveRecording(10f);
@@ -11911,6 +12130,10 @@ namespace Parsek.InGameTests
                 var cleanupFlight = ParsekFlight.Instance;
                 if (startedRecordingForTest && cleanupFlight != null && cleanupFlight.IsRecording)
                     cleanupFlight.StopRecording();
+
+                // Delete the disposable quicksave slot so the test leaves no
+                // save artifact behind (never touches the stock "quicksave").
+                Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(testSlot);
             }
         }
 
@@ -11987,10 +12210,18 @@ namespace Parsek.InGameTests
 
                 yield return new WaitForSeconds(0.5f);
 
+                // Mirror the proven launch sequence (Quickload_MidRecording / AutoRecordOnLaunch):
+                // after a batch-baseline quickload the stock stage manager and the
+                // FlightInputHandler state need to settle or the throttle write does not stick.
+                // Staging without these waits ignited the SRBs (throttle-independent) but left
+                // the liquid core engine at zero thrust for the whole launch window
+                // (2026-06-10 retest: engines=4 at stop here vs engines=5 in the ready-gated tests).
+                yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
+                yield return RuntimeTests.WaitForFlightInputStateReady(5f);
                 FlightInputHandler.state.mainThrottle = 1f;
                 KSP.UI.Screens.StageManager.ActivateNextStage();
 
-                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 30f);
                 yield return new WaitForSeconds(1.0f);
 
                 bool canRevert = (bool)(FlightDriverCanRevertProperty.GetValue(null, null) ?? false);
@@ -12061,12 +12292,16 @@ namespace Parsek.InGameTests
         /// stock PauseMenu uses. The expected shipped behavior with auto-merge
         /// disabled is a pre-transition merge dialog in FLIGHT whose "Merge to
         /// Timeline" button finalizes and commits the live tree before the
-        /// blocked Space Center scene change resumes. Use a disposable/manual-
-        /// backup save before running it.
+        /// blocked Space Center scene change resumes. Isolated-batch capable:
+        /// Run All + Isolated captures a FLIGHT baseline before the batch and
+        /// quickloads it after this test, so it runs automatically there in
+        /// addition to the row play button. Still start from a disposable/
+        /// manual-backup save in case the automatic restore itself fails.
         /// </summary>
         [InGameTest(Category = "SceneExitMerge", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the pre-transition merge dialog.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the pre-transition merge dialog. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "Space Center exit shows pre-transition merge dialog and Merge to Timeline commits the live tree")]
         public IEnumerator ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree()
         {
@@ -12149,11 +12384,19 @@ namespace Parsek.InGameTests
 
                 yield return new WaitForSeconds(0.5f);
 
+                // Mirror the proven launch sequence (Quickload_MidRecording / AutoRecordOnLaunch):
+                // after a batch-baseline quickload the stock stage manager and the
+                // FlightInputHandler state need to settle or the throttle write does not stick.
+                // Staging without these waits ignited the SRBs (throttle-independent) but left
+                // the liquid core engine at zero thrust for the whole launch window
+                // (2026-06-10 retest: engines=4 at stop here vs engines=5 in the ready-gated tests).
+                yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
+                yield return RuntimeTests.WaitForFlightInputStateReady(5f);
                 FlightInputHandler.state.mainThrottle = 1f;
                 KSP.UI.Screens.StageManager.ActivateNextStage();
 
-                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
-                yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 10f);
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 30f);
+                yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 30f);
                 yield return new WaitForSeconds(0.5f);
 
                 TriggerSaveAndExitToSpaceCenter();
@@ -12244,12 +12487,16 @@ namespace Parsek.InGameTests
         /// stock PauseMenu uses. The expected shipped behavior with auto-merge
         /// disabled is a pre-transition merge dialog in FLIGHT whose explicit
         /// "Discard" button finalizes and discards the live tree before the
-        /// blocked Space Center scene change resumes. Use a disposable/manual-
-        /// backup save before running it.
+        /// blocked Space Center scene change resumes. Isolated-batch capable:
+        /// Run All + Isolated captures a FLIGHT baseline before the batch and
+        /// quickloads it after this test, so it runs automatically there in
+        /// addition to the row play button. Still start from a disposable/
+        /// manual-backup save in case the automatic restore itself fails.
         /// </summary>
         [InGameTest(Category = "SceneExitMerge", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the pre-transition merge dialog discard branch.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the pre-transition merge dialog discard branch. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "Space Center exit shows pre-transition merge dialog and Discard clears the live tree without a commit")]
         public IEnumerator ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree()
         {
@@ -12332,11 +12579,19 @@ namespace Parsek.InGameTests
 
                 yield return new WaitForSeconds(0.5f);
 
+                // Mirror the proven launch sequence (Quickload_MidRecording / AutoRecordOnLaunch):
+                // after a batch-baseline quickload the stock stage manager and the
+                // FlightInputHandler state need to settle or the throttle write does not stick.
+                // Staging without these waits ignited the SRBs (throttle-independent) but left
+                // the liquid core engine at zero thrust for the whole launch window
+                // (2026-06-10 retest: engines=4 at stop here vs engines=5 in the ready-gated tests).
+                yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
+                yield return RuntimeTests.WaitForFlightInputStateReady(5f);
                 FlightInputHandler.state.mainThrottle = 1f;
                 KSP.UI.Screens.StageManager.ActivateNextStage();
 
-                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
-                yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 10f);
+                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 30f);
+                yield return WaitForRecordingToClearPad(launchWorldPosition, 80.0, activeRecId, 30f);
                 yield return new WaitForSeconds(0.5f);
 
                 TriggerSaveAndExitToSpaceCenter();
@@ -12684,6 +12939,18 @@ namespace Parsek.InGameTests
             {
                 InGameAssert.Skip(
                     $"requires a landed/prelaunch vessel for the Real Spawn Control pad transient canary (situation={activeVessel.situation})");
+                yield break;
+            }
+            // A clamped pad craft never leaves PRELAUNCH, so a forward time-jump produces no active-vessel
+            // situation transition for the suppression path to skip; the skipCount assertion below would
+            // fail for an environmental reason rather than a product regression. (Do NOT release the
+            // clamps here — this canary must keep the real pad vessel focused and unmoved.)
+            if (RuntimeTests.ActiveVesselHasLaunchClamps())
+            {
+                InGameAssert.Skip(
+                    "active pad vessel has launch clamps holding it on the pad; it never produces a launch " +
+                    "situation transition during the warp, so the time-jump transient suppression path " +
+                    "cannot be exercised on this craft");
                 yield break;
             }
             if (ParsekSettings.Current == null)
@@ -15570,6 +15837,32 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(LedgerOrchestrator.Science, "ScienceModule should be initialized after RecalculateAndPatch");
                 InGameAssert.IsNotNull(LedgerOrchestrator.Reputation, "ReputationModule should be initialized after RecalculateAndPatch");
 
+                // On a mixed-history surplus career the ledger running balance already sits
+                // at/above live, so the synthetic probe credit pushes running ABOVE live and the
+                // production drawdown guard UPLIFT-clamps the funds/science patch DOWN to live: the
+                // probe delta is intentionally NOT written and no change event fires. Both the value
+                // assertions and the one-event-per-delta assertions below assume the probe deltas
+                // land, which is false in that case. Skip rather than false-fail; the test still runs
+                // its real contract on a clean Parsek-only career where no uplift clamp fires. (No
+                // time-travel context here, so the guard is active. After the patch, an uplift clamp
+                // shows as running > live: the guard holds live, so the running balance still exceeds it.)
+                bool authoritativeReduction = LedgerOrchestrator.IsAuthoritativeReduction(
+                    RewindContext.IsRewinding,
+                    ParsekScenario.Instance?.ActiveReFlySessionMarker != null,
+                    ParsekScenario.Instance?.ActiveMergeJournal != null,
+                    tombstonePath: false,
+                    RewindContext.RewindResourceAdjustmentInProgress);
+                if (!authoritativeReduction
+                    && (LedgerOrchestrator.Funds.GetRunningBalance() > Funding.Instance.Funds + 0.01
+                        || LedgerOrchestrator.Science.GetRunningScience() > ResearchAndDevelopment.Instance.Science + 0.001))
+                {
+                    InGameAssert.Skip(
+                        "ledger reconstruction runs above live and the drawdown guard uplift-clamped the "
+                        + "funds/science patch (mixed-history surplus career); the probe-delta value and "
+                        + "event-count contracts cannot be verified here. Run on a clean Parsek-only career.");
+                    return;
+                }
+
                 AssertDoubleNear(Funding.Instance.Funds, LedgerOrchestrator.Funds.GetAvailableFunds(), 0.01,
                     "Funding.Instance.Funds should match FundsModule.GetAvailableFunds() after §5.4 patching");
                 AssertDoubleNear(ResearchAndDevelopment.Instance.Science, LedgerOrchestrator.Science.GetAvailableScience(), 0.01,
@@ -16574,8 +16867,11 @@ namespace Parsek.InGameTests
             string failureMessage,
             float timeoutSeconds)
         {
-            float deadline = Time.time + timeoutSeconds;
-            while (Time.time < deadline)
+            // Realtime deadline: the facility pause freezes Time.time (see
+            // WaitUntilTrue), so a Time.time deadline would hang the suite with the
+            // player stuck inside the paused Astronaut Complex building.
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (Time.realtimeSinceStartup < deadline)
             {
                 CrewListItem row = FindCrewListItemByName(Object.FindObjectOfType<AstronautComplex>(), kerbalName);
                 if (row != null && CountNamedChildren(row.transform, overlayName) == 1)
@@ -16629,10 +16925,16 @@ namespace Parsek.InGameTests
             float timeoutSeconds)
         {
             InGameAssert.IsNotNull(result, "Mission Control contract row result holder is required");
-            float deadline = Time.time + timeoutSeconds;
+            // Realtime deadline: EnterBuilding pauses the game (timeScale 0), which
+            // freezes Time.time. A Time.time deadline never expires while Mission
+            // Control is open, so a save with no offered contracts would spin this
+            // loop forever, leaving the player stuck inside the paused building (and
+            // the runner's post-test facility force-close never runs because this
+            // coroutine never returns). Mirrors WaitUntilTrue.
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
             string lastSkipReason = null;
 
-            while (Time.time < deadline)
+            while (Time.realtimeSinceStartup < deadline)
             {
                 MissionControl missionControl = Object.FindObjectOfType<MissionControl>();
                 if (TryPickMissionControlOfferedContractRow(
@@ -16739,8 +17041,11 @@ namespace Parsek.InGameTests
             string failureMessage,
             float timeoutSeconds)
         {
-            float deadline = Time.time + timeoutSeconds;
-            while (Time.time < deadline)
+            // Realtime deadline: the facility pause freezes Time.time (see
+            // WaitUntilTrue), so a Time.time deadline would hang the suite with the
+            // player stuck inside the paused Mission Control building.
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (Time.realtimeSinceStartup < deadline)
             {
                 MCListItem row = FindMissionControlRowByContractKey(Object.FindObjectOfType<MissionControl>(), contractKey);
                 if (row != null && CountNamedChildren(row.transform, overlayName) == 1)
@@ -23139,6 +23444,69 @@ namespace Parsek.InGameTests
                 ResearchAndDevelopment.Instance.SetScience(origScience, TransactionReasons.None);
                 CommittedActionDialog.TestHookForTesting = prevHook;
             }
+        }
+
+        #endregion
+
+        #region Test-runner campaign isolation contract
+
+        /// <summary>
+        /// Enforces the EDITOR isolation contract: EDITOR batches isolate the
+        /// campaign DiskOnly (a persistent.sfs .bak only, NO in-memory reload, because
+        /// reloading the editor mid-edit is fragile). Any test that declares
+        /// Scene == GameScenes.EDITOR could therefore mutate persistent career state
+        /// without the in-memory revert covering it. This always-run contract fails
+        /// loudly if such a test ever appears, forcing whoever adds it to revisit the
+        /// isolation mode (ClassifyBatchIsolationMode) rather than silently relying on
+        /// a comment.
+        /// </summary>
+        [InGameTest(Category = "TestRunnerIsolation", Scene = InGameTestAttribute.AnyScene,
+            Description = "Contract: no [InGameTest] declares Scene=EDITOR (EDITOR isolation is DiskOnly only)")]
+        public void NoEditorSceneTestsExistContract()
+        {
+            var editorTests = new List<string>();
+            var assembly = Assembly.GetExecutingAssembly();
+            foreach (var type in assembly.GetTypes())
+            {
+                foreach (var method in type.GetMethods(
+                    BindingFlags.Public | BindingFlags.NonPublic
+                    | BindingFlags.Instance | BindingFlags.Static))
+                {
+                    var attr = method.GetCustomAttribute<InGameTestAttribute>();
+                    if (attr == null) continue;
+                    if (attr.Scene == GameScenes.EDITOR)
+                        editorTests.Add($"{type.Name}.{method.Name}");
+                }
+            }
+
+            InGameAssert.IsTrue(editorTests.Count == 0,
+                "EDITOR-scene in-game tests exist but EDITOR batch isolation is DiskOnly "
+                + "(no in-memory revert). Revisit ClassifyBatchIsolationMode before adding a "
+                + "persistent-state-mutating EDITOR test: " + string.Join(", ", editorTests.ToArray()));
+            ParsekLog.Info("TestRunner",
+                "NoEditorSceneTestsExistContract: 0 EDITOR-scene tests (DiskOnly isolation contract holds)");
+        }
+
+        /// <summary>
+        /// Validation gate for a FUTURE SPACECENTER in-memory isolation flip.
+        /// SPACECENTER currently ships DiskOnly (safety .bak, no in-memory reload)
+        /// because the CommitNonFlightSceneLoad / Game.Start() in-memory reload path
+        /// is structurally available but UNPROVEN in this codebase. This test exercises
+        /// the in-memory revert (mutate funds, capture a baseline, restore via the
+        /// non-flight commit path, assert the scalar returned to baseline). It ships
+        /// SKIPPED so it does not fail CI; remove the skip and flip
+        /// ClassifyBatchIsolationMode SPACECENTER -> InMemoryAndDisk only after this
+        /// passes in a manual playtest.
+        /// </summary>
+        [InGameTest(Category = "TestRunnerIsolation", Scene = GameScenes.SPACECENTER,
+            Description = "Gate: SPACECENTER in-memory restore returns funds/science/rep to baseline (skip-until-implemented)")]
+        public IEnumerator SpaceCenterBatchIsolationInMemoryRestore()
+        {
+            InGameAssert.Skip(
+                "SPACECENTER in-memory restore not yet enabled; gate test pending green run. "
+                + "Remove this skip and flip ClassifyBatchIsolationMode SPACECENTER -> InMemoryAndDisk "
+                + "only after this passes in a manual playtest.");
+            yield break;
         }
 
         #endregion
