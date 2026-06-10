@@ -6,7 +6,10 @@ namespace Parsek
 {
     /// <summary>
     /// Shared Kepler-arc sampler: clips a stock <see cref="Orbit"/> to the eccentric-
-    /// anomaly arc between two recorded-frame UTs and writes BODY-LOCAL sample points
+    /// anomaly arc between two recorded-frame UTs and writes WORLD-frame sample points
+    /// (getPositionFromEccAnomalyWithSemiMinorAxis returns referenceBody.position +
+    /// relative, so callers subtract body.position for body-relative offsets or feed
+    /// ScaledSpace.LocalToScaledSpace directly)
     /// into a caller-owned buffer. This is the single copy of the arc-sampling math
     /// extracted from <c>GhostOrbitArcPatch.UpdateSpline</c>
     /// (Source/Parsek/Patches/GhostOrbitLinePatch.cs); both the existing current-arc
@@ -32,7 +35,7 @@ namespace Parsek
     internal static class OrbitArcSampler
     {
         /// <summary>
-        /// Outcome of <see cref="SampleSegmentArc"/>: whether body-local points were
+        /// Outcome of <see cref="SampleSegmentArc"/>: whether world-frame points were
         /// written, the sample count actually filled, and the anomaly bounds +
         /// orbit-type flag the caller needs for its diagnostic log and open-arc
         /// draw-range. <c>Sampled == false</c> means the caller must fall through to
@@ -51,7 +54,7 @@ namespace Parsek
         /// Sample the open arc of <paramref name="orbit"/> between
         /// <paramref name="startUTRaw"/> and <paramref name="endUTRaw"/> (both in the
         /// RECORDED clock the orbit's epoch is expressed in) into
-        /// <paramref name="outPoints"/> as BODY-LOCAL positions. Returns an
+        /// <paramref name="outPoints"/> as WORLD-frame positions. Returns an
         /// <see cref="ArcSampleResult"/> describing the sample; on
         /// <c>Sampled == false</c> the buffer is left untouched and the caller should
         /// route to stock (exactly-parabolic ecc==1, or a NaN eccentric anomaly from a

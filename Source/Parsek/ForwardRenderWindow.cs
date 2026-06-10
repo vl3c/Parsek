@@ -151,6 +151,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Backward-boundary walk shared by the bracketed and past-end paths: the run start is the
+        /// previous full-loop closed orbit's endUT, or the first same-SOI element's startUT after a
+        /// body change, or -inf (start of trajectory data) when no boundary exists. Walks from
+        /// <paramref name="fromIndex"/> down; <paramref name="fromIndex"/> itself is INCLUDED in the
+        /// walk (pass currentIndex-1 to exclude the current element, currentIndex to include it -
+        /// the past-end case, where the last element is BEHIND the icon and may itself be the
+        /// boundary).
+        /// </summary>
+        private static double WalkBackwardBoundary(
+            IReadOnlyList<OrbitSegment> effectiveSegments, int fromIndex, string currentBody,
+            Func<string, double> muByBody, out int walkedBack)
+        {
+            walkedBack = 0;
+            for (int i = fromIndex; i >= 0; i--)
+            {
+                OrbitSegment prev = effectiveSegments[i];
+                walkedBack++;
+                if (BodyChanged(currentBody, prev.bodyName))
+                    return effectiveSegments[i + 1].startUT;
+                if (IsFullLoopClosedOrbit(prev, SafeMu(muByBody, prev.bodyName)))
+                    return prev.endUT;
+                // prev is part of the run; keep walking.
+            }
+            return double.NegativeInfinity;
+        }
+
+        /// <summary>
         /// Walk the EFFECTIVE segment timeline forward from the element containing
         /// <paramref name="currentUT"/> and compute the forward render window.
         ///
@@ -175,7 +202,8 @@ namespace Parsek
         internal static ForwardWindow ComputeForwardWindow(
             IReadOnlyList<OrbitSegment> effectiveSegments,
             double currentUT,
-            Func<string, double> muByBody)
+            Func<string, double> muByBody,
+            double dataEndUT = double.NegativeInfinity)
         {
             var window = new ForwardWindow
             {
@@ -201,10 +229,36 @@ namespace Parsek
             int currentIndex = LocateCurrentIndex(effectiveSegments, currentUT);
             if (currentIndex < 0)
             {
+                // PAST END (review MAJOR-1): the icon is past the LAST element's endUT. When it is
+                // still within the recorded data (a TRAILING leg past the last conic - the final
+                // landing descent of a recording whose conics end before touchdown), the run is
+                // STILL ALIVE: it reaches back to the previous boundary and forward to end-of-data,
+                // mirroring the leading-edge gap-before case - previously the whole run (legs, arcs,
+                // bridges) cleared the moment the icon entered the trailing leg. The dataEndUT guard
+                // keeps STATIC recordings (headUT = live now, far past the data) from painting their
+                // full paths: callers that do not pass dataEndUT (default -inf) keep the old
+                // no-run behaviour.
+                if (currentUT <= dataEndUT + 1.0)
+                {
+                    OrbitSegment last = effectiveSegments[count - 1];
+                    window.CurrentIndex = count - 1;
+                    window.CurrentElementStartUT = last.startUT;
+                    window.RunStartUT = WalkBackwardBoundary(
+                        effectiveSegments, count - 1, last.bodyName, muByBody, out int walkedBackPast);
+                    window.StopUT = double.PositiveInfinity;
+                    window.Reason = ForwardStopReason.EndOfData;
+                    ParsekLog.VerboseRateLimited(Tag, "window",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Render run (past end) lastIdx={0} body={1} runStart={2:F1} stopUT=Inf " +
+                            "walkedBack={3} segs={4} curUT={5:F1} dataEnd={6:F1}",
+                            window.CurrentIndex, last.bodyName ?? "?", window.RunStartUT,
+                            walkedBackPast, count, currentUT, dataEndUT));
+                    return window;
+                }
                 ParsekLog.VerboseRateLimited(Tag, "nocur",
                     string.Format(CultureInfo.InvariantCulture,
-                        "No element brackets/follows UT={0:F1} (segs={1}) — no render run",
-                        currentUT, count));
+                        "No element brackets/follows UT={0:F1} (segs={1} dataEnd={2:F1}) — no render run",
+                        currentUT, count, dataEndUT));
                 return window;
             }
 
@@ -281,24 +335,8 @@ namespace Parsek
             //    change (run starts at the first same-SOI element after it). If NO backward boundary is found,
             //    the run reaches the start of the trajectory data → RunStartUT = -inf, so every earlier
             //    non-orbital leg (e.g. the whole ascent before the first orbit segment) is included.
-            double runStartUT = double.NegativeInfinity;
-            int walkedBack = 0;
-            for (int i = currentIndex - 1; i >= 0; i--)
-            {
-                OrbitSegment prev = effectiveSegments[i];
-                walkedBack++;
-                if (BodyChanged(currentBody, prev.bodyName))
-                {
-                    runStartUT = effectiveSegments[i + 1].startUT;
-                    break;
-                }
-                if (IsFullLoopClosedOrbit(prev, SafeMu(muByBody, prev.bodyName)))
-                {
-                    runStartUT = prev.endUT;
-                    break;
-                }
-                // prev is part of the run; keep walking (RunStartUT stays -inf unless a boundary is found).
-            }
+            double runStartUT = WalkBackwardBoundary(
+                effectiveSegments, currentIndex - 1, currentBody, muByBody, out int walkedBack);
 
             window.RunStartUT = runStartUT;
             window.StopUT = stopUT;

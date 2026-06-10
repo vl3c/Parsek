@@ -276,8 +276,9 @@ namespace Parsek.Tests
             Assert.NotEqual(stopRecorded, stopEffective);
         }
 
-        // No element brackets/follows the current UT (icon past the last endUT) → no window; the
-        // convenience wrapper returns currentUT unchanged.
+        // No element brackets/follows the current UT (icon past the last endUT) and NO dataEndUT is
+        // supplied (default -inf): no window; the convenience wrapper returns currentUT unchanged.
+        // This is the STATIC-recording behaviour (headUT = live now, far past the data).
         [Fact]
         public void ComputeForwardStopUT_ReturnsCurrentUTWhenNoElementAhead()
         {
@@ -291,6 +292,70 @@ namespace Parsek.Tests
             Assert.Equal(5000.0, stop, 6);
 
             var w = ForwardRenderWindow.ComputeForwardWindow(segs, 5000.0, mu);
+            Assert.Equal(-1, w.CurrentIndex);
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.NoCurrentElement, w.Reason);
+            Assert.False(w.HasForwardRange);
+        }
+
+        // PAST END within the recorded data (review MAJOR-1): the icon rides a TRAILING leg past the
+        // last conic (the final landing descent). The run STAYS ALIVE - back to the previous boundary,
+        // forward to end-of-data - instead of clearing the whole line the moment the icon enters the
+        // trailing leg (asymmetric with the leading-edge gap-before case it mirrors).
+        [Fact]
+        public void ComputeForwardWindow_PastEndWithinData_RunStaysAlive()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 0, 100, ecc: 0.5, sma: 700000.0),
+                Seg("Kerbin", 150, 400, ecc: 0.4, sma: 720000.0),
+            };
+            var mu = Mu(("Kerbin", KerbinMu));
+
+            // Icon at 450 (past the last conic's endUT=400) but within the recorded data (end 500):
+            // the trailing-leg case. Run = [-inf, +inf] (no backward boundary in this list).
+            var w = ForwardRenderWindow.ComputeForwardWindow(segs, 450.0, mu, dataEndUT: 500.0);
+            Assert.Equal(1, w.CurrentIndex);
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.EndOfData, w.Reason);
+            Assert.Equal(double.NegativeInfinity, w.RunStartUT);
+            Assert.Equal(double.PositiveInfinity, w.StopUT);
+            Assert.True(w.HasForwardRange);
+        }
+
+        // PAST END behind a full-loop boundary: the run starts AFTER the ellipse (its endUT), so a
+        // trailing descent past a parking-orbit loiter never re-includes the boundary ellipse.
+        [Fact]
+        public void ComputeForwardWindow_PastEndBehindFullLoop_RunStartsAfterIt()
+        {
+            double sma = 700000.0;
+            double period = ForwardRenderWindow.ComputePeriod(sma, KerbinMu);
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 0, period + 10.0, ecc: 0.01, sma: sma), // full-loop boundary
+                Seg("Kerbin", period + 50.0, period + 300.0, ecc: 0.3, sma: 650000.0),
+            };
+            var mu = Mu(("Kerbin", KerbinMu));
+
+            double pastUT = period + 350.0;
+            var w = ForwardRenderWindow.ComputeForwardWindow(segs, pastUT, mu, dataEndUT: pastUT + 100.0);
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.EndOfData, w.Reason);
+            Assert.Equal(period + 10.0, w.RunStartUT, 6); // after the ellipse, not -inf
+            Assert.Equal(double.PositiveInfinity, w.StopUT);
+            Assert.True(w.HasForwardRange);
+        }
+
+        // PAST END beyond the recorded data (a STATIC recording with headUT = live now): the dataEndUT
+        // guard refuses the run, so historical recordings never paint their full paths.
+        [Fact]
+        public void ComputeForwardWindow_PastDataEnd_NoRun()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 0, 100, ecc: 0.5, sma: 700000.0),
+            };
+            var mu = Mu(("Kerbin", KerbinMu));
+
+            var w = ForwardRenderWindow.ComputeForwardWindow(
+                segs, currentUT: 5000.0, mu, dataEndUT: 200.0);
             Assert.Equal(-1, w.CurrentIndex);
             Assert.Equal(ForwardRenderWindow.ForwardStopReason.NoCurrentElement, w.Reason);
             Assert.False(w.HasForwardRange);

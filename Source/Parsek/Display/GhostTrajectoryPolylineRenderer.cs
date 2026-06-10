@@ -191,8 +191,13 @@ namespace Parsek.Display
             string recordingId, OrbitSegment seg, CelestialBody body, bool tail)
         {
             if (body == null || seg.endUT <= seg.startUT) return null;
+            // Key includes the conic's ELEMENTS (review MINOR-3): a re-aim synodic-window rollover can
+            // swap a segment's Kepler elements while keeping its UT span, and a UT-only key would then
+            // serve stale wrong-aimed samples (the forward-arc cache keys on the re-aim window for the
+            // same reason; sma+ecc discriminate the swapped geometry without plumbing the window index).
             string key = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                "{0}|{1:F1}|{2:F1}|{3}", recordingId, seg.startUT, seg.endUT, tail ? "t" : "l");
+                "{0}|{1:F1}|{2:F1}|{3:F0}|{4:F6}|{5}", recordingId, seg.startUT, seg.endUT,
+                seg.semiMajorAxis, seg.eccentricity, tail ? "t" : "l");
             double liveRotAngle = Planetarium.InverseRotAngle;
             if (bridgeConicSampleCache.TryGetValue(key, out var cached))
             {
@@ -576,7 +581,8 @@ namespace Parsek.Display
         {
             public ForwardArc[] arcs;
 
-            /// <summary>The (currentElementIndex|bodyName|reaimWindowIndex) key the arcs were sampled for.</summary>
+            /// <summary>The (selectedSegmentIndices|reaimWindowIndex) key (see
+            /// <see cref="BuildForwardArcKey"/>) the arcs were sampled for.</summary>
             public string cacheKey;
 
             /// <summary>
@@ -689,9 +695,10 @@ namespace Parsek.Display
             // while enumerating). The conic-sample cache entries for this recording drop too (cheap to
             // resample; key prefix is the recording id).
             List<string> staleBridgeKeys = null;
+            string bridgeKeyPrefix = recordingId + "|";
             foreach (var kvp in bridgeLineByRecording)
             {
-                if (!kvp.Key.StartsWith(recordingId, StringComparison.Ordinal)) continue;
+                if (!kvp.Key.StartsWith(bridgeKeyPrefix, StringComparison.Ordinal)) continue;
                 (staleBridgeKeys ?? (staleBridgeKeys = new List<string>())).Add(kvp.Key);
             }
             if (staleBridgeKeys != null)
@@ -2496,6 +2503,10 @@ namespace Parsek.Display
                 public int arcIndex;          // cached forward-arc index (-1 when on-demand sampled)
                 public string sampleKeyRecordingId; // on-demand source: owning recording id
                 public OrbitSegment sampleSegment;  // on-demand source: the conic to sample
+                // Index into pendingForwardArcs whose draw range gets clipped at the merge sample,
+                // applied ONLY when this bridge actually DRAWS (review MINOR-2: a decide-time clip
+                // with a failed bridge draw left a one-frame hole in the arc). -1 = no clip.
+                public int clipArcPendingIndex;
             }
             private readonly List<PendingBridgeDraw> pendingBridges = new List<PendingBridgeDraw>();
             private int pendingBridgeFrame = -1;
@@ -3177,13 +3188,41 @@ namespace Parsek.Display
                 }
                 pendingDraws.Clear();
 
+                // SEAM BRIDGE draws (playtest 6/7, review MINOR-2 reorder): run AFTER the legs (each
+                // leg's fresh scratchScaledSpace supplies its bridge endpoints) but BEFORE the arcs,
+                // so a bridge that actually DRAWS can clip its target arc's lead-in/tail at the merge
+                // sample - and a failed bridge leaves the arc unclipped (no one-frame hole). Bridges
+                // read only cached offsets, never the arcs' draw output, so the reorder is safe.
+                int bridgeDrawn = 0;
+                GameScenes fwdScene = HighLogic.LoadedScene;
+                if (pendingBridgeFrame == frame)
+                {
+                    for (int b = 0; b < pendingBridges.Count; b++)
+                    {
+                        var bridge = pendingBridges[b];
+                        if (!TryDrawSeamBridge(fwdScene, bridge, frame)) continue;
+                        bridgeDrawn++;
+                        if (bridge.clipArcPendingIndex >= 0
+                            && bridge.clipArcPendingIndex < pendingForwardArcs.Count
+                            && forwardArcCache.TryGetValue(bridge.arcRecordingId, out var clipSet)
+                            && clipSet.arcs != null && bridge.arcIndex < clipSet.arcs.Length
+                            && clipSet.arcs[bridge.arcIndex].bodyRelOffsets != null)
+                        {
+                            var pd = pendingForwardArcs[bridge.clipArcPendingIndex];
+                            int len = clipSet.arcs[bridge.arcIndex].bodyRelOffsets.Length;
+                            if (bridge.atLegStart) pd.drawEndIndex = len - 1 - BridgeMergeSampleCount;
+                            else pd.drawStartIndex = BridgeMergeSampleCount;
+                            pendingForwardArcs[bridge.clipArcPendingIndex] = pd;
+                        }
+                    }
+                }
+
                 // FORWARD ARCS (Step 3 C): draw the future orbit arcs decided this frame in the same
                 // post-pan slot as the legs. The arc geometry is already sampled (cache-key-gated in the
                 // decide pass), so this just reactivates + Draw3D's the cached line. Forward arcs are a
                 // separate additive surface - they never touch drewNonOrbitalLegRecordings, so the current
                 // arc + icon (stock OrbitRenderer) render exactly as today.
                 int fwdArcsDrawn = 0;
-                GameScenes fwdScene = HighLogic.LoadedScene;
                 for (int i = 0; i < pendingForwardArcs.Count; i++)
                 {
                     var fp = pendingForwardArcs[i];
@@ -3215,19 +3254,6 @@ namespace Parsek.Display
                             "Forward arcs drawn: scene={0} count={1} legsDrawn={2} warp={3:F0}x",
                             fwdScene, fwdArcsDrawn, drawn, TimeWarp.CurrentRate),
                         5.0);
-
-                // SEAM BRIDGE draws (playtest 6/7): run AFTER the legs (each leg's fresh
-                // scratchScaledSpace supplies its bridge endpoints) and AFTER the arcs (clipped at
-                // their merge samples). One draw per armed (leg, side) pair.
-                int bridgeDrawn = 0;
-                if (pendingBridgeFrame == frame)
-                {
-                    for (int b = 0; b < pendingBridges.Count; b++)
-                    {
-                        if (TryDrawSeamBridge(fwdScene, pendingBridges[b], frame))
-                            bridgeDrawn++;
-                    }
-                }
 
                 // Deactivation sweep MOVES here so it runs in the same slot as the draws: a leg drawn
                 // this frame has lastDrawnFrame == frame and is NOT hidden, while any cached leg not
@@ -3640,6 +3666,11 @@ namespace Parsek.Display
                 chainRunMemberSegsScratch.Clear();
                 chainRunMemberReaimScratch.Clear();
                 chainRunConcatScratch.Clear();
+                // The chain's recorded data end (max member EndUT): lets the window keep the run
+                // alive while the icon rides a TRAILING leg past the last conic (review MAJOR-1)
+                // without letting STATIC recordings (headUT = live now, far past the data) paint
+                // their full paths.
+                double chainDataEndUT = double.NegativeInfinity;
                 for (int mi = 0; mi < chainRunMemberScratch.Count; mi++)
                 {
                     var member = chainRunMemberScratch[mi];
@@ -3652,6 +3683,8 @@ namespace Parsek.Display
                     chainRunMemberReaimScratch.Add(memberReaimWindow);
                     if (memberCoalesced != null)
                         chainRunConcatScratch.AddRange(memberCoalesced);
+                    if (member.rec.EndUT > chainDataEndUT)
+                        chainDataEndUT = member.rec.EndUT;
                 }
 
                 // Window source: members are StartUT-ordered and partition the recorded-UT axis, so the
@@ -3665,7 +3698,8 @@ namespace Parsek.Display
                     : TrajectoryMath.CoalesceSameOrbitFragments(chainRunConcatScratch);
 
                 ForwardRenderWindow.ForwardWindow window =
-                    ForwardRenderWindow.ComputeForwardWindow(windowSegs, headUT, ResolveBodyMu);
+                    ForwardRenderWindow.ComputeForwardWindow(
+                        windowSegs, headUT, ResolveBodyMu, chainDataEndUT);
                 if (!window.HasForwardRange)
                     return; // icon ON a full-loop closed orbit / no element -> line clears (no run)
 
@@ -4004,7 +4038,24 @@ namespace Parsek.Display
                             continue;
                         }
 
-                        // 5. Arm + clip the cached arc's pending draw at the merge sample.
+                        // 5. Arm. The cached arc's clip is RESOLVED here (the pending-list index) but
+                        // APPLIED only when the bridge actually draws (review MINOR-2): bridges draw
+                        // BEFORE arcs in the onPreCull pass, and a failed bridge leaves its arc
+                        // unclipped so no one-frame hole opens at the merge sample.
+                        int clipIdx = -1;
+                        if (cachedArcIdx >= 0)
+                        {
+                            for (int p = 0; p < pendingForwardArcs.Count; p++)
+                            {
+                                if (pendingForwardArcs[p].arcIndex == cachedArcIdx
+                                    && string.Equals(pendingForwardArcs[p].recordingId, cachedArcRec,
+                                        StringComparison.Ordinal))
+                                {
+                                    clipIdx = p;
+                                    break;
+                                }
+                            }
+                        }
                         pendingBridges.Add(new PendingBridgeDraw
                         {
                             legRecordingId = cand.recordingId,
@@ -4014,26 +4065,10 @@ namespace Parsek.Display
                             arcIndex = cachedArcIdx,
                             sampleKeyRecordingId = segRecordingId,
                             sampleSegment = seg,
+                            clipArcPendingIndex = clipIdx,
                         });
                         pendingBridgeFrame = drawFrame;
                         armed++;
-
-                        if (cachedArcIdx >= 0)
-                        {
-                            for (int p = 0; p < pendingForwardArcs.Count; p++)
-                            {
-                                var pd = pendingForwardArcs[p];
-                                if (pd.arcIndex != cachedArcIdx
-                                    || !string.Equals(pd.recordingId, cachedArcRec, StringComparison.Ordinal))
-                                    continue;
-                                int len = forwardArcCache[cachedArcRec].arcs[cachedArcIdx]
-                                    .bodyRelOffsets.Length;
-                                if (atLegStart) pd.drawEndIndex = len - 1 - BridgeMergeSampleCount;
-                                else pd.drawStartIndex = BridgeMergeSampleCount;
-                                pendingForwardArcs[p] = pd;
-                                break;
-                            }
-                        }
                     }
                 }
                 return armed;
@@ -4041,7 +4076,7 @@ namespace Parsek.Display
 
             /// <summary>
             /// Re-samples the forward-arc VectorLines for one recording ONLY when the cache key
-            /// (<see cref="BuildForwardArcKey"/>: currentElementIndex|bodyName|reaimWindowIndex) changed.
+            /// (<see cref="BuildForwardArcKey"/>: selectedSegmentIndices|reaimWindowIndex) changed.
             /// The recorded conic geometry is static, but an element advance / re-aim window rollover swaps
             /// the geometry without changing the segment count, so the key is the load-bearing discriminator.
             /// On a key change every prior arc line is destroyed before the rebuild so no Vectrosity object

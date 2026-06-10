@@ -10116,7 +10116,7 @@ namespace Parsek.InGameTests
             for (int i = 0; i < res.Count; i++)
                 InGameAssert.IsTrue(Finite(buffer[i]), "every elliptical sample point must be finite");
             InGameAssert.IsTrue(buffer[0].magnitude > body.Radius * 0.5,
-                "sampled points sit at orbital distance from the body centre (body-local)");
+                "sampled points sit at orbital distance from the body centre (world-frame)");
             InGameAssert.IsTrue((buffer[0] - buffer[res.Count - 1]).magnitude > 1000.0,
                 "a quarter-period arc is OPEN: its endpoints are distinct");
 
