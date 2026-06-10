@@ -2106,6 +2106,118 @@ namespace Parsek.Tests
             Assert.Equal(0.0, GhostTrajectoryPolylineRenderer.MaxChordDeviation(line, 2));
         }
 
+        // The TS marker OrbitSegmentActive veto (playtest-12 icon fix): a recorded conic covering the
+        // current UT vetoes the marker ONLY while the polyline does NOT own the phase. When it owns
+        // (proto line/icon hidden - or the proto destroyed on a below-surface descent), the marker is
+        // the sole position indicator and must draw.
+        [Fact]
+        public void ClassifyAtmosphericMarkerSkip_OrbitSegmentVeto_BypassedWhenPolylineOwns()
+        {
+            var rec = new Recording { RecordingId = "rec-veto-bypass" };
+            rec.Points.Add(MakePoint(100.0, 0.0, 0.0, 60000.0, "Duna"));
+            rec.Points.Add(MakePoint(400.0, 0.0, 1.0, 50000.0, "Duna"));
+            rec.OrbitSegments.Add(DegenerateDunaSegment(150.0, 350.0)); // covers currentUT below
+
+            // Not owned: the covering conic vetoes the marker (the orbit icon is presumed to draw).
+            GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting("rec-veto-bypass", false);
+            Assert.Equal(
+                ParsekTrackingStation.AtmosphericMarkerSkipReason.OrbitSegmentActive,
+                ParsekTrackingStation.ClassifyAtmosphericMarkerSkip(
+                    rec, recordingIndex: 0, currentUT: 250.0, suppressedIds: null));
+
+            // Polyline owns the phase: the marker is the sole indicator -> the veto is bypassed.
+            GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting("rec-veto-bypass", true);
+            Assert.Equal(
+                ParsekTrackingStation.AtmosphericMarkerSkipReason.None,
+                ParsekTrackingStation.ClassifyAtmosphericMarkerSkip(rec, 0, 250.0, null));
+        }
+
+        // RecordedLongitudeAtUT is the exact inverse of BodyFixedLongitudeAtUT (playtest-12
+        // gap-fill): a conic sample converted through the live rotation, counter-rotated to the
+        // recorded basis, must roundtrip back through the draw path's forward correction.
+        [Fact]
+        public void RecordedLongitudeAtUT_RoundtripsWithBodyFixedLongitudeAtUT()
+        {
+            const double rotationPeriod = 65517.859; // Duna
+            const double sampleUT = 70963500.0;
+            const double liveUT = 2410196581.0;
+            const double lonAtLive = 42.5;
+
+            double recorded = GhostTrajectoryPolylineRenderer.RecordedLongitudeAtUT(
+                lonAtLive, sampleUT, liveUT, rotationPeriod);
+            double roundtrip = GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(
+                recorded, sampleUT, liveUT, rotationPeriod);
+            Assert.Equal(lonAtLive, roundtrip, 6);
+
+            // Degenerate rotation period: identity.
+            Assert.Equal(lonAtLive, GhostTrajectoryPolylineRenderer.RecordedLongitudeAtUT(
+                lonAtLive, sampleUT, liveUT, 0.0), 9);
+        }
+
+        // The frameless-gap conic fill (playtest-12 straight-chord fix): a 208 s recorded-data gap
+        // covered by a BELOW-SURFACE conic gains interior points sampled from that conic; short gaps,
+        // uncovered gaps, and above-surface conics (which split the leg instead) are untouched.
+        [Fact]
+        public void FillFramelessGapsFromConics_FillsOnlyCoveredLongGaps()
+        {
+            var rec = new Recording { RecordingId = "rec-gapfill" };
+            // The below-surface descent conic covering the long gap (the seg-21 shape).
+            rec.OrbitSegments.Add(DegenerateDunaSegment(1000.0, 1210.0));
+
+            var pts = new List<TrajectoryPoint>
+            {
+                MakePoint(990.0, 0.0, 10.0, 58000.0, "Duna"),
+                MakePoint(1000.0, 0.0, 11.0, 57000.0, "Duna"),   // gap start
+                MakePoint(1208.0, 0.0, 30.0, 50100.0, "Duna"),   // 208 s frameless gap
+                MakePoint(1212.0, 0.0, 30.2, 50000.0, "Duna"),
+            };
+
+            int sampled = 0;
+            GhostTrajectoryPolylineRenderer.ConicGapSampler sampler =
+                (OrbitSegment seg, double ut, out double lat, out double lon, out double alt) =>
+                {
+                    sampled++;
+                    lat = 0.0;
+                    lon = 11.0 + (ut - 1000.0) * (19.0 / 208.0); // synthetic curve interior
+                    alt = 57000.0 - (ut - 1000.0) * 33.0;
+                    return true;
+                };
+
+            int inserted = GhostTrajectoryPolylineRenderer.FillFramelessGapsFromConics(
+                pts, rec, DunaSurface(), sampler);
+
+            Assert.True(inserted > 0, "the covered 208 s gap must gain interior points");
+            Assert.Equal(sampled, inserted);
+            Assert.True(inserted <= GhostTrajectoryPolylineRenderer.GapFillMaxPointsPerGap);
+            // All inserted points sit strictly inside the gap.
+            for (int i = 4; i < pts.Count; i++)
+                Assert.True(pts[i].ut > 1000.0 && pts[i].ut < 1208.0,
+                    "inserted point at " + pts[i].ut + " must lie inside the gap");
+
+            // No sampler / no surface provider -> no-op.
+            var pts2 = new List<TrajectoryPoint>(pts.GetRange(0, 4));
+            Assert.Equal(0, GhostTrajectoryPolylineRenderer.FillFramelessGapsFromConics(
+                pts2, rec, DunaSurface(), null));
+            Assert.Equal(0, GhostTrajectoryPolylineRenderer.FillFramelessGapsFromConics(
+                pts2, rec, null, sampler));
+
+            // An ABOVE-surface conic covering the gap does not fill (the cover splits the leg there
+            // instead; filling would double-draw the arc).
+            var recAbove = new Recording { RecordingId = "rec-gapfill-above" };
+            recAbove.OrbitSegments.Add(CleanDunaSegment(1000.0, 1210.0));
+            Assert.Equal(0, GhostTrajectoryPolylineRenderer.FillFramelessGapsFromConics(
+                pts2, recAbove, DunaSurface(), sampler));
+
+            // A short gap (under GapFillMinSeconds) is untouched.
+            var shortPts = new List<TrajectoryPoint>
+            {
+                MakePoint(1000.0, 0.0, 11.0, 57000.0, "Duna"),
+                MakePoint(1010.0, 0.0, 12.0, 56800.0, "Duna"),
+            };
+            Assert.Equal(0, GhostTrajectoryPolylineRenderer.FillFramelessGapsFromConics(
+                shortPts, rec, DunaSurface(), sampler));
+        }
+
         // The rotating-frame drift predicate (playtest-9): at low altitude KSP's world frame
         // co-rotates with the main body, freezing once-captured "inertial" offsets against the live
         // frame; any InverseRotAngle drift beyond epsilon must trigger the in-place resample.

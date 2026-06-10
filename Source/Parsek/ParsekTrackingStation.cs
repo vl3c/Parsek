@@ -741,7 +741,16 @@ namespace Parsek
                 return AtmosphericMarkerSkipReason.OutsideTimeRange;
             if (suppressedIds != null && suppressedIds.Contains(rec.RecordingId))
                 return AtmosphericMarkerSkipReason.SuppressedByChainFilter;
+            // OrbitSegmentActive veto - BYPASSED when the polyline OWNS this recording's current
+            // phase (playtest-12 icon fix): ownership means the proto orbit line/icon is hidden (or
+            // the proto is destroyed entirely, e.g. the below-surface Duna descent), so the marker is
+            // the SOLE position indicator. Without the bypass, a recorded conic covering the current
+            // UT - including a BELOW-SURFACE one that draws no arc, or short mid-burn fragments under
+            // an owned leg - silently vetoed the marker and the icon vanished on the landing chord
+            // and on the escape-burn leg. When the polyline does NOT own the phase the veto keeps its
+            // original job: no duplicate marker next to a live proto orbit icon.
             if (rec.HasOrbitSegments
+                && !Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(rec.RecordingId)
                 && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue)
                 return AtmosphericMarkerSkipReason.OrbitSegmentActive;
             return AtmosphericMarkerSkipReason.None;

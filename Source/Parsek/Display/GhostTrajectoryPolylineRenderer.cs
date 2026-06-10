@@ -620,7 +620,7 @@ namespace Parsek.Display
         /// null after a refresh; the Driver inflates it on first use.
         /// </summary>
         internal static void RefreshForRecording(
-            Recording rec, BodySurfaceProvider surface = null)
+            Recording rec, BodySurfaceProvider surface = null, ConicGapSampler gapSampler = null)
         {
             if (rec == null) return;
             string id = rec.RecordingId;
@@ -638,7 +638,7 @@ namespace Parsek.Display
             if (polylineCache.TryGetValue(id, out var stale))
                 DestroyLegLines(stale.legs);
 
-            var legs = BuildLegsForRecording(rec, surface);
+            var legs = BuildLegsForRecording(rec, surface, gapSampler);
             var legArray = legs.ToArray();
 
             polylineCache[id] = new LegPolylineSet
@@ -1360,6 +1360,25 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// PURE inverse of <see cref="BodyFixedLongitudeAtUT"/> (playtest-12 gap-fill): the RECORDED
+        /// body-fixed longitude of a world point evaluated at <paramref name="sampleUT"/> but converted
+        /// through the body's LIVE rotation (<c>CelestialBody.GetLongitude</c> uses the current spin).
+        /// Counter-rotating by the spin accrued between sampleUT and liveUT recovers the longitude the
+        /// recorder WOULD have stored at sampleUT, so a conic-sampled gap-fill point lands on the same
+        /// rotation basis as the recorded leg points around it. Roundtrip contract:
+        /// <c>BodyFixedLongitudeAtUT(RecordedLongitudeAtUT(x, t, live), t, live) == x</c>.
+        /// xUnit-testable.
+        /// </summary>
+        internal static double RecordedLongitudeAtUT(
+            double lonAtLiveRotation, double sampleUT, double liveUT, double rotationPeriod)
+        {
+            if (double.IsNaN(rotationPeriod) || double.IsInfinity(rotationPeriod)
+                || System.Math.Abs(rotationPeriod) <= 1e-9)
+                return lonAtLiveRotation;
+            return lonAtLiveRotation + (liveUT - sampleUT) * 360.0 / rotationPeriod;
+        }
+
+        /// <summary>
         /// Diagnostic (Bug 2 / Root B): a polyline leg bracketed by an orbit on only ONE side stays
         /// body-fixed (launch ascent = after-only; descent-from-orbit = before-only). For the descent case
         /// this logs the TRUE geometric world gap + body-relative longitudes between the leg's body-fixed
@@ -1712,8 +1731,102 @@ namespace Parsek.Display
         ///   footgun: those fields are metre offsets along the anchor's local
         ///   x/y/z, NOT lat/lon/alt).
         /// </summary>
+        /// <summary>
+        /// Min recorded-time gap (seconds) between two consecutive same-body leg samples for the
+        /// conic gap-fill to engage (playtest-12 straight-chord fix). Shorter gaps render fine as
+        /// linear chords.
+        /// </summary>
+        internal const double GapFillMinSeconds = 15.0;
+
+        /// <summary>Max synthetic interior points inserted per frameless gap.</summary>
+        internal const int GapFillMaxPointsPerGap = 30;
+
+        /// <summary>
+        /// Seam (playtest-12 gap-fill): samples a recorded conic at one UT and returns the
+        /// RECORDED-basis body-fixed (lat, lon, alt) triple (lon counter-rotated via
+        /// <see cref="RecordedLongitudeAtUT"/> so it matches the recorded points around it). The
+        /// Driver supplies a live Orbit-backed implementation; xUnit tests pass a synthetic one. The
+        /// pure builder never touches KSP through this.
+        /// </summary>
+        internal delegate bool ConicGapSampler(
+            OrbitSegment seg, double ut, out double lat, out double lon, out double alt);
+
+        /// <summary>
+        /// PURE gap-fill pass (playtest-12 straight-chord fix): the Duna landing leg merges Absolute
+        /// frame clusters ACROSS frameless OrbitalCheckpoint spans whose covering conics are
+        /// BELOW-SURFACE (excluded from the orbital cover by FIX #27, so no arc draws them and the
+        /// leg chords straight across - the "straight segment right before the landing"). For every
+        /// consecutive same-body sample pair separated by more than <see cref="GapFillMinSeconds"/>
+        /// whose open span is covered by a below-surface recorded conic, inserts up to
+        /// <see cref="GapFillMaxPointsPerGap"/> interior points sampled from THAT CONIC via
+        /// <paramref name="sampler"/> - the recorded descent shape itself, so the chord gains the
+        /// exact recorded curvature. RENDER-time only: the recording's own lists are never touched
+        /// (points are appended to the build stream copy). Returns the number of points inserted
+        /// (caller re-sorts the stream when &gt; 0). No-op without a sampler or surface provider
+        /// (below-surface classification needs body radii). xUnit-testable with synthetic seams.
+        /// </summary>
+        internal static int FillFramelessGapsFromConics(
+            List<TrajectoryPoint> pts, Recording rec, BodySurfaceProvider surface,
+            ConicGapSampler sampler)
+        {
+            if (pts == null || pts.Count < 2 || rec == null || rec.OrbitSegments == null
+                || sampler == null || surface == null)
+                return 0;
+
+            int inserted = 0;
+            int originalCount = pts.Count;
+            for (int i = 0; i < originalCount - 1; i++)
+            {
+                var p = pts[i];
+                var q = pts[i + 1];
+                if (!string.Equals(p.bodyName, q.bodyName, StringComparison.Ordinal)) continue;
+                double dt = q.ut - p.ut;
+                if (dt <= GapFillMinSeconds) continue;
+
+                // The covering BELOW-SURFACE conic (the recorded descent shape). Above-surface conics
+                // never reach here: their cover intervals split the leg at step (2)'s
+                // OrbitalIntervalBetween, so a gap inside one cannot exist within a single run.
+                int segIdx = -1;
+                for (int s = 0; s < rec.OrbitSegments.Count; s++)
+                {
+                    var seg = rec.OrbitSegments[s];
+                    if (seg.endUT <= seg.startUT) continue;
+                    if (!string.Equals(seg.bodyName, p.bodyName, StringComparison.Ordinal)) continue;
+                    if (seg.startUT >= q.ut || seg.endUT <= p.ut) continue; // no overlap with the gap
+                    if (!IsOrbitSegmentBelowSurface(seg, surface)) continue;
+                    segIdx = s;
+                    break;
+                }
+                if (segIdx < 0) continue;
+
+                var src = rec.OrbitSegments[segIdx];
+                // Sample only where the conic actually covers the gap (the checkpoint conic may start
+                // a few seconds after the cluster's last frame).
+                double from = System.Math.Max(p.ut, src.startUT);
+                double to = System.Math.Min(q.ut, src.endUT);
+                if (to - from <= GapFillMinSeconds) continue;
+                int n = (int)System.Math.Min(GapFillMaxPointsPerGap, System.Math.Floor((to - from) / 7.0));
+                if (n < 1) continue;
+                for (int k = 1; k <= n; k++)
+                {
+                    double ut = from + (to - from) * k / (n + 1);
+                    if (!sampler(src, ut, out double lat, out double lon, out double alt)) break;
+                    pts.Add(new TrajectoryPoint
+                    {
+                        ut = ut,
+                        latitude = lat,
+                        longitude = lon,
+                        altitude = alt,
+                        bodyName = p.bodyName,
+                    });
+                    inserted++;
+                }
+            }
+            return inserted;
+        }
+
         internal static List<LegPolyline> BuildLegsForRecording(
-            Recording rec, BodySurfaceProvider surface = null)
+            Recording rec, BodySurfaceProvider surface = null, ConicGapSampler gapSampler = null)
         {
             var legs = new List<LegPolyline>();
             if (rec == null) return legs;
@@ -1784,6 +1897,14 @@ namespace Parsek.Display
             //     draw gate shows a whole non-orbital span (the full burn arc)
             //     instead of a single fragmented section.
             pts.Sort((a, b) => a.ut.CompareTo(b.ut));
+
+            // Playtest-12 straight-chord fix: fill frameless below-surface-conic gaps with the
+            // recorded conic's own shape so the landing descent renders curved instead of a long
+            // linear chord. Build-time only; the recording is never touched.
+            int gapFilled = FillFramelessGapsFromConics(pts, rec, surface, gapSampler);
+            if (gapFilled > 0)
+                pts.Sort((a, b) => a.ut.CompareTo(b.ut));
+
             var run = new List<TrajectoryPoint>();
             string runBody = null;
             for (int i = 0; i < pts.Count; i++)
@@ -1812,10 +1933,10 @@ namespace Parsek.Display
 
             ParsekLog.Verbose(Tag,
                 string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Polyline build: rec={0} legs={1} (sectionPts={2} flatPts={3} skippedRelNoBodyFixed={4} excludedBelowSurfaceSegs={5})",
+                    "Polyline build: rec={0} legs={1} (sectionPts={2} flatPts={3} skippedRelNoBodyFixed={4} excludedBelowSurfaceSegs={5} gapFilled={6})",
                     rec.RecordingId,
                     legs.Count, sectionPointCount, flatPointCount,
-                    skippedRelativeWithoutBodyFixed, excludedBelowSurfaceSegments));
+                    skippedRelativeWithoutBodyFixed, excludedBelowSurfaceSegments, gapFilled));
 
             // FIX #27 one-shot: when the cover excluded degenerate
             // below-surface segments, the descent samples they used to drop
@@ -2589,6 +2710,10 @@ namespace Parsek.Display
             // pass), so one shared scratch is safe; consumed immediately within DecideForwardWindowForRecording.
             private readonly List<int> forwardArcIndexScratch = new List<int>();
 
+            // Live conic gap-fill sampler (playtest-12 straight-chord fix): cached delegate instance so
+            // the per-frame RefreshForRecording calls never allocate a fresh delegate. Bound in Awake.
+            private ConicGapSampler liveGapSampler;
+
             // Chain-aware run scratch (playtest-4 chain-boundary fix): one render run spans every
             // member of a recording CHAIN, but the per-recording walk only reaches the VISIBLE member
             // (looped-chain siblings are renderHidden), so the run pass resolves the sibling members'
@@ -2631,6 +2756,8 @@ namespace Parsek.Display
                 }
                 instance = this;
                 DontDestroyOnLoad(gameObject);
+                // Cached delegate so per-frame RefreshForRecording calls never allocate (playtest 12).
+                liveGapSampler = SampleConicBodyFixedAtUT;
                 GameEvents.onGameStateLoad.Add(OnGameStateLoad);
                 GameEvents.onLevelWasLoaded.Add(HandleLevelWasLoaded);
                 // Pan-stability (FIX 1): the actual point recompute + Draw3D run in this hook AFTER the
@@ -2883,7 +3010,7 @@ namespace Parsek.Display
                         continue;
                     }
 
-                    RefreshForRecording(rec, surface);
+                    RefreshForRecording(rec, surface, liveGapSampler);
                     if (!polylineCache.TryGetValue(rec.RecordingId, out var set))
                     {
                         frameSkippedNoLegs++;
@@ -3340,6 +3467,42 @@ namespace Parsek.Display
                         fwdArcsDrawn, bridgeDrawn, lastSweepDeactivatedCount, fwdArcsDeactivated, frame,
                         TimeWarp.CurrentRate),
                     2.0);
+            }
+
+            /// <summary>
+            /// Live <see cref="ConicGapSampler"/> (playtest-12 straight-chord fix): evaluates the
+            /// below-surface descent conic at one UT through the frame-correct stock Orbit and
+            /// converts to the RECORDED-basis body-fixed triple - latitude/altitude are rotation-free,
+            /// the longitude is counter-rotated via <see cref="RecordedLongitudeAtUT"/> so the filled
+            /// point sits on the same rotation basis as the recorded leg points around it (the
+            /// azimuth-minus-rotation-at-sample-time identity makes the result time-invariant, so the
+            /// cached leg never drifts between rebuilds).
+            /// </summary>
+            private bool SampleConicBodyFixedAtUT(
+                OrbitSegment seg, double ut, out double lat, out double lon, out double alt)
+            {
+                lat = 0; lon = 0; alt = 0;
+                CelestialBody body = ResolveBodyByName(HighLogic.LoadedScene, seg.bodyName);
+                if (body == null) return false;
+                try
+                {
+                    var orbit = new Orbit(
+                        seg.inclination, seg.eccentricity, seg.semiMajorAxis,
+                        seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
+                        seg.meanAnomalyAtEpoch, seg.epoch, body);
+                    Vector3d world = orbit.getPositionAtUT(ut);
+                    if (!IsFiniteVec(world)) return false;
+                    lat = body.GetLatitude(world);
+                    lon = RecordedLongitudeAtUT(
+                        body.GetLongitude(world), ut, Planetarium.GetUniversalTime(),
+                        body.rotationPeriod);
+                    alt = body.GetAltitude(world);
+                }
+                catch (Exception)
+                {
+                    return false;
+                }
+                return true;
             }
 
             /// <summary>
@@ -3828,7 +3991,7 @@ namespace Parsek.Display
                         if (ClassifyPolylineStaticSkip(member.rec, suppressedIds)
                             != PolylineStaticSkipReason.None)
                             continue; // legs AND arcs of an excluded member stay out of the run
-                        RefreshForRecording(member.rec, surface);
+                        RefreshForRecording(member.rec, surface, liveGapSampler);
                         haveLegs = polylineCache.TryGetValue(member.rec.RecordingId, out memberSet)
                             && memberSet.legs != null;
                     }
