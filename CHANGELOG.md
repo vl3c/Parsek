@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Features
 
 - Routes have a dispatch priority you can set in the route detail panel; when several routes contend in the same tick, lower priority numbers go first.
+- A supply run that starts undocked with cargo already aboard is now rejected at analysis with guidance: start docked to the origin, record the mining, or launch it from KSC.
 - A ghost's map and tracking-station trajectory now draws its full path through the current sphere of influence as one continuous line (the whole ascent and transfer, not just the short arc under the icon), keeps it on screen as the icon travels along it (including across the segments of a chained flight), and stops before the first full repeating orbit and at the first change of sphere of influence. Path pieces that turn with the planet hide once flown past (so the line never overlaps as the planet rotates) while upcoming ones such as the final landing stay visible, and curved connectors bridge them to the orbits on both sides whenever a real gap exists.
 
 ---
