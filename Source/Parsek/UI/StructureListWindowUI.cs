@@ -36,6 +36,13 @@ namespace Parsek
         private string title = "Structure";
         private List<StructureStep> steps = new List<StructureStep>();
 
+        // Row-cell label with the same left text inset the boxed column header applies,
+        // so body text starts at the same x as the header text (the header style insets
+        // its label; a bare GUI.skin.label does not). Matches the BodyCellTextIndent
+        // convention in MissionsWindowUI / RecordingsTableUI. Built lazily in OnGUI.
+        private const int BodyCellTextIndent = 5;
+        private GUIStyle bodyCellLabel;
+
         // Column widths (match the recordings / spawn window conventions).
         private const float ColW_Index = 28f;    // "#" step number, 1-based
         private const float ColW_Time = 110f;
@@ -187,6 +194,14 @@ namespace Parsek
 
         private void DrawWindow(int windowID)
         {
+            if (bodyCellLabel == null)
+            {
+                bodyCellLabel = new GUIStyle(GUI.skin.label)
+                {
+                    padding = new RectOffset(BodyCellTextIndent, 0, 0, 0)
+                };
+            }
+
             GUILayout.Space(5);
 
             if (steps.Count == 0)
@@ -229,12 +244,12 @@ namespace Parsek
             {
                 StructureStep step = steps[i];
                 GUILayout.BeginHorizontal();
-                GUILayout.Label((i + 1).ToString(CultureInfo.InvariantCulture), GUILayout.Width(ColW_Index));
-                GUILayout.Label(FormatTime(step.UT), GUILayout.Width(ColW_Time));
-                GUILayout.Label(step.Label ?? "", GUILayout.ExpandWidth(true));
-                GUILayout.Label(step.Status ?? "", GUILayout.Width(ColW_Status));
-                GUILayout.Label(step.Location ?? "", GUILayout.Width(ColW_Location));
-                GUILayout.Label(step.VesselName ?? "", GUILayout.Width(ColW_Vessel));
+                GUILayout.Label((i + 1).ToString(CultureInfo.InvariantCulture), bodyCellLabel, GUILayout.Width(ColW_Index));
+                GUILayout.Label(FormatTime(step.UT), bodyCellLabel, GUILayout.Width(ColW_Time));
+                GUILayout.Label(step.Label ?? "", bodyCellLabel, GUILayout.ExpandWidth(true));
+                GUILayout.Label(step.Status ?? "", bodyCellLabel, GUILayout.Width(ColW_Status));
+                GUILayout.Label(step.Location ?? "", bodyCellLabel, GUILayout.Width(ColW_Location));
+                GUILayout.Label(step.VesselName ?? "", bodyCellLabel, GUILayout.Width(ColW_Vessel));
                 GUILayout.EndHorizontal();
             }
             GUILayout.EndScrollView();
