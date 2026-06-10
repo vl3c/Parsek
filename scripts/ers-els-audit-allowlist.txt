@@ -82,6 +82,16 @@ Source/Parsek/UI/TimelineWindowUI.cs
 # [ERS-exempt] comment.
 Source/Parsek/UI/MissionsWindowUI.cs
 
+# StructureListWindowUI resolves a supply route's bound dock-member recording
+# by id off the raw CommittedRecordings list to read its immutable
+# RouteConnectionWindow proof (dock/undock UTs + endpoint) for the structure
+# step list. This is a physical by-id data lookup, not a visibility / supersede
+# scoped enumeration, so ERS filtering is not meaningful here. Same
+# physical-data-lookup rationale as MissionsWindowUI / TimelineWindowUI /
+# RecordingsTableUI above. Documented at the call site with an inline
+# [ERS-exempt] comment. No ledger reads.
+Source/Parsek/UI/StructureListWindowUI.cs
+
 # RecordedRelativeAnchorPoseResolver is the shared KSC/map recorded-anchor
 # resolver introduced by Phase D. It resolves exact recording ids from the
 # raw list when the focus/anchor record is a NotCommitted active Re-Fly

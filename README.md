@@ -78,7 +78,7 @@ Requires .NET SDK and KSP assemblies in `Kerbal Space Program/KSP_x64_Data/Manag
 Parsek's infrastructure - looped playback, vessel snapshots, game state tracking, resource budgeting - forms a natural foundation to build on. The first of these has already shipped (Supply routes, above, grew out of the logistics-network idea); the rest are not planned features, just ideas that the architecture makes possible:
 
 - **Multiplayer-like experience** - share recording files with other players and watch their missions play out as ghosts in your game, turning single-player KSP into a shared timeline
-- **Space race** - competing space programs on Kerbin racing to objectives, with ghost replays of rival missions playing out alongside yours - multiplayer or AI-driven
+- **Space race** - competing space programs on Kerbin racing to objectives, with ghost replays of rival missions playing out alongside yours - multiplayer or pre-recorded
 
 See the [roadmap](docs/roadmap.md) for what's planned and what's possible.
 

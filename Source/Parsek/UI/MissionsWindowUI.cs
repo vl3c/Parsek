@@ -99,7 +99,10 @@ namespace Parsek
         // inter-cell margins) plus MissionHeaderPeriodSlack for the one-line period label.
         private const float MissionHeaderRightBlockWidth =
             ColW_StartTime + ColW_StartEvent + ColW_EndEvent + ColW_EndTime + ColW_TMinus + ColW_ReFly + ColW_Archive + 6 * 4f
-            + MissionHeaderPeriodSlack;
+            + MissionHeaderPeriodSlack
+            // Plus the added "Log" header button (one ColW_HeaderButton + its inter-control margin)
+            // so the period label still fits on one line.
+            + ColW_HeaderButton + 4f;
         // Re-Fly column (mirrors the recordings window's Re-Fly/Fly-Seal column width): a per-vessel
         // Fly / Seal cell for unfinished-flight recordings, drawn by reusing RecordingsTableUI.
         private const float ColW_ReFly = 90f;
@@ -764,9 +767,18 @@ namespace Parsek
             // FlexibleSpace, then the Archive checkbox pinned to the right (under the Archive header).
             GUILayout.BeginHorizontal(GUILayout.Width(MissionHeaderRightBlockWidth));
 
-            // Clone / Delete first. Delete is disabled when this is the tree's last mission. Clone,
-            // Delete, Warp to, Watch, and Rewind/Forward all share ColW_HeaderButton so they read as
-            // one group.
+            // "Log" first: opens the chronological step-list window for this mission (launch,
+            // staging, dock / undock, terminal). Shares the header-button group width.
+            if (GUILayout.Button("Log", GUILayout.Width(ColW_HeaderButton)))
+            {
+                ParsekLog.Info("UI",
+                    $"Mission Log button: tree={mission.TreeId ?? "<null>"} name='{mission.Name ?? ""}'");
+                parentUI.OpenStructureWindowForMission(mission.TreeId, mission.Name);
+            }
+
+            // Clone / Delete next. Delete is disabled when this is the tree's last mission. Log,
+            // Clone, Delete, Warp to, Watch, and Rewind/Forward all share ColW_HeaderButton so they
+            // read as one group.
             if (GUILayout.Button("Clone", GUILayout.Width(ColW_HeaderButton)))
                 MissionStore.Clone(mission);
             GUI.enabled = MissionStore.CanDelete(mission);

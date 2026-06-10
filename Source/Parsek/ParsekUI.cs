@@ -84,6 +84,9 @@ namespace Parsek
         // Spawn Control window (extracted to SpawnControlUI)
         private SpawnControlUI spawnControlUI;
 
+        // Structure-list window (one reusable instance, retargeted per mission / route)
+        private StructureListWindowUI structureListUI;
+
         // Gloops Flight Recorder window (extracted to GloopsRecorderUI)
         private GloopsRecorderUI gloopsUI;
 
@@ -135,6 +138,7 @@ namespace Parsek
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
             this.logisticsUI = new LogisticsWindowUI(this);
+            this.structureListUI = new StructureListWindowUI(this);
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
         }
 
@@ -152,6 +156,7 @@ namespace Parsek
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
             this.logisticsUI = new LogisticsWindowUI(this);
+            this.structureListUI = new StructureListWindowUI(this);
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
         }
 
@@ -401,6 +406,23 @@ namespace Parsek
         public void DrawLogisticsWindowIfOpen(Rect mainWindowRect)
         {
             logisticsUI.DrawIfOpen(mainWindowRect);
+        }
+
+        public void DrawStructureWindowIfOpen(Rect mainWindowRect)
+        {
+            structureListUI.DrawIfOpen(mainWindowRect);
+        }
+
+        /// <summary>Opens the structure-list window for a mission tree (Missions tab button).</summary>
+        internal void OpenStructureWindowForMission(string treeId, string title)
+        {
+            structureListUI.OpenForMission(treeId, title);
+        }
+
+        /// <summary>Opens the structure-list window for a supply route (Logistics window button).</summary>
+        internal void OpenStructureWindowForRoute(string routeId, string title)
+        {
+            structureListUI.OpenForRoute(routeId, title);
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -1866,6 +1888,7 @@ namespace Parsek
             careerStateUI.ReleaseInputLock();
             settingsUI.ReleaseInputLock();
             spawnControlUI.ReleaseInputLock();
+            structureListUI.ReleaseInputLock();
             ResetCachedWindowStylesForSceneChange();
             // Map marker resources (icon atlas, fallback diamond, label style) are
             // owned by MapMarkerRenderer and reset per scene via ResetForSceneChange.
