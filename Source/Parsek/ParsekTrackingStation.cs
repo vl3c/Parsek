@@ -557,8 +557,9 @@ namespace Parsek
                     // is drawing that span - including the conic gap-fill points, which live only in
                     // the renderer's leg cache. RIDE the drawn line (the same contract the flight-map
                     // marker and the TS overlap-instance markers use) so the icon stays on the curve
-                    // instead of vanishing. The ride only succeeds when a leg containing the head
-                    // actually drew this frame, so this can never paint a marker for an undrawn phase.
+                    // instead of vanishing. The ride self-gates on the leg having drawn this frame
+                    // (or the short HeldLastGood pan-hold of a recently-on-line position), so this can
+                    // never paint a marker for an undrawn phase.
                     worldPos = riddenWorldPos;
                     rodePolyline = true;
                     resolved = true;

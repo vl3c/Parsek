@@ -62,6 +62,14 @@ namespace Parsek
         // Reusable per-frame buffers (used by DrawMapMarkers for chain dedup)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
 
+        // Review MINOR-1 (PR #1105): chains that drew a LABELED marker via the pid-keyed walk this
+        // frame, so the ghost-less polyline fallback never adds a second marker for the same chain
+        // during a warp handoff. A chain whose tip showed only its stock vessel icon (nativeIcon skip)
+        // is NOT in this set - the fallback may still mark the playing head there (two genuine
+        // objects, two icons). Cleared with chainTipIndexBuffer each walk.
+        private static readonly HashSet<string> drawnChainMarkerBuffer =
+            new HashSet<string>(StringComparer.Ordinal);
+
         // Slice (iii): reusable per-recording head-UT buffer for the per-instance overlap marker
         // branch. Cleared (not reallocated) per overlap recording inside TryGetLiveOverlapHeadUTs so
         // drawing N markers on the one shared polyline allocates nothing per frame.
@@ -1253,6 +1261,7 @@ namespace Parsek
 
             // First pass: find the highest active index per chain
             chainTipIndexBuffer.Clear();
+            drawnChainMarkerBuffer.Clear();
             foreach (var kvp in flight.Engine.ghostStates)
             {
                 if (kvp.Value == null) continue;
@@ -1589,6 +1598,11 @@ namespace Parsek
                 Color markerColor = GetGhostMarkerColorForType(vtype);
                 DrawMapMarkerAt(markerPos, markerKey, ghostName, markerColor, vtype);
                 summary.Drawn++;
+                // Review MINOR-1 dedup input: remember which CHAINS drew a labeled marker this frame
+                // so the ghost-less fallback below never adds a second one for the same chain.
+                if (kvp.Key < committed.Count
+                    && !string.IsNullOrEmpty(committed[kvp.Key].ChainId))
+                    drawnChainMarkerBuffer.Add(committed[kvp.Key].ChainId);
 
                 // Tracer: the non-proto labeled marker drew. Emit the per-pid change-based decision
                 // line carrying WHY (the disjuncts), the ride reason + leg, and the position source.
@@ -1672,7 +1686,8 @@ namespace Parsek
             // fallback (the TS atmospheric-marker equivalent): any committed recording that the walk
             // above did NOT cover and whose polyline OWNS the current phase (exactly one per chain - the
             // head-gated active member) draws its labeled marker riding the drawn line. The ride
-            // self-gates on the leg having actually drawn THIS frame, so an undrawn phase can never
+            // self-gates on the leg having drawn this frame (or the short HeldLastGood pan-hold of a
+            // position that was on the drawn line moments earlier), so an undrawn phase can never
             // paint a marker.
             if (isMapView)
             {
@@ -1685,6 +1700,13 @@ namespace Parsek
                         continue; // covered (drawn or intentionally skipped) by the pid-keyed walk
                     if (!Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(
                             rec.RecordingId))
+                        continue;
+                    // Review MINOR-1: if this chain already drew a LABELED marker via the pid-keyed
+                    // walk (warp handoff: a sibling member still holds a live ghost state), skip -
+                    // never two labeled markers for one chain. A chain whose live sibling showed only
+                    // its stock vessel icon still gets the playing head marked here.
+                    if (!string.IsNullOrEmpty(rec.ChainId)
+                        && drawnChainMarkerBuffer.Contains(rec.ChainId))
                         continue;
                     double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
                         ri, rec.StartUT, rec.EndUT, currentUT,
