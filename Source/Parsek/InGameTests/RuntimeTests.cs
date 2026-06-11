@@ -10115,8 +10115,20 @@ namespace Parsek.InGameTests
             InGameAssert.AreEqual(180, res.Count, "elliptical sample fills the whole buffer");
             for (int i = 0; i < res.Count; i++)
                 InGameAssert.IsTrue(Finite(buffer[i]), "every elliptical sample point must be finite");
-            InGameAssert.IsTrue(buffer[0].magnitude > body.Radius * 0.5,
-                "sampled points sit at orbital distance from the body centre (world-frame)");
+            // Samples are WORLD-frame (referenceBody.position + relative), so measure the
+            // orbital radius body-relative. The raw world magnitude is the distance from the
+            // FLOATING ORIGIN, which rides the active vessel: a pad vessel under the right
+            // planet rotation sits within ~120 km of this orbit's periapsis, failing a raw
+            // magnitude check (2026-06-11 "Jumping Flea" PRELAUNCH run).
+            double periapsis = sma * (1.0 - ell.eccentricity);
+            double apoapsis = sma * (1.0 + ell.eccentricity);
+            for (int i = 0; i < res.Count; i++)
+            {
+                double radius = (buffer[i] - body.position).magnitude;
+                InGameAssert.IsTrue(radius > periapsis * 0.99 && radius < apoapsis * 1.01,
+                    $"elliptical sample {i} must sit at orbital distance from the body centre " +
+                    $"(body-relative r={radius:F0} m, band {periapsis * 0.99:F0}..{apoapsis * 1.01:F0} m)");
+            }
             InGameAssert.IsTrue((buffer[0] - buffer[res.Count - 1]).magnitude > 1000.0,
                 "a quarter-period arc is OPEN: its endpoints are distinct");
 
@@ -10129,6 +10141,16 @@ namespace Parsek.InGameTests
             InGameAssert.AreEqual(180, hres.Count, "hyperbolic sample fills the whole buffer");
             for (int i = 0; i < hres.Count; i++)
                 InGameAssert.IsTrue(Finite(buffer[i]), "every hyperbolic sample point must be finite");
+            // Same body-relative measurement as the elliptical band; a hyperbola has no
+            // apoapsis, so only the periapsis floor (|sma| * (ecc - 1) = 350 km) applies.
+            double hypPeriapsis = (body.Radius + 100000.0) * 0.5;
+            for (int i = 0; i < hres.Count; i++)
+            {
+                double radius = (buffer[i] - body.position).magnitude;
+                InGameAssert.IsTrue(radius > hypPeriapsis * 0.99,
+                    $"hyperbolic sample {i} must sit at/above periapsis distance from the body centre " +
+                    $"(body-relative r={radius:F0} m, floor {hypPeriapsis * 0.99:F0} m)");
+            }
 
             // Degenerate inputs route to stock (Sampled == false): too-short buffer, then null orbit.
             var tooShort = new Vector3d[1];

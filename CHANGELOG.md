@@ -17,6 +17,7 @@ All notable changes to Parsek are documented here.
 ### Fixes
 
 - The re-aim end-to-end in-game test no longer fails intermittently: it now runs a pinned Kerbin-to-Duna geometry instead of seeding from the live clock, and a new manual diagnostic sweep maps which launch windows resolve a re-aimed transfer.
+- The orbit-arc-sampler in-game test no longer fails spuriously depending on where the active vessel sits (for example on the launchpad): it measured sampled orbit points from the scene's moving world origin instead of the planet centre.
 
 ---
 
