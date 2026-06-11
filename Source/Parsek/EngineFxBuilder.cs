@@ -649,6 +649,23 @@ namespace Parsek
                     string.Equals(normalizedPrefabName, "fx_exhaustFlame_white", System.StringComparison.OrdinalIgnoreCase);
 
                 GameObject fxPrefab = GhostVisualBuilder.FindFxPrefab(prefabName);
+                if (fxPrefab == null && WaterfallCompat.PartHasWaterfallModule(prefab))
+                {
+                    // Waterfall-patched part: the exact prefab's donors may all be patched
+                    // away (e.g. the hardcoded Rhino/Puff/Vector supplements name
+                    // size-suffixed flames). Try the family-base cascade before giving up.
+                    List<string> candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(prefabName);
+                    for (int c = 1; c < candidates.Count && fxPrefab == null; c++)
+                    {
+                        fxPrefab = GhostVisualBuilder.FindFxPrefab(candidates[c]);
+                        if (fxPrefab != null)
+                        {
+                            LogHotPathVerbose($"prefab-cascade-{partName}-{moduleIndex}-{prefabName}",
+                                $"waterfall fallback: '{partName}' midx={moduleIndex} " +
+                                $"cascaded prefab '{prefabName}' -> '{candidates[c]}'");
+                        }
+                    }
+                }
                 if (fxPrefab == null)
                 {
                     LogHotPathVerbose($"prefab-missing-{partName}-{moduleIndex}-{prefabName}",
@@ -842,6 +859,20 @@ namespace Parsek
 
                     ScanEffectsModelFxEntries(effectGroups, effectGroupNames, modelFxEntries, ref emissionCurve, ref speedCurve);
                     ScanEffectsPrefabParticleEntries(effectGroups, effectGroupNames, prefabFxEntries);
+                }
+
+                // Waterfall config packs (e.g. SWE) delete the stock EFFECTS particle nodes,
+                // leaving the post-MM scan empty. Recover the pristine definitions from the
+                // on-disk cfg, per module (multi-mode engines need this for midx > 0 too).
+                // Captured BEFORE the hardcoded special-case injections below so pristine
+                // model FX and the hardcoded supplements compose like a stock install.
+                int scannedEntryCount = modelFxEntries.Count + prefabFxEntries.Count;
+                bool waterfallPart = WaterfallCompat.PartHasWaterfallModule(prefab);
+                if (WaterfallCompat.ShouldAttemptPristineFxFallback(scannedEntryCount, waterfallPart))
+                {
+                    TryApplyPristineEngineFxFallback(
+                        prefab, engine, moduleIndex, partName,
+                        modelFxEntries, prefabFxEntries, ref emissionCurve, ref speedCurve);
                 }
 
                 var namedTransformCache = new Dictionary<string, List<Transform>>(System.StringComparer.OrdinalIgnoreCase);
@@ -1319,6 +1350,50 @@ namespace Parsek
                     }
                 }
 
+                if (modelFxEntries.Count == 0 && prefabFxEntries.Count == 0 && waterfallPart)
+                {
+                    // Waterfall-patched part with no pristine recovery either: the config
+                    // pack deleted the legacy fx_* keys, so the legacy prefab-children path
+                    // below cannot produce anything. Add the best-effort white flame so the
+                    // ghost is not plume-less. Runs per module (unlike the midx==0-only
+                    // legacy path); falls through to the normal entry processing.
+                    // Exception, mirroring the "legacy handled by midx=0" contract: secondary
+                    // modules of a legacy-keyed pristine part never had own FX, so no last
+                    // resort there (the resolver call is cached, this is a dictionary hit).
+                    bool legacySecondaryModule = false;
+                    if (moduleIndex > 0)
+                    {
+                        var pristineForPart = PristinePartFxResolver.GetForPart(
+                            prefab.partInfo?.name ?? partName, prefab.partInfo?.configFileFullName);
+                        legacySecondaryModule =
+                            pristineForPart != null && pristineForPart.LegacyFxPrefabNames.Count > 0;
+                    }
+
+                    if (legacySecondaryModule)
+                    {
+                        LogHotPathVerbose($"waterfall-lastresort-skip-{partName}-{moduleIndex}",
+                            $"waterfall fallback: '{partName}' midx={moduleIndex} legacy-keyed part; " +
+                            "secondary module gets no last-resort flame (legacy handled by midx=0)");
+                    }
+                    else
+                    {
+                        string lastResortTransform = "thrustTransform";
+                        if (!HasNamedTransform(lastResortTransform) &&
+                            engine != null &&
+                            !string.IsNullOrEmpty(engine.thrustVectorTransformName) &&
+                            HasNamedTransform(engine.thrustVectorTransformName))
+                        {
+                            lastResortTransform = engine.thrustVectorTransformName;
+                        }
+                        prefabFxEntries.Add((
+                            "fx_exhaustFlame_white", lastResortTransform, Vector3.zero,
+                            Quaternion.Euler(-90f, 0f, 0f), true, "waterfall-lastresort"));
+                        LogHotPathVerbose($"waterfall-lastresort-{partName}-{moduleIndex}",
+                            $"waterfall fallback: '{partName}' midx={moduleIndex} pristine recovery yielded " +
+                            $"nothing; added best-effort white flame on '{lastResortTransform}'");
+                    }
+                }
+
                 if (modelFxEntries.Count == 0 && prefabFxEntries.Count == 0)
                 {
                     // No EFFECTS node, or EFFECTS has no particle entries (e.g. Mainsail: AUDIO only).
@@ -1362,6 +1437,170 @@ namespace Parsek
             }
 
             return result.Count > 0 ? result : null;
+        }
+
+        /// <summary>
+        /// Waterfall fallback: rebuilds engine FX entries from the pristine on-disk part
+        /// config when the post-MM EFFECTS scan produced nothing (the config pack deleted
+        /// the stock particle nodes; see PristinePartFxResolver). Pristine group filtering
+        /// uses the PRISTINE module's effect names by engine-module ordinal -- the live
+        /// module's fields point at renamed post-MM groups that do not exist in the
+        /// pristine EFFECTS node. Returns true when any entries were recovered.
+        /// </summary>
+        private static bool TryApplyPristineEngineFxFallback(
+            Part prefab, ModuleEngines engine, int moduleIndex, string partName,
+            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)> modelFxEntries,
+            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries,
+            ref FloatCurve emissionCurve, ref FloatCurve speedCurve)
+        {
+            string runtimeName = prefab.partInfo?.name ?? partName;
+            var pristine = PristinePartFxResolver.GetForPart(runtimeName, prefab.partInfo?.configFileFullName);
+            if (pristine == null || !pristine.Found)
+            {
+                LogHotPathVerbose($"pristine-miss-{partName}-{moduleIndex}",
+                    $"waterfall fallback: '{partName}' midx={moduleIndex} pristine part data unavailable");
+                return false;
+            }
+
+            int before = modelFxEntries.Count + prefabFxEntries.Count;
+
+            if (pristine.EffectsNode != null)
+            {
+                if (moduleIndex < pristine.EngineModuleEffectNames.Count)
+                {
+                    ConfigNode[] allGroups = pristine.EffectsNode.GetNodes();
+                    string[] allGroupNames = new string[allGroups.Length];
+                    for (int g = 0; g < allGroups.Length; g++)
+                        allGroupNames[g] = allGroups[g].name ?? "?";
+
+                    HashSet<string> moduleGroups = pristine.EngineModuleEffectNames[moduleIndex];
+
+                    ConfigNode[] effectGroups;
+                    string[] effectGroupNames;
+                    if (moduleGroups.Count > 0)
+                    {
+                        FilterEffectGroups(allGroups, allGroupNames, moduleGroups,
+                            out effectGroups, out effectGroupNames);
+                    }
+                    else
+                    {
+                        effectGroups = allGroups;
+                        effectGroupNames = allGroupNames;
+                    }
+
+                    ScanEffectsModelFxEntries(effectGroups, effectGroupNames, modelFxEntries,
+                        ref emissionCurve, ref speedCurve);
+                    ScanEffectsPrefabParticleEntries(effectGroups, effectGroupNames, prefabFxEntries);
+                }
+                else
+                {
+                    // Structural mismatch (live engine module without a pristine counterpart,
+                    // e.g. another mod added an engine module). Scanning ALL groups here would
+                    // bleed other modes' FX onto this module; skip and let the white-flame
+                    // last resort handle it.
+                    LogHotPathVerbose($"pristine-ordinal-miss-{partName}-{moduleIndex}",
+                        $"waterfall fallback: '{partName}' midx={moduleIndex} has no pristine engine " +
+                        $"module counterpart (pristineEngineModules={pristine.EngineModuleEffectNames.Count}); " +
+                        "skipping pristine EFFECTS recovery for this module");
+                }
+            }
+
+            int effectsScanAdded = modelFxEntries.Count + prefabFxEntries.Count - before;
+
+            // Legacy-fx parts (e.g. Swivel, Poodle, Mainsail): no pristine EFFECTS particles;
+            // the running FX live in top-level fx_* keys. KSP's part compiler turned those
+            // into prefab children that the config pack's key deletion removed, so synthesize
+            // PREFAB_PARTICLE-style entries at the engine thrust transform with the engine's
+            // fxOffset (mirroring ProcessEngineLegacyFx placement; midx 0 only, matching
+            // legacy semantics). Names that no longer resolve to a stock FX prefab (the pack
+            // may also have stripped the donor parts the prefab cache is built from) are
+            // dropped here so the white-flame last resort can engage instead.
+            int legacySynthAdded = 0;
+            int legacySynthUnresolvable = 0;
+            int legacySynthSubstituted = 0;
+            int legacyFlameFallback = 0;
+            if (effectsScanAdded == 0 && moduleIndex == 0 && pristine.LegacyFxPrefabNames.Count > 0)
+            {
+                string anchor = engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName)
+                    ? engine.thrustVectorTransformName
+                    : "thrustTransform";
+                Vector3 anchorOffset = engine != null ? engine.fxOffset : Vector3.zero;
+                bool flameWanted = false;
+                bool flameResolved = false;
+                var usedResolvedNames = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < pristine.LegacyFxPrefabNames.Count; i++)
+                {
+                    string wanted = pristine.LegacyFxPrefabNames[i];
+                    bool isFlame = wanted.IndexOf("flame", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (isFlame)
+                        flameWanted = true;
+
+                    // Resolve through the candidate cascade: exact name first, then with
+                    // size/variant suffixes stripped (the exact prefab's donor parts may
+                    // all be Waterfall-patched while the generic family survives on
+                    // unpatched parts like SRBs).
+                    string resolved = null;
+                    List<string> candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(wanted);
+                    for (int c = 0; c < candidates.Count; c++)
+                    {
+                        if (GhostVisualBuilder.FindFxPrefab(candidates[c]) != null)
+                        {
+                            resolved = candidates[c];
+                            break;
+                        }
+                    }
+
+                    if (resolved == null)
+                    {
+                        legacySynthUnresolvable++;
+                        continue;
+                    }
+                    if (!usedResolvedNames.Add(resolved))
+                    {
+                        // Several wanted names collapsing to one donor (Mainsail's yellow
+                        // medium + mini both -> fx_exhaustFlame_yellow) would stack
+                        // identical FX at the same anchor; one instance is enough.
+                        continue;
+                    }
+                    if (!string.Equals(resolved, wanted, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        legacySynthSubstituted++;
+                        LogHotPathVerbose($"pristine-legacy-subst-{partName}-{moduleIndex}-{wanted}",
+                            $"waterfall fallback: '{partName}' midx={moduleIndex} " +
+                            $"substituted legacy FX '{wanted}' -> '{resolved}'");
+                    }
+                    if (isFlame)
+                        flameResolved = true;
+                    prefabFxEntries.Add((
+                        resolved, anchor, anchorOffset,
+                        Quaternion.Euler(-90f, 0f, 0f), true, "pristine-legacy"));
+                    legacySynthAdded++;
+                }
+
+                // Flame guarantee: a ghost engine that wanted a flame must show one even
+                // when only the smoke trail (or nothing) resolved; partial recovery
+                // otherwise leaves a flame-less plume and the zero-entries last resort
+                // never engages.
+                if (flameWanted && !flameResolved)
+                {
+                    prefabFxEntries.Add((
+                        "fx_exhaustFlame_white", anchor, anchorOffset,
+                        Quaternion.Euler(-90f, 0f, 0f), true, "pristine-legacy-flame-fallback"));
+                    legacyFlameFallback = 1;
+                    legacySynthAdded++;
+                    LogHotPathVerbose($"pristine-legacy-flamefallback-{partName}-{moduleIndex}",
+                        $"waterfall fallback: '{partName}' midx={moduleIndex} no legacy flame " +
+                        "resolved; added best-effort white flame");
+                }
+            }
+
+            int added = effectsScanAdded + legacySynthAdded;
+            LogHotPathVerbose($"pristine-fallback-{partName}-{moduleIndex}",
+                $"waterfall fallback: '{partName}' midx={moduleIndex} pristine recovery added {added} " +
+                $"entries (effectsScan={effectsScanAdded}, legacySynth={legacySynthAdded}, " +
+                $"legacyUnresolvable={legacySynthUnresolvable}, substituted={legacySynthSubstituted}, " +
+                $"flameFallback={legacyFlameFallback}) from '{pristine.SourcePath}'");
+            return added > 0;
         }
     }
 }

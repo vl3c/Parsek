@@ -117,7 +117,8 @@ rationale in its doc comment and gets theory tests (including the wrap and NaN c
 
 ### 4.2 Deterministic E2E rewrite (`InGameTests/ReaimEndToEndInGameTest.cs`)
 
-Shared setup, extracted into a private helper used by all three tests:
+Shared setup, extracted into a private helper used by all three tests (three at the time;
+section 10 later added a fourth, the observed-failure pin):
 
 - `PinnedScanBaseUT = 5_000_000.0` (a fixed constant, roughly Kerbin year 24; the value is
   arbitrary and NOT derived from any observed failure - any fixed value works because stock
@@ -283,3 +284,57 @@ and a real recorded mission's departure lies inside the band by definition (the 
 that transfer). Knife-edge window declines are hereby classified UNRESOLVABLE-BY-DESIGN:
 the fail-closed faithful fallback is the correct, designed behavior. Geometry-aware tof
 centering remains M-MIS-3 scope (eccentric/inclined targets), unchanged by this decision.
+
+## 10. Observed-failure pin (2026-06-11 run)
+
+A 2026-06-11 18:06 SPACECENTER batch (logs `2026-06-11_1811_m1-ingame-tests`, KSP.log
+~:9952) failed `Reaim_KerbinToDuna_EveryWindowResolvesSaneTransfer` with "window k=2 must
+resolve a re-aimed transfer (congruent-window model)". DLL provenance check (per the
+"diagnosing which build produced a collected log" recipe): the run executed the OLD
+live-UT-seeded strict test this plan replaced, proven by in-log BEHAVIORAL signatures -
+the log has ZERO `pinned scan base=` lines (a post-#1116-only Verbose line emitted by
+every E2E invocation) and uses the OLD member-id format `reaim-e2e-409291`
+("reaim-e2e-" + departure UT, vs the post-#1116 `reaim-e2e-mid-` / `reaim-e2e-edge-`
+index forms). `git-state.txt` corroborates: the collection ran from the
+logistics-m1-origin-debit worktree at a3f0aaeb9, which does NOT contain the PR #1116
+merge (fddf134ba). NOTE the assembly version is NOT a discriminating signal: pre-fix and
+post-fix builds both log `KSPAssembly 'Parsek' V0.10.0` (KSPAssembly carries major.minor
+only, and the AssemblyVersion spans both sides of the merge) - triage on the behavioral
+signatures, not the version line. So the failure is the documented pre-fix flake, not a
+regression in the shipped harness.
+
+What makes the run valuable: it is the first observed failure whose geometry is fully
+reconstructable from the log + collected saves. Reconstruction:
+
+- live UT at seed ~5.5s (fresh `temp_sandbox` save; corroborated by the C2 canary scan in
+  the same second: firstEncounterDepUT=2728574.5 = 5*synodic/36 + ~5.5)
+- first-scan-success departure = `409290.81937705079` (= liveUT + 1 * synodic/48, the
+  leading band EDGE by construction; member id `reaim-e2e-409291`)
+- window 0 resolved exactly (recorded tof 6524002.7336873859; arrival 13.3Mm from Duna's
+  center, well inside the 47.9Mm SOI - not knife-edge)
+- window 1 resolved at departUT=20054988.069 with tof stretched to 6850202.87 (+5.0%,
+  inside the +-6% search)
+- window 2 (departUT=39700685.319573924) DECLINED across the whole +-391440s (+-6%) tof
+  search: "transfer direction mismatch inc=180.00 deg (resultRetrograde=True,
+  recordedRetrograde=False)" - faithful this window.
+
+**Classification (consistent with section 9, no new mode):** the retrograde-branch
+direction mismatch. Duna's eccentric drift from the band-edge departure pushes window 2's
+transfer angle past 180 degrees, so every plane-constrained Lambert candidate in the tof
+band travels the wrong way (coplanar inc=180) and `ReaimTransferSynthesizer` rejects it;
+the resolver falls back to faithful with the per-window decline reason already logged.
+Window 1 carried half the drift and recovered at +5.0% tof; window 2 needs roughly double,
+outside the band. This is the same knife-edge mode as sweep dep=43/44, already classified
+UNRESOLVABLE-BY-DESIGN (section 9); the clean fail-closed decline is the designed outcome.
+No tof widening, per the section 9 decision (geometry-aware centering stays M-MIS-3).
+
+**Shipped (branch `reaim-pin-observed-edge`):** the departure is pinned as
+`ObservedEdgeDepartureUT = 409290.81937705079` and driven by the new
+`Reaim_KerbinToDuna_ObservedEdgeDeparture_ResolvesOrDeclinesCleanly` in-game test under the
+weak band-edge contract (resolve-or-decline-cleanly + deterministic re-solve), plus a
+window-0-must-resolve premise check; the per-window R/d map is logged on every run. This
+completes the M-MIS-1 item 1 clause "including at least one UT from each observed failure
+mode" with a real observed UT (the 2026-06-10 harness pinned the band-edge MECHANISM, but
+the earlier failures' UTs were never recoverable). The band-edge drive loop is shared
+(`DriveWindowsResolveOrDeclineCleanly`), and the geometry resolution was split out of the
+scan (`BuildGeometryOrSkip`) so the pinned test skips the 48-step scan cost.

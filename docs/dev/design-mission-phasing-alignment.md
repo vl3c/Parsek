@@ -6,7 +6,9 @@ profile), and the general per-cycle phasing-loiter knob that makes those windows
 Scoped, per the milestone, as a general Missions looping tool with the station route as the
 prime consumer. This note records the decisions; implementation follows in separate phases.*
 
-**Status:** decisions recorded, not implemented. Parent doc: `docs/parsek-missions-design.md`
+**Status:** decisions recorded; M4a (Tier 1 `VesselOrbital`, section 5) IMPLEMENTED on branch
+`mission-vesselorbital-tier1` per `docs/dev/plans/mission-vesselorbital-tier1.md`; M4b (the
+loiter knob) and M4c (Tier 2) not yet implemented. Parent doc: `docs/parsek-missions-design.md`
 (sections 7.4 / 7.5 / 14). Consumers: logistics supply routes
 (`docs/parsek-logistics-supply-routes-design.md`), M-MIS-2 P4 (the destination-loiter
 re-timer shares the knob built here).
@@ -43,7 +45,7 @@ Three coupled gaps, all forms of "the loop relaunches at an arbitrary phase":
 
 | # | Decision |
 |---|----------|
-| D1 | Anchor-source policy: the anchor vessel must EXIST in the save (loaded or on-rails); the constraint reads its live orbit. A vanished anchor fails closed to faithful. No recorded-orbit derivation fallback (section 3) |
+| D1 | Anchor-source policy: the anchor vessel must EXIST in the save (loaded or on-rails); the constraint reads its live orbit. Identity resolves via the section pid or, in the recorder's normal anchor-recording-only shape, through the committed anchor recording (pid + launch guid). A vanished anchor or a different launch of the same craft fails closed to faithful. No recorded-orbit derivation (section 3) |
 | D2 | Loop playback keeps the live-PID-only anchor contract; loops do NOT gain the recorded-anchor-trajectory fallback in this milestone (section 3.3) |
 | D3 | Divergence policy: constraint re-derives from live every build; amber-flag when live vs recorded station orbit diverges past tolerance; composition/mass changes are ignored for phasing (section 3.4) |
 | D4 | The phasing-loiter knob is a GENERAL Missions looping tool and FULLY AUTOMATIC: the kept-rev count is DERIVED from the solved relaunch schedule, never a player choice; no toggle ships (opt-out only on playtest demand); first play is always the faithful full recording (section 4) |
@@ -79,15 +81,23 @@ The `VesselOrbital` constraint's period (and phase reference) derives, per loop-
    existing vessel always carries an orbit). Read T_station and the phase reference from
    its CURRENT orbit. The live station is where the approach will visually land, so the
    live orbit is the alignment truth.
-2. **Fail closed otherwise** (vanished class-b anchors, recovered stations, anything that
-   does not resolve): no constraint; the mission stays on the existing
-   `UnsupportedRendezvous`-style faithful path with an amber reason. Never guess a period
-   from stale Relative offsets, and never derive one from the anchor RECORDING's
-   OrbitSegments: a window display computed from recorded data while the live anchor is
-   gone would advertise an alignment whose approach member loop playback skips/retires
-   (the anchor-unloaded contract), an incoherent UX. The recording-side
-   `anchorRecordingId` stays a diagnostic (it names which recording the anchor was), not a
-   derivation source.
+2. **Identity resolution (corrected by the 2026-06-11 playtest)**: the recorder
+   deliberately ZEROES the section's `anchorVesselId` whenever it stamps an
+   `anchorRecordingId` (FlightRecorder serialization checkpoints), so the
+   anchor-recording-only shape is the NORMAL recorded form of a station rendezvous, not an
+   edge case. The pid therefore resolves in order: the section's `anchorVesselId` when
+   non-zero, else THROUGH the committed anchor recording (its recorded pid plus launch
+   guid). The guid rides along into the live lookup because persistentId is craft-baked,
+   not launch-unique: a fresh launch of the same craft reuses the pid and must not read as
+   the recorded station (the VesselLaunchIdentity contract).
+3. **Fail closed otherwise** (vanished class-b anchors, recovered stations, an anchor
+   recording id that resolves to nothing committed, a different launch of the same craft):
+   no constraint; the mission stays on the existing `UnsupportedRendezvous`-style faithful
+   path with an amber reason. Never guess a period from stale Relative offsets, and never
+   derive one from the anchor RECORDING's OrbitSegments: the recording resolves the
+   anchor's IDENTITY, never its orbit - a window display computed from recorded orbit data
+   while the live anchor is gone would advertise an alignment whose approach member loop
+   playback skips/retires (the anchor-unloaded contract), an incoherent UX.
 
 Asteroid-redirect missions are one-shot by nature: looping one replays it faithfully (the
 asteroid is class b; once moved/expended, the vanished-anchor rule applies). No re-aim of an
@@ -268,6 +278,16 @@ Supported (extract `VesselOrbital`):
   automatically - PROVIDED no loop-clock cuts land between them, which 4.3's cut-placement
   rule guarantees.
 - The anchor resolves per section 3.2 (exists in the save).
+- **Self-partition (measured correction, 2026-06-11 retest):** the dock merge pulls the
+  foreign partner's segments INTO the tree, and the recorded anchoring is MUTUAL: the
+  partner's sections anchor the mission's own craft (the BG recorder records the nearby
+  partner relative to the ACTIVE vessel), while the craft's sections anchor the partner. Raw
+  anchors are therefore partitioned against the mission's SELF launch line (the earliest
+  member's pid + launch guid): a section whose anchor resolves to SELF is REATTRIBUTED to
+  its owning member's vessel (the partner the rendezvous was with, at that section's UT); a
+  foreign-anchored section is a direct target; both directions merge to one target keeping
+  the FIRST rendezvous UT. A mission whose vessel-anchored sections are ALL intra-self pairs
+  has no foreign target: no constraint, and NOT a reject (Support untouched).
 - The anchor's orbit is CLOSED (elliptical) and around the SAME parent body the mission's
   constraint set already operates in (the LKO-resupply shape: pad Rotation(Kerbin) +
   VesselOrbital(station around Kerbin)).

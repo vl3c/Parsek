@@ -1189,6 +1189,11 @@ namespace Parsek
                 Solved && Solution.ShouldPhaseLock
                 && !double.IsNaN(Solution.P) && Solution.P > LoopTiming.MinCycleDuration + 1e-6;
 
+            // D3 drift amber (M4a): set when an emitted VesselOrbital constraint's LIVE anchor
+            // period has drifted past tolerance from the recorded rendezvous-time orbit. Display
+            // only - tints the T- cell amber with the reason as tooltip; never affects Support.
+            public string DriftAmberReason;
+
             // True when the resolved unit is a re-aim interplanetary loop (cross-parent single-hop). The
             // faithful periodicity Solve reports cross-parent UnsupportedCrossParent (ShouldPhaseLock
             // false), so without this the period / T- cells would read "not aligned" even though the
@@ -1244,6 +1249,7 @@ namespace Parsek
             result.Solved = true;
             result.Solution = solution;
             result.NowUT = nowUT;
+            result.DriftAmberReason = extraction.DriftAmberReason;
 
             // Dominant constraint (kind/body) for the period-cell basis label, picked the same way
             // the solver picks the constraint whose period sets P.
@@ -1360,11 +1366,17 @@ namespace Parsek
                 periodicity.IsPhaseLockedConstrained,
                 periodicity.IsScheduled,
                 periodicity.ScheduleAllLaunchesWithinTolerance,
-                periodicity.Solution.WithinTolerance);
+                periodicity.Solution.WithinTolerance,
+                periodicity.DriftAmberReason);
             Color prev = GUI.contentColor;
             if (amber)
                 GUI.contentColor = LoopPeriodClampColor;
-            GUILayout.Label(text, compositionCellLabel, GUILayout.Width(ColW_TMinus));
+            // D3 drift amber carries its reason as the tooltip, so the player can read WHY the
+            // countdown is amber (station orbit drifted since recording).
+            GUIContent cellContent = periodicity.DriftAmberReason != null
+                ? new GUIContent(text, periodicity.DriftAmberReason)
+                : new GUIContent(text);
+            GUILayout.Label(cellContent, compositionCellLabel, GUILayout.Width(ColW_TMinus));
             GUI.contentColor = prev;
         }
 
@@ -1388,16 +1400,24 @@ namespace Parsek
         /// In BOTH cases the unit must be phase-locked + constrained
         /// (<paramref name="isPhaseLockedConstrained"/>) to tint at all; continuous / not-aligned / blank
         /// states read plain. NOT tinted unconditionally off <paramref name="isScheduled"/> - that would
-        /// hide a real over-tolerance schedule. Pure (no Unity); unit-tested.
+        /// hide a real over-tolerance schedule. A non-null <paramref name="driftAmberReason"/> (the M4a
+        /// D3 station-drift surface) also tints a phase-locked cell, independent of the tolerance flags
+        /// (alignment is still to the LIVE orbit; the amber says the recorded approach may seam).
+        /// Pure (no Unity); unit-tested.
         /// </summary>
         internal static bool ShouldTintTMinusAmber(
             bool isPhaseLockedConstrained,
             bool isScheduled,
             bool scheduleAllLaunchesWithinTolerance,
-            bool fixedFitWithinTolerance)
+            bool fixedFitWithinTolerance,
+            string driftAmberReason = null)
         {
             if (!isPhaseLockedConstrained)
                 return false;
+            // D3 drift amber: display-only, set when the live station orbit drifted past tolerance
+            // from the recorded rendezvous-time orbit.
+            if (driftAmberReason != null)
+                return true;
             // Scheduled: amber iff some scheduled launch was over tolerance (bounded-best).
             // Non-scheduled: amber iff the fixed m*P fit missed tolerance (unchanged behavior).
             return isScheduled
@@ -1561,11 +1581,15 @@ namespace Parsek
 
         /// <summary>
         /// The basis label for a phase-locked period cell: "(Kerbin rot)" for a Rotation constraint
-        /// (the launch/landing body's rotation realigns the orbit over the site) or "(Mun window)"
-        /// for an Orbital constraint (the next intercept window). Pure; empty body -> empty label.
+        /// (the launch/landing body's rotation realigns the orbit over the site), "(Mun window)"
+        /// for an Orbital constraint (the next intercept window), or "(station window)" for a
+        /// VesselOrbital constraint (M4a: the period is the ANCHOR VESSEL's orbit, not a celestial
+        /// event of bodyName, which holds the orbited body). Pure; empty body -> empty label.
         /// </summary>
         internal static string BuildPeriodBasisLabel(ConstraintKind kind, string bodyName)
         {
+            if (kind == ConstraintKind.VesselOrbital)
+                return "(station window)";
             if (string.IsNullOrEmpty(bodyName))
                 return "";
             return kind == ConstraintKind.Rotation
