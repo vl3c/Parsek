@@ -460,7 +460,7 @@ namespace Parsek.Tests
             bug.UndockTransportResources = undockTransport;
             bug.UndockEndpointResources = undockEndpoint;
             RouteAnalysisResult bugResult = RouteAnalysisEngine.AnalyzeRecording(
-                new Recording { RecordingId = "deflated", RouteConnectionWindows = new List<RouteConnectionWindow> { bug } });
+                new Recording { RecordingId = "deflated", StartBodyName = "Kerbin", LaunchSiteName = "LaunchPad", RouteConnectionWindows = new List<RouteConnectionWindow> { bug } });
             Assert.Equal(RouteAnalysisStatus.MixedPickupDelivery, bugResult.Status);
 
             // FIX: transport pre-couple -> DockTransport = 500 -> transportGain = -100.
@@ -474,7 +474,7 @@ namespace Parsek.Tests
             fix.UndockTransportResources = undockTransport;
             fix.UndockEndpointResources = undockEndpoint;
             RouteAnalysisResult fixResult = RouteAnalysisEngine.AnalyzeRecording(
-                new Recording { RecordingId = "precouple", RouteConnectionWindows = new List<RouteConnectionWindow> { fix } });
+                new Recording { RecordingId = "precouple", StartBodyName = "Kerbin", LaunchSiteName = "LaunchPad", RouteConnectionWindows = new List<RouteConnectionWindow> { fix } });
             Assert.NotEqual(RouteAnalysisStatus.MixedPickupDelivery, fixResult.Status);
             // The clean 100 LF delivery is now accepted.
             Assert.Equal(RouteAnalysisStatus.Eligible, fixResult.Status);

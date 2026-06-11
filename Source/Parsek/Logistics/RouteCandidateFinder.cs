@@ -122,7 +122,7 @@ namespace Parsek.Logistics
             // so it emits no per-tree INFO; the detailed per-tree reason is still
             // logged at INFO on the one-shot Create Route path (Diagnostic mode).
             int missingProof = 0, multiWindow = 0, missingEndpoint = 0,
-                mixedPickup = 0, noManifest = 0;
+                mixedPickup = 0, noManifest = 0, undockedStart = 0;
             for (int i = 0; i < committedTrees.Count; i++)
             {
                 RecordingTree tree = committedTrees[i];
@@ -147,6 +147,7 @@ namespace Parsek.Logistics
                         case RouteAnalysisStatus.MissingEndpointProof: missingEndpoint++; break;
                         case RouteAnalysisStatus.MixedPickupDelivery: mixedPickup++; break;
                         case RouteAnalysisStatus.NoDeliveryManifest: noManifest++; break;
+                        case RouteAnalysisStatus.UndockedStartOrigin: undockedStart++; break;
                     }
                     continue;
                 }
@@ -165,7 +166,8 @@ namespace Parsek.Logistics
                 $"DeriveCandidates: trees={committedTrees.Count} candidates={result.Count} " +
                 $"notSealed={notSealed} ineligible={ineligible} alreadyPromoted={alreadyPromoted} " +
                 $"[missingProof={missingProof} multiWindow={multiWindow} " +
-                $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} noManifest={noManifest}]");
+                $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} " +
+                $"noManifest={noManifest} undockedStart={undockedStart}]");
             return result;
         }
 
@@ -205,7 +207,7 @@ namespace Parsek.Logistics
             // Per-reason breakdown of the ineligible count, mirroring DeriveCandidates'
             // batch-summary convention (one Verbose line after the loop, never per item).
             int missingProof = 0, multiWindow = 0, missingEndpoint = 0,
-                mixedPickup = 0, noManifest = 0;
+                mixedPickup = 0, noManifest = 0, undockedStart = 0;
             for (int i = 0; i < committedTrees.Count; i++)
             {
                 RecordingTree tree = committedTrees[i];
@@ -241,6 +243,7 @@ namespace Parsek.Logistics
                         case RouteAnalysisStatus.MissingEndpointProof: missingEndpoint++; break;
                         case RouteAnalysisStatus.MixedPickupDelivery: mixedPickup++; break;
                         case RouteAnalysisStatus.NoDeliveryManifest: noManifest++; break;
+                        case RouteAnalysisStatus.UndockedStartOrigin: undockedStart++; break;
                     }
                     result.Add(new RouteNearMiss
                     {
@@ -258,7 +261,8 @@ namespace Parsek.Logistics
                 $"DeriveNearMisses: trees={committedTrees.Count} nearMisses={result.Count} " +
                 $"notSealed={notSealed} ineligible={ineligible} " +
                 $"[missingProof={missingProof} multiWindow={multiWindow} " +
-                $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} noManifest={noManifest}]");
+                $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} " +
+                $"noManifest={noManifest} undockedStart={undockedStart}]");
             return result;
         }
 

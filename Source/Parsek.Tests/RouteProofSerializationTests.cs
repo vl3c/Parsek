@@ -35,6 +35,8 @@ namespace Parsek.Tests
             Assert.Equal(RouteConnectionKind.DockingPort, loaded.TransferKind);
             Assert.NotNull(loaded.RouteOriginProof);
             Assert.Equal(7007u, loaded.RouteOriginProof.StartDockedOriginVesselPid);
+            Assert.Equal("Mun", loaded.RouteOriginProof.StartDockedOriginBodyName);
+            Assert.True(loaded.RouteOriginProof.StartDockedOriginIsSurface);
             Assert.Equal(120.0, loaded.RouteOriginProof.StartTransportResources["LiquidFuel"].amount);
             Assert.Equal("evaJetpack", loaded.RouteOriginProof.StartTransportInventory[0].PartName);
             Assert.Equal("STOREDPART", loaded.RouteOriginProof.StartTransportInventory[0].StoredPartSnapshot.name);
@@ -105,6 +107,74 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RouteProof_OriginDescriptor_RoundTrips()
+        {
+            // FAILS IF: any of the six origin endpoint descriptor fields (M1) is
+            // lost or reformatted on the round trip through ConfigNode.
+            var rec = new Recording
+            {
+                RecordingId = "route-proof-descriptor",
+                RouteOriginProof = new RouteOriginProof
+                {
+                    StartDockedOriginVesselPid = 7007,
+                    StartDockedOriginBodyName = "Minmus",
+                    StartDockedOriginLatitude = -0.55,
+                    StartDockedOriginLongitude = 78.25,
+                    StartDockedOriginAltitude = 2412.5,
+                    StartDockedOriginIsSurface = true,
+                    StartDockedOriginSituation = (int)Vessel.Situations.LANDED
+                }
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
+
+            var loaded = new Recording { RecordingId = "route-proof-descriptor" };
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
+
+            Assert.NotNull(loaded.RouteOriginProof);
+            Assert.Equal(7007u, loaded.RouteOriginProof.StartDockedOriginVesselPid);
+            Assert.Equal("Minmus", loaded.RouteOriginProof.StartDockedOriginBodyName);
+            Assert.Equal(-0.55, loaded.RouteOriginProof.StartDockedOriginLatitude);
+            Assert.Equal(78.25, loaded.RouteOriginProof.StartDockedOriginLongitude);
+            Assert.Equal(2412.5, loaded.RouteOriginProof.StartDockedOriginAltitude);
+            Assert.True(loaded.RouteOriginProof.StartDockedOriginIsSurface);
+            Assert.Equal((int)Vessel.Situations.LANDED, loaded.RouteOriginProof.StartDockedOriginSituation);
+        }
+
+        [Fact]
+        public void RouteProof_OriginDescriptorAbsent_ReadsBackDefaults()
+        {
+            // FAILS IF: an old-shape proof (pid-only, recorded before the M1
+            // descriptor) does not read back with the field defaults: empty body
+            // name, zero coords, IsSurface false, situation -1. The sparse writer
+            // must also omit the descriptor values when the body name is empty.
+            var rec = new Recording
+            {
+                RecordingId = "route-proof-old-shape",
+                RouteOriginProof = new RouteOriginProof
+                {
+                    StartDockedOriginVesselPid = 7007
+                }
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
+
+            var loaded = new Recording { RecordingId = "route-proof-old-shape" };
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
+
+            Assert.NotNull(loaded.RouteOriginProof);
+            Assert.Equal(7007u, loaded.RouteOriginProof.StartDockedOriginVesselPid);
+            Assert.True(string.IsNullOrEmpty(loaded.RouteOriginProof.StartDockedOriginBodyName));
+            Assert.Equal(0.0, loaded.RouteOriginProof.StartDockedOriginLatitude);
+            Assert.Equal(0.0, loaded.RouteOriginProof.StartDockedOriginLongitude);
+            Assert.Equal(0.0, loaded.RouteOriginProof.StartDockedOriginAltitude);
+            Assert.False(loaded.RouteOriginProof.StartDockedOriginIsSurface);
+            Assert.Equal(-1, loaded.RouteOriginProof.StartDockedOriginSituation);
+        }
+
+        [Fact]
         public void RouteProof_MissingMetadataDefaultsToNoProof()
         {
             var node = new ConfigNode("RECORDING");
@@ -132,6 +202,9 @@ namespace Parsek.Tests
                 .AddValue("mutated", "true");
 
             Assert.Equal(120.0, clone.RouteOriginProof.StartTransportResources["LiquidFuel"].amount);
+            Assert.Equal("Mun", clone.RouteOriginProof.StartDockedOriginBodyName);
+            Assert.True(clone.RouteOriginProof.StartDockedOriginIsSurface);
+            Assert.Equal((int)Vessel.Situations.LANDED, clone.RouteOriginProof.StartDockedOriginSituation);
             Assert.Equal(new List<uint> { 11u, 12u }, clone.RouteConnectionWindows[0].TransportPartPersistentIds);
             Assert.Null(clone.RouteConnectionWindows[0].DockTransportInventory[0]
                 .StoredPartSnapshot.GetValue("mutated"));
@@ -165,6 +238,12 @@ namespace Parsek.Tests
                 RouteOriginProof = new RouteOriginProof
                 {
                     StartDockedOriginVesselPid = 7007,
+                    StartDockedOriginBodyName = "Mun",
+                    StartDockedOriginLatitude = 12.0,
+                    StartDockedOriginLongitude = -45.0,
+                    StartDockedOriginAltitude = 612.0,
+                    StartDockedOriginIsSurface = true,
+                    StartDockedOriginSituation = (int)Vessel.Situations.LANDED,
                     StartTransportResources = new Dictionary<string, ResourceAmount>
                     {
                         ["LiquidFuel"] = new ResourceAmount { amount = 120.0, maxAmount = 120.0 }

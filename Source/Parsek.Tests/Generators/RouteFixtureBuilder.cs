@@ -21,6 +21,7 @@ namespace Parsek.Tests.Generators
         private double transitDuration;
         private double dispatchInterval;
         private int cadenceMultiplier = 1;
+        private int dispatchPriority;
         private double dispatchWindowEpochUT;
         private double dispatchWindowPeriod;
         private double nextDispatchUT;
@@ -82,6 +83,12 @@ namespace Parsek.Tests.Generators
         public RouteFixtureBuilder WithCadenceMultiplier(int multiplier)
         {
             cadenceMultiplier = multiplier;
+            return this;
+        }
+
+        public RouteFixtureBuilder WithDispatchPriority(int priority)
+        {
+            dispatchPriority = priority;
             return this;
         }
 
@@ -212,6 +219,7 @@ namespace Parsek.Tests.Generators
                 TransitDuration = transitDuration,
                 DispatchInterval = dispatchInterval,
                 CadenceMultiplier = cadenceMultiplier,
+                DispatchPriority = dispatchPriority,
                 DispatchWindowEpochUT = dispatchWindowEpochUT,
                 DispatchWindowPeriod = dispatchWindowPeriod,
                 NextDispatchUT = nextDispatchUT,

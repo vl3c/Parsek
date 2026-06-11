@@ -251,6 +251,16 @@ namespace Parsek.InGameTests
             Description = "A loop-route crossing through RouteOrchestrator.Tick (IsLoopRoute true) fires EmitLoopCycle -> live ApplyDelivery: the destination LiquidFuel tank increases by the manifest amount and a RouteCargoDelivered (+ RouteDispatched) ledger row is emitted")]
         public IEnumerator LoopFire_RendersAndDelivers_AtDockCrossing()
         {
+            // Post-restore unpack wait: same defect class as the M1
+            // origin-debit tests (fixed 2026-06-11) - the isolated-batch
+            // baseline quickload leaves the active vessel packed for a few
+            // frames and the packed precondition below used to skip this test
+            // whenever it followed another destructive test. Yields happen
+            // before any seam arming or drain.
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
             // PRECONDITION GATE -------------------------------------------------
             // The loop-fire path + its test seams must exist; a failure here means
             // an upstream phase is incomplete, not that this behavior regressed.

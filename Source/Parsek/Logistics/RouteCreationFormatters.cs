@@ -85,16 +85,19 @@ namespace Parsek.Logistics
 
             id.BodyName = originRec.StartBodyName;
 
-            if (!string.IsNullOrEmpty(originRec.LaunchSiteName)
-                && string.Equals(originRec.StartBodyName, "Kerbin", System.StringComparison.Ordinal))
+            // Classification delegates to the RouteAnalysisEngine helpers (M1):
+            // the analysis engine's undocked-start workflow gate
+            // (RouteAnalysisStatus.UndockedStartOrigin) is the negation of these
+            // two branches, so sharing the predicates keeps the display labels
+            // and the gate from ever diverging.
+            if (RouteAnalysisEngine.IsKscOriginRecording(originRec))
             {
                 id.Kind = RouteOriginKind.Ksc;
                 id.LaunchSiteName = originRec.LaunchSiteName;
                 return id;
             }
 
-            if (originRec.RouteOriginProof != null
-                && originRec.RouteOriginProof.StartDockedOriginVesselPid != 0)
+            if (RouteAnalysisEngine.HasDockedOriginProof(originRec))
             {
                 id.Kind = RouteOriginKind.Depot;
                 id.DepotVesselPid = originRec.RouteOriginProof.StartDockedOriginVesselPid;
@@ -184,6 +187,8 @@ namespace Parsek.Logistics
                     return "Mixed pickup and delivery detected - the transport ended this run with more of a resource than it started, so it picked the resource up instead of only delivering it. Supply Routes must be one-way delivery in v1. Re-record without taking any resource from the destination: if the destination was full, transfer that resource back out before undocking, or disable flow on the affected transport tanks before docking so nothing moves into the transport.";
                 case RouteAnalysisStatus.MissingEndpointProof:
                     return "Endpoint vessel could not be identified at dock time.";
+                case RouteAnalysisStatus.UndockedStartOrigin:
+                    return "This run starts undocked with cargo already aboard, so the cargo's source was never witnessed. Start the supply run docked to the origin depot, record the mining that produced the cargo, or launch it from KSC.";
                 default:
                     return "Route source is not eligible (" + status + ").";
             }

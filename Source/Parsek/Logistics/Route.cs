@@ -102,6 +102,18 @@ namespace Parsek.Logistics
         /// </summary>
         public int CadenceMultiplier = 1;
 
+        /// <summary>
+        /// Player-facing dispatch priority (M1, design D8). Lower value
+        /// dispatches FIRST when several routes contend in the same orchestrator
+        /// tick (e.g. simultaneous dock crossings against a shared origin):
+        /// <see cref="RouteOrchestrator.CompareRoutesForTick"/> sorts the per-tick
+        /// snapshot ascending on this, then <see cref="NextDispatchUT"/>, then
+        /// ordinal <see cref="Id"/>. Default 0 = the highest priority; floor 0
+        /// (clamp via <see cref="ClampPriority"/> on every write: UI, codec).
+        /// Sparse in the codec: omitted when 0 so it never bloats a default save.
+        /// </summary>
+        public int DispatchPriority;
+
         /// <summary>Original flight start UT; anchors inter-body synodic phase.</summary>
         public double DispatchWindowEpochUT;
 
@@ -270,6 +282,18 @@ namespace Parsek.Logistics
         internal static int ClampCadenceMultiplier(int n)
         {
             return n < 1 ? 1 : n;
+        }
+
+        /// <summary>
+        /// Clamps a dispatch priority to the floor (<c>&gt;= 0</c>). The single
+        /// place the <c>priority &gt;= 0</c> invariant is enforced; every writer
+        /// (UI stepper, codec) routes through this so a negative input can never
+        /// land a sub-floor priority. Default 0 is the HIGHEST priority (lower
+        /// value dispatches first; see <see cref="DispatchPriority"/>).
+        /// </summary>
+        internal static int ClampPriority(int p)
+        {
+            return p < 0 ? 0 : p;
         }
 
         /// <summary>
