@@ -194,6 +194,16 @@ A 2026-06-10 online sweep of what KSP players actually fly (stock career contrac
 
 ---
 
+## Done 2026-06-11 - Logistics M6 slice: live route hold-reason legibility (branch `logistics-m6-hold-reasons`)
+
+**M6 first bullet, live-hold half** (design `docs/parsek-logistics-supply-routes-design.md` 19.4 M6 / 19.6 rule 9; plan `docs/dev/plan-logistics-m6-hold-reasons.md`). A live route that cannot dispatch now explains itself in the Logistics window instead of only in the KSP.log BLOCKED line:
+
+- **Capture:** four sparse additive `Route` fields (`LastHoldKind` enum-by-name, `LastHoldDetail` raw evaluator token verbatim, `LastHoldShortfall`, `LastHoldUT`) written by `Route.RecordHold` (Verbose on kind/detail change only) at four orchestrator sites: the loop-path BLOCKED branch (zero new computation - reuses the eligibility verdict), `ApplyWait` (now takes `currentUT`; kind via the pure `RouteOrchestrator.HoldKindForOutcome` map), `ApplyEndpointLost`, and `ApplyDelivery`'s endpoint-lost-at-delivery branch.
+- **Clear semantics:** `Route.ClearHold` on an eligible loop crossing (placed BEFORE `EmitLoopCycle` so the endpoint-lost-at-delivery hold recorded INSIDE that call survives - plan-review BLOCKER 1, pinned by `EndpointLostAtDelivery_HoldSurvivesEligibleCrossing`), on legacy `ApplyDispatch`, and on player Activate only (`TryActivate`; Pause deliberately keeps the hold so it answers "why wasn't this delivering"). Persisted across save/load; pre-M6 saves load the None/null/0/-1 defaults.
+- **Display:** new pure `LogisticsHoldPresentation` (`DescribeHold` total over loop bare tokens + legacy prefixed tokens + an unknown-kind/token fallback that never blanks; `FormatHoldDetailLine` appends the mandatory "checked {age} ago" suffix) feeds a yellow detail-panel line plus the status-cell tooltip, built as `HoldText`/`HoldShort` in the ~1 Hz legibility cache (draw path reads only; detail line conditions ONLY on the cached `HoldText` for IMGUI control-count stability). Display gate (plan-review MAJOR 2): `MissingSourceRecording`/`SourceChanged` rows suppress the still-persisted hold. Accepted degradation: legacy-path funds holds render the generic no-number text (the shortfall lives only inside the legacy `funds-shortfall-N` token, deliberately not parsed; the legacy path is dead for v0 loop routes).
+
+Test delta: +32 xUnit cases (14988 -> 15020 local, all green).
+
 ## Done 2026-06-10 - Logistics M1: non-KSC origin debit, the network unlock (branch `logistics-m1-origin-debit`, 0.10.2-dev)
 
 **Milestone M1 of the logistics roadmap shipped** (design `docs/parsek-logistics-supply-routes-design.md` 19.4 M1, which now carries per-item as-built notes; plan `docs/dev/plan-logistics-m1-origin-debit.md`). Six deliverables, one commit per phase:
