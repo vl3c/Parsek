@@ -197,6 +197,12 @@ A 2026-06-10 online sweep of what KSP players actually fly (stock career contrac
 
 ---
 
+## Done 2026-06-11 - dotnet test clobbered the deployed KSP DLL from every worktree (branch `fix-test-deploy-clobber`)
+
+The `CopyToGameData` post-build target ran `AfterTargets="Build"` unconditionally, so `dotnet test` in ANY worktree (which builds Parsek as a ProjectReference) deployed that branch's DLL to the shared `Kerbal Space Program/GameData/Parsek/Plugins`. With several sessions active, the deployed DLL belonged to whoever ran tests last; during the 2026-06-11 Waterfall validation the install was clobbered twice within minutes of an intentional deploy, and one KSP launch picked up the wrong branch 48 seconds after a sibling's build.
+
+**Fix:** deploy is now intentional-only via a `ParsekDeployToKsp` property: true only when `$(MSBuildStartupDirectory) == $(MSBuildProjectDirectory)` (the documented `cd Source/Parsek && dotnet build` flow) or `-p:ForceKspDeploy=true`; `-p:SkipKspDeploy=true` suppresses it. Skipped builds print `KSP deploy skipped` so the absence of a deploy is visible. `dotnet test`, repo-root builds, and `release.py` (which packages from `bin/Release`, never from the install) no longer touch the install. Sibling worktrees keep clobbering until they rebase past this commit.
+
 ## Done 2026-06-11 - In-game OrbitArcSampler test asserted orbital distance from the floating origin, not the body centre (branch `fix-orbitarc-test-frame`)
 
 `GhostMapPresenceTests.OrbitArcSampler_ClipsLiveOrbitToOpenArc` failed in the 2026-06-11 Run All + Isolated session (`../logs/2026-06-11_1811_m1-ingame-tests/`, "sampled points sit at orbital distance from the body centre (world-frame)") with the active vessel "Jumping Flea" PRELAUNCH on the pad. Root cause is in the TEST, not the sampler: `OrbitArcSampler.SampleSegmentArc` returns WORLD-frame points (`referenceBody.position + relative`), but the assertion checked `buffer[0].magnitude > body.Radius * 0.5` - the distance from the FLOATING ORIGIN, which rides the active vessel. The synthetic orbit's periapsis (720 km from Kerbin's centre, along the Planetarium reference direction in the equatorial plane) passes within ~120 km of a launchpad origin whenever KSC's rotational longitude lines up with the reference direction, so the check failed or passed depending on planet rotation / vessel position. The forward-render review's NIT-6 fixed the sampler doc + assertion message to say "world-frame" but left the origin-relative measurement in place.

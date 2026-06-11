@@ -5,9 +5,11 @@
 
 ```bash
 cd Source/Parsek && dotnet build          # builds + auto-copies to KSP GameData
-cd Source/Parsek.Tests && dotnet test     # all unit tests
+cd Source/Parsek.Tests && dotnet test     # all unit tests (does NOT deploy to KSP)
 dotnet test --filter InjectAllRecordings  # inject 8 synthetic recordings into test save
 ```
+
+**KSP deploy is intentional-only:** the post-build copy to `GameData/Parsek/Plugins` runs ONLY when the build is started from `Source/Parsek` itself (the `cd Source/Parsek && dotnet build` flow) or with `-p:ForceKspDeploy=true`. Builds triggered via ProjectReference (`dotnet test`), from the repo root, or by `release.py` print `KSP deploy skipped` instead. `-p:SkipKspDeploy=true` suppresses the deploy even from the project dir. Rationale: with multiple worktrees sharing one KSP install, every sibling test run used to clobber the deployed DLL.
 
 Post-build copy uses `ContinueOnError="true"` - builds succeed when KSP has DLL locked.
 
@@ -32,7 +34,7 @@ cp Source/Parsek/bin/Debug/Parsek.dll "$KSPDIR/GameData/Parsek/Plugins/Parsek.dl
 
 From a manual worktree, set `KSPDIR` explicitly because the csproj's relative `Kerbal Space Program/` probe only walks parent directories of the csproj — a sibling-of-the-worktree layout at `C:/Users/vlad3/Documents/Code/Parsek/Kerbal Space Program/` is NOT reachable from `C:/Users/vlad3/Documents/Code/Parsek-<branch>/Source/Parsek/` via ancestor walking.
 
-**If multiple worktrees exist**, any of them can overwrite the shared `GameData/Parsek/Plugins/Parsek.dll`. The deployed file belongs to whichever worktree built most recently. Re-verify after every build if you're switching between worktrees or if a sibling session is also building.
+**If multiple worktrees exist**, any of them can overwrite the shared `GameData/Parsek/Plugins/Parsek.dll` via a direct `cd Source/Parsek && dotnet build` (test runs no longer deploy since the intentional-only deploy gate). The deployed file belongs to whichever worktree deployed most recently. Re-verify (hash-compare, not just mtime) right before every KSP launch if a sibling session is also active.
 
 **Diagnosing which build produced a collected log.** A `collect-logs.py` snapshot can run a clobbered DLL from a *different* branch than you expect (sibling-worktree race). Two cross-checks: (1) read `git-state.txt` in the log folder for the branch/commit the collection captured, but note it reflects the directory the script ran from, not necessarily the deployed DLL; (2) grep `KSP.log` for feature-signature strings to confirm what code actually loaded (e.g. `RouteOriginProof` / `Route proof dock window` for logistics, `OnVesselsUndocking` vs `DeferredHandleTransientUndock` for the undock handler, `Parsek' V<x.y.z>` for the assembly version). If a log lacks the signatures of the feature you're investigating, that session ran the wrong DLL and proves nothing about your change.
 
