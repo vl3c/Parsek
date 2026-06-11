@@ -10115,8 +10115,19 @@ namespace Parsek.InGameTests
             InGameAssert.AreEqual(180, res.Count, "elliptical sample fills the whole buffer");
             for (int i = 0; i < res.Count; i++)
                 InGameAssert.IsTrue(Finite(buffer[i]), "every elliptical sample point must be finite");
-            InGameAssert.IsTrue(buffer[0].magnitude > body.Radius * 0.5,
-                "sampled points sit at orbital distance from the body centre (world-frame)");
+            // Samples are WORLD-frame (referenceBody.position + relative), so measure the
+            // orbital radius body-relative. The raw world magnitude is the distance from the
+            // FLOATING ORIGIN, which rides the active vessel: a pad vessel under the right
+            // planet rotation sits within ~120 km of this orbit's periapsis, failing a raw
+            // magnitude check (2026-06-11 "Jumping Flea" PRELAUNCH run).
+            double periapsis = sma * (1.0 - ell.eccentricity);
+            double apoapsis = sma * (1.0 + ell.eccentricity);
+            for (int i = 0; i < res.Count; i++)
+            {
+                double radius = (buffer[i] - body.position).magnitude;
+                InGameAssert.IsTrue(radius > periapsis * 0.99 && radius < apoapsis * 1.01,
+                    "sampled points sit at orbital distance from the body centre (body-relative)");
+            }
             InGameAssert.IsTrue((buffer[0] - buffer[res.Count - 1]).magnitude > 1000.0,
                 "a quarter-period arc is OPEN: its endpoints are distinct");
 
