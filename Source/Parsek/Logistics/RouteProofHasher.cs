@@ -113,6 +113,13 @@ namespace Parsek.Logistics
             if (hasOrigin)
             {
                 var op = rec.RouteOriginProof;
+                // INTENTIONAL EXCLUSION (M1 / D5): the origin endpoint descriptor fields
+                // (StartDockedOriginBodyName/Latitude/Longitude/Altitude/IsSurface/Situation)
+                // are deliberately NOT hashed. The hash pins the witnessed transfer;
+                // coordinates are resolution metadata. Including them would flip every
+                // pre-descriptor docked-origin route to SourceChanged on load via
+                // RouteStore.RevalidateSources. Pinned by
+                // RouteProofHashTests.Hash_UnchangedByOriginDescriptorFields.
                 sb.Append("origin.startDockedOriginVesselPid=").Append(op.StartDockedOriginVesselPid.ToString(CultureInfo.InvariantCulture)).Append('\n');
                 AppendResourceManifest(sb, "origin.startTransportRes", op.StartTransportResources);
                 AppendResourceManifest(sb, "origin.endTransportRes", op.EndTransportResources);

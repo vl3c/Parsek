@@ -110,6 +110,10 @@ namespace Parsek.Logistics
             node.AddValue("pauseAfterCurrentCycle", route.PauseAfterCurrentCycle.ToString());
             node.AddValue("completedCycles", route.CompletedCycles.ToString(ic));
             node.AddValue("skippedCycles", route.SkippedCycles.ToString(ic));
+            // Sparse dispatch priority (M1): 0 (the floor / default) writes nothing.
+            if (route.DispatchPriority != 0)
+                node.AddValue("dispatchPriority",
+                    Route.ClampPriority(route.DispatchPriority).ToString(ic));
 
             // --- Backing-mission definition (Phase 1) ---
             if (!string.IsNullOrEmpty(route.BackingMissionTreeId))
@@ -246,6 +250,10 @@ namespace Parsek.Logistics
             TryParseBool(node.GetValue("pauseAfterCurrentCycle"), out route.PauseAfterCurrentCycle);
             TryParseInt(node.GetValue("completedCycles"), ic, 0, out route.CompletedCycles);
             TryParseInt(node.GetValue("skippedCycles"), ic, 0, out route.SkippedCycles);
+            // Sparse dispatch priority: absent -> the floor (0). Clamp on read so a
+            // hand-edited negative save never lands a sub-floor priority.
+            TryParseInt(node.GetValue("dispatchPriority"), ic, 0, out int priority);
+            route.DispatchPriority = Route.ClampPriority(priority);
 
             // --- Backing-mission definition (Phase 1) ---
             // A missing backing-mission definition does NOT reject the route —

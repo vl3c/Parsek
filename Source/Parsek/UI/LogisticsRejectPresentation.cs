@@ -7,7 +7,7 @@ namespace Parsek
     /// Pure presentation helper for the Logistics window's "recently committed
     /// trees not yet eligible" near-miss subsection (M3). Maps the reason a
     /// committed tree is NOT a Supply Run candidate to player-facing text. Two
-    /// reason families exist: the five
+    /// reason families exist: the six
     /// <see cref="RouteAnalysisStatus"/> reject values (delegated verbatim to
     /// <see cref="RouteCreationFormatters.FormatRejectMessage"/> so the strings are
     /// never duplicated) and the separate not-fully-sealed gate

@@ -28,11 +28,13 @@ namespace Parsek.Tests.Logistics
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RouteStore.ResetForTesting();
             Ledger.ResetForTesting();
+            RouteOrchestrator.OriginDebitApplierForTesting = null;
             logLines.Clear();
         }
 
         public void Dispose()
         {
+            RouteOrchestrator.OriginDebitApplierForTesting = null;
             RouteStore.ResetForTesting();
             Ledger.ResetForTesting();
             ParsekLog.ResetTestOverrides();
@@ -219,6 +221,42 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(200.0, route.CurrentCycleStartUT);
             Assert.Equal(200.0 + 3600.0, route.NextDispatchUT);
             Assert.Null(route.NextEligibilityCheckUT);
+        }
+
+        // catches (M1, D8): the per-tick snapshot not being sorted by the
+        // dispatch-priority comparator. The lower-priority-VALUE route must be
+        // processed first even though it was committed later, has a LATER
+        // NextDispatchUT, and a LATER ordinal id (so only priority explains the
+        // order). Order is asserted via the per-route "Dispatch:" log lines plus
+        // the route-tick-order breadcrumb.
+        [Fact]
+        public void Tick_ProcessesRoutesInPriorityOrder()
+        {
+            var late = BuildActiveDueKscRoute(id: "route-a", nextDispatchUT: 100.0);
+            late.DispatchPriority = 1;
+            var early = BuildActiveDueKscRoute(id: "route-z", nextDispatchUT: 150.0);
+            early.DispatchPriority = 0;
+            // Commit-list order deliberately contradicts priority order.
+            RouteStore.AddRoute(late);
+            RouteStore.AddRoute(early);
+            var env = new FakeRouteRuntimeEnvironment();
+
+            RouteOrchestrator.Tick(200.0, env);
+
+            // Both dispatched, priority-0 route first.
+            int earlyIdx = logLines.FindIndex(l =>
+                l.Contains("[Route]") && l.Contains("Dispatch: route route-z"));
+            int lateIdx = logLines.FindIndex(l =>
+                l.Contains("[Route]") && l.Contains("Dispatch: route route-a"));
+            Assert.True(earlyIdx >= 0, "priority-0 route must dispatch");
+            Assert.True(lateIdx >= 0, "priority-1 route must dispatch");
+            Assert.True(earlyIdx < lateIdx,
+                "lower priority value must be processed first within the tick");
+
+            // The applied order is breadcrumbed once per tick (count > 1).
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("Tick order:")
+                && l.Contains("route-z:0,route-a:1"));
         }
 
         // catches: item-6 contract broken — arrival not setting PendingDeliveryUT
@@ -466,6 +504,48 @@ namespace Parsek.Tests.Logistics
                 Assert.True(debited.RouteResourceManifest.TryGetValue(kv.Key, out double v));
                 Assert.Equal(kv.Value, v);
             }
+        }
+
+        // catches (M1, D11 legacy-path containment): the legacy non-loop
+        // self-timer path applying the physical origin debit. ApplyDispatch
+        // fires at cycle start (not the recorded dock phase) and has no replay
+        // backstop, so EmitDispatchDebit MUST receive
+        // applyPhysicalOriginDebit=false from it: the seam is never invoked,
+        // the row keeps the v0 shape (CostManifest clone, no requested
+        // manifest, pid 0), and the Verbose skip breadcrumb fires. The
+        // companion pin is Tick_NonKscOrigin_CostManifestPopulated_FundsCostZero
+        // staying green UNCHANGED above.
+        [Fact]
+        public void LegacyDispatchPath_NonKscOrigin_SkipsPhysicalDebit_Logs()
+        {
+            var route = BuildActiveDueKscRoute();
+            route.IsKscOrigin = false; // non-KSC, non-loop (no BackingMissionTreeId)
+            RouteStore.AddRoute(route);
+            int seamCalls = 0;
+            RouteOrchestrator.OriginDebitApplierForTesting = (r, ut, env) =>
+            {
+                seamCalls++;
+                return new RouteOrchestrator.OriginDebitOutcome { OriginVesselPid = 999u };
+            };
+
+            RouteOrchestrator.Tick(200.0, new FakeRouteRuntimeEnvironment());
+
+            // Dispatched through the legacy path, physical debit skipped.
+            Assert.Equal(RouteStatus.InTransit, route.Status);
+            Assert.Equal(0, seamCalls);
+            var debited = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDebited);
+            Assert.NotNull(debited);
+            // v0 row shape byte-identical: CostManifest clone, no requested
+            // manifest, no origin pid.
+            Assert.NotNull(debited.RouteResourceManifest);
+            Assert.NotSame(route.CostManifest, debited.RouteResourceManifest);
+            Assert.Equal(route.CostManifest.Count, debited.RouteResourceManifest.Count);
+            Assert.Null(debited.RouteRequestedResourceManifest);
+            Assert.Equal(0u, debited.RouteOriginVesselPid);
+            // The D11 skip breadcrumb names the legacy path.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("legacy dispatch path: physical origin debit skipped"));
         }
 
         // catches: Sandbox + KSC origin dispatch silently charging funds.

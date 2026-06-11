@@ -56,6 +56,15 @@ namespace Parsek.InGameTests
             Description = "RouteOrchestrator.Tick applies a pending delivery to the active vessel: the route returns to Active with CompletedCycles=1, LiquidFuel is topped up by the manifest amount, and a RouteCargoDelivered ledger row is emitted")]
         public IEnumerator Delivery_LoadedVessel_AppliesResourceTransfer()
         {
+            // Post-restore unpack wait: the isolated-batch baseline quickload
+            // leaves the active vessel packed for a few frames, which used to
+            // skip this test whenever it followed another destructive test
+            // (same defect class as the M1 origin-debit tests, fixed there
+            // 2026-06-11). Yields happen before any drain/seam.
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
             // PRECONDITION CHECKS -------------------------------------------------
             if (FlightGlobals.ActiveVessel == null)
                 InGameAssert.Skip("FlightGlobals.ActiveVessel is null; need a live vessel to deliver onto");

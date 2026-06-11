@@ -153,6 +153,7 @@ namespace Parsek.Tests.Logistics
                     BuildPayloadItem()
                 })
                 .WithCadenceMultiplier(3)
+                .WithDispatchPriority(2)
                 .WithBackingMissionTreeId("tree-1")
                 .WithExcludedIntervalKey("leg-post-undock-survivor")
                 .WithExcludedIntervalKey("leg-post-undock-survivor/seg1")
@@ -198,6 +199,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(original.TransitDuration, roundTripped.TransitDuration);
             Assert.Equal(original.DispatchInterval, roundTripped.DispatchInterval);
             Assert.Equal(original.CadenceMultiplier, roundTripped.CadenceMultiplier);
+            Assert.Equal(original.DispatchPriority, roundTripped.DispatchPriority);
             Assert.Equal(original.DispatchWindowEpochUT, roundTripped.DispatchWindowEpochUT);
             Assert.Equal(original.DispatchWindowPeriod, roundTripped.DispatchWindowPeriod);
             Assert.Equal(original.NextDispatchUT, roundTripped.NextDispatchUT);
@@ -438,6 +440,84 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(4, raisedLoaded.CadenceMultiplier);
         }
 
+        // catches: the dispatch priority (M1, D8) not round-tripping, or the
+        // sparse default (0) being written to / read off the wire as non-default.
+        [Fact]
+        public void RoundTrip_DispatchPriority_SparseDefaultZero()
+        {
+            var leanStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+
+            // priority == 0 (default) writes NO dispatchPriority value and loads back 0.
+            var defaultRoute = new RouteFixtureBuilder()
+                .WithId("priority-default-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .WithDispatchPriority(0)
+                .Build();
+            var defNode = new ConfigNode("ROUTE");
+            defaultRoute.SerializeInto(defNode);
+            Assert.False(defNode.HasValue("dispatchPriority"),
+                "dispatchPriority must be omitted when 0 (the floor / default)");
+            Route defLoaded = Route.DeserializeFrom(defNode);
+            Assert.NotNull(defLoaded);
+            Assert.Equal(0, defLoaded.DispatchPriority);
+
+            // priority > 0 round-trips exactly.
+            var raisedRoute = new RouteFixtureBuilder()
+                .WithId("priority-raised-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .WithDispatchPriority(3)
+                .Build();
+            var raisedNode = new ConfigNode("ROUTE");
+            raisedRoute.SerializeInto(raisedNode);
+            Assert.True(raisedNode.HasValue("dispatchPriority"),
+                "dispatchPriority must be written when > 0");
+            Route raisedLoaded = Route.DeserializeFrom(raisedNode);
+            Assert.NotNull(raisedLoaded);
+            Assert.Equal(3, raisedLoaded.DispatchPriority);
+        }
+
+        // catches: a hand-edited save with a negative dispatch priority landing a
+        // sub-floor value instead of being clamped up to 0 on load.
+        [Fact]
+        public void Load_NegativeDispatchPriority_ClampedToZero()
+        {
+            var node = new ConfigNode("ROUTE");
+            node.AddValue("id", "bad-priority-route");
+            node.AddValue("status", "Active");
+            node.AddValue("dispatchPriority", "-3");
+            ConfigNode origin = node.AddNode(RouteCodec.OriginNode);
+            origin.AddValue("bodyName", "Kerbin");
+            origin.AddValue("latitude", "0");
+            origin.AddValue("longitude", "0");
+            origin.AddValue("altitude", "0");
+            origin.AddValue("vesselPersistentId", "0");
+            origin.AddValue("isSurface", "True");
+            ConfigNode stop = node.AddNode(RouteCodec.StopNode);
+            ConfigNode endpoint = stop.AddNode(RouteCodec.EndpointNode);
+            endpoint.AddValue("bodyName", "Mun");
+            endpoint.AddValue("latitude", "0");
+            endpoint.AddValue("longitude", "0");
+            endpoint.AddValue("altitude", "0");
+            endpoint.AddValue("vesselPersistentId", "12345");
+            endpoint.AddValue("isSurface", "True");
+            stop.AddValue("connectionKind", "DockingPort");
+            stop.AddValue("segmentIndexBefore", "0");
+            stop.AddValue("deliveryOffsetSeconds", "0");
+
+            Route route = Route.DeserializeFrom(node);
+            Assert.NotNull(route);
+            Assert.Equal(0, route.DispatchPriority);
+        }
+
         // catches: a hand-edited save with a 0 / negative cadence multiplier
         // landing a sub-floor value instead of being clamped up to 1 on load.
         [Fact]
@@ -511,6 +591,8 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(-1L, route.LastObservedLoopCycleIndex);
             // No cadenceMultiplier key on an old save -> the floor (1).
             Assert.Equal(1, route.CadenceMultiplier);
+            // No dispatchPriority key on an old save -> the floor (0).
+            Assert.Equal(0, route.DispatchPriority);
             Assert.False(route.IsLoopRoute);
         }
 

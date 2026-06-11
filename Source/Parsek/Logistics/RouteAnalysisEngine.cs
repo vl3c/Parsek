@@ -11,7 +11,15 @@ namespace Parsek.Logistics
         MultipleConnectionWindows = 2,
         NoDeliveryManifest = 3,
         MixedPickupDelivery = 4,
-        MissingEndpointProof = 5
+        MissingEndpointProof = 5,
+        /// <summary>
+        /// M1 workflow rejection (design D7): the run's ORIGIN recording proves
+        /// neither a KSC launch (no Kerbin launch site) nor a start-docked
+        /// origin partner (no <see cref="RouteOriginProof"/> pid), so it started
+        /// undocked with cargo already aboard and the cargo's source was never
+        /// witnessed. Append-only value.
+        /// </summary>
+        UndockedStartOrigin = 6
     }
 
     /// <summary>
@@ -98,7 +106,21 @@ namespace Parsek.Logistics
             if (window == null)
                 return MissingProof(logMode);
 
-            return AnalyzeWindow(source, window, logMode);
+            // Resolve the ORIGIN recording for the workflow gate: the tree ROOT
+            // (the launch carries LaunchSiteName / StartBodyName / the
+            // RouteOriginProof) when it resolves, else the analysis source (the
+            // legacy single-recording case where the source IS the root). Same
+            // walk as RouteCreationFormatters.ResolveOriginIdentity so the gate
+            // and the display classification cannot diverge.
+            Recording originRec = source;
+            if (!string.IsNullOrEmpty(tree.RootRecordingId)
+                && tree.Recordings.TryGetValue(tree.RootRecordingId, out Recording rootRec)
+                && rootRec != null)
+            {
+                originRec = rootRec;
+            }
+
+            return AnalyzeWindow(source, window, originRec, logMode);
         }
 
         internal static RouteAnalysisResult AnalyzeRecording(
@@ -128,12 +150,14 @@ namespace Parsek.Logistics
             if (window == null)
                 return MissingProof(logMode);
 
-            return AnalyzeWindow(recording, window, logMode);
+            // Single-recording analysis: the recording IS the origin recording.
+            return AnalyzeWindow(recording, window, recording, logMode);
         }
 
         private static RouteAnalysisResult AnalyzeWindow(
             Recording source,
             RouteConnectionWindow window,
+            Recording originRec,
             RouteAnalysisLogMode logMode)
         {
             if (!HasEndpointProof(window))
@@ -146,6 +170,27 @@ namespace Parsek.Logistics
                 return new RouteAnalysisResult
                 {
                     Status = RouteAnalysisStatus.MissingEndpointProof,
+                    SourceRecording = source,
+                    ConnectionWindow = window
+                };
+            }
+
+            // M1 workflow gate (design D7): an undocked-start run carries cargo
+            // whose source was never witnessed, so it can never dispatch.
+            // Ordering: after the endpoint-proof check, before the
+            // manifest-level complaints (the workflow error outranks them).
+            // RouteBuilder's endpoint-missing reject stays as the defensive
+            // backstop at create time.
+            if (IsUndockedStartOrigin(originRec))
+            {
+                Diag(logMode,
+                    $"RouteAnalysis rejected: undocked-start origin originRec={originRec?.RecordingId ?? "<none>"} " +
+                    $"launchSite={(string.IsNullOrEmpty(originRec?.LaunchSiteName) ? "<none>" : originRec.LaunchSiteName)} " +
+                    $"startBody={(string.IsNullOrEmpty(originRec?.StartBodyName) ? "<none>" : originRec.StartBodyName)} " +
+                    $"originProof={(HasDockedOriginProof(originRec) ? "yes" : "no")}");
+                return new RouteAnalysisResult
+                {
+                    Status = RouteAnalysisStatus.UndockedStartOrigin,
                     SourceRecording = source,
                     ConnectionWindow = window
                 };
@@ -224,6 +269,44 @@ namespace Parsek.Logistics
         {
             if (logMode == RouteAnalysisLogMode.Diagnostic)
                 ParsekLog.Info("Route", message);
+        }
+
+        /// <summary>
+        /// True when the origin recording proves a KSC origin: launched from a
+        /// named Kerbin launch site. Mirrors <c>RouteBuilder.BuildRoute</c>'s
+        /// KSC branch and is shared with
+        /// <see cref="RouteCreationFormatters.ResolveOriginIdentity"/> so the
+        /// analysis gate and the display classification cannot diverge.
+        /// </summary>
+        internal static bool IsKscOriginRecording(Recording originRec)
+        {
+            return originRec != null
+                && !string.IsNullOrEmpty(originRec.LaunchSiteName)
+                && string.Equals(originRec.StartBodyName, "Kerbin", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// True when the origin recording carries a captured start-docked origin
+        /// partner proof (<see cref="Recording.RouteOriginProof"/> with a
+        /// non-zero partner pid). Shared with
+        /// <see cref="RouteCreationFormatters.ResolveOriginIdentity"/>.
+        /// </summary>
+        internal static bool HasDockedOriginProof(Recording originRec)
+        {
+            return originRec?.RouteOriginProof != null
+                && originRec.RouteOriginProof.StartDockedOriginVesselPid != 0;
+        }
+
+        /// <summary>
+        /// M1 workflow gate (design D7): true when the origin recording proves
+        /// NEITHER a KSC launch NOR a start-docked origin partner, i.e. the run
+        /// started undocked with cargo already aboard so the cargo's source was
+        /// never witnessed. A null recording counts as undocked (no proof can be
+        /// verified).
+        /// </summary>
+        internal static bool IsUndockedStartOrigin(Recording originRec)
+        {
+            return !IsKscOriginRecording(originRec) && !HasDockedOriginProof(originRec);
         }
 
         private static bool HasEndpointProof(RouteConnectionWindow window)

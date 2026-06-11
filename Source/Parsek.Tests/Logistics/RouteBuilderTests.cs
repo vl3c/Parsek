@@ -276,6 +276,68 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
+        public void BuildRoute_DockedOrigin_WithDescriptor_BuildsSurfaceEndpoint()
+        {
+            // catches: dropping the M1 origin endpoint descriptor on the floor:
+            // a proof that carries the depot's body/coords/IsSurface must produce
+            // a real-coordinate origin endpoint, or surface-base origins never
+            // reach RouteEndpointResolver's proximity rebuild fallback when the
+            // depot's pid stops resolving.
+            Recording source = MakeNonKscSource(originPid: 4242);
+            source.RouteOriginProof.StartDockedOriginBodyName = "Minmus";
+            source.RouteOriginProof.StartDockedOriginLatitude = -0.55;
+            source.RouteOriginProof.StartDockedOriginLongitude = 78.25;
+            source.RouteOriginProof.StartDockedOriginAltitude = 2412.5;
+            source.RouteOriginProof.StartDockedOriginIsSurface = true;
+            source.RouteOriginProof.StartDockedOriginSituation = 1;
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.False(outcome.Route.IsKscOrigin);
+            Assert.Equal(4242u, outcome.Route.Origin.VesselPersistentId);
+            Assert.Equal("Minmus", outcome.Route.Origin.BodyName);
+            Assert.Equal(-0.55, outcome.Route.Origin.Latitude);
+            Assert.Equal(78.25, outcome.Route.Origin.Longitude);
+            Assert.Equal(2412.5, outcome.Route.Origin.Altitude);
+            Assert.True(outcome.Route.Origin.IsSurface);
+
+            Assert.Contains(logLines, l => l.Contains("[Route]")
+                && l.Contains("Built route")
+                && l.Contains("originSurface=1")
+                && l.Contains("originLat=-0.55")
+                && l.Contains("originLon=78.25")
+                && l.Contains("originAlt=2412.5"));
+        }
+
+        [Fact]
+        public void BuildRoute_DockedOrigin_WithoutDescriptor_FallsBackPidOnly()
+        {
+            // catches: a pre-descriptor proof (pid-only, recorded before M1)
+            // regressing off today's PID-only endpoint shape: BodyName from the
+            // recording's StartBodyName, zero coords, IsSurface false.
+            Recording source = MakeNonKscSource(originPid: 4242);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(4242u, outcome.Route.Origin.VesselPersistentId);
+            Assert.Equal("Mun", outcome.Route.Origin.BodyName);
+            Assert.Equal(0.0, outcome.Route.Origin.Latitude);
+            Assert.Equal(0.0, outcome.Route.Origin.Longitude);
+            Assert.Equal(0.0, outcome.Route.Origin.Altitude);
+            Assert.False(outcome.Route.Origin.IsSurface);
+
+            Assert.Contains(logLines, l => l.Contains("[Route]")
+                && l.Contains("Built route")
+                && l.Contains("originSurface=0"));
+        }
+
+        [Fact]
         public void Build_StopCarriesResourceAndInventoryManifestsFromResult()
         {
             // catches: stop manifests being lost in the analysis-to-route copy
