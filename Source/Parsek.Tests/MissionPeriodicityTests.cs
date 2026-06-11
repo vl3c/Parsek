@@ -1139,12 +1139,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Tolerance_VesselOrbital_OneDegreeOfPeriod_NotTheSoiFormula()
+        public void Tolerance_VesselOrbital_ThreeDegreesOfPeriod_NotTheSoiFormula()
         {
-            // Test 8: the VesselOrbital tolerance is period * 1deg/360 (design note 5.3). It must
-            // NOT fall into the Orbital SoiRadius/OrbitalVelocity formula - here the constraint's
-            // BodyName is Mun, whose StockFake SOI tolerance would be ~4474 s, wildly wrong for a
-            // 1800 s station orbit.
+            // Test 8: the VesselOrbital tolerance is period * 3deg/360 (design note 5.3; widened
+            // from 1 degree on 2026-06-11 playtest evidence - see StationPhaseToleranceDegrees).
+            // It must NOT fall into the Orbital SoiRadius/OrbitalVelocity formula - here the
+            // constraint's BodyName is Mun, whose StockFake SOI tolerance would be ~4474 s, wildly
+            // wrong for a 1800 s station orbit.
             var c = new PhaseConstraint
             {
                 Kind = ConstraintKind.VesselOrbital,
@@ -1154,7 +1155,7 @@ namespace Parsek.Tests
                 AnchorVesselPid = StationPid
             };
             double tol = MissionPeriodicity.ToleranceSecondsFor(c, StockFake());
-            Assert.Equal(StationPeriod / 360.0, tol, 9); // 5 s, 1 degree of the station orbit
+            Assert.Equal(StationPeriod * 3.0 / 360.0, tol, 9); // 15 s, 3 degrees of the station orbit
             // And the schedule tolerance falls through unchanged (the Loose special-case is
             // Rotation-only, so a VesselOrbital is never loosened).
             Assert.Equal(tol, MissionPeriodicity.ScheduleToleranceSecondsFor(

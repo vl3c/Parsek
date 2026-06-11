@@ -674,6 +674,85 @@ namespace Parsek.Tests
             Assert.Null(input);
         }
 
+        // ─── Body-fixed derotation (the 46-degree teleport fix) ─────────────────
+
+        [Fact]
+        public void BodyFixedShift_TracksClockPhases_CutWrapAndPostExtension()
+        {
+            // shift = (currentUT - launchUT) - (loopUT - spanStart): 0 pre-cut/pre-wrap, the cut
+            // length after a cut, the per-pass whole-rev offset inside the wrap sawtooth, the full
+            // extension after it. Uses the shared clock schedule (launch 0 cut at UT 1000,
+            // launch 1 extension at UT 5000).
+            var sched = MakeClockSchedule();
+            void AssertShift(double currentUT, double expected)
+            {
+                Assert.True(sched.TryResolveActiveLaunch(currentUT, out double launchUT, out _));
+                double loopUT = ClockLoopUT(sched, currentUT, out _, out _);
+                Assert.Equal(expected,
+                    GhostPlaybackLogic.ComputeScheduledBodyFixedShiftSeconds(
+                        currentUT, launchUT, loopUT, 0.0), 6);
+            }
+            AssertShift(1050.0, 0.0);      // launch 0, before the cut
+            AssertShift(1150.0, -1000.0);  // launch 0, after the cut (4 revs excised)
+            AssertShift(6050.0, 0.0);      // launch 1, before the wrap
+            AssertShift(6450.0, 250.0);    // launch 1, wrap pass 2 (one whole rev late)
+            AssertShift(7150.0, 1000.0);   // launch 1, after the extension
+        }
+
+        [Fact]
+        public void BodyFixedShift_UnitMemberSeam_KnobAndKnobLessAndNonMember()
+        {
+            var knobUnit = new GhostPlaybackLogic.LoopUnit(
+                0, new[] { 0 }, 0.0, 2000.0, 2000.0, 1000.0, 2000.0, null,
+                MakeClockSchedule(), null, null);
+            var plainUnit = new GhostPlaybackLogic.LoopUnit(
+                1, new[] { 1 }, 0.0, 2000.0, 2000.0, 1000.0, 2000.0, null,
+                new MissionRelaunchSchedule(
+                    0.0, 1000.0, new[] { 600.0 }, new[] { 1.0 }, 0.0,
+                    MissionPeriodicity.ScheduleLookaheadMultiples, 0.0),
+                null, null);
+            var units = new GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, knobUnit }, { 1, plainUnit } },
+                new Dictionary<int, int> { { 0, 0 }, { 1, 1 } });
+
+            Assert.Equal(-1000.0, GhostPlaybackLogic.ComputeUnitMemberBodyFixedShiftSeconds(
+                0, 1150.0, 1150.0, units), 6);                 // knob member, post-cut
+            Assert.Equal(0.0, GhostPlaybackLogic.ComputeUnitMemberBodyFixedShiftSeconds(
+                1, 1150.0, 150.0, units), 6);                   // knob-less schedule: exactly 0
+            Assert.Equal(0.0, GhostPlaybackLogic.ComputeUnitMemberBodyFixedShiftSeconds(
+                7, 1150.0, 1150.0, units), 6);                  // not a unit member
+            Assert.Equal(0.0, GhostPlaybackLogic.ComputeUnitMemberBodyFixedShiftSeconds(
+                0, 1150.0, 1150.0, null), 6);                   // no unit set
+        }
+
+        [Fact]
+        public void ShiftLongitudeDegrees_DerotatesByRotationFraction()
+        {
+            TrajectoryMath.FrameTransform.RotationPeriodForTesting = b => 21600.0;
+            try
+            {
+                // +2790.9s shift on a 21600s day = 46.515 degrees of extra rotation; the resolve
+                // longitude moves WEST by that much (inertial restore).
+                double lon = TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(10.0, 2790.9, null);
+                Assert.Equal(10.0, lon, 9); // null body: identity
+                // The seam needs a body instance; FrameTransform reads the period through the
+                // test hook, so any non-null reference works headless.
+                CelestialBody body = (CelestialBody)System.Runtime.Serialization.FormatterServices
+                    .GetUninitializedObject(typeof(CelestialBody));
+                lon = TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(10.0, 2790.9, body);
+                Assert.Equal(10.0 - 2790.9 * 360.0 / 21600.0, lon, 6);
+                // Negative shift (a cut) rotates EAST; wraps into (-180, 180].
+                lon = TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(-170.0, -2790.9, body);
+                Assert.Equal(-170.0 + 46.515, lon, 3);
+                // Zero shift: identity without touching the body.
+                Assert.Equal(77.7, TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(77.7, 0.0, body), 9);
+            }
+            finally
+            {
+                TrajectoryMath.FrameTransform.ResetForTesting();
+            }
+        }
+
         // ─── Route dock-crossing sawtooth safety ────────────────────────────────
 
         [Fact]

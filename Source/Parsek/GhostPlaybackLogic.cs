@@ -7186,6 +7186,49 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The M4b knob's per-frame BODY-FIXED TIME SHIFT for a scheduled unit member: how much
+        /// LATER (positive, loiter extension) or EARLIER (negative, loiter cut) the live replay of
+        /// recorded UT <paramref name="loopUT"/> happens relative to the rotation-aligned baseline
+        /// <c>launchUT + (loopUT - spanStartUT)</c>. Body-fixed point sections (vacuum burn arcs
+        /// recorded as lat/lon/alt) replayed with a non-zero shift render rotated with the planet
+        /// by <c>shift mod T_rot</c> (the 2026-06-11 playtest's 46-degree map-icon teleports);
+        /// positioning derotates by this value via
+        /// <see cref="TrajectoryMath.FrameTransform.ShiftLongitudeDegrees"/>. Exact in EVERY clock
+        /// phase including the extension wrap's sawtooth passes (the formula compares live phase to
+        /// recorded offset directly); identically 0 for a knob-less schedule (where
+        /// <c>loopUT = spanStart + phase</c> by construction) - callers gate on
+        /// <see cref="MissionRelaunchSchedule.HasPhasingKnob"/> to keep that exactness free of
+        /// float dust. Pure.
+        /// </summary>
+        internal static double ComputeScheduledBodyFixedShiftSeconds(
+            double currentUT, double launchUT, double loopUT, double spanStartUT)
+        {
+            return (currentUT - launchUT) - (loopUT - spanStartUT);
+        }
+
+        /// <summary>
+        /// Resolves the body-fixed time shift for committed member <paramref name="committedIndex"/>
+        /// at the current frame: 0 unless the member belongs to a loop unit whose schedule carries
+        /// the M4b phasing knob and a launch is active at <paramref name="currentUT"/>.
+        /// <paramref name="loopUT"/> must be the same span-clock loopUT the caller renders at.
+        /// The surface seam for map markers / tracking-station sampling (the flight engine computes
+        /// the same value inline from the unit it already holds). Pure.
+        /// </summary>
+        internal static double ComputeUnitMemberBodyFixedShiftSeconds(
+            int committedIndex, double currentUT, double loopUT, LoopUnitSet units)
+        {
+            if (units == null || !units.TryGetUnitForMember(committedIndex, out LoopUnit unit))
+                return 0.0;
+            MissionRelaunchSchedule sched = unit.RelaunchSchedule;
+            if (sched == null || !sched.HasPhasingKnob)
+                return 0.0;
+            if (!sched.TryResolveActiveLaunch(currentUT, out double launchUT, out _))
+                return 0.0;
+            return ComputeScheduledBodyFixedShiftSeconds(
+                currentUT, launchUT, loopUT, unit.SpanStartUT);
+        }
+
+        /// <summary>
         /// Span loop clock for a chain-loop unit. Walks a single loop phase over the whole
         /// unit span [<paramref name="spanStartUT"/>, <paramref name="spanEndUT"/>] and
         /// returns the <paramref name="loopUT"/> inside that span plus the 0-based unit cycle

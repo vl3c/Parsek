@@ -546,9 +546,16 @@ namespace Parsek
         private const double TransitedBodyLooseRotationDegrees = 5.0;
 
         // The VesselOrbital (station) phase tolerance in degrees of the anchor's orbit (design
-        // note 5.3). Not a player setting in v1; revisit with the Loose/Tight pattern only if
-        // playtest needs it.
-        private const double StationPhaseToleranceDegrees = 1.0;
+        // note 5.3). Not a player setting. Widened 1.0 -> 3.0 on 2026-06-11 playtest evidence: at
+        // 1 degree (a 6.8s budget for a ~2434s LKO station) the knob's rev ladder slips out of
+        // tolerance after 2-3 consecutive daily windows (the d=k family drifts ~2.5s/window for
+        // the playtest geometry) and the schedule then waits ~40 days for the next lattice
+        // coincidence - the Missions window showed an 18-day AVERAGE interval despite a 6h next
+        // launch. 3 degrees (~20s) sustains ~8 consecutive windows per family and multiplies the
+        // lattice hit rate, collapsing the average to days. Cost: the recorded ABSOLUTE final
+        // approach can visually miss the live station by up to ~40 km at the tolerance edge
+        // (typical accepted windows land far tighter); the dock loop-clock marker is unaffected.
+        private const double StationPhaseToleranceDegrees = 3.0;
 
         // Phase 2 joint best-fit (the FIXED-cadence FALLBACK, used now only when a drifting config's
         // schedule is rejected for overlap or cannot build - the common drifting case takes the
