@@ -122,6 +122,14 @@ Runs BEFORE the phasing run that also end before guardUT get STATIC compression 
 keepRevs = 1 (same for every launch; they are dead time, not a phase instrument). Runs
 ending after guardUT are never touched.
 
+IN-SPAN REQUIREMENT (post-implementation review fix): the owner's OrbitSegments are not
+clipped to the unit span, and a TRIMMED mission (interval exclusions) can open its render
+window mid-recording. A run not entirely inside [spanStartUT, guardUT] would produce cuts
+referencing out-of-span UTs, which the clock's effSpan/Decompress composition cannot
+represent - such runs are never the phasing run and never a static cut, and if that
+excludes every candidate the knob fails closed (pinned by
+KnobInput_RunStartsBeforeSpanStart_Disengages / KnobInput_PreSpanRun_NeverBecomesAStaticCut).
+
 ### 3.3a Worked example (sign check for the residual formula)
 
 UT0 = spanStart = 0. Loiter run [100, 250), T_park = 50, R = 3 (duration 150). Recorded

@@ -973,9 +973,20 @@ namespace Parsek
 
             // Phasing run = the LAST launch-body run ending before the guard (the parking orbit the
             // player phase-matched with). Earlier compressible runs get static keepRevs=1 cuts.
+            // IN-SPAN REQUIREMENT (review finding): the owner's OrbitSegments are NOT clipped to
+            // the unit span, and a trimmed mission (interval exclusions) can start its render
+            // window mid-recording - a run (or part of one) BEFORE spanStartUT would produce cuts
+            // referencing out-of-span UTs, which the span clock's effSpan/Decompress composition
+            // cannot represent (the cut shortens effSpan but never maps back for in-span samples).
+            // A run not entirely inside [spanStartUT, guardUT] is therefore never the phasing run
+            // and never a static cut; if that excludes every candidate, the knob fails closed.
+            // (EndUT <= guardUT <= spanEndUT already bounds the upper edge; the start needs the
+            // explicit spanStartUT check.)
             int phasingIdx = -1;
             for (int i = 0; i < runs.Count; i++)
             {
+                if (runs[i].StartUT < spanStartUT - 1e-6)
+                    continue;
                 if (runs[i].EndUT > guardUT + 1e-6)
                     continue;
                 if (!string.IsNullOrEmpty(launchBody) && runs[i].BodyName != launchBody)
@@ -987,14 +998,17 @@ namespace Parsek
                 if (!SuppressLogging)
                     ParsekLog.Verbose("Mission",
                         $"phasing knob disengaged: mission='{missionName}' " +
-                        $"runs={runs.Count.ToString(ic)} none end before guardUT=" +
-                        $"{guardUT.ToString("F0", ic)} on body '{launchBody ?? "?"}' (rule 2)");
+                        $"runs={runs.Count.ToString(ic)} none lie in-span before guardUT=" +
+                        $"{guardUT.ToString("F0", ic)} on body '{launchBody ?? "?"}' (rule 2; " +
+                        $"spanStart={spanStartUT.ToString("F0", ic)})");
                 return null;
             }
 
             var staticCuts = new List<GhostPlaybackLogic.LoopCut>();
             for (int i = 0; i < phasingIdx; i++)
             {
+                if (runs[i].StartUT < spanStartUT - 1e-6)
+                    continue;
                 if (runs[i].EndUT > guardUT + 1e-6)
                     continue;
                 if (!string.IsNullOrEmpty(launchBody) && runs[i].BodyName != launchBody)

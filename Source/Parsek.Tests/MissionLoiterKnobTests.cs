@@ -581,6 +581,49 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void KnobInput_RunStartsBeforeSpanStart_Disengages()
+        {
+            // A trimmed mission whose render window starts MID-loiter: the run is not entirely
+            // in-span, so a cut would reference out-of-span UTs the clock cannot represent.
+            // Fail closed (review finding).
+            Recording owner = OwnerWithLoiter(out double runStart, out double runEnd, out _);
+            double spanStart = runStart + 100.0; // window opens inside the loiter
+
+            PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
+                new List<Recording> { owner }, 0,
+                MakeExtraction(ut0: spanStart, stationOffset: runEnd + 500.0 - spanStart),
+                spanStart, runEnd + 2000.0, new KnobFakeBodyInfo(), "test");
+
+            Assert.Null(input);
+        }
+
+        [Fact]
+        public void KnobInput_PreSpanRun_NeverBecomesAStaticCut()
+        {
+            // Render window opens between two loiter runs: the pre-span run must be skipped (no
+            // out-of-span static cut), the in-span run still engages as the phasing run.
+            double run1Start = 100.0;
+            double run1End = run1Start + 3.0 * LkoT + 5.0;
+            double gapEnd = run1End + 200.0;
+            double run2Start = gapEnd + 10.0;
+            double run2End = run2Start + 5.0 * LkoT + 5.0;
+            var rec = new Recording();
+            rec.OrbitSegments.Add(Seg("Kerbin", run1Start, run1End, LkoA));
+            rec.OrbitSegments.Add(Seg("Kerbin", run1End, gapEnd, LkoA * 1.2));
+            rec.OrbitSegments.Add(Seg("Kerbin", run2Start, run2End, LkoA));
+            double spanStart = run2Start - 5.0; // window opens after run 1, before run 2
+
+            PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
+                new List<Recording> { rec }, 0,
+                MakeExtraction(ut0: spanStart, stationOffset: run2End + 500.0 - spanStart),
+                spanStart, run2End + 2000.0, new KnobFakeBodyInfo(), "test");
+
+            Assert.NotNull(input);
+            Assert.Equal(run2Start, input.RunStartUT, 3);
+            Assert.Empty(input.StaticCuts); // run 1 is out-of-span: skipped, not cut
+        }
+
+        [Fact]
         public void KnobInput_OwnerWithoutLoiter_Null()
         {
             var rec = new Recording();

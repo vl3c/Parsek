@@ -2517,6 +2517,10 @@ namespace Parsek
         internal bool TryGetLaunchTiming(long cycleIndex, out LaunchTimingEntry entry)
         {
             entry = default;
+            // timings is index-aligned with launches BY CONSTRUCTION: ResolveLaunch is the only
+            // appender of timings and every true return is immediately followed by the caller's
+            // launches.Add (ctor L_0 + ExtendOnce). The long-vs-Count comparison also makes the
+            // (int) cast below safe: any cycleIndex above int.MaxValue fails the range check first.
             if (knob == null || cycleIndex < 0 || cycleIndex >= timings.Count)
                 return false;
             entry = timings[(int)cycleIndex];
