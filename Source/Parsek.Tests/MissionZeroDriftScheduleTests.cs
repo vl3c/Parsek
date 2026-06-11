@@ -43,6 +43,8 @@ namespace Parsek.Tests
             public double SoiRadius(string b) => double.NaN;
             public double OrbitalVelocity(string b) => double.NaN;
             public double GravParameter(string b) => double.NaN;
+            public bool TryGetVesselOrbit(uint pid, string recordedVesselGuid, out double periodSeconds, out string orbitBodyName)
+            { periodSeconds = double.NaN; orbitBodyName = null; return false; }
         }
 
         private static PhaseConstraint Rotation(string body, double period, double offset = 0.0)
@@ -53,6 +55,11 @@ namespace Parsek.Tests
             bool crossParent = false)
             => new PhaseConstraint { Kind = ConstraintKind.Orbital, BodyName = body,
                 PeriodSeconds = period, PhaseOffsetSeconds = offset, RelativeToParent = crossParent };
+
+        private static PhaseConstraint VesselOrbital(string body, double period, double offset = 0.0,
+            uint pid = 4242)
+            => new PhaseConstraint { Kind = ConstraintKind.VesselOrbital, BodyName = body,
+                PeriodSeconds = period, PhaseOffsetSeconds = offset, AnchorVesselPid = pid };
 
         // ===================== NextJointNearCoincidenceUT: synthetic, hand-checkable =====================
 
@@ -728,6 +735,8 @@ namespace Parsek.Tests
             public double SoiRadius(string b) => b == "Mun" ? 2429559.0 : double.NaN;
             public double OrbitalVelocity(string b) => b == "Mun" ? 543.0 : double.NaN;
             public double GravParameter(string b) => double.NaN;
+            public bool TryGetVesselOrbit(uint pid, string recordedVesselGuid, out double periodSeconds, out string orbitBodyName)
+            { periodSeconds = double.NaN; orbitBodyName = null; return false; }
         }
 
         // ===================== Anchor = tightest band (max cadence) =====================
@@ -746,6 +755,76 @@ namespace Parsek.Tests
             };
             int anchor = MissionPeriodicity.SelectAnchorConstraintIndex(constraints, new SoiFake());
             Assert.Equal(1, anchor); // the Kerbin rotation (tightest band), NOT the Mun
+        }
+
+        // ===================== M4a: VesselOrbital (station) in the zero-drift schedule =====================
+
+        [Fact]
+        public void SelectAnchorConstraintIndex_PadPlusStation_PicksThePad()
+        {
+            // M4a test 9 (duty ordering): the pad rotation's duty cycle (0.25deg/360 ~ 7.0e-4) is
+            // tighter than the station's (1deg/360 ~ 2.8e-3), so the pad stays the exact-pinned
+            // anchor for the canonical LKO-resupply shape and the station floats in tolerance.
+            var constraints = new List<PhaseConstraint>
+            {
+                VesselOrbital("Kerbin", 1800.0),    // index 0: the station (looser band)
+                Rotation("Kerbin", KerbinRotation)  // index 1: the pad (tightest band)
+            };
+            int anchor = MissionPeriodicity.SelectAnchorConstraintIndex(constraints, new FakeBodyInfo());
+            Assert.Equal(1, anchor);
+        }
+
+        [Fact]
+        public void Schedule_PadPlusStation_Commensurate_EveryPadWindowAligned()
+        {
+            // M4a test 10a: with the station period an exact divisor of the pad period, EVERY pad
+            // window is station-aligned - the schedule launches at every k with residual 0.
+            var constraints = new List<PhaseConstraint>
+            {
+                Rotation("Kerbin", 21600.0),
+                VesselOrbital("Kerbin", 2160.0)
+            };
+            Assert.True(MissionPeriodicity.TryBuildRelaunchSchedule(
+                constraints, Support.Supported, 0.0, 0.0, new FakeBodyInfo(),
+                out MissionRelaunchSchedule schedule));
+
+            Assert.Equal(21600.0, schedule.FirstLaunchUT, 6);             // k=1, residual 0
+            Assert.Equal(43200.0, schedule.NextLaunchAfter(21600.0), 6);  // the very next pad window
+            Assert.True(schedule.AllLaunchesWithinTolerance);
+            Assert.Equal(0.0, schedule.WorstResidualSeconds, 6);
+        }
+
+        [Fact]
+        public void Schedule_PadPlusStation_Incommensurate_StationWithinToleranceAtEveryLaunch()
+        {
+            // M4a test 10b: stock-like incommensurate pad/station periods. The schedule pins the
+            // pad EXACTLY (every launch is ut0 + k*KerbinRotation) and every resolved launch puts
+            // the station within ITS 1-degree tolerance (period/360 = 5 s) - the zero-drift
+            // machinery handles the new kind with no special-casing.
+            const double stationPeriod = 1800.0;
+            double stationTol = stationPeriod / 360.0;
+            var constraints = new List<PhaseConstraint>
+            {
+                Rotation("Kerbin", KerbinRotation),
+                VesselOrbital("Kerbin", stationPeriod)
+            };
+            Assert.True(MissionPeriodicity.TryBuildRelaunchSchedule(
+                constraints, Support.Supported, 0.0, 0.0, new FakeBodyInfo(),
+                out MissionRelaunchSchedule schedule));
+
+            double launch = schedule.FirstLaunchUT;
+            Assert.False(double.IsNaN(launch));
+            for (int i = 0; i < 4; i++)
+            {
+                double k = launch / KerbinRotation;
+                Assert.Equal(Math.Round(k), k, 6);  // pad locked exactly at every launch
+                double stationResidual = MissionPeriodicity.CircularPhaseError(launch, stationPeriod);
+                Assert.True(stationResidual <= stationTol + 1e-9,
+                    $"launch {i} station residual {stationResidual} exceeds tolerance {stationTol}");
+                launch = schedule.NextLaunchAfter(launch);
+                Assert.False(double.IsNaN(launch));
+            }
+            Assert.True(schedule.AllLaunchesWithinTolerance);
         }
 
         // ===================== Player throttle (launch less often than the max cadence) =====================

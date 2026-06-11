@@ -26,6 +26,7 @@ namespace Parsek.Tests
             MissionStructureBuilder.SuppressLogging = false;
             MissionPeriodicity.SuppressLogging = false;
             MissionLoopUnitBuilder.SuppressLogging = false;
+            MissionPeriodicity.ResetDriftAmberLogForTesting();
         }
 
         public void Dispose()
@@ -55,13 +56,37 @@ namespace Parsek.Tests
             public readonly Dictionary<string, string> Parent = new Dictionary<string, string>();
             public readonly Dictionary<string, double> Soi = new Dictionary<string, double>();
             public readonly Dictionary<string, double> Velocity = new Dictionary<string, double>();
+            public readonly Dictionary<string, double> Mu = new Dictionary<string, double>();
+            // M4a: configurable live vessel orbits (pid -> period + orbited body); a pid not in the
+            // dict does not resolve (vanished / hyperbolic anchor).
+            public readonly Dictionary<uint, (double period, string body)> VesselOrbits =
+                new Dictionary<uint, (double period, string body)>();
 
             public double RotationPeriod(string b) => Rotation.TryGetValue(b ?? "", out double v) ? v : double.NaN;
             public double OrbitPeriod(string b) => Orbit.TryGetValue(b ?? "", out double v) ? v : double.NaN;
             public string ReferenceBodyName(string b) => Parent.TryGetValue(b ?? "", out string v) ? v : null;
             public double SoiRadius(string b) => Soi.TryGetValue(b ?? "", out double v) ? v : double.NaN;
             public double OrbitalVelocity(string b) => Velocity.TryGetValue(b ?? "", out double v) ? v : double.NaN;
-            public double GravParameter(string b) => double.NaN;
+            public double GravParameter(string b) => Mu.TryGetValue(b ?? "", out double v) ? v : double.NaN;
+            // M4a: optional LIVE launch guid per pid; a recorded guid that conclusively
+            // differs makes the pid a DIFFERENT launch of the same craft (craft-baked pid), so
+            // it does not resolve. Absent entry = unknown live guid = pid-only fallback.
+            public readonly Dictionary<uint, string> VesselGuids = new Dictionary<uint, string>();
+
+            public bool TryGetVesselOrbit(uint pid, string recordedVesselGuid, out double periodSeconds, out string orbitBodyName)
+            {
+                if (VesselOrbits.TryGetValue(pid, out var o)
+                    && !(VesselGuids.TryGetValue(pid, out string liveGuid)
+                        && VesselLaunchIdentity.GuidsConclusivelyDiffer(recordedVesselGuid, liveGuid)))
+                {
+                    periodSeconds = o.period;
+                    orbitBodyName = o.body;
+                    return true;
+                }
+                periodSeconds = double.NaN;
+                orbitBodyName = null;
+                return false;
+            }
         }
 
         // A stock-like Sun/Kerbin/Mun/Minmus/Duna fake.
@@ -222,9 +247,11 @@ namespace Parsek.Tests
         }
 
         private static ConstraintExtraction Extract(RecordingTree tree, IBodyInfo bodyInfo,
-            HashSet<string> excluded = null)
+            HashSet<string> excluded = null, List<Recording> extraCommitted = null)
         {
             var committed = new List<Recording>(tree.Recordings.Values);
+            if (extraCommitted != null)
+                committed.AddRange(extraCommitted); // e.g. a station's own recording (another tree)
             var (view, compRoots) = Models(tree);
             return MissionPeriodicity.ExtractConstraints(
                 view, compRoots, committed, excluded ?? new HashSet<string>(), bodyInfo);
@@ -665,6 +692,627 @@ namespace Parsek.Tests
             Assert.Equal(MinmusOrbit, orb.PeriodSeconds);
             Assert.False(orb.RelativeToParent);
             Assert.Equal(Support.Supported, ex.Support);
+        }
+
+        // ===================== M4a: VesselOrbital (station rendezvous) =====================
+        // Tier 1 of docs/dev/design-mission-phasing-alignment.md: the extraction flip from
+        // blanket UnsupportedRendezvous to a VesselOrbital constraint for the supported shape
+        // (exactly ONE same-parent closed-orbit vessel anchor), the fail-closed rejects, the D3
+        // drift amber, the tolerance, and the solver integration.
+
+        private const double StationPeriod = 1800.0;       // a ~100 km LKO-ish station orbit
+        private const uint StationPid = 4242;
+        private const double KerbinMu = 3.5316e12;
+
+        // Adds a vessel-anchored Relative section (a rendezvous/dock leg) to a member recording.
+        private static Recording WithRendezvous(Recording rec, double start, double end,
+            uint anchorPid, string anchorRecId = null)
+        {
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Relative,
+                source = TrackSectionSource.Active,
+                startUT = start,
+                endUT = end,
+                anchorVesselId = anchorPid,
+                anchorRecordingId = anchorRecId,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>()
+            });
+            return rec;
+        }
+
+        // The canonical LKO-resupply shape: Kerbin ascent + Kerbin orbit with a rendezvous
+        // Relative section [1200,1500] anchored to the station pid.
+        private static RecordingTree ResupplyTree(uint anchorPid = StationPid,
+            string anchorRecId = null)
+        {
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1200, 1500, anchorPid, anchorRecId);
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            return TreeOf("t", ascent, rendezvous);
+        }
+
+        // A StockFake whose live save contains the station: pid -> (period, orbited body).
+        private static FakeBodyInfo StationFake(
+            double period = StationPeriod, string body = "Kerbin")
+        {
+            var f = StockFake();
+            f.VesselOrbits[StationPid] = (period, body);
+            f.Mu["Kerbin"] = KerbinMu;
+            return f;
+        }
+
+        // Semi-major axis whose elliptical period around mu is t (inverse of OrbitalPeriod).
+        private static double SmaForPeriod(double t, double mu)
+            => Math.Pow(mu * Math.Pow(t / (2.0 * Math.PI), 2.0), 1.0 / 3.0);
+
+        // A committed (non-member) station recording with one non-predicted OrbitSegment.
+        private static Recording StationRecording(string id, double start, double end,
+            string body, double sma)
+        {
+            var rec = new Recording
+            {
+                RecordingId = id,
+                VesselName = "Station",
+                IsDebris = false,
+                ExplicitStartUT = start,
+                ExplicitEndUT = end,
+                StartBodyName = body,
+                SegmentBodyName = body
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = start,
+                endUT = end,
+                bodyName = body,
+                semiMajorAxis = sma
+            });
+            return rec;
+        }
+
+        [Fact]
+        public void Extract_SingleSameParentAnchor_EmitsVesselOrbital()
+        {
+            // Test 1: the supported shape (exactly one same-parent closed-orbit anchor) emits a
+            // VesselOrbital constraint - live period, offset = first rendezvous UT - UT0, anchor
+            // pid - and Support stays Supported (no more blanket UnsupportedRendezvous).
+            var ex = Extract(ResupplyTree(), StationFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Null(ex.UnsupportedReason);
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal("Kerbin", vo.BodyName);                 // the ORBITED body
+            Assert.Equal(StationPeriod, vo.PeriodSeconds);       // the LIVE period
+            Assert.Equal(StationPid, vo.AnchorVesselPid);
+            Assert.Equal(200.0, vo.PhaseOffsetSeconds);          // 1200 - 1000
+            Assert.False(vo.RelativeToParent);
+            Assert.Null(ex.DriftAmberReason);                    // no anchor recording -> no compare
+            // The pad rotation is still extracted alongside (the LKO-resupply two-constraint shape).
+            Assert.Contains(ex.Constraints,
+                c => c.Kind == ConstraintKind.Rotation && c.BodyName == "Kerbin");
+        }
+
+        [Fact]
+        public void Extract_MultipleSectionsSamePid_CollapseToEarliestUT()
+        {
+            // Test 2: several Relative sections to the SAME pid (approach, dock, undock, redock)
+            // collapse to ONE constraint at the EARLIEST overlap UT (timeline rigidity aligns the
+            // later same-vessel events automatically, design note 5.2).
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1400, 1500, StationPid);  // the LATER redock first in list
+            WithRendezvous(rendezvous, 1200, 1300, StationPid);
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+
+            var ex = Extract(tree, StationFake());
+
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal(200.0, vo.PhaseOffsetSeconds); // earliest overlap (1200), not the redock
+        }
+
+        [Fact]
+        public void Extract_TwoDistinctPids_UnsupportedRendezvous()
+        {
+            // Test 3: a multi-rendezvous tour (two DISTINCT vessel anchors in one window) stays
+            // fail-closed - one constraint cannot phase two independent stations.
+            var fake = StationFake();
+            fake.VesselOrbits[5555] = (2400.0, "Kerbin"); // second station, also resolvable
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1200, 1300, StationPid);
+            WithRendezvous(rendezvous, 1400, 1500, 5555);
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+
+            var ex = Extract(tree, fake);
+
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("multi-rendezvous", ex.UnsupportedReason);
+            Assert.DoesNotContain(ex.Constraints, c => c.Kind == ConstraintKind.VesselOrbital);
+        }
+
+        // A committed station recording (its own flight, typically another tree) the
+        // anchor-recording-only sections resolve through.
+        private static Recording StationRecording(string recId, uint pid, string guid = null)
+            => new Recording { RecordingId = recId, VesselPersistentId = pid, RecordedVesselGuid = guid };
+
+        [Fact]
+        public void Extract_AnchorRecordingOnlySection_ResolvesThroughCommittedRecording()
+        {
+            // Test 4 (contract OVERTURNED by the 2026-06-11 playtest): the recorder deliberately
+            // ZEROES anchorVesselId whenever it stamps anchorRecordingId (FlightRecorder
+            // serialization checkpoints), so anchor-recording-only is the NORMAL recorded shape
+            // for a station rendezvous. The pid resolves through the committed anchor recording
+            // (recorded pid + launch guid), then the live orbit as usual.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1200, 1500, 0, "station-rec");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+            var fake = StationFake();
+            fake.VesselGuids[StationPid] = "11111111-1111-1111-1111-111111111111";
+            var station = StationRecording("station-rec", StationPid,
+                "11111111-1111-1111-1111-111111111111");
+
+            var ex = Extract(tree, fake, extraCommitted: new List<Recording> { station });
+
+            Assert.Equal(Support.Supported, ex.Support);
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal(StationPid, vo.AnchorVesselPid);
+            Assert.Equal(200.0, vo.PhaseOffsetSeconds);
+        }
+
+        [Fact]
+        public void Extract_AnchorRecordingNotCommitted_UnsupportedRendezvous()
+        {
+            // An anchor-recording-only section whose recording id resolves to NOTHING in the
+            // committed set cannot identify the live anchor - fail closed.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1200, 1500, 0, "station-rec");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+
+            var ex = Extract(tree, StationFake());
+
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("not in the committed set", ex.UnsupportedReason);
+        }
+
+        [Fact]
+        public void Extract_AnchorRecordingIsDifferentLaunch_UnsupportedRendezvous()
+        {
+            // The craft-baked-pid trap: the live vessel carrying the recorded pid is a DIFFERENT
+            // launch of the same craft (launch guids conclusively differ) - it must not read as
+            // the recorded station.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1200, 1500, 0, "station-rec");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+            var fake = StationFake();
+            fake.VesselGuids[StationPid] = "22222222-2222-2222-2222-222222222222";
+            var station = StationRecording("station-rec", StationPid,
+                "11111111-1111-1111-1111-111111111111");
+
+            var ex = Extract(tree, fake, extraCommitted: new List<Recording> { station });
+
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("different launch", ex.UnsupportedReason);
+        }
+
+        [Fact]
+        public void Extract_MixedPidAndRecordingSections_SameAnchor_OneConstraintAtEarliest()
+        {
+            // One pid-stamped section and one anchor-recording-only section to the SAME station
+            // merge into a single constraint at the EARLIEST rendezvous (timeline rigidity,
+            // design note 5.2).
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1200, 1250, 0, "station-rec"); // earliest, recId shape
+            WithRendezvous(rendezvous, 1300, 1400, StationPid);       // later, pid shape
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+            var station = StationRecording("station-rec", StationPid);
+
+            var ex = Extract(tree, StationFake(), extraCommitted: new List<Recording> { station });
+
+            Assert.Equal(Support.Supported, ex.Support);
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal(200.0, vo.PhaseOffsetSeconds); // 1200 - ut0(1000)
+        }
+
+        [Fact]
+        public void Extract_MutualDockAnchoring_ReattributesToPartner_OneConstraintAtFirstRendezvous()
+        {
+            // The 2026-06-11 retest topology (Depot resupply): the dock merge pulls the PARTNER's
+            // segments into the tree, and anchoring is MUTUAL - the partner's sections anchor the
+            // mission's own craft (BG recording relative to the active vessel), the craft's
+            // post-undock section anchors the partner. The classifier partitions against the SELF
+            // launch line: the partner-to-self section REATTRIBUTES to its owner (the partner),
+            // the self-to-partner section is a direct target, and both merge to ONE constraint at
+            // the FIRST rendezvous UT (the partner-side 1200, not the later direct 1400).
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            ascent.VesselPersistentId = 111;
+            ascent.RecordedVesselGuid = "aaaaaaaa-1111-1111-1111-111111111111";
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            rendezvous.VesselPersistentId = 111;
+            rendezvous.RecordedVesselGuid = "aaaaaaaa-1111-1111-1111-111111111111";
+            var partner = OrbitLeg("partner-rec", 1150, 1600, "Kerbin");
+            partner.VesselPersistentId = 222;
+            partner.RecordedVesselGuid = "bbbbbbbb-2222-2222-2222-222222222222";
+            WithRendezvous(partner, 1200, 1250, 111);            // partner -> self (mutual shape)
+            WithRendezvous(rendezvous, 1400, 1450, 0, "partner-rec"); // self -> partner (direct)
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous, partner);
+            var fake = StationFake();
+            fake.VesselOrbits.Remove(StationPid);
+            fake.VesselOrbits[222] = (1958.0, "Kerbin");
+
+            var ex = Extract(tree, fake);
+
+            Assert.Equal(Support.Supported, ex.Support);
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal(222u, vo.AnchorVesselPid);
+            Assert.Equal(200.0, vo.PhaseOffsetSeconds); // first rendezvous = the partner-side 1200
+        }
+
+        [Fact]
+        public void Extract_AllSelfAnchoring_NoForeignAnchor_NoConstraintNoReject()
+        {
+            // A mission whose only vessel-anchored sections are intra-self pairs (its own
+            // continuation segment anchoring its own launch line) has NO foreign rendezvous
+            // target: no VesselOrbital constraint, and crucially NOT an UnsupportedRendezvous
+            // reject - the mission keeps its normal body-rule Support.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            ascent.VesselPersistentId = 111;
+            ascent.RecordedVesselGuid = "aaaaaaaa-1111-1111-1111-111111111111";
+            var coast = OrbitLeg("o", 1100, 1600, "Kerbin");
+            coast.VesselPersistentId = 111;
+            coast.RecordedVesselGuid = "aaaaaaaa-1111-1111-1111-111111111111";
+            WithRendezvous(coast, 1200, 1300, 111); // anchors its own launch line
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            coast.ChainId = "C"; coast.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, coast);
+
+            var ex = Extract(tree, StockFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.DoesNotContain(ex.Constraints, c => c.Kind == ConstraintKind.VesselOrbital);
+        }
+
+        [Fact]
+        public void Extract_DriftAmber_BackfilledRecordingCoveringEarliestUT_StillCompares()
+        {
+            // Scoped-review finding pin: the EARLIEST rendezvous entry is pid-shape (no
+            // recording id) and a LATER rec-shape entry backfills the drift-comparison
+            // recording. The backfill is safe by construction: merged entries are guid-gated to
+            // the SAME vessel, and the comparison only runs when the backfilled recording has a
+            // segment COVERING the earliest UT - here it does (900-2000), so the drifted period
+            // still ambers while the constraint keeps the earliest entry's UT.
+            double recordedPeriod = StationPeriod * 1.056; // ~5.6% drift
+            var station = StationRecording(
+                "station-rec", 900, 2000, "Kerbin", SmaForPeriod(recordedPeriod, KerbinMu));
+            station.VesselPersistentId = StationPid;
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1200, 1250, StationPid);        // earliest: pid-shape
+            WithRendezvous(rendezvous, 1400, 1450, 0, "station-rec");  // later: rec-shape
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+
+            var ex = Extract(tree, StationFake(), extraCommitted: new List<Recording> { station });
+
+            Assert.Equal(Support.Supported, ex.Support);
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal(200.0, vo.PhaseOffsetSeconds);   // the earliest entry wins the UT
+            Assert.NotNull(ex.DriftAmberReason);          // the later entry's recording compares
+            Assert.Contains("drifted", ex.DriftAmberReason);
+        }
+
+        [Fact]
+        public void Extract_SamePidDifferentLaunches_UnsupportedRendezvous()
+        {
+            // Two anchor recordings share the craft-baked pid but are conclusively different
+            // launches: two distinct physical anchors - multi-rendezvous, fail closed.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1200, 1250, 0, "station-a");
+            WithRendezvous(rendezvous, 1300, 1400, 0, "station-b");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+            var stations = new List<Recording>
+            {
+                StationRecording("station-a", StationPid, "11111111-1111-1111-1111-111111111111"),
+                StationRecording("station-b", StationPid, "22222222-2222-2222-2222-222222222222"),
+            };
+
+            var ex = Extract(tree, StationFake(), extraCommitted: stations);
+
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("multi-rendezvous", ex.UnsupportedReason);
+        }
+
+        [Fact]
+        public void Extract_AnchorNotResolvable_UnsupportedRendezvous()
+        {
+            // Test 5: a vanished (recovered/deorbited) or hyperbolic anchor does not resolve a
+            // live closed orbit - fail closed (design D1: never derive a period from recorded
+            // data while the live anchor is gone).
+            var fake = StockFake(); // no VesselOrbits entry: TryGetVesselOrbit false
+            var ex = Extract(ResupplyTree(), fake);
+
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("not in save / no closed orbit", ex.UnsupportedReason);
+        }
+
+        [Fact]
+        public void Extract_CrossParentStation_UnsupportedRendezvous()
+        {
+            // Test 6: a station orbiting a body OTHER than the launch body (e.g. around the Mun
+            // while launching from Kerbin) is the Tier 2 / M4c shape - fail closed in M4a.
+            var ex = Extract(ResupplyTree(), StationFake(body: "Mun"));
+
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("Tier 2", ex.UnsupportedReason);
+        }
+
+        [Fact]
+        public void Extract_NullLaunchBody_VesselAnchor_UnsupportedRendezvous()
+        {
+            // Test 6b: an orbit-only / degenerate config with NO resolvable launch body but a
+            // vessel anchor never emits a constraint (the same-parent check is meaningless), even
+            // when the anchor itself resolves - rule 0 fires before resolution.
+            var rec = new Recording
+            {
+                RecordingId = "r",
+                VesselName = "V",
+                IsDebris = false,
+                ExplicitStartUT = 1000,
+                ExplicitEndUT = 1600,
+                StartBodyName = "Kerbin",
+                SegmentBodyName = "Kerbin"
+            };
+            WithRendezvous(rec, 1200, 1500, StationPid); // ONLY a Relative section: no launch body
+            var tree = TreeOf("t", rec);
+
+            var ex = Extract(tree, StationFake());
+
+            Assert.Null(ex.LaunchBodyName);
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("no launch body", ex.UnsupportedReason);
+            Assert.DoesNotContain(ex.Constraints, c => c.Kind == ConstraintKind.VesselOrbital);
+        }
+
+        [Fact]
+        public void Extract_ParentAnchoredRecording_RelativeSectionNotARendezvous()
+        {
+            // Test 7 (existing rule preserved): a parent-anchored (debris / decoupled-child)
+            // recording's Relative sections anchor to its OWN parent - never a rendezvous, so the
+            // mission stays Supported with no VesselOrbital even when the pid would resolve.
+            var pod = SurfaceLeg("L", 100, 200, "Kerbin");
+            pod.OrbitSegments.Add(new OrbitSegment { startUT = 200, endUT = 800,
+                bodyName = "Kerbin", semiMajorAxis = 700000 });
+            pod.ExplicitEndUT = 800; // continues past the decouple (as Extract_AscentTrimmed)
+            var probe = new Recording
+            {
+                RecordingId = "p",
+                VesselName = "Probe",
+                IsDebris = false,
+                ExplicitStartUT = 200,
+                ExplicitEndUT = 260,
+                StartBodyName = "Kerbin",
+                ParentAnchorRecordingId = "L"
+            };
+            WithRendezvous(probe, 210, 250, StationPid); // parent-anchored: must not collect
+            var tree = new RecordingTree { Id = "t", RootRecordingId = "L" };
+            tree.Recordings["L"] = pod;
+            tree.Recordings["p"] = probe;
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "dp",
+                Type = BranchPointType.JointBreak,
+                UT = 200,
+                SplitCause = "DECOUPLE",
+                ParentRecordingIds = new List<string> { "L" },
+                ChildRecordingIds = new List<string> { "p" }
+            });
+
+            var ex = Extract(tree, StationFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.DoesNotContain(ex.Constraints, c => c.Kind == ConstraintKind.VesselOrbital);
+        }
+
+        [Fact]
+        public void Tolerance_VesselOrbital_OneDegreeOfPeriod_NotTheSoiFormula()
+        {
+            // Test 8: the VesselOrbital tolerance is period * 1deg/360 (design note 5.3). It must
+            // NOT fall into the Orbital SoiRadius/OrbitalVelocity formula - here the constraint's
+            // BodyName is Mun, whose StockFake SOI tolerance would be ~4474 s, wildly wrong for a
+            // 1800 s station orbit.
+            var c = new PhaseConstraint
+            {
+                Kind = ConstraintKind.VesselOrbital,
+                BodyName = "Mun",
+                PeriodSeconds = StationPeriod,
+                PhaseOffsetSeconds = 0.0,
+                AnchorVesselPid = StationPid
+            };
+            double tol = MissionPeriodicity.ToleranceSecondsFor(c, StockFake());
+            Assert.Equal(StationPeriod / 360.0, tol, 9); // 5 s, 1 degree of the station orbit
+            // And the schedule tolerance falls through unchanged (the Loose special-case is
+            // Rotation-only, so a VesselOrbital is never loosened).
+            Assert.Equal(tol, MissionPeriodicity.ScheduleToleranceSecondsFor(
+                c, StockFake(), "Kerbin", TransitedBodyRotationMode.Loose), 9);
+        }
+
+        [Fact]
+        public void Extract_DriftAmber_BeyondTolerance_SetsReason_SupportUnaffected()
+        {
+            // Test 11a (D3): the anchor recording's rendezvous-time orbit period differs from the
+            // LIVE period by > 2% -> DriftAmberReason set; Support and the emitted (live) period
+            // unaffected (display-only, live wins).
+            double recordedPeriod = StationPeriod * 1.056; // ~5.6% drift
+            var station = StationRecording(
+                "station-rec", 900, 2000, "Kerbin", SmaForPeriod(recordedPeriod, KerbinMu));
+            var tree = ResupplyTree(anchorRecId: "station-rec");
+            var committed = new List<Recording>(tree.Recordings.Values) { station };
+            var (view, compRoots) = Models(tree);
+
+            var ex = MissionPeriodicity.ExtractConstraints(
+                view, compRoots, committed, new HashSet<string>(), StationFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.NotNull(ex.DriftAmberReason);
+            Assert.Contains("drifted", ex.DriftAmberReason);
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal(StationPeriod, vo.PeriodSeconds); // live period emitted, never the recorded
+        }
+
+        [Fact]
+        public void Extract_DriftAmber_WithinTolerance_NoReason()
+        {
+            // Test 11b (D3): a recorded period within 2% of live -> no amber.
+            double recordedPeriod = StationPeriod * 1.008; // ~0.8% drift, within tolerance
+            var station = StationRecording(
+                "station-rec", 900, 2000, "Kerbin", SmaForPeriod(recordedPeriod, KerbinMu));
+            var tree = ResupplyTree(anchorRecId: "station-rec");
+            var committed = new List<Recording>(tree.Recordings.Values) { station };
+            var (view, compRoots) = Models(tree);
+
+            var ex = MissionPeriodicity.ExtractConstraints(
+                view, compRoots, committed, new HashSet<string>(), StationFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Null(ex.DriftAmberReason);
+        }
+
+        [Fact]
+        public void Extract_DriftAmber_NoAnchorRecording_NoComparisonNoAmber()
+        {
+            // Test 11c (D3): no resolvable anchor recording (or no covering segment) -> no
+            // comparison, no amber - a live-only (class b) anchor never false-positives.
+            var ex = Extract(ResupplyTree(anchorRecId: "no-such-recording"), StationFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Null(ex.DriftAmberReason);
+        }
+
+        [Fact]
+        public void Extract_DriftAmber_TransitionLoggedOncePerChange()
+        {
+            // Logging contract (plan 2.6): the drift-amber Info line fires once per TRANSITION
+            // (set / clear), keyed per mission tag - repeated extractions with the same state log
+            // nothing new.
+            double recordedPeriod = StationPeriod * 1.056;
+            var station = StationRecording(
+                "station-rec", 900, 2000, "Kerbin", SmaForPeriod(recordedPeriod, KerbinMu));
+            var tree = ResupplyTree(anchorRecId: "station-rec");
+            var committed = new List<Recording>(tree.Recordings.Values) { station };
+            var (view, compRoots) = Models(tree);
+
+            var drifted = StationFake();
+            MissionPeriodicity.ExtractConstraints(
+                view, compRoots, committed, new HashSet<string>(), drifted);
+            MissionPeriodicity.ExtractConstraints(
+                view, compRoots, committed, new HashSet<string>(), drifted);
+            Assert.Equal(1, logLines.Count(l =>
+                l.Contains("[INFO]") && l.Contains("[MissionPeriodicity]")
+                && l.Contains("Drift amber SET") && l.Contains("tree=t")));
+
+            // The station boosts back to the recorded period -> the amber clears, logged once.
+            var aligned = StationFake(period: recordedPeriod);
+            MissionPeriodicity.ExtractConstraints(
+                view, compRoots, committed, new HashSet<string>(), aligned);
+            MissionPeriodicity.ExtractConstraints(
+                view, compRoots, committed, new HashSet<string>(), aligned);
+            Assert.Equal(1, logLines.Count(l =>
+                l.Contains("[INFO]") && l.Contains("Drift amber CLEARED") && l.Contains("tree=t")));
+        }
+
+        [Fact]
+        public void Solve_LoneVesselOrbital_LocksStationPeriod_SingleVesselOrbitalMethod()
+        {
+            // Test 12a: a lone VesselOrbital locks P to the station period with its own method
+            // label (it must not read "single-rotation" or fall to the free loop).
+            var sol = MissionPeriodicity.Solve(
+                new[] { new PhaseConstraint
+                {
+                    Kind = ConstraintKind.VesselOrbital, BodyName = "Kerbin",
+                    PeriodSeconds = StationPeriod, PhaseOffsetSeconds = 200.0,
+                    AnchorVesselPid = StationPid
+                } },
+                Support.Supported, 1000.0, 1000.0, StockFake());
+
+            Assert.True(sol.ShouldPhaseLock);
+            Assert.Equal(StationPeriod, sol.P);
+            Assert.Equal("single-vessel-orbital", sol.Method);
+            Assert.True(sol.WithinTolerance);
+        }
+
+        [Fact]
+        public void Solve_PadPlusStation_VesselOrbitalDominatesLikeOrbital()
+        {
+            // Test 12b: in dominant selection a VesselOrbital ranks WITH Orbital (an
+            // intercept-style constraint), so it outranks the pad rotation; the joint best-fit
+            // locks a whole multiple of the STATION period.
+            var constraints = new List<PhaseConstraint>
+            {
+                Rotation("Kerbin", KerbinRotation, 0.0),
+                new PhaseConstraint
+                {
+                    Kind = ConstraintKind.VesselOrbital, BodyName = "Kerbin",
+                    PeriodSeconds = StationPeriod, PhaseOffsetSeconds = 200.0,
+                    AnchorVesselPid = StationPid
+                }
+            };
+            Assert.Equal(1, MissionPeriodicity.SelectDominantConstraintIndex(constraints));
+
+            var sol = MissionPeriodicity.Solve(
+                constraints, Support.Supported, 1000.0, 1000.0, StockFake());
+            Assert.True(sol.ShouldPhaseLock);
+            double ratio = sol.P / StationPeriod;
+            Assert.Equal(Math.Round(ratio), ratio, 6); // P = whole multiple of the station period
+            Assert.Equal("joint-best-fit", sol.Method); // m=12 best re-aligns the pad (~50 s residual)
+        }
+
+        [Fact]
+        public void Extract_VesselOrbital_LogsConstraintInSummary()
+        {
+            // Test 14a: the extraction summary line renders the new kind as
+            // VesselOrbital(pid@Body) so the log shows WHICH station the loop phases against.
+            Extract(ResupplyTree(), StationFake());
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MissionPeriodicity]") && l.Contains("ExtractConstraints") &&
+                l.Contains("VesselOrbital(4242@Kerbin)") && l.Contains("support=Supported"));
+        }
+
+        [Fact]
+        public void Extract_RejectedRendezvous_LogsReason()
+        {
+            // Test 14b: a reject flows through the summary's why= field with the specific reason
+            // (here the cross-parent station), so a fail-closed shape is never a silent branch.
+            Extract(ResupplyTree(), StationFake(body: "Mun"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MissionPeriodicity]") && l.Contains("ExtractConstraints") &&
+                l.Contains("support=UnsupportedRendezvous") && l.Contains("Tier 2"));
         }
 
         // ===================== Phase 1: Solve (Tier-1 phase-lock) =====================

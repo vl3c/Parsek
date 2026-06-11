@@ -53,6 +53,8 @@ namespace Parsek.Tests
             public double SoiRadius(string b) => double.NaN;
             public double OrbitalVelocity(string b) => double.NaN;
             public double GravParameter(string b) => double.NaN;
+            public bool TryGetVesselOrbit(uint pid, string recordedVesselGuid, out double periodSeconds, out string orbitBodyName)
+            { periodSeconds = double.NaN; orbitBodyName = null; return false; }
         }
 
         private static IBodyInfo Bodies(params (string body, string parent)[] pairs)

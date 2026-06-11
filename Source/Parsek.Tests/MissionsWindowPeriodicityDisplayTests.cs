@@ -145,6 +145,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildPeriodBasisLabel_VesselOrbital_StationWindow()
+        {
+            // M4a test 13: a VesselOrbital (station rendezvous) period cell reads
+            // "(station window)" - NOT "(Kerbin window)", since BodyName holds the ORBITED body
+            // and the period is the station's orbit, not a celestial event of that body.
+            Assert.Equal("(station window)",
+                BuildPeriodBasisLabel(ConstraintKind.VesselOrbital, "Kerbin"));
+            // The label is fixed text, so it renders even without a body name.
+            Assert.Equal("(station window)",
+                BuildPeriodBasisLabel(ConstraintKind.VesselOrbital, null));
+        }
+
+        [Fact]
+        public void BuildPeriodCellDisplay_VesselOrbital_CombinesPeriodAndStationWindow()
+        {
+            // The combined cell reads "~30m (station window)" for a 1800 s station orbit.
+            Assert.Equal("~30m (station window)",
+                BuildPeriodCellDisplay(1800.0, ConstraintKind.VesselOrbital, "Kerbin"));
+        }
+
+        [Fact]
         public void BuildPeriodCellDisplay_CombinesPeriodAndBasis()
         {
             // Fails if the period cell does not read "~P (basis)" (the design's "~6h (Kerbin rot)"
