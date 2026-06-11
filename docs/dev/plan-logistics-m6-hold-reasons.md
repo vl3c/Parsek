@@ -22,7 +22,7 @@ A live route that cannot dispatch currently explains itself only in KSP.log (the
 
 ## 2. Current-state findings
 
-Authoritative spec: `docs/parsek-logistics-supply-routes-design.md:1641-1645` (M6 first bullet) and `:1683` (completeness test 9).
+Authoritative spec: `docs/parsek-logistics-supply-routes-design.md:1641-1645` (M6 first bullet) and `:1683` (19.6 doctrine rule 9, "every non-dispatching route names its reason in player language"). Phase 4 edits 19.4's M6 bullet (`:1645`), not 19.5.
 
 **Where the hold decision lands per tick**
 - Loop path (every v0 route; `Route.IsLoopRoute`, `Source/Parsek/Logistics/Route.cs:274`): `RouteOrchestrator.ProcessLoopRoute` calls `RouteDispatchEvaluator.CheckEligibility` at `Source/Parsek/Logistics/RouteOrchestrator.cs:666-667`; the blocked branch (`:669-691`) flushes the recovery credit, bumps `SkippedCycles` (`:683`), snaps `LastObservedLoopCycleIndex` (`:684`), and logs the `BLOCKED kind={elig.Kind} reason={elig.Reason} shortfall={elig.Shortfall}` Info line (`:686-690`). **It does NOT transition status** - a blocked loop route stays `Active`. The eligible branch fires `EmitLoopCycle` (`:697`) and logs FIRED (`:710-713`) or replay-backstop (`:717-721`).
@@ -76,7 +76,7 @@ Reusing the existing `EligibilityFailureKind` (nested in `RouteDispatchEvaluator
 
 - **Persisted across save/load** (a blocked route must still explain itself after reload).
 - **Cleared on a successful crossing**: both the fired and the replay-backstop branches of `ProcessLoopRoute` (the crossing was eligible either way), and legacy `ApplyDispatch`.
-- **Cleared on player Activate** (`TryActivate`): activation resets loop observation (`LastObservedLoopCycleIndex = -1`, `RouteOrchestrator.cs:188-192`), so a prior-session reason must not present as current. NOT cleared on Pause (it answers "why wasn't this delivering") and NOT cleared on Send Once (the armed crossing refreshes or clears it).
+- **Cleared on player Activate** (`TryActivate`): activation resets loop observation (`LastObservedLoopCycleIndex = -1`, `RouteOrchestrator.cs:188-192`), so a prior-session reason must not present as current. NOT cleared on Pause (it answers "why wasn't this delivering") and NOT cleared on Send Once (the armed crossing refreshes or clears it). Note (plan-review finding 5): `TryActivate` only accepts `Paused` routes (`:164-169`), and an `EndpointLost` loop route is skipped by the `GhostDriving` status gate (`:571`, `RouteStatusPolicy.cs:79-101`) so it never re-evaluates - the player recovery for broken routes is the Pause -> Activate two-step, which is exactly where the clear lands. Do NOT add a redundant clear to `TryPause`; that would defeat the keep-on-Pause semantics.
 - **Display always carries age**: the detail line appends "checked {duration} ago" from `currentUT - LastHoldUT`, so even a reason held across a long warp reads as historical fact, not a live claim.
 
 ### 3.3 Capture sites (all in `RouteOrchestrator`; zero new computation)
@@ -84,7 +84,7 @@ Reusing the existing `EligibilityFailureKind` (nested in `RouteDispatchEvaluator
 | Site | Action |
 |---|---|
 | `ProcessLoopRoute` blocked branch (`:683-691`) | `route.RecordHold(elig.Kind, elig.Reason, elig.Shortfall, currentUT)` next to the SkippedCycles bump |
-| `ProcessLoopRoute` fired + replay branches (`:706-722`) | `route.ClearHold("crossing-eligible")` |
+| `ProcessLoopRoute` eligible path | `route.ClearHold("crossing-eligible")` placed IMMEDIATELY AFTER the `if (!elig.Eligible)` block and BEFORE `EmitLoopCycle` (plan-review BLOCKER 1: clearing in the fired branch AFTER EmitLoopCycle returns would erase the endpoint-lost-at-delivery hold that `ApplyDelivery` records inside the same call - `EmitLoopCycle` returns true unconditionally at `:1018` even on that branch). One clear covers both the fired and replay branches; order-safe against site 5's RecordHold. |
 | `ApplyWait` (`:1399`) | `RecordHold(HoldKindForOutcome(decision.Outcome), decision.Reason, 0, currentUT)` - new tiny pure map `WaitResources->OriginLacksCargo`, `WaitFunds->FundsShort`, `WaitDestinationFull->DestinationFull` (needs `currentUT` threaded in: change the private `ApplyWait(route, decision)` signature to take it; the caller at `:499` has it) |
 | `ApplyEndpointLost` (`:1424`) | `RecordHold(EligibilityFailureKind.EndpointLost, decision.Reason, 0, currentUT)` |
 | `ApplyDelivery` endpoint-lost-at-delivery (`:1559-1575`) | `RecordHold(EndpointLost, "endpoint-destroyed-at-delivery:" + reason, 0, currentUT)` |
@@ -97,7 +97,7 @@ Reusing the existing `EligibilityFailureKind` (nested in `RouteDispatchEvaluator
 
 v1 = **detail panel + tooltips; no row column/text change** (row treatment is the stretch note below).
 
-- New `RouteLegibility` fields: `HoldText` (full detail-line sentence incl. age) and `HoldShort` (one-clause version for the tooltip). Built in `ComputeRouteLegibility` (`:2251`) on the ~1 Hz pass - it already receives `currentUT`. Null when `LastHoldKind == None`. `GetLegibility`'s cache-miss default leaves both null (no flash). No new cache invalidation: the 1 Hz timer already covers orchestrator-side mutations.
+- New `RouteLegibility` fields: `HoldText` (full detail-line sentence incl. age) and `HoldShort` (one-clause version for the tooltip). Built in `ComputeRouteLegibility` (`:2251`) on the ~1 Hz pass - it already receives `currentUT`. Null when `LastHoldKind == None`. **Status display gate (plan-review MAJOR 2): also null when `route.Status` is `MissingSourceRecording` or `SourceChanged`** - those statuses already explain themselves and a persisted older hold (e.g. an OriginLacksCargo from before the source changed) would actively mislead; mirrors the existing `CapacityContext` status gate (`:2296`). Holds DO display for `Active`, the three wait states, `EndpointLost`, `InTransit`, and `Paused` (keep-on-Pause answers "why wasn't this delivering"). Persistence stays unconditional - only display gates. `GetLegibility`'s cache-miss default leaves both null (no flash). No new cache invalidation: the 1 Hz timer already covers orchestrator-side mutations. The detail line must condition ONLY on the cached `leg.HoldText`, never on live `route.*` state combined with it (IMGUI layout/repaint control-count stability, plan-review NIT 8). New comments are tagged "M6 hold reasons" - the bare "M6" tag is already used in this file for unrelated Send-Once-provenance work (`:177`, `:771-773`, `:1094`, `:2211`).
 - `DrawRouteDetail`: after the Status line (`:1189`), when `leg.HoldText != null`, draw `DetailLine(leg.HoldText, statusStyleYellow)` - e.g. `Last cycle blocked: origin is out of LiquidFuel (checked 2m ago)`.
 - Status cell (`:750` and `:755`): when `leg.HoldShort != null`, tooltip becomes `route.Status + "\n" + leg.HoldShort` (visible text and styles unchanged; sort keys unchanged).
 - **Stretch note (not in this slice):** replace the Active-with-hold Status-cell visible text ("Dispatching on schedule") with a yellow `Blocked: {short reason}`. The yellow `FlyingNotDelivering` badge already flags the condition at row level, so v1 legibility does not depend on it.
@@ -113,7 +113,7 @@ New pure static `Source/Parsek/UI/LogisticsHoldPresentation.cs` (sibling of `Log
 | `OriginLacksCargo` | bare resource name (loop) or `origin-lacks-X` (legacy, prefix-stripped) | `origin is out of {X} - delivers when the origin has the full amount` |
 | `OriginLacksCargo` | `inventory-origin-debit-unsupported` | `this route carries stored inventory parts, which docked-origin routes cannot debit yet` |
 | `OriginLacksCargo` | `origin-unresolved:*` | `origin vessel could not be found - it may have moved, been recovered, or been destroyed` (raw token kept in the detail-line tail) |
-| `FundsShort` | any (`funds-short` / `funds-shortfall-N`) | shortfall > 0: `not enough funds at KSC - short {N} funds for this dispatch` (F0); else `not enough funds at KSC for this dispatch` |
+| `FundsShort` | any (`funds-short` / `funds-shortfall-N`) | shortfall > 0: `not enough funds at KSC - short {N} funds for this dispatch` (F0); else `not enough funds at KSC for this dispatch`. Accepted degradation (plan-review finding 4): the legacy `ApplyWait` capture stores shortfall 0 (`RouteDispatchDecision` has no shortfall field; the number lives only inside the `funds-shortfall-N` token), so legacy holds render the generic text - do NOT parse the token suffix; the legacy path is dead for v0 loop routes. Pin both shapes in `DescribeHold_LegacyPrefixedTokens`. |
 | `DestinationFull` | resource name / `destination-full-X` | `destination has no room for {X}`; empty -> `destination has no room for the delivery` |
 | `EndpointLost` | `origin-*` | `origin vessel could not be found` |
 | `EndpointLost` | `stop-N-*` / `endpoint-destroyed-at-delivery:*` / other | `destination vessel could not be found - re-target or recreate the route` |
@@ -149,13 +149,15 @@ New pure static `Source/Parsek/UI/LogisticsHoldPresentation.cs` (sibling of `Log
 
 **B. Orchestrator capture** (`RouteLoopDeliveryFireTests.cs`, `RouteOrchestratorTests.cs`)
 - `BlockedCrossing_RecordsHoldReason` - extend the existing blocked fixture (`:418+`): after the blocked tick, `LastHoldKind == OriginLacksCargo`, `LastHoldDetail == "LiquidFuel"`, `LastHoldUT == tick UT`.
-- `BlockedCrossing_FundsShort_RecordsShortfall` - extend `BlockedEnv` with a failing `KscFundsAvailable` (currently hardwired true at `:174`); assert kind/shortfall.
+- `BlockedCrossing_FundsShort_RecordsShortfall` - extend `BlockedEnv` with a failing `KscFundsAvailable` (currently hardwired true at `:174`) that emits a NONZERO shortfall out-value, AND set `env.IsCareer = true` (settable at `:161`) - the funds gate only runs when `env.IsCareer && route.IsKscOrigin` (`RouteDispatchEvaluator.cs:205`); `OriginHasCargoResult` defaults true (`:162`) and `BuildLoopRoute` defaults `isKscOrigin: true` (`:104`), so the gate is reachable (plan-review finding 3 - without IsCareer the gate silently skips and the test passes vacuously).
 - `FiredCrossing_ClearsHold` and `ReplayBackstop_ClearsHold` - pre-seed a hold, run an eligible crossing, assert cleared.
+- `EndpointLostAtDelivery_HoldSurvivesEligibleCrossing` (plan-review BLOCKER 1 pin) - eligible crossing whose delivery half hits the endpoint-lost branch (fake env resolving the origin but failing `TryResolveEndpointVessel` for the destination at delivery time, or the seam equivalent); assert the `EndpointLost` hold recorded inside `EmitLoopCycle` is NOT wiped by the post-crossing clear.
 - `ApplyWait_LegacyPath_RecordsHold` (non-loop route, `WaitResources` decision -> kind `OriginLacksCargo`, detail `origin-lacks-LiquidFuel`), `ApplyEndpointLost_RecordsHold`, `ApplyDispatch_ClearsHold`, `TryActivate_ClearsHold`.
 - `HoldKindForOutcome_MapsAllWaitOutcomes` (pure map totality).
 
 **C. Formatter / presentation** (new `LogisticsHoldPresentationTests.cs`)
 - One test per table row in 3.5 (`DescribeHold_OriginShortResource`, `DescribeHold_InventoryUnsupported`, `DescribeHold_OriginUnresolved`, `DescribeHold_FundsShort_NamesShortfall`, `DescribeHold_DestinationFull_Named/Unnamed`, `DescribeHold_EndpointLost_OriginVsStop`, `DescribeHold_LegacyPrefixedTokens`, `DescribeHold_UnknownKindOrToken_FallsBack`, `DescribeHold_None_ReturnsNull`).
+- Status display gate (MAJOR 2 pin): legibility/pure-helper test asserting `HoldText`/`HoldShort` are null for `MissingSourceRecording` and `SourceChanged` even with hold fields populated, and non-null for `Active`/wait states/`EndpointLost`/`Paused`.
 - `FormatHoldDetailLine_AppendsAge` / `_OmitsNegativeAge`.
 - `AllHoldStrings_ArePlainAscii` (guards the no-em-dash constraint).
 
