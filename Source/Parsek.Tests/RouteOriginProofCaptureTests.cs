@@ -51,7 +51,11 @@ namespace Parsek.Tests
             {
                 new OriginPartnerCandidate(partPersistentId: 100,
                     parentVesselPersistentId: 9001,
-                    parentVesselSituation: (int)Vessel.Situations.ORBITING),
+                    parentVesselSituation: (int)Vessel.Situations.ORBITING,
+                    parentVesselBodyName: null,
+                    parentVesselLatitude: 0.0,
+                    parentVesselLongitude: 0.0,
+                    parentVesselAltitude: 0.0),
             };
 
             OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
@@ -86,7 +90,8 @@ namespace Parsek.Tests
             // candidates, allowing a tower or launchpad clamp to slip through as a partner.
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
             };
 
             OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
@@ -106,7 +111,8 @@ namespace Parsek.Tests
             // a docked origin rather than rejected as "no external coupling".
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
             };
 
             OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
@@ -126,8 +132,10 @@ namespace Parsek.Tests
             // silently captured as a valid origin instead of flagged.
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 0, (int)Vessel.Situations.ORBITING),
-                new OriginPartnerCandidate(101, 0, (int)Vessel.Situations.LANDED),
+                new OriginPartnerCandidate(100, 0, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
+                new OriginPartnerCandidate(101, 0, (int)Vessel.Situations.LANDED,
+                    null, 0.0, 0.0, 0.0),
             };
 
             OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
@@ -147,8 +155,10 @@ namespace Parsek.Tests
             // depot rather than as a non-route-relevant clamp.
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.PRELAUNCH),
-                new OriginPartnerCandidate(101, 9001, (int)Vessel.Situations.PRELAUNCH),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.PRELAUNCH,
+                    null, 0.0, 0.0, 0.0),
+                new OriginPartnerCandidate(101, 9001, (int)Vessel.Situations.PRELAUNCH,
+                    null, 0.0, 0.0, 0.0),
             };
 
             OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
@@ -168,8 +178,10 @@ namespace Parsek.Tests
             // an arbitrary single pid instead of flagged ambiguous.
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
-                new OriginPartnerCandidate(101, 9002, (int)Vessel.Situations.ORBITING),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
+                new OriginPartnerCandidate(101, 9002, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
             };
 
             OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
@@ -190,8 +202,10 @@ namespace Parsek.Tests
             // only orbiting parent.
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
-                new OriginPartnerCandidate(101, 9002, (int)Vessel.Situations.PRELAUNCH),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
+                new OriginPartnerCandidate(101, 9002, (int)Vessel.Situations.PRELAUNCH,
+                    null, 0.0, 0.0, 0.0),
             };
 
             OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
@@ -215,7 +229,8 @@ namespace Parsek.Tests
                 MakeResource("LiquidFuel", 80.0, 100.0)));
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
             };
 
             RouteProofCapture.BuildStartRouteOriginProof(
@@ -264,7 +279,8 @@ namespace Parsek.Tests
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
             };
 
             RouteProofCapture.BuildStartRouteOriginProof(
@@ -290,7 +306,8 @@ namespace Parsek.Tests
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.PRELAUNCH),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.PRELAUNCH,
+                    null, 0.0, 0.0, 0.0),
             };
 
             RouteProofCapture.BuildStartRouteOriginProof(
@@ -316,7 +333,8 @@ namespace Parsek.Tests
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 0, (int)Vessel.Situations.ORBITING),
+                new OriginPartnerCandidate(100, 0, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
             };
 
             RouteProofCapture.BuildStartRouteOriginProof(
@@ -343,8 +361,10 @@ namespace Parsek.Tests
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
-                new OriginPartnerCandidate(101, 9002, (int)Vessel.Situations.ORBITING),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
+                new OriginPartnerCandidate(101, 9002, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
             };
 
             RouteProofCapture.BuildStartRouteOriginProof(
@@ -373,7 +393,8 @@ namespace Parsek.Tests
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
             };
 
             RouteProofCapture.BuildStartRouteOriginProof(
@@ -399,7 +420,8 @@ namespace Parsek.Tests
             // instead crashes inside the manifest extractor.
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
             };
 
             RouteProofCapture.BuildStartRouteOriginProof(
@@ -433,7 +455,8 @@ namespace Parsek.Tests
                     MakeInventoryModule(MakeStoredPart("evaJetpack", "white", 1))));
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
             };
 
             RouteProofCapture.BuildStartRouteOriginProof(
@@ -499,7 +522,8 @@ namespace Parsek.Tests
                 MakePart(100, "transportTank", MakeResource("LiquidFuel", 80.0, 100.0)));
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
             };
             RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
@@ -547,7 +571,8 @@ namespace Parsek.Tests
                     MakeInventoryModule(MakeStoredPart("evaJetpack", "white", 1))));
             var candidates = new List<OriginPartnerCandidate>
             {
-                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING,
+                    null, 0.0, 0.0, 0.0),
             };
             RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
@@ -585,6 +610,122 @@ namespace Parsek.Tests
             Assert.Equal("evaJetpack", restored.RouteOriginProof.StartTransportInventory[0].PartName);
             Assert.Single(restored.RouteOriginProof.EndTransportInventory);
             Assert.Equal("evaRepairKit", restored.RouteOriginProof.EndTransportInventory[0].PartName);
+        }
+
+        // ---------- Origin endpoint descriptor tests (M1 Phase 3) ----------
+
+        [Fact]
+        public void IsSurfaceOriginSituation_LandedSplashedTrue_OthersFalse()
+        {
+            // FAILS IF: the IsSurface derivation drifts from the LANDED/SPLASHED
+            // contract, e.g. someone adds PRELAUNCH back (the resolver already
+            // excludes PRELAUNCH partners) or drops SPLASHED.
+            Assert.True(RouteProofCapture.IsSurfaceOriginSituation((int)Vessel.Situations.LANDED));
+            Assert.True(RouteProofCapture.IsSurfaceOriginSituation((int)Vessel.Situations.SPLASHED));
+            Assert.False(RouteProofCapture.IsSurfaceOriginSituation((int)Vessel.Situations.ORBITING));
+            Assert.False(RouteProofCapture.IsSurfaceOriginSituation((int)Vessel.Situations.PRELAUNCH));
+            Assert.False(RouteProofCapture.IsSurfaceOriginSituation((int)Vessel.Situations.FLYING));
+            Assert.False(RouteProofCapture.IsSurfaceOriginSituation(-1));
+        }
+
+        [Fact]
+        public void Captured_PopulatesPartnerDescriptor()
+        {
+            // FAILS IF: the Captured branch fails to copy the matched candidate's
+            // origin descriptor (body/coords/situation/IsSurface) onto the proof,
+            // or the extended captured log line drops the descriptor fields.
+            ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank",
+                MakeResource("LiquidFuel", 80.0, 100.0)));
+            var candidates = new List<OriginPartnerCandidate>
+            {
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.LANDED,
+                    "Minmus", -0.55, 78.25, 2412.5),
+            };
+
+            RouteProofCapture.BuildStartRouteOriginProof(
+                activeVesselSituation: (int)Vessel.Situations.LANDED,
+                activeVesselIsEva: false,
+                candidates: candidates,
+                snapshot: snapshot,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof proof,
+                out List<uint> _);
+
+            Assert.NotNull(proof);
+            Assert.Equal(9001u, proof.StartDockedOriginVesselPid);
+            Assert.Equal("Minmus", proof.StartDockedOriginBodyName);
+            Assert.Equal(-0.55, proof.StartDockedOriginLatitude);
+            Assert.Equal(78.25, proof.StartDockedOriginLongitude);
+            Assert.Equal(2412.5, proof.StartDockedOriginAltitude);
+            Assert.Equal((int)Vessel.Situations.LANDED, proof.StartDockedOriginSituation);
+            Assert.True(proof.StartDockedOriginIsSurface);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO]")
+                && l.Contains("[Recorder]")
+                && l.Contains("RouteOriginProof captured")
+                && l.Contains("partnerBody=Minmus")
+                && l.Contains($"partnerSituation={(int)Vessel.Situations.LANDED}")
+                && l.Contains("surface=1"));
+        }
+
+        [Fact]
+        public void Captured_LandedPartner_IsSurfaceTrue()
+        {
+            // FAILS IF: a LANDED depot partner does not produce a surface-typed
+            // descriptor: the origin endpoint would then never reach the surface
+            // proximity rebuild fallback in RouteEndpointResolver.
+            ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
+            var candidates = new List<OriginPartnerCandidate>
+            {
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.LANDED,
+                    "Mun", 12.0, -45.0, 612.0),
+            };
+
+            RouteProofCapture.BuildStartRouteOriginProof(
+                activeVesselSituation: (int)Vessel.Situations.LANDED,
+                activeVesselIsEva: false,
+                candidates: candidates,
+                snapshot: snapshot,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof proof,
+                out List<uint> _);
+
+            Assert.NotNull(proof);
+            Assert.True(proof.StartDockedOriginIsSurface);
+        }
+
+        [Fact]
+        public void Captured_OrbitalPartner_IsSurfaceFalse()
+        {
+            // FAILS IF: an ORBITING station partner is misclassified as a surface
+            // origin, which would route a destroyed-station pid through the surface
+            // proximity fallback and debit whatever vessel happens to sit nearby.
+            ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
+            var candidates = new List<OriginPartnerCandidate>
+            {
+                new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING,
+                    "Mun", 0.0, 0.0, 150000.0),
+            };
+
+            RouteProofCapture.BuildStartRouteOriginProof(
+                activeVesselSituation: (int)Vessel.Situations.ORBITING,
+                activeVesselIsEva: false,
+                candidates: candidates,
+                snapshot: snapshot,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof proof,
+                out List<uint> _);
+
+            Assert.NotNull(proof);
+            Assert.Equal("Mun", proof.StartDockedOriginBodyName);
+            Assert.Equal((int)Vessel.Situations.ORBITING, proof.StartDockedOriginSituation);
+            Assert.False(proof.StartDockedOriginIsSurface);
         }
 
         // ---------- ConfigNode helpers (mirror RouteProofCaptureTests) ----------

@@ -145,6 +145,33 @@ namespace Parsek.Tests.Logistics
                     "Reject copy must be plain ASCII (found non-ASCII char)");
         }
 
+        [Fact]
+        public void FormatRejectMessage_UndockedStartOrigin_StatesWorkflowRule()
+        {
+            // catches (M1, D7): the undocked-start rejection copy regressing to a
+            // terse / generic line. The message must (1) state the cause plainly
+            // (the run started undocked with cargo aboard, so the cargo's source
+            // was never witnessed) and (2) name all three workflow fixes: start
+            // docked to the origin depot, record the mining that produced the
+            // cargo, or launch from KSC.
+            string msg = RouteCreationFormatters.FormatRejectMessage(
+                RouteAnalysisStatus.UndockedStartOrigin);
+
+            // (1) plain-language cause
+            Assert.Contains("starts undocked with cargo already aboard", msg);
+            Assert.Contains("never witnessed", msg);
+            // (2) the three workflow fixes
+            Assert.Contains("docked to the origin depot", msg);
+            Assert.Contains("record the mining", msg);
+            Assert.Contains("launch it from KSC", msg);
+
+            // copy guardrail: plain ASCII only (project hard rule, no em dash or
+            // other non-ASCII unicode in player-facing copy).
+            foreach (char c in msg)
+                Assert.True(c < 128,
+                    "Reject copy must be plain ASCII (found non-ASCII char)");
+        }
+
         // -----------------------------------------------------------------
         // Summary block (Career vs. Sandbox conditional)
         // -----------------------------------------------------------------

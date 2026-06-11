@@ -43,6 +43,7 @@ namespace Parsek.Tests.Logistics
         [InlineData((int)RouteAnalysisStatus.NoDeliveryManifest)]
         [InlineData((int)RouteAnalysisStatus.MixedPickupDelivery)]
         [InlineData((int)RouteAnalysisStatus.MissingEndpointProof)]
+        [InlineData((int)RouteAnalysisStatus.UndockedStartOrigin)]
         public void DescribeNearMiss_Sealed_DelegatesToRejectMessage(int statusOrdinal)
         {
             var status = (RouteAnalysisStatus)statusOrdinal;
@@ -50,6 +51,22 @@ namespace Parsek.Tests.Logistics
 
             Assert.Equal(expected, LogisticsRejectPresentation.DescribeNearMiss(
                 status, notSealed: false, reflyableCount: 0));
+        }
+
+        // catches (M1, D7): the new undocked-start workflow rejection not passing
+        // through to the near-miss row verbatim (a near-miss with the new status
+        // must render the canonical workflow-guidance text, never a blank or the
+        // generic fallback).
+        [Fact]
+        public void DescribeNearMiss_UndockedStartOrigin_PassesThrough()
+        {
+            string text = LogisticsRejectPresentation.DescribeNearMiss(
+                RouteAnalysisStatus.UndockedStartOrigin, notSealed: false, reflyableCount: 0);
+
+            Assert.Equal(
+                RouteCreationFormatters.FormatRejectMessage(RouteAnalysisStatus.UndockedStartOrigin),
+                text);
+            Assert.Contains("starts undocked", text);
         }
 
         // ---- DescribeNearMiss: not-fully-sealed (the one new string) ----
@@ -230,7 +247,11 @@ namespace Parsek.Tests.Logistics
             {
                 RecordingId = "root",
                 TreeId = treeId,
-                ParentBranchPointId = null
+                ParentBranchPointId = null,
+                // Root = origin recording for the M1 undocked-start gate; a KSC
+                // origin keeps the tree eligible.
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad"
             });
             tree.AddOrReplaceRecording(new Recording
             {

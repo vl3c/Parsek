@@ -8,6 +8,10 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- Supply routes can now start from any docked origin, not just KSC: each cycle physically removes the delivered cargo from the origin vessel's tanks (loaded or unloaded), and the route waits when the origin runs dry. Hub and spoke networks now work by chaining routes.
+- Routes have a dispatch priority you can set in the route detail panel; when several routes contend in the same tick, lower priority numbers go first.
+- A supply run that starts undocked with cargo already aboard is now rejected at analysis with guidance: start docked to the origin, record the mining, or launch it from KSC.
+- Docked-origin routes now record the origin's location at recording start, so a surface depot that changes vessel id can be found again by proximity, like destinations already could.
 - Looped missions that rendezvous with a single station orbiting the launch body now relaunch phase-locked to the station's live orbit (the period cell reads "(station window)"), with an amber countdown tint when the station's orbit has drifted since the recording. Other rendezvous shapes (multiple stations, stations around another body, vanished anchors) keep the previous behavior with a logged reason.
 - A ghost's map and tracking-station trajectory now draws its full path through the current sphere of influence as one continuous line (the whole ascent and transfer, not just the short arc under the icon), keeps it on screen as the icon travels along it (including across the segments of a chained flight), and stops before the first full repeating orbit and at the first change of sphere of influence. Path pieces that turn with the planet hide once flown past (so the line never overlaps as the planet rotates) while upcoming ones such as the final landing stay visible, and curved connectors bridge them to the orbits on both sides whenever a real gap exists.
 

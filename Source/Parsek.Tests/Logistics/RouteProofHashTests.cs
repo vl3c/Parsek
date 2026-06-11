@@ -213,5 +213,28 @@ namespace Parsek.Tests.Logistics
 
             Assert.NotEqual(hashA, hashB);
         }
+
+        // catches: the origin endpoint descriptor fields (M1 / D5) leaking into
+        // the proof hash. They are DELIBERATELY excluded: the hash pins the
+        // witnessed transfer, coordinates are resolution metadata. Including
+        // them would flip every pre-descriptor docked-origin route to
+        // SourceChanged on load via RouteStore.RevalidateSources.
+        [Fact]
+        public void Hash_UnchangedByOriginDescriptorFields()
+        {
+            Recording recA = RecordingWithProof();
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
+
+            Recording recB = RecordingWithProof();
+            recB.RouteOriginProof.StartDockedOriginBodyName = "Minmus";
+            recB.RouteOriginProof.StartDockedOriginLatitude = -0.55;
+            recB.RouteOriginProof.StartDockedOriginLongitude = 78.25;
+            recB.RouteOriginProof.StartDockedOriginAltitude = 2412.5;
+            recB.RouteOriginProof.StartDockedOriginIsSurface = true;
+            recB.RouteOriginProof.StartDockedOriginSituation = 1;
+            string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
+
+            Assert.Equal(hashA, hashB);
+        }
     }
 }

@@ -100,6 +100,17 @@ namespace Parsek
     internal sealed class RouteOriginProof
     {
         public uint StartDockedOriginVesselPid;
+        // Origin endpoint descriptor (M1): the docked origin partner's body +
+        // body-fixed coordinates + situation at recording start. Captured
+        // additively; old proofs simply lack the fields (empty body name,
+        // zero coords, situation -1). Deliberately EXCLUDED from
+        // RouteProofHasher; see the intent comment there (D5).
+        public string StartDockedOriginBodyName;
+        public double StartDockedOriginLatitude;
+        public double StartDockedOriginLongitude;
+        public double StartDockedOriginAltitude;
+        public bool StartDockedOriginIsSurface;
+        public int StartDockedOriginSituation = -1; // (int)Vessel.Situations; -1 = unknown (diagnostic)
         public Dictionary<string, ResourceAmount> StartTransportResources;
         public Dictionary<string, ResourceAmount> EndTransportResources;
         public List<InventoryPayloadItem> StartTransportInventory;
@@ -110,6 +121,12 @@ namespace Parsek
             return new RouteOriginProof
             {
                 StartDockedOriginVesselPid = StartDockedOriginVesselPid,
+                StartDockedOriginBodyName = StartDockedOriginBodyName,
+                StartDockedOriginLatitude = StartDockedOriginLatitude,
+                StartDockedOriginLongitude = StartDockedOriginLongitude,
+                StartDockedOriginAltitude = StartDockedOriginAltitude,
+                StartDockedOriginIsSurface = StartDockedOriginIsSurface,
+                StartDockedOriginSituation = StartDockedOriginSituation,
                 StartTransportResources = RouteProofMetadata.CloneResourceManifest(StartTransportResources),
                 EndTransportResources = RouteProofMetadata.CloneResourceManifest(EndTransportResources),
                 StartTransportInventory = RouteProofMetadata.CloneInventoryPayloadItems(StartTransportInventory),

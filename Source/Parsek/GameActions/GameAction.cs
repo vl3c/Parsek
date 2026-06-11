@@ -457,15 +457,28 @@ namespace Parsek
         public Dictionary<string, double> RouteResourceManifest;
 
         /// <summary>
-        /// Requested per-resource delivery amounts, populated only on
-        /// <see cref="GameActionType.RouteCargoDelivered"/> rows where the actual delivery
-        /// was partially filled (design doc §10.5). Same keying as
-        /// <see cref="RouteResourceManifest"/>. Null when the actual delivery met the
-        /// request in full — saves a few bytes on the common case. The pair
-        /// (requested, actual) is what UI / future dispatch tuning reads to expose
-        /// "delivered X / Y" badges.
+        /// Requested per-resource amounts, populated only when the actual fell
+        /// short of the request for at least one resource. Same keying as
+        /// <see cref="RouteResourceManifest"/>. On
+        /// <see cref="GameActionType.RouteCargoDelivered"/> rows it is the
+        /// partial-fill request (design doc section 10.5); on
+        /// <see cref="GameActionType.RouteCargoDebited"/> rows with a physical
+        /// origin debit (M1) it is the requested removal when the origin came
+        /// up short or unresolved at apply time (design D3 clamp-and-warn).
+        /// Null when the actual met the request in full - saves a few bytes on
+        /// the common case. The pair (requested, actual) is what UI / future
+        /// dispatch tuning reads to expose "delivered X / Y" badges.
         /// </summary>
         public Dictionary<string, double> RouteRequestedResourceManifest;
+
+        /// <summary>
+        /// Persistent id of the live origin vessel a physical origin debit
+        /// removed cargo from (M1). Stored sparsely on
+        /// <see cref="GameActionType.RouteCargoDebited"/> rows for attribution
+        /// diagnostics and the future M3 escrow; 0 on KSC-origin rows, legacy
+        /// non-loop rows, and rows whose origin was unresolved at apply time.
+        /// </summary>
+        public uint RouteOriginVesselPid;
 
         /// <summary>
         /// KSC funds charge in funds-units (design doc §6.1 step 5: the Career-mode
@@ -1185,6 +1198,14 @@ namespace Parsek
         {
             WriteRouteCommon(n);
             WriteResourceManifest(n, "resource", RouteResourceManifest);
+            // M1 physical-origin-debit additions, both sparse: the requested
+            // manifest only exists when the origin came up short/unresolved
+            // at apply time, and the origin pid only on physical debits.
+            // KSC rows and legacy non-loop rows carry neither, so their
+            // on-disk shape is byte-identical to the pre-M1 codec.
+            WriteResourceManifest(n, "requestedResource", RouteRequestedResourceManifest);
+            if (RouteOriginVesselPid != 0u)
+                n.AddValue("routeOriginVesselPid", RouteOriginVesselPid.ToString(IC));
             if (RouteKscFundsCost != 0f)
                 n.AddValue("routeKscFundsCost", RouteKscFundsCost.ToString("R", IC));
         }
@@ -1193,6 +1214,12 @@ namespace Parsek
         {
             ReadRouteCommon(n, a);
             a.RouteResourceManifest = ReadResourceManifest(n, "resource");
+            // Additive M1 keys: absent on pre-M1 rows, which read back with
+            // the defaults (null requested manifest, 0 origin pid).
+            a.RouteRequestedResourceManifest = ReadResourceManifest(n, "requestedResource");
+            string pidStr = n.GetValue("routeOriginVesselPid");
+            if (pidStr != null && uint.TryParse(pidStr, NumberStyles.Integer, IC, out uint originPid))
+                a.RouteOriginVesselPid = originPid;
             TryParseFloat(n, "routeKscFundsCost", out a.RouteKscFundsCost);
         }
 
