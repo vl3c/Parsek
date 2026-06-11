@@ -63,7 +63,8 @@ namespace Parsek.InGameTests
 
         // The one OBSERVED in-game window-resolution failure with a fully reconstructable
         // geometry (2026-06-11 18:06 SPACECENTER batch, logs `2026-06-11_1811_m1-ingame-tests`,
-        // KSP.log ~:9952). That session ran a PRE-#1116 DLL (V0.10.0, logistics branch base),
+        // KSP.log ~:9952). That session ran a PRE-#1116 DLL (logistics branch base, proven by
+        // the in-log behavioral signatures - see plan section 10),
         // i.e. the OLD live-UT-seeded strict test: it scanned from live UT ~5.5s, took the
         // FIRST success at one scan step (synodic/48) above it - the leading band EDGE by
         // construction - and asserted every window resolves. Windows 0/1 resolved (w1 stretched
@@ -75,7 +76,8 @@ namespace Parsek.InGameTests
         // That is the knife-edge mode the 2026-06-10 sweep classified UNRESOLVABLE-BY-DESIGN
         // (plan section 9: sweep dep=43/44), so the decline is the designed outcome and this
         // pin asserts the WEAK contract, plus window 0 (the departure itself synthesized when
-        // observed, 13.2Mm inside Duna's 47.9Mm SOI - not knife-edge).
+        // observed, arrival 13.3Mm from Duna's center, well inside the 47.9Mm SOI - not
+        // knife-edge).
         private const double ObservedEdgeDepartureUT = 409290.81937705079;
 
         private sealed class ScanContext
