@@ -207,6 +207,33 @@ namespace Parsek.Logistics
         public HashSet<string> ExcludedIntervalKeys = new HashSet<string>();
 
         /// <summary>
+        /// Runtime-only cache (M-MIS-9; NOT serialized, <see cref="RouteCodec"/>
+        /// untouched) of composition-interval keys auto-excluded by
+        /// <see cref="RouteBackingMission.BuildMission"/> because their BASE
+        /// recording id was not known at route creation (a post-creation branch:
+        /// re-fly fork or switch-fly continuation landing on the backing tree
+        /// outside the member path). Unioned into the synthesized backing
+        /// mission's <c>Mission.ExcludedIntervalKeys</c> so the rendered loop and
+        /// the delivery span stay frozen to the creation-time member set.
+        /// Re-derived from persisted route data (<see cref="SourceRefs"/> +
+        /// <see cref="ExcludedIntervalKeys"/>) on the first BuildMission after
+        /// load. Null until the first derivation.
+        /// </summary>
+        public HashSet<string> AutoExcludedNewIntervalKeys;
+
+        /// <summary>
+        /// Runtime-only cache (M-MIS-9; NOT serialized): topology signature
+        /// (<c>"BranchPoints.Count/Recordings.Count"</c>, mirroring the per-tree
+        /// fold in <c>MissionLoopUnitBuilder.BuildSignature</c>) of the backing
+        /// tree at the last <see cref="AutoExcludedNewIntervalKeys"/> derivation.
+        /// <see cref="RouteBackingMission.BuildMission"/> re-derives only when
+        /// this signature changes, so the per-frame BuildMission stays cheap and
+        /// an unchanged tree never re-runs the composition walk. Null until the
+        /// first derivation.
+        /// </summary>
+        public string AutoExcludeTopologySignature;
+
+        /// <summary>
         /// Recorded dock UT lifted from the leaf (dock-child) recording's
         /// <c>RouteConnectionWindow.DockUT</c>. The loop clock fires delivery
         /// when it crosses this UT within the backing-mission span each cycle

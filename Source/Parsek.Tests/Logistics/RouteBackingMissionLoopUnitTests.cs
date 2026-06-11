@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Parsek;
 using Parsek.Logistics;
@@ -23,9 +24,22 @@ namespace Parsek.Tests.Logistics
     /// <c>OwnerByIndex</c> contract is preserved across the route + manual union.
     /// </remarks>
     [Collection("Sequential")]
-    public class RouteBackingMissionLoopUnitTests
+    public class RouteBackingMissionLoopUnitTests : IDisposable
     {
         private const double AutoInterval = 30.0;
+
+        public RouteBackingMissionLoopUnitTests()
+        {
+            // The M-MIS-9 branch-freeze tests register their tree in
+            // RecordingStore so BuildMission's signature-gated derivation can
+            // resolve it; reset around every test to keep the static store clean.
+            RecordingStore.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+        }
 
         private static Recording Leg(string id, string chainId, int chainIndex,
             double start, double end, string vessel = "V")
@@ -203,6 +217,107 @@ namespace Parsek.Tests.Logistics
             Assert.True(set.OwnerByIndex.TryGetValue(idxRouteLaunch, out routeOwner));
             Assert.True(set.OwnerByIndex.TryGetValue(idxManualA, out manualOwner));
             Assert.NotEqual(routeOwner, manualOwner);
+        }
+
+        // -----------------------------------------------------------------
+        // M-MIS-9 branch freeze: post-creation branches never extend the unit
+        // -----------------------------------------------------------------
+
+        // Route captured at creation time over the dock tree: SourceRefs cover
+        // the rendered members + the dock-child leaf, excluded keys are the
+        // production creation-time derivation.
+        private static Route FrozenRoute(RecordingTree creationTree, string id)
+        {
+            Route route = new RouteFixtureBuilder()
+                .WithId(id)
+                .WithName("Frozen Route")
+                .WithBackingMissionTreeId(creationTree.Id)
+                .WithSourceRef(new RouteSourceRef { RecordingId = "launch", TreeId = creationTree.Id })
+                .WithSourceRef(new RouteSourceRef { RecordingId = "docked", TreeId = creationTree.Id })
+                .WithSchedule(2000.0, 2000.0)
+                .WithLoopAnchorUT(1000.0)
+                .Build();
+            foreach (string key in RouteBackingMission.ComputeExcludedIntervalKeys(
+                         creationTree, segmentEndUT: 3000.0, launchUT: 1000.0))
+                route.ExcludedIntervalKeys.Add(key);
+            return route;
+        }
+
+        // catches: a post-creation fork (re-fly style: a NEW recording landing
+        // at the undock BP, outside the route's member path) silently joining
+        // the synthesized backing mission and extending the loop-unit span -
+        // the delivery-cadence regression M-MIS-9 closes. The span end must
+        // stay the creation-time segment end.
+        [Fact]
+        public void PostCreationFork_AutoExcluded_SpanEndStaysAtCreationSegmentEnd()
+        {
+            const string treeId = "tree-fork";
+            RecordingTree tree = BuildLaunchDockUndockTree(treeId);
+            Route route = FrozenRoute(tree, "route-fork01");
+
+            // The fork lands AFTER creation; if it joined the mission its
+            // [3000..6000] window would extend the span end to 6000.
+            tree.Recordings["refly-fork"] = Leg("refly-fork", "C2", 0, 3000, 6000, vessel: "Fork");
+            tree.BranchPoints.Find(b => b.Id == "undock-bp").ChildRecordingIds.Add("refly-fork");
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var committed = new List<Recording>(tree.Recordings.Values);
+            Mission routeMission = RouteBackingMission.BuildMission(route, currentUT: 100000.0);
+
+            // The fork's key is auto-excluded on the synthesized mission.
+            Assert.Contains("refly-fork", routeMission.ExcludedIntervalKeys);
+
+            GhostPlaybackLogic.LoopUnitSet set = MissionLoopUnitBuilder.Build(
+                new List<Mission> { routeMission }, new[] { tree }, committed, AutoInterval);
+
+            Assert.Equal(1, set.Count);
+            int idxFork = committed.FindIndex(r => r.RecordingId == "refly-fork");
+            Assert.False(set.IsMember(idxFork), "post-creation fork must not join the unit");
+            foreach (var kvp in set.UnitsByOwner)
+            {
+                Assert.Equal(1000.0, kvp.Value.SpanStartUT);
+                Assert.Equal(3000.0, kvp.Value.SpanEndUT); // delivery cadence span unchanged
+            }
+        }
+
+        // catches: a switch-fly continuation appended to a MEMBER through-line
+        // (same chain, base recording known) being auto-excluded (the base-id
+        // rule must keep it out of the auto set) or leaking into the rendered
+        // window (the creation-time end-trim already drops the extended tail
+        // interval, so the span stays stable either way).
+        [Fact]
+        public void PostCreationContinuation_OnMemberThroughLine_SpanStable_NothingAutoExcluded()
+        {
+            const string treeId = "tree-contin";
+            RecordingTree tree = BuildLaunchDockUndockTree(treeId);
+            Route route = FrozenRoute(tree, "route-contin01");
+
+            // The continuation extends the transport's own chain (C0/3) past
+            // the recorded end: it folds into the KNOWN "launch" through-line
+            // (keys stay "launch"/"launch/segN", base "launch").
+            tree.Recordings["contin"] = Leg("contin", "C0", 3, 4000, 5000, vessel: "Transport");
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var committed = new List<Recording>(tree.Recordings.Values);
+            Mission routeMission = RouteBackingMission.BuildMission(route, currentUT: 100000.0);
+
+            // Nothing auto-excluded: every selectable key bases at a recording
+            // known at creation.
+            Assert.NotNull(route.AutoExcludedNewIntervalKeys);
+            Assert.Empty(route.AutoExcludedNewIntervalKeys);
+
+            GhostPlaybackLogic.LoopUnitSet set = MissionLoopUnitBuilder.Build(
+                new List<Mission> { routeMission }, new[] { tree }, committed, AutoInterval);
+
+            Assert.Equal(1, set.Count);
+            int idxContin = committed.FindIndex(r => r.RecordingId == "contin");
+            Assert.False(set.IsMember(idxContin),
+                "post-undock continuation must stay outside the trimmed window");
+            foreach (var kvp in set.UnitsByOwner)
+            {
+                Assert.Equal(1000.0, kvp.Value.SpanStartUT);
+                Assert.Equal(3000.0, kvp.Value.SpanEndUT);
+            }
         }
     }
 }
