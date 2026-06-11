@@ -152,6 +152,46 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Waterfall-gated resolution: FindFxPrefab first, then KSP's builtin
+        /// "Effects/{name}" Resources path -- the exact path PartLoader uses to compile
+        /// legacy fx_* keys, unreachable by ModuleManager deletes, so size-variant flame
+        /// assets (fx_exhaustFlame_yellow_medium etc.) resolve even when every donor part
+        /// was patched away. Used ONLY by the Waterfall pristine-fallback sites; never on
+        /// stock paths (adding "Effects/" to the shared probe list would bypass the
+        /// deliberate fxPrefabFallbacks substitutions).
+        /// </summary>
+        internal static GameObject FindFxPrefabIncludingBuiltinEffects(
+            string prefabName, out bool fromBuiltinEffects)
+        {
+            fromBuiltinEffects = false;
+            GameObject result = FindFxPrefab(prefabName);
+            if (result != null)
+                return result;
+
+            string normalized = NormalizeFxPrefabName(prefabName);
+            if (string.IsNullOrEmpty(normalized))
+                return null;
+
+            GameObject builtin = Resources.Load<GameObject>($"Effects/{normalized}");
+            if (builtin == null)
+                return null;
+
+            if (builtin.GetComponentInChildren<ParticleSystem>(true) == null)
+            {
+                ParsekLog.Verbose("GhostVisual",
+                    $"builtin Effects prefab '{normalized}' has no ParticleSystem; ignoring");
+                return null;
+            }
+
+            // FindFxPrefab above guarantees the cache exists (it rebuilds on null).
+            fxPrefabCache[normalized] = builtin;
+            fromBuiltinEffects = true;
+            ParsekLog.Verbose("GhostVisual",
+                $"FX prefab loaded from builtin Effects: '{normalized}'");
+            return builtin;
+        }
+
         internal static string NormalizeFxPrefabName(string rawName)
         {
             if (string.IsNullOrEmpty(rawName))

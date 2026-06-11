@@ -212,6 +212,32 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "WaterfallCompat", Scene = GameScenes.FLIGHT,
+            Description = "Builtin Effects/ flame variant prefabs resolve exactly (no SRB-flame substitution)")]
+        public void BuiltinEffectsVariantPrefabsResolvable()
+        {
+            // KSP compiles legacy fx_* keys from Resources "Effects/{name}"; these exact
+            // variant assets must resolve so Waterfall-patched ghosts keep their true
+            // flames (Mainsail yellow_medium, verniers yellow_mini, Poodle/Terrier/Thud
+            // blue_small, Bobcat blue_medium) instead of cascading to the SRB-looking
+            // family base. Builtin assets exist on every install; no skip needed.
+            string[] variants =
+            {
+                "fx_exhaustFlame_yellow_medium",
+                "fx_exhaustFlame_yellow_mini",
+                "fx_exhaustFlame_blue_small",
+                "fx_exhaustFlame_blue_medium"
+            };
+            for (int i = 0; i < variants.Length; i++)
+            {
+                GameObject prefab = GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(
+                    variants[i], out bool _);
+                InGameAssert.IsNotNull(prefab,
+                    $"builtin Effects prefab '{variants[i]}' unresolvable; Waterfall-patched " +
+                    "ghosts would substitute the SRB-looking family base flame");
+            }
+        }
+
+        [InGameTest(Category = "WaterfallCompat", Scene = GameScenes.FLIGHT,
             Description = "Waterfall installed: best-effort white-flame prefab still resolvable")]
         public void WhiteFlameLastResortPrefabResolvable()
         {

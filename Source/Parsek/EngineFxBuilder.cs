@@ -653,16 +653,24 @@ namespace Parsek
                 {
                     // Waterfall-patched part: the exact prefab's donors may all be patched
                     // away (e.g. the hardcoded Rhino/Puff/Vector supplements name
-                    // size-suffixed flames). Try the family-base cascade before giving up.
-                    List<string> candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(prefabName);
-                    for (int c = 1; c < candidates.Count && fxPrefab == null; c++)
+                    // size-suffixed flames). Try KSP's builtin Effects/ asset for the EXACT
+                    // name first (preserves the true variant look), then the family-base
+                    // cascade before giving up.
+                    fxPrefab = GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(
+                        prefabName, out bool _);
+                    if (fxPrefab == null)
                     {
-                        fxPrefab = GhostVisualBuilder.FindFxPrefab(candidates[c]);
-                        if (fxPrefab != null)
+                        List<string> candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(prefabName);
+                        for (int c = 1; c < candidates.Count && fxPrefab == null; c++)
                         {
-                            LogHotPathVerbose($"prefab-cascade-{partName}-{moduleIndex}-{prefabName}",
-                                $"waterfall fallback: '{partName}' midx={moduleIndex} " +
-                                $"cascaded prefab '{prefabName}' -> '{candidates[c]}'");
+                            fxPrefab = GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(
+                                candidates[c], out bool _);
+                            if (fxPrefab != null)
+                            {
+                                LogHotPathVerbose($"prefab-cascade-{partName}-{moduleIndex}-{prefabName}",
+                                    $"waterfall fallback: '{partName}' midx={moduleIndex} " +
+                                    $"cascaded prefab '{prefabName}' -> '{candidates[c]}'");
+                            }
                         }
                     }
                 }
@@ -1518,6 +1526,7 @@ namespace Parsek
             int legacySynthAdded = 0;
             int legacySynthUnresolvable = 0;
             int legacySynthSubstituted = 0;
+            int legacyBuiltinResolved = 0;
             int legacyFlameFallback = 0;
             if (effectsScanAdded == 0 && moduleIndex == 0 && pristine.LegacyFxPrefabNames.Count > 0)
             {
@@ -1540,12 +1549,15 @@ namespace Parsek
                     // all be Waterfall-patched while the generic family survives on
                     // unpatched parts like SRBs).
                     string resolved = null;
+                    bool resolvedFromBuiltin = false;
                     List<string> candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(wanted);
                     for (int c = 0; c < candidates.Count; c++)
                     {
-                        if (GhostVisualBuilder.FindFxPrefab(candidates[c]) != null)
+                        if (GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(
+                                candidates[c], out bool fromBuiltin) != null)
                         {
                             resolved = candidates[c];
+                            resolvedFromBuiltin = fromBuiltin;
                             break;
                         }
                     }
@@ -1571,6 +1583,8 @@ namespace Parsek
                     }
                     if (isFlame)
                         flameResolved = true;
+                    if (resolvedFromBuiltin)
+                        legacyBuiltinResolved++;
                     prefabFxEntries.Add((
                         resolved, anchor, anchorOffset,
                         Quaternion.Euler(-90f, 0f, 0f), true, "pristine-legacy"));
@@ -1599,7 +1613,8 @@ namespace Parsek
                 $"waterfall fallback: '{partName}' midx={moduleIndex} pristine recovery added {added} " +
                 $"entries (effectsScan={effectsScanAdded}, legacySynth={legacySynthAdded}, " +
                 $"legacyUnresolvable={legacySynthUnresolvable}, substituted={legacySynthSubstituted}, " +
-                $"flameFallback={legacyFlameFallback}) from '{pristine.SourcePath}'");
+                $"builtinResolved={legacyBuiltinResolved}, flameFallback={legacyFlameFallback}) " +
+                $"from '{pristine.SourcePath}'");
             return added > 0;
         }
     }
