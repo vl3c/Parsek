@@ -24,6 +24,7 @@ All notable changes to Parsek are documented here.
 - The re-aim test suite now also pins the exact launch-window geometry reconstructed from the one observed in-game failure (a 2026-06-11 run on a pre-fix build), verifying the recorded departure still resolves and that any window that cannot be re-aimed falls back cleanly to a faithful replay.
 - The orbit-arc-sampler in-game test no longer fails spuriously depending on where the active vessel sits (for example on the launchpad): it measured sampled orbit points from the scene's moving world origin instead of the planet centre.
 - Warping to a recording's end (Real Spawn Control) now reliably spawns the real vessel: a time jump could previously mark a recording whose window was still ahead as already-flown history and silently skip its end-of-recording spawn.
+- Supply routes: branches added to a route's source tree after creation (a re-fly fork or a switch-fly continuation) no longer silently join the route's rendered loop and delivery span; the backing selection freezes to the creation-time member set.
 
 ---
 
