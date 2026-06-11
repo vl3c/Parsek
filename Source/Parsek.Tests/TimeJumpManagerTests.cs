@@ -929,7 +929,8 @@ namespace Parsek.Tests
                 && l.Contains("NotePlayheadSweepBeforeJump")
                 && l.Contains("examined=1")
                 && l.Contains("newlyLatched=1")
-                && l.Contains("missingIds=2"));
+                && l.Contains("nullRecs=1")
+                && l.Contains("missingIds=1"));
         }
 
         [Fact]

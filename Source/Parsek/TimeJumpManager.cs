@@ -70,17 +70,30 @@ namespace Parsek
         /// misclassified the recording as historical and silently suppressed its
         /// end-of-recording real spawn. Returns the number of newly latched recordings.
         /// </summary>
+        // Callers feed this ERS (the mandated routing), a strict subset of the raw
+        // CommittedRecordings list the per-frame flight/KSC sweeps note. That
+        // asymmetry is deliberate: ERS-excluded recordings (NotCommitted, superseded,
+        // rewind-retired) are timeline-inactive behind their own gates while excluded,
+        // and any practical path to a jump has already had raw per-frame sweeps latch
+        // everything ahead-window. Do not widen this to a raw read (CI ERS grep gate)
+        // or narrow the per-frame sweeps to ERS to match.
         internal static int NotePlayheadSweepBeforeJump(
             IReadOnlyList<Recording> recordings, double preJumpUT)
         {
             int examined = 0;
             int newlyLatched = 0;
+            int nullRecs = 0;
             int missingIds = 0;
             int count = recordings != null ? recordings.Count : 0;
             for (int i = 0; i < count; i++)
             {
                 Recording rec = recordings[i];
-                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                if (rec == null)
+                {
+                    nullRecs++;
+                    continue;
+                }
+                if (string.IsNullOrEmpty(rec.RecordingId))
                 {
                     missingIds++;
                     continue;
@@ -96,8 +109,8 @@ namespace Parsek
 
             ParsekLog.Verbose(Tag,
                 string.Format(ic,
-                    "NotePlayheadSweepBeforeJump: preJumpUT={0:F1} examined={1} newlyLatched={2} missingIds={3}",
-                    preJumpUT, examined, newlyLatched, missingIds));
+                    "NotePlayheadSweepBeforeJump: preJumpUT={0:F1} examined={1} newlyLatched={2} nullRecs={3} missingIds={4}",
+                    preJumpUT, examined, newlyLatched, nullRecs, missingIds));
             return newlyLatched;
         }
 
