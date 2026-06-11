@@ -79,9 +79,12 @@ namespace Parsek.InGameTests
         /// bounded wait times out, or there is no active vessel (both
         /// terminal states are re-checked by the caller's preconditions).
         /// Must be consumed BEFORE any seam arming or state mutation - see
-        /// the re-entry discipline note in the class doc.
+        /// the re-entry discipline note in the class doc. Internal: also
+        /// consumed by the pre-existing loaded-path logistics tests
+        /// (LogisticsDeliveryRuntimeTests, LogisticsRouteOnMissionsRuntimeTests),
+        /// which hit the same post-restore packed skip.
         /// </summary>
-        private static IEnumerator WaitForActiveVesselUnpack()
+        internal static IEnumerator WaitForActiveVesselUnpack()
         {
             float deadline = Time.realtimeSinceStartup + UnpackWaitTimeoutSeconds;
             int waitedFrames = 0;
