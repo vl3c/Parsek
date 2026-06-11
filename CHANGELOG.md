@@ -13,6 +13,7 @@ All notable changes to Parsek are documented here.
 ### Fixes
 
 - The re-aim end-to-end in-game test no longer fails intermittently: it now runs a pinned Kerbin-to-Duna geometry instead of seeding from the live clock, and a new manual diagnostic sweep maps which launch windows resolve a re-aimed transfer.
+- The re-aim test suite now also pins the exact launch-window geometry reconstructed from the one observed in-game failure (a 2026-06-11 run on a pre-fix build), confirming that its failing window declines cleanly to a faithful replay by design.
 
 ---
 

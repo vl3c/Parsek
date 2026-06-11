@@ -33,7 +33,7 @@ namespace Parsek.InGameTests
     // band-edge test asserts the resolve-or-decline-cleanly CONTRACT, not which departure is the
     // edge.
     //
-    // Three tests:
+    // Four tests:
     //  1. Strict (mid-band): every window must resolve a sane re-aimed transfer, and the
     //     orientation must rotate across windows - asserted on the LONGITUDE OF PERIAPSIS
     //     (LAN + AoP), because the plane-constrained transfer is near-equatorial and LAN alone
@@ -42,7 +42,11 @@ namespace Parsek.InGameTests
     //     band-edge pick. Each window must either resolve sane segments or DECLINE CLEANLY to
     //     faithful (null segments, correct window index), deterministically. Makes NO claim
     //     that any window resolves; all-decline is a valid fail-closed outcome.
-    //  3. Feasibility sweep (manual-only diagnostic): the M-MIS-1 "measure before knob math"
+    //  3. Observed-failure pin (2026-06-11): the exact departure UT reconstructed from the one
+    //     observed in-game "window k must resolve" failure with a recoverable geometry, driven
+    //     under the same weak contract (M-MIS-1 item 1: pin at least one UT from each observed
+    //     failure mode). See ObservedEdgeDepartureUT.
+    //  4. Feasibility sweep (manual-only diagnostic): the M-MIS-1 "measure before knob math"
     //     artifact - maps the whole departure band x window grid into KSP.log.
     //
     // All tests run at the Space Center (no vessel), use PRIVATE resolver instances (never
@@ -56,6 +60,23 @@ namespace Parsek.InGameTests
         private const double PinnedScanBaseUT = 5000000.0;
         private const int ScanSteps = 48;
         private const int WindowsToCheck = 5;
+
+        // The one OBSERVED in-game window-resolution failure with a fully reconstructable
+        // geometry (2026-06-11 18:06 SPACECENTER batch, logs `2026-06-11_1811_m1-ingame-tests`,
+        // KSP.log ~:9952). That session ran a PRE-#1116 DLL (V0.10.0, logistics branch base),
+        // i.e. the OLD live-UT-seeded strict test: it scanned from live UT ~5.5s, took the
+        // FIRST success at one scan step (synodic/48) above it - the leading band EDGE by
+        // construction - and asserted every window resolves. Windows 0/1 resolved (w1 stretched
+        // tof +5.0%, inside the +-6% search); window 2 (departUT=39700685.32 = dep + 2*synodic)
+        // declined across the WHOLE +-6% recorded-tof search with the retrograde-branch
+        // direction mismatch (inc=180.00: Duna's eccentric drift pushed the window's transfer
+        // angle past 180 deg, so every plane-constrained Lambert candidate travels the wrong
+        // way; ReaimTransferSynthesizer rejects it and the resolver falls back to faithful).
+        // That is the knife-edge mode the 2026-06-10 sweep classified UNRESOLVABLE-BY-DESIGN
+        // (plan section 9: sweep dep=43/44), so the decline is the designed outcome and this
+        // pin asserts the WEAK contract, plus window 0 (the departure itself synthesized when
+        // observed, 13.2Mm inside Duna's 47.9Mm SOI - not knife-edge).
+        private const double ObservedEdgeDepartureUT = 409290.81937705079;
 
         private sealed class ScanContext
         {
@@ -173,14 +194,6 @@ namespace Parsek.InGameTests
             }
             double edgeDep = ctx.ScanDepartureUTs[edgeIdx];
 
-            BuildMemberAndPlan(ctx, edgeDep,
-                out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
-                out double spanStart, out double spanEnd);
-            ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
-                ctx.Kerbin.orbit.period, ctx.Duna.orbit.period, edgeDep, ctx.TofSeconds,
-                spanStart, spanEnd, referenceUT: edgeDep - 1.0);
-            InGameAssert.IsTrue(sched.Valid, "window schedule must be valid: " + (sched.Reason ?? ""));
-
             // The WEAK (designed) contract at the band edge: per window, resolve sane segments OR
             // decline cleanly to faithful (fail closed, never garbage), and do so DETERMINISTICALLY
             // (cache-cleared re-solve gives the identical outcome). This is the pinned regression
@@ -188,10 +201,66 @@ namespace Parsek.InGameTests
             // accidentally picked this band-edge departure off the live clock. Deliberately makes
             // NO claim that any window resolves here; the strong claim is test 1's, on the
             // mid-band departure.
+            DriveWindowsResolveOrDeclineCleanly(ctx, edgeDep, "reaim-e2e-edge-" + edgeIdx.ToString(ic),
+                requireWindow0Resolve: false,
+                out string map, out int resolvedCount, out int declinedCount);
+
+            ParsekLog.Info("ReaimE2E",
+                $"Kerbin->Duna band-edge windows (pinned): scanIdx={edgeIdx} edgeDep={edgeDep.ToString("F1", ic)} " +
+                $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} " +
+                $"(decline = clean faithful fall-back; all-decline is a valid fail-closed outcome)");
+        }
+
+        [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
+            Description = "Re-aim end-to-end (pinned observed 2026-06-11 failure geometry): the band-edge departure whose window k=2 declined with the retrograde-branch mismatch resolves window 0 and resolves-or-declines-cleanly on every window")]
+        public void Reaim_KerbinToDuna_ObservedEdgeDeparture_ResolvesOrDeclinesCleanly()
+        {
+            var ic = CultureInfo.InvariantCulture;
+            ScanContext ctx = BuildGeometryOrSkip();
+            if (ctx == null)
+                return;
+
+            // M-MIS-1 item 1: a pinned departure UT from an OBSERVED failure mode (see the
+            // ObservedEdgeDepartureUT constant for the full reconstruction). Window 0 must
+            // resolve (the recorded departure itself synthesized in the observed run, well
+            // inside Duna's SOI); every window must satisfy the weak resolve-or-decline-cleanly
+            // contract. The observed window-2 decline (retrograde-branch direction mismatch) is
+            // classified unresolvable-by-design, so a decline here is the DESIGNED outcome, not
+            // a failure - this pin guards the clean fail-closed path on the real geometry, and
+            // the logged map measures it on every run.
+            DriveWindowsResolveOrDeclineCleanly(ctx, ObservedEdgeDepartureUT, "reaim-e2e-observed-20260611",
+                requireWindow0Resolve: true,
+                out string map, out int resolvedCount, out int declinedCount);
+
+            ParsekLog.Info("ReaimE2E",
+                $"Kerbin->Duna observed-failure departure (pinned 2026-06-11): depUT={ObservedEdgeDepartureUT.ToString("R", ic)} " +
+                $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} " +
+                $"(observed run was RRd on windows 0-2, k=2 declining on the retrograde-branch direction mismatch; " +
+                $"decline = clean faithful fall-back, classified unresolvable-by-design)");
+        }
+
+        // Drives WindowsToCheck consecutive windows for one departure under the WEAK (designed)
+        // contract shared by the band-edge and observed-failure tests: per window, resolve sane
+        // segments OR decline cleanly to faithful (null segments, correct window index), and do
+        // so DETERMINISTICALLY (a cache-cleared re-solve reproduces the outcome and the transfer
+        // conic). With requireWindow0Resolve, window 0 (the recorded departure itself) must
+        // additionally resolve - the premise check for a departure known to synthesize.
+        private static void DriveWindowsResolveOrDeclineCleanly(
+            ScanContext ctx, double departureUT, string memberId, bool requireWindow0Resolve,
+            out string outcomeMap, out int resolvedCount, out int declinedCount)
+        {
+            BuildMemberAndPlan(ctx, departureUT,
+                out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
+                out double spanStart, out double spanEnd);
+            ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
+                ctx.Kerbin.orbit.period, ctx.Duna.orbit.period, departureUT, ctx.TofSeconds,
+                spanStart, spanEnd, referenceUT: departureUT - 1.0);
+            InGameAssert.IsTrue(sched.Valid, "window schedule must be valid: " + (sched.Reason ?? ""));
+
             var resolver = new ReaimPlaybackResolver();
-            string memberId = "reaim-e2e-edge-" + edgeIdx.ToString(ic);
             double span = spanEnd - spanStart;
-            int resolvedCount = 0, declinedCount = 0;
+            resolvedCount = 0;
+            declinedCount = 0;
             var map = new StringBuilder(WindowsToCheck);
             for (long k = 0; k < WindowsToCheck; k++)
             {
@@ -203,12 +272,14 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(k, windowIndex, $"window index must equal k={k} on resolve AND on decline");
                 if (ok)
                 {
-                    AssertSaneWindowSegments(segs, plan, edgeDep, spanEnd, k);
+                    AssertSaneWindowSegments(segs, plan, departureUT, spanEnd, k);
                     resolvedCount++;
                     map.Append('R');
                 }
                 else
                 {
+                    InGameAssert.IsTrue(!(requireWindow0Resolve && k == 0),
+                        "window k=0 (the recorded departure itself) must resolve a re-aimed transfer");
                     InGameAssert.IsTrue(segs == null,
                         $"window k={k} decline must return null segments (clean fall-back to faithful)");
                     declinedCount++;
@@ -237,11 +308,7 @@ namespace Parsek.InGameTests
                         $"window k={k} re-solved transfer conic must match the first solve");
                 }
             }
-
-            ParsekLog.Info("ReaimE2E",
-                $"Kerbin->Duna band-edge windows (pinned): scanIdx={edgeIdx} edgeDep={edgeDep.ToString("F1", ic)} " +
-                $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} " +
-                $"(decline = clean faithful fall-back; all-decline is a valid fail-closed outcome)");
+            outcomeMap = map.ToString();
         }
 
         // The M-MIS-1 "measure before knob math" artifact: maps the WHOLE pinned departure scan
@@ -323,9 +390,11 @@ namespace Parsek.InGameTests
                 $"this map is the M-MIS-1 measurement input for the widen-vs-classify decision)");
         }
 
-        // Builds the pinned deterministic scan shared by all three tests, or returns null after
-        // InGameAssert.Skip on a non-stock body graph / degenerate geometry.
-        private static ScanContext BuildPinnedScanOrSkip()
+        // Resolves the stock Kerbin/Duna geometry (bodies, Hohmann tof, synodic period) shared by
+        // all four tests, or returns null after InGameAssert.Skip on a non-stock body graph /
+        // degenerate geometry. Scan fields stay null; the scan-driven tests fill them via
+        // BuildPinnedScanOrSkip.
+        private static ScanContext BuildGeometryOrSkip()
         {
             CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
             CelestialBody duna = FlightGlobals.Bodies?.Find(b => b.bodyName == "Duna");
@@ -347,6 +416,23 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(tof > 0.0 && !double.IsInfinity(synodic) && synodic > 0.0,
                 "Hohmann tof + synodic period must be finite/positive");
 
+            return new ScanContext
+            {
+                Kerbin = kerbin,
+                Duna = duna,
+                TofSeconds = tof,
+                SynodicSeconds = synodic
+            };
+        }
+
+        // Builds the pinned deterministic scan on top of the shared geometry, or returns null
+        // after InGameAssert.Skip.
+        private static ScanContext BuildPinnedScanOrSkip()
+        {
+            ScanContext ctx = BuildGeometryOrSkip();
+            if (ctx == null)
+                return null;
+
             // One pinned synodic period of candidate departures: which synthesize a window-0
             // transfer (Hohmann tof, prograde)? Batch-counted; per-candidate detail is the sweep
             // test's job.
@@ -355,10 +441,10 @@ namespace Parsek.InGameTests
             int hits = 0;
             for (int i = 0; i < ScanSteps; i++)
             {
-                double tDep = PinnedScanBaseUT + (synodic * i) / ScanSteps;
+                double tDep = PinnedScanBaseUT + (ctx.SynodicSeconds * i) / ScanSteps;
                 depUTs[i] = tDep;
                 scan[i] = ReaimTransferSynthesizer.TrySynthesizeTransfer(
-                    kerbin, duna, tDep, tof, prograde: true,
+                    ctx.Kerbin, ctx.Duna, tDep, ctx.TofSeconds, prograde: true,
                     out _, out _, out _, out _);
                 if (scan[i])
                     hits++;
@@ -366,15 +452,9 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose("ReaimE2E",
                 $"pinned scan base={PinnedScanBaseUT.ToString("F0", CultureInfo.InvariantCulture)} steps={ScanSteps} feasible={hits}");
 
-            return new ScanContext
-            {
-                Kerbin = kerbin,
-                Duna = duna,
-                TofSeconds = tof,
-                SynodicSeconds = synodic,
-                Scan = scan,
-                ScanDepartureUTs = depUTs
-            };
+            ctx.Scan = scan;
+            ctx.ScanDepartureUTs = depUTs;
+            return ctx;
         }
 
         // Builds the synthetic member segments + re-aim plan for one departure: Kerbin parking
