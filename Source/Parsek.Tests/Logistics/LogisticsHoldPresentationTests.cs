@@ -150,6 +150,17 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(
                 "not enough funds at KSC for this dispatch",
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-shortfall-750", 0.0));
+            // Doubly-wrapped legacy markers: the legacy WaitResources factory
+            // wraps whatever OriginHasCargo returned, INCLUDING the special
+            // markers - the prefix strip must run before the marker checks so
+            // these render the marker text, not "origin is out of origin-..."
+            // (post-implementation review NIT 2).
+            Assert.Equal(
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-unresolved:no-live-vessels", 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-lacks-origin-unresolved:no-live-vessels", 0.0));
+            Assert.Equal(
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "inventory-origin-debit-unsupported", 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-lacks-inventory-origin-debit-unsupported", 0.0));
         }
 
         // catches: the SourcesStale row going blank.

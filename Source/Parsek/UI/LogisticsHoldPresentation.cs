@@ -140,23 +140,28 @@ namespace Parsek
         // bare on the loop path, "origin-lacks-" prefixed on the legacy path.
         private static string DescribeOriginLacksCargo(string detail)
         {
-            if (string.Equals(detail, "inventory-origin-debit-unsupported",
+            // Strip the legacy "origin-lacks-" wrapper FIRST: the legacy
+            // WaitResources factory wraps whatever OriginHasCargo returned,
+            // including the special markers below, so checking markers on the
+            // wrapped token would render "origin is out of
+            // origin-unresolved:..." (post-implementation review NIT 2).
+            string token = StripPrefix(detail, "origin-lacks-");
+            if (string.Equals(token, "inventory-origin-debit-unsupported",
                     System.StringComparison.Ordinal))
             {
                 return "this route carries stored inventory parts, which docked-origin routes cannot debit yet";
             }
-            if (detail != null
-                && detail.StartsWith("origin-unresolved:", System.StringComparison.Ordinal))
+            if (token != null
+                && token.StartsWith("origin-unresolved:", System.StringComparison.Ordinal))
             {
                 // Keep the raw token in the tail so the log-grep handle survives
                 // into the UI text.
                 return "origin vessel could not be found - it may have moved, been recovered, or been destroyed ("
-                    + detail + ")";
+                    + token + ")";
             }
-            string resource = StripPrefix(detail, "origin-lacks-");
-            if (string.IsNullOrEmpty(resource))
+            if (string.IsNullOrEmpty(token))
                 return Fallback(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, detail);
-            return "origin is out of " + resource + " - delivers when the origin has the full amount";
+            return "origin is out of " + token + " - delivers when the origin has the full amount";
         }
 
         // Total fallback row: readable, never blank, never throws - new tokens

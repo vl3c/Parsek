@@ -193,7 +193,7 @@ namespace Parsek.Logistics
 
             // M6 hold reasons: activation resets loop observation, so a
             // prior-session hold must not present as current. (Pause keeps the
-            // hold — it answers "why wasn't this delivering".)
+            // hold - it answers "why wasn't this delivering".)
             route.ClearHold("player-activate");
 
             route.TransitionTo(RouteStatus.Active, "player-activate");
@@ -688,7 +688,7 @@ namespace Parsek.Logistics
                 route.SkippedCycles += 1;
                 route.LastObservedLoopCycleIndex = dockCycleIndex;
                 // M6 hold reasons: persist the block verdict so the Logistics
-                // window can name it. Zero new computation — the evaluator
+                // window can name it. Zero new computation - the evaluator
                 // already produced kind/reason/shortfall for the log line below.
                 route.RecordHold(elig.Kind, elig.Reason, elig.Shortfall, currentUT);
                 skipped++;
@@ -701,7 +701,7 @@ namespace Parsek.Logistics
             }
 
             // M6 hold reasons: the crossing is ELIGIBLE, so clear any prior hold
-            // NOW, BEFORE EmitLoopCycle — ApplyDelivery can record an
+            // NOW, BEFORE EmitLoopCycle - ApplyDelivery can record an
             // EndpointLost hold INSIDE that call (endpoint lost at delivery),
             // and EmitLoopCycle returns true even on that branch, so a
             // post-call clear would erase it. One clear here covers both the
@@ -1426,7 +1426,7 @@ namespace Parsek.Logistics
 
             // M6 hold reasons: store the legacy-path verdict verbatim (the
             // prefixed decision token, e.g. "origin-lacks-X"; the formatter is
-            // total over both token shapes). Shortfall stays 0 here — the
+            // total over both token shapes). Shortfall stays 0 here - the
             // decision carries the number only inside the funds token, and the
             // legacy path is dead for v0 loop routes (accepted degradation).
             route.RecordHold(HoldKindForOutcome(decision.Outcome), decision.Reason, 0.0, currentUT);
