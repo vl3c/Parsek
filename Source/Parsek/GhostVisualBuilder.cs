@@ -2582,6 +2582,107 @@ namespace Parsek
 
         #endregion
 
+        /// <summary>
+        /// Scans one RCS effect group for MODEL_MULTI_PARTICLE(_PERSIST) nodes and appends
+        /// FX definitions plus the first emission/speed curves found. Shared by the post-MM
+        /// scan and the pristine-config Waterfall fallback.
+        /// </summary>
+        internal static void ScanRcsEffectGroupModelNodes(
+            ConfigNode effectGroup,
+            List<FxModelDefinition> fxDefinitions,
+            ref FloatCurve emissionCurve,
+            ref FloatCurve speedCurve)
+        {
+            ConfigNode[] mmpNodes = effectGroup.GetNodes("MODEL_MULTI_PARTICLE_PERSIST");
+            if (mmpNodes.Length == 0)
+                mmpNodes = effectGroup.GetNodes("MODEL_MULTI_PARTICLE");
+
+            for (int mp = 0; mp < mmpNodes.Length; mp++)
+            {
+                string transformName = mmpNodes[mp].GetValue("transformName");
+                string modelName = mmpNodes[mp].GetValue("modelName");
+                if (!string.IsNullOrEmpty(transformName))
+                {
+                    Vector3 localOffset = Vector3.zero;
+                    Vector3 localScale = Vector3.one;
+                    Quaternion localRotation = Quaternion.identity;
+                    Vector3 parsedVector;
+                    if (TryParseVector3(mmpNodes[mp].GetValue("localOffset"), out parsedVector))
+                        localOffset = parsedVector;
+                    if (TryParseVector3(mmpNodes[mp].GetValue("localScale"), out parsedVector))
+                        localScale = parsedVector;
+                    TryParseFxLocalRotation(mmpNodes[mp].GetValue("localRotation"), out localRotation);
+
+                    fxDefinitions.Add(new FxModelDefinition
+                    {
+                        transformName = transformName,
+                        modelName = modelName ?? "",
+                        localOffset = localOffset,
+                        localRotation = localRotation,
+                        localScale = localScale
+                    });
+
+                    if (emissionCurve == null)
+                    {
+                        ConfigNode emNode = mmpNodes[mp].GetNode("emission");
+                        if (emNode != null)
+                        {
+                            emissionCurve = new FloatCurve();
+                            emissionCurve.Load(emNode);
+                        }
+                        ConfigNode spNode = mmpNodes[mp].GetNode("speed");
+                        if (spNode != null)
+                        {
+                            speedCurve = new FloatCurve();
+                            speedCurve.Load(spNode);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Waterfall fallback for RCS: rebuilds thruster FX definitions from the pristine
+        /// on-disk part config (see PristinePartFxResolver). The pristine running group is
+        /// resolved by RCS-module ordinal.
+        /// </summary>
+        private static void TryApplyPristineRcsFxFallback(
+            Part prefab, int moduleIndex, string partName,
+            List<FxModelDefinition> fxDefinitions,
+            ref FloatCurve emissionCurve, ref FloatCurve speedCurve)
+        {
+            string runtimeName = prefab.partInfo?.name ?? partName;
+            var pristine = PristinePartFxResolver.GetForPart(runtimeName, prefab.partInfo?.configFileFullName);
+            if (pristine == null || !pristine.Found || pristine.EffectsNode == null)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"rcs-pristine-miss-{partName}-{moduleIndex}",
+                    $"RCS waterfall fallback: '{partName}' midx={moduleIndex} pristine EFFECTS unavailable",
+                    5.0);
+                return;
+            }
+
+            string pristineRunning = moduleIndex < pristine.RcsRunningEffectNames.Count
+                ? pristine.RcsRunningEffectNames[moduleIndex]
+                : "running";
+            ConfigNode pristineGroup = pristine.EffectsNode.GetNode(pristineRunning);
+            if (pristineGroup == null)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"rcs-pristine-group-miss-{partName}-{moduleIndex}",
+                    $"RCS waterfall fallback: '{partName}' midx={moduleIndex} " +
+                    $"pristine group '{pristineRunning}' not found",
+                    5.0);
+                return;
+            }
+
+            int before = fxDefinitions.Count;
+            ScanRcsEffectGroupModelNodes(pristineGroup, fxDefinitions, ref emissionCurve, ref speedCurve);
+            ParsekLog.VerboseRateLimited("GhostVisual", $"rcs-pristine-fallback-{partName}-{moduleIndex}",
+                $"RCS waterfall fallback: '{partName}' midx={moduleIndex} pristine recovery added " +
+                $"{fxDefinitions.Count - before} FX definitions (group='{pristineRunning}') " +
+                $"from '{pristine.SourcePath}'",
+                5.0);
+        }
+
         private static List<RcsGhostInfo> TryBuildRcsFX(
             Part prefab, uint persistentId, string partName,
             Transform modelRoot, Transform ghostModelNode,
@@ -2623,10 +2724,6 @@ namespace Parsek
                 }
 
                 ConfigNode effectsNode = partConfig.GetNode("EFFECTS");
-                if (effectsNode == null)
-                {
-                    continue;
-                }
 
                 // Determine the running effect name from the module.
                 // ModuleRCSFX exposes runningEffectName; base ModuleRCS defaults to "running".
@@ -2637,61 +2734,25 @@ namespace Parsek
 
                 // Only scan the effect group matching runningEffectName
                 // (prevents picking up engine FX on mixed engine+RCS parts)
-                ConfigNode effectGroup = effectsNode.GetNode(runningEffect);
-                if (effectGroup == null)
-                {
-                    continue;
-                }
+                ConfigNode effectGroup = effectsNode != null ? effectsNode.GetNode(runningEffect) : null;
 
                 var fxDefinitions = new List<FxModelDefinition>();
                 FloatCurve emissionCurve = null;
                 FloatCurve speedCurve = null;
 
-                ConfigNode[] mmpNodes = effectGroup.GetNodes("MODEL_MULTI_PARTICLE_PERSIST");
-                if (mmpNodes.Length == 0)
-                    mmpNodes = effectGroup.GetNodes("MODEL_MULTI_PARTICLE");
-
-                for (int mp = 0; mp < mmpNodes.Length; mp++)
+                if (effectGroup != null)
                 {
-                    string transformName = mmpNodes[mp].GetValue("transformName");
-                    string modelName = mmpNodes[mp].GetValue("modelName");
-                    if (!string.IsNullOrEmpty(transformName))
-                    {
-                        Vector3 localOffset = Vector3.zero;
-                        Vector3 localScale = Vector3.one;
-                        Quaternion localRotation = Quaternion.identity;
-                        Vector3 parsedVector;
-                        if (TryParseVector3(mmpNodes[mp].GetValue("localOffset"), out parsedVector))
-                            localOffset = parsedVector;
-                        if (TryParseVector3(mmpNodes[mp].GetValue("localScale"), out parsedVector))
-                            localScale = parsedVector;
-                        TryParseFxLocalRotation(mmpNodes[mp].GetValue("localRotation"), out localRotation);
+                    ScanRcsEffectGroupModelNodes(effectGroup, fxDefinitions,
+                        ref emissionCurve, ref speedCurve);
+                }
 
-                        fxDefinitions.Add(new FxModelDefinition
-                        {
-                            transformName = transformName,
-                            modelName = modelName ?? "",
-                            localOffset = localOffset,
-                            localRotation = localRotation,
-                            localScale = localScale
-                        });
-
-                        if (emissionCurve == null)
-                        {
-                            ConfigNode emNode = mmpNodes[mp].GetNode("emission");
-                            if (emNode != null)
-                            {
-                                emissionCurve = new FloatCurve();
-                                emissionCurve.Load(emNode);
-                            }
-                            ConfigNode spNode = mmpNodes[mp].GetNode("speed");
-                            if (spNode != null)
-                            {
-                                speedCurve = new FloatCurve();
-                                speedCurve.Load(spNode);
-                            }
-                        }
-                    }
+                // Waterfall config packs strip the particle nodes from the RCS running
+                // group (the group itself survives, audio-only). Recover the pristine
+                // definitions from the on-disk cfg; gate closed on stock installs.
+                if (fxDefinitions.Count == 0 && WaterfallCompat.PartHasWaterfallModule(prefab))
+                {
+                    TryApplyPristineRcsFxFallback(prefab, moduleIndex, partName, fxDefinitions,
+                        ref emissionCurve, ref speedCurve);
                 }
 
                 if (fxDefinitions.Count == 0)
