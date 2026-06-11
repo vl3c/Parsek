@@ -309,12 +309,15 @@ during loops (it duplicates a live vessel), not bending the clock per member.
 In the same-parent phase-locked block (after `TryBuildRelaunchSchedule` succeeds,
 `MissionLoopUnitBuilder.cs:297-315`):
 
-1. Gather the MAIN-LINE loiter source segments per member (the re-aim branch's
-   per-member discipline, `:354-372`): run `DetectRuns` on the OWNER member's own
-   startUT-sorted non-predicted OrbitSegments. The owner is the mission's self line (the
-   craft); a dock-merged partner member's parked orbit must never drive cuts (it IS a
-   loiter but not OUR phasing instrument). If the owner yields no compressible run,
-   the knob disengages (rule 2 in 3.2).
+1. Gather the SELF-LINE loiter source segments: every member sharing the OWNER's launch
+   identity (pid + guid, `VesselLaunchIdentity.RecordingsShareLaunch`), flattened and
+   startUT-sorted. PLAYTEST CORRECTION (2026-06-11): the original owner-only scan missed
+   chain missions entirely - the unit owner is the chain ROOT segment, which carries no
+   OrbitSegments; the parking loiter lives in the same-launch continuation member.
+   Same-launch chain segments are ONE vessel's sequential timeline, so flattening them is
+   safe; the identity gate is what excludes other vessels (the dock-merged partner's
+   parked orbit IS a loiter but never OUR phasing instrument, and debris/probes differ in
+   pid). If the self line yields no compressible run, the knob disengages (rule 2 in 3.2).
 2. Compute guardUT (3.2 rule 2) from the extraction's VesselOrbital first-rendezvous UT
    (ut0 + PhaseOffsetSeconds), the first body-change segment, and spanEnd.
 3. Partition constraints (3.2), check engagement rules, and rebuild the schedule WITH

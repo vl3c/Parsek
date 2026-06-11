@@ -301,8 +301,8 @@ namespace Parsek
                     // TryBuildRelaunchSchedule on the same effective constraint list the schedule
                     // uses. A null input simply builds the schedule exactly as before (fail closed).
                     PhasingKnobInput knobInput = BuildPhasingKnobInput(
-                        committed, ownerIndex, extraction, spanStartUT, spanEndUT, bodyInfo,
-                        mission.Name);
+                        committed, memberIndices, ownerIndex, extraction, spanStartUT, spanEndUT,
+                        bodyInfo, mission.Name);
                     if (MissionPeriodicity.TryBuildRelaunchSchedule(
                             extraction.Constraints, extraction.Support, extraction.UT0, referenceUT,
                             bodyInfo, out MissionRelaunchSchedule sched, minSpacing,
@@ -896,11 +896,17 @@ namespace Parsek
         /// <summary>
         /// Builder-side half of the M4b phasing-knob engagement
         /// (docs/dev/plans/mission-loiter-knob.md sections 3.2/5): detects the phasing run on the
-        /// OWNER member's own startUT-sorted segments (the per-member discipline of the re-aim
-        /// branch - a dock-merged partner's parked orbit is a loiter but never OUR phasing
-        /// instrument), computes the rendezvous/SOI guard UT, and packages the run + the static
-        /// cuts for earlier compressible runs. Returns null (knob disengaged, schedule built as
-        /// today) when no compressible owner loiter ends before the guard, when the extraction UT0
+        /// mission's SELF-LINE segments - every member sharing the OWNER's launch identity
+        /// (pid + guid via <see cref="VesselLaunchIdentity.RecordingsShareLaunch"/>), so a CHAIN
+        /// mission whose parking orbit lives in a continuation segment still engages (the
+        /// 2026-06-11 playtest miss: the chain ROOT carries no OrbitSegments at all). Same-launch
+        /// chain segments are ONE vessel's sequential timeline, so flattening them is safe; the
+        /// per-member discipline of the re-aim branch guards against interleaving OTHER vessels'
+        /// segments, and the identity gate excludes exactly those (the dock-merged partner, debris,
+        /// probes - a partner's parked orbit is a loiter but never OUR phasing instrument).
+        /// Computes the rendezvous/SOI guard UT and packages the run + the static cuts for earlier
+        /// compressible runs. Returns null (knob disengaged, schedule built as today) when no
+        /// compressible self-line loiter lies in-span before the guard, when the extraction UT0
         /// and span start do not coincide (rule 5 - the residual derivation assumes the schedule's
         /// launch grid and the clock's phase origin share an origin), or when inputs are degenerate.
         /// Rules 3/4 (anchor placement, shiftable partition) live in TryBuildRelaunchSchedule.
@@ -908,6 +914,7 @@ namespace Parsek
         /// </summary>
         internal static PhasingKnobInput BuildPhasingKnobInput(
             IReadOnlyList<Recording> committed,
+            IReadOnlyList<int> memberIndices,
             int ownerIndex,
             ConstraintExtraction extraction,
             double spanStartUT,
@@ -933,10 +940,33 @@ namespace Parsek
             }
 
             Recording owner = committed[ownerIndex];
-            if (owner == null || owner.OrbitSegments == null || owner.OrbitSegments.Count == 0)
-                return null; // no loiter source on the owner: quietly no knob (common case)
+            if (owner == null)
+                return null;
 
-            var segs = new List<OrbitSegment>(owner.OrbitSegments);
+            // Self-line segment gather: the owner plus every member of the SAME launch (chain
+            // continuation segments share the launch pid + guid; the partner / debris / probes do
+            // not). Sequential segments of one timeline sort cleanly into one list.
+            var segs = new List<OrbitSegment>();
+            int selfMembers = 0;
+            for (int mi = 0; mi < (memberIndices?.Count ?? 0); mi++)
+            {
+                int idx = memberIndices[mi];
+                if (idx < 0 || idx >= committed.Count)
+                    continue;
+                Recording rec = committed[idx];
+                if (rec == null)
+                    continue;
+                bool isSelf = idx == ownerIndex
+                    || VesselLaunchIdentity.RecordingsShareLaunch(owner, rec);
+                if (!isSelf)
+                    continue;
+                selfMembers++;
+                if (rec.OrbitSegments != null)
+                    segs.AddRange(rec.OrbitSegments);
+            }
+            if (segs.Count == 0)
+                return null; // no loiter source on the self line: quietly no knob (common case)
+
             segs.Sort((a, b) => a.startUT.CompareTo(b.startUT));
             List<ReaimLoiterCompressor.LoiterRun> runs =
                 ReaimLoiterCompressor.DetectRuns(segs, bodyInfo.GravParameter);
@@ -1029,7 +1059,8 @@ namespace Parsek
                     $"phasing knob candidate: mission='{missionName}' run=[" +
                     $"{phasing.StartUT.ToString("F0", ic)},{phasing.EndUT.ToString("F0", ic)}] " +
                     $"T={phasing.PeriodSeconds.ToString("F1", ic)}s R={phasing.WholeRevs.ToString(ic)} " +
-                    $"staticCuts={staticCuts.Count.ToString(ic)} guardUT={guardUT.ToString("F0", ic)}");
+                    $"staticCuts={staticCuts.Count.ToString(ic)} guardUT={guardUT.ToString("F0", ic)} " +
+                    $"selfMembers={selfMembers.ToString(ic)} selfSegs={segs.Count.ToString(ic)}");
             return new PhasingKnobInput
             {
                 RunStartUT = phasing.StartUT,

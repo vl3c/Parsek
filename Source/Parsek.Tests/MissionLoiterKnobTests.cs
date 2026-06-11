@@ -495,7 +495,7 @@ namespace Parsek.Tests
             double spanEnd = runEnd + 2000.0;
 
             PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
-                new List<Recording> { owner }, 0,
+                new List<Recording> { owner }, new[] { 0 }, 0,
                 MakeExtraction(stationOffset: runEnd + 500.0),
                 0.0, spanEnd, new KnobFakeBodyInfo(), "test");
 
@@ -514,7 +514,7 @@ namespace Parsek.Tests
             Recording owner = OwnerWithLoiter(out _, out double runEnd, out _);
 
             PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
-                new List<Recording> { owner }, 0,
+                new List<Recording> { owner }, new[] { 0 }, 0,
                 MakeExtraction(stationOffset: runEnd - 100.0), // rendezvous DURING the loiter
                 0.0, runEnd + 2000.0, new KnobFakeBodyInfo(), "test");
 
@@ -527,7 +527,7 @@ namespace Parsek.Tests
             Recording owner = OwnerWithLoiter(out _, out double runEnd, out _);
 
             PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
-                new List<Recording> { owner }, 0,
+                new List<Recording> { owner }, new[] { 0 }, 0,
                 MakeExtraction(ut0: 5.0, stationOffset: runEnd + 500.0),
                 0.0, runEnd + 2000.0, new KnobFakeBodyInfo(), "test");
 
@@ -544,7 +544,7 @@ namespace Parsek.Tests
             rec.OrbitSegments.Add(Seg("Mun", 200.0, 200.0 + 5.0 * LkoT, LkoA));
 
             PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
-                new List<Recording> { rec }, 0,
+                new List<Recording> { rec }, new[] { 0 }, 0,
                 MakeExtraction(stationOffset: 20000.0),
                 0.0, 30000.0, new KnobFakeBodyInfo(), "test");
 
@@ -568,7 +568,7 @@ namespace Parsek.Tests
             rec.OrbitSegments.Add(Seg("Kerbin", run2Start, run2End, LkoA));
 
             PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
-                new List<Recording> { rec }, 0,
+                new List<Recording> { rec }, new[] { 0 }, 0,
                 MakeExtraction(stationOffset: run2End + 500.0),
                 0.0, run2End + 2000.0, new KnobFakeBodyInfo(), "test");
 
@@ -590,7 +590,7 @@ namespace Parsek.Tests
             double spanStart = runStart + 100.0; // window opens inside the loiter
 
             PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
-                new List<Recording> { owner }, 0,
+                new List<Recording> { owner }, new[] { 0 }, 0,
                 MakeExtraction(ut0: spanStart, stationOffset: runEnd + 500.0 - spanStart),
                 spanStart, runEnd + 2000.0, new KnobFakeBodyInfo(), "test");
 
@@ -614,7 +614,7 @@ namespace Parsek.Tests
             double spanStart = run2Start - 5.0; // window opens after run 1, before run 2
 
             PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
-                new List<Recording> { rec }, 0,
+                new List<Recording> { rec }, new[] { 0 }, 0,
                 MakeExtraction(ut0: spanStart, stationOffset: run2End + 500.0 - spanStart),
                 spanStart, run2End + 2000.0, new KnobFakeBodyInfo(), "test");
 
@@ -624,13 +624,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void KnobInput_ChainMission_FindsLoiterInContinuationSegment()
+        {
+            // The 2026-06-11 playtest miss: a CHAIN mission's owner (the tree root, earliest
+            // member) carries NO OrbitSegments; the parking loiter lives in the same-launch
+            // continuation segment, and the dock-merged partner (different pid) is parked through
+            // the window. The knob must find the continuation's run via the launch-identity gate
+            // and must never let the partner's parked run drive cuts.
+            string selfGuid = "11111111-1111-1111-1111-111111111111";
+            var root = new Recording { VesselPersistentId = 100, RecordedVesselGuid = selfGuid };
+            var cont = new Recording { VesselPersistentId = 100, RecordedVesselGuid = selfGuid };
+            double runStart = 3900.0;
+            double runEnd = runStart + 4.0 * LkoT - 50.0; // ~3.97 revs -> R=3
+            cont.OrbitSegments.Add(Seg("Kerbin", 500.0, 600.0, LkoA * 0.5)); // ascent arc
+            cont.OrbitSegments.Add(Seg("Kerbin", runStart, runEnd, LkoA));
+            var partner = new Recording
+            {
+                VesselPersistentId = 999,
+                RecordedVesselGuid = "22222222-2222-2222-2222-222222222222",
+            };
+            // The partner's parked run ENDS AFTER the craft's loiter but before the rendezvous:
+            // without the identity gate it would be picked as the (wrong) phasing run.
+            partner.OrbitSegments.Add(Seg("Kerbin", 200.0, runEnd + 2.0 * LkoT, LkoA * 1.001));
+            double rendezvousUT = runEnd + 3.0 * LkoT;
+
+            var committed = new List<Recording> { root, cont, partner };
+            PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
+                committed, new[] { 0, 1, 2 }, 0,
+                MakeExtraction(stationOffset: rendezvousUT),
+                0.0, rendezvousUT + 2000.0, new KnobFakeBodyInfo(), "test");
+
+            Assert.NotNull(input);
+            Assert.Equal(runStart, input.RunStartUT, 3);   // the continuation's run, not the partner's
+            Assert.Equal(runEnd, input.RunEndUT, 3);
+            Assert.Equal(3, input.RecordedRevs);
+            Assert.Empty(input.StaticCuts);                 // the partner's run never becomes a cut
+        }
+
+        [Fact]
         public void KnobInput_OwnerWithoutLoiter_Null()
         {
             var rec = new Recording();
             rec.OrbitSegments.Add(Seg("Kerbin", 0.0, 100.0, LkoA * 0.5)); // sub-period only
 
             PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
-                new List<Recording> { rec }, 0, MakeExtraction(),
+                new List<Recording> { rec }, new[] { 0 }, 0, MakeExtraction(),
                 0.0, 10000.0, new KnobFakeBodyInfo(), "test");
 
             Assert.Null(input);
