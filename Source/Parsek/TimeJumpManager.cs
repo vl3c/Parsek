@@ -58,6 +58,49 @@ namespace Parsek
             RecalculateAfterTimeJumpOverrideForTesting = null;
         }
 
+        /// <summary>
+        /// Observes the playhead one final time at the PRE-jump UT for every effective
+        /// committed recording, so any recording whose activation window still lies
+        /// ahead of the playhead is latched into replay scope (BUG-B
+        /// <see cref="PlaybackScopeTracker"/>) before the clock moves. The scope latch
+        /// is otherwise per-frame: a discrete UT jump can cross a recording's
+        /// activation start before any per-frame NotePlayhead sweep ever observed the
+        /// pre-jump playhead (e.g. a recording committed and warped past within the
+        /// same frame, as the Real Spawn Control warp-to-end canary does), which
+        /// misclassified the recording as historical and silently suppressed its
+        /// end-of-recording real spawn. Returns the number of newly latched recordings.
+        /// </summary>
+        internal static int NotePlayheadSweepBeforeJump(
+            IReadOnlyList<Recording> recordings, double preJumpUT)
+        {
+            int examined = 0;
+            int newlyLatched = 0;
+            int missingIds = 0;
+            int count = recordings != null ? recordings.Count : 0;
+            for (int i = 0; i < count; i++)
+            {
+                Recording rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                {
+                    missingIds++;
+                    continue;
+                }
+
+                examined++;
+                bool wasInScope = PlaybackScopeTracker.IsInReplayScope(rec.RecordingId);
+                double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
+                PlaybackScopeTracker.NotePlayhead(rec.RecordingId, preJumpUT, activationStartUT);
+                if (!wasInScope && PlaybackScopeTracker.IsInReplayScope(rec.RecordingId))
+                    newlyLatched++;
+            }
+
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "NotePlayheadSweepBeforeJump: preJumpUT={0:F1} examined={1} newlyLatched={2} missingIds={3}",
+                    preJumpUT, examined, newlyLatched, missingIds));
+            return newlyLatched;
+        }
+
         internal static void RecalculateLedgerAfterTimeJump(string jumpKind, double postJumpUT)
         {
             string label = string.IsNullOrEmpty(jumpKind) ? "unknown" : jumpKind;
@@ -294,6 +337,12 @@ namespace Parsek
             isTimeJumpLaunchAutoRecordInProgress = true;
             try
             {
+                // Step 0: Latch any recording whose window still lies ahead of the
+                // pre-jump playhead into replay scope BEFORE the clock moves. The jump
+                // may cross its activation start before any per-frame NotePlayhead
+                // sweep observed T0 (commit + warp within one frame).
+                NotePlayheadSweepBeforeJump(EffectiveState.ComputeERS(), t0);
+
                 // Step 1: Capture state vectors for all loaded vessels BEFORE changing UT.
                 // If UT is set first, KSP's orbit propagation runs at the new UT with old epochs,
                 // moving vessels before we can freeze them.
@@ -447,6 +496,12 @@ namespace Parsek
             isTimeJumpLaunchAutoRecordInProgress = true;
             try
             {
+                // Latch any recording whose window still lies ahead of the pre-jump
+                // playhead into replay scope BEFORE the clock moves (mirrors
+                // ExecuteJump; the discrete jump may cross an unlatched recording's
+                // activation start within this same frame).
+                NotePlayheadSweepBeforeJump(EffectiveState.ComputeERS(), t0);
+
                 // Put in-physics vessels on rails temporarily so SetUniversalTime doesn't
                 // cause physics interactions during the jump.
                 var onRailsVessels = PutLoadedVesselsOnRails();

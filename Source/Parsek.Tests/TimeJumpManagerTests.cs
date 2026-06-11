@@ -57,12 +57,14 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
             TimeJumpManager.ResetRecalculateAfterTimeJumpOverrideForTesting();
+            PlaybackScopeTracker.ResetForTesting();
         }
 
         public void Dispose()
         {
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
             TimeJumpManager.ResetRecalculateAfterTimeJumpOverrideForTesting();
+            PlaybackScopeTracker.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
@@ -836,6 +838,112 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[TimeJump]") && l.Contains("crossed=2"));
+        }
+
+        #endregion
+
+        #region NotePlayheadSweepBeforeJump (pre-jump replay-scope latch)
+
+        private static Recording MakePointsRecording(string id, double startUT, double endUT)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                VesselName = "Sweep Test " + id,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = startUT },
+                    new TrajectoryPoint { ut = endUT }
+                }
+            };
+        }
+
+        /// <summary>
+        /// Regression for the Real Spawn Control warp-to-end canary: a recording
+        /// committed with its window ahead of the playhead and warped past its start
+        /// within the same frame never gets observed by the per-frame NotePlayhead
+        /// sweep. The pre-jump sweep must latch it into replay scope so the
+        /// post-jump frame does not classify it historical (which silently
+        /// suppressed the end-of-recording real spawn).
+        /// </summary>
+        [Fact]
+        public void NotePlayheadSweepBeforeJump_AheadWindow_LatchesBeforeJumpCrossesStart()
+        {
+            var rec = MakePointsRecording("ahead-rec", startUT: 130.0, endUT: 134.0);
+
+            int latched = TimeJumpManager.NotePlayheadSweepBeforeJump(
+                new List<Recording> { rec }, preJumpUT: 100.0);
+
+            Assert.Equal(1, latched);
+            Assert.True(PlaybackScopeTracker.IsInReplayScope("ahead-rec"));
+            // After the jump lands at the recording's end, it must NOT read as historical.
+            Assert.False(PlaybackScopeTracker.IsHistoricalNeverReplayed("ahead-rec", 134.0, 130.0));
+        }
+
+        /// <summary>
+        /// A recording whose window already lies behind the pre-jump playhead is a
+        /// true historical (BUG-B); the pre-jump sweep must not rescue it.
+        /// </summary>
+        [Fact]
+        public void NotePlayheadSweepBeforeJump_TrueHistorical_IsNotRescued()
+        {
+            var rec = MakePointsRecording("hist-rec", startUT: 10.0, endUT: 20.0);
+
+            int latched = TimeJumpManager.NotePlayheadSweepBeforeJump(
+                new List<Recording> { rec }, preJumpUT: 100.0);
+
+            Assert.Equal(0, latched);
+            Assert.False(PlaybackScopeTracker.IsInReplayScope("hist-rec"));
+            Assert.True(PlaybackScopeTracker.IsHistoricalNeverReplayed("hist-rec", 200.0, 10.0));
+        }
+
+        [Fact]
+        public void NotePlayheadSweepBeforeJump_AlreadyLatched_NotCountedAsNew()
+        {
+            var rec = MakePointsRecording("latched-rec", startUT: 130.0, endUT: 134.0);
+            PlaybackScopeTracker.NotePlayhead("latched-rec", 100.0, 130.0);
+
+            int latched = TimeJumpManager.NotePlayheadSweepBeforeJump(
+                new List<Recording> { rec }, preJumpUT: 100.0);
+
+            Assert.Equal(0, latched);
+            Assert.True(PlaybackScopeTracker.IsInReplayScope("latched-rec"));
+        }
+
+        [Fact]
+        public void NotePlayheadSweepBeforeJump_NullEntriesAndMissingIds_AreSkippedAndCounted()
+        {
+            var recordings = new List<Recording>
+            {
+                null,
+                new Recording { RecordingId = null, VesselName = "No Id" },
+                MakePointsRecording("good-rec", startUT: 130.0, endUT: 134.0)
+            };
+
+            int latched = TimeJumpManager.NotePlayheadSweepBeforeJump(recordings, 100.0);
+
+            Assert.Equal(1, latched);
+            Assert.True(PlaybackScopeTracker.IsInReplayScope("good-rec"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[TimeJump]")
+                && l.Contains("NotePlayheadSweepBeforeJump")
+                && l.Contains("examined=1")
+                && l.Contains("newlyLatched=1")
+                && l.Contains("missingIds=2"));
+        }
+
+        [Fact]
+        public void NotePlayheadSweepBeforeJump_EmptyAndNullLists_LogSummaryAndReturnZero()
+        {
+            Assert.Equal(0, TimeJumpManager.NotePlayheadSweepBeforeJump(
+                new List<Recording>(), 100.0));
+            Assert.Equal(0, TimeJumpManager.NotePlayheadSweepBeforeJump(null, 100.0));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[TimeJump]")
+                && l.Contains("NotePlayheadSweepBeforeJump")
+                && l.Contains("examined=0")
+                && l.Contains("newlyLatched=0"));
         }
 
         #endregion
