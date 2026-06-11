@@ -63,6 +63,11 @@ namespace Parsek
         // Cache for PREFAB_PARTICLE fx_* prefabs found on PartLoader part prefabs.
         // Built once from PartLoader.LoadedPartsList (stable prefab templates).
         private static Dictionary<string, GameObject> fxPrefabCache;
+
+        // Builtin Effects/ assets resolved for the Waterfall fallback; kept separate from
+        // fxPrefabCache so stock-path FindFxPrefab behavior never depends on gated calls.
+        private static readonly Dictionary<string, GameObject> builtinFxPrefabCache =
+            new Dictionary<string, GameObject>(System.StringComparer.OrdinalIgnoreCase);
         private static bool fxLoadedObjectScanCompleted;
         private static readonly Dictionary<string, string[]> fxPrefabFallbacks =
             new Dictionary<string, string[]>(System.StringComparer.OrdinalIgnoreCase)
@@ -173,23 +178,55 @@ namespace Parsek
             if (string.IsNullOrEmpty(normalized))
                 return null;
 
+            // Separate cache, NEVER the shared fxPrefabCache: a shared insert would make
+            // stock-path FindFxPrefab resolution depend on whether a Waterfall-gated build
+            // ran first (and could bypass the deliberate fxPrefabFallbacks substitutions).
+            // Provenance is preserved so builtinResolved counters stay truthful on every
+            // build, not just the first.
+            if (builtinFxPrefabCache.TryGetValue(normalized, out GameObject cached))
+            {
+                if (cached != null)
+                {
+                    fromBuiltinEffects = true;
+                    return cached;
+                }
+                builtinFxPrefabCache.Remove(normalized);
+            }
+
             GameObject builtin = Resources.Load<GameObject>($"Effects/{normalized}");
             if (builtin == null)
                 return null;
 
-            if (builtin.GetComponentInChildren<ParticleSystem>(true) == null)
+            if (!HasAnyParticleComponent(builtin))
             {
                 ParsekLog.Verbose("GhostVisual",
-                    $"builtin Effects prefab '{normalized}' has no ParticleSystem; ignoring");
+                    $"builtin Effects prefab '{normalized}' has no particle components; ignoring");
                 return null;
             }
 
-            // FindFxPrefab above guarantees the cache exists (it rebuilds on null).
-            fxPrefabCache[normalized] = builtin;
+            builtinFxPrefabCache[normalized] = builtin;
             fromBuiltinEffects = true;
             ParsekLog.Verbose("GhostVisual",
                 $"FX prefab loaded from builtin Effects: '{normalized}'");
             return builtin;
+        }
+
+        /// <summary>
+        /// A raw (never-instantiated) builtin asset may carry only a KSPParticleEmitter;
+        /// its Awake adds the ParticleSystem at instantiation, which every consumer does.
+        /// </summary>
+        private static bool HasAnyParticleComponent(GameObject prefabRoot)
+        {
+            if (prefabRoot.GetComponentInChildren<ParticleSystem>(true) != null)
+                return true;
+
+            Component[] components = prefabRoot.GetComponentsInChildren<Component>(true);
+            for (int i = 0; i < components.Length; i++)
+            {
+                if (components[i] != null && components[i].GetType().Name == "KSPParticleEmitter")
+                    return true;
+            }
+            return false;
         }
 
         internal static string NormalizeFxPrefabName(string rawName)
@@ -317,6 +354,7 @@ namespace Parsek
         internal static void ClearFxPrefabCache()
         {
             fxPrefabCache = null;
+            builtinFxPrefabCache.Clear();
             fxLoadedObjectScanCompleted = false;
         }
 
