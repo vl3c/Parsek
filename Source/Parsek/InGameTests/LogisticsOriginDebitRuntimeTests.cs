@@ -22,15 +22,26 @@ namespace Parsek.InGameTests
     /// <see cref="GamePersistence.SaveGame"/> round-trip.
     ///
     /// <para><b>Re-entry discipline (todo "background RouteOrchestrator.Tick
-    /// can re-enter a logistics test's synthetic route").</b> The three
-    /// orchestrator-driven tests are SYNCHRONOUS (<c>void</c>, no yields):
-    /// the whole arrange / Tick / assert / teardown sequence runs inside one
-    /// frame on the main thread, so the background 1 Hz scenario tick can
-    /// never interleave with an armed seam or a stored synthetic route -
-    /// strictly stronger isolation than pausing time warp across a yield.
-    /// The save round-trip test does yield (deferred .sfs writes must
-    /// settle), so it arms NO seams, stores NO route, and pauses / restores
-    /// time warp across the yield window.</para>
+    /// can re-enter a logistics test's synthetic route").</b> The
+    /// orchestrator-driven tests yield ONLY in a precondition wait BEFORE
+    /// any seam is armed or any state is mutated (the unpack wait below);
+    /// the whole arrange / Tick / assert / teardown sequence then runs
+    /// yield-free inside one frame on the main thread, so the background
+    /// 1 Hz scenario tick can never interleave with an armed seam or a
+    /// stored synthetic route - strictly stronger isolation than pausing
+    /// time warp across a yield. The save round-trip test does yield
+    /// mid-test (deferred .sfs writes must settle), so it arms NO seams,
+    /// stores NO route, and pauses / restores time warp across the yield
+    /// window.</para>
+    ///
+    /// <para><b>Post-restore unpack wait.</b> The isolated-batch baseline
+    /// restore quickloads the FLIGHT scene and leaves the active vessel
+    /// PACKED for a few frames; a synchronous packed-precondition check
+    /// skipped every loaded-path test that followed another destructive
+    /// test (observed in the 2026-06-11 isolated run). The loaded-path
+    /// tests therefore yield until physics unpacks the vessel (bounded by
+    /// <see cref="UnpackWaitTimeoutSeconds"/>) and only skip on a genuine
+    /// timeout.</para>
     ///
     /// <para><b>Unloaded-origin fixture (plan finding 6).</b> No existing
     /// in-game test spawns a distant unloaded vessel, and a spawn-based
@@ -56,6 +67,38 @@ namespace Parsek.InGameTests
             "excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play " +
             "button in a disposable FLIGHT session.";
 
+        /// <summary>
+        /// Bound on the post-restore unpack wait (wall clock). The baseline
+        /// quickload typically unpacks within a second or two; the generous
+        /// bound covers slow scene settles without hanging the batch.
+        /// </summary>
+        private const float UnpackWaitTimeoutSeconds = 15f;
+
+        /// <summary>
+        /// Yields until the active vessel is loaded and unpacked, or the
+        /// bounded wait times out, or there is no active vessel (both
+        /// terminal states are re-checked by the caller's preconditions).
+        /// Must be consumed BEFORE any seam arming or state mutation - see
+        /// the re-entry discipline note in the class doc.
+        /// </summary>
+        private static IEnumerator WaitForActiveVesselUnpack()
+        {
+            float deadline = Time.realtimeSinceStartup + UnpackWaitTimeoutSeconds;
+            int waitedFrames = 0;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                Vessel v = FlightGlobals.ActiveVessel;
+                if (v == null || (v.loaded && !v.packed))
+                    break;
+                waitedFrames++;
+                yield return null;
+            }
+            if (waitedFrames > 0)
+                ParsekLog.Verbose("TestRunner",
+                    $"WaitForActiveVesselUnpack: waited {waitedFrames.ToString(IC)} frame(s) " +
+                    $"(packed={(FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.packed.ToString() : "<no-vessel>")})");
+        }
+
         // Deterministic span clock (same shape as
         // LogisticsRouteOnMissionsRuntimeTests.LoopFire_RendersAndDelivers_AtDockCrossing):
         // span [1000,3000], cadence == span, anchor == spanStart, dock UT 2000,
@@ -77,16 +120,22 @@ namespace Parsek.InGameTests
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = IsolatedOnlyBatchSkipReason,
             Description = "A non-KSC loop-route crossing through RouteOrchestrator.Tick physically removes the CostManifest LiquidFuel from the LOADED origin vessel (the active vessel), emits a RouteCargoDebited row carrying the actual manifest + origin pid, and logs the Origin debit line; the delivery half is a no-op seam so only the debit mutates state")]
-        public void OriginDebit_LoadedOriginVessel_RemovesManifestAmount()
+        public IEnumerator OriginDebit_LoadedOriginVessel_RemovesManifestAmount()
         {
+            // Post-restore unpack wait (yields BEFORE any seam/mutation).
+            IEnumerator unpackWait = WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
             // PRECONDITIONS --------------------------------------------------
             if (FlightGlobals.ActiveVessel == null)
                 InGameAssert.Skip("FlightGlobals.ActiveVessel is null; need a live origin vessel to debit");
             Vessel originVessel = FlightGlobals.ActiveVessel;
             if (!(originVessel.loaded && !originVessel.packed))
                 InGameAssert.Skip(
-                    $"Active vessel '{originVessel.vesselName}' is not loaded+unpacked " +
-                    $"(loaded={originVessel.loaded}, packed={originVessel.packed}); the origin debit would take " +
+                    $"Active vessel '{originVessel.vesselName}' is still not loaded+unpacked " +
+                    $"(loaded={originVessel.loaded}, packed={originVessel.packed}) after the " +
+                    $"{UnpackWaitTimeoutSeconds.ToString("R", IC)}s unpack wait; the origin debit would take " +
                     "the unloaded proto-snapshot path which does not mutate the live PartResource this test reads");
 
             // Measure the debitable pool with the PRODUCTION probe (the same
@@ -434,16 +483,22 @@ namespace Parsek.InGameTests
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = IsolatedOnlyBatchSkipReason,
             Description = "A non-KSC loop-route crossing whose origin tanks are drained holds at the OriginLacksCargo eligibility gate: SkippedCycles bumps, nothing is debited or delivered, and the BLOCKED Info line names the short resource")]
-        public void OriginGate_EmptyOrigin_HoldsWaitingForResources()
+        public IEnumerator OriginGate_EmptyOrigin_HoldsWaitingForResources()
         {
+            // Post-restore unpack wait (yields BEFORE any seam/mutation).
+            IEnumerator unpackWait = WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
             // PRECONDITIONS --------------------------------------------------
             if (FlightGlobals.ActiveVessel == null)
                 InGameAssert.Skip("FlightGlobals.ActiveVessel is null; need a live origin vessel to drain");
             Vessel originVessel = FlightGlobals.ActiveVessel;
             if (!(originVessel.loaded && !originVessel.packed))
                 InGameAssert.Skip(
-                    $"Active vessel '{originVessel.vesselName}' is not loaded+unpacked " +
-                    $"(loaded={originVessel.loaded}, packed={originVessel.packed}); the drain mutates live " +
+                    $"Active vessel '{originVessel.vesselName}' is still not loaded+unpacked " +
+                    $"(loaded={originVessel.loaded}, packed={originVessel.packed}) after the " +
+                    $"{UnpackWaitTimeoutSeconds.ToString("R", IC)}s unpack wait; the drain mutates live " +
                     "PartResource amounts which an unloaded vessel does not expose");
 
             List<KeyValuePair<PartResource, double>> tankSnapshot =
