@@ -195,6 +195,12 @@ namespace Parsek
         // scroll view (same deferred-mutation discipline as the action buttons).
         private Route pendingCadenceRoute;
         private int pendingCadenceMultiplier;
+        // Deferred priority edit (M1 dispatch priority): the stepper records
+        // (route, new value) during the draw loop; ApplyPendingActions commits via
+        // RoutePriority.Apply after the scroll view (same deferred-mutation
+        // discipline as the cadence stepper).
+        private Route pendingPriorityRoute;
+        private int pendingPriorityValue;
 
         // M1 inline interval text field (deferred-commit, SettingsWindowUI idiom).
         // Keyed by route.Id (NOT a row index) because routes are re-sectioned /
@@ -402,6 +408,8 @@ namespace Parsek
             pendingCreate = null;
             pendingCadenceRoute = null;
             pendingCadenceMultiplier = 0;
+            pendingPriorityRoute = null;
+            pendingPriorityValue = 0;
 
             scrollPos = GUILayout.BeginScrollView(scrollPos, GUILayout.ExpandHeight(true));
 
@@ -1235,6 +1243,7 @@ namespace Parsek
             }
 
             DrawCadenceStepper(route);
+            DrawPriorityStepper(route);
 
             // H5: resolved recording / tree (mission) names instead of 8-char GUID
             // fragments; the short id moves to the hover tooltip.
@@ -1619,6 +1628,46 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
+        // Priority stepper (M1 dispatch priority): "- N +" where N is the route's
+        // dispatch priority (>= 0). Lower values dispatch first when several routes
+        // contend in the same orchestrator tick; 0 is the floor (and the default).
+        // Records the edit into the deferred-mutation fields; ApplyPendingActions
+        // commits it via RoutePriority.Apply.
+        private void DrawPriorityStepper(Route route)
+        {
+            int p = Route.ClampPriority(route.DispatchPriority);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(24f);
+            GUILayout.Label(
+                new GUIContent("Priority:",
+                    "Lower priority number dispatches first when several routes contend in the same tick. 0 is the highest priority (and the default)."),
+                detailStyle, GUILayout.Width(70f));
+
+            // "-" decrements (no-op + greyed at the 0 floor).
+            bool atFloor = p <= 0;
+            GUI.enabled = !atFloor;
+            if (GUILayout.Button(new GUIContent("-",
+                    atFloor ? "Already at the highest priority (0)" : "Dispatch earlier on contention"),
+                    GUILayout.Width(24f)))
+            {
+                pendingPriorityRoute = route;
+                pendingPriorityValue = RoutePriority.Step(p, -1);
+            }
+            GUI.enabled = true;
+
+            GUILayout.Label(p.ToString(CultureInfo.InvariantCulture), detailStyle, GUILayout.Width(110f));
+
+            if (GUILayout.Button(new GUIContent("+", "Dispatch later on contention"), GUILayout.Width(24f)))
+            {
+                pendingPriorityRoute = route;
+                pendingPriorityValue = RoutePriority.Step(p, +1);
+            }
+
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+        }
+
         private void DrawCandidateDetail(RouteCandidate candidate)
         {
             GUILayout.BeginVertical(GUI.skin.box);
@@ -1794,6 +1843,17 @@ namespace Parsek
                     $"Logistics: Cadence route={ShortId(pendingCadenceRoute.Id)} N={pendingCadenceMultiplier} " +
                     $"result={(changed ? "applied" : "unchanged")}");
             }
+            if (pendingPriorityRoute != null)
+            {
+                // Deliberately NOT in routeStateMutated: priority feeds only the
+                // orchestrator's per-tick processing order, never a legibility-cache
+                // input (no countdown / badge / cost change), so forcing a recompute
+                // here would be wasted work.
+                bool changed = RoutePriority.Apply(pendingPriorityRoute, pendingPriorityValue);
+                ParsekLog.Info("UI",
+                    $"Logistics: Priority route={ShortId(pendingPriorityRoute.Id)} value={pendingPriorityValue} " +
+                    $"result={(changed ? "applied" : "unchanged")}");
+            }
 
             if (routeStateMutated)
                 lastLegibilityComputeRealtime = -1f;
@@ -1805,6 +1865,8 @@ namespace Parsek
             pendingCreate = null;
             pendingCadenceRoute = null;
             pendingCadenceMultiplier = 0;
+            pendingPriorityRoute = null;
+            pendingPriorityValue = 0;
         }
 
         /// <summary>

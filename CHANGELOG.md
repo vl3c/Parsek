@@ -8,11 +8,16 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- Supply routes can now start from any docked origin, not just KSC: each cycle physically removes the delivered cargo from the origin vessel's tanks (loaded or unloaded), and the route waits when the origin runs dry. Hub and spoke networks now work by chaining routes.
+- Routes have a dispatch priority you can set in the route detail panel; when several routes contend in the same tick, lower priority numbers go first.
+- A supply run that starts undocked with cargo already aboard is now rejected at analysis with guidance: start docked to the origin, record the mining, or launch it from KSC.
+- Docked-origin routes now record the origin's location at recording start, so a surface depot that changes vessel id can be found again by proximity, like destinations already could.
 - A ghost's map and tracking-station trajectory now draws its full path through the current sphere of influence as one continuous line (the whole ascent and transfer, not just the short arc under the icon), keeps it on screen as the icon travels along it (including across the segments of a chained flight), and stops before the first full repeating orbit and at the first change of sphere of influence. Path pieces that turn with the planet hide once flown past (so the line never overlaps as the planet rotates) while upcoming ones such as the final landing stay visible, and curved connectors bridge them to the orbits on both sides whenever a real gap exists.
 
 ### Fixes
 
 - The re-aim end-to-end in-game test no longer fails intermittently: it now runs a pinned Kerbin-to-Duna geometry instead of seeding from the live clock, and a new manual diagnostic sweep maps which launch windows resolve a re-aimed transfer.
+- The orbit-arc-sampler in-game test no longer fails spuriously depending on where the active vessel sits (for example on the launchpad): it measured sampled orbit points from the scene's moving world origin instead of the planet centre.
 - Warping to a recording's end (Real Spawn Control) now reliably spawns the real vessel: a time jump could previously mark a recording whose window was still ahead as already-flown history and silently skip its end-of-recording spawn.
 
 ---

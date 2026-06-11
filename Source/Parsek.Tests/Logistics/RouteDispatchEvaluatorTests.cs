@@ -500,5 +500,134 @@ namespace Parsek.Tests.Logistics
 
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
+
+        // ==================================================================
+        // M1 origin-cargo gate: pin the env semantics THROUGH the pure check
+        // (RouteOriginCargoCheck.HasRequired), mirroring how the production
+        // LiveRouteRuntimeEnvironment.OriginHasCargo routes its non-KSC gate.
+        // The flat-boolean fake above pins the evaluator's branch wiring;
+        // these pin that the pure check's first-short-resource naming flows
+        // through CheckEligibility into the WaitResources reason.
+        // ==================================================================
+
+        /// <summary>
+        /// Fake env whose <see cref="OriginHasCargo"/> delegates to
+        /// <see cref="RouteOriginCargoCheck.HasRequired"/> over a settable
+        /// stored-amount map - the same shape the production env uses with
+        /// <c>LiveOriginCargoProbe.ProbeResourceStored</c> as the reader.
+        /// Everything else passes.
+        /// </summary>
+        private sealed class PureCheckOriginEnvironment : IRouteRuntimeEnvironment
+        {
+            public Dictionary<string, double> Stored = new Dictionary<string, double>();
+            public bool IsCareer { get; set; }
+            public bool KscFundsAvailableCalled;
+
+            public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason)
+            {
+                reason = string.Empty;
+                return true;
+            }
+
+            public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason)
+            {
+                vessel = null;
+                return TryResolveEndpoint(endpoint, out reason);
+            }
+
+            public bool OriginHasCargo(Route route, out string lackingResource)
+            {
+                return RouteOriginCargoCheck.HasRequired(
+                    route.CostManifest,
+                    name => Stored.TryGetValue(name, out double v) ? v : 0.0,
+                    out lackingResource,
+                    out _);
+            }
+
+            public bool KscFundsAvailable(Route route, out double shortfall)
+            {
+                KscFundsAvailableCalled = true;
+                shortfall = 0.0;
+                return true;
+            }
+
+            public bool DestinationHasCapacity(Route route, out string fullResource)
+            {
+                fullResource = string.Empty;
+                return true;
+            }
+
+            public bool RouteHasValidSourcesInErs(Route route) => true;
+        }
+
+        // catches: a short origin not surfacing as OriginLacksCargo /
+        // WaitResources with the pure check's deterministic first-short
+        // resource as the reason (the UI / log hold reason reads it).
+        [Fact]
+        public void CheckEligibility_OriginCargoShort_WaitResourcesNamesResource()
+        {
+            var route = MakeDueRoute();
+            route.IsKscOrigin = false;
+            route.Origin = new RouteEndpoint { VesselPersistentId = 7u };
+            route.CostManifest = new Dictionary<string, double>
+            {
+                { "Oxidizer", 120.0 },
+                { "LiquidFuel", 100.0 },
+            };
+            var env = new PureCheckOriginEnvironment
+            {
+                Stored = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 40.0 }, // short
+                    { "Oxidizer", 10.0 },   // also short, but LiquidFuel sorts first ordinally
+                },
+            };
+
+            var elig = RouteDispatchEvaluator.CheckEligibility(route, 200.0, env);
+            Assert.False(elig.Eligible);
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, elig.Kind);
+            Assert.Equal("LiquidFuel", elig.Reason);
+
+            var decision = RouteDispatchEvaluator.EvaluateRoute(route, 200.0, env);
+            Assert.Equal(RouteDispatchOutcome.WaitResources, decision.Outcome);
+            // The WaitResources factory wraps the lacking resource in the
+            // established origin-lacks-<resource> reason token.
+            Assert.Equal("origin-lacks-LiquidFuel", decision.Reason);
+        }
+
+        // catches: a fully-covered origin being held at the cargo gate. The
+        // route proceeds past gate 6 to the later gates (for a non-KSC origin
+        // the Career funds gate is skipped by design, so "passes" lands on
+        // Dispatch with the funds check never consulted).
+        [Fact]
+        public void CheckEligibility_OriginCargoCovered_PassesToFundsGate()
+        {
+            var route = MakeDueRoute();
+            route.IsKscOrigin = false;
+            route.Origin = new RouteEndpoint { VesselPersistentId = 7u };
+            route.CostManifest = new Dictionary<string, double>
+            {
+                { "LiquidFuel", 100.0 },
+                { "Oxidizer", 120.0 },
+            };
+            var env = new PureCheckOriginEnvironment
+            {
+                IsCareer = true,
+                Stored = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 100.0 },
+                    { "Oxidizer", 500.0 },
+                },
+            };
+
+            var elig = RouteDispatchEvaluator.CheckEligibility(route, 200.0, env);
+            Assert.True(elig.Eligible);
+
+            var decision = RouteDispatchEvaluator.EvaluateRoute(route, 200.0, env);
+            Assert.Equal(RouteDispatchOutcome.Dispatch, decision.Outcome);
+            // Career + NON-KSC: the funds gate is short-circuited (gate 7 only
+            // runs for Career AND KSC origin).
+            Assert.False(env.KscFundsAvailableCalled);
+        }
     }
 }

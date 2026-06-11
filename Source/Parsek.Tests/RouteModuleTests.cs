@@ -271,6 +271,59 @@ namespace Parsek.Tests
                 && l.Contains("totalCredited=3"));
         }
 
+        // catches (M1, T-ROUTEMODULE-OBSERVE): a physical RouteCargoDebited
+        // row (non-empty manifest, zero funds, origin pid attribution) being
+        // anything other than OBSERVED - the walk must count it, log the
+        // attribution fields, and mutate NO cargo / funds state (the live
+        // removal happened at emit time; rewind restores it with the world).
+        [Fact]
+        public void ProcessCargoDebited_PhysicalRow_ObserveOnly_LogsOriginPid()
+        {
+            var action = new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.RouteCargoDebited,
+                RouteId = "route-PHY",
+                RouteCycleId = "cycle-3",
+                RouteResourceManifest = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 40.0 },
+                },
+                RouteRequestedResourceManifest = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 100.0 },
+                },
+                RouteOriginVesselPid = 777u,
+                RouteKscFundsCost = 0f, // non-KSC physical debit carries no funds
+            };
+
+            module.ProcessAction(action);
+
+            var state = module.GetWalkStateForTesting()["route-PHY"];
+            // Observe-only: the physical-debit counter bumps, nothing else.
+            Assert.Equal(1, state.PhysicalDebits);
+            Assert.Equal(0, state.DispatchedCycles);
+            Assert.Equal(0, state.DeliveredStops);
+            Assert.Equal(0, state.CreditedCycles);
+            Assert.False(state.Paused);
+            Assert.False(state.EndpointLost);
+            Assert.Equal(500.0, state.LastActionUT);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("Processed RouteCargoDebited")
+                && l.Contains("route=route-PHY")
+                && l.Contains("originPid=777")
+                && l.Contains("requested=1")
+                && l.Contains("observe-only, no cargo mutation"));
+
+            module.PostWalk();
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("PostWalk")
+                && l.Contains("physicalDebits=1"));
+        }
+
         [Fact]
         public void Reset_ClearsAllState()
         {

@@ -299,9 +299,9 @@ namespace Parsek.Logistics
             // name AND was launched from Kerbin. Otherwise non-KSC origin
             // requires RouteOriginProof.StartDockedOriginVesselPid != 0.
             // Endpoint coords default to zero for the launch-site path — the
-            // scheduler resolves real coords from the launch-site name; for
-            // the non-KSC path we cannot recover the origin vessel's
-            // body-fixed position here in v0, so leave zero with a comment.
+            // scheduler resolves real coords from the launch-site name. The
+            // non-KSC path uses the proof's origin endpoint descriptor (M1)
+            // when present; pre-descriptor proofs keep the PID-only shape.
             bool isKscOrigin =
                 !string.IsNullOrEmpty(originRec.LaunchSiteName)
                 && string.Equals(originRec.StartBodyName, "Kerbin", StringComparison.Ordinal);
@@ -328,18 +328,38 @@ namespace Parsek.Logistics
             else if (originRec.RouteOriginProof != null
                 && originRec.RouteOriginProof.StartDockedOriginVesselPid != 0)
             {
-                origin = new RouteEndpoint
+                RouteOriginProof originProof = originRec.RouteOriginProof;
+                if (!string.IsNullOrEmpty(originProof.StartDockedOriginBodyName))
                 {
-                    VesselPersistentId = originRec.RouteOriginProof.StartDockedOriginVesselPid,
-                    BodyName = originRec.StartBodyName ?? string.Empty,
-                    // v0: depot vessel coords are not captured in the origin
-                    // proof; scheduler resolves them from the live vessel at
-                    // dispatch time. Leave zero so the saved data is honest.
-                    Latitude = 0.0,
-                    Longitude = 0.0,
-                    Altitude = 0.0,
-                    IsSurface = false
-                };
+                    // M1: the proof carries the origin endpoint descriptor captured at
+                    // recording start, so build a real-coordinate endpoint. Surface-base
+                    // origins thereby reach RouteEndpointResolver's proximity fallback
+                    // when the depot's pid no longer resolves.
+                    origin = new RouteEndpoint
+                    {
+                        VesselPersistentId = originProof.StartDockedOriginVesselPid,
+                        BodyName = originProof.StartDockedOriginBodyName,
+                        Latitude = originProof.StartDockedOriginLatitude,
+                        Longitude = originProof.StartDockedOriginLongitude,
+                        Altitude = originProof.StartDockedOriginAltitude,
+                        IsSurface = originProof.StartDockedOriginIsSurface
+                    };
+                }
+                else
+                {
+                    // Pre-descriptor proof (recorded before M1): depot vessel coords
+                    // were not captured, so keep the PID-only endpoint shape; the
+                    // scheduler resolves the live vessel by pid at dispatch time.
+                    origin = new RouteEndpoint
+                    {
+                        VesselPersistentId = originProof.StartDockedOriginVesselPid,
+                        BodyName = originRec.StartBodyName ?? string.Empty,
+                        Latitude = 0.0,
+                        Longitude = 0.0,
+                        Altitude = 0.0,
+                        IsSurface = false
+                    };
+                }
                 originLabel =
                     "non-ksc:pid=" + origin.VesselPersistentId.ToString(CultureInfo.InvariantCulture);
             }
@@ -454,6 +474,10 @@ namespace Parsek.Logistics
                 : 0;
             ParsekLog.Info(Tag,
                 $"Built route id={shortId} origin={originLabel} " +
+                $"originSurface={(origin.IsSurface ? "1" : "0")} " +
+                $"originLat={origin.Latitude.ToString("R", ic)} " +
+                $"originLon={origin.Longitude.ToString("R", ic)} " +
+                $"originAlt={origin.Altitude.ToString("R", ic)} " +
                 $"tree={source.TreeId ?? "<none>"} " +
                 $"rootLaunchUT={rootLaunchUT.ToString("R", ic)} " +
                 $"undockUT={undockUT.ToString("R", ic)} " +
