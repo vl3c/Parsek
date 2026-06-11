@@ -586,6 +586,13 @@ namespace Parsek
         // k), amortized + cached. Documented tunable, like MaxJointMultiples.
         internal const int ScheduleLookaheadMultiples = 4096;
 
+        // M4b phasing-loiter knob (docs/dev/plans/mission-loiter-knob.md section 3): the cap on
+        // EXTENDING the phasing loiter past its recorded rev count (design D6). An LKO parking rev
+        // is ~32-45 min, so +10 bounds the added per-cycle dead time to roughly 5-7 hours (about one
+        // pad day); a phase unreachable within +10 revs is usually reachable at one of the NEXT pad
+        // windows instead (the outer scan compensates). A constant, not a setting.
+        internal const int MaxExtraLoiterRevs = 10;
+
         // Hard safety cap on cached schedule launches, a CPU valve against a pathological tiny
         // dominant period (malformed body data) that would otherwise generate astronomically many
         // launches. Far above any realistic within-tolerance launch count over a long game. On hit,
@@ -971,7 +978,39 @@ namespace Parsek
             long kStart, int lookaheadMultiples,
             out long foundK, out double residualSeconds, out bool withinTolerance)
         {
+            return TryFindNextScheduleK(
+                anchorPeriod, otherPeriods, otherTolerances,
+                null, null, 0.0, 0, 0,
+                kStart, lookaheadMultiples,
+                out foundK, out _, out residualSeconds, out withinTolerance);
+        }
+
+        /// <summary>
+        /// The phasing-knob scan (M4b, docs/dev/plans/mission-loiter-knob.md section 3.3): like the
+        /// base overload, but with a second SHIFTABLE constraint group whose events the per-cycle
+        /// loiter re-time moves by <c>d * shiftStepSeconds</c> (d = kept revs minus recorded revs).
+        /// Per candidate k the UNSHIFTABLE group is evaluated at <c>k * anchorPeriod</c> exactly as
+        /// today, then d is enumerated in [<paramref name="shiftMin"/>, <paramref name="shiftMax"/>]
+        /// by |d| ascending with d &lt; 0 first on magnitude ties (prefer the cut - the shorter
+        /// cycle): the shiftable residual at (k, d) is
+        /// <c>max_j CircularPhaseError(k*anchorPeriod + d*shiftStepSeconds, shiftPeriods[j])</c>.
+        /// Accept the first k where BOTH groups pass (short-circuiting the inner loop on the first
+        /// in-tolerance d); else the bounded-best (k, d) minimizing
+        /// <c>max(worstUnshift, min_d worstShift)</c> with ties to the earlier k then the smaller
+        /// |d|. An empty/degenerate shiftable group reduces EXACTLY to the base scan
+        /// (<paramref name="foundShiftRevs"/> = 0). Pure.
+        /// </summary>
+        internal static bool TryFindNextScheduleK(
+            double anchorPeriod,
+            IReadOnlyList<double> otherPeriods, IReadOnlyList<double> otherTolerances,
+            IReadOnlyList<double> shiftPeriods, IReadOnlyList<double> shiftTolerances,
+            double shiftStepSeconds, long shiftMin, long shiftMax,
+            long kStart, int lookaheadMultiples,
+            out long foundK, out long foundShiftRevs,
+            out double residualSeconds, out bool withinTolerance)
+        {
             foundK = 0;
+            foundShiftRevs = 0;
             residualSeconds = double.NaN;
             withinTolerance = false;
             if (double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod) || anchorPeriod <= 0.0)
@@ -980,7 +1019,13 @@ namespace Parsek
                 return false;
 
             int count = otherPeriods?.Count ?? 0;
+            int shiftCount = shiftPeriods?.Count ?? 0;
+            bool knob = shiftCount > 0
+                && !double.IsNaN(shiftStepSeconds) && !double.IsInfinity(shiftStepSeconds)
+                && shiftStepSeconds > 0.0
+                && shiftMax >= shiftMin;
             long bestK = -1;
+            long bestShift = 0;
             double bestResidual = double.PositiveInfinity;
 
             for (int step = 0; step < lookaheadMultiples; step++)
@@ -999,22 +1044,77 @@ namespace Parsek
                     if (err > tol)
                         allWithin = false;
                 }
-                if (allWithin)
+
+                long chosenShift = 0;
+                bool shiftWithin = true;
+                double worstShiftAtChosen = 0.0;
+                if (knob)
+                {
+                    shiftWithin = false;
+                    worstShiftAtChosen = double.PositiveInfinity;
+                    // |d| ascending, d < 0 before d > 0 at equal magnitude: the smallest timeline
+                    // change wins, and on a magnitude tie the CUT (shorter cycle, less dead time)
+                    // beats the extension. Short-circuits on the first in-tolerance d; the strict <
+                    // on the bounded-best update preserves the same preference order when none fits.
+                    long maxMag = Math.Max(Math.Abs(shiftMin), Math.Abs(shiftMax));
+                    for (long mag = 0; mag <= maxMag && !shiftWithin; mag++)
+                    {
+                        for (int sign = 0; sign < 2; sign++)
+                        {
+                            long d = sign == 0 ? -mag : mag;
+                            if (mag == 0 && sign == 1)
+                                continue; // d = 0 once
+                            if (d < shiftMin || d > shiftMax)
+                                continue;
+                            double shifted = delta + d * shiftStepSeconds;
+                            double worstShift = 0.0;
+                            bool allShiftWithin = true;
+                            for (int j = 0; j < shiftCount; j++)
+                            {
+                                double err = CircularPhaseError(shifted, shiftPeriods[j]);
+                                if (err > worstShift)
+                                    worstShift = err;
+                                double tol = (shiftTolerances != null && j < shiftTolerances.Count)
+                                    ? shiftTolerances[j] : 0.0;
+                                if (err > tol)
+                                    allShiftWithin = false;
+                            }
+                            if (allShiftWithin)
+                            {
+                                chosenShift = d;
+                                worstShiftAtChosen = worstShift;
+                                shiftWithin = true;
+                                break;
+                            }
+                            if (worstShift < worstShiftAtChosen)
+                            {
+                                worstShiftAtChosen = worstShift;
+                                chosenShift = d;
+                            }
+                        }
+                    }
+                }
+
+                double worstCombined = Math.Max(worst, knob ? worstShiftAtChosen : 0.0);
+                if (allWithin && shiftWithin)
                 {
                     foundK = k;
-                    residualSeconds = worst;
+                    foundShiftRevs = chosenShift;
+                    residualSeconds = worstCombined;
                     withinTolerance = true;
                     return true;
                 }
-                if (worst < bestResidual)
+                if (worstCombined < bestResidual)
                 {
-                    bestResidual = worst;
+                    bestResidual = worstCombined;
                     bestK = k;
+                    bestShift = chosenShift;
                 }
             }
 
             // No within-tolerance k in the window: the bounded-best (min absolute residual) launch.
             foundK = bestK < 0 ? kStart : bestK;
+            foundShiftRevs = bestK < 0 ? 0 : bestShift;
             residualSeconds = double.IsPositiveInfinity(bestResidual) ? 0.0 : bestResidual;
             withinTolerance = false;
             return true;
@@ -1122,7 +1222,8 @@ namespace Parsek
             out MissionRelaunchSchedule schedule,
             double minSpacingSeconds = 0.0,
             string launchBodyName = null,
-            TransitedBodyRotationMode mode = TransitedBodyRotationMode.Tight)
+            TransitedBodyRotationMode mode = TransitedBodyRotationMode.Tight,
+            PhasingKnobInput knobInput = null)
         {
             schedule = null;
             if (support != Support.Supported)
@@ -1163,8 +1264,28 @@ namespace Parsek
             if (double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod) || anchorPeriod <= 0.0)
                 return false;
 
+            // M4b phasing-knob partition rules 3/4 (docs/dev/plans/mission-loiter-knob.md section
+            // 3.2), evaluated on the SAME post-Drop effective list / anchor / mode-adjusted
+            // tolerances the schedule itself uses. Rule 3: the anchor's reference event must lie
+            // BEFORE the phasing run starts (the anchor is pinned exactly at k*T_anchor; an event
+            // after the loiter would be moved off that pin by the rev shift). Failing a rule
+            // disengages the knob and builds the schedule exactly as today (fail closed).
+            bool knobEligible = knobInput != null;
+            string knobDisengageReason = null;
+            if (knobEligible)
+            {
+                double anchorEventUT = ut0 + effective[anchorIdx].PhaseOffsetSeconds;
+                if (!(anchorEventUT < knobInput.RunStartUT - 1e-6))
+                {
+                    knobEligible = false;
+                    knobDisengageReason = "anchor constraint's reference event is not before the phasing run";
+                }
+            }
+
             var periods = new List<double>(effective.Count - 1);
             var tolerances = new List<double>(effective.Count - 1);
+            var shiftPeriods = new List<double>();
+            var shiftTolerances = new List<double>();
             int filtered = 0;
             bool anyDistinct = false;
             for (int i = 0; i < effective.Count; i++)
@@ -1177,8 +1298,20 @@ namespace Parsek
                     filtered++;
                     continue;
                 }
-                periods.Add(p);
-                tolerances.Add(ScheduleToleranceSecondsFor(effective[i], bodyInfo, launchBodyName, mode));
+                double tol = ScheduleToleranceSecondsFor(effective[i], bodyInfo, launchBodyName, mode);
+                // Shiftable (plan 3.2): the constraint's reference event is at or after the phasing
+                // run end, so the per-launch rev shift moves it by d*T_park. Everything earlier
+                // (the pad, a pre-loiter event) is evaluated at the launch exactly as today.
+                if (knobEligible && ut0 + effective[i].PhaseOffsetSeconds >= knobInput.RunEndUT - 1e-6)
+                {
+                    shiftPeriods.Add(p);
+                    shiftTolerances.Add(tol);
+                }
+                else
+                {
+                    periods.Add(p);
+                    tolerances.Add(tol);
+                }
                 if (Math.Abs(p - anchorPeriod) > PeriodEqualityRelTolerance * Math.Max(1.0, anchorPeriod))
                     anyDistinct = true;
             }
@@ -1189,14 +1322,59 @@ namespace Parsek
                     "non-anchor constraint(s) with a degenerate (NaN/non-positive) period; they are not " +
                     "scheduled (bad body data?)");
 
+            // Rule 4: at least one shiftable constraint, else d has nothing to serve.
+            if (knobEligible && shiftPeriods.Count == 0)
+            {
+                knobEligible = false;
+                knobDisengageReason = "no shiftable constraint (no reference event after the phasing run)";
+            }
+            if (knobInput != null && !knobEligible && !SuppressLogging)
+                ParsekLog.Verbose("MissionPeriodicity",
+                    $"phasing knob disengaged: {knobDisengageReason}; schedule built without it");
+
+            PhasingKnobConfig knobConfig = null;
+            if (knobEligible)
+            {
+                knobConfig = new PhasingKnobConfig
+                {
+                    RunStartUT = knobInput.RunStartUT,
+                    RunEndUT = knobInput.RunEndUT,
+                    PeriodSeconds = knobInput.PeriodSeconds,
+                    RecordedRevs = knobInput.RecordedRevs,
+                    StaticCuts = knobInput.StaticCuts,
+                    SpanSeconds = knobInput.SpanSeconds,
+                    ShiftPeriods = shiftPeriods.ToArray(),
+                    ShiftTolerances = shiftTolerances.ToArray(),
+                    ShiftMin = 1 - knobInput.RecordedRevs,
+                    ShiftMax = MaxExtraLoiterRevs,
+                };
+                if (!SuppressLogging)
+                {
+                    var kic = CultureInfo.InvariantCulture;
+                    ParsekLog.Verbose("MissionPeriodicity",
+                        $"phasing knob engaged: run=[{knobInput.RunStartUT.ToString("F0", kic)}," +
+                        $"{knobInput.RunEndUT.ToString("F0", kic)}] " +
+                        $"T={knobInput.PeriodSeconds.ToString("F1", kic)}s " +
+                        $"R={knobInput.RecordedRevs.ToString(kic)} " +
+                        $"staticCuts={(knobInput.StaticCuts?.Count ?? 0).ToString(kic)} " +
+                        $"shiftable={shiftPeriods.Count.ToString(kic)} " +
+                        $"keptRevsBounds=[1,{(knobInput.RecordedRevs + MaxExtraLoiterRevs).ToString(kic)}]");
+                }
+            }
+
             // No valid distinct-period other constraint -> single-constraint / tidal-collapse:
             // a uniform schedule == today's fixed cadence, so no schedule (keep fixed cadence).
-            if (periods.Count == 0 || !anyDistinct)
+            // With the knob engaged the shiftable group counts: a pad + station mission has its
+            // only other constraint in the SHIFT group, and the schedule is exactly what gives the
+            // knob its per-window seam.
+            if ((periods.Count == 0 && shiftPeriods.Count == 0) || !anyDistinct)
                 return false;
+            if (periods.Count == 0 && knobConfig == null)
+                return false; // shiftable-only without an engaged knob is the old empty-others case
 
             var candidate = new MissionRelaunchSchedule(
                 ut0, anchorPeriod, periods.ToArray(), tolerances.ToArray(), floorUT,
-                ScheduleLookaheadMultiples, minSpacingSeconds);
+                ScheduleLookaheadMultiples, minSpacingSeconds, knobConfig);
             if (double.IsNaN(candidate.FirstLaunchUT))
                 return false; // could not resolve a first launch (degenerate)
 
@@ -2008,6 +2186,65 @@ namespace Parsek
     /// (0 = every faithful window = the maximum cadence). See
     /// docs/dev/plans/zero-drift-reschedule.md section 3.
     /// </summary>
+    /// <summary>
+    /// Builder-side input for the M4b phasing-loiter knob: the detected phasing run (the LAST
+    /// compressible parking loiter ending before the rendezvous/SOI guard), the static cuts for
+    /// EARLIER compressible runs (keepRevs = 1, identical every launch), and the recorded span
+    /// (for the per-launch non-overlap spacing). Built by MissionLoopUnitBuilder after its
+    /// engagement checks; <see cref="MissionPeriodicity.TryBuildRelaunchSchedule"/> turns it into a
+    /// <see cref="PhasingKnobConfig"/> by partitioning the constraint set (rules 3/4 of the plan).
+    /// </summary>
+    internal sealed class PhasingKnobInput
+    {
+        public double RunStartUT;
+        public double RunEndUT;
+        public double PeriodSeconds;     // T_park
+        public long RecordedRevs;        // R
+        public IReadOnlyList<GhostPlaybackLogic.LoopCut> StaticCuts; // earlier runs; sorted; all end before RunStartUT
+        public double SpanSeconds;       // recorded span duration (spacing under extension)
+    }
+
+    /// <summary>
+    /// The resolved knob configuration a <see cref="MissionRelaunchSchedule"/> solves with: the
+    /// phasing run plus the SHIFTABLE constraint partition (reference event after the run end, so a
+    /// loiter re-time of d revs moves it by d * T_park). Constructed only by
+    /// <see cref="MissionPeriodicity.TryBuildRelaunchSchedule"/> when every engagement rule holds.
+    /// </summary>
+    internal sealed class PhasingKnobConfig
+    {
+        public double RunStartUT;
+        public double RunEndUT;
+        public double PeriodSeconds;
+        public long RecordedRevs;
+        public IReadOnlyList<GhostPlaybackLogic.LoopCut> StaticCuts;
+        public double SpanSeconds;
+        public double[] ShiftPeriods;
+        public double[] ShiftTolerances;
+        public long ShiftMin;            // 1 - RecordedRevs (keep at least the final rev)
+        public long ShiftMax;            // +MaxExtraLoiterRevs
+    }
+
+    /// <summary>
+    /// Per-launch loop-clock timing for one scheduled launch of a knob-engaged mission: the kept
+    /// rev count k_N, the residual/tolerance verdict, and the PRECOMPUTED cut list + extension the
+    /// span clock applies for that launch. TRANSIENT like the schedule that owns it (never
+    /// persisted; rebuilt on every unit build). Cuts are recorded-UT windows (sorted ascending);
+    /// the extension wraps the LAST recorded rev of the phasing run, which is cut-free by
+    /// construction (the phasing cut exists only when d &lt; 0 and ends at least one whole rev
+    /// before the run end).
+    /// </summary>
+    internal struct LaunchTimingEntry
+    {
+        public long KeptRevs;                  // k_N = RecordedRevs + d
+        public double ResidualSeconds;         // combined worst residual at the chosen (k, d)
+        public bool WithinTolerance;
+        public IReadOnlyList<GhostPlaybackLogic.LoopCut> Cuts; // static cuts (+ phasing cut when d < 0)
+        public double ExtensionSeconds;        // d > 0 ? d * T_park : 0
+        public double ExtensionWrapStartUT;    // RunEndUT - T_park (recorded; valid when ExtensionSeconds > 0)
+        public double ExtensionWrapPeriod;     // T_park
+        public double EffectiveSpanSeconds;    // span - totalCut + extension (per-launch spacing)
+    }
+
     internal sealed class MissionRelaunchSchedule
     {
         // Eagerly probe this many launches at construction to determine MinIntervalSeconds (the
@@ -2026,6 +2263,11 @@ namespace Parsek
         private readonly double floorUT;
         private readonly int lookaheadMultiples;
         private readonly double minSpacing;   // player throttle: relaunches are >= this far apart
+
+        // M4b phasing-loiter knob: when non-null, every launch is resolved with the shiftable-group
+        // scan and materializes a LaunchTimingEntry in `timings` (index-aligned with `launches`).
+        private readonly PhasingKnobConfig knob;
+        private readonly List<LaunchTimingEntry> timings = new List<LaunchTimingEntry>();
 
         // Cached relaunch UTs in increasing order (launches[0] == FirstLaunchUT). Grown on demand.
         private readonly List<double> launches = new List<double>();
@@ -2090,7 +2332,8 @@ namespace Parsek
         internal MissionRelaunchSchedule(
             double ut0, double anchorPeriod,
             double[] otherPeriods, double[] otherTolerances,
-            double floorUT, int lookaheadMultiples, double minSpacingSeconds = 0.0)
+            double floorUT, int lookaheadMultiples, double minSpacingSeconds = 0.0,
+            PhasingKnobConfig knobConfig = null)
         {
             this.ut0 = ut0;
             this.anchorPeriod = anchorPeriod;
@@ -2099,6 +2342,7 @@ namespace Parsek
             this.floorUT = floorUT;
             this.lookaheadMultiples = lookaheadMultiples;
             this.minSpacing = (double.IsNaN(minSpacingSeconds) || minSpacingSeconds < 0.0) ? 0.0 : minSpacingSeconds;
+            this.knob = knobConfig;
             FirstLaunchUT = double.NaN;
             MinIntervalSeconds = double.NaN;
 
@@ -2112,9 +2356,7 @@ namespace Parsek
             long kFloor = (long)Math.Ceiling((floorUT - ut0) / anchorPeriod - 1e-6);
             if (kFloor < 1)
                 kFloor = 1;
-            if (!MissionPeriodicity.TryFindNextScheduleK(
-                    anchorPeriod, this.otherPeriods, this.otherTolerances,
-                    kFloor, lookaheadMultiples, out long k0, out double r0, out bool w0))
+            if (!ResolveLaunch(kFloor, out long k0, out double r0, out bool w0))
                 return;
             launches.Add(ut0 + k0 * anchorPeriod);
             lastK = k0;
@@ -2162,18 +2404,122 @@ namespace Parsek
                 }
                 return false;
             }
-            // Throttle: skip ahead so the next launch is >= lastLaunch + minSpacing, snapped to the
-            // anchor grid; then search forward for the next faithful window from there.
+            // Throttle: skip ahead so the next launch is >= lastLaunch + max(minSpacing,
+            // effSpan_last), snapped to the anchor grid; then search forward for the next faithful
+            // window from there. The effSpan_last term is the M4b non-overlap guarantee under loiter
+            // EXTENSION: minSpacing >= span covers cut-only launches (effSpan <= span), but an
+            // extended launch's cycle runs past the recorded span, so the next launch must also
+            // clear the prior entry's per-launch effective span. Knob-less schedules have no
+            // timings and keep the pure-minSpacing throttle byte-identical.
+            double spacing = minSpacing;
+            if (timings.Count == launches.Count && timings.Count > 0)
+            {
+                double effSpanLast = timings[timings.Count - 1].EffectiveSpanSeconds;
+                if (!double.IsNaN(effSpanLast) && effSpanLast > spacing)
+                    spacing = effSpanLast;
+            }
             long throttleK = (long)Math.Ceiling(
-                (launches[launches.Count - 1] + minSpacing - ut0) / anchorPeriod - 1e-9);
+                (launches[launches.Count - 1] + spacing - ut0) / anchorPeriod - 1e-9);
             long kStart = Math.Max(lastK + 1, throttleK);
-            if (!MissionPeriodicity.TryFindNextScheduleK(
-                    anchorPeriod, otherPeriods, otherTolerances,
-                    kStart, lookaheadMultiples, out long k, out double resid, out bool within))
+            if (!ResolveLaunch(kStart, out long k, out double resid, out bool within))
                 return false;
             launches.Add(ut0 + k * anchorPeriod);
             lastK = k;
             FoldLaunchTolerance(resid, within);  // R3: account this launch's tolerance
+            return true;
+        }
+
+        // Resolves the next launch from kStart: knob-less schedules run the base scan; a
+        // knob-engaged schedule runs the shiftable-group scan and materializes the chosen
+        // per-launch timing entry (index-aligned with `launches` - the caller appends the launch
+        // right after this returns true). Pure apart from the rate-limited per-window Verbose.
+        private bool ResolveLaunch(long kStart, out long k, out double resid, out bool within)
+        {
+            if (knob == null)
+            {
+                return MissionPeriodicity.TryFindNextScheduleK(
+                    anchorPeriod, otherPeriods, otherTolerances,
+                    kStart, lookaheadMultiples, out k, out resid, out within);
+            }
+            if (!MissionPeriodicity.TryFindNextScheduleK(
+                    anchorPeriod, otherPeriods, otherTolerances,
+                    knob.ShiftPeriods, knob.ShiftTolerances,
+                    knob.PeriodSeconds, knob.ShiftMin, knob.ShiftMax,
+                    kStart, lookaheadMultiples,
+                    out k, out long d, out resid, out within))
+                return false;
+            timings.Add(BuildTimingEntry(d, resid, within));
+            if (!MissionPeriodicity.SuppressLogging)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.VerboseRateLimited(
+                    "MissionPeriodicity",
+                    // One key per mission (ut0 + anchor identity): bounded by mission count.
+                    $"knob-window.{ut0.ToString("R", ic)}.{anchorPeriod.ToString("R", ic)}",
+                    $"knob window: launch#{launches.Count.ToString(ic)} k={k.ToString(ic)} " +
+                    $"d={d.ToString(ic)} keptRevs={(knob.RecordedRevs + d).ToString(ic)} " +
+                    $"residual={resid.ToString("F1", ic)}s within={within.ToString(ic)}");
+            }
+            return true;
+        }
+
+        // Materializes the per-launch timing for a chosen rev shift d: static cuts plus the phasing
+        // cut for d < 0 (appended - static cuts all end before the phasing run starts, so order is
+        // preserved), or the last-rev extension for d > 0 (the wrap window [RunEnd - T, RunEnd) is
+        // cut-free by construction). EffectiveSpanSeconds drives the per-launch spacing and the
+        // clock's tail boundary.
+        private LaunchTimingEntry BuildTimingEntry(long d, double residualSeconds, bool withinTolerance)
+        {
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> cuts = knob.StaticCuts;
+            double extension = 0.0;
+            if (d < 0)
+            {
+                var merged = new List<GhostPlaybackLogic.LoopCut>(
+                    (knob.StaticCuts?.Count ?? 0) + 1);
+                if (knob.StaticCuts != null)
+                    merged.AddRange(knob.StaticCuts);
+                merged.Add(new GhostPlaybackLogic.LoopCut
+                {
+                    StartUT = knob.RunStartUT,
+                    LengthSeconds = -d * knob.PeriodSeconds,
+                });
+                cuts = merged;
+            }
+            else if (d > 0)
+            {
+                extension = d * knob.PeriodSeconds;
+            }
+            double totalCut = GhostPlaybackLogic.TotalCutLength(cuts);
+            return new LaunchTimingEntry
+            {
+                KeptRevs = knob.RecordedRevs + d,
+                ResidualSeconds = residualSeconds,
+                WithinTolerance = withinTolerance,
+                Cuts = cuts,
+                ExtensionSeconds = extension,
+                ExtensionWrapStartUT = knob.RunEndUT - knob.PeriodSeconds,
+                ExtensionWrapPeriod = knob.PeriodSeconds,
+                EffectiveSpanSeconds = knob.SpanSeconds - totalCut + extension,
+            };
+        }
+
+        /// <summary>True when this schedule was built with the M4b phasing-loiter knob (per-launch
+        /// timing entries exist for every cached launch).</summary>
+        internal bool HasPhasingKnob => knob != null;
+
+        /// <summary>
+        /// The per-launch loop-clock timing for schedule entry <paramref name="cycleIndex"/> (the
+        /// index <see cref="TryResolveActiveLaunch"/> returns). False for knob-less schedules and
+        /// out-of-range indices - the span clock then runs the plain scheduled path. The entry for
+        /// any index resolved by TryResolveActiveLaunch always exists (timings grow in lockstep
+        /// with the launch cache).
+        /// </summary>
+        internal bool TryGetLaunchTiming(long cycleIndex, out LaunchTimingEntry entry)
+        {
+            entry = default;
+            if (knob == null || cycleIndex < 0 || cycleIndex >= timings.Count)
+                return false;
+            entry = timings[(int)cycleIndex];
             return true;
         }
 
@@ -2184,6 +2530,20 @@ namespace Parsek
         // the all-within flag. See docs/dev/plans/zero-drift-reschedule-hardening.md section 6 R2/R3.
         private void FoldLaunchTolerance(double residualSeconds, bool withinTolerance)
         {
+            // M4b amber transition: the first knob-engaged launch that falls to bounded-best (the
+            // phase target unreachable within the rev bounds at every k in the lookahead) logs ONCE
+            // at Info (the flag only ever flips true -> false, so this fires at most once per
+            // schedule build). Knob-less schedules keep today's silent fold.
+            if (!withinTolerance && allLaunchesWithinTolerance && knob != null
+                && !MissionPeriodicity.SuppressLogging)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.Info("MissionPeriodicity",
+                    "phasing knob: a scheduled launch could not reach the shiftable phase target " +
+                    $"within keptRevs bounds [1, {(knob.RecordedRevs + knob.ShiftMax).ToString(ic)}] " +
+                    $"(residual={residualSeconds.ToString("F1", ic)}s); launching bounded-best - " +
+                    "the T- cell tints amber");
+            }
             if (!withinTolerance)
                 allLaunchesWithinTolerance = false;
             if (!double.IsNaN(residualSeconds) && !double.IsInfinity(residualSeconds)

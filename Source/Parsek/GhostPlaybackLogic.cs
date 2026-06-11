@@ -7159,6 +7159,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Effective-span phase -&gt; compressed-span phase under an M4b loiter EXTENSION of
+        /// <paramref name="extLen"/> seconds inserted at compressed-span phase position
+        /// <paramref name="insertPos"/> (the start of the phasing run's LAST recorded rev). Unlike
+        /// the arrival hold (which freezes the ghost at a boundary), the inserted dead time WRAPS
+        /// the final recorded parking rev: within the window the phase maps to
+        /// <c>insertPos + ((phase - insertPos) mod wrapPeriod)</c>, so the ghost keeps orbiting the
+        /// same closed orbit (whole-rev sawtooth, position-/velocity-continuous at every seam);
+        /// after the window the phase resumes shifted EARLIER by extLen and the final rev plays
+        /// once more for real before exiting the loiter. extLen is a whole multiple of
+        /// <paramref name="wrapPeriod"/> by construction (d * T_park), so the exit seam is exact.
+        /// Identity for a non-positive/NaN extension or degenerate inputs. Pure.
+        /// </summary>
+        internal static double ApplyLoiterExtensionToPhase(
+            double phase, double insertPos, double extLen, double wrapPeriod)
+        {
+            if (double.IsNaN(extLen) || extLen <= 0.0
+                || double.IsNaN(insertPos)
+                || double.IsNaN(wrapPeriod) || double.IsInfinity(wrapPeriod) || wrapPeriod <= 0.0)
+                return phase;
+            if (phase <= insertPos)
+                return phase;                            // before the loiter tail: identity
+            if (phase < insertPos + extLen)
+                return insertPos + ((phase - insertPos) % wrapPeriod); // wrapping the final rev
+            return phase - extLen;                       // after the extension: recorded, deferred
+        }
+
+        /// <summary>
         /// Span loop clock for a chain-loop unit. Walks a single loop phase over the whole
         /// unit span [<paramref name="spanStartUT"/>, <paramref name="spanEndUT"/>] and
         /// returns the <paramref name="loopUT"/> inside that span plus the 0-based unit cycle
@@ -7169,8 +7196,11 @@ namespace Parsek
         /// <paramref name="loiterCuts"/> (re-aim only) excises whole-period loiters: the phase then wraps
         /// over the COMPRESSED span (<c>span - totalCut</c>) and the clamped compressed phase is remapped
         /// to a recorded loopUT that SKIPS the cut intervals. Null/empty cuts =&gt; byte-identical to the
-        /// pre-compression clock (every non-re-aim caller). Only the uniform path honors cuts; the
-        /// <paramref name="schedule"/> path ignores them (re-aim always passes schedule = null).
+        /// pre-compression clock (every non-re-aim caller). Only the uniform path honors the STATIC
+        /// <paramref name="loiterCuts"/> list; the <paramref name="schedule"/> path ignores it (re-aim
+        /// always passes schedule = null). A knob-engaged schedule instead carries its OWN per-launch
+        /// cuts/extension (<see cref="MissionRelaunchSchedule.TryGetLaunchTiming"/>, M4b), which the
+        /// schedule branch applies per launch.
         ///
         /// The cadence is clamped to <see cref="LoopTiming.MinCycleDuration"/> INSIDE this
         /// helper (edge 14): the span clock does NOT route through ResolveLoopInterval, so it
@@ -7260,6 +7290,31 @@ namespace Parsek
                 if (scheduledPhase < 0.0)
                     scheduledPhase = 0.0;
                 cycleIndex = sIdx;
+
+                // M4b phasing-loiter knob (docs/dev/plans/mission-loiter-knob.md section 4.1): a
+                // knob-engaged schedule carries PER-LAUNCH timing - this launch's loiter cuts and
+                // (for an extended loiter) the last-rev wrap. The phase runs over the per-launch
+                // EFFECTIVE span (span - cuts + extension), maps through the extension wrap, and
+                // decompresses through the cuts to the recorded loopUT. Knob-less schedules (no
+                // entry) keep the plain path below byte-identical. This is the sanctioned
+                // schedule+cuts composition; the INV-3 guard above still flags the UNSANCTIONED
+                // pairing (a schedule with the static LoopUnit.LoiterCuts list / arrival hold).
+                if (schedule.TryGetLaunchTiming(sIdx, out LaunchTimingEntry timing))
+                {
+                    double effSpan = span - TotalCutLength(timing.Cuts) + timing.ExtensionSeconds;
+                    if (effSpan <= 0.0)
+                        effSpan = span; // defensive: a degenerate entry never bricks the clock
+                    isInInterCycleTail = (scheduledPhase >= effSpan);
+                    double clamped = scheduledPhase >= effSpan ? effSpan : scheduledPhase;
+                    double insertPos = timing.ExtensionSeconds > 0.0
+                        ? CompressSpanUT(timing.ExtensionWrapStartUT, timing.Cuts) - spanStartUT
+                        : double.NaN;
+                    double wrapped = ApplyLoiterExtensionToPhase(
+                        clamped, insertPos, timing.ExtensionSeconds, timing.ExtensionWrapPeriod);
+                    loopUT = DecompressSpanUT(spanStartUT + wrapped, timing.Cuts);
+                    return true;
+                }
+
                 isInInterCycleTail = (scheduledPhase >= span);
                 loopUT = spanStartUT + (scheduledPhase >= span ? span : scheduledPhase);
                 return true;

@@ -1,6 +1,6 @@
 # M4b - The phasing-loiter knob (per-cycle keepRevs re-timer)
 
-Status: PLANNED. Parent design: `docs/dev/design-mission-phasing-alignment.md` section 4
+Status: IMPLEMENTED (2026-06-11, branch `mission-loiter-knob`). The RouteLoopClock audit (section 6) found `IsDockCrossing` sawtooth-safe as-is (the dock lies past the guard, so the dock cycle index holds during the wrap; pinned by `RouteDockCrossing_ExtensionSawtooth_FiresOncePerCycle`); the in-game piece ships the Unity-bound `TryGetVesselOrbit` tests (MissionPhasing category), with the schedule/clock logic covered headless per the section-7 fallback. Parent design: `docs/dev/design-mission-phasing-alignment.md` section 4
 (decisions D4/D5/D6) and section 9 (build order M4a -> M4b -> M4c). M4a (`VesselOrbital`
 Tier 1, PR #1119) is merged; alignment is structurally correct but RARE (~0.5% of pad
 windows meet the 1-degree station tolerance; the 2026-06-11 playtest's first window was
