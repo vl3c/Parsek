@@ -649,6 +649,23 @@ namespace Parsek
                     string.Equals(normalizedPrefabName, "fx_exhaustFlame_white", System.StringComparison.OrdinalIgnoreCase);
 
                 GameObject fxPrefab = GhostVisualBuilder.FindFxPrefab(prefabName);
+                if (fxPrefab == null && WaterfallCompat.PartHasWaterfallModule(prefab))
+                {
+                    // Waterfall-patched part: the exact prefab's donors may all be patched
+                    // away (e.g. the hardcoded Rhino/Puff/Vector supplements name
+                    // size-suffixed flames). Try the family-base cascade before giving up.
+                    List<string> candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(prefabName);
+                    for (int c = 1; c < candidates.Count && fxPrefab == null; c++)
+                    {
+                        fxPrefab = GhostVisualBuilder.FindFxPrefab(candidates[c]);
+                        if (fxPrefab != null)
+                        {
+                            LogHotPathVerbose($"prefab-cascade-{partName}-{moduleIndex}-{prefabName}",
+                                $"waterfall fallback: '{partName}' midx={moduleIndex} " +
+                                $"cascaded prefab '{prefabName}' -> '{candidates[c]}'");
+                        }
+                    }
+                }
                 if (fxPrefab == null)
                 {
                     LogHotPathVerbose($"prefab-missing-{partName}-{moduleIndex}-{prefabName}",
