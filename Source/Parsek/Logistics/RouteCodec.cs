@@ -115,6 +115,20 @@ namespace Parsek.Logistics
                 node.AddValue("dispatchPriority",
                     Route.ClampPriority(route.DispatchPriority).ToString(ic));
 
+            // Sparse last-hold reason (M6 hold reasons): None / null / 0 / -1
+            // are the "no hold recorded" defaults, so each field is omitted at
+            // its default and a never-held route writes nothing. The kind is
+            // enum-by-name (unknown strings load back as None via
+            // ParseHoldKindOrNone, mirroring ParseStatusOrWarn).
+            if (route.LastHoldKind != RouteDispatchEvaluator.EligibilityFailureKind.None)
+                node.AddValue("lastHoldKind", route.LastHoldKind.ToString());
+            if (!string.IsNullOrEmpty(route.LastHoldDetail))
+                node.AddValue("lastHoldDetail", route.LastHoldDetail);
+            if (route.LastHoldShortfall > 0.0)
+                node.AddValue("lastHoldShortfall", route.LastHoldShortfall.ToString("R", ic));
+            if (route.LastHoldUT >= 0.0)
+                node.AddValue("lastHoldUT", route.LastHoldUT.ToString("R", ic));
+
             // --- Backing-mission definition (Phase 1) ---
             if (!string.IsNullOrEmpty(route.BackingMissionTreeId))
                 node.AddValue("backingMissionTreeId", route.BackingMissionTreeId);
@@ -254,6 +268,16 @@ namespace Parsek.Logistics
             // hand-edited negative save never lands a sub-floor priority.
             TryParseInt(node.GetValue("dispatchPriority"), ic, 0, out int priority);
             route.DispatchPriority = Route.ClampPriority(priority);
+
+            // Sparse last-hold reason (M6 hold reasons): absent keys read the
+            // "no hold recorded" defaults (None / null / 0 / -1); an unknown
+            // kind string maps to None with a warn (mirrors ParseStatusOrWarn).
+            route.LastHoldKind = ParseHoldKindOrNone(node.GetValue("lastHoldKind"), route.Id);
+            route.LastHoldDetail = node.GetValue("lastHoldDetail");
+            if (string.IsNullOrEmpty(route.LastHoldDetail))
+                route.LastHoldDetail = null;
+            TryParseDouble(node.GetValue("lastHoldShortfall"), inv, ic, out route.LastHoldShortfall);
+            TryParseDoubleWithDefault(node.GetValue("lastHoldUT"), inv, ic, -1.0, out route.LastHoldUT);
 
             // --- Backing-mission definition (Phase 1) ---
             // A missing backing-mission definition does NOT reject the route —
@@ -681,6 +705,31 @@ namespace Parsek.Logistics
                 $"DeserializeFrom: unknown status='{raw}' on route id={routeIdForLog ?? "<no-id>"}; " +
                 "mapping to Active. Next dispatch revalidation will re-derive a safer status if needed.");
             return RouteStatus.Active;
+        }
+
+        /// <summary>
+        /// Parses the sparse <c>lastHoldKind</c> value (M6 hold reasons).
+        /// Absent / empty reads the None default; an unknown string maps to
+        /// None with a warn (the hold simply reads as cleared), mirroring
+        /// <see cref="ParseStatusOrWarn"/> so future enum additions stay
+        /// forward-compatible.
+        /// </summary>
+        private static RouteDispatchEvaluator.EligibilityFailureKind ParseHoldKindOrNone(
+            string raw, string routeIdForLog)
+        {
+            if (string.IsNullOrEmpty(raw))
+                return RouteDispatchEvaluator.EligibilityFailureKind.None;
+
+            if (Enum.TryParse(raw, out RouteDispatchEvaluator.EligibilityFailureKind kind)
+                && Enum.IsDefined(typeof(RouteDispatchEvaluator.EligibilityFailureKind), kind))
+            {
+                return kind;
+            }
+
+            ParsekLog.Warn(Tag,
+                $"DeserializeFrom: unknown lastHoldKind='{raw}' on route id={routeIdForLog ?? "<no-id>"}; " +
+                "mapping to None (the hold reads as cleared).");
+            return RouteDispatchEvaluator.EligibilityFailureKind.None;
         }
 
         private static RouteConnectionKind ParseConnectionKind(string raw)

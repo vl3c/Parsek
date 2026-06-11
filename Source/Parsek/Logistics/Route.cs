@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek.Logistics
 {
@@ -183,6 +185,46 @@ namespace Parsek.Logistics
         /// </summary>
         public int SkippedCycles;
 
+        // --- Last hold reason (M6 hold reasons) ---
+
+        /// <summary>
+        /// Eligibility-failure kind of the most recent hold (a blocked loop
+        /// crossing, a legacy wait/endpoint-lost transition, or an
+        /// endpoint-lost-at-delivery); <see
+        /// cref="RouteDispatchEvaluator.EligibilityFailureKind.None"/> when no
+        /// hold is recorded. Written via <see cref="RecordHold"/>, reset via
+        /// <see cref="ClearHold"/> (eligible crossing, legacy dispatch, player
+        /// Activate). Persisted sparsely by <see cref="RouteCodec"/> (omitted
+        /// at the None default; serialized by NAME so an unknown future value
+        /// loads back as None).
+        /// </summary>
+        public RouteDispatchEvaluator.EligibilityFailureKind LastHoldKind =
+            RouteDispatchEvaluator.EligibilityFailureKind.None;
+
+        /// <summary>
+        /// Raw evaluator reason token of the most recent hold, VERBATIM (e.g. a
+        /// bare resource name, <c>funds-short</c>, <c>stop-0-no-live-vessels</c>,
+        /// or a legacy-prefixed <c>origin-lacks-X</c>); null when no hold is
+        /// recorded. Player-language mapping happens in the UI formatter
+        /// (<c>LogisticsHoldPresentation</c>), never here. Sparse in the codec
+        /// (omitted when null/empty).
+        /// </summary>
+        public string LastHoldDetail;
+
+        /// <summary>
+        /// Funds shortfall of the most recent hold (FundsShort only); 0 for
+        /// every other kind. Sparse in the codec (omitted when not &gt; 0).
+        /// </summary>
+        public double LastHoldShortfall;
+
+        /// <summary>
+        /// UT at which the most recent hold was recorded; -1 when no hold is
+        /// recorded. Drives the display-side "checked {age} ago" suffix so a
+        /// reason held across a long warp reads as historical fact, not a live
+        /// claim. Sparse in the codec (omitted when &lt; 0).
+        /// </summary>
+        public double LastHoldUT = -1.0;
+
         // --- Backing-mission definition (design §0; Phase 1) ---
 
         /// <summary>
@@ -333,6 +375,59 @@ namespace Parsek.Logistics
             Status = next;
             ParsekLog.Info("Route",
                 $"Route {ShortIdForLog()} {prev}→{next} reason={reason ?? "<none>"}");
+        }
+
+        /// <summary>
+        /// Records the last hold reason (M6 hold reasons): writes the four
+        /// <c>LastHold*</c> fields in one place, keeping the audit-trail
+        /// discipline of <see cref="TransitionTo"/>. Logs Verbose ONLY when the
+        /// kind or detail changed - a route re-blocking on the same reason every
+        /// crossing refreshes the UT silently (no per-crossing log spam).
+        /// Persisted across save/load by <see cref="RouteCodec"/>; cleared by
+        /// <see cref="ClearHold"/> on an eligible crossing, a legacy dispatch,
+        /// or a player Activate.
+        /// </summary>
+        internal void RecordHold(
+            RouteDispatchEvaluator.EligibilityFailureKind kind,
+            string detail,
+            double shortfall,
+            double ut)
+        {
+            bool changed = LastHoldKind != kind
+                || !string.Equals(LastHoldDetail, detail, StringComparison.Ordinal);
+            LastHoldKind = kind;
+            LastHoldDetail = detail;
+            LastHoldShortfall = shortfall;
+            LastHoldUT = ut;
+            if (changed)
+            {
+                ParsekLog.Verbose("Route",
+                    $"Route {ShortIdForLog()} hold recorded kind={kind} " +
+                    $"detail={detail ?? "<none>"} " +
+                    $"shortfall={shortfall.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"ut={ut.ToString("R", CultureInfo.InvariantCulture)}");
+            }
+        }
+
+        /// <summary>
+        /// Clears the last hold reason back to the "no hold recorded" defaults
+        /// (None / null / 0 / -1). Logs Verbose only when something was actually
+        /// cleared, so the per-crossing clear on a healthy route stays silent.
+        /// </summary>
+        internal void ClearHold(string reason)
+        {
+            bool hadHold = LastHoldKind != RouteDispatchEvaluator.EligibilityFailureKind.None
+                || LastHoldDetail != null
+                || LastHoldShortfall != 0.0
+                || LastHoldUT >= 0.0;
+            if (!hadHold)
+                return;
+            LastHoldKind = RouteDispatchEvaluator.EligibilityFailureKind.None;
+            LastHoldDetail = null;
+            LastHoldShortfall = 0.0;
+            LastHoldUT = -1.0;
+            ParsekLog.Verbose("Route",
+                $"Route {ShortIdForLog()} hold cleared reason={reason ?? "<none>"}");
         }
 
         private string ShortIdForLog()

@@ -167,6 +167,18 @@ namespace Parsek
             // O(actions) scan). Career + KSC-origin only: Applicable / CostKnown are
             // false otherwise and the detail draw path then renders nothing.
             public RouteRunCostCalculator.RouteRunCost RunCost;
+
+            // M6 hold reasons: the persisted last-hold reason rendered to player
+            // language on the ~1 Hz pass. HoldText is the full detail-panel line
+            // (including the "checked {age} ago" suffix); HoldShort is the
+            // one-clause status-cell tooltip augmentation. Both null when no
+            // hold is recorded OR the status is MissingSourceRecording /
+            // SourceChanged (LogisticsHoldPresentation.ShouldDisplayHold - those
+            // statuses already explain themselves). The cache-miss default in
+            // GetLegibility leaves both null, so a not-yet-refreshed row never
+            // flashes a hold line.
+            public string HoldText;
+            public string HoldShort;
         }
 
         // Deferred mutations: collected during the draw loop and applied after the
@@ -741,18 +753,24 @@ namespace Parsek
             // (cyan "New (not yet run)") from a deliberately-paused one (grey "Paused"),
             // reading the classification cached in the ~1 Hz legibility pass; the H3
             // Delivery badge column stays grey "Paused" for both.
+            // M6 hold reasons: when the ~1 Hz cache holds a one-clause hold
+            // description, the tooltip gains it on a second line under the raw
+            // enum name. Visible cell text and styles are unchanged.
             if (section == RouteSection.Paused)
             {
                 GUIStyle pausedStyle = leg.PausedLabel == LogisticsDeliveryPresentation.PausedRouteLabel.New
                     ? statusStyleCyan
                     : statusStyleGrey;
                 GUILayout.Label(
-                    new GUIContent(leg.PausedLabelText ?? StatusReason(route.Status), route.Status.ToString()),
+                    new GUIContent(leg.PausedLabelText ?? StatusReason(route.Status),
+                        LogisticsHoldPresentation.StatusCellTooltip(route.Status, leg.HoldShort)),
                     pausedStyle, GUILayout.Width(ColW_Status));
             }
             else
             {
-                GUILayout.Label(new GUIContent(StatusReason(route.Status), route.Status.ToString()),
+                GUILayout.Label(
+                    new GUIContent(StatusReason(route.Status),
+                        LogisticsHoldPresentation.StatusCellTooltip(route.Status, leg.HoldShort)),
                     StatusStyleFor(route.Status), GUILayout.Width(ColW_Status));
             }
 
@@ -1187,6 +1205,14 @@ namespace Parsek
             string deliv = FormatRouteDelivery(route);
             DetailLine($"Delivers per cycle: {deliv}");
             DetailLine($"Status: {route.Status} - {StatusReason(route.Status)}");
+
+            // M6 hold reasons: the last recorded hold in player language, with
+            // how long ago it was checked. Conditioned ONLY on the cached
+            // leg.HoldText (never on live route.* state combined with it) so
+            // the IMGUI control count stays stable across Layout/Repaint while
+            // the ~1 Hz cache and the live route drift apart.
+            if (leg.HoldText != null)
+                DetailLine(leg.HoldText, statusStyleYellow);
 
             // M5: one-line ownership note whenever the route binds a tree (it always
             // does for a live route). Tells the player that creating this route
@@ -2216,6 +2242,7 @@ namespace Parsek
             int routeCount = routes?.Count ?? 0;
             int withCountdown = 0;
             int withDeliveries = 0;
+            int withHold = 0;
             for (int i = 0; i < routeCount; i++)
             {
                 Route route = routes[i];
@@ -2229,6 +2256,9 @@ namespace Parsek
                     withCountdown++;
                 if (leg.HasDeliveries)
                     withDeliveries++;
+                // M6 hold reasons: batch counter, one summary line below.
+                if (leg.HoldText != null)
+                    withHold++;
             }
             if (pruneArmed)
                 sendOnceArmedRouteIds.RemoveWhere(id => !stillArmed.Contains(id));
@@ -2236,7 +2266,8 @@ namespace Parsek
             ParsekLog.Verbose("UI",
                 $"Logistics legibility cache refreshed routes={routeCount.ToString(CultureInfo.InvariantCulture)} " +
                 $"withCountdown={withCountdown.ToString(CultureInfo.InvariantCulture)} " +
-                $"withDeliveries={withDeliveries.ToString(CultureInfo.InvariantCulture)}");
+                $"withDeliveries={withDeliveries.ToString(CultureInfo.InvariantCulture)} " +
+                $"withHold={withHold.ToString(CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>
@@ -2320,6 +2351,22 @@ namespace Parsek
             // walk. Applicable / CostKnown are false outside Career + KSC origin, so
             // the detail draw path then renders nothing.
             leg.RunCost = ComputeRouteRunCost(route);
+
+            // M6 hold reasons: render the persisted Route.LastHold* fields to
+            // player language HERE on the ~1 Hz pass (never per IMGUI frame).
+            // ShouldDisplayHold gates DISPLAY only (persistence is
+            // unconditional): MissingSourceRecording / SourceChanged rows
+            // suppress an older hold that would mislead, mirroring the M4
+            // CapacityContext status gate above. HoldText carries the
+            // "checked {age} ago" suffix from LastHoldUT vs the current UT.
+            if (LogisticsHoldPresentation.ShouldDisplayHold(route.Status, route.LastHoldKind))
+            {
+                leg.HoldShort = LogisticsHoldPresentation.DescribeHold(
+                    route.LastHoldKind, route.LastHoldDetail, route.LastHoldShortfall);
+                leg.HoldText = LogisticsHoldPresentation.FormatHoldDetailLine(
+                    leg.HoldShort,
+                    route.LastHoldUT >= 0.0 ? currentUT - route.LastHoldUT : -1.0);
+            }
 
             return leg;
         }

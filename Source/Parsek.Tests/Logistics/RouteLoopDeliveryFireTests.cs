@@ -161,6 +161,8 @@ namespace Parsek.Tests.Logistics
             public bool IsCareer { get; set; }
             public bool OriginHasCargoResult { get; set; } = true;
             public string OriginLackingResource { get; set; } = "LiquidFuel";
+            public bool KscFundsAvailableResult { get; set; } = true;
+            public double KscFundsShortfall { get; set; }
             public bool DestinationHasCapacityResult { get; set; } = true;
             public string DestinationFullResource { get; set; } = "Ore";
             public bool EndpointResolvable { get; set; } = true;
@@ -171,9 +173,26 @@ namespace Parsek.Tests.Logistics
             { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource)
             { lackingResource = OriginHasCargoResult ? string.Empty : OriginLackingResource; return OriginHasCargoResult; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
+            public bool KscFundsAvailable(Route route, out double shortfall)
+            { shortfall = KscFundsAvailableResult ? 0.0 : KscFundsShortfall; return KscFundsAvailableResult; }
             public bool DestinationHasCapacity(Route route, out string fullResource)
             { fullResource = DestinationHasCapacityResult ? string.Empty : DestinationFullResource; return DestinationHasCapacityResult; }
+            public bool RouteHasValidSourcesInErs(Route route) => true;
+        }
+
+        // Eligible at crossing time but the DESTINATION fails to resolve at
+        // DELIVERY time (M6 hold reasons, plan-review BLOCKER 1 pin):
+        // TryResolveEndpoint passes (eligibility gate), TryResolveEndpointVessel
+        // fails (ApplyDelivery STEP 2 re-resolution).
+        private sealed class EligibleButDeliveryLostEnv : IRouteRuntimeEnvironment
+        {
+            public bool IsCareer { get; set; }
+            public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
+            public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason)
+            { vessel = null; reason = "no-live-vessels"; return false; }
+            public bool OriginHasCargo(Route route, out string lackingResource) { lackingResource = string.Empty; return true; }
+            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
+            public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
 
@@ -493,6 +512,150 @@ namespace Parsek.Tests.Logistics
             // Exactly one dispatched + one delivered (no double-charge).
             Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RouteDispatched));
             Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RouteCargoDelivered));
+        }
+
+        // ==================================================================
+        // M6 hold reasons: capture on the blocked branch, clear on an
+        // eligible crossing, survive the endpoint-lost-at-delivery case
+        // ==================================================================
+
+        // catches (M6): a blocked crossing not persisting the eligibility
+        // verdict onto the route's LastHold* fields.
+        [Fact]
+        public void BlockedCrossing_RecordsHoldReason()
+        {
+            var route = BuildLoopRoute(isKscOrigin: false, lastObservedLoopCycleIndex: -1);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+            var env = new BlockedEnv { OriginHasCargoResult = false, OriginLackingResource = "LiquidFuel" };
+
+            RouteOrchestrator.Tick(1150.0, env);
+
+            Assert.Equal(1, route.SkippedCycles); // the blocked branch actually ran
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                route.LastHoldKind);
+            Assert.Equal("LiquidFuel", route.LastHoldDetail); // raw token, verbatim
+            Assert.Equal(0.0, route.LastHoldShortfall);
+            Assert.Equal(1150.0, route.LastHoldUT); // the tick UT, for the age suffix
+        }
+
+        // catches (M6 + plan-review finding 3): the funds gate silently skipping
+        // because IsCareer was false (vacuous pass), or the shortfall not landing
+        // on the hold. The gate only runs when env.IsCareer && route.IsKscOrigin.
+        [Fact]
+        public void BlockedCrossing_FundsShort_RecordsShortfall()
+        {
+            var route = BuildLoopRoute(isKscOrigin: true, lastObservedLoopCycleIndex: -1);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+            var env = new BlockedEnv
+            {
+                IsCareer = true,
+                KscFundsAvailableResult = false,
+                KscFundsShortfall = 750.0,
+            };
+
+            RouteOrchestrator.Tick(1150.0, env);
+
+            Assert.Equal(1, route.SkippedCycles); // proves the funds gate blocked, not a pass
+            Assert.Empty(Ledger.Actions);
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
+                route.LastHoldKind);
+            Assert.Equal("funds-short", route.LastHoldDetail);
+            Assert.Equal(750.0, route.LastHoldShortfall);
+            Assert.Equal(1150.0, route.LastHoldUT);
+        }
+
+        // catches (M6): a FIRED crossing leaving a stale hold behind (the
+        // eligible-crossing clear must wipe a prior blocked cycle's reason).
+        [Fact]
+        public void FiredCrossing_ClearsHold()
+        {
+            var route = BuildLoopRoute(lastObservedLoopCycleIndex: -1);
+            route.RecordHold(
+                RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                "LiquidFuel", 0.0, 500.0);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            Assert.Equal(3, Ledger.Actions.Count); // genuinely fired
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, route.LastHoldKind);
+            Assert.Null(route.LastHoldDetail);
+            Assert.Equal(0.0, route.LastHoldShortfall);
+            Assert.Equal(-1.0, route.LastHoldUT);
+        }
+
+        // catches (M6): the replay-backstop branch keeping a stale hold. The
+        // crossing was ELIGIBLE either way, so the single pre-emit clear must
+        // cover the backstop branch too.
+        [Fact]
+        public void ReplayBackstop_ClearsHold()
+        {
+            var route = BuildLoopRoute(lastObservedLoopCycleIndex: -1);
+            route.RecordHold(
+                RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                "LiquidFuel", 0.0, 500.0);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+
+            // Pre-seed a delivered row for cycle-0 so the crossing replay-skips.
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteCargoDelivered,
+                UT = 150.0,
+                RouteId = route.Id,
+                RouteCycleId = "cycle-0",
+                RouteStopIndex = 0,
+                Sequence = 0,
+            });
+            int before = Ledger.Actions.Count;
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            Assert.Equal(before, Ledger.Actions.Count); // backstop emitted nothing
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, route.LastHoldKind);
+            Assert.Null(route.LastHoldDetail);
+            Assert.Equal(-1.0, route.LastHoldUT);
+        }
+
+        // catches (M6, plan-review BLOCKER 1): a clear placed AFTER EmitLoopCycle
+        // would erase the EndpointLost hold that ApplyDelivery records INSIDE the
+        // call when the destination fails to resolve at delivery time
+        // (EmitLoopCycle returns true even on that branch). The delivery seam is
+        // left NULL so the PRODUCTION ApplyDelivery runs.
+        [Fact]
+        public void EndpointLostAtDelivery_HoldSurvivesEligibleCrossing()
+        {
+            // KSC origin: the dispatch-debit half never reaches the physical
+            // origin debit, so the production path stays xUnit-safe end-to-end.
+            var route = BuildLoopRoute(isKscOrigin: true, lastObservedLoopCycleIndex: -1);
+            // Pre-seed a stale hold so a misplaced post-emit clear would also
+            // visibly wipe the fresh EndpointLost hold below.
+            route.RecordHold(
+                RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                "LiquidFuel", 0.0, 500.0);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            // DeliveryApplierForTesting intentionally NOT installed.
+
+            RouteOrchestrator.Tick(1150.0, new EligibleButDeliveryLostEnv());
+
+            // The crossing was eligible (dispatch+debit emitted), the delivery
+            // half lost the endpoint, and the hold recorded inside EmitLoopCycle
+            // SURVIVED the post-crossing bookkeeping.
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteDispatched);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteEndpointLost);
+            Assert.Equal(RouteStatus.EndpointLost, route.Status);
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost,
+                route.LastHoldKind);
+            Assert.Equal("endpoint-destroyed-at-delivery:no-live-vessels", route.LastHoldDetail);
+            Assert.Equal(1150.0, route.LastHoldUT);
         }
 
         // ==================================================================

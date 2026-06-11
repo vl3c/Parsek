@@ -650,6 +650,130 @@ namespace Parsek.Tests.Logistics
         }
 
         // ==================================================================
+        // M6 hold reasons: legacy-path capture (ApplyWait / ApplyEndpointLost)
+        // and the dispatch / player-Activate clears
+        // ==================================================================
+
+        // catches (M6): the legacy wait applier not persisting the hold. The
+        // legacy path stores the PREFIXED decision token ("origin-lacks-X"),
+        // not the loop path's bare resource name.
+        [Fact]
+        public void ApplyWait_LegacyPath_RecordsHold()
+        {
+            var route = BuildActiveDueKscRoute();
+            route.IsKscOrigin = false; // non-loop, non-KSC -> OriginHasCargo consulted
+            RouteStore.AddRoute(route);
+            var env = new FakeRouteRuntimeEnvironment
+            {
+                OriginHasCargoResult = false,
+                OriginLackingResource = "LiquidFuel",
+            };
+
+            RouteOrchestrator.Tick(200.0, env);
+
+            Assert.Equal(RouteStatus.WaitingForResources, route.Status);
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                route.LastHoldKind);
+            Assert.Equal("origin-lacks-LiquidFuel", route.LastHoldDetail);
+            Assert.Equal(0.0, route.LastHoldShortfall);
+            Assert.Equal(200.0, route.LastHoldUT);
+        }
+
+        // catches (M6): the legacy endpoint-lost applier not persisting the
+        // resolver token onto the hold.
+        [Fact]
+        public void ApplyEndpointLost_RecordsHold()
+        {
+            var route = BuildActiveDueKscRoute();
+            RouteStore.AddRoute(route);
+            var env = new FakeRouteRuntimeEnvironment
+            {
+                EndpointResolvable = false,
+                EndpointResolveFailureReason = "pid-miss-no-surface-fallback",
+            };
+
+            RouteOrchestrator.Tick(200.0, env);
+
+            Assert.Equal(RouteStatus.EndpointLost, route.Status);
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost,
+                route.LastHoldKind);
+            Assert.Equal("stop-0-pid-miss-no-surface-fallback", route.LastHoldDetail);
+            Assert.Equal(200.0, route.LastHoldUT);
+        }
+
+        // catches (M6): a successful legacy dispatch leaving a stale hold behind.
+        [Fact]
+        public void ApplyDispatch_ClearsHold()
+        {
+            var route = BuildActiveDueKscRoute(nextDispatchUT: 100.0);
+            route.RecordHold(
+                RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                "origin-lacks-LiquidFuel", 0.0, 50.0);
+            RouteStore.AddRoute(route);
+            var env = new FakeRouteRuntimeEnvironment();
+
+            RouteOrchestrator.Tick(200.0, env);
+
+            Assert.Equal(RouteStatus.InTransit, route.Status); // genuinely dispatched
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, route.LastHoldKind);
+            Assert.Null(route.LastHoldDetail);
+            Assert.Equal(-1.0, route.LastHoldUT);
+        }
+
+        // catches (M6): a player Activate carrying a prior-session hold forward.
+        // Activation resets loop observation, so a stale reason must not present
+        // as current. (Pause deliberately KEEPS the hold; no clear there.)
+        [Fact]
+        public void TryActivate_ClearsHold()
+        {
+            var route = BuildActiveDueKscRoute();
+            route.Status = RouteStatus.Paused;
+            route.RecordHold(
+                RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
+                "funds-short", 750.0, 50.0);
+
+            bool ok = RouteOrchestrator.TryActivate(route, 100.0);
+
+            Assert.True(ok);
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, route.LastHoldKind);
+            Assert.Null(route.LastHoldDetail);
+            Assert.Equal(0.0, route.LastHoldShortfall);
+            Assert.Equal(-1.0, route.LastHoldUT);
+        }
+
+        // catches (M6): the outcome->kind map dropping a wait outcome, or a
+        // future enum addition mapping to a non-None kind by accident (totality).
+        [Fact]
+        public void HoldKindForOutcome_MapsAllWaitOutcomes()
+        {
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                RouteOrchestrator.HoldKindForOutcome(RouteDispatchOutcome.WaitResources));
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
+                RouteOrchestrator.HoldKindForOutcome(RouteDispatchOutcome.WaitFunds));
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull,
+                RouteOrchestrator.HoldKindForOutcome(RouteDispatchOutcome.WaitDestinationFull));
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost,
+                RouteOrchestrator.HoldKindForOutcome(RouteDispatchOutcome.EndpointLost));
+
+            // Non-hold outcomes map to None; the map is total over the enum.
+            foreach (RouteDispatchOutcome outcome in
+                (RouteDispatchOutcome[])System.Enum.GetValues(typeof(RouteDispatchOutcome)))
+            {
+                var kind = RouteOrchestrator.HoldKindForOutcome(outcome);
+                if (outcome == RouteDispatchOutcome.Skip
+                    || outcome == RouteDispatchOutcome.Dispatch
+                    || outcome == RouteDispatchOutcome.InTransitComplete)
+                {
+                    Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, kind);
+                }
+                else
+                {
+                    Assert.NotEqual(RouteDispatchEvaluator.EligibilityFailureKind.None, kind);
+                }
+            }
+        }
+
+        // ==================================================================
         // TrySendOneCycleNow (v0 Logistics UI Send Once button) — arms a
         // one-shot dispatch via PauseAfterCurrentCycle, skips the interval
         // wait, but preserves per-cycle eligibility gates.

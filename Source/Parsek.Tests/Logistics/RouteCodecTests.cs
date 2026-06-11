@@ -161,6 +161,9 @@ namespace Parsek.Tests.Logistics
                 .WithDockBinding(255600.0, "rec-2")
                 .WithLoopAnchorUT(255000.0)
                 .WithLastObservedLoopCycleIndex(7)
+                .WithLastHold(
+                    RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
+                    "funds-short", 1234.5, 257000.0)
                 .Build();
         }
 
@@ -226,6 +229,12 @@ namespace Parsek.Tests.Logistics
             // Cost manifests
             AssertResourceManifestEqual(original.CostManifest, roundTripped.CostManifest);
             AssertInventoryListEqual(original.InventoryCostManifest, roundTripped.InventoryCostManifest);
+
+            // Last hold reason (M6 hold reasons)
+            Assert.Equal(original.LastHoldKind, roundTripped.LastHoldKind);
+            Assert.Equal(original.LastHoldDetail, roundTripped.LastHoldDetail);
+            Assert.Equal(original.LastHoldShortfall, roundTripped.LastHoldShortfall);
+            Assert.Equal(original.LastHoldUT, roundTripped.LastHoldUT);
 
             // Backing-mission definition (Phase 1)
             Assert.Equal(original.BackingMissionTreeId, roundTripped.BackingMissionTreeId);
@@ -516,6 +525,117 @@ namespace Parsek.Tests.Logistics
             Route route = Route.DeserializeFrom(node);
             Assert.NotNull(route);
             Assert.Equal(0, route.DispatchPriority);
+        }
+
+        // catches (M6 hold reasons): a never-held route writing any of the four
+        // sparse lastHold* keys (save bloat on every healthy route).
+        [Fact]
+        public void Defaults_WriteNoHoldKeys()
+        {
+            var leanStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+            var route = new RouteFixtureBuilder()
+                .WithId("no-hold-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .Build();
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, route.LastHoldKind);
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+
+            Assert.False(node.HasValue("lastHoldKind"),
+                "lastHoldKind must be omitted when None (the default)");
+            Assert.False(node.HasValue("lastHoldDetail"),
+                "lastHoldDetail must be omitted when null");
+            Assert.False(node.HasValue("lastHoldShortfall"),
+                "lastHoldShortfall must be omitted when 0");
+            Assert.False(node.HasValue("lastHoldUT"),
+                "lastHoldUT must be omitted when -1");
+        }
+
+        // catches (M6 hold reasons): a pre-M6 save shape (no lastHold* keys)
+        // loading anything other than the None / null / 0 / -1 defaults.
+        [Fact]
+        public void MissingHoldKeys_ReadAsDefaults()
+        {
+            var node = new ConfigNode("ROUTE");
+            node.AddValue("id", "pre-m6-route");
+            node.AddValue("status", "Active");
+            ConfigNode origin = node.AddNode(RouteCodec.OriginNode);
+            origin.AddValue("bodyName", "Kerbin");
+            origin.AddValue("latitude", "0");
+            origin.AddValue("longitude", "0");
+            origin.AddValue("altitude", "0");
+            origin.AddValue("vesselPersistentId", "0");
+            origin.AddValue("isSurface", "True");
+            ConfigNode stop = node.AddNode(RouteCodec.StopNode);
+            ConfigNode endpoint = stop.AddNode(RouteCodec.EndpointNode);
+            endpoint.AddValue("bodyName", "Mun");
+            endpoint.AddValue("latitude", "0");
+            endpoint.AddValue("longitude", "0");
+            endpoint.AddValue("altitude", "0");
+            endpoint.AddValue("vesselPersistentId", "12345");
+            endpoint.AddValue("isSurface", "True");
+            stop.AddValue("connectionKind", "DockingPort");
+            stop.AddValue("segmentIndexBefore", "0");
+            stop.AddValue("deliveryOffsetSeconds", "0");
+
+            Route route = Route.DeserializeFrom(node);
+
+            Assert.NotNull(route);
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, route.LastHoldKind);
+            Assert.Null(route.LastHoldDetail);
+            Assert.Equal(0.0, route.LastHoldShortfall);
+            Assert.Equal(-1.0, route.LastHoldUT);
+        }
+
+        // catches (M6 hold reasons): an unknown lastHoldKind string (future enum
+        // value) throwing or loading a wrong kind instead of warn-and-None.
+        [Fact]
+        public void UnknownHoldKind_MapsToNone_WithWarn()
+        {
+            var node = new ConfigNode("ROUTE");
+            node.AddValue("id", "weird-hold-route");
+            node.AddValue("status", "Active");
+            node.AddValue("lastHoldKind", "SomeFutureHoldKind");
+            node.AddValue("lastHoldDetail", "whatever");
+            ConfigNode origin = node.AddNode(RouteCodec.OriginNode);
+            origin.AddValue("bodyName", "Kerbin");
+            origin.AddValue("latitude", "0");
+            origin.AddValue("longitude", "0");
+            origin.AddValue("altitude", "0");
+            origin.AddValue("vesselPersistentId", "0");
+            origin.AddValue("isSurface", "True");
+            ConfigNode stop = node.AddNode(RouteCodec.StopNode);
+            ConfigNode endpoint = stop.AddNode(RouteCodec.EndpointNode);
+            endpoint.AddValue("bodyName", "Mun");
+            endpoint.AddValue("latitude", "0");
+            endpoint.AddValue("longitude", "0");
+            endpoint.AddValue("altitude", "0");
+            endpoint.AddValue("vesselPersistentId", "12345");
+            endpoint.AddValue("isSurface", "True");
+            stop.AddValue("connectionKind", "DockingPort");
+            stop.AddValue("segmentIndexBefore", "0");
+            stop.AddValue("deliveryOffsetSeconds", "0");
+
+            Route route = Route.DeserializeFrom(node);
+
+            Assert.NotNull(route);
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, route.LastHoldKind);
+            // The detail token still loads (it is independent of the kind parse).
+            Assert.Equal("whatever", route.LastHoldDetail);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Route]") &&
+                l.Contains("SomeFutureHoldKind") &&
+                l.Contains("weird-hold-route"));
         }
 
         // catches: a hand-edited save with a 0 / negative cadence multiplier
