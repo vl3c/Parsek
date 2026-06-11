@@ -34,6 +34,7 @@ namespace Parsek.Tests.Logistics
             Ledger.ResetForTesting();
             RouteOrchestrator.LoopUnitResolverForTesting = null;
             RouteOrchestrator.DeliveryApplierForTesting = null;
+            RouteOrchestrator.OriginDebitApplierForTesting = null;
             logLines.Clear();
         }
 
@@ -41,6 +42,7 @@ namespace Parsek.Tests.Logistics
         {
             RouteOrchestrator.LoopUnitResolverForTesting = null;
             RouteOrchestrator.DeliveryApplierForTesting = null;
+            RouteOrchestrator.OriginDebitApplierForTesting = null;
             RouteStore.ResetForTesting();
             Ledger.ResetForTesting();
             ParsekLog.ResetTestOverrides();
@@ -610,6 +612,220 @@ namespace Parsek.Tests.Logistics
 
             Assert.Empty(Ledger.Actions);
             Assert.Equal(0, route.CompletedCycles);
+        }
+
+        // ==================================================================
+        // M1 physical origin debit (design D11/D12). The loop path is the
+        // ONLY caller that applies the physical debit; the debited row's
+        // population (actuals / requested-on-shortfall / origin pid) is
+        // driven through the OriginDebitApplierForTesting seam, except the
+        // D12 null-vessel rule which runs the PRODUCTION applier.
+        // ==================================================================
+
+        // catches: a non-KSC loop crossing emitting the v0 CostManifest clone
+        // instead of the physical debit's ACTUAL removed amounts + origin pid.
+        [Fact]
+        public void Crossing_NonKscOrigin_DebitedRowCarriesActualManifestAndOriginPid()
+        {
+            var route = BuildLoopRoute(isKscOrigin: false);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+            int seamCalls = 0;
+            RouteOrchestrator.OriginDebitApplierForTesting = (r, ut, env) =>
+            {
+                seamCalls++;
+                return new RouteOrchestrator.OriginDebitOutcome
+                {
+                    ActualDebited = new Dictionary<string, double>
+                    {
+                        { "LiquidFuel", 100.0 },
+                        { "Oxidizer", 120.0 },
+                    },
+                    RequestedOnShortfall = null,
+                    OriginVesselPid = 777u,
+                    Short = false,
+                    Unresolved = false,
+                };
+            };
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            Assert.Equal(1, seamCalls);
+            var debited = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDebited);
+            Assert.NotNull(debited.RouteResourceManifest);
+            Assert.Equal(2, debited.RouteResourceManifest.Count);
+            Assert.Equal(100.0, debited.RouteResourceManifest["LiquidFuel"]);
+            Assert.Equal(120.0, debited.RouteResourceManifest["Oxidizer"]);
+            Assert.Null(debited.RouteRequestedResourceManifest); // full debit
+            Assert.Equal(777u, debited.RouteOriginVesselPid);
+            // The extended DispatchDebit line carries the attribution fields.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("DispatchDebit:")
+                && l.Contains("originPid=777") && l.Contains("debitedResources=2")
+                && l.Contains("short=0"));
+        }
+
+        // catches: a non-KSC physical debit leaking a funds cost onto the
+        // debited row (funds are KSC-origin-only; the physical manifest IS
+        // the non-KSC cost).
+        [Fact]
+        public void Crossing_NonKscOrigin_NoFundsCostOnDebitedRow()
+        {
+            var route = BuildLoopRoute(isKscOrigin: false);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+            RouteOrchestrator.OriginDebitApplierForTesting = (r, ut, env) =>
+                new RouteOrchestrator.OriginDebitOutcome
+                {
+                    ActualDebited = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                    OriginVesselPid = 777u,
+                };
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv { IsCareer = true });
+
+            var debited = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDebited);
+            Assert.Equal(0f, debited.RouteKscFundsCost);
+        }
+
+        // catches (risk 1): the M1 row change touching the KSC branch. A KSC
+        // loop crossing must keep the v0 row shape BYTE-IDENTICAL: the
+        // unconditional CostManifest clone, no requested manifest, pid 0 -
+        // and the physical-debit seam must never be consulted.
+        [Fact]
+        public void Crossing_KscOrigin_DebitedRowByteIdenticalToV0Shape()
+        {
+            var route = BuildLoopRoute(isKscOrigin: true);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+            int seamCalls = 0;
+            RouteOrchestrator.OriginDebitApplierForTesting = (r, ut, env) =>
+            {
+                seamCalls++;
+                return new RouteOrchestrator.OriginDebitOutcome { OriginVesselPid = 999u };
+            };
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            Assert.Equal(0, seamCalls); // KSC origins never reach the physical debit
+            var debited = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDebited);
+            // v0 shape: exact CostManifest clone (copied, not referenced).
+            Assert.NotNull(debited.RouteResourceManifest);
+            Assert.NotSame(route.CostManifest, debited.RouteResourceManifest);
+            Assert.Equal(route.CostManifest.Count, debited.RouteResourceManifest.Count);
+            foreach (var kv in route.CostManifest)
+            {
+                Assert.True(debited.RouteResourceManifest.TryGetValue(kv.Key, out double v));
+                Assert.Equal(kv.Value, v);
+            }
+            Assert.Null(debited.RouteRequestedResourceManifest);
+            Assert.Equal(0u, debited.RouteOriginVesselPid);
+        }
+
+        // catches (D3): a short apply not recording the requested manifest on
+        // the row, or the clamp landing silently (no Warn). Driven through
+        // the seam so the emit-site warn is pinned independently of the
+        // production applier.
+        [Fact]
+        public void OriginDebit_ShortAtApply_RecordsRequestedManifest_Warns()
+        {
+            var route = BuildLoopRoute(isKscOrigin: false);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+            RouteOrchestrator.OriginDebitApplierForTesting = (r, ut, env) =>
+                new RouteOrchestrator.OriginDebitOutcome
+                {
+                    ActualDebited = new Dictionary<string, double> { { "LiquidFuel", 40.0 } },
+                    RequestedOnShortfall = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                    OriginVesselPid = 777u,
+                    Short = true,
+                    Unresolved = false,
+                };
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            var debited = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDebited);
+            Assert.Equal(40.0, debited.RouteResourceManifest["LiquidFuel"]);
+            Assert.NotNull(debited.RouteRequestedResourceManifest);
+            Assert.Equal(100.0, debited.RouteRequestedResourceManifest["LiquidFuel"]);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("[Route]")
+                && l.Contains("SHORT at apply"));
+        }
+
+        // catches (D12 rule pin): an env resolution that returns TRUE with a
+        // null vessel being treated as resolved. Runs the PRODUCTION applier
+        // (seam left null) against EligibleEnv, whose
+        // TryResolveEndpointVessel returns (true, vessel: null) - the xUnit
+        // fake-env shape. Must count as UNRESOLVED: Warn + zero actuals +
+        // FULL requested manifest + pid 0.
+        [Fact]
+        public void OriginDebit_ResolvedNullVessel_TreatedAsUnresolved()
+        {
+            var route = BuildLoopRoute(isKscOrigin: false);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+            // OriginDebitApplierForTesting stays null -> production ApplyOriginDebit.
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            var debited = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDebited);
+            // Zero actuals serialize as no manifest; full requested manifest.
+            Assert.Null(debited.RouteResourceManifest);
+            Assert.NotNull(debited.RouteRequestedResourceManifest);
+            Assert.Equal(route.CostManifest.Count, debited.RouteRequestedResourceManifest.Count);
+            Assert.Equal(100.0, debited.RouteRequestedResourceManifest["LiquidFuel"]);
+            Assert.Equal(120.0, debited.RouteRequestedResourceManifest["Oxidizer"]);
+            Assert.Equal(0u, debited.RouteOriginVesselPid);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("[Route]")
+                && l.Contains("origin unresolved at debit")
+                && l.Contains("resolved-null-vessel"));
+            // The extended DispatchDebit line flags the unresolved outcome.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("DispatchDebit:")
+                && l.Contains("unresolved=1"));
+        }
+
+        // catches: the ELS replay backstop letting the physical debit run
+        // (a replayed cycleId must emit NOTHING, including no origin-tank
+        // mutation - extends ReplayedCycleId_EmitsNothing_NoDoubleCharge to
+        // the origin-debit seam).
+        [Fact]
+        public void ReplayedCycleId_EmitsNoDebit()
+        {
+            var route = BuildLoopRoute(isKscOrigin: false, lastObservedLoopCycleIndex: -1);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+            int seamCalls = 0;
+            RouteOrchestrator.OriginDebitApplierForTesting = (r, ut, env) =>
+            {
+                seamCalls++;
+                return new RouteOrchestrator.OriginDebitOutcome();
+            };
+
+            // Pre-seed a delivered row for cycle-0 (save written after the
+            // cycle fired, reloaded with the stale in-memory cursor).
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteCargoDelivered,
+                UT = 150.0,
+                RouteId = route.Id,
+                RouteCycleId = "cycle-0",
+                RouteStopIndex = 0,
+                Sequence = 0,
+            });
+            int before = Ledger.Actions.Count;
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv()); // would be cycle 0 again
+
+            Assert.Equal(before, Ledger.Actions.Count); // nothing emitted
+            Assert.Equal(0, seamCalls); // physical debit never invoked on replay
         }
     }
 }

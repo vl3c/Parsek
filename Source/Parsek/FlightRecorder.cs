@@ -6687,7 +6687,11 @@ namespace Parsek
                 candidates.Add(new OriginPartnerCandidate(
                     p.persistentId,
                     parentVessel.persistentId,
-                    (int)parentVessel.situation));
+                    (int)parentVessel.situation,
+                    parentVessel.mainBody != null ? parentVessel.mainBody.bodyName : null,
+                    parentVessel.latitude,
+                    parentVessel.longitude,
+                    parentVessel.altitude));
             }
 
             RouteProofCapture.BuildStartRouteOriginProof(

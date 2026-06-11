@@ -35,6 +35,8 @@ namespace Parsek.Tests
             Recording rec = new Recording
             {
                 RecordingId = "route-source",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
                 RouteConnectionWindows = new List<RouteConnectionWindow>
                 {
                     BuildDeliveryWindow()
@@ -102,6 +104,8 @@ namespace Parsek.Tests
             Recording rec = new Recording
             {
                 RecordingId = "no-transfer",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
                 RouteConnectionWindows = new List<RouteConnectionWindow>
                 {
                     new RouteConnectionWindow
@@ -142,6 +146,8 @@ namespace Parsek.Tests
             Recording rec = new Recording
             {
                 RecordingId = "mixed-resource",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
                 RouteConnectionWindows = new List<RouteConnectionWindow> { window }
             };
 
@@ -161,6 +167,8 @@ namespace Parsek.Tests
             Recording rec = new Recording
             {
                 RecordingId = "mixed-inventory",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
                 RouteConnectionWindows = new List<RouteConnectionWindow> { window }
             };
 
@@ -188,10 +196,156 @@ namespace Parsek.Tests
             Assert.Equal(RouteAnalysisStatus.MissingEndpointProof, result.Status);
         }
 
+        // ---------------------------------------------------------------
+        // M1 undocked-start workflow gate (design D7)
+        // ---------------------------------------------------------------
+        // A run whose ORIGIN recording proves neither a KSC launch
+        // (LaunchSiteName + StartBodyName == "Kerbin") nor a start-docked
+        // origin partner (RouteOriginProof pid) started undocked with cargo
+        // already aboard: the cargo's source was never witnessed, so analysis
+        // rejects it with workflow guidance instead of letting it surface as a
+        // candidate that fails at create time with endpoint-missing.
+
+        // catches: an undocked-start single recording analyzing Eligible (the
+        // pre-M1 behavior) instead of the workflow rejection.
+        [Fact]
+        public void AnalyzeRecording_UndockedStart_Rejected()
+        {
+            Recording rec = new Recording
+            {
+                RecordingId = "undocked-start",
+                // No LaunchSiteName / StartBodyName, no RouteOriginProof.
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    BuildDeliveryWindow()
+                }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.False(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.UndockedStartOrigin, result.Status);
+            // Populated like the sibling rejects so the near-miss row can render.
+            Assert.Same(rec, result.SourceRecording);
+            Assert.NotNull(result.ConnectionWindow);
+        }
+
+        // catches: the rejection diagnostic not naming the origin recording and
+        // the absent proofs (the log is the debugging surface for a confusing
+        // "why is my run rejected" report).
+        [Fact]
+        public void AnalyzeRecording_UndockedStart_DiagnosticNamesOriginRecording()
+        {
+            Recording rec = new Recording
+            {
+                RecordingId = "undocked-diag",
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    BuildDeliveryWindow()
+                }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.Equal(RouteAnalysisStatus.UndockedStartOrigin, result.Status);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("undocked-start origin") &&
+                l.Contains("originRec=undocked-diag") &&
+                l.Contains("launchSite=<none>") &&
+                l.Contains("originProof=no"));
+        }
+
+        // catches: a tree whose ROOT (the origin recording) lacks both origin
+        // proofs analyzing Eligible. The window lives on the dock child; the
+        // gate must classify off the root, not the source.
+        [Fact]
+        public void AnalyzeTree_UndockedStartOrigin_Rejected()
+        {
+            RecordingTree tree = BuildTwoRecordingTree(out Recording source);
+            // Root deliberately carries NO origin fields.
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.False(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.UndockedStartOrigin, result.Status);
+            Assert.Same(source, result.SourceRecording);
+        }
+
+        // catches: the gate firing on a legitimate KSC launch (root carries a
+        // Kerbin launch site).
+        [Fact]
+        public void AnalyzeTree_KscOrigin_StillEligible()
+        {
+            RecordingTree tree = BuildTwoRecordingTree(out _);
+            Recording root = tree.Recordings["root"];
+            root.StartBodyName = "Kerbin";
+            root.LaunchSiteName = "LaunchPad";
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.True(result.IsEligible,
+                $"KSC-origin tree must stay eligible, got {result.Status}");
+        }
+
+        // catches: the gate firing on a captured start-docked depot origin
+        // (root carries a RouteOriginProof with a partner pid).
+        [Fact]
+        public void AnalyzeTree_DockedProofOrigin_StillEligible()
+        {
+            RecordingTree tree = BuildTwoRecordingTree(out _);
+            Recording root = tree.Recordings["root"];
+            root.RouteOriginProof = new RouteOriginProof
+            {
+                StartDockedOriginVesselPid = 7777
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.True(result.IsEligible,
+                $"docked-proof-origin tree must stay eligible, got {result.Status}");
+        }
+
+        // Two-recording tree: root (the origin recording, NO origin fields
+        // unless the test adds them) + dock child carrying the eligible window.
+        private static RecordingTree BuildTwoRecordingTree(out Recording source)
+        {
+            Recording root = new Recording { RecordingId = "root" };
+            source = new Recording
+            {
+                RecordingId = "source",
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    BuildDeliveryWindow()
+                }
+            };
+            RecordingTree tree = new RecordingTree { Id = "tree-origin-gate" };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(source);
+            tree.RootRecordingId = root.RecordingId;
+            tree.ActiveRecordingId = source.RecordingId;
+            string bpId = "bp";
+            source.ParentBranchPointId = bpId;
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = bpId,
+                ParentRecordingIds = new List<string> { root.RecordingId },
+                ChildRecordingIds = new List<string> { source.RecordingId }
+            });
+            return tree;
+        }
+
         [Fact]
         public void AnalyzeTree_FindsCompletedWindowRecording()
         {
-            Recording root = new Recording { RecordingId = "root" };
+            // The tree ROOT is the origin recording for the M1 undocked-start
+            // gate; give it a KSC origin so the tree stays eligible.
+            Recording root = new Recording
+            {
+                RecordingId = "root",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad"
+            };
             Recording source = new Recording
             {
                 RecordingId = "source",
@@ -254,6 +408,8 @@ namespace Parsek.Tests
             Recording rec = new Recording
             {
                 RecordingId = "stacked-inventory",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
                 RouteConnectionWindows = new List<RouteConnectionWindow>
                 {
                     new RouteConnectionWindow
@@ -314,6 +470,8 @@ namespace Parsek.Tests
             Recording rec = new Recording
             {
                 RecordingId = "ec-recharge",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
                 RouteConnectionWindows = new List<RouteConnectionWindow> { window }
             };
 
@@ -339,6 +497,8 @@ namespace Parsek.Tests
             Recording rec = new Recording
             {
                 RecordingId = "intakeair-drift",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
                 RouteConnectionWindows = new List<RouteConnectionWindow> { window }
             };
 
@@ -368,6 +528,8 @@ namespace Parsek.Tests
             Recording rec = new Recording
             {
                 RecordingId = "ec-delivery",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
                 RouteConnectionWindows = new List<RouteConnectionWindow> { window }
             };
 
@@ -415,6 +577,8 @@ namespace Parsek.Tests
             Recording rec = new Recording
             {
                 RecordingId = "ec-only",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
                 RouteConnectionWindows = new List<RouteConnectionWindow> { window }
             };
 
@@ -439,6 +603,8 @@ namespace Parsek.Tests
             Recording rec = new Recording
             {
                 RecordingId = "ore-pickup",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
                 RouteConnectionWindows = new List<RouteConnectionWindow> { window }
             };
 
@@ -465,6 +631,8 @@ namespace Parsek.Tests
             Recording rec = new Recording
             {
                 RecordingId = "mixed-inventory-diag",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
                 RouteConnectionWindows = new List<RouteConnectionWindow> { window }
             };
 
@@ -648,7 +816,10 @@ namespace Parsek.Tests
             {
                 RecordingId = "ef3dacb5",
                 TreeId = "tree-playtest6",
-                ParentBranchPointId = null
+                ParentBranchPointId = null,
+                // Root = origin recording for the M1 undocked-start gate.
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad"
             });
             tree.AddOrReplaceRecording(new Recording
             {

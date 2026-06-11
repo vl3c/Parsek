@@ -197,6 +197,51 @@ namespace Parsek.Tests.Logistics
                 "Stale ROUTES wrapper must be stripped on empty-store save");
         }
 
+        // catches: codec drift on the M1 fields through the same SCENARIO-node
+        // shape ParsekScenario drives - a non-KSC origin endpoint carrying the
+        // descriptor coordinates (populated by RouteBuilder from the origin
+        // proof descriptor, Phase 3) plus the sparse dispatch priority must
+        // survive a full SaveRoutesTo -> LoadRoutesFrom round-trip.
+        [Fact]
+        public void Scenario_RoundTrip_PreservesPriorityAndNonKscOriginDescriptor()
+        {
+            var origin = new RouteEndpoint
+            {
+                BodyName = "Mun",
+                Latitude = 12.3456789,
+                Longitude = -98.7654321,
+                Altitude = 1234.5,
+                VesselPersistentId = 987654321u,
+                IsSurface = true
+            };
+            Route original = new RouteFixtureBuilder()
+                .WithId("route-m1-origin")
+                .WithName("Mun Depot Run")
+                .WithKscOrigin(false)
+                .WithDispatchPriority(2)
+                .WithOrigin(origin)
+                .WithStop(BuildSimpleStop(33333u))
+                .Build();
+            RouteStore.AddRoute(original);
+
+            var scenarioNode = new ConfigNode("SCENARIO");
+            RouteStore.SaveRoutesTo(scenarioNode);
+            RouteStore.ResetForTesting();
+            int loaded = RouteStore.LoadRoutesFrom(scenarioNode);
+
+            Assert.Equal(1, loaded);
+            Assert.True(RouteStore.TryGetRoute("route-m1-origin", out Route reloaded));
+            Assert.Equal(2, reloaded.DispatchPriority);
+            Assert.False(reloaded.IsKscOrigin);
+            Assert.Equal(987654321u, reloaded.Origin.VesselPersistentId);
+            Assert.Equal("Mun", reloaded.Origin.BodyName);
+            Assert.Equal(12.3456789, reloaded.Origin.Latitude);
+            Assert.Equal(-98.7654321, reloaded.Origin.Longitude);
+            Assert.Equal(1234.5, reloaded.Origin.Altitude);
+            Assert.True(reloaded.Origin.IsSurface,
+                "Surface-typed origin must survive the round-trip - it gates the proximity rebuild fallback");
+        }
+
         // catches: a future edit to ParsekScenario.OnSave or OnLoad that drops
         // the RouteStore.SaveRoutesTo / LoadRoutesFrom hookup. The granular
         // tests in this class drive the codec directly and would NOT catch a
@@ -217,6 +262,13 @@ namespace Parsek.Tests.Logistics
         // that does not yet exist; the codebase already uses this pattern
         // (see ChainSaveLoadTests.ChainStateNotPersistedInScenario and
         // GrepAuditTests for ERS / ELS).
+        //
+        // M1 tightening (plan-logistics-m1-origin-debit Phase 6, design D10
+        // layer b): the load-side gates are ORDERED, not just present -
+        // LoadRoutesFrom must precede RevalidateSources("OnLoad") inside
+        // ParsekScenario.cs, because revalidation reads the freshly loaded
+        // routes' SourceRefs against ERS; reversing them would validate the
+        // PREVIOUS scene's routes and silently skip the loaded ones.
         [Fact]
         public void Scenario_OnSaveAndOnLoad_InvokeRouteStoreCodec()
         {
@@ -238,12 +290,25 @@ namespace Parsek.Tests.Logistics
 
             string source = File.ReadAllText(scenarioPath);
 
+            // Save-side hookup: presence gate (no ordering constraint exists
+            // on the save side).
             Assert.Contains("RouteStore.SaveRoutesTo(node)", source);
-            Assert.Contains("RouteStore.LoadRoutesFrom(node)", source);
-            // Phase 5: revalidate every route's SourceRefs against ERS
-            // immediately after load. Catches a future edit that drops the
-            // validation hook even if the load call survives.
-            Assert.Contains("RouteStore.RevalidateSources(\"OnLoad\")", source);
+
+            // Load-side hookups: ORDERED gate. Load must come first, then the
+            // ERS revalidation of the freshly loaded routes (Phase 5 hook;
+            // today ParsekScenario.cs calls them on consecutive lines).
+            int loadIndex = source.IndexOf(
+                "RouteStore.LoadRoutesFrom(node)", StringComparison.Ordinal);
+            int revalidateIndex = source.IndexOf(
+                "RouteStore.RevalidateSources(\"OnLoad\")", StringComparison.Ordinal);
+            Assert.True(loadIndex >= 0,
+                "ParsekScenario.cs must call RouteStore.LoadRoutesFrom(node) in OnLoad");
+            Assert.True(revalidateIndex >= 0,
+                "ParsekScenario.cs must call RouteStore.RevalidateSources(\"OnLoad\") after loading routes");
+            Assert.True(loadIndex < revalidateIndex,
+                "RouteStore.LoadRoutesFrom(node) must PRECEDE RouteStore.RevalidateSources(\"OnLoad\") " +
+                $"inside ParsekScenario.cs (loadIndex={loadIndex}, revalidateIndex={revalidateIndex}); " +
+                "revalidation reads the loaded routes' SourceRefs against ERS");
         }
 
         // catches: a future edit to ParsekScenario that drops the

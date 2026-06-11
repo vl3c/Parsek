@@ -128,6 +128,29 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(RouteCandidateFinder.DeriveCandidates(new List<RecordingTree>(), new List<Route>()));
         }
 
+        // catches (M1, D7): a sealed tree whose root proves neither a KSC launch
+        // nor a docked-origin partner surfacing as a CANDIDATE. The undocked-start
+        // workflow rejection must keep it out of the candidate list and route it
+        // to the near-miss list carrying the new status.
+        [Fact]
+        public void DeriveNearMisses_CountsUndockedStart()
+        {
+            RecordingTree tree = BuildEligibleTree("t-undocked");
+            // Strip the origin proof off the root: now an undocked start.
+            tree.Recordings["root"].StartBodyName = null;
+            tree.Recordings["root"].LaunchSiteName = null;
+
+            var candidates = RouteCandidateFinder.DeriveCandidates(
+                new List<RecordingTree> { tree }, new List<Route>());
+            var nearMisses = RouteCandidateFinder.DeriveNearMisses(
+                new List<RecordingTree> { tree });
+
+            Assert.Empty(candidates);
+            RouteNearMiss nm = Assert.Single(nearMisses);
+            Assert.False(nm.NotSealed);
+            Assert.Equal(RouteAnalysisStatus.UndockedStartOrigin, nm.Status);
+        }
+
         // ------------------------------------------------------------------
         // Helpers: build a sealed tree carrying one eligible dock-deliver-undock
         // window on its dock-merged child recording ("mid"). Mirrors the
@@ -153,7 +176,11 @@ namespace Parsek.Tests.Logistics
             {
                 RecordingId = "root",
                 TreeId = treeId,
-                ParentBranchPointId = null
+                ParentBranchPointId = null,
+                // Root = origin recording for the M1 undocked-start gate; a KSC
+                // origin keeps the tree eligible.
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad"
             });
             tree.AddOrReplaceRecording(new Recording
             {

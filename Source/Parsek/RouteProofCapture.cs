@@ -14,12 +14,30 @@ namespace Parsek
         public readonly uint PartPersistentId;
         public readonly uint ParentVesselPersistentId;
         public readonly int ParentVesselSituation; // (int)Vessel.Situations; -1 = unknown
+        // Origin endpoint descriptor (M1): the parent vessel's body + body-fixed
+        // coordinates at recording start, so RouteBuilder can build a surface-typed
+        // origin endpoint that gets the same proximity rebuild fallback destinations have.
+        public readonly string ParentVesselBodyName;
+        public readonly double ParentVesselLatitude;
+        public readonly double ParentVesselLongitude;
+        public readonly double ParentVesselAltitude;
 
-        internal OriginPartnerCandidate(uint partPersistentId, uint parentVesselPersistentId, int parentVesselSituation)
+        internal OriginPartnerCandidate(
+            uint partPersistentId,
+            uint parentVesselPersistentId,
+            int parentVesselSituation,
+            string parentVesselBodyName,
+            double parentVesselLatitude,
+            double parentVesselLongitude,
+            double parentVesselAltitude)
         {
             PartPersistentId = partPersistentId;
             ParentVesselPersistentId = parentVesselPersistentId;
             ParentVesselSituation = parentVesselSituation;
+            ParentVesselBodyName = parentVesselBodyName;
+            ParentVesselLatitude = parentVesselLatitude;
+            ParentVesselLongitude = parentVesselLongitude;
+            ParentVesselAltitude = parentVesselAltitude;
         }
     }
 
@@ -40,6 +58,19 @@ namespace Parsek
 
     internal static class RouteProofCapture
     {
+        /// <summary>
+        /// Pure / static. True when the partner situation pins the origin to the
+        /// surface: LANDED or SPLASHED. Mirrors
+        /// <c>RouteEndpointResolver.IsSurfaceSituation</c> minus PRELAUNCH, which
+        /// <see cref="TryResolveStartDockedOriginPartner"/> already excludes for
+        /// partners.
+        /// </summary>
+        internal static bool IsSurfaceOriginSituation(int situation)
+        {
+            return situation == (int)Vessel.Situations.LANDED
+                || situation == (int)Vessel.Situations.SPLASHED;
+        }
+
         /// <summary>
         /// Pure resolver: given the active vessel's situation/EVA flag and a list of externally
         /// parented parts (parts whose <c>part.parent.vessel != activeVessel</c>), decide whether
@@ -188,11 +219,35 @@ namespace Parsek
                     };
                     transportPartPersistentIds = transportPids;
 
+                    // The resolver returns only the partner pid, so recover the matched
+                    // candidate's origin descriptor by scanning for the first non-PRELAUNCH
+                    // entry with the same parent pid (duplicates share one parent vessel,
+                    // hence identical descriptors). Always present on the Captured branch;
+                    // the guard is defensive.
+                    for (int i = 0; i < candidates.Count; i++)
+                    {
+                        OriginPartnerCandidate c = candidates[i];
+                        if (c.ParentVesselPersistentId != partnerPid)
+                            continue;
+                        if (c.ParentVesselSituation == (int)Vessel.Situations.PRELAUNCH)
+                            continue;
+                        proof.StartDockedOriginBodyName = c.ParentVesselBodyName;
+                        proof.StartDockedOriginLatitude = c.ParentVesselLatitude;
+                        proof.StartDockedOriginLongitude = c.ParentVesselLongitude;
+                        proof.StartDockedOriginAltitude = c.ParentVesselAltitude;
+                        proof.StartDockedOriginSituation = c.ParentVesselSituation;
+                        proof.StartDockedOriginIsSurface = IsSurfaceOriginSituation(c.ParentVesselSituation);
+                        break;
+                    }
+
                     ParsekLog.Info("Recorder",
                         $"RouteOriginProof captured: recId={recordingVesselId} vessel='{vesselContext}' " +
                         $"partnerPid={partnerPid} candidates={candidateCount} " +
                         $"transportParts={transportPids?.Count ?? 0} " +
-                        $"startRes={startRes?.Count ?? 0} startInv={startInv?.Count ?? 0}");
+                        $"startRes={startRes?.Count ?? 0} startInv={startInv?.Count ?? 0} " +
+                        $"partnerBody={(string.IsNullOrEmpty(proof.StartDockedOriginBodyName) ? "<none>" : proof.StartDockedOriginBodyName)} " +
+                        $"partnerSituation={proof.StartDockedOriginSituation.ToString(CultureInfo.InvariantCulture)} " +
+                        $"surface={(proof.StartDockedOriginIsSurface ? "1" : "0")}");
                     break;
                 }
                 case OriginProofDetection.NoExternalCoupling:

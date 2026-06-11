@@ -1075,6 +1075,77 @@ namespace Parsek.Tests
             Assert.Equal(1500f, result.RouteKscFundsCost);
         }
 
+        // M1 physical origin debit: the debited row's ADDITIVE fields (the
+        // requested-on-shortfall manifest and the sparse origin pid) must
+        // round-trip alongside the existing actuals manifest + funds cost.
+        [Fact]
+        public void RouteCargoDebited_RoundTrips_ActualsRequestedAndOriginPid()
+        {
+            var original = new GameAction
+            {
+                UT = 50500.0,
+                Type = GameActionType.RouteCargoDebited,
+                RouteId = "route-phys",
+                RouteCycleId = "cycle-4",
+                RouteResourceManifest = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 40.0 }, // actuals (clamped short)
+                },
+                RouteRequestedResourceManifest = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 100.0 }, // requested-on-shortfall
+                },
+                RouteOriginVesselPid = 3149815921u,
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.RouteCargoDebited, result.Type);
+            Assert.Equal("route-phys", result.RouteId);
+            Assert.Equal("cycle-4", result.RouteCycleId);
+            Assert.Equal(40.0, result.RouteResourceManifest["LiquidFuel"]);
+            Assert.NotNull(result.RouteRequestedResourceManifest);
+            Assert.Equal(100.0, result.RouteRequestedResourceManifest["LiquidFuel"]);
+            Assert.Equal(3149815921u, result.RouteOriginVesselPid);
+            Assert.Equal(0f, result.RouteKscFundsCost);
+        }
+
+        // M1 codec safety: the new keys are ADDITIVE - an old-shape debited
+        // node (no requestedResource lines, no routeOriginVesselPid value)
+        // reads back unchanged with the new fields at their defaults, and a
+        // KSC-shaped row writes neither new key (byte-identical on-disk shape).
+        [Fact]
+        public void RouteCargoDebited_OldShapeNode_ReadsBackWithDefaults()
+        {
+            // Hand-build the pre-M1 on-disk shape.
+            var node = new ConfigNode("GAME_ACTION");
+            node.AddValue("ut", "50000");
+            node.AddValue("type", ((int)GameActionType.RouteCargoDebited).ToString());
+            node.AddValue("routeId", "route-old");
+            node.AddValue("routeCycleId", "cyc-7");
+            node.AddValue("resource", "LiquidFuel|250.5");
+            node.AddValue("routeKscFundsCost", "1500");
+
+            var result = GameAction.DeserializeFrom(node);
+
+            Assert.Equal(GameActionType.RouteCargoDebited, result.Type);
+            Assert.Equal("route-old", result.RouteId);
+            Assert.Equal(250.5, result.RouteResourceManifest["LiquidFuel"]);
+            Assert.Equal(1500f, result.RouteKscFundsCost);
+            // New fields default on old rows.
+            Assert.Null(result.RouteRequestedResourceManifest);
+            Assert.Equal(0u, result.RouteOriginVesselPid);
+
+            // And a KSC-shaped row (no requested manifest, pid 0) writes
+            // NEITHER new key - the serialized shape stays pre-M1.
+            var parent = new ConfigNode("ROOT");
+            result.SerializeInto(parent);
+            var reserialized = parent.GetNode("GAME_ACTION");
+            string[] requested = reserialized.GetValues("requestedResource");
+            Assert.True(requested == null || requested.Length == 0);
+            Assert.Null(reserialized.GetValue("routeOriginVesselPid"));
+        }
+
         [Fact]
         public void Serialize_RouteCargoDelivered_RoundTripsPartialFillRequested()
         {

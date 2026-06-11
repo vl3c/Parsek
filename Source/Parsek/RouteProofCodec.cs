@@ -133,6 +133,22 @@ namespace Parsek
             if (proof.StartDockedOriginVesselPid != 0)
                 node.AddValue("startDockedOriginVesselPid", proof.StartDockedOriginVesselPid.ToString(ic));
 
+            // Origin endpoint descriptor (M1): additive + sparse, written only when
+            // a partner pid exists AND the body name was captured. Old proofs without
+            // the descriptor read back with defaults (empty body, zero coords,
+            // situation -1).
+            if (proof.StartDockedOriginVesselPid != 0
+                && !string.IsNullOrEmpty(proof.StartDockedOriginBodyName))
+            {
+                node.AddValue("startDockedOriginBodyName", proof.StartDockedOriginBodyName);
+                node.AddValue("startDockedOriginLatitude", proof.StartDockedOriginLatitude.ToString("R", ic));
+                node.AddValue("startDockedOriginLongitude", proof.StartDockedOriginLongitude.ToString("R", ic));
+                node.AddValue("startDockedOriginAltitude", proof.StartDockedOriginAltitude.ToString("R", ic));
+                node.AddValue("startDockedOriginIsSurface", proof.StartDockedOriginIsSurface.ToString());
+                if (proof.StartDockedOriginSituation >= 0)
+                    node.AddValue("startDockedOriginSituation", proof.StartDockedOriginSituation.ToString(ic));
+            }
+
             SerializeResourceManifest(node, "START_TRANSPORT_RESOURCES", proof.StartTransportResources);
             SerializeResourceManifest(node, "END_TRANSPORT_RESOURCES", proof.EndTransportResources);
             SerializeInventoryPayloadItems(node, "START_TRANSPORT_INVENTORY", proof.StartTransportInventory);
@@ -149,6 +165,30 @@ namespace Parsek
                 && uint.TryParse(originPidStr, NumberStyles.Integer, ic, out uint originPid))
             {
                 proof.StartDockedOriginVesselPid = originPid;
+            }
+
+            // Origin endpoint descriptor (M1): absent values keep the field defaults
+            // (empty body name, zero coords, IsSurface false, situation -1) so
+            // old-shape proofs read back unchanged.
+            var inv = NumberStyles.Float;
+            proof.StartDockedOriginBodyName = node.GetValue("startDockedOriginBodyName");
+            if (double.TryParse(node.GetValue("startDockedOriginLatitude"), inv, ic, out double originLat))
+                proof.StartDockedOriginLatitude = originLat;
+            if (double.TryParse(node.GetValue("startDockedOriginLongitude"), inv, ic, out double originLon))
+                proof.StartDockedOriginLongitude = originLon;
+            if (double.TryParse(node.GetValue("startDockedOriginAltitude"), inv, ic, out double originAlt))
+                proof.StartDockedOriginAltitude = originAlt;
+            string originIsSurfaceStr = node.GetValue("startDockedOriginIsSurface");
+            if (originIsSurfaceStr != null
+                && bool.TryParse(originIsSurfaceStr, out bool originIsSurface))
+            {
+                proof.StartDockedOriginIsSurface = originIsSurface;
+            }
+            string originSituationStr = node.GetValue("startDockedOriginSituation");
+            if (originSituationStr != null
+                && int.TryParse(originSituationStr, NumberStyles.Integer, ic, out int originSituation))
+            {
+                proof.StartDockedOriginSituation = originSituation;
             }
 
             proof.StartTransportResources = DeserializeResourceManifest(node, "START_TRANSPORT_RESOURCES");
