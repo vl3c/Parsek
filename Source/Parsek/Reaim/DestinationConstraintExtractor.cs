@@ -84,6 +84,14 @@ namespace Parsek.Reaim
                 if (string.IsNullOrEmpty(c.BodyName))
                     continue;
 
+                // M4c (Tier 2, not yet built): a VesselOrbital (station rendezvous) constraint is
+                // NOT a destination-body constraint - its BodyName is the body the STATION orbits,
+                // which the moon/rotation matching below would misread as a destination orbital
+                // config. M4a-supported missions are same-parent (never re-aim), so this is
+                // defensive; the destination-station hold lands with M4c.
+                if (c.Kind == ConstraintKind.VesselOrbital)
+                    continue;
+
                 if (c.Kind == ConstraintKind.Rotation)
                 {
                     // DestRotation = the landing body's rotation = the TARGET body's rotation. The
