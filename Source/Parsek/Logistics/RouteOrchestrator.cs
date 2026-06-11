@@ -191,6 +191,11 @@ namespace Parsek.Logistics
                 route.LoopAnchorUT = currentUT;
             }
 
+            // M6 hold reasons: activation resets loop observation, so a
+            // prior-session hold must not present as current. (Pause keeps the
+            // hold — it answers "why wasn't this delivering".)
+            route.ClearHold("player-activate");
+
             route.TransitionTo(RouteStatus.Active, "player-activate");
             ParsekLog.Info(Tag,
                 $"TryActivate: route={ShortIdForLog(route)} now Active " +
@@ -496,7 +501,7 @@ namespace Parsek.Logistics
                     case RouteDispatchOutcome.WaitResources:
                     case RouteDispatchOutcome.WaitFunds:
                     case RouteDispatchOutcome.WaitDestinationFull:
-                        ApplyWait(route, decision);
+                        ApplyWait(route, currentUT, decision);
                         transitioned++;
                         return;
 
@@ -682,6 +687,10 @@ namespace Parsek.Logistics
                 // every tick.
                 route.SkippedCycles += 1;
                 route.LastObservedLoopCycleIndex = dockCycleIndex;
+                // M6 hold reasons: persist the block verdict so the Logistics
+                // window can name it. Zero new computation — the evaluator
+                // already produced kind/reason/shortfall for the log line below.
+                route.RecordHold(elig.Kind, elig.Reason, elig.Shortfall, currentUT);
                 skipped++;
                 ParsekLog.Info(Tag,
                     $"LoopRoute: route {ShortIdForLog(route)} cycle={cycleId} " +
@@ -690,6 +699,14 @@ namespace Parsek.Logistics
                     $"snapped lastObserved={dockCycleIndex.ToString(IC)} skippedCycles={route.SkippedCycles.ToString(IC)}");
                 return;
             }
+
+            // M6 hold reasons: the crossing is ELIGIBLE, so clear any prior hold
+            // NOW, BEFORE EmitLoopCycle — ApplyDelivery can record an
+            // EndpointLost hold INSIDE that call (endpoint lost at delivery),
+            // and EmitLoopCycle returns true even on that branch, so a
+            // post-call clear would erase it. One clear here covers both the
+            // fired and the replay-backstop branches below.
+            route.ClearHold("crossing-eligible");
 
             // Confirmed crossing + eligible: emit the FULL cycle (must-fix #1).
             // Returns false on the ELS-replay backstop (nothing emitted) so the
@@ -1230,6 +1247,8 @@ namespace Parsek.Logistics
             route.CurrentCycleStartUT = currentUT;
             route.NextDispatchUT = currentUT + route.DispatchInterval;
             route.NextEligibilityCheckUT = null;
+            // M6 hold reasons: a successful dispatch ends any recorded hold.
+            route.ClearHold("dispatched");
 
             ParsekLog.Info(Tag,
                 $"Dispatch: route {ShortIdForLog(route)} cycle={cycleId} " +
@@ -1395,13 +1414,22 @@ namespace Parsek.Logistics
         /// <c>Status</c> and <c>NextEligibilityCheckUT</c>; per design §10.4
         /// <c>NextDispatchUT</c> is intentionally NOT touched, so a destination-
         /// full route holds its cycle slot until the destination has capacity.
+        /// Also persists the hold reason (M6 hold reasons) so the Logistics
+        /// window can name it; <paramref name="currentUT"/> stamps the hold age.
         /// </summary>
-        private static void ApplyWait(Route route, RouteDispatchDecision decision)
+        private static void ApplyWait(Route route, double currentUT, RouteDispatchDecision decision)
         {
             if (decision.NextStatus.HasValue)
                 route.TransitionTo(decision.NextStatus.Value, decision.Reason);
 
             route.NextEligibilityCheckUT = decision.NewNextEligibilityCheckUT;
+
+            // M6 hold reasons: store the legacy-path verdict verbatim (the
+            // prefixed decision token, e.g. "origin-lacks-X"; the formatter is
+            // total over both token shapes). Shortfall stays 0 here — the
+            // decision carries the number only inside the funds token, and the
+            // legacy path is dead for v0 loop routes (accepted degradation).
+            route.RecordHold(HoldKindForOutcome(decision.Outcome), decision.Reason, 0.0, currentUT);
 
             // §10.4: do NOT advance NextDispatchUT for any wait state. The route
             // re-evaluates at NextEligibilityCheckUT and either dispatches at the
@@ -1412,6 +1440,33 @@ namespace Parsek.Logistics
                 $"status={(decision.NextStatus.HasValue ? decision.NextStatus.Value.ToString() : "<none>")} " +
                 $"reason={decision.Reason ?? "<none>"} " +
                 $"retryAt={(decision.NewNextEligibilityCheckUT.HasValue ? decision.NewNextEligibilityCheckUT.Value.ToString("R", IC) : "<none>")}");
+        }
+
+        /// <summary>
+        /// Maps a legacy-path wait/loss <see cref="RouteDispatchOutcome"/> onto
+        /// the <see cref="RouteDispatchEvaluator.EligibilityFailureKind"/> the
+        /// hold-reason fields store (M6 hold reasons), so both capture paths
+        /// (loop blocked branch and legacy appliers) persist the same kind for
+        /// the same underlying failure. Total: non-hold outcomes (Skip /
+        /// Dispatch / InTransitComplete) map to None. Pure and internal for
+        /// direct testing.
+        /// </summary>
+        internal static RouteDispatchEvaluator.EligibilityFailureKind HoldKindForOutcome(
+            RouteDispatchOutcome outcome)
+        {
+            switch (outcome)
+            {
+                case RouteDispatchOutcome.WaitResources:
+                    return RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo;
+                case RouteDispatchOutcome.WaitFunds:
+                    return RouteDispatchEvaluator.EligibilityFailureKind.FundsShort;
+                case RouteDispatchOutcome.WaitDestinationFull:
+                    return RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull;
+                case RouteDispatchOutcome.EndpointLost:
+                    return RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost;
+                default:
+                    return RouteDispatchEvaluator.EligibilityFailureKind.None;
+            }
         }
 
         /// <summary>
@@ -1427,6 +1482,13 @@ namespace Parsek.Logistics
                 route.TransitionTo(decision.NextStatus.Value, decision.Reason);
 
             route.NextEligibilityCheckUT = decision.NewNextEligibilityCheckUT;
+
+            // M6 hold reasons: persist the loss verdict (the resolver token,
+            // e.g. "stop-0-no-live-vessels" or "origin-pid-miss...") so the
+            // Logistics window can name which endpoint went missing.
+            route.RecordHold(
+                RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost,
+                decision.Reason, 0.0, currentUT);
 
             var action = new GameAction
             {
@@ -1559,10 +1621,18 @@ namespace Parsek.Logistics
             if (!env.TryResolveEndpointVessel(stop.Endpoint, out Vessel destVessel, out string endpointReason)
                 || destVessel == null)
             {
+                string lostReason = "endpoint-destroyed-at-delivery:" + (endpointReason ?? "unknown");
                 ParsekLog.Info(Tag,
                     $"Delivery: route {ShortIdForLog(route)} cycle={cycleId} endpoint lost at delivery " +
                     $"reason={endpointReason ?? "<none>"}");
-                EmitEndpointLostAction(route, currentUT, "endpoint-destroyed-at-delivery:" + (endpointReason ?? "unknown"));
+                EmitEndpointLostAction(route, currentUT, lostReason);
+                // M6 hold reasons: this hold is recorded INSIDE EmitLoopCycle on
+                // the loop path, AFTER the pre-emit "crossing-eligible" clear in
+                // ProcessLoopRoute, so it survives the crossing (the clear must
+                // never move after EmitLoopCycle).
+                route.RecordHold(
+                    RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost,
+                    lostReason, 0.0, currentUT);
                 // Recovery-credit deferral tail (logistics-recovery-credit section 5.4):
                 // this cycle dispatched + armed its pending credit during EmitLoopCycle,
                 // and an EndpointLost route stops crossing, so flush the owed credit
