@@ -73,15 +73,68 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(pristine.LegacyFxPrefabNames.Contains("fx_exhaustFlame_blue"),
                 "expected fx_exhaustFlame_blue among Swivel's pristine legacy keys");
 
-            // Each synthesized name must resolve to a stock FX prefab, or the legacy
-            // synthesis is a no-op and the ghost falls back to the white flame. The prefab
-            // cache is fed by parts whose post-MM config still carries legacy fx_* keys
-            // (e.g. unpatched SRBs), which SWE might also strip in future versions.
+            // Each synthesized name must resolve to a stock FX prefab through the candidate
+            // cascade (exact, then size-suffix-stripped family base), or the legacy
+            // synthesis drops it. The prefab cache is fed by parts whose post-MM config
+            // still carries legacy fx_* keys (e.g. unpatched SRBs), which SWE might also
+            // strip in future versions.
             for (int i = 0; i < pristine.LegacyFxPrefabNames.Count; i++)
             {
-                InGameAssert.IsNotNull(GhostVisualBuilder.FindFxPrefab(pristine.LegacyFxPrefabNames[i]),
-                    $"pristine legacy FX prefab '{pristine.LegacyFxPrefabNames[i]}' unresolvable " +
+                string wanted = pristine.LegacyFxPrefabNames[i];
+                var candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(wanted);
+                bool resolved = false;
+                for (int c = 0; c < candidates.Count && !resolved; c++)
+                    resolved = GhostVisualBuilder.FindFxPrefab(candidates[c]) != null;
+                InGameAssert.IsTrue(resolved,
+                    $"pristine legacy FX prefab '{wanted}' unresolvable through the cascade " +
                     "(no surviving donor part in this install; ghost degrades to white flame)");
+            }
+        }
+
+        [InGameTest(Category = "WaterfallCompat", Scene = GameScenes.FLIGHT,
+            Description = "Waterfall installed: Mainsail legacy flame resolves via the candidate cascade (or white-flame guarantee)")]
+        public void MainsailLegacyFlameCascadeResolvable()
+        {
+            if (!WaterfallCompat.IsWaterfallAssemblyLoaded())
+            {
+                InGameAssert.Skip("Waterfall not installed; rerun after the CKAN install.");
+                return;
+            }
+
+            AvailablePart mainsail = PartLoader.getPartInfoByName("liquidEngineMainsail.v2")
+                ?? PartLoader.getPartInfoByName("liquidEngine1-2");
+            InGameAssert.IsNotNull(mainsail, "Mainsail part not found in PartLoader");
+            if (!WaterfallCompat.PartHasWaterfallModule(mainsail.partPrefab))
+            {
+                InGameAssert.Skip("Mainsail has no ModuleWaterfallFX (config pack like SWE not installed).");
+                return;
+            }
+
+            var pristine = PristinePartFxResolver.GetForPart(mainsail.name, mainsail.configFileFullName);
+            InGameAssert.IsTrue(pristine.Found, $"pristine PART node not found (path='{mainsail.configFileFullName}')");
+            InGameAssert.IsGreaterThan(pristine.LegacyFxPrefabNames.Count, 0,
+                "pristine legacy fx_* keys not recovered for Mainsail");
+
+            // The exact size-suffixed flame prefabs (fx_exhaustFlame_yellow_medium/_mini)
+            // lose their donor parts under SWE; the cascade must reach a surviving family
+            // prefab (fx_exhaustFlame_yellow lives on unpatched SRBs). If even the cascade
+            // fails, the white-flame guarantee must hold.
+            bool anyFlameResolved = false;
+            for (int i = 0; i < pristine.LegacyFxPrefabNames.Count; i++)
+            {
+                string wanted = pristine.LegacyFxPrefabNames[i];
+                if (wanted.IndexOf("flame", System.StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+                var candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(wanted);
+                for (int c = 0; c < candidates.Count && !anyFlameResolved; c++)
+                    anyFlameResolved = GhostVisualBuilder.FindFxPrefab(candidates[c]) != null;
+            }
+
+            if (!anyFlameResolved)
+            {
+                InGameAssert.IsNotNull(GhostVisualBuilder.FindFxPrefab("fx_exhaustFlame_white"),
+                    "no Mainsail legacy flame resolves via the cascade AND the white-flame " +
+                    "guarantee prefab is unresolvable; Mainsail ghosts would be flame-less");
             }
         }
 

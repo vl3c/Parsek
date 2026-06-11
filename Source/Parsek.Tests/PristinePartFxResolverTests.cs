@@ -285,6 +285,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildLegacyFxNameCandidates_StripsSuffixTokensToFamilyBase()
+        {
+            Assert.Equal(
+                new List<string>
+                {
+                    "fx_exhaustFlame_blue_small",
+                    "fx_exhaustFlame_blue",
+                    "fx_exhaustFlame"
+                },
+                PristinePartFxResolver.BuildLegacyFxNameCandidates("fx_exhaustFlame_blue_small"));
+
+            Assert.Equal(
+                new List<string>
+                {
+                    "fx_exhaustFlame_yellow_medium",
+                    "fx_exhaustFlame_yellow",
+                    "fx_exhaustFlame"
+                },
+                PristinePartFxResolver.BuildLegacyFxNameCandidates("fx_exhaustFlame_yellow_medium"));
+
+            Assert.Equal(
+                new List<string> { "fx_smokeTrail_light", "fx_smokeTrail" },
+                PristinePartFxResolver.BuildLegacyFxNameCandidates("fx_smokeTrail_light"));
+
+            // Two-token names produce only themselves; null/empty produce nothing.
+            Assert.Equal(
+                new List<string> { "fx_gasJet" },
+                PristinePartFxResolver.BuildLegacyFxNameCandidates("fx_gasJet"));
+            Assert.Empty(PristinePartFxResolver.BuildLegacyFxNameCandidates(null));
+            Assert.Empty(PristinePartFxResolver.BuildLegacyFxNameCandidates(""));
+        }
+
+        [Fact]
         public void ReadEngineEffectNames_ReadsAllFourKeysAndSkipsMissing()
         {
             var module = new ConfigNode("MODULE");

@@ -258,6 +258,31 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Builds the resolution candidates for a legacy FX prefab name, most specific
+        /// first: the exact name, then progressively stripping trailing underscore tokens
+        /// (size/variant suffixes) down to the two-token family base. Size-suffixed
+        /// variants (fx_exhaustFlame_blue_small, fx_exhaustFlame_yellow_medium) often lose
+        /// their donor parts under Waterfall config packs while the generic family prefab
+        /// survives on unpatched parts (e.g. SRBs).
+        /// </summary>
+        internal static List<string> BuildLegacyFxNameCandidates(string name)
+        {
+            var result = new List<string>();
+            if (string.IsNullOrEmpty(name))
+                return result;
+
+            result.Add(name);
+            string[] tokens = name.Split('_');
+            for (int len = tokens.Length - 1; len >= 2; len--)
+            {
+                string candidate = string.Join("_", tokens, 0, len);
+                if (!result.Contains(candidate))
+                    result.Add(candidate);
+            }
+            return result;
+        }
+
+        /// <summary>
         /// Legacy fx_* values are "x, y, z, dx, dy, dz, event[, event...]". Returns true
         /// when any non-numeric token is running/power, or when no event tokens exist.
         /// </summary>

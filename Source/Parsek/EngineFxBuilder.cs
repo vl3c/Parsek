@@ -1500,23 +1500,80 @@ namespace Parsek
             // dropped here so the white-flame last resort can engage instead.
             int legacySynthAdded = 0;
             int legacySynthUnresolvable = 0;
+            int legacySynthSubstituted = 0;
+            int legacyFlameFallback = 0;
             if (effectsScanAdded == 0 && moduleIndex == 0 && pristine.LegacyFxPrefabNames.Count > 0)
             {
                 string anchor = engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName)
                     ? engine.thrustVectorTransformName
                     : "thrustTransform";
                 Vector3 anchorOffset = engine != null ? engine.fxOffset : Vector3.zero;
+                bool flameWanted = false;
+                bool flameResolved = false;
+                var usedResolvedNames = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
                 for (int i = 0; i < pristine.LegacyFxPrefabNames.Count; i++)
                 {
-                    if (GhostVisualBuilder.FindFxPrefab(pristine.LegacyFxPrefabNames[i]) == null)
+                    string wanted = pristine.LegacyFxPrefabNames[i];
+                    bool isFlame = wanted.IndexOf("flame", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (isFlame)
+                        flameWanted = true;
+
+                    // Resolve through the candidate cascade: exact name first, then with
+                    // size/variant suffixes stripped (the exact prefab's donor parts may
+                    // all be Waterfall-patched while the generic family survives on
+                    // unpatched parts like SRBs).
+                    string resolved = null;
+                    List<string> candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(wanted);
+                    for (int c = 0; c < candidates.Count; c++)
+                    {
+                        if (GhostVisualBuilder.FindFxPrefab(candidates[c]) != null)
+                        {
+                            resolved = candidates[c];
+                            break;
+                        }
+                    }
+
+                    if (resolved == null)
                     {
                         legacySynthUnresolvable++;
                         continue;
                     }
+                    if (!usedResolvedNames.Add(resolved))
+                    {
+                        // Several wanted names collapsing to one donor (Mainsail's yellow
+                        // medium + mini both -> fx_exhaustFlame_yellow) would stack
+                        // identical FX at the same anchor; one instance is enough.
+                        continue;
+                    }
+                    if (!string.Equals(resolved, wanted, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        legacySynthSubstituted++;
+                        LogHotPathVerbose($"pristine-legacy-subst-{partName}-{moduleIndex}-{wanted}",
+                            $"waterfall fallback: '{partName}' midx={moduleIndex} " +
+                            $"substituted legacy FX '{wanted}' -> '{resolved}'");
+                    }
+                    if (isFlame)
+                        flameResolved = true;
                     prefabFxEntries.Add((
-                        pristine.LegacyFxPrefabNames[i], anchor, anchorOffset,
+                        resolved, anchor, anchorOffset,
                         Quaternion.Euler(-90f, 0f, 0f), true, "pristine-legacy"));
                     legacySynthAdded++;
+                }
+
+                // Flame guarantee: a ghost engine that wanted a flame must show one even
+                // when only the smoke trail (or nothing) resolved; partial recovery
+                // otherwise leaves a flame-less plume and the zero-entries last resort
+                // never engages.
+                if (flameWanted && !flameResolved)
+                {
+                    prefabFxEntries.Add((
+                        "fx_exhaustFlame_white", anchor, anchorOffset,
+                        Quaternion.Euler(-90f, 0f, 0f), true, "pristine-legacy-flame-fallback"));
+                    legacyFlameFallback = 1;
+                    legacySynthAdded++;
+                    LogHotPathVerbose($"pristine-legacy-flamefallback-{partName}-{moduleIndex}",
+                        $"waterfall fallback: '{partName}' midx={moduleIndex} no legacy flame " +
+                        "resolved; added best-effort white flame");
                 }
             }
 
@@ -1524,7 +1581,8 @@ namespace Parsek
             LogHotPathVerbose($"pristine-fallback-{partName}-{moduleIndex}",
                 $"waterfall fallback: '{partName}' midx={moduleIndex} pristine recovery added {added} " +
                 $"entries (effectsScan={effectsScanAdded}, legacySynth={legacySynthAdded}, " +
-                $"legacyUnresolvable={legacySynthUnresolvable}) from '{pristine.SourcePath}'");
+                $"legacyUnresolvable={legacySynthUnresolvable}, substituted={legacySynthSubstituted}, " +
+                $"flameFallback={legacyFlameFallback}) from '{pristine.SourcePath}'");
             return added > 0;
         }
     }
