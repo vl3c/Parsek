@@ -1782,7 +1782,13 @@ namespace Parsek
                     && !VesselLaunchIdentity.GuidsConclusivelyDiffer(recordedGuid, candGuid))
                 {
                     // Both directions of the same rendezvous (and any later re-rendezvous): keep
-                    // the FIRST rendezvous UT and its comparison recording.
+                    // the FIRST rendezvous UT and its comparison recording. The recId backfill
+                    // from a LATER entry is safe even though earliestUT comes from an earlier
+                    // one: merged entries are guid-gated to the SAME vessel, so any merged
+                    // recording is a valid drift-comparison source, and ComputeDriftAmberReason
+                    // only compares when that recording has a segment COVERING earliestUT
+                    // (otherwise null = no amber, the best available outcome when the earliest
+                    // entry carried no recording id).
                     if (raw.EarliestUT < earliestUT)
                     {
                         earliestUT = raw.EarliestUT;

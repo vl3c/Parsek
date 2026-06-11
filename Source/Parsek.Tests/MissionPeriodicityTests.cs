@@ -994,6 +994,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Extract_DriftAmber_BackfilledRecordingCoveringEarliestUT_StillCompares()
+        {
+            // Scoped-review finding pin: the EARLIEST rendezvous entry is pid-shape (no
+            // recording id) and a LATER rec-shape entry backfills the drift-comparison
+            // recording. The backfill is safe by construction: merged entries are guid-gated to
+            // the SAME vessel, and the comparison only runs when the backfilled recording has a
+            // segment COVERING the earliest UT - here it does (900-2000), so the drifted period
+            // still ambers while the constraint keeps the earliest entry's UT.
+            double recordedPeriod = StationPeriod * 1.056; // ~5.6% drift
+            var station = StationRecording(
+                "station-rec", 900, 2000, "Kerbin", SmaForPeriod(recordedPeriod, KerbinMu));
+            station.VesselPersistentId = StationPid;
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithRendezvous(rendezvous, 1200, 1250, StationPid);        // earliest: pid-shape
+            WithRendezvous(rendezvous, 1400, 1450, 0, "station-rec");  // later: rec-shape
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+
+            var ex = Extract(tree, StationFake(), extraCommitted: new List<Recording> { station });
+
+            Assert.Equal(Support.Supported, ex.Support);
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal(200.0, vo.PhaseOffsetSeconds);   // the earliest entry wins the UT
+            Assert.NotNull(ex.DriftAmberReason);          // the later entry's recording compares
+            Assert.Contains("drifted", ex.DriftAmberReason);
+        }
+
+        [Fact]
         public void Extract_SamePidDifferentLaunches_UnsupportedRendezvous()
         {
             // Two anchor recordings share the craft-baked pid but are conclusively different
