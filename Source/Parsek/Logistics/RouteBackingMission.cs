@@ -133,10 +133,12 @@ namespace Parsek.Logistics
             // Scoped to the terminal undock (Phase 1 review carry-forward): an
             // earlier in-flight undock (a mid-mission separation BEFORE the route's
             // dock cycle) must NOT trim the survivor that continues on to the dock.
-            // We pick the Undock branch point whose UT is closest to segmentEndUT, and
-            // additionally AND the branch-child test with the StartUT>=boundary
-            // guard in WalkAndClassify so a child that legitimately starts before
-            // the boundary is never dropped on branch-id alone.
+            // We pick the Undock branch point whose UT is closest to segmentEndUT.
+            // WalkAndClassify excludes on StartUT >= boundary OR roots-at-undock-
+            // child (the disjunction is deliberate: the undock-child disjunct is
+            // belt-and-suspenders for post-undock survivor legs whose StartUT
+            // drifted before the boundary; member through-line keys base at the
+            // head leg and never at undock children, so it cannot drop them).
             var undockChildLegIds = CollectTerminalUndockChildLegIds(tree, segmentEndUT);
 
             // --- Walk every selectable interval; exclude post-undock ones. ---
@@ -727,11 +729,15 @@ namespace Parsek.Logistics
         // Topology signature over the backing tree: the BranchPoints/Recordings
         // counts (mirroring the per-tree fold in
         // MissionLoopUnitBuilder.BuildSignature) PLUS rolling ordinal hashes of
-        // the recording ids and branch-point ids (mirroring BuildSignature's
-        // committed-list RecordingId hash), so a count-neutral mutation (e.g. a
-        // paired discard + re-fly batched into one observation while the route
-        // was not ghost-driving) still re-derives. "<no-tree>" when the tree is
-        // not committed (yet), so the cache re-derives once when it appears.
+        // the recording ids and branch-point ids (BuildSignature hashes a
+        // stably-ordered committed list; here we rely on Dictionary.Keys
+        // enumeration order being stable for an UNMUTATED instance on net472 -
+        // any order change implies a mutation that SHOULD re-derive, and a
+        // spurious re-derivation with an equal output is SetEquals-compared and
+        // logs nothing). Catches count-neutral mutations (e.g. a paired
+        // discard + re-fly batched into one observation while the route was not
+        // ghost-driving). "<no-tree>" when the tree is not committed (yet), so
+        // the cache re-derives once when it appears.
         private static string ComputeTopologySignature(RecordingTree tree)
         {
             if (tree == null)

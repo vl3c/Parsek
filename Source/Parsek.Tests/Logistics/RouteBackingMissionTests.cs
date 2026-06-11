@@ -369,6 +369,16 @@ namespace Parsek.Tests.Logistics
         // ("launch/seg2") that the base-id rule alone would include; only the
         // UT end-trim prong catches it. Pre-dock intervals of the known member
         // must stay included, and the new recording's key must be excluded.
+        //
+        // CAVEAT (re-review finding 1): this pins the PURE derivation only. The
+        // same grown-tree shape also renumbers what the route's stale
+        // creation-time excluded key STRINGS denote (a creation key can come to
+        // name a pre-dock member window), which the BuildMission union would
+        // over-exclude - that inverse direction is unreachable in production
+        // because every pre-dock member-path mutation changes a SourceRef
+        // fingerprint and RevalidateSources flips the route off ghost-driving
+        // first. Do not read this test as full-pipeline proof for pre-dock
+        // renumbering.
         [Fact]
         public void ComputeAutoExcluded_NewSegPeelOfKnownMember_PreDockKept_PostDockTailTrimmed()
         {
