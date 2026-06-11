@@ -47,6 +47,11 @@ namespace Parsek.Tests.Generators
         private string dockMemberRecordingId;
         private double loopAnchorUT = -1.0;
         private long lastObservedLoopCycleIndex = -1;
+        private RouteDispatchEvaluator.EligibilityFailureKind lastHoldKind =
+            RouteDispatchEvaluator.EligibilityFailureKind.None;
+        private string lastHoldDetail;
+        private double lastHoldShortfall;
+        private double lastHoldUT = -1.0;
 
         public RouteFixtureBuilder WithId(string newId)
         {
@@ -207,6 +212,17 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RouteFixtureBuilder WithLastHold(
+            RouteDispatchEvaluator.EligibilityFailureKind kind,
+            string detail, double shortfall, double ut)
+        {
+            lastHoldKind = kind;
+            lastHoldDetail = detail;
+            lastHoldShortfall = shortfall;
+            lastHoldUT = ut;
+            return this;
+        }
+
         public Route Build()
         {
             var route = new Route
@@ -238,7 +254,11 @@ namespace Parsek.Tests.Generators
                 RecordedDockUT = recordedDockUT,
                 DockMemberRecordingId = dockMemberRecordingId,
                 LoopAnchorUT = loopAnchorUT,
-                LastObservedLoopCycleIndex = lastObservedLoopCycleIndex
+                LastObservedLoopCycleIndex = lastObservedLoopCycleIndex,
+                LastHoldKind = lastHoldKind,
+                LastHoldDetail = lastHoldDetail,
+                LastHoldShortfall = lastHoldShortfall,
+                LastHoldUT = lastHoldUT
             };
 
             foreach (string key in excludedIntervalKeys)
