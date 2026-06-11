@@ -278,6 +278,16 @@ Supported (extract `VesselOrbital`):
   automatically - PROVIDED no loop-clock cuts land between them, which 4.3's cut-placement
   rule guarantees.
 - The anchor resolves per section 3.2 (exists in the save).
+- **Self-partition (measured correction, 2026-06-11 retest):** the dock merge pulls the
+  foreign partner's segments INTO the tree, and the recorded anchoring is MUTUAL: the
+  partner's sections anchor the mission's own craft (the BG recorder records the nearby
+  partner relative to the ACTIVE vessel), while the craft's sections anchor the partner. Raw
+  anchors are therefore partitioned against the mission's SELF launch line (the earliest
+  member's pid + launch guid): a section whose anchor resolves to SELF is REATTRIBUTED to
+  its owning member's vessel (the partner the rendezvous was with, at that section's UT); a
+  foreign-anchored section is a direct target; both directions merge to one target keeping
+  the FIRST rendezvous UT. A mission whose vessel-anchored sections are ALL intra-self pairs
+  has no foreign target: no constraint, and NOT a reject (Support untouched).
 - The anchor's orbit is CLOSED (elliptical) and around the SAME parent body the mission's
   constraint set already operates in (the LKO-resupply shape: pad Rotation(Kerbin) +
   VesselOrbital(station around Kerbin)).

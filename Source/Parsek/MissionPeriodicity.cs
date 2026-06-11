@@ -348,9 +348,18 @@ namespace Parsek
             }
 
             double ut0 = double.PositiveInfinity;
-            foreach (var w in memberWindows.Values)
-                if (w.StartUT < ut0)
-                    ut0 = w.StartUT;
+            uint selfPid = 0;     // the SELF launch line: the earliest member's vessel identity
+            string selfGuid = null;
+            foreach (var kv0 in memberWindows)
+            {
+                if (kv0.Value.StartUT < ut0)
+                {
+                    ut0 = kv0.Value.StartUT;
+                    Recording r0 = kv0.Key >= 0 && kv0.Key < committed.Count ? committed[kv0.Key] : null;
+                    selfPid = r0 != null ? r0.VesselPersistentId : 0;
+                    selfGuid = r0 != null ? r0.RecordedVesselGuid : null;
+                }
+            }
             result.UT0 = ut0;
 
             // 2. Earliest included surface/atmospheric segment (across all members) -> the launch
@@ -494,19 +503,22 @@ namespace Parsek
             string missionTag = BuildMissionTag(view);
             if (vesselAnchors.Count > 0)
             {
-                if (TryBuildVesselOrbitalConstraint(
-                        vesselAnchors, launchBody, ut0, bodyInfo, committed,
-                        out PhaseConstraint stationConstraint, out string rejectReason,
-                        out string driftAmber))
+                VesselOrbitalClassification cls = ClassifyVesselOrbitalConstraint(
+                    vesselAnchors, launchBody, ut0, selfPid, selfGuid, bodyInfo, committed,
+                    out PhaseConstraint stationConstraint, out string rejectReason,
+                    out string driftAmber);
+                if (cls == VesselOrbitalClassification.Emitted)
                 {
                     result.Constraints.Add(stationConstraint);
                     result.DriftAmberReason = driftAmber;
                 }
-                else
+                else if (cls == VesselOrbitalClassification.Rejected)
                 {
                     result.Support = Support.UnsupportedRendezvous;
                     result.UnsupportedReason = rejectReason;
                 }
+                // NoForeignAnchor: every vessel-anchored section was an intra-mission pair
+                // (both dock partners included) - no constraint, Support untouched.
             }
             LogDriftAmberTransition(missionTag, result.DriftAmberReason);
 
@@ -1548,6 +1560,15 @@ namespace Parsek
             /// pid-resolution source for the anchor-recording-only shape and the D3 drift
             /// comparison source; NEVER a period derivation source (design note 3.2).</summary>
             public string AnchorRecordingId;
+
+            /// <summary>Identity of the member recording CARRYING the sections. The dock merge
+            /// pulls the foreign partner's segments into the tree with MUTUAL anchoring (the
+            /// partner's sections anchor the mission's own craft), so a section whose anchor
+            /// resolves to the mission's SELF launch line is REATTRIBUTED to its owner: the
+            /// owner is the partner the rendezvous was with, at that section's UT.</summary>
+            public uint OwnerPid;
+            public string OwnerGuid;
+            public string OwnerRecordingId;
         }
 
         /// <summary>
@@ -1586,9 +1607,11 @@ namespace Parsek
                     || !string.IsNullOrEmpty(sec.anchorRecordingId);
                 if (!anchoredToVessel)
                     continue;
-                string key = sec.anchorVesselId != 0
+                // Keyed per (owner member, recorded anchor identity): the classifier reattributes
+                // self-anchored entries to their OWNER, so entries must not merge across owners.
+                string key = "o:" + rec.RecordingId + "|" + (sec.anchorVesselId != 0
                     ? "pid:" + sec.anchorVesselId.ToString(CultureInfo.InvariantCulture)
-                    : "rec:" + sec.anchorRecordingId;
+                    : "rec:" + sec.anchorRecordingId);
                 if (anchors.TryGetValue(key, out VesselAnchorInfo existing))
                 {
                     bool earlier = segStart < existing.EarliestUT;
@@ -1606,35 +1629,57 @@ namespace Parsek
                     {
                         SectionPid = sec.anchorVesselId,
                         EarliestUT = segStart,
-                        AnchorRecordingId = sec.anchorRecordingId
+                        AnchorRecordingId = sec.anchorRecordingId,
+                        OwnerPid = rec.VesselPersistentId,
+                        OwnerGuid = rec.RecordedVesselGuid,
+                        OwnerRecordingId = rec.RecordingId
                     };
                 }
             }
         }
 
+        /// <summary>The outcome of the M4a rendezvous classification.</summary>
+        internal enum VesselOrbitalClassification
+        {
+            /// <summary>Exactly one foreign anchor: the VesselOrbital constraint was emitted.</summary>
+            Emitted,
+            /// <summary>Every vessel-anchored section was an intra-mission relative pair (the
+            /// mission's own segments anchoring each other, e.g. both dock partners included):
+            /// no foreign target exists, no constraint, Support untouched.</summary>
+            NoForeignAnchor,
+            /// <summary>Fail closed: Support becomes UnsupportedRendezvous with the reason.</summary>
+            Rejected
+        }
+
         /// <summary>
-        /// M4a classifier (design note 5.2 / D7): builds the VesselOrbital constraint for the
-        /// SUPPORTED rendezvous shape - exactly ONE same-parent closed-orbit vessel anchor - or
-        /// returns false with the fail-closed reject reason. Rules, in order:
-        /// 0. null launch body -&gt; reject (the same-parent check is meaningless without it);
-        /// 1. resolve every collected identity to a pid and MERGE: a "pid:" entry resolves
-        ///    directly; a "rec:" entry (the recorder's anchor-recording-only shape, where the
-        ///    section pid is deliberately zeroed whenever anchorRecordingId is stamped) resolves
-        ///    through the committed anchor recording's recorded pid + launch guid. persistentId
-        ///    is craft-baked, NOT launch-unique, so the guid rides along for the rule-2 identity
-        ///    gate (the VesselLaunchIdentity contract). An unresolvable recording id, a pid-less
-        ///    anchor recording, or 2+ DISTINCT resolved anchors -&gt; reject;
-        /// 2. the anchor does not resolve to a live closed orbit of the SAME launch -&gt; reject
-        ///    (design 3.2);
-        /// 3. the anchor orbits a body other than the launch body -&gt; reject (Tier 2 / M4c);
-        /// 4. else emit (period = LIVE anchor period, offset = first rendezvous UT - ut0).
-        /// <paramref name="driftAmberReason"/> is the display-only D3 surface (set only on emit,
-        /// see <see cref="ComputeDriftAmberReason"/>); never affects Support. Pure.
+        /// M4a classifier (design note 5.2 / D7, self-partition revision from the 2026-06-11
+        /// playtest): emits the VesselOrbital constraint for the SUPPORTED rendezvous shape -
+        /// exactly ONE foreign same-parent closed-orbit vessel - or fails closed with a reason.
+        /// The dock merge pulls the foreign partner's segments into the tree with MUTUAL
+        /// anchoring (partner sections anchor the mission's own craft; craft sections anchor the
+        /// partner), so raw anchors are first PARTITIONED against the mission's SELF launch line
+        /// (<paramref name="selfPid"/>/<paramref name="selfGuid"/>, the earliest member's
+        /// identity): a section whose anchor resolves to SELF is REATTRIBUTED to its owning
+        /// member's vessel (the partner the rendezvous was with, at that section's UT); a
+        /// foreign-anchored section is a direct target. Both directions of one rendezvous merge
+        /// on the resolved identity (guid-gated, craft-baked pids are not launch-unique), keeping
+        /// the EARLIEST rendezvous UT. Rules, in order:
+        /// 0. null launch body -&gt; Rejected;
+        /// 1. resolve + partition + merge: unresolvable anchor recording ids, pid-less partner
+        ///    members, or 2+ DISTINCT foreign identities -&gt; Rejected; all-self -&gt;
+        ///    NoForeignAnchor (not a reject);
+        /// 2. the target does not resolve to a live closed orbit of the SAME launch -&gt; Rejected;
+        /// 3. the target orbits a body other than the launch body -&gt; Rejected (Tier 2 / M4c);
+        /// 4. else Emitted (period = LIVE target period, offset = earliest rendezvous UT - ut0).
+        /// <paramref name="driftAmberReason"/> is the display-only D3 surface (set only on emit);
+        /// never affects Support. Pure.
         /// </summary>
-        internal static bool TryBuildVesselOrbitalConstraint(
+        internal static VesselOrbitalClassification ClassifyVesselOrbitalConstraint(
             Dictionary<string, VesselAnchorInfo> anchors,
             string launchBody,
             double ut0,
+            uint selfPid,
+            string selfGuid,
             IBodyInfo bodyInfo,
             IReadOnlyList<Recording> committed,
             out PhaseConstraint constraint,
@@ -1650,23 +1695,22 @@ namespace Parsek
             if (string.IsNullOrEmpty(launchBody))
             {
                 rejectReason = "rendezvous with no launch body to phase against (orbit-only config)";
-                return false;
+                return VesselOrbitalClassification.Rejected;
             }
 
-            // Rule 1: resolve + merge the collected identities. The same physical anchor can be
-            // recorded under BOTH shapes across sections (a pid-stamped section and an
-            // anchor-recording-only section), so merging happens on the RESOLVED pid with the
-            // launch guid guarding against the craft-baked-pid collision.
+            // Rule 1: resolve each entry's recorded anchor identity, partition against the SELF
+            // launch line, and merge the surviving foreign candidates.
             uint pid = 0;
             string recordedGuid = null;
-            VesselAnchorInfo info = default;
-            bool haveAnchor = false;
+            double earliestUT = double.PositiveInfinity;
+            string compareRecordingId = null;
+            bool haveCandidate = false;
             foreach (var kv in anchors)
             {
                 VesselAnchorInfo raw = kv.Value;
-                uint resolvedPid = raw.SectionPid;
-                string resolvedGuid = null;
-                if (resolvedPid == 0)
+                uint anchorPid = raw.SectionPid;
+                string anchorGuid = null;
+                if (anchorPid == 0)
                 {
                     Recording anchorRec = FindCommittedRecordingById(committed, raw.AnchorRecordingId);
                     if (anchorRec == null)
@@ -1674,62 +1718,95 @@ namespace Parsek
                         rejectReason =
                             $"rendezvous anchor recording '{raw.AnchorRecordingId}' not in the " +
                             "committed set (cannot resolve the live anchor)";
-                        return false;
+                        return VesselOrbitalClassification.Rejected;
                     }
                     if (anchorRec.VesselPersistentId == 0)
                     {
                         rejectReason =
                             $"rendezvous anchor recording '{raw.AnchorRecordingId}' carries no " +
                             "vessel pid (cannot resolve the live anchor)";
-                        return false;
+                        return VesselOrbitalClassification.Rejected;
                     }
-                    resolvedPid = anchorRec.VesselPersistentId;
-                    resolvedGuid = anchorRec.RecordedVesselGuid;
+                    anchorPid = anchorRec.VesselPersistentId;
+                    anchorGuid = anchorRec.RecordedVesselGuid;
                 }
                 else if (!string.IsNullOrEmpty(raw.AnchorRecordingId))
                 {
                     // A pid-stamped section that also names the anchor recording: harvest the
-                    // launch guid for the rule-2 identity gate when the recorded pids agree.
+                    // launch guid for the identity gates when the recorded pids agree.
                     Recording anchorRec = FindCommittedRecordingById(committed, raw.AnchorRecordingId);
-                    if (anchorRec != null && anchorRec.VesselPersistentId == resolvedPid)
-                        resolvedGuid = anchorRec.RecordedVesselGuid;
+                    if (anchorRec != null && anchorRec.VesselPersistentId == anchorPid)
+                        anchorGuid = anchorRec.RecordedVesselGuid;
                 }
 
-                if (!haveAnchor)
+                // Partition: a SELF-anchored section lives on a PARTNER member (the dock merge's
+                // mutual anchoring) - the rendezvous target is the OWNER's vessel at that UT.
+                uint candPid;
+                string candGuid;
+                string candRecId;
+                bool anchorIsSelf = selfPid != 0 && anchorPid == selfPid
+                    && !VesselLaunchIdentity.GuidsConclusivelyDiffer(selfGuid, anchorGuid);
+                if (anchorIsSelf)
                 {
-                    haveAnchor = true;
-                    pid = resolvedPid;
-                    recordedGuid = resolvedGuid;
-                    info = raw;
-                }
-                else if (resolvedPid == pid
-                    && !VesselLaunchIdentity.GuidsConclusivelyDiffer(recordedGuid, resolvedGuid))
-                {
-                    // Same anchor under both recorded shapes: keep the FIRST rendezvous.
-                    if (raw.EarliestUT < info.EarliestUT)
-                        info.EarliestUT = raw.EarliestUT;
-                    if (string.IsNullOrEmpty(info.AnchorRecordingId))
-                        info.AnchorRecordingId = raw.AnchorRecordingId;
-                    if (string.IsNullOrEmpty(recordedGuid))
-                        recordedGuid = resolvedGuid;
+                    bool ownerIsSelf = raw.OwnerPid == selfPid
+                        && !VesselLaunchIdentity.GuidsConclusivelyDiffer(selfGuid, raw.OwnerGuid);
+                    if (ownerIsSelf)
+                        continue; // an intra-self relative pair carries no foreign target
+                    if (raw.OwnerPid == 0)
+                    {
+                        rejectReason =
+                            $"rendezvous partner member '{raw.OwnerRecordingId}' carries no " +
+                            "vessel pid (cannot resolve the live partner)";
+                        return VesselOrbitalClassification.Rejected;
+                    }
+                    candPid = raw.OwnerPid;
+                    candGuid = raw.OwnerGuid;
+                    candRecId = raw.OwnerRecordingId;
                 }
                 else
                 {
-                    rejectReason = resolvedPid == pid
+                    candPid = anchorPid;
+                    candGuid = anchorGuid;
+                    candRecId = raw.AnchorRecordingId;
+                }
+
+                if (!haveCandidate)
+                {
+                    haveCandidate = true;
+                    pid = candPid;
+                    recordedGuid = candGuid;
+                    earliestUT = raw.EarliestUT;
+                    compareRecordingId = candRecId;
+                }
+                else if (candPid == pid
+                    && !VesselLaunchIdentity.GuidsConclusivelyDiffer(recordedGuid, candGuid))
+                {
+                    // Both directions of the same rendezvous (and any later re-rendezvous): keep
+                    // the FIRST rendezvous UT and its comparison recording.
+                    if (raw.EarliestUT < earliestUT)
+                    {
+                        earliestUT = raw.EarliestUT;
+                        if (!string.IsNullOrEmpty(candRecId))
+                            compareRecordingId = candRecId;
+                    }
+                    if (string.IsNullOrEmpty(compareRecordingId))
+                        compareRecordingId = candRecId;
+                    if (string.IsNullOrEmpty(recordedGuid))
+                        recordedGuid = candGuid;
+                }
+                else
+                {
+                    rejectReason = candPid == pid
                         ? $"two rendezvous anchors share pid={pid.ToString(CultureInfo.InvariantCulture)} " +
                           "but are conclusively different launches (multi-rendezvous)"
                         : "multiple distinct vessel anchors (multi-rendezvous)";
-                    return false;
+                    return VesselOrbitalClassification.Rejected;
                 }
             }
-            if (!haveAnchor)
-            {
-                // Defensive: the collector only adds vessel-anchored sections.
-                rejectReason = "rendezvous sections resolved no anchor";
-                return false;
-            }
+            if (!haveCandidate)
+                return VesselOrbitalClassification.NoForeignAnchor;
 
-            // Rule 2: the anchor must EXIST in the save with a closed orbit AND be the recorded
+            // Rule 2: the target must EXIST in the save with a closed orbit AND be the recorded
             // LAUNCH (guid-gated: a craft-baked pid reused by a different launch of the same
             // craft must not read as the recorded station; design D1 / 3.2). Never derive a
             // period from the anchor RECORDING's OrbitSegments - a window computed from recorded
@@ -1741,7 +1818,7 @@ namespace Parsek
                 rejectReason =
                     $"rendezvous anchor vessel pid={pid.ToString(CultureInfo.InvariantCulture)} " +
                     "not in save / no closed orbit (or a different launch of the same craft)";
-                return false;
+                return VesselOrbitalClassification.Rejected;
             }
 
             // Rule 3: same-parent only - the station must orbit the launch body (the LKO-resupply
@@ -1752,7 +1829,7 @@ namespace Parsek
                     $"rendezvous anchor pid={pid.ToString(CultureInfo.InvariantCulture)} orbits " +
                     $"'{orbitBodyName ?? "?"}', not launch body '{launchBody}' " +
                     "(cross-parent station; Tier 2 / M4c)";
-                return false;
+                return VesselOrbitalClassification.Rejected;
             }
 
             // Rule 4: emit. The LIVE period is the alignment truth (design D1/D3).
@@ -1761,13 +1838,13 @@ namespace Parsek
                 Kind = ConstraintKind.VesselOrbital,
                 BodyName = orbitBodyName,
                 PeriodSeconds = livePeriod,
-                PhaseOffsetSeconds = info.EarliestUT - ut0,
+                PhaseOffsetSeconds = earliestUT - ut0,
                 RelativeToParent = false,
                 AnchorVesselPid = pid
             };
             driftAmberReason = ComputeDriftAmberReason(
-                info.AnchorRecordingId, info.EarliestUT, livePeriod, bodyInfo, committed);
-            return true;
+                compareRecordingId, earliestUT, livePeriod, bodyInfo, committed);
+            return VesselOrbitalClassification.Emitted;
         }
 
         /// <summary>The committed recording with the given RecordingId, or null. The anchor

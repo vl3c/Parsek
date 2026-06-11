@@ -934,6 +934,66 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Extract_MutualDockAnchoring_ReattributesToPartner_OneConstraintAtFirstRendezvous()
+        {
+            // The 2026-06-11 retest topology (Depot resupply): the dock merge pulls the PARTNER's
+            // segments into the tree, and anchoring is MUTUAL - the partner's sections anchor the
+            // mission's own craft (BG recording relative to the active vessel), the craft's
+            // post-undock section anchors the partner. The classifier partitions against the SELF
+            // launch line: the partner-to-self section REATTRIBUTES to its owner (the partner),
+            // the self-to-partner section is a direct target, and both merge to ONE constraint at
+            // the FIRST rendezvous UT (the partner-side 1200, not the later direct 1400).
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            ascent.VesselPersistentId = 111;
+            ascent.RecordedVesselGuid = "aaaaaaaa-1111-1111-1111-111111111111";
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Kerbin");
+            rendezvous.VesselPersistentId = 111;
+            rendezvous.RecordedVesselGuid = "aaaaaaaa-1111-1111-1111-111111111111";
+            var partner = OrbitLeg("partner-rec", 1150, 1600, "Kerbin");
+            partner.VesselPersistentId = 222;
+            partner.RecordedVesselGuid = "bbbbbbbb-2222-2222-2222-222222222222";
+            WithRendezvous(partner, 1200, 1250, 111);            // partner -> self (mutual shape)
+            WithRendezvous(rendezvous, 1400, 1450, 0, "partner-rec"); // self -> partner (direct)
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous, partner);
+            var fake = StationFake();
+            fake.VesselOrbits.Remove(StationPid);
+            fake.VesselOrbits[222] = (1958.0, "Kerbin");
+
+            var ex = Extract(tree, fake);
+
+            Assert.Equal(Support.Supported, ex.Support);
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal(222u, vo.AnchorVesselPid);
+            Assert.Equal(200.0, vo.PhaseOffsetSeconds); // first rendezvous = the partner-side 1200
+        }
+
+        [Fact]
+        public void Extract_AllSelfAnchoring_NoForeignAnchor_NoConstraintNoReject()
+        {
+            // A mission whose only vessel-anchored sections are intra-self pairs (its own
+            // continuation segment anchoring its own launch line) has NO foreign rendezvous
+            // target: no VesselOrbital constraint, and crucially NOT an UnsupportedRendezvous
+            // reject - the mission keeps its normal body-rule Support.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            ascent.VesselPersistentId = 111;
+            ascent.RecordedVesselGuid = "aaaaaaaa-1111-1111-1111-111111111111";
+            var coast = OrbitLeg("o", 1100, 1600, "Kerbin");
+            coast.VesselPersistentId = 111;
+            coast.RecordedVesselGuid = "aaaaaaaa-1111-1111-1111-111111111111";
+            WithRendezvous(coast, 1200, 1300, 111); // anchors its own launch line
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            coast.ChainId = "C"; coast.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, coast);
+
+            var ex = Extract(tree, StockFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.DoesNotContain(ex.Constraints, c => c.Kind == ConstraintKind.VesselOrbital);
+        }
+
+        [Fact]
         public void Extract_SamePidDifferentLaunches_UnsupportedRendezvous()
         {
             // Two anchor recordings share the craft-baked pid but are conclusively different

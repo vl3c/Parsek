@@ -22,6 +22,18 @@ resolved pid. The 810s vessel pile-up in the same playtest was the pre-existing
 faithful-path self-overlap (Auto overlap cadence = span/20), not an M4a defect; the anchor
 fix routes the mission onto the schedule path instead.
 
+**Second playtest correction (2026-06-11, logs `2026-06-11_1803_m4a-station-retest`):** the
+anchor-recording resolution then exposed the next layer: the dock merge pulls the PARTNER's
+segments into the tree and the recorded anchoring is MUTUAL (Depot-side sections anchor the
+craft; the craft's post-undock section anchors the Depot), so the resolved anchor set held
+TWO identities (the craft itself + the Depot) and rejected as multi-rendezvous. Fixed with
+the SELF-PARTITION rule: anchors are partitioned against the mission's self launch line
+(the earliest member's pid + guid); self-anchored sections reattribute to their OWNING
+member's vessel (the partner), foreign-anchored sections are direct targets, both
+directions merge to one target at the FIRST rendezvous UT, and all-self anchoring is a
+no-constraint outcome (NOT a reject). The classifier became
+`ClassifyVesselOrbitalConstraint` returning Emitted / NoForeignAnchor / Rejected.
+
 Scope per the design note section 5 + section 9 (M4a): constraint kind + extraction flip +
 solver/tolerance + period-cell label + tests. NO engine changes, NO loiter knob (M4b), NO
 cross-parent station hold (M4c). Honest standalone value: the constraint layer plus
