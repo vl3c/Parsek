@@ -209,23 +209,30 @@ namespace Parsek.Logistics
         /// <summary>
         /// Runtime-only cache (M-MIS-9; NOT serialized, <see cref="RouteCodec"/>
         /// untouched) of composition-interval keys auto-excluded by
-        /// <see cref="RouteBackingMission.BuildMission"/> because their BASE
-        /// recording id was not known at route creation (a post-creation branch:
-        /// re-fly fork or switch-fly continuation landing on the backing tree
-        /// outside the member path). Unioned into the synthesized backing
+        /// <see cref="RouteBackingMission.BuildMission"/> against post-creation
+        /// branches (re-fly fork or switch-fly continuation landing on the
+        /// backing tree outside the member path). Two prongs (see
+        /// <see cref="RouteBackingMission.ComputeAutoExcludedNewIntervalKeys"/>):
+        /// keys whose BASE recording id was not known at creation, plus a
+        /// UT-based end-trim re-derived against the CURRENT tree from the
+        /// persisted <see cref="RecordedDockUT"/> (immune to positional
+        /// <c>/segN</c> key renumbering). Unioned into the synthesized backing
         /// mission's <c>Mission.ExcludedIntervalKeys</c> so the rendered loop and
         /// the delivery span stay frozen to the creation-time member set.
         /// Re-derived from persisted route data (<see cref="SourceRefs"/> +
-        /// <see cref="ExcludedIntervalKeys"/>) on the first BuildMission after
-        /// load. Null until the first derivation.
+        /// <see cref="ExcludedIntervalKeys"/> + <see cref="RecordedDockUT"/>) on
+        /// the first BuildMission after load. Null until the first derivation.
         /// </summary>
         public HashSet<string> AutoExcludedNewIntervalKeys;
 
         /// <summary>
-        /// Runtime-only cache (M-MIS-9; NOT serialized): topology signature
-        /// (<c>"BranchPoints.Count/Recordings.Count"</c>, mirroring the per-tree
-        /// fold in <c>MissionLoopUnitBuilder.BuildSignature</c>) of the backing
-        /// tree at the last <see cref="AutoExcludedNewIntervalKeys"/> derivation.
+        /// Runtime-only cache (M-MIS-9; NOT serialized): topology signature of
+        /// the backing tree at the last <see cref="AutoExcludedNewIntervalKeys"/>
+        /// derivation: the BranchPoints/Recordings counts (mirroring the
+        /// per-tree fold in <c>MissionLoopUnitBuilder.BuildSignature</c>) plus
+        /// rolling ordinal hashes of the recording ids and branch-point ids, so
+        /// a count-neutral mutation (e.g. a paired discard + re-fly batched into
+        /// one observation) still re-derives.
         /// <see cref="RouteBackingMission.BuildMission"/> re-derives only when
         /// this signature changes, so the per-frame BuildMission stays cheap and
         /// an unchanged tree never re-runs the composition walk. Null until the

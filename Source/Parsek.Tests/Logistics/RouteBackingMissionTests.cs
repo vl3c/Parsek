@@ -339,38 +339,47 @@ namespace Parsek.Tests.Logistics
 
         // A route captured at creation time over BuildLaunchDockUndockTree:
         // SourceRefs cover the rendered members (the "launch" through-line head
-        // plus the dock-child leaf "docked"), and the creation-time trim is the
-        // production ComputeExcludedIntervalKeys output ({launch/seg1, payload}).
-        private static Route FrozenRouteOverDockTree(RecordingTree creationTree, string id)
+        // plus the dock-child leaf "docked"), the dock binding carries the
+        // recorded dock UT (3000, == the fixture undock = segment end), and the
+        // creation-time trim is the production ComputeExcludedIntervalKeys
+        // output ({launch/seg1, payload}).
+        private static Route FrozenRouteOverDockTree(
+            RecordingTree creationTree, string id, bool bindDock = true)
         {
-            Route route = new RouteFixtureBuilder()
+            var builder = new RouteFixtureBuilder()
                 .WithId(id)
                 .WithName("Frozen Route")
                 .WithBackingMissionTreeId(creationTree.Id)
                 .WithSourceRef(new RouteSourceRef { RecordingId = "launch", TreeId = creationTree.Id })
                 .WithSourceRef(new RouteSourceRef { RecordingId = "docked", TreeId = creationTree.Id })
                 .WithSchedule(2000.0, 2000.0)
-                .WithLoopAnchorUT(1000.0)
-                .Build();
+                .WithLoopAnchorUT(1000.0);
+            if (bindDock)
+                builder.WithDockBinding(UndockUT, "docked");
+            Route route = builder.Build();
             foreach (string key in RouteBackingMission.ComputeExcludedIntervalKeys(
                          creationTree, UndockUT, RootLaunchUT))
                 route.ExcludedIntervalKeys.Add(key);
             return route;
         }
 
-        // catches: the base-id rule failing in either direction - a new "/segN"
-        // re-peel of a KNOWN member recording being auto-excluded (it must stay
-        // included), or a genuinely NEW recording's key slipping past the freeze.
+        // catches: the positional-key hole (review finding 1) in the pure
+        // method - a post-creation peel on the KNOWN member through-line
+        // RENUMBERS its intervals and mints a base-known post-dock tail key
+        // ("launch/seg2") that the base-id rule alone would include; only the
+        // UT end-trim prong catches it. Pre-dock intervals of the known member
+        // must stay included, and the new recording's key must be excluded.
         [Fact]
-        public void ComputeAutoExcluded_NewSegPeelOfKnownMember_Kept_NewBranchExcluded()
+        public void ComputeAutoExcluded_NewSegPeelOfKnownMember_PreDockKept_PostDockTailTrimmed()
         {
             RecordingTree creationTree = BuildLaunchDockUndockTree();
             Route route = FrozenRouteOverDockTree(creationTree, "route-baseid01");
 
             // The tree GROWS after creation: a probe peels off the KNOWN member
-            // through-line "launch" mid-ascent. That renumbers the through-line's
-            // structural intervals (new "launch/segN" keys, all basing at the
-            // known "launch") AND surfaces the probe as a NEW recording's key.
+            // through-line "launch" mid-ascent. Intervals renumber to
+            // launch [1000..1500], launch/seg1 [1500..3000], launch/seg2
+            // [3000..4000] - all base "launch" (known) - and the probe surfaces
+            // as a NEW recording's key.
             RecordingTree grown = BuildLaunchDockUndockTree();
             grown.Recordings["newprobe"] = Leg("newprobe", "C2", 0, 1500, 1800, vessel: "Probe");
             grown.BranchPoints.Add(BP("probe-bp", BranchPointType.Undock,
@@ -379,19 +388,82 @@ namespace Parsek.Tests.Logistics
             HashSet<string> auto =
                 RouteBackingMission.ComputeAutoExcludedNewIntervalKeys(grown, route);
 
-            // ONLY the new recording's key is auto-excluded; every key basing at
-            // a known recording ("launch", "launch/segN", "payload") is kept.
+            // Prong 1 (base-id rule): the NEW recording's key is auto-excluded.
+            Assert.Contains("newprobe", auto);
+            // Prong 2 (UT end-trim): the renumbered base-KNOWN post-dock tail
+            // ("launch/seg2", starts at the dock 3000) is auto-excluded too.
+            Assert.Contains("launch/seg2", auto);
+            Assert.Equal(2, auto.Count);
+            // Pre-dock intervals of the known member stay included.
+            Assert.DoesNotContain("launch", auto);
+            Assert.DoesNotContain("launch/seg1", auto);
+            Assert.DoesNotContain("payload", auto);
+
+            // Batch summary log fired with the per-prong counts.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("ComputeAutoExcludedNewIntervalKeys") &&
+                l.Contains("autoExcluded=1") &&
+                l.Contains("utTrimAdded=1") &&
+                l.Contains("total=2"));
+        }
+
+        // catches: the base-id rule in isolation (UT trim gated off: the route
+        // carries no dock binding, so RecordedDockUT is unset) - a new "/segN"
+        // re-peel of a known member recording is NOT auto-excluded; only the
+        // new recording is, and the skipped trim is logged.
+        [Fact]
+        public void ComputeAutoExcluded_BaseIdRuleAlone_NewSegPeelKept_NewBranchExcluded()
+        {
+            RecordingTree creationTree = BuildLaunchDockUndockTree();
+            Route route = FrozenRouteOverDockTree(creationTree, "route-baseid02", bindDock: false);
+
+            RecordingTree grown = BuildLaunchDockUndockTree();
+            grown.Recordings["newprobe"] = Leg("newprobe", "C2", 0, 1500, 1800, vessel: "Probe");
+            grown.BranchPoints.Add(BP("probe-bp", BranchPointType.Undock,
+                new[] { "launch" }, new[] { "newprobe" }, ut: 1500));
+
+            HashSet<string> auto =
+                RouteBackingMission.ComputeAutoExcludedNewIntervalKeys(grown, route);
+
             Assert.Contains("newprobe", auto);
             Assert.Single(auto);
             Assert.DoesNotContain(auto, k =>
                 k == "launch" || k.StartsWith("launch/seg", StringComparison.Ordinal));
-            Assert.DoesNotContain("payload", auto);
 
-            // Batch summary log fired with the classification counts.
+            // The skipped UT trim is logged (RecordedDockUT unset).
             Assert.Contains(logLines, l =>
-                l.Contains("[Route]") &&
                 l.Contains("ComputeAutoExcludedNewIntervalKeys") &&
-                l.Contains("autoExcluded=1"));
+                l.Contains("ut-trim skipped"));
+        }
+
+        // catches: the fail-open guard missing (review finding 3) - a route
+        // with creation-time excluded keys but NO SourceRefs would otherwise
+        // auto-exclude the whole member path (the known-base set would hold
+        // only excluded bases).
+        [Fact]
+        public void ComputeAutoExcluded_EmptySourceRefs_FailsOpenToEmpty()
+        {
+            Route route = new RouteFixtureBuilder()
+                .WithId("route-norefs01")
+                .WithBackingMissionTreeId("tree-dock")
+                .WithExcludedIntervalKey("launch/seg1")
+                .WithExcludedIntervalKey("payload")
+                .WithDockBinding(UndockUT, "docked")
+                .Build();   // NO SourceRefs
+
+            RecordingTree grown = BuildLaunchDockUndockTree();
+            grown.Recordings["fork"] = Leg("fork", "C2", 0, 3000, 6000, vessel: "Fork");
+            grown.BranchPoints.Find(b => b.Id == "undock-bp").ChildRecordingIds.Add("fork");
+
+            HashSet<string> auto =
+                RouteBackingMission.ComputeAutoExcludedNewIntervalKeys(grown, route);
+
+            Assert.Empty(auto);
+            Assert.Contains(logLines, l =>
+                l.Contains("ComputeAutoExcludedNewIntervalKeys") &&
+                l.Contains("sourceRefs=empty") &&
+                l.Contains("fail-open"));
         }
 
         // catches: the freeze overriding the honest whole-segment-fallback
@@ -486,6 +558,19 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("fork", m4.ExcludedIntervalKeys);
             Assert.Single(logLines.FindAll(l =>
                 l.Contains("after route creation")));
+
+            // Shrink (review finding 6): the fork is discarded again. The id
+            // hashes move, the gate re-derives to EMPTY, and the change still
+            // Info-logs (the freeze releasing is news too).
+            tree.Recordings.Remove("fork");
+            tree.BranchPoints.Find(b => b.Id == "undock-bp").ChildRecordingIds.Remove("fork");
+            Mission m5 = RouteBackingMission.BuildMission(route, clock);
+            Assert.Equal(3, logLines.FindAll(l =>
+                l.Contains("ComputeAutoExcludedNewIntervalKeys")).Count);
+            Assert.Empty(route.AutoExcludedNewIntervalKeys);
+            Assert.Equal(2, m5.ExcludedIntervalKeys.Count); // creation-time keys only
+            Assert.Equal(2, logLines.FindAll(l =>
+                l.Contains("after route creation")).Count);
         }
 
         // -----------------------------------------------------------------

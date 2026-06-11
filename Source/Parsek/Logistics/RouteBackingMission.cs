@@ -301,28 +301,49 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// (M-MIS-9) Derives the set of composition-interval keys whose BASE
-        /// recording id was NOT known at route creation: post-creation branches
-        /// (a re-fly fork or a switch-fly continuation landing on the backing
-        /// tree outside the member path) that would otherwise silently join the
-        /// synthesized backing mission and extend the rendered loop + delivery
-        /// span. Pure. Known-at-creation base ids are
-        /// <c>route.SourceRefs[].RecordingId</c> UNION the base leg ids of
-        /// <c>route.ExcludedIntervalKeys</c> (the synthetic <c>"/segN"</c>
-        /// marker stripped via <see cref="StripSegMarker"/>, the same way
-        /// <c>MissionCompositionBuilder</c> encodes it). The base-id rule keeps
-        /// a NEW <c>"/segN"</c> re-peel of a known member recording included:
-        /// only keys rooting at an unknown recording are returned.
+        /// (M-MIS-9) Derives the set of composition-interval keys to auto-exclude
+        /// so the backing selection stays frozen to the creation-time member set
+        /// against post-creation branches (a re-fly fork or a switch-fly
+        /// continuation landing on the backing tree outside the member path).
+        /// Pure. Two prongs, unioned:
+        /// <list type="number">
+        ///   <item><b>Base-id rule:</b> keys whose BASE recording id was NOT
+        ///   known at creation are excluded. Known base ids are
+        ///   <c>route.SourceRefs[].RecordingId</c> UNION the base leg ids of
+        ///   <c>route.ExcludedIntervalKeys</c> (the synthetic <c>"/segN"</c>
+        ///   marker stripped via <see cref="StripSegMarker"/>, the same way
+        ///   <c>MissionCompositionBuilder</c> encodes it). A NEW <c>"/segN"</c>
+        ///   re-peel of a known member recording stays included.</item>
+        ///   <item><b>UT end-trim:</b> composition keys are POSITIONAL
+        ///   (<c>"&lt;head&gt;/segN"</c> over the sorted structural-peel edge
+        ///   list), so the creation-time excluded set freezes key STRINGS, not
+        ///   UT windows. Growth that adds a peel edge on a member /
+        ///   excluded-base through-line (an undock during a switch-fly
+        ///   continuation, or a re-fly fork rooted mid-recording in the excluded
+        ///   subtree) renumbers / mints base-KNOWN tail keys past the
+        ///   creation-time index range, which the base-id rule alone would
+        ///   include. So the creation-time trim is re-derived against the
+        ///   CURRENT tree via <see cref="ComputeExcludedIntervalKeys"/> using
+        ///   the persisted <c>route.RecordedDockUT</c> and the current tree
+        ///   root's launch UT: any selectable interval starting at/after
+        ///   <c>RecordedDockUT - BoundaryEpsilonSeconds</c> is excluded
+        ///   regardless of its key string. Keys already in the creation-time
+        ///   excluded set are filtered out so the returned set is genuinely NEW
+        ///   exclusions only.</item>
+        /// </list>
         /// </summary>
         /// <param name="tree">Current backing tree (read-only).</param>
         /// <param name="route">The route whose creation-time member set anchors the freeze.</param>
         /// <returns>
         /// Interval keys to auto-exclude. Empty on any guard failure (null tree /
-        /// route, no composition roots) and ALWAYS empty when
-        /// <c>route.ExcludedIntervalKeys</c> is empty: an empty creation-time
-        /// excluded set is the honest whole-segment-fallback contract (creation
-        /// could not trim, the whole segment renders) and freezing on top of it
-        /// would guess at a member set the route never recorded.
+        /// route, no composition roots), ALWAYS empty when
+        /// <c>route.ExcludedIntervalKeys</c> is empty (an empty creation-time
+        /// excluded set is the honest whole-segment-fallback contract: creation
+        /// could not trim, the whole segment renders, and freezing on top of it
+        /// would guess at a member set the route never recorded), and ALWAYS
+        /// empty when <c>route.SourceRefs</c> is null/empty (fail-open: without
+        /// SourceRefs the known-base set would hold only excluded bases and the
+        /// freeze would auto-exclude the member path itself).
         /// </returns>
         internal static HashSet<string> ComputeAutoExcludedNewIntervalKeys(
             RecordingTree tree, Route route)
@@ -347,18 +368,27 @@ namespace Parsek.Logistics
                     "-> empty (honest whole-segment fallback preserved)");
                 return autoExcluded;
             }
+            // Fail-open: without SourceRefs the known-base set would hold only
+            // the excluded keys' bases, so every member-path key would look
+            // unknown and the freeze would auto-exclude the whole rendered
+            // path. Derive nothing instead.
+            if (route.SourceRefs == null || route.SourceRefs.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ComputeAutoExcludedNewIntervalKeys: route={route.Id ?? "<no-id>"} " +
+                    $"tree={tree.Id ?? "<null>"} sourceRefs=empty " +
+                    "-> empty (fail-open, freeze would drop the member path)");
+                return autoExcluded;
+            }
 
             // Known-at-creation base recording ids: every SourceRef member UNION
             // the base leg ids of the creation-time excluded keys.
             var knownBaseIds = new HashSet<string>();
-            if (route.SourceRefs != null)
+            for (int i = 0; i < route.SourceRefs.Count; i++)
             {
-                for (int i = 0; i < route.SourceRefs.Count; i++)
-                {
-                    string srefId = route.SourceRefs[i]?.RecordingId;
-                    if (!string.IsNullOrEmpty(srefId))
-                        knownBaseIds.Add(srefId);
-                }
+                string srefId = route.SourceRefs[i]?.RecordingId;
+                if (!string.IsNullOrEmpty(srefId))
+                    knownBaseIds.Add(srefId);
             }
             foreach (string key in route.ExcludedIntervalKeys)
             {
@@ -378,6 +408,7 @@ namespace Parsek.Logistics
                 return autoExcluded;
             }
 
+            // --- Prong 1: base-id rule (keys rooting at an unknown recording). ---
             int scanned = 0;
             int knownCount = 0;
             int autoExcludedCount = 0;
@@ -387,10 +418,45 @@ namespace Parsek.Logistics
                     ref scanned, ref knownCount, ref autoExcludedCount);
             }
 
+            // --- Prong 2: UT end-trim re-derived against the CURRENT tree. ---
+            // Immune to /segN renumbering: re-runs the creation-time derivation
+            // with the persisted dock UT and the current tree root's launch UT,
+            // so renumbered / minted base-known tail keys at/after the dock are
+            // excluded regardless of their key string. Creation-time keys are
+            // filtered so the derived set stays "NEW exclusions only".
+            int utTrimAdded = 0;
+            double rootLaunchUT = double.NaN;
+            if (!string.IsNullOrEmpty(tree.RootRecordingId)
+                && tree.Recordings != null
+                && tree.Recordings.TryGetValue(tree.RootRecordingId, out Recording rootRec)
+                && rootRec != null)
+            {
+                rootLaunchUT = rootRec.StartUT;
+            }
+            if (route.RecordedDockUT > 0.0 && !double.IsNaN(rootLaunchUT))
+            {
+                HashSet<string> utTrim =
+                    ComputeExcludedIntervalKeys(tree, route.RecordedDockUT, rootLaunchUT);
+                foreach (string key in utTrim)
+                {
+                    if (!route.ExcludedIntervalKeys.Contains(key) && autoExcluded.Add(key))
+                        utTrimAdded++;
+                }
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ComputeAutoExcludedNewIntervalKeys: route={route.Id ?? "<no-id>"} " +
+                    $"tree={tree.Id ?? "<null>"} ut-trim skipped " +
+                    $"(recordedDockUT={route.RecordedDockUT.ToString("R", ic)} " +
+                    $"rootLaunchUT={rootLaunchUT.ToString("R", ic)})");
+            }
+
             ParsekLog.Verbose(Tag,
                 $"ComputeAutoExcludedNewIntervalKeys: route={route.Id ?? "<no-id>"} " +
                 $"tree={tree.Id ?? "<null>"} scanned={scanned.ToString(ic)} " +
                 $"known={knownCount.ToString(ic)} autoExcluded={autoExcludedCount.ToString(ic)} " +
+                $"utTrimAdded={utTrimAdded.ToString(ic)} total={autoExcluded.Count.ToString(ic)} " +
                 $"knownBases={knownBaseIds.Count.ToString(ic)}");
             return autoExcluded;
         }
@@ -620,11 +686,13 @@ namespace Parsek.Logistics
         /// <summary>
         /// (M-MIS-9) Resolves the route's auto-excluded new-interval-key set,
         /// re-deriving only when the backing tree's topology signature changed
-        /// (a post-creation branch always moves the branch-point or recording
-        /// count) and caching the result on the route. Unchanged signature
-        /// returns the cached set with NO derivation and NO log, so routes whose
-        /// tree has not gained branches are byte-identical in behavior. Logs
-        /// Info once when a re-derivation produces a different, non-empty set.
+        /// (a post-creation branch always moves a count or an id hash) and
+        /// caching the result on the route. Unchanged signature returns the
+        /// cached set with NO derivation and NO log, so routes whose tree has
+        /// not gained branches are byte-identical in behavior. Logs Info once
+        /// whenever a re-derivation produces a DIFFERENT set than the cached
+        /// one (growth or shrink-to-empty alike); the first derivation of a
+        /// session logs only when it actually excludes something.
         /// </summary>
         private static HashSet<string> ResolveAutoExcludedNewIntervalKeys(Route route)
         {
@@ -637,34 +705,60 @@ namespace Parsek.Logistics
                 return route.AutoExcludedNewIntervalKeys;
 
             HashSet<string> derived = ComputeAutoExcludedNewIntervalKeys(tree, route);
+            // A null previous cache is the session's first derivation (cache
+            // warm), not a change: only a non-empty result is news then.
             bool setChanged = route.AutoExcludedNewIntervalKeys == null
-                || !route.AutoExcludedNewIntervalKeys.SetEquals(derived);
+                ? derived.Count > 0
+                : !route.AutoExcludedNewIntervalKeys.SetEquals(derived);
             route.AutoExcludedNewIntervalKeys = derived;
             route.AutoExcludeTopologySignature = signature;
 
-            if (derived.Count > 0 && setChanged)
+            if (setChanged)
             {
                 ParsekLog.Info(Tag,
-                    $"BuildMission: route={route.Id ?? "<no-id>"} auto-excluded " +
-                    $"{derived.Count.ToString(CultureInfo.InvariantCulture)} new interval key(s); " +
-                    $"a branch joined tree {route.BackingMissionTreeId} after route creation " +
+                    $"BuildMission: route={route.Id ?? "<no-id>"} auto-excluded set changed to " +
+                    $"{derived.Count.ToString(CultureInfo.InvariantCulture)} new interval key(s) " +
+                    $"for tree {route.BackingMissionTreeId}; the tree changed after route creation " +
                     "(backing selection frozen to creation-time members)");
             }
             return derived;
         }
 
-        // Cheap topology signature over the backing tree, mirroring the per-tree
-        // fold in MissionLoopUnitBuilder.BuildSignature: a post-creation branch
-        // (re-fly fork / switch-fly continuation) always moves at least one of
-        // the two counts. "<no-tree>" when the tree is not committed (yet), so
-        // the cache re-derives once when it appears.
+        // Topology signature over the backing tree: the BranchPoints/Recordings
+        // counts (mirroring the per-tree fold in
+        // MissionLoopUnitBuilder.BuildSignature) PLUS rolling ordinal hashes of
+        // the recording ids and branch-point ids (mirroring BuildSignature's
+        // committed-list RecordingId hash), so a count-neutral mutation (e.g. a
+        // paired discard + re-fly batched into one observation while the route
+        // was not ghost-driving) still re-derives. "<no-tree>" when the tree is
+        // not committed (yet), so the cache re-derives once when it appears.
         private static string ComputeTopologySignature(RecordingTree tree)
         {
             if (tree == null)
                 return "<no-tree>";
             var ic = CultureInfo.InvariantCulture;
-            return (tree.BranchPoints?.Count ?? 0).ToString(ic) + "/"
-                 + (tree.Recordings?.Count ?? 0).ToString(ic);
+            int recCount = 0;
+            int recHash = 17;
+            if (tree.Recordings != null)
+            {
+                foreach (string id in tree.Recordings.Keys)
+                {
+                    unchecked { recHash = recHash * 31 + StringComparer.Ordinal.GetHashCode(id ?? ""); }
+                    recCount++;
+                }
+            }
+            int bpCount = 0;
+            int bpHash = 17;
+            if (tree.BranchPoints != null)
+            {
+                for (int i = 0; i < tree.BranchPoints.Count; i++)
+                {
+                    unchecked { bpHash = bpHash * 31 + StringComparer.Ordinal.GetHashCode(tree.BranchPoints[i]?.Id ?? ""); }
+                    bpCount++;
+                }
+            }
+            return bpCount.ToString(ic) + "/" + recCount.ToString(ic) + "/"
+                 + bpHash.ToString(ic) + "/" + recHash.ToString(ic);
         }
     }
 }
