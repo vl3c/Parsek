@@ -910,11 +910,17 @@ namespace Parsek
 
                     Transform srcFxTransform = fxTransforms[t];
 
-                    // Far-mount re-anchor: a mount transform sitting tens of meters from
-                    // the part (ReStock Twin-Boar's smokePoint, ~200 m exhaust-ward under
-                    // stacked rig scales) reads as an orphan effect on a static ghost.
-                    // Anchor the instance at the engine's exhaust anchor instead.
-                    float mountDistance = (srcFxTransform.position - prefab.transform.position).magnitude;
+                    // Far-mount re-anchor: an instance whose EFFECTIVE placement point
+                    // sits tens of meters from the part reads as an orphan effect on a
+                    // static ghost. The distance must be measured at TransformPoint of
+                    // the cfg localOffset, NOT the bare mount transform: ReStock's
+                    // Twin-Boar smokePoint sits 5 m from the part but carries lossyScale
+                    // 200, so its localOffset of one meter places the instance 200 m out
+                    // (round-11 forensics: mountDistPrefab=5 ghostInstDist=200
+                    // srcLossyScale=200.0; live PrefabParticleFX applies the same raw
+                    // localPosition, so the live column really is 200 m exhaust-ward).
+                    float mountDistance =
+                        (srcFxTransform.TransformPoint(localOffset) - prefab.transform.position).magnitude;
                     if (IsFarFxMount(mountDistance))
                     {
                         if (TryResolvePrefabExhaustAnchor(prefab, engine, out Transform exhaustAnchor))
