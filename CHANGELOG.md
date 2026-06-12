@@ -19,6 +19,7 @@ All notable changes to Parsek are documented here.
 - The Logistics window now says why a route is not delivering: a blocked route's detail panel names the exact hold reason (origin out of a named resource, origin vessel missing, not enough funds, destination full, or stored-part cargo not yet supported) with how long ago it was checked.
 - Supply routes now work with resources from other mods: any resource KSP knows about can be recorded, analyzed, delivered, and charged at its own unit cost, with unknown resource names excluded and logged instead of priced at zero.
 - Mining routes: a supply run that drills or converts cargo during the run (stock and modded drills, including asteroid and comet drills on an already-grappled asteroid) now records the harvest and becomes a valid route, with no depot debit for harvested cargo; a cargo gain with no recorded source is rejected with the exact unaccounted amount named.
+- The per-cycle funds charge for KSC routes built from new recordings is now based on what was aboard at launch instead of what remained at docking, so harvested cargo is never billed and burned transit fuel is no longer free; existing routes keep their old cost.
 
 ### Fixes
 

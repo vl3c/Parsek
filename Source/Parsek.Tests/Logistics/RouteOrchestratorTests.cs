@@ -968,5 +968,121 @@ namespace Parsek.Tests.Logistics
             Assert.False(ok);
             Assert.Equal(RouteStatus.Paused, route.Status);
         }
+
+        // ==================================================================
+        // M2 funds-basis selection (plan D9 / OQ1): the basis log names which
+        // resource-term basis ComputeDispatchFundsCostForRoute applied
+        // ==================================================================
+
+        /// <summary>
+        /// Commits a single-recording tree into the store (so ComputeERS
+        /// resolves it) whose recording carries the given run manifest, plus a
+        /// route pointing at it, and runs
+        /// <see cref="RouteOrchestrator.ComputeDispatchFundsCostForRoute"/>.
+        /// State is torn down inside the helper so the suite's other tests
+        /// keep their store-free shape.
+        /// </summary>
+        private double RunFundsBasisCase(RouteRunCargoManifest runManifest)
+        {
+            RecordingStore.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
+            try
+            {
+                var snapshot = new ConfigNode("VESSEL");
+                ConfigNode part = snapshot.AddNode("PART");
+                part.AddValue("name", "fuelTank");
+
+                var rec = new Recording
+                {
+                    RecordingId = "rec-funds-basis",
+                    VesselName = "Funds Basis Transport",
+                    MergeState = MergeState.Immutable,
+                    VesselSnapshot = snapshot,
+                    RouteRunManifest = runManifest,
+                };
+                RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+                var route = new Route
+                {
+                    Id = "route-funds-basis",
+                    SourceRefs = new List<RouteSourceRef>
+                    {
+                        new RouteSourceRef { RecordingId = "rec-funds-basis", TreeId = rec.TreeId },
+                    },
+                };
+
+                return RouteOrchestrator.ComputeDispatchFundsCostForRoute(route);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+                EffectiveState.ResetCachesForTesting();
+                ParsekScenario.ResetInstanceForTesting();
+            }
+        }
+
+        // catches: the orchestrator threading a manifest basis without a
+        // COMPLETE run manifest, or not logging which basis it applied -
+        // gate and charge must not diverge (plan risk 7), and the basis log
+        // is the observable that says which one fired.
+        [Fact]
+        public void ComputeDispatchFundsCostForRoute_CompleteManifest_LogsLaunchManifestBasis()
+        {
+            RunFundsBasisCase(new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = new List<uint> { 100001u },
+                StartTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 50.0, maxAmount = 100.0 },
+                },
+                EndTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 10.0, maxAmount = 100.0 },
+                },
+                EndCaptured = true,
+            });
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("FundsCost basis=launch-manifest")
+                && l.Contains("route=route-fu")
+                && l.Contains("source=rec-funds-basis"));
+        }
+
+        // catches: a start-only (ForceStop-shaped) manifest sneaking onto the
+        // launch basis - the completeness gate requires BOTH halves, exactly
+        // like the analysis presence gate.
+        [Fact]
+        public void ComputeDispatchFundsCostForRoute_StartOnlyManifest_LogsStopSnapshotBasis()
+        {
+            RunFundsBasisCase(new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = new List<uint> { 100001u },
+                StartTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 50.0, maxAmount = 100.0 },
+                },
+                EndCaptured = false,
+            });
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("FundsCost basis=stop-snapshot")
+                && l.Contains("source=rec-funds-basis"));
+        }
+
+        // catches: pre-M2 recordings (no run manifest at all) leaving the
+        // legacy basis - the containment half of OQ1.
+        [Fact]
+        public void ComputeDispatchFundsCostForRoute_NoManifest_LogsStopSnapshotBasis()
+        {
+            RunFundsBasisCase(runManifest: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("FundsCost basis=stop-snapshot")
+                && l.Contains("source=rec-funds-basis"));
+        }
     }
 }
