@@ -989,6 +989,18 @@ namespace Parsek
                     if (addedSystems > 0)
                     {
                         GhostFxEmissionProbe.AttachIfNew(fxInstance, partName, moduleIndex, prefabName);
+                        // Round-10 placement forensics: the Twin-Boar smoke instance lands
+                        // ~200 m out on the ghost while the prefab-side mount distance
+                        // reads under the far-mount threshold; log both sides per
+                        // INSTANCE (t) so the divergence point names itself.
+                        float ghostMountDistance =
+                            (fxInstance.transform.position - ghostModelNode.position).magnitude;
+                        LogHotPathVerbose($"prefab-place-{partName}-{moduleIndex}-{transformName}-{t}",
+                            $"(prefab): '{partName}' midx={moduleIndex} inst={t}/{fxTransforms.Count} " +
+                            $"'{prefabName}' mountDistPrefab={(int)mountDistance} " +
+                            $"ghostInstDist={(int)ghostMountDistance} " +
+                            $"srcLossyScale={srcFxTransform.lossyScale.x:F1} " +
+                            $"ghostParentLossyScale={ghostFxParent.lossyScale.x:F1}");
                         GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
                             fxInstance, GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
