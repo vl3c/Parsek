@@ -347,6 +347,131 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RouteHarvestWindows_RoundTripViaTreeMetadata()
+        {
+            // FAILS IF: any harvest-window field (span, flags, manifests,
+            // converter ids, open-time location) is lost or reformatted on the
+            // tree persistence path - or an OPEN window's NaN EndUT does not
+            // read back as open.
+            var rec = new Recording
+            {
+                RecordingId = "harvest-windows-tree",
+                RouteHarvestWindows = new List<RouteHarvestWindow>
+                {
+                    new RouteHarvestWindow
+                    {
+                        WindowId = "harvest-1000",
+                        StartUT = 1000.0,
+                        EndUT = 1600.5,
+                        OpenedAtRecordingStart = true,
+                        ClosedAtRecordingStop = false,
+                        StartTransportResources = new Dictionary<string, ResourceAmount>
+                        {
+                            ["Ore"] = new ResourceAmount { amount = 0.0, maxAmount = 1500.0 }
+                        },
+                        EndTransportResources = new Dictionary<string, ResourceAmount>
+                        {
+                            ["Ore"] = new ResourceAmount { amount = 850.25, maxAmount = 1500.0 }
+                        },
+                        ActiveConverters = new List<string>
+                        {
+                            "100:ModuleResourceHarvester:Drill-O-Matic"
+                        },
+                        BodyName = "Minmus",
+                        Latitude = -0.55,
+                        Longitude = 78.25,
+                        Altitude = 2412.5,
+                        SituationAtOpen = (int)Vessel.Situations.LANDED
+                    },
+                    new RouteHarvestWindow
+                    {
+                        WindowId = "harvest-2000",
+                        StartUT = 2000.0,
+                        // EndUT NaN: still open at save time
+                        ClosedAtRecordingStop = true
+                    }
+                }
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
+
+            var loaded = new Recording { RecordingId = "harvest-windows-tree" };
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
+
+            Assert.NotNull(loaded.RouteHarvestWindows);
+            Assert.Equal(2, loaded.RouteHarvestWindows.Count);
+
+            RouteHarvestWindow first = loaded.RouteHarvestWindows[0];
+            Assert.Equal("harvest-1000", first.WindowId);
+            Assert.Equal(1000.0, first.StartUT);
+            Assert.Equal(1600.5, first.EndUT);
+            Assert.False(first.IsOpen);
+            Assert.True(first.OpenedAtRecordingStart);
+            Assert.False(first.ClosedAtRecordingStop);
+            Assert.Equal(0.0, first.StartTransportResources["Ore"].amount);
+            Assert.Equal(850.25, first.EndTransportResources["Ore"].amount);
+            Assert.Equal("100:ModuleResourceHarvester:Drill-O-Matic", first.ActiveConverters[0]);
+            Assert.Equal("Minmus", first.BodyName);
+            Assert.Equal(-0.55, first.Latitude);
+            Assert.Equal(78.25, first.Longitude);
+            Assert.Equal(2412.5, first.Altitude);
+            Assert.Equal((int)Vessel.Situations.LANDED, first.SituationAtOpen);
+
+            RouteHarvestWindow second = loaded.RouteHarvestWindows[1];
+            Assert.True(second.IsOpen);
+            Assert.True(double.IsNaN(second.EndUT));
+            Assert.True(second.ClosedAtRecordingStop);
+            Assert.Null(second.StartTransportResources);
+            Assert.Null(second.EndTransportResources);
+            Assert.Null(second.ActiveConverters);
+            Assert.True(string.IsNullOrEmpty(second.BodyName));
+            Assert.Equal(-1, second.SituationAtOpen);
+        }
+
+        [Fact]
+        public void RouteHarvestWindows_AbsentNode_ReadsBackNull()
+        {
+            var node = new ConfigNode("RECORDING");
+            var loaded = new Recording();
+
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
+
+            // Same null-preservation contract as the run manifest: a codec
+            // that lazily allocates a window list would widen the hasher gate
+            // for every old recording.
+            Assert.Null(loaded.RouteHarvestWindows);
+        }
+
+        [Fact]
+        public void RouteHarvestWindows_BuilderFixture_RoundTrips()
+        {
+            ConfigNode node = new Generators.RecordingBuilder("Drill Transport")
+                .WithHarvestWindow(
+                    1000.0, 1600.0,
+                    new Dictionary<string, ResourceAmount>
+                    {
+                        ["Ore"] = new ResourceAmount { amount = 0.0, maxAmount = 1500.0 }
+                    },
+                    new Dictionary<string, ResourceAmount>
+                    {
+                        ["Ore"] = new ResourceAmount { amount = 500.0, maxAmount = 1500.0 }
+                    },
+                    openedAtRecordingStart: true,
+                    bodyName: "Minmus",
+                    situationAtOpen: (int)Vessel.Situations.LANDED)
+                .BuildV3Metadata();
+
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+
+            Assert.NotNull(loaded.RouteHarvestWindows);
+            Assert.Single(loaded.RouteHarvestWindows);
+            Assert.Equal(500.0, loaded.RouteHarvestWindows[0].EndTransportResources["Ore"].amount);
+            Assert.True(loaded.RouteHarvestWindows[0].OpenedAtRecordingStart);
+        }
+
+        [Fact]
         public void RouteRunManifest_BuilderFixture_RoundTrips()
         {
             // Pins the generator support (Post-Change Checklist): a

@@ -192,6 +192,64 @@ namespace Parsek
         }
     }
 
+    /// <summary>
+    /// One witnessed harvest window (M2 / plan D4): the span during which at
+    /// least one <c>BaseConverter</c>-derived module (stock and modded
+    /// harvesters, converters, asteroid/comet drills) was activated on the
+    /// recorded transport. Opened/closed on activity threshold crossings, at
+    /// recording start (converter already running), at recording stop, and at
+    /// rails transitions (warp re-baseline). The harvested manifest of a
+    /// window is the per-resource POSITIVE delta end-minus-start; an
+    /// activated-but-stalled drill nets 0 harmlessly.
+    ///
+    /// The open-time location fields and <see cref="ActiveConverters"/> are
+    /// diagnostic / endpoint-resolution metadata, deliberately EXCLUDED from
+    /// <c>RouteProofHasher</c> (plan D10): the hash pins the witnessed
+    /// quantities only.
+    /// </summary>
+    internal sealed class RouteHarvestWindow
+    {
+        public string WindowId;
+        public double StartUT = double.NaN;
+        public double EndUT = double.NaN; // NaN while open
+        public bool OpenedAtRecordingStart;
+        public bool ClosedAtRecordingStop;
+        public Dictionary<string, ResourceAmount> StartTransportResources;
+        public Dictionary<string, ResourceAmount> EndTransportResources;
+        // Diagnostic: "partPid:moduleClass:ConverterName" per active converter
+        // at open time. Hash-excluded.
+        public List<string> ActiveConverters;
+        // Open-time location for the M2 Phase 5 harvest-origin endpoint.
+        // Hash-excluded.
+        public string BodyName;
+        public double Latitude;
+        public double Longitude;
+        public double Altitude;
+        public int SituationAtOpen = -1; // (int)Vessel.Situations; -1 = unknown
+
+        internal bool IsOpen => double.IsNaN(EndUT);
+
+        internal RouteHarvestWindow DeepClone()
+        {
+            return new RouteHarvestWindow
+            {
+                WindowId = WindowId,
+                StartUT = StartUT,
+                EndUT = EndUT,
+                OpenedAtRecordingStart = OpenedAtRecordingStart,
+                ClosedAtRecordingStop = ClosedAtRecordingStop,
+                StartTransportResources = RouteProofMetadata.CloneResourceManifest(StartTransportResources),
+                EndTransportResources = RouteProofMetadata.CloneResourceManifest(EndTransportResources),
+                ActiveConverters = ActiveConverters != null ? new List<string>(ActiveConverters) : null,
+                BodyName = BodyName,
+                Latitude = Latitude,
+                Longitude = Longitude,
+                Altitude = Altitude,
+                SituationAtOpen = SituationAtOpen
+            };
+        }
+    }
+
     internal static class RouteProofMetadata
     {
         internal static Dictionary<string, ResourceAmount> CloneResourceManifest(
@@ -230,6 +288,18 @@ namespace Parsek
                 return null;
 
             var clone = new List<RouteConnectionWindow>(source.Count);
+            for (int i = 0; i < source.Count; i++)
+                clone.Add(source[i]?.DeepClone());
+            return clone;
+        }
+
+        internal static List<RouteHarvestWindow> CloneHarvestWindows(
+            List<RouteHarvestWindow> source)
+        {
+            if (source == null)
+                return null;
+
+            var clone = new List<RouteHarvestWindow>(source.Count);
             for (int i = 0; i < source.Count; i++)
                 clone.Add(source[i]?.DeepClone());
             return clone;

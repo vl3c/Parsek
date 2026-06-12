@@ -65,7 +65,9 @@ namespace Parsek.Logistics
             // Hash_PreM2Recording_ByteStable). Same null-vs-empty contract as
             // the origin proof: the codec preserves null across save/load.
             bool hasRunManifest = rec.RouteRunManifest != null;
-            if (!hasWindows && !hasOrigin && !hasRunManifest)
+            bool hasHarvestWindows = rec.RouteHarvestWindows != null
+                && rec.RouteHarvestWindows.Count > 0;
+            if (!hasWindows && !hasOrigin && !hasRunManifest && !hasHarvestWindows)
                 return NoRouteProofSentinel;
 
             var sb = new StringBuilder();
@@ -150,6 +152,36 @@ namespace Parsek.Logistics
                 AppendResourceManifest(sb, "runManifest.startTransportRes", rm.StartTransportResources);
                 AppendResourceManifest(sb, "runManifest.endTransportRes", rm.EndTransportResources);
                 sb.Append("runManifest.endCaptured=").Append(rm.EndCaptured ? "1" : "0").Append('\n');
+            }
+
+            // M2 harvest windows (plan D10): SPARSE-append the witnessed
+            // quantities and span markers only.
+            // INTENTIONAL EXCLUSION (the M1 / D5 precedent above): the
+            // open-time location fields (BodyName/Latitude/Longitude/Altitude/
+            // SituationAtOpen) and the ActiveConverters strings are
+            // diagnostic / endpoint-resolution metadata, deliberately NOT
+            // hashed - the hash pins the witnessed transfer. Including them
+            // would make harmless resolution-metadata edits flip routes to
+            // SourceChanged. Pinned by Hash_IgnoresHarvestLocationAndConverterIds.
+            if (hasHarvestWindows)
+            {
+                sb.Append("harvestWindows.count=").Append(rec.RouteHarvestWindows.Count.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                for (int hi = 0; hi < rec.RouteHarvestWindows.Count; hi++)
+                {
+                    var hw = rec.RouteHarvestWindows[hi];
+                    string prefix = "harvestWindows[" + hi.ToString(CultureInfo.InvariantCulture) + "].";
+                    if (hw == null)
+                    {
+                        sb.Append(prefix).Append("null=1\n");
+                        continue;
+                    }
+                    sb.Append(prefix).Append("startUT=").Append(hw.StartUT.ToString("R", CultureInfo.InvariantCulture)).Append('\n');
+                    sb.Append(prefix).Append("endUT=").Append(hw.EndUT.ToString("R", CultureInfo.InvariantCulture)).Append('\n');
+                    sb.Append(prefix).Append("openedAtStart=").Append(hw.OpenedAtRecordingStart ? "1" : "0").Append('\n');
+                    sb.Append(prefix).Append("closedAtStop=").Append(hw.ClosedAtRecordingStop ? "1" : "0").Append('\n');
+                    AppendResourceManifest(sb, prefix + "startRes", hw.StartTransportResources);
+                    AppendResourceManifest(sb, prefix + "endRes", hw.EndTransportResources);
+                }
             }
 
             // SHA-256, hex-truncated to 16 chars. SHA-256 is overkill for

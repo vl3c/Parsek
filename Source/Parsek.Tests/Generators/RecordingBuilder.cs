@@ -41,6 +41,7 @@ namespace Parsek.Tests.Generators
         private Dictionary<string, ResourceAmount> startResources;
         private Dictionary<string, ResourceAmount> endResources;
         private RouteRunCargoManifest routeRunManifest;
+        private List<RouteHarvestWindow> routeHarvestWindows;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
@@ -402,6 +403,48 @@ namespace Parsek.Tests.Generators
 
         /// <summary>Returns the run cargo manifest (may be null).</summary>
         internal RouteRunCargoManifest GetRouteRunManifest() => routeRunManifest;
+
+        /// <summary>
+        /// M2 harvest window (plan D4). Call once per window; an open window
+        /// uses <c>endUT: double.NaN</c> with a null end manifest.
+        /// </summary>
+        internal RecordingBuilder WithHarvestWindow(
+            double startUT,
+            double endUT,
+            Dictionary<string, ResourceAmount> startTransportResources,
+            Dictionary<string, ResourceAmount> endTransportResources,
+            bool openedAtRecordingStart = false,
+            bool closedAtRecordingStop = false,
+            string bodyName = null,
+            double latitude = 0.0,
+            double longitude = 0.0,
+            double altitude = 0.0,
+            int situationAtOpen = -1,
+            List<string> activeConverters = null)
+        {
+            if (routeHarvestWindows == null)
+                routeHarvestWindows = new List<RouteHarvestWindow>();
+            routeHarvestWindows.Add(new RouteHarvestWindow
+            {
+                WindowId = "harvest-" + startUT.ToString("R", CultureInfo.InvariantCulture),
+                StartUT = startUT,
+                EndUT = endUT,
+                OpenedAtRecordingStart = openedAtRecordingStart,
+                ClosedAtRecordingStop = closedAtRecordingStop,
+                StartTransportResources = startTransportResources,
+                EndTransportResources = endTransportResources,
+                BodyName = bodyName,
+                Latitude = latitude,
+                Longitude = longitude,
+                Altitude = altitude,
+                SituationAtOpen = situationAtOpen,
+                ActiveConverters = activeConverters
+            });
+            return this;
+        }
+
+        /// <summary>Returns the harvest window list (may be null).</summary>
+        internal List<RouteHarvestWindow> GetRouteHarvestWindows() => routeHarvestWindows;
 
         // --- v6 TrackSection builder methods ---
 
@@ -881,10 +924,14 @@ namespace Parsek.Tests.Generators
         /// </summary>
         private void SerializeRouteProofMetadataInto(ConfigNode node)
         {
-            if (routeRunManifest == null)
+            if (routeRunManifest == null && routeHarvestWindows == null)
                 return;
 
-            var proofCarrier = new Recording { RouteRunManifest = routeRunManifest };
+            var proofCarrier = new Recording
+            {
+                RouteRunManifest = routeRunManifest,
+                RouteHarvestWindows = routeHarvestWindows
+            };
             RecordingStore.SerializeRouteProofMetadata(node, proofCarrier);
         }
 

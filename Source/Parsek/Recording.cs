@@ -275,6 +275,12 @@ namespace Parsek
         // See RouteRunCargoManifest for the START/END lifecycle contract.
         internal RouteRunCargoManifest RouteRunManifest;
 
+        // Witnessed harvest windows (M2 / plan D4): converter-activity spans
+        // with start/end transport manifests. null = none witnessed (or pre-M2
+        // recording / optimizer-split half). Windows live on the recorder side
+        // during an active leg and land here via the active-stop capture.
+        internal List<RouteHarvestWindow> RouteHarvestWindows;
+
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
 
@@ -833,10 +839,12 @@ namespace Parsek
             TransferKind = source.TransferKind;
             RouteConnectionWindows = RouteProofMetadata.CloneConnectionWindows(source.RouteConnectionWindows);
             RouteOriginProof = source.RouteOriginProof != null ? source.RouteOriginProof.DeepClone() : null;
-            // M2 run-manifest forwarding (plan D14): rides the chain-commit /
-            // persistence-artifact path like the other route-proof fields.
-            // Null stays null - the codec/hasher null-preservation contract.
+            // M2 run-manifest + harvest-window forwarding (plan D14): rides the
+            // chain-commit / persistence-artifact path like the other
+            // route-proof fields. Null stays null - the codec/hasher
+            // null-preservation contract.
             RouteRunManifest = source.RouteRunManifest != null ? source.RouteRunManifest.DeepClone() : null;
+            RouteHarvestWindows = RouteProofMetadata.CloneHarvestWindows(source.RouteHarvestWindows);
             CrewEndStatesResolved = source.CrewEndStatesResolved;
             TerminalSpawnSupersededByRecordingId = source.TerminalSpawnSupersededByRecordingId;
 
@@ -940,6 +948,7 @@ namespace Parsek
             clone.RouteRunManifest = source.RouteRunManifest != null
                 ? source.RouteRunManifest.DeepClone()
                 : null;
+            clone.RouteHarvestWindows = RouteProofMetadata.CloneHarvestWindows(source.RouteHarvestWindows);
             clone.FilesDirty = source.FilesDirty;
             clone.SidecarEpoch = source.SidecarEpoch;
             clone.SidecarLoadFailed = source.SidecarLoadFailed;

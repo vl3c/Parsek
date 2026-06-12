@@ -118,6 +118,26 @@ namespace Parsek
                 || b.LoopIntervalSeconds != LoopTiming.UntouchedLoopIntervalSentinel) return false;
             if (a.LoopAnchorVesselId != 0 || b.LoopAnchorVesselId != 0) return false;
 
+            // M2 (plan D13, narrowed by round-2 correction 3): refuse ONLY when
+            // either side carries harvest WINDOWS - they are the bridge
+            // witnesses for the boundary-bridging rule (plan D5) and a merge
+            // would destroy the leg-boundary operands. Blocking on ANY run
+            // manifest instead would disable the merge pass for every post-M2
+            // recording (RunOptimizationPass runs on every save load) - a
+            // silent global regression. Window-less run manifests COMPOSE in
+            // MergeInto on matching pid scope and void on mismatch.
+            int harvestWindowsA = a.RouteHarvestWindows?.Count ?? 0;
+            int harvestWindowsB = b.RouteHarvestWindows?.Count ?? 0;
+            if (harvestWindowsA > 0 || harvestWindowsB > 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"Merge refused: harvest windows present " +
+                    $"(a={harvestWindowsA.ToString(CultureInfo.InvariantCulture)} " +
+                    $"b={harvestWindowsB.ToString(CultureInfo.InvariantCulture)}) " +
+                    $"recordings='{a.RecordingId}'+'{b.RecordingId}'");
+                return false;
+            }
+
             // PR 3b: contract-corruption defenses. Auto-merge only operates on
             // consecutive chain segments of the same vessel, so these mismatches
             // shouldn't normally arise — but if a previously-split debris recording
@@ -752,6 +772,19 @@ namespace Parsek
                 target.EndResources = absorbed.EndResources;
             // target.StartResources intentionally unchanged — represents the earlier start
 
+            // M2 (plan D13): compose window-less run manifests on matching pid
+            // scope (first's START + second's END, scope kept); void on scope
+            // mismatch or a one-sided manifest. CanAutoMerge already refused
+            // any pair carrying harvest windows, so the bridge witnesses are
+            // never destroyed here; the compose is verdict-preserving (a
+            // positive boundary delta is unaccounted both pre-merge - no window
+            // at the seam - and post-merge - inside fullRunGain, uncovered).
+            target.RouteRunManifest = ComposeRunManifestsForMerge(
+                target.RouteRunManifest,
+                absorbed.RouteRunManifest,
+                target.RecordingId,
+                absorbed.RecordingId);
+
             // Inventory manifests: same pattern — absorbed end wins
             if (absorbed.EndInventory != null)
                 target.EndInventory = absorbed.EndInventory;
@@ -818,6 +851,82 @@ namespace Parsek
                 $"(target now has {target.Points.Count} points, {target.TrackSections.Count} sections)");
 
             return absorbed.RecordingId;
+        }
+
+        /// <summary>
+        /// M2 (plan D13): merge-time composition of two window-less run
+        /// manifests. Returns the composed manifest (first's START half +
+        /// second's END half, scope set kept) when both sides are present with
+        /// MATCHING pid scope (set equality - the same physical transport);
+        /// returns null (void, Verbose-logged) on scope mismatch or when only
+        /// one side carries a manifest (the merged span cannot be described
+        /// honestly). Pure / static / testable.
+        /// </summary>
+        internal static RouteRunCargoManifest ComposeRunManifestsForMerge(
+            RouteRunCargoManifest first,
+            RouteRunCargoManifest second,
+            string firstRecordingId,
+            string secondRecordingId)
+        {
+            if (first == null && second == null)
+                return null;
+
+            if (first == null || second == null)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"RouteRunManifest voided: recording={firstRecordingId ?? "<none>"} " +
+                    $"reason=merge-one-sided " +
+                    $"(first={(first != null ? "present" : "absent")} " +
+                    $"second={(second != null ? "present" : "absent")} " +
+                    $"absorbed={secondRecordingId ?? "<none>"})");
+                return null;
+            }
+
+            if (!PartPidScopesMatch(first.TransportPartPersistentIds, second.TransportPartPersistentIds))
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"RouteRunManifest voided: recording={firstRecordingId ?? "<none>"} " +
+                    $"reason=merge-scope-mismatch " +
+                    $"(firstParts={first.TransportPartPersistentIds?.Count ?? 0} " +
+                    $"secondParts={second.TransportPartPersistentIds?.Count ?? 0} " +
+                    $"absorbed={secondRecordingId ?? "<none>"})");
+                return null;
+            }
+
+            var composed = new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = first.TransportPartPersistentIds != null
+                    ? new List<uint>(first.TransportPartPersistentIds)
+                    : null,
+                StartTransportResources =
+                    RouteProofMetadata.CloneResourceManifest(first.StartTransportResources),
+                EndTransportResources =
+                    RouteProofMetadata.CloneResourceManifest(second.EndTransportResources),
+                EndCaptured = second.EndCaptured
+            };
+
+            ParsekLog.Verbose("Optimizer",
+                $"Merge: run manifests composed (scope match) " +
+                $"target={firstRecordingId ?? "<none>"} absorbed={secondRecordingId ?? "<none>"} " +
+                $"parts={composed.TransportPartPersistentIds?.Count ?? 0} " +
+                $"endCaptured={(composed.EndCaptured ? "1" : "0")}");
+            return composed;
+        }
+
+        /// <summary>
+        /// Order-insensitive part-pid set equality (capture order is authored
+        /// by part-tree walks, not load-bearing for scope identity).
+        /// </summary>
+        internal static bool PartPidScopesMatch(List<uint> a, List<uint> b)
+        {
+            int countA = a?.Count ?? 0;
+            int countB = b?.Count ?? 0;
+            if (countA == 0 || countB == 0)
+                return false;
+
+            var setA = new HashSet<uint>(a);
+            var setB = new HashSet<uint>(b);
+            return setA.SetEquals(setB);
         }
 
         /// <summary>
@@ -1033,6 +1142,25 @@ namespace Parsek
             original.EndResources = null;
             // original.StartResources unchanged (keeps the recording-start resources)
             // second.StartResources stays null (no snapshot at environment boundary)
+
+            // M2 (plan D13): a split run manifest would leave an END describing
+            // the original FULL span on the first half, and harvest windows can
+            // land on the wrong side of the cut - semantically wrong data the
+            // gain analysis would consume. NULL both new fields on BOTH halves;
+            // the presence gate degrades the tree to legacy analysis (clean
+            // degrade, never wrong math).
+            int voidedHarvestWindows = original.RouteHarvestWindows?.Count ?? 0;
+            bool voidedRunManifest = original.RouteRunManifest != null;
+            original.RouteRunManifest = null;
+            original.RouteHarvestWindows = null;
+            second.RouteRunManifest = null;
+            second.RouteHarvestWindows = null;
+            if (voidedRunManifest || voidedHarvestWindows > 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"Split: run manifest + {voidedHarvestWindows.ToString(CultureInfo.InvariantCulture)} " +
+                    $"harvest window(s) voided on both halves (recording={original.RecordingId})");
+            }
 
             // Inventory manifests: same pattern — second half gets end
             second.EndInventory = original.EndInventory;

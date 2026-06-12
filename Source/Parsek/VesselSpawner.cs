@@ -534,6 +534,56 @@ namespace Parsek
         }
 
         /// <summary>
+        /// M2 harvest capture (plan D4): walks the LIVE vessel's part resources
+        /// and returns summed amount/maxAmount per resource name, excluding
+        /// ElectricCharge and IntakeAir (same noise filter as
+        /// <see cref="ExtractResourceManifest(ConfigNode)"/>). Used only at
+        /// MID-recording harvest-window transitions, where no fresh snapshot
+        /// exists; recording start/stop manifests keep extracting from
+        /// snapshots. Returns null if the vessel/parts are unavailable or no
+        /// resources are found.
+        /// </summary>
+        internal static Dictionary<string, ResourceAmount> ExtractLiveResourceManifest(Vessel v)
+        {
+            if (v == null || v.parts == null || v.parts.Count == 0)
+                return null;
+
+            var manifest = new Dictionary<string, ResourceAmount>();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null || p.Resources == null)
+                    continue;
+
+                for (int j = 0; j < p.Resources.Count; j++)
+                {
+                    PartResource r = p.Resources[j];
+                    if (r == null || string.IsNullOrEmpty(r.resourceName))
+                        continue;
+                    if (r.resourceName == "ElectricCharge" || r.resourceName == "IntakeAir")
+                        continue;
+
+                    if (manifest.TryGetValue(r.resourceName, out ResourceAmount existing))
+                    {
+                        existing.amount += r.amount;
+                        existing.maxAmount += r.maxAmount;
+                        manifest[r.resourceName] = existing;
+                    }
+                    else
+                    {
+                        manifest[r.resourceName] = new ResourceAmount
+                        {
+                            amount = r.amount,
+                            maxAmount = r.maxAmount
+                        };
+                    }
+                }
+            }
+
+            return manifest.Count > 0 ? manifest : null;
+        }
+
+        /// <summary>
         /// Walk PART > MODULE nodes in a vessel snapshot ConfigNode and return
         /// a dictionary of stored inventory item names to summed count/slotsTaken.
         /// Also outputs total inventory slot capacity across all ModuleInventoryPart modules.

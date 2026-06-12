@@ -403,6 +403,224 @@ namespace Parsek.Tests
             Assert.False(RecordingOptimizer.CanAutoMerge(new Recording(), null));
         }
 
+        // --- M2 harvest data (plan D13) ------------------------------------
+
+        private static RouteRunCargoManifest MakeRunManifest(
+            double startOre, double endOre, bool endCaptured = true, params uint[] pids)
+        {
+            if (pids == null || pids.Length == 0)
+                pids = new uint[] { 100u, 200u };
+            return new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = new List<uint>(pids),
+                StartTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    { "Ore", new ResourceAmount { amount = startOre, maxAmount = 1500.0 } }
+                },
+                EndTransportResources = endCaptured
+                    ? new Dictionary<string, ResourceAmount>
+                    {
+                        { "Ore", new ResourceAmount { amount = endOre, maxAmount = 1500.0 } }
+                    }
+                    : null,
+                EndCaptured = endCaptured
+            };
+        }
+
+        private static List<RouteHarvestWindow> MakeHarvestWindows(int count)
+        {
+            var windows = new List<RouteHarvestWindow>();
+            for (int i = 0; i < count; i++)
+            {
+                windows.Add(new RouteHarvestWindow
+                {
+                    WindowId = "harvest-" + i,
+                    StartUT = 17000 + i * 10,
+                    EndUT = 17005 + i * 10,
+                });
+            }
+            return windows;
+        }
+
+        // catches (round-2 correction 3 / report pin c): blocking the merge
+        // pass on ANY run manifest. RunOptimizationPass runs on every save
+        // load; window-less post-M2 recordings MUST keep auto-merging or the
+        // pass is silently disabled globally.
+        [Fact]
+        public void CanAutoMerge_WindowlessRunManifests_StillMerges()
+        {
+            var a = MakeChainSegment("chain1", 0);
+            var b = MakeChainSegment("chain1", 1);
+            a.RouteRunManifest = MakeRunManifest(0.0, 50.0);
+            b.RouteRunManifest = MakeRunManifest(50.0, 120.0);
+
+            Assert.True(RecordingOptimizer.CanAutoMerge(a, b));
+        }
+
+        // catches (plan D13): merging away the D5 bridge witnesses - harvest
+        // WINDOWS on either side refuse the merge.
+        [Fact]
+        public void CanAutoMerge_RefusesWhenHarvestDataPresent()
+        {
+            var a = MakeChainSegment("chain1", 0);
+            var b = MakeChainSegment("chain1", 1);
+            a.RouteHarvestWindows = MakeHarvestWindows(2);
+            Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
+
+            var c = MakeChainSegment("chain2", 0);
+            var d = MakeChainSegment("chain2", 1);
+            d.RouteHarvestWindows = MakeHarvestWindows(1);
+            Assert.False(RecordingOptimizer.CanAutoMerge(c, d));
+        }
+
+        [Fact]
+        public void CanAutoMerge_HarvestRefusal_LogsCounts()
+        {
+            EnableLogCapture();
+            var a = MakeChainSegment("chain1", 0);
+            var b = MakeChainSegment("chain1", 1);
+            a.RouteHarvestWindows = MakeHarvestWindows(2);
+            b.RouteHarvestWindows = MakeHarvestWindows(1);
+
+            Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("Merge refused: harvest windows present")
+                && l.Contains("a=2") && l.Contains("b=1"));
+        }
+
+        // catches (plan D13): the merge compose - matching pid scope keeps
+        // first's START + second's END + the scope set; the merged span stays
+        // an honest manifest.
+        [Fact]
+        public void MergeInto_ComposesRunManifests_OnScopeMatch()
+        {
+            var target = MakeChainSegment("chain1", 0);
+            var absorbed = MakeChainSegment("chain1", 1, startUT: 17060, endUT: 17120);
+            target.RouteRunManifest = MakeRunManifest(0.0, 50.0, endCaptured: true, 100u, 200u);
+            // Same scope, different list order: scope identity is a SET.
+            absorbed.RouteRunManifest = MakeRunManifest(50.0, 120.0, endCaptured: true, 200u, 100u);
+
+            RecordingOptimizer.MergeInto(target, absorbed);
+
+            Assert.NotNull(target.RouteRunManifest);
+            Assert.True(target.RouteRunManifest.IsComplete);
+            Assert.Equal(0.0, target.RouteRunManifest.StartTransportResources["Ore"].amount);
+            Assert.Equal(120.0, target.RouteRunManifest.EndTransportResources["Ore"].amount);
+            Assert.Equal(2, target.RouteRunManifest.TransportPartPersistentIds.Count);
+        }
+
+        // catches (plan D13): composing across a scope change (different
+        // physical transport composition) - the merged manifest is VOIDED and
+        // the presence gate degrades the tree to legacy analysis.
+        [Fact]
+        public void MergeInto_VoidsRunManifest_OnScopeMismatch()
+        {
+            EnableLogCapture();
+            var target = MakeChainSegment("chain1", 0);
+            var absorbed = MakeChainSegment("chain1", 1, startUT: 17060, endUT: 17120);
+            target.RouteRunManifest = MakeRunManifest(0.0, 50.0, endCaptured: true, 100u, 200u);
+            absorbed.RouteRunManifest = MakeRunManifest(50.0, 120.0, endCaptured: true, 100u, 999u);
+
+            RecordingOptimizer.MergeInto(target, absorbed);
+
+            Assert.Null(target.RouteRunManifest);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("RouteRunManifest voided")
+                && l.Contains("reason=merge-scope-mismatch"));
+        }
+
+        // catches: a one-sided manifest (post-M2 leg merged with a pre-M2 or
+        // voided leg) surviving the merge - the merged span cannot be
+        // described honestly, so it voids.
+        [Fact]
+        public void MergeInto_VoidsRunManifest_OneSided()
+        {
+            var target = MakeChainSegment("chain1", 0);
+            var absorbed = MakeChainSegment("chain1", 1, startUT: 17060, endUT: 17120);
+            target.RouteRunManifest = MakeRunManifest(0.0, 50.0);
+            // absorbed has no manifest
+
+            RecordingOptimizer.MergeInto(target, absorbed);
+
+            Assert.Null(target.RouteRunManifest);
+        }
+
+        [Fact]
+        public void ComposeRunManifestsForMerge_BothNull_Null()
+        {
+            Assert.Null(RecordingOptimizer.ComposeRunManifestsForMerge(null, null, "a", "b"));
+        }
+
+        [Fact]
+        public void ComposeRunManifestsForMerge_StartOnlySecond_ComposedStaysIncomplete()
+        {
+            // A second half that never completed its END (ForceStop-shaped)
+            // composes into a start-only manifest: scope + first START kept,
+            // EndCaptured stays false so the presence gate still degrades.
+            RouteRunCargoManifest composed = RecordingOptimizer.ComposeRunManifestsForMerge(
+                MakeRunManifest(0.0, 50.0, endCaptured: true),
+                MakeRunManifest(50.0, 0.0, endCaptured: false),
+                "first", "second");
+
+            Assert.NotNull(composed);
+            Assert.False(composed.EndCaptured);
+            Assert.False(composed.IsComplete);
+            Assert.Equal(0.0, composed.StartTransportResources["Ore"].amount);
+            Assert.Null(composed.EndTransportResources);
+        }
+
+        [Fact]
+        public void PartPidScopesMatch_OrderInsensitive_EmptyNeverMatches()
+        {
+            Assert.True(RecordingOptimizer.PartPidScopesMatch(
+                new List<uint> { 1u, 2u, 3u }, new List<uint> { 3u, 1u, 2u }));
+            Assert.False(RecordingOptimizer.PartPidScopesMatch(
+                new List<uint> { 1u, 2u }, new List<uint> { 1u, 2u, 3u }));
+            Assert.False(RecordingOptimizer.PartPidScopesMatch(null, new List<uint> { 1u }));
+            Assert.False(RecordingOptimizer.PartPidScopesMatch(
+                new List<uint>(), new List<uint>()));
+        }
+
+        // catches (plan D13): a split half keeping a run manifest whose END
+        // describes the original full span, or harvest windows landing on the
+        // wrong half - BOTH new fields must be nulled on BOTH halves.
+        [Fact]
+        public void Split_NullsRunManifestAndHarvestWindows_BothHalves()
+        {
+            EnableLogCapture();
+            Recording rec = MakeRecordingWithSections(
+                17000, 17100, 17200,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.RecordingId = "split-harvest";
+            rec.RouteRunManifest = MakeRunManifest(0.0, 120.0);
+            rec.RouteHarvestWindows = MakeHarvestWindows(2);
+
+            Recording second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.NotNull(second);
+            Assert.Null(rec.RouteRunManifest);
+            Assert.Null(rec.RouteHarvestWindows);
+            Assert.Null(second.RouteRunManifest);
+            Assert.Null(second.RouteHarvestWindows);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("Split: run manifest + 2 harvest window(s) voided on both halves"));
+        }
+
+        [Fact]
+        public void Split_NoHarvestData_NoVoidLog()
+        {
+            EnableLogCapture();
+            Recording rec = MakeRecordingWithSections(
+                17000, 17100, 17200,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            rec.RecordingId = "split-plain";
+
+            Recording second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.NotNull(second);
+            Assert.DoesNotContain(logLines, l => l.Contains("voided on both halves"));
+        }
+
         // --- Supersede-row guard (post-Re-Fly-split HEAD/TIP invariant) -----
         //
         // After RecordingTreeSplitter.SplitOriginAtRewindUT splits the origin

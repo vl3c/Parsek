@@ -373,6 +373,102 @@ namespace Parsek.Tests.Logistics
             Assert.NotEqual(startOnly, complete);
         }
 
+        private static RouteHarvestWindow HarvestWindowFixture()
+        {
+            return new RouteHarvestWindow
+            {
+                WindowId = "harvest-1000",
+                StartUT = 1000.0,
+                EndUT = 1600.5,
+                OpenedAtRecordingStart = true,
+                ClosedAtRecordingStop = false,
+                StartTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    { "Ore", new ResourceAmount { amount = 0.0, maxAmount = 1500.0 } }
+                },
+                EndTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    { "Ore", new ResourceAmount { amount = 850.25, maxAmount = 1500.0 } }
+                }
+            };
+        }
+
+        // catches (M2 D10 gate pin / review BLOCKER 3): a recording carrying
+        // ONLY harvest windows must be hashable - the sentinel gate covers all
+        // four data forms.
+        [Fact]
+        public void Hash_HarvestOnlyRecording_NotSentinel()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-harvest-only",
+                RouteHarvestWindows = new List<RouteHarvestWindow> { HarvestWindowFixture() }
+            };
+
+            string hash = RouteProofHasher.ComputeRouteProofHashFromRecording(rec);
+
+            Assert.NotEqual(RouteProofHasher.NoRouteProofSentinel, hash);
+            Assert.Equal(hash, RouteProofHasher.ComputeRouteProofHashFromRecording(rec));
+        }
+
+        // catches: harvest-window quantities or span markers not participating
+        // in the fingerprint.
+        [Fact]
+        public void Hash_ChangesOnHarvestWindowQuantitiesAndSpan()
+        {
+            Recording recA = RecordingWithProof();
+            string baseline = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
+
+            Recording recB = RecordingWithProof();
+            recB.RouteHarvestWindows = new List<RouteHarvestWindow> { HarvestWindowFixture() };
+            string withWindow = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
+            Assert.NotEqual(baseline, withWindow);
+
+            recB.RouteHarvestWindows[0].EndTransportResources["Ore"] =
+                new ResourceAmount { amount = 1.0, maxAmount = 1500.0 };
+            string changedQuantity = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
+            Assert.NotEqual(withWindow, changedQuantity);
+
+            recB.RouteHarvestWindows[0].EndTransportResources["Ore"] =
+                new ResourceAmount { amount = 850.25, maxAmount = 1500.0 };
+            recB.RouteHarvestWindows[0].StartUT = 999.0;
+            Assert.NotEqual(withWindow, RouteProofHasher.ComputeRouteProofHashFromRecording(recB));
+        }
+
+        // catches (M2 D10 exclusion pin, the M1 D5 precedent): the open-time
+        // location fields and ActiveConverters strings leaking into the hash.
+        // They are resolution/diagnostic metadata, not the witnessed transfer -
+        // including them would flip routes to SourceChanged on harmless
+        // metadata edits.
+        [Fact]
+        public void Hash_IgnoresHarvestLocationAndConverterIds()
+        {
+            var recA = new Recording
+            {
+                RecordingId = "rec-harvest-loc",
+                RouteHarvestWindows = new List<RouteHarvestWindow> { HarvestWindowFixture() }
+            };
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
+
+            var recB = new Recording
+            {
+                RecordingId = "rec-harvest-loc",
+                RouteHarvestWindows = new List<RouteHarvestWindow> { HarvestWindowFixture() }
+            };
+            recB.RouteHarvestWindows[0].BodyName = "Minmus";
+            recB.RouteHarvestWindows[0].Latitude = -0.55;
+            recB.RouteHarvestWindows[0].Longitude = 78.25;
+            recB.RouteHarvestWindows[0].Altitude = 2412.5;
+            recB.RouteHarvestWindows[0].SituationAtOpen = 1;
+            recB.RouteHarvestWindows[0].ActiveConverters = new List<string>
+            {
+                "100:ModuleResourceHarvester:Drill-O-Matic"
+            };
+            string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
+
+            Assert.Equal(hashA, hashB);
+        }
+
         // catches (M2 D10 byte-stability pin): ANY drift in the canonical bytes
         // emitted for a recording WITHOUT the M2 run-manifest / harvest-window
         // fields. The constant below was computed against the pre-M2 hasher

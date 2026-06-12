@@ -4010,6 +4010,17 @@ namespace Parsek
                 changed = true;
             }
 
+            // M2 harvest windows (plan D4/D14): the capture carries the leg's
+            // FULL window list (recorder-side until stop forwarding), so adopt
+            // it wholesale per active stop - same overwrite-per-active-stop
+            // semantics as the run-manifest END half.
+            if (source.RouteHarvestWindows != null && source.RouteHarvestWindows.Count > 0)
+            {
+                target.RouteHarvestWindows =
+                    RouteProofMetadata.CloneHarvestWindows(source.RouteHarvestWindows);
+                changed = true;
+            }
+
             // Route-window/origin-proof/transfer fields are NOT forwarded here.
             // FlightRecorder.BuildCaptureRecording DOES populate
             // capture.RouteOriginProof (RouteProofCapture.
@@ -4030,7 +4041,8 @@ namespace Parsek
                     $"startRes={(target.StartResources?.Count ?? 0)} endRes={(target.EndResources?.Count ?? 0)} " +
                     $"startInv={(target.StartInventory?.Count ?? 0)} endInv={(target.EndInventory?.Count ?? 0)} " +
                     $"dockTargetPid={target.DockTargetVesselPid} " +
-                    $"runManifest={(target.RouteRunManifest != null ? (target.RouteRunManifest.IsComplete ? "complete" : "start-only") : "none")}");
+                    $"runManifest={(target.RouteRunManifest != null ? (target.RouteRunManifest.IsComplete ? "complete" : "start-only") : "none")} " +
+                    $"harvestWindows={(target.RouteHarvestWindows?.Count ?? 0)}");
             }
 
             return changed;

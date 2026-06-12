@@ -1126,6 +1126,29 @@ namespace Parsek
         // re-captured from the live vessel (round-2 BLOCKER 1).
         private RouteRunCargoManifest pendingRouteRunManifest;
 
+        // M2 harvest-window capture (plan D4). Converter cache: every
+        // BaseConverter-derived module on the recorded vessel (covers stock
+        // harvesters/converters, asteroid/comet drills, and modded derivatives
+        // by base class). Rebuilt at recording start and on part-count change
+        // (EVA-constructed drills); Unity-null entries count as inactive so a
+        // staged-away drill closes the window. Per-frame cost: N IsActivated
+        // bool reads + one int part-count compare, zero allocations.
+        private List<BaseConverter> cachedConverters;
+        private int cachedConverterPartCount = -1;
+        // Windows live RECORDER-SIDE until stop forwarding (plan D3 rule 2);
+        // at most one window is open at a time. lastStopClosedHarvestWindow
+        // tracks the window closed by the most recent BuildCaptureRecording so
+        // ResumeAfterFalseAlarm can unwind exactly that close (the #287
+        // RemoveLastEmittedTerminals precedent).
+        private readonly List<RouteHarvestWindow> recorderHarvestWindows = new List<RouteHarvestWindow>();
+        private RouteHarvestWindow openHarvestWindow;
+        private RouteHarvestWindow lastStopClosedHarvestWindow;
+        // Rails-exit funnel (plan D4 / round-2 nit 8): isOnRails flips false at
+        // ~5 sites, so rails-ENTRY arms this flag and the FIRST poll after the
+        // recorder is off rails again consumes it (poll runs only off-rails),
+        // attributing a warp-period toggle at the exit boundary.
+        private bool harvestRailsExitPollPending;
+
         /// <summary>
         /// Read-only view of the controller identity captured at the most recent
         /// <see cref="StartRecording"/> call. Used by
@@ -6134,6 +6157,11 @@ namespace Parsek
             CaptureStartLocation(v, isPromotion);
             var initialEnv = InitializeEnvironmentAndAnchorTracking(v);
             InsertBoundaryAnchorAndSnapshot(v);
+            // M2 harvest capture (plan D5 part i): converters already running at
+            // recording start open a window AT start. Runs on every start flavor
+            // (windows are independent witnesses; a BG-voided manifest just
+            // degrades the leg to legacy analysis regardless).
+            InitializeHarvestWindowAtStart(v);
             ArmReFlyPostLoadSettleIfNeeded(v, isPromotion);
 
             // Check if vessel is already on rails (e.g. started recording during time warp)
@@ -6319,6 +6347,11 @@ namespace Parsek
             // Same leak guard for the M2 run manifest: re-populated (captured or
             // adopted) in InsertBoundaryAnchorAndSnapshot.
             pendingRouteRunManifest = null;
+            // M2 harvest-window state: windows belong to one recorded leg.
+            recorderHarvestWindows.Clear();
+            openHarvestWindow = null;
+            lastStopClosedHarvestWindow = null;
+            harvestRailsExitPollPending = false;
 
             hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
                 a => a.name == "PersistentRotation");
@@ -6797,6 +6830,246 @@ namespace Parsek
                 $"res={manifest.StartTransportResources?.Count ?? 0}");
         }
 
+        #region M2 harvest-window capture (plan D4)
+
+        /// <summary>
+        /// Rebuilds the BaseConverter cache for the recorded vessel. Called at
+        /// recording start (module-cache block) and from the per-frame poll on
+        /// part-count change (EVA-constructed drills). Gloops mode skips
+        /// harvest capture entirely.
+        /// </summary>
+        private void RebuildHarvestConverterCache(Vessel v, string reason)
+        {
+            cachedConverters = null;
+            cachedConverterPartCount = -1;
+            if (IsGloopsMode || v == null || v.parts == null)
+                return;
+
+            var converters = new List<BaseConverter>();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null || p.Modules == null)
+                    continue;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    // Base-class keying (the TimeJumpManager precedent): covers
+                    // ModuleResourceHarvester, ModuleResourceConverter, the
+                    // asteroid/comet drills, and modded derivatives - no module
+                    // name list to maintain (M-MIS-11 cross-note).
+                    if (p.Modules[m] is BaseConverter converter)
+                        converters.Add(converter);
+                }
+            }
+
+            cachedConverters = converters;
+            cachedConverterPartCount = v.parts.Count;
+            ParsekLog.Verbose("Recorder",
+                $"Harvest converter cache: vessel='{v.vesselName}' converters={converters.Count} " +
+                $"(rebuild reason={reason})");
+        }
+
+        /// <summary>
+        /// N boolean reads over the cached converter list. Unity-destroyed
+        /// entries (staged-away drill) count as inactive, so destruction of the
+        /// last active converter closes the window on the next poll.
+        /// </summary>
+        private bool IsAnyCachedConverterActive()
+        {
+            if (cachedConverters == null)
+                return false;
+            for (int i = 0; i < cachedConverters.Count; i++)
+            {
+                BaseConverter c = cachedConverters[i];
+                if (c == null)
+                    continue; // Unity-null: destroyed/staged-away module
+                if (c.IsActivated)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Per-frame harvest poll (plan D4): N bool reads + one int compare in
+        /// the steady state, zero allocations; manifest extraction happens only
+        /// at open/close transitions (player-toggle or rails-transition
+        /// frequency). Consumes the rails-exit pending flag for transition
+        /// attribution. Steady state logs nothing.
+        /// </summary>
+        private void PollHarvestActivity(Vessel v)
+        {
+            if (IsGloopsMode || v == null)
+                return;
+
+            string trigger = harvestRailsExitPollPending ? "rails-exit" : "toggle";
+            harvestRailsExitPollPending = false;
+
+            int partCount = v.parts != null ? v.parts.Count : 0;
+            if (partCount != cachedConverterPartCount)
+                RebuildHarvestConverterCache(v, "part-count");
+
+            bool anyActive = IsAnyCachedConverterActive();
+            HarvestActivityTransition transition = RouteHarvestCapture.EvaluateTransition(
+                anyActive,
+                openHarvestWindow != null);
+            if (transition == HarvestActivityTransition.None)
+                return;
+
+            double ut = Planetarium.GetUniversalTime();
+            if (transition == HarvestActivityTransition.Open)
+                OpenHarvestWindow(v, ut, atRecordingStart: false, trigger: trigger);
+            else
+                CloseHarvestWindow(v, ut, trigger);
+        }
+
+        /// <summary>
+        /// Open-at-start handling (plan D5 part i): a converter already active
+        /// at recording start opens a window AT start, so the stock
+        /// lastUpdateTime catch-up burst that fires in the first frames after a
+        /// vessel loads/unpacks lands INSIDE the open window and attributes as
+        /// harvested.
+        /// </summary>
+        private void InitializeHarvestWindowAtStart(Vessel v)
+        {
+            if (IsGloopsMode || v == null)
+                return;
+            if (!IsAnyCachedConverterActive())
+                return;
+
+            OpenHarvestWindow(v, Planetarium.GetUniversalTime(), atRecordingStart: true,
+                trigger: "recording-start");
+        }
+
+        /// <summary>
+        /// Rails-ENTRY re-baseline (plan D4 warp rule): with a window open it
+        /// stays open (production continues inside it); with converters active
+        /// and no window open (activation raced the poll), open one AT the
+        /// rails boundary. Always arms the rails-exit poll funnel.
+        /// </summary>
+        private void HandleHarvestRailsEntry(Vessel v)
+        {
+            if (IsGloopsMode || v == null)
+                return;
+
+            harvestRailsExitPollPending = true;
+
+            bool anyActive = IsAnyCachedConverterActive();
+            if (openHarvestWindow != null)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "harvest-rails-window-open",
+                    $"Harvest window stays open across rails entry: window={openHarvestWindow.WindowId} " +
+                    $"anyActive={anyActive}");
+                return;
+            }
+
+            if (RouteHarvestCapture.ShouldOpenWindowAtRailsEntry(anyActive, windowOpen: false))
+                OpenHarvestWindow(v, Planetarium.GetUniversalTime(), atRecordingStart: false,
+                    trigger: "rails-entry");
+        }
+
+        private void OpenHarvestWindow(Vessel v, double ut, bool atRecordingStart, string trigger)
+        {
+            Dictionary<string, ResourceAmount> startManifest =
+                VesselSpawner.ExtractLiveResourceManifest(v);
+            List<string> converterIds = BuildActiveConverterIds();
+
+            openHarvestWindow = RouteHarvestCapture.OpenWindow(
+                ut,
+                startManifest,
+                v.mainBody != null ? v.mainBody.name : null,
+                v.latitude,
+                v.longitude,
+                v.altitude,
+                (int)v.situation,
+                converterIds,
+                atRecordingStart);
+            recorderHarvestWindows.Add(openHarvestWindow);
+
+            ParsekLog.Info("Recorder",
+                $"Harvest window opened: window={openHarvestWindow.WindowId} " +
+                $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"converters=[{string.Join(",", converterIds)}] " +
+                $"res={startManifest?.Count ?? 0} atStart={(atRecordingStart ? "1" : "0")} " +
+                $"trigger={trigger}");
+        }
+
+        private void CloseHarvestWindow(Vessel v, double ut, string trigger)
+        {
+            RouteHarvestWindow window = openHarvestWindow;
+            if (window == null)
+                return;
+
+            Dictionary<string, ResourceAmount> endManifest =
+                VesselSpawner.ExtractLiveResourceManifest(v);
+            RouteHarvestCapture.CloseWindow(window, ut, endManifest, atRecordingStop: false);
+            openHarvestWindow = null;
+
+            ParsekLog.Info("Recorder",
+                $"Harvest window closed: window={window.WindowId} " +
+                $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"res={endManifest?.Count ?? 0} atStop=0 trigger={trigger}");
+        }
+
+        /// <summary>
+        /// Close-at-stop + forwarding (plan D3 rule 4 / D4): an open window is
+        /// closed with a manifest extracted from the CAPTURE SNAPSHOT (never a
+        /// live walk at the stop frame - at the dock pid-change stop the live
+        /// vessel is the merged stack), and the full recorder-side window list
+        /// is forwarded onto the capture as deep clones. The closed window is
+        /// remembered so ResumeAfterFalseAlarm can unwind exactly this close.
+        /// </summary>
+        private void CloseHarvestWindowsAtStopAndForward(Recording capture)
+        {
+            lastStopClosedHarvestWindow = null;
+            if (IsGloopsMode || capture == null)
+                return;
+
+            if (openHarvestWindow != null)
+            {
+                double stopUT = Planetarium.GetUniversalTime();
+                Dictionary<string, ResourceAmount> endManifest =
+                    VesselSpawner.ExtractResourceManifest(capture.VesselSnapshot);
+                RouteHarvestCapture.CloseWindow(openHarvestWindow, stopUT, endManifest,
+                    atRecordingStop: true);
+                lastStopClosedHarvestWindow = openHarvestWindow;
+                openHarvestWindow = null;
+
+                ParsekLog.Info("Recorder",
+                    $"Harvest window closed: window={lastStopClosedHarvestWindow.WindowId} " +
+                    $"ut={stopUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"res={endManifest?.Count ?? 0} atStop=1 trigger=recording-stop");
+            }
+
+            if (recorderHarvestWindows.Count > 0)
+            {
+                capture.RouteHarvestWindows =
+                    RouteProofMetadata.CloneHarvestWindows(recorderHarvestWindows);
+                ParsekLog.Verbose("Recorder",
+                    $"BuildCaptureRecording: forwarded {recorderHarvestWindows.Count} harvest window(s) " +
+                    $"recording={capture.RecordingId ?? "<none>"}");
+            }
+        }
+
+        private List<string> BuildActiveConverterIds()
+        {
+            var ids = new List<string>();
+            if (cachedConverters == null)
+                return ids;
+
+            var ic = CultureInfo.InvariantCulture;
+            for (int i = 0; i < cachedConverters.Count; i++)
+            {
+                BaseConverter c = cachedConverters[i];
+                if (c == null || !c.IsActivated)
+                    continue;
+                uint partPid = c.part != null ? c.part.persistentId : 0u;
+                ids.Add(partPid.ToString(ic) + ":" + c.GetType().Name + ":" + (c.ConverterName ?? ""));
+            }
+            return ids;
+        }
+
+        #endregion
+
         /// <summary>
         /// Resets all part event tracking state and rebuilds module caches for the given vessel.
         /// Extracted from StartRecording for reuse by the promotion path.
@@ -6865,9 +7138,11 @@ namespace Parsek
             lastRoboticPosition = new Dictionary<ulong, float>();
             lastRoboticSampleUT = new Dictionary<ulong, double>();
             loggedRoboticModuleKeys = new HashSet<ulong>();
+            RebuildHarvestConverterCache(v, "start");
             ParsekLog.Info("Recorder",
                 $"Module caches seeded for vessel pid={v.persistentId}: engines={cachedEngines?.Count ?? 0}, " +
-                $"rcs={cachedRcsModules?.Count ?? 0}, robotics={cachedRoboticModules?.Count ?? 0}");
+                $"rcs={cachedRcsModules?.Count ?? 0}, robotics={cachedRoboticModules?.Count ?? 0}, " +
+                $"converters={cachedConverters?.Count ?? 0}");
 
             // Seed all tracking sets with current part state so we don't emit
             // false events at first poll (e.g., shrouds already jettisoned,
@@ -7197,6 +7472,9 @@ namespace Parsek
             // chain boundary, pid change). ForceStop never builds a capture, so
             // its legs keep a start-only manifest and degrade to legacy.
             RouteProofCapture.CompleteRunCargoManifestAtStop(capture, pendingRouteRunManifest);
+            // M2 harvest windows (plan D4): close any open window from the
+            // capture snapshot (close-at-stop) and forward the leg's windows.
+            CloseHarvestWindowsAtStopAndForward(capture);
             capture.GhostVisualSnapshot = initialGhostVisualSnapshot != null
                 ? initialGhostVisualSnapshot.CreateCopy()
                 : (capture.VesselSnapshot != null ? capture.VesselSnapshot.CreateCopy() : null);
@@ -7539,6 +7817,22 @@ namespace Parsek
                 ParsekLog.Info("Recorder",
                     $"ResumeAfterFalseAlarm: removed {contentRemoved} orphaned terminal event(s) " +
                     $"(PartEvents count: {PartEvents.Count})");
+            }
+
+            // M2 harvest windows (plan D4 stop/false-alarm rule, mirroring the
+            // #287 terminal-event unwind above): the abandoned chain-boundary
+            // stop closed the open window with ClosedAtRecordingStop; reopen it
+            // (clear end UT / flag / end manifest) so post-resume drilling
+            // stays accounted inside the same window. The discarded
+            // CaptureAtStop's window clones die with it.
+            if (lastStopClosedHarvestWindow != null)
+            {
+                RouteHarvestCapture.ReopenWindow(lastStopClosedHarvestWindow);
+                openHarvestWindow = lastStopClosedHarvestWindow;
+                lastStopClosedHarvestWindow = null;
+                ParsekLog.Info("Recorder",
+                    $"ResumeAfterFalseAlarm: reopened harvest window closed by abandoned stop " +
+                    $"window={openHarvestWindow.WindowId}");
             }
 
             // Restore rewind save from CaptureAtStop — StopRecordingForChainBoundary
@@ -7913,6 +8207,11 @@ namespace Parsek
             CheckAltitudeBoundary(v);
 
             PollPartStates(v);
+            // M2 harvest poll (plan D4): threshold-crossing window open/close.
+            // Also consumes the rails-exit pending flag - this is the funnel
+            // through which a warp-period converter toggle gets attributed at
+            // the rails-exit boundary (round-2 nit 8).
+            PollHarvestActivity(v);
             UpdateEnvironmentTracking(v);
 
             UpdateAnchorDetection(v);
@@ -9959,6 +10258,10 @@ namespace Parsek
             double packedUT = Planetarium.GetUniversalTime();
             currentOrbitSegment = CreateOrbitSegmentWithRotation(v, packedUT);
             isOnRails = true;
+            // M2 harvest: a recording that STARTS on rails is also a rails
+            // entry - arm the exit-poll funnel (open-at-start already handled
+            // any active converter in StartRecording).
+            harvestRailsExitPollPending = true;
 
             // Recording started on rails — switch initial ABSOLUTE section to ORBITAL_CHECKPOINT
             CloseCurrentTrackSection(packedUT);
@@ -9981,6 +10284,12 @@ namespace Parsek
                 return;
             }
             if (v.persistentId != RecordingVesselId) return;
+
+            // M2 harvest rails-entry re-baseline (plan D4 warp rule). Runs for
+            // EVERY rails entry, including the surface/atmosphere early-return
+            // branches below - the vessel still packs and loaded converters
+            // keep producing at warp, so the window state must be settled here.
+            HandleHarvestRailsEntry(v);
 
             ClearRelativeModeForRailsTransition();
             SamplePosition(v);
@@ -10385,6 +10694,20 @@ namespace Parsek
                 ActiveTree,
                 ActiveTree?.ActiveRecordingId);
             pendingRouteRunManifest = null;
+            // Harvest windows die with the backgrounded leg: they only land on
+            // a recording through an active-stop capture, which a BG transit
+            // never produces (the flush runs with CaptureAtStop == null). The
+            // voided manifest already degrades this tree to legacy analysis.
+            if (recorderHarvestWindows.Count > 0 || openHarvestWindow != null)
+            {
+                ParsekLog.Warn("Recorder",
+                    $"Harvest windows discarded on background transition: " +
+                    $"recording={ActiveTree?.ActiveRecordingId ?? "(none)"} " +
+                    $"windows={recorderHarvestWindows.Count} " +
+                    $"open={(openHarvestWindow != null ? "1" : "0")}");
+                recorderHarvestWindows.Clear();
+                openHarvestWindow = null;
+            }
 
             // Disconnect from Harmony patch (stop physics-frame sampling)
             Patches.PhysicsFramePatch.ActiveRecorder = null;
