@@ -56,11 +56,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RestockPlusShowcaseRows_SitBehindAllStockShowcaseLines()
+        public void RestockPlusShowcaseRows_SitBehindStockEngineShowcaseLines()
         {
             // The RS+ band must not overlap the three stock lines: every RS+ row's
             // longitude (distance from pad) lies strictly beyond every stock engine
-            // showcase row's longitude.
+            // showcase row's longitude. Engine rows are a sufficient stand-in for all
+            // stock categories: every stock builder shares ShowcaseDistanceFromPadMeters
+            // and the same three-line lineIndex domain, and the engine rows include
+            // lineIndex 2 (the farthest stock line).
             double maxStockLon = double.MinValue;
             foreach (var stock in SyntheticRecordingTests.EngineShowcaseRecordings(baseUT: 0))
             {
