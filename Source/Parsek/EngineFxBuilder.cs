@@ -729,6 +729,16 @@ namespace Parsek
         /// ReStock-authored, or no exhaust axis is resolvable; callers then keep the
         /// stock heuristic.
         /// </summary>
+        // Below this angle between the FX transform's -Y and the engine's exhaust
+        // axis, the rig is trusted as-is (identity, the live PrefabParticleFX
+        // contract). LES is the case that needs it: its fxSmoke -Y is authored
+        // straight down the stack (central smoke column) while the escape thrust
+        // transform is deliberately canted ~30 degrees (Apollo-style); aiming the
+        // smoke onto the canted thrust axis was wrong. Round-6 probe data: every
+        // measured rig sits at either ~1 deg (trust) or ~90/180 deg (aim), so the
+        // threshold is uncritical anywhere between.
+        internal const float PrefabRigTrustAngleDegrees = 45f;
+
         internal static bool TryComputeExhaustAimedPrefabRotation(
             bool hasCfgRotation, bool restockAuthoredEffects, bool hasExhaustDir,
             Vector3 exhaustAxisParentLocal, out Quaternion rotation)
@@ -739,7 +749,18 @@ namespace Parsek
             if (exhaustAxisParentLocal.magnitude <= 0.001f)
                 return false;
 
-            rotation = ManagedFromToRotation(Vector3.down, exhaustAxisParentLocal.normalized);
+            Vector3 axis = exhaustAxisParentLocal.normalized;
+            // The transform's own -Y is the prefab's emission axis under the live
+            // identity contract. When it already roughly agrees with the exhaust
+            // axis, the rig author oriented it deliberately; keep identity.
+            float dotWithMinusY = Vector3.Dot(axis, Vector3.down);
+            if (dotWithMinusY >= Mathf.Cos(PrefabRigTrustAngleDegrees * Mathf.Deg2Rad))
+            {
+                rotation = Quaternion.identity;
+                return true;
+            }
+
+            rotation = ManagedFromToRotation(Vector3.down, axis);
             return true;
         }
 

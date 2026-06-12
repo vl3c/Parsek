@@ -361,6 +361,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ExhaustAimedPrefabRotation_CantedThrustWithinTrustAngle_TrustsRig()
+        {
+            // LES shape (round-6 probe): fxSmoke -Y is authored straight down the
+            // stack (central smoke column) while the escape thrust transform is
+            // deliberately canted ~30 degrees. The rig wins: identity, not the aim.
+            Vector3 cantedExhaust = new Vector3(0f, -0.9f, -0.5f);
+            Assert.True(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
+                hasCfgRotation: false, restockAuthoredEffects: true, hasExhaustDir: true,
+                cantedExhaust, out Quaternion rot));
+            AssertVector3Close(Vector3.down, rot * Vector3.down);
+        }
+
+        [Fact]
         public void ExhaustAimedPrefabRotation_OppositeAxis_RotatesFully()
         {
             // Exhaust pointing along +Y (opposite the -Y emission axis): the
