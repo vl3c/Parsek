@@ -4344,8 +4344,20 @@ namespace Parsek
             string preferredEndpointBody,
             string endpointSeedSource,
             TailDerivedOrbitSeed tailSeed,
-            bool terminalMapPresenceRegion)
+            bool terminalMapPresenceRegion,
+            bool loopMemberInWindow = false)
         {
+            // A loop member replaying INSIDE its window is mid-flight by definition: the covering
+            // segment at the loop effUT is the truth, and the endpoint-tail "fresher than the
+            // stored segments" staleness comparison is meaningless against a loop-mapped sample
+            // UT (the 2026-06-12 playtest: a docked-ending recording's garbage tail orbit -
+            // ecc 0.94, retrograde - overrode the correct first parking segment at every proto
+            // re-create, snapping the map icon off its line at warp transitions). This makes the
+            // long-documented "unconditionally suppressed for loop members" contract REAL on the
+            // create-resolver path; the TS update pass already enforced it via
+            // EndpointTailAllowedInTrackingStationUpdate.
+            if (loopMemberInWindow)
+                return false;
             if (!terminalMapPresenceRegion)
                 return false;
             if (!tailSeed.Accepted || !tailSeed.UsedHistoricalBodyRotation)
@@ -4507,7 +4519,8 @@ namespace Parsek
             out OrbitSegment endpointTailSegment,
             out TailDerivedOrbitSeed tailSeed,
             out string detail,
-            bool acceptTerminalOrbitSource = false)
+            bool acceptTerminalOrbitSource = false,
+            bool loopMemberInWindow = false)
         {
             endpointTailSegment = default(OrbitSegment);
             tailSeed = default(TailDerivedOrbitSeed);
@@ -4635,7 +4648,8 @@ namespace Parsek
                     preferredEndpointBody,
                     endpointSeedSource,
                     tailSeed,
-                    terminalMapPresenceRegion))
+                    terminalMapPresenceRegion,
+                    loopMemberInWindow))
             {
                 TailDerivedOrbitSeed declinedSeed = tailSeed;
                 declinedSeed.DeclineReason = "visible-segment-not-stale-endpoint";
@@ -4974,11 +4988,15 @@ namespace Parsek
                     OrbitSegment visibleSegment = segment;
                     string endpointTailDetail = null;
                     // FIRST endpoint-tail branch (covering-segment override). This is the
-                    // actual 181 Mm cross-body bug class; stays UNCONDITIONALLY suppressed
-                    // for loop members. The loop-aware acceptance hint is therefore NOT
-                    // threaded here -- the relaxation only applies to the no-covering-segment
-                    // fallback (the SECOND branch at line ~5908 and the create-path's
-                    // terminal-orbit fallback below). See plan section 1.5.
+                    // actual 181 Mm cross-body bug class and must stay suppressed for loop
+                    // members - which the loopMemberInWindow argument now ENFORCES (the prior
+                    // comment claimed unconditional suppression, but no gate existed on this
+                    // create-resolver path; only the TS update pass had one. 2026-06-12
+                    // playtest: a docked-ending loop member's garbage endpoint-tail orbit
+                    // overrode its correct covering segment at every proto re-create). The
+                    // loop-aware ACCEPTANCE hint is still not threaded here -- the relaxation
+                    // only applies to the no-covering-segment fallback (the SECOND branch and
+                    // the create-path's terminal-orbit fallback below). See plan section 1.5.
                     if (TryResolveEndpointTailForMapPresence(
                             traj,
                             currentUT,
@@ -4986,7 +5004,8 @@ namespace Parsek
                             terminalMapPresenceRegion,
                             out OrbitSegment endpointTailSegment,
                             out _,
-                            out endpointTailDetail))
+                            out endpointTailDetail,
+                            loopMemberInWindow: loopMemberInWindow))
                     {
                         segment = endpointTailSegment;
                         resolvedSegment = segment;
