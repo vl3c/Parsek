@@ -73,21 +73,24 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(pristine.LegacyFxPrefabNames.Contains("fx_exhaustFlame_blue"),
                 "expected fx_exhaustFlame_blue among Swivel's pristine legacy keys");
 
-            // Each synthesized name must resolve to a stock FX prefab through the candidate
-            // cascade (exact, then size-suffix-stripped family base), or the legacy
-            // synthesis drops it. The prefab cache is fed by parts whose post-MM config
-            // still carries legacy fx_* keys (e.g. unpatched SRBs), which SWE might also
-            // strip in future versions.
+            // Each synthesized name must resolve through the SAME chain the runtime
+            // legacy synthesis uses since #1128: donor cache, then KSP's builtin
+            // Effects/ assets, then the size-suffix cascade. Under ReStock the donor
+            // cache is empty install-wide (ReStock deletes the legacy fx_* keys), so
+            // a donor-cache-only check would false-fail while ghosts render fine via
+            // the builtin assets (first ReStock+Waterfall run, 2026-06-13).
             for (int i = 0; i < pristine.LegacyFxPrefabNames.Count; i++)
             {
                 string wanted = pristine.LegacyFxPrefabNames[i];
                 var candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(wanted);
                 bool resolved = false;
                 for (int c = 0; c < candidates.Count && !resolved; c++)
-                    resolved = GhostVisualBuilder.FindFxPrefab(candidates[c]) != null;
+                    resolved = GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(
+                        candidates[c], out bool _) != null;
                 InGameAssert.IsTrue(resolved,
-                    $"pristine legacy FX prefab '{wanted}' unresolvable through the cascade " +
-                    "(no surviving donor part in this install; ghost degrades to white flame)");
+                    $"pristine legacy FX prefab '{wanted}' unresolvable through the " +
+                    "runtime chain (donor cache + builtin Effects + cascade); ghost " +
+                    "degrades to white flame");
             }
         }
 
