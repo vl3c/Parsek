@@ -434,8 +434,11 @@ namespace Parsek.Logistics
             // recovery-credit sum: every recording id in the source tree RIGHT
             // NOW, including the post-undock fly-home-and-recover leg (gotcha
             // G1). Post-creation branches mint new ids outside this set, so the
-            // per-cycle credit cannot inflate. The legacy null-tree path falls
-            // back to the member ids so the snapshot is never silently empty.
+            // per-cycle credit cannot inflate. The defensive null-tree path
+            // (production dialog/candidate sources always pass a committed
+            // tree) leaves the snapshot EMPTY so the run-cost resolver fails
+            // open to the whole current tree: a member-id fallback would
+            // exclude the recover leg if the tree id resolved later (G1).
             var creationTreeRecordingIds = new HashSet<string>(StringComparer.Ordinal);
             if (committedTree?.Recordings != null)
             {
@@ -443,14 +446,6 @@ namespace Parsek.Logistics
                 {
                     if (!string.IsNullOrEmpty(treeRecId))
                         creationTreeRecordingIds.Add(treeRecId);
-                }
-            }
-            else
-            {
-                for (int i = 0; i < recordingIds.Count; i++)
-                {
-                    if (!string.IsNullOrEmpty(recordingIds[i]))
-                        creationTreeRecordingIds.Add(recordingIds[i]);
                 }
             }
 

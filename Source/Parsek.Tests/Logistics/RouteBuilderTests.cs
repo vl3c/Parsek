@@ -937,11 +937,14 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("Built route") && l.Contains("creationTreeRecordings=3"));
         }
 
-        // (M-MIS-9-R1) The legacy single-recording path (committedTree == null)
-        // must still produce a non-empty snapshot (the member ids), so the
-        // run-cost resolver never mistakes it for a degenerate pre-field route.
+        // (M-MIS-9-R1) The defensive null-tree path (production dialog and
+        // candidate sources always pass a committed tree) must leave the
+        // snapshot EMPTY so the run-cost resolver fails open to the whole
+        // current tree. A member-id fallback would exclude the post-undock
+        // recover leg if the route's tree id resolved later (the G1
+        // silent-zero regression this fix exists to avoid).
         [Fact]
-        public void BuildRoute_NullTree_CreationSnapshotFallsBackToMemberIds()
+        public void BuildRoute_NullTree_CreationSnapshotStaysEmpty_FailOpen()
         {
             Recording source = MakeKscSource();
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
@@ -950,8 +953,9 @@ namespace Parsek.Tests.Logistics
                 analysis, null, Inputs(), Game.Modes.SANDBOX);
 
             Assert.NotNull(outcome.Route);
-            string id = Assert.Single(outcome.Route.CreationTreeRecordingIds);
-            Assert.Equal("src-ksc", id);
+            Assert.Empty(outcome.Route.CreationTreeRecordingIds);
+            Assert.Contains(logLines, l => l.Contains("[Route]")
+                && l.Contains("Built route") && l.Contains("creationTreeRecordings=0"));
         }
 
         [Fact]

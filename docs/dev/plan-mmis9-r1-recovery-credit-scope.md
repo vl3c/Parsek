@@ -44,8 +44,12 @@ Of the two candidate shapes in the todo entry:
 1. `Route.CreationTreeRecordingIds` - new persisted `HashSet<string>`
    (Ordinal), the source tree's recording ids captured at creation.
 2. `RouteBuilder.BuildRoute` - populate it from `committedTree.Recordings`
-   keys; when `committedTree` is null (legacy single-recording path) fall back
-   to the member `recordingIds` list.
+   keys; when `committedTree` is null (defensive path - the production dialog
+   and candidate sources always pass a committed tree) leave the snapshot
+   EMPTY so the resolver fails open. A member-id fallback was considered and
+   rejected in review: member ids exclude the post-undock recover leg, so if
+   the route's tree id resolved later the intersection would silently zero
+   the legitimate credit (the G1 regression).
 3. `RouteCodec` - new sparse `CREATION_TREE_RECORDINGS` child node with
    repeated `id` values, mirroring `EXCLUDED_INTERVALS` (empty set writes no
    node; missing node loads as empty).
@@ -84,6 +88,6 @@ stay consistent.
   inflate the emitted credit; the post-undock recover leg (outside SourceRefs)
   still counts (G1 guard).
 - `RouteBuilderTests`: `BuildRoute` captures the snapshot from the committed
-  tree; the null-tree path falls back to the member ids.
+  tree; the null-tree path leaves the snapshot empty (fail-open).
 - `RouteCodecTests`: non-empty snapshot round-trips; empty snapshot writes no
   node and loads as empty.
