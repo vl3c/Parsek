@@ -480,6 +480,7 @@ namespace Parsek
                         int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                         if (addedSystems > 0)
                         {
+                            GhostFxEmissionProbe.AttachIfNew(fxClone, partName, moduleIndex, child.name);
                             GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
                                 fxClone, GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
                             clonesAdded++;
@@ -657,6 +658,7 @@ namespace Parsek
                             int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                             if (addedSystems > 0)
                             {
+                                GhostFxEmissionProbe.AttachIfNew(fxInstance, partName, moduleIndex, modelName);
                                 GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
                                     fxInstance, modelSizeBoost);
                                 GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, nodeType, transformName,
@@ -905,6 +907,7 @@ namespace Parsek
                     int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                     if (addedSystems > 0)
                     {
+                        GhostFxEmissionProbe.AttachIfNew(fxInstance, partName, moduleIndex, prefabName);
                         GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
                             fxInstance, GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
