@@ -19,7 +19,17 @@ namespace Parsek.Logistics
         /// undocked with cargo already aboard and the cargo's source was never
         /// witnessed. Append-only value.
         /// </summary>
-        UndockedStartOrigin = 6
+        UndockedStartOrigin = 6,
+        /// <summary>
+        /// M2 gain-side flow closure (plan D6): the transport GAINED a
+        /// resource between the run start and the dock with no witnessed
+        /// source (no harvest window covers it). Only emitted when the
+        /// transport lineage carries complete run manifests (the presence
+        /// gate); legacy recordings can never produce it. The reject detail
+        /// names the resource and the gained/harvested quantities
+        /// (<see cref="RouteAnalysisResult.RejectDetail"/>). Append-only value.
+        /// </summary>
+        UntrackedCargoGain = 7
     }
 
     /// <summary>
@@ -43,6 +53,43 @@ namespace Parsek.Logistics
         public RouteConnectionWindow ConnectionWindow;
         public Dictionary<string, double> ResourceDeliveryManifest;
         public List<InventoryPayloadItem> InventoryDeliveryManifest;
+
+        /// <summary>
+        /// Optional reject quantifier (M2, plan finding 12), e.g.
+        /// <c>"Ore: 120.0 gained, 100.0 harvested"</c> for
+        /// <see cref="RouteAnalysisStatus.UntrackedCargoGain"/>. Threaded
+        /// through <see cref="RouteNearMiss.RejectDetail"/> and
+        /// <c>RouteCreationFormatters.FormatRejectMessage(status, detail)</c>
+        /// so the near-miss list shows the unaccounted amount. Null for every
+        /// status that carries no quantity.
+        /// </summary>
+        public string RejectDetail;
+
+        /// <summary>
+        /// Witnessed harvested totals per resource over the checked span
+        /// (windows + bridged boundary deltas), populated only when the M2
+        /// gain check ENGAGED (complete run manifests on the whole transport
+        /// lineage). Null on the legacy path. Feeds the D8 CostManifest
+        /// reduction in <c>RouteBuilder</c>.
+        /// </summary>
+        public Dictionary<string, double> HarvestedManifest;
+
+        /// <summary>
+        /// True when the run started undocked (no KSC launch, no start-docked
+        /// proof) but EVERY delivered resource is fully covered by witnessed
+        /// harvest (plan D6 refined gate): the run is Eligible as a
+        /// HARVEST-ORIGIN route (D7) - the environment, not a depot, supplied
+        /// the cargo.
+        /// </summary>
+        public bool IsHarvestOrigin;
+
+        /// <summary>
+        /// Earliest in-span harvest window (by StartUT) on the transport
+        /// lineage; its open-time location is the D7 harvest-origin display
+        /// endpoint. Null when the gain check did not engage or no window
+        /// fell inside the checked span.
+        /// </summary>
+        public RouteHarvestWindow FirstHarvestWindow;
 
         public bool IsEligible => Status == RouteAnalysisStatus.Eligible;
     }
@@ -120,7 +167,7 @@ namespace Parsek.Logistics
                 originRec = rootRec;
             }
 
-            return AnalyzeWindow(source, window, originRec, logMode);
+            return AnalyzeWindow(source, window, originRec, tree, logMode);
         }
 
         internal static RouteAnalysisResult AnalyzeRecording(
@@ -151,13 +198,17 @@ namespace Parsek.Logistics
                 return MissingProof(logMode);
 
             // Single-recording analysis: the recording IS the origin recording.
-            return AnalyzeWindow(recording, window, recording, logMode);
+            // No tree: the M2 gain check engages only when the recording is its
+            // own complete lineage (no parent links), else it degrades to the
+            // legacy path.
+            return AnalyzeWindow(recording, window, recording, null, logMode);
         }
 
         private static RouteAnalysisResult AnalyzeWindow(
             Recording source,
             RouteConnectionWindow window,
             Recording originRec,
+            RecordingTree tree,
             RouteAnalysisLogMode logMode)
         {
             if (!HasEndpointProof(window))
@@ -175,13 +226,25 @@ namespace Parsek.Logistics
                 };
             }
 
+            // M2 gain-side flow closure (plan D6): resolve the transport
+            // lineage and run the gain check. ENGAGED only when every lineage
+            // leg carries a COMPLETE run manifest; otherwise the result is
+            // LegacyFallback (logged once per analysis inside) and the
+            // pre-M2 path below runs byte-identically.
+            HarvestGainCheckResult gainCheck =
+                RouteHarvestAnalysis.CheckTransportGains(tree, source, window, logMode);
+            bool harvestEngaged = gainCheck.Outcome != HarvestGainOutcome.LegacyFallback;
+
             // M1 workflow gate (design D7): an undocked-start run carries cargo
             // whose source was never witnessed, so it can never dispatch.
-            // Ordering: after the endpoint-proof check, before the
-            // manifest-level complaints (the workflow error outranks them).
-            // RouteBuilder's endpoint-missing reject stays as the defensive
-            // backstop at create time.
-            if (IsUndockedStartOrigin(originRec))
+            // Ordering (legacy path): after the endpoint-proof check, before
+            // the manifest-level complaints (the workflow error outranks them).
+            // On the harvest-data path the verdict is DEFERRED (plan finding
+            // 11, two-phase gate): the refined gate below needs harvested
+            // totals AND the delivery manifest, so it runs after the gain
+            // check. RouteBuilder's endpoint-missing reject stays as the
+            // defensive backstop at create time.
+            if (!harvestEngaged && IsUndockedStartOrigin(originRec))
             {
                 Diag(logMode,
                     $"RouteAnalysis rejected: undocked-start origin originRec={originRec?.RecordingId ?? "<none>"} " +
@@ -227,6 +290,82 @@ namespace Parsek.Logistics
                 };
             }
 
+            // M2 gain verdict (plan D6): a positive transport gain with no
+            // witnessed harvest rejects with the exact unaccounted quantity
+            // named. Runs after the manifest build (the gain check needs the
+            // same window data) and only on the harvest-data path.
+            if (harvestEngaged && gainCheck.Outcome == HarvestGainOutcome.UntrackedGain)
+            {
+                Diag(logMode,
+                    $"RouteAnalysis rejected: untracked cargo gain resource={gainCheck.RejectResource} " +
+                    $"gained={gainCheck.RejectGained.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"harvested={gainCheck.RejectHarvested.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"source={source?.RecordingId ?? "<none>"}");
+                return new RouteAnalysisResult
+                {
+                    Status = RouteAnalysisStatus.UntrackedCargoGain,
+                    SourceRecording = source,
+                    ConnectionWindow = window,
+                    RejectDetail = gainCheck.RejectDetail,
+                    HarvestedManifest = gainCheck.HarvestedManifest,
+                    FirstHarvestWindow = gainCheck.FirstHarvestWindow
+                };
+            }
+
+            // M2 refined undocked-start gate (plan D6, two-phase): on the
+            // harvest-data path the deferred verdict lands here. Undocked
+            // start stays rejected when the run delivers INVENTORY (no
+            // harvest provenance exists for inventory in M2) or when any
+            // delivered resource exceeds its witnessed harvested total; a
+            // fully-harvest-covered delivery becomes Eligible as a
+            // HARVEST-ORIGIN run (D7).
+            bool isHarvestOrigin = false;
+            if (harvestEngaged && IsUndockedStartOrigin(originRec))
+            {
+                string undockedRejectReason = null;
+                if (inventory != null && inventory.Count > 0)
+                {
+                    undockedRejectReason = "inventory-delivery-not-harvestable";
+                }
+                else if (resources != null)
+                {
+                    foreach (KeyValuePair<string, double> kvp in resources)
+                    {
+                        double harvestedAmount = 0.0;
+                        gainCheck.HarvestedManifest?.TryGetValue(kvp.Key, out harvestedAmount);
+                        if (kvp.Value > harvestedAmount + RouteHarvestAnalysis.GainEpsilon)
+                        {
+                            undockedRejectReason =
+                                $"delivered-exceeds-harvested resource={kvp.Key} " +
+                                $"delivered={kvp.Value.ToString("R", CultureInfo.InvariantCulture)} " +
+                                $"harvested={harvestedAmount.ToString("R", CultureInfo.InvariantCulture)}";
+                            break;
+                        }
+                    }
+                }
+
+                if (undockedRejectReason != null)
+                {
+                    Diag(logMode,
+                        $"RouteAnalysis rejected: undocked-start origin (harvest-refined) " +
+                        $"originRec={originRec?.RecordingId ?? "<none>"} reason={undockedRejectReason}");
+                    return new RouteAnalysisResult
+                    {
+                        Status = RouteAnalysisStatus.UndockedStartOrigin,
+                        SourceRecording = source,
+                        ConnectionWindow = window,
+                        HarvestedManifest = gainCheck.HarvestedManifest,
+                        FirstHarvestWindow = gainCheck.FirstHarvestWindow
+                    };
+                }
+
+                isHarvestOrigin = true;
+                Diag(logMode,
+                    $"RouteAnalysis: undocked start fully harvest-covered -> harvest origin " +
+                    $"originRec={originRec?.RecordingId ?? "<none>"} " +
+                    $"resources={resources?.Count ?? 0}");
+            }
+
             // Backing-mission render geometry (RouteBackingMission) keys its
             // [launch..undock] trim on window.UndockUT. A non-finite UndockUT would
             // make the window unrenderable downstream (RouteBuilder rejects it with
@@ -245,7 +384,9 @@ namespace Parsek.Logistics
             Diag(logMode,
                 $"RouteAnalysis eligible: source={source?.RecordingId ?? "<none>"} " +
                 $"window={window.WindowId ?? "<none>"} resources={resources?.Count ?? 0} " +
-                $"inventory={inventory?.Count ?? 0}");
+                $"inventory={inventory?.Count ?? 0} " +
+                $"harvestData={(harvestEngaged ? "1" : "0")} " +
+                $"harvestOrigin={(isHarvestOrigin ? "1" : "0")}");
 
             return new RouteAnalysisResult
             {
@@ -253,7 +394,10 @@ namespace Parsek.Logistics
                 SourceRecording = source,
                 ConnectionWindow = window,
                 ResourceDeliveryManifest = resources,
-                InventoryDeliveryManifest = inventory
+                InventoryDeliveryManifest = inventory,
+                HarvestedManifest = harvestEngaged ? gainCheck.HarvestedManifest : null,
+                IsHarvestOrigin = isHarvestOrigin,
+                FirstHarvestWindow = harvestEngaged ? gainCheck.FirstHarvestWindow : null
             };
         }
 

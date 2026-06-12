@@ -585,7 +585,7 @@ namespace Parsek
                 if (nm == null) continue;
                 string treeName = NearMissTreeLabel(nm.Tree);
                 string reason = LogisticsRejectPresentation.DescribeNearMiss(
-                    nm.Status, nm.NotSealed, nm.ReflyableCount);
+                    nm.Status, nm.NotSealed, nm.ReflyableCount, nm.RejectDetail);
                 DetailLine($"{treeName} - {reason}");
             }
         }

@@ -964,6 +964,278 @@ namespace Parsek.Tests
         }
 
         // ---------------------------------------------------------------
+        // M2 harvest provenance (plan D6): the gain check engages when the
+        // transport lineage carries complete run manifests; the undocked-start
+        // verdict is then DEFERRED until after the gain check (two-phase gate,
+        // plan finding 11), and a fully-harvest-covered undocked delivery
+        // becomes Eligible as a harvest-origin run (D7).
+        // ---------------------------------------------------------------
+
+        private const uint TransportPid = 100;
+        private const uint ColonyPid = 300;
+
+        private static ResourceAmount RA(double amount)
+        {
+            return new ResourceAmount { amount = amount, maxAmount = 1000.0 };
+        }
+
+        private static Dictionary<string, ResourceAmount> OreAmount(double amount)
+        {
+            return new Dictionary<string, ResourceAmount> { ["Ore"] = RA(amount) };
+        }
+
+        private static RouteRunCargoManifest CompleteManifest(
+            uint[] pids, double startOre, double endOre)
+        {
+            return new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = new List<uint>(pids),
+                StartTransportResources = OreAmount(startOre),
+                EndTransportResources = OreAmount(endOre),
+                EndCaptured = true
+            };
+        }
+
+        // Transport-scoped ore delivery window at the colony: dock with
+        // dockOre aboard, deliver (dockOre - undockOre) to the endpoint.
+        private static RouteConnectionWindow OreDeliveryWindow(
+            double dockOre, double undockOre)
+        {
+            return new RouteConnectionWindow
+            {
+                WindowId = "ore-window",
+                DockUT = 500.0,
+                UndockUT = 600.0,
+                TransferTargetVesselPid = 9001,
+                TransferKind = RouteConnectionKind.DockingPort,
+                TransportPartPersistentIds = new List<uint> { TransportPid },
+                EndpointPartPersistentIds = new List<uint> { ColonyPid },
+                DockTransportResources = OreAmount(dockOre),
+                UndockTransportResources = OreAmount(undockOre),
+                DockEndpointResources = OreAmount(0.0),
+                UndockEndpointResources = OreAmount(dockOre - undockOre),
+                EndpointAtDock = Endpoint(),
+                TransferEndpointSituation = 1
+            };
+        }
+
+        private static RouteHarvestWindow OreHarvestWindow(
+            double startUT, double endUT, double startOre, double endOre)
+        {
+            return new RouteHarvestWindow
+            {
+                WindowId = "hw",
+                StartUT = startUT,
+                EndUT = endUT,
+                StartTransportResources = OreAmount(startOre),
+                EndTransportResources = OreAmount(endOre),
+                BodyName = "Minmus",
+                Latitude = 5.0,
+                Longitude = 6.0,
+                Altitude = 7.0,
+                SituationAtOpen = 1
+            };
+        }
+
+        // Drill-run tree: root (the transport; KSC fields optional) -> Dock
+        // BP -> merge child carrying the delivery window. Both legs carry
+        // complete run manifests so the M2 gain check engages.
+        private static RecordingTree BuildDrillRunTree(
+            out Recording root, out Recording merge,
+            double rootStartOre, double dockOre, double undockOre,
+            bool kscOrigin)
+        {
+            root = new Recording
+            {
+                RecordingId = "drill-root",
+                TreeId = "tree-drill",
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 500.0,
+                RouteRunManifest = CompleteManifest(
+                    new[] { TransportPid }, rootStartOre, dockOre)
+            };
+            if (kscOrigin)
+            {
+                root.StartBodyName = "Kerbin";
+                root.LaunchSiteName = "LaunchPad";
+            }
+            merge = new Recording
+            {
+                RecordingId = "drill-merge",
+                TreeId = "tree-drill",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 600.0,
+                ParentBranchPointId = "bp-dock",
+                RouteRunManifest = CompleteManifest(
+                    new[] { TransportPid, ColonyPid }, dockOre, dockOre),
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    OreDeliveryWindow(dockOre, undockOre)
+                }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-drill",
+                RootRecordingId = root.RecordingId,
+                ActiveRecordingId = merge.RecordingId
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(merge);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock",
+                UT = 500.0,
+                Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { root.RecordingId },
+                ChildRecordingIds = new List<string> { merge.RecordingId }
+            });
+            return tree;
+        }
+
+        // The scenario-family-4 pin: an undocked-start drill run whose
+        // delivery is FULLY covered by witnessed harvest analyzes Eligible
+        // as a harvest-origin run instead of rejecting UndockedStartOrigin.
+        [Fact]
+        public void AnalyzeTree_DrillRun_UndockedStart_FullyHarvested_Eligible()
+        {
+            RecordingTree tree = BuildDrillRunTree(
+                out Recording root, out _,
+                rootStartOre: 0.0, dockOre: 120.0, undockOre: 20.0,
+                kscOrigin: false);
+            root.RouteHarvestWindows = new List<RouteHarvestWindow>
+            {
+                OreHarvestWindow(150.0, 400.0, 0.0, 120.0)
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.True(result.IsEligible,
+                $"fully-harvested drill run must be Eligible, got {result.Status}");
+            Assert.True(result.IsHarvestOrigin);
+            Assert.Equal(100.0, result.ResourceDeliveryManifest["Ore"], 6);
+            Assert.NotNull(result.HarvestedManifest);
+            Assert.Equal(120.0, result.HarvestedManifest["Ore"], 6);
+            Assert.NotNull(result.FirstHarvestWindow);
+            Assert.Equal("Minmus", result.FirstHarvestWindow.BodyName);
+        }
+
+        // catches: the refined gate admitting an undocked start whose
+        // delivery EXCEEDS the witnessed harvest (start cargo of unknown
+        // provenance) - it must keep rejecting UndockedStartOrigin.
+        [Fact]
+        public void AnalyzeTree_DrillRun_PartiallyHarvested_UndockedStartOrigin()
+        {
+            // Starts undocked with 50 Ore already aboard (gain check passes:
+            // gain = 100 - 50 = 50, all witnessed) but delivers 80 > 50
+            // harvested - the 30 difference is the unwitnessed start cargo.
+            RecordingTree tree = BuildDrillRunTree(
+                out Recording root, out _,
+                rootStartOre: 50.0, dockOre: 100.0, undockOre: 20.0,
+                kscOrigin: false);
+            root.RouteHarvestWindows = new List<RouteHarvestWindow>
+            {
+                OreHarvestWindow(150.0, 400.0, 50.0, 100.0)
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.False(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.UndockedStartOrigin, result.Status);
+            Assert.False(result.IsHarvestOrigin);
+        }
+
+        // catches: a KSC drill run whose harvested ore was silently treated
+        // as launch cargo (the pre-M2 behavior) - an unwitnessed gain must
+        // reject with the exact quantity named.
+        [Fact]
+        public void AnalyzeTree_KscOrigin_UntrackedGain_Rejected()
+        {
+            RecordingTree tree = BuildDrillRunTree(
+                out _, out _,
+                rootStartOre: 0.0, dockOre: 120.0, undockOre: 20.0,
+                kscOrigin: true);
+            // No harvest windows: the 120 Ore aboard at dock has no source.
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.False(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.UntrackedCargoGain, result.Status);
+            Assert.Equal("Ore: 120.0 gained, 0.0 harvested", result.RejectDetail);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("untracked cargo gain") &&
+                l.Contains("resource=Ore") &&
+                l.Contains("gained=120"));
+        }
+
+        // catches: a witnessed KSC drill run failing the gain check, or the
+        // harvest data flipping its origin classification (KSC stays KSC).
+        [Fact]
+        public void AnalyzeTree_KscOrigin_HarvestedGain_Eligible()
+        {
+            RecordingTree tree = BuildDrillRunTree(
+                out Recording root, out _,
+                rootStartOre: 0.0, dockOre: 120.0, undockOre: 20.0,
+                kscOrigin: true);
+            root.RouteHarvestWindows = new List<RouteHarvestWindow>
+            {
+                OreHarvestWindow(150.0, 400.0, 0.0, 120.0)
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.True(result.IsEligible,
+                $"witnessed KSC drill run must be Eligible, got {result.Status}");
+            Assert.False(result.IsHarvestOrigin);
+            Assert.NotNull(result.HarvestedManifest);
+            Assert.Equal(120.0, result.HarvestedManifest["Ore"], 6);
+        }
+
+        // Regression pin (plan risk 2): a recording WITHOUT harvest data -
+        // every pre-M2 recording - must analyze exactly as today, even when
+        // the transport visibly gained a resource across the run. The gain
+        // check is presence-gated and must never reject legacy data.
+        [Fact]
+        public void AnalyzeTree_OldRecordingNoHarvestData_AnalyzesAsToday()
+        {
+            RecordingTree tree = BuildDrillRunTree(
+                out Recording root, out Recording merge,
+                rootStartOre: 0.0, dockOre: 120.0, undockOre: 20.0,
+                kscOrigin: true);
+            // Strip the M2 data: pre-M2 recordings carry neither manifests
+            // nor windows.
+            root.RouteRunManifest = null;
+            merge.RouteRunManifest = null;
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.True(result.IsEligible,
+                $"pre-M2 recording must keep analyzing Eligible, got {result.Status}");
+            Assert.Null(result.HarvestedManifest);
+            Assert.False(result.IsHarvestOrigin);
+            Assert.Equal(100.0, result.ResourceDeliveryManifest["Ore"], 6);
+        }
+
+        // catches: the legacy path losing today's rejection ORDER - an
+        // undocked start without harvest data must still reject
+        // UndockedStartOrigin (not NoDeliveryManifest or anything later).
+        [Fact]
+        public void AnalyzeTree_OldRecordingUndockedStart_StillRejectsUndockedStartOrigin()
+        {
+            RecordingTree tree = BuildDrillRunTree(
+                out Recording root, out Recording merge,
+                rootStartOre: 0.0, dockOre: 120.0, undockOre: 20.0,
+                kscOrigin: false);
+            root.RouteRunManifest = null;
+            merge.RouteRunManifest = null;
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.False(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.UndockedStartOrigin, result.Status);
+        }
+
+        // ---------------------------------------------------------------
         // CollectSourcePathRecordingIds — regression for playtest 6
         // ---------------------------------------------------------------
         // When the player switches vessels before committing,

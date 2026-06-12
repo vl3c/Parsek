@@ -151,6 +151,138 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteAnalysisStatus.UndockedStartOrigin, nm.Status);
         }
 
+        // catches (M2, plan Phase 4 step 4): a sealed tree rejected with the
+        // new UntrackedCargoGain status not surfacing in the per-reason
+        // breakdown counters and the near-miss list (with the quantity
+        // detail). The fixture gives the lineage complete run manifests and
+        // an unwitnessed Ore gain.
+        [Fact]
+        public void DeriveNearMisses_CountsUntrackedGain_WithDetail()
+        {
+            // Re-enable the log so the batch-summary counter line is assertable.
+            var lines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            try
+            {
+                RecordingTree tree = BuildUntrackedGainTree("t-untracked");
+
+                var candidates = RouteCandidateFinder.DeriveCandidates(
+                    new List<RecordingTree> { tree }, new List<Route>());
+                var nearMisses = RouteCandidateFinder.DeriveNearMisses(
+                    new List<RecordingTree> { tree });
+
+                Assert.Empty(candidates);
+                RouteNearMiss nm = Assert.Single(nearMisses);
+                Assert.False(nm.NotSealed);
+                Assert.Equal(RouteAnalysisStatus.UntrackedCargoGain, nm.Status);
+                Assert.Equal("Ore: 120.0 gained, 0.0 harvested", nm.RejectDetail);
+                Assert.Contains(lines, l =>
+                    l.Contains("DeriveCandidates:") && l.Contains("untrackedGain=1"));
+                Assert.Contains(lines, l =>
+                    l.Contains("DeriveNearMisses:") && l.Contains("untrackedGain=1"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
+        }
+
+        // Sealed two-recording tree (KSC root -> Dock BP -> merge child with
+        // the window) whose lineage carries COMPLETE run manifests showing an
+        // unwitnessed 120 Ore transport gain: analysis rejects
+        // UntrackedCargoGain (M2 plan D6).
+        private static RecordingTree BuildUntrackedGainTree(string treeId)
+        {
+            Dictionary<string, ResourceAmount> OreAt(double amount)
+            {
+                return new Dictionary<string, ResourceAmount>
+                {
+                    ["Ore"] = new ResourceAmount { amount = amount, maxAmount = 1000.0 }
+                };
+            }
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                RootRecordingId = "root",
+                ActiveRecordingId = "merge"
+            };
+            var root = new Recording
+            {
+                RecordingId = "root",
+                TreeId = treeId,
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 500.0,
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { 100 },
+                    StartTransportResources = OreAt(0.0),
+                    EndTransportResources = OreAt(120.0),
+                    EndCaptured = true
+                }
+            };
+            var merge = new Recording
+            {
+                RecordingId = "merge",
+                TreeId = treeId,
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 600.0,
+                ParentBranchPointId = "bp-dock",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { 100, 300 },
+                    StartTransportResources = OreAt(120.0),
+                    EndTransportResources = OreAt(120.0),
+                    EndCaptured = true
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "w-ore",
+                        DockUT = 500.0,
+                        UndockUT = 600.0,
+                        TransferTargetVesselPid = 9001,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        TransportPartPersistentIds = new List<uint> { 100 },
+                        DockTransportResources = OreAt(120.0),
+                        UndockTransportResources = OreAt(20.0),
+                        DockEndpointResources = OreAt(0.0),
+                        UndockEndpointResources = OreAt(100.0),
+                        EndpointAtDock = new RouteEndpoint
+                        {
+                            VesselPersistentId = 9001,
+                            BodyName = "Mun",
+                            Latitude = 1.0,
+                            Longitude = 2.0,
+                            Altitude = 3.0,
+                            IsSurface = true
+                        },
+                        TransferEndpointSituation = 1
+                    }
+                }
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(merge);
+            tree.BranchPoints = new List<BranchPoint>
+            {
+                new BranchPoint
+                {
+                    Id = "bp-dock",
+                    UT = 500.0,
+                    Type = BranchPointType.Dock,
+                    ParentRecordingIds = new List<string> { "root" },
+                    ChildRecordingIds = new List<string> { "merge" }
+                }
+            };
+            return tree;
+        }
+
         // ------------------------------------------------------------------
         // Helpers: build a sealed tree carrying one eligible dock-deliver-undock
         // window on its dock-merged child recording ("mid"). Mirrors the

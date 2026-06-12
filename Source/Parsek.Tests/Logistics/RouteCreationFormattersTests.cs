@@ -172,6 +172,50 @@ namespace Parsek.Tests.Logistics
                     "Reject copy must be plain ASCII (found non-ASCII char)");
         }
 
+        [Fact]
+        public void FormatRejectMessage_UntrackedCargoGain_NamesQuantity()
+        {
+            // catches (M2, D6 / finding 12): the untracked-gain rejection not
+            // surfacing the exact unaccounted quantity. The detail-carrying
+            // overload must embed the detail verbatim; the detail-less call
+            // must still render the full guidance without an empty "()".
+            string detail = "Ore: 120.0 gained, 100.0 harvested";
+            string msg = RouteCreationFormatters.FormatRejectMessage(
+                RouteAnalysisStatus.UntrackedCargoGain, detail);
+
+            Assert.Contains("gained cargo during this run with no recorded source", msg);
+            Assert.Contains("(Ore: 120.0 gained, 100.0 harvested)", msg);
+            Assert.Contains("record the mining with the drill or converter running", msg);
+            Assert.Contains("re-record without the unexplained gain", msg);
+
+            string withoutDetail = RouteCreationFormatters.FormatRejectMessage(
+                RouteAnalysisStatus.UntrackedCargoGain);
+            Assert.DoesNotContain("()", withoutDetail);
+            Assert.Contains("gained cargo during this run with no recorded source", withoutDetail);
+
+            // copy guardrail: plain ASCII only (project hard rule).
+            foreach (char c in msg)
+                Assert.True(c < 128,
+                    "Reject copy must be plain ASCII (found non-ASCII char)");
+        }
+
+        [Fact]
+        public void FormatRejectMessage_DetailOverload_OtherStatusesUnchanged()
+        {
+            // catches: the detail overload accidentally injecting the detail
+            // into statuses that carry no quantity - every other status must
+            // render byte-identically with and without a detail argument.
+            foreach (RouteAnalysisStatus status in Enum.GetValues(typeof(RouteAnalysisStatus)))
+            {
+                if (status == RouteAnalysisStatus.UntrackedCargoGain)
+                    continue;
+                Assert.Equal(
+                    RouteCreationFormatters.FormatRejectMessage(status),
+                    RouteCreationFormatters.FormatRejectMessage(
+                        status, "Ore: 1.0 gained, 0.0 harvested"));
+            }
+        }
+
         // -----------------------------------------------------------------
         // Summary block (Career vs. Sandbox conditional)
         // -----------------------------------------------------------------

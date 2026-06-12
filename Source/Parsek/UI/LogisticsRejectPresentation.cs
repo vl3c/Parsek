@@ -40,6 +40,21 @@ namespace Parsek
         internal static string DescribeNearMiss(
             RouteAnalysisStatus status, bool notSealed, int reflyableCount)
         {
+            return DescribeNearMiss(status, notSealed, reflyableCount, null);
+        }
+
+        /// <summary>
+        /// Detail-carrying overload (M2, plan finding 12): passes the
+        /// analysis reject detail (e.g. the unaccounted
+        /// <see cref="RouteAnalysisStatus.UntrackedCargoGain"/> quantity,
+        /// <c>"Ore: 120.0 gained, 100.0 harvested"</c>) through to
+        /// <see cref="RouteCreationFormatters.FormatRejectMessage(RouteAnalysisStatus, string)"/>
+        /// so the near-miss row names the amount. Without this hop the
+        /// near-miss list would show only the generic reject text.
+        /// </summary>
+        internal static string DescribeNearMiss(
+            RouteAnalysisStatus status, bool notSealed, int reflyableCount, string rejectDetail)
+        {
             if (notSealed)
             {
                 string noun = reflyableCount == 1 ? "recording" : "recordings";
@@ -47,7 +62,7 @@ namespace Parsek
                     "not fully sealed ({0} {1} still re-flyable)", reflyableCount, noun);
             }
 
-            return RouteCreationFormatters.FormatRejectMessage(status);
+            return RouteCreationFormatters.FormatRejectMessage(status, rejectDetail);
         }
     }
 }

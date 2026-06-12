@@ -173,6 +173,19 @@ namespace Parsek.Logistics
         /// </summary>
         internal static string FormatRejectMessage(RouteAnalysisStatus status)
         {
+            return FormatRejectMessage(status, null);
+        }
+
+        /// <summary>
+        /// Detail-carrying overload (M2, plan finding 12): when
+        /// <paramref name="detail"/> is non-empty it quantifies the rejection
+        /// (today only <see cref="RouteAnalysisStatus.UntrackedCargoGain"/>
+        /// carries one, e.g. <c>"Ore: 120.0 gained, 100.0 harvested"</c>).
+        /// Statuses without a detail render identically to the single-arg
+        /// overload.
+        /// </summary>
+        internal static string FormatRejectMessage(RouteAnalysisStatus status, string detail)
+        {
             switch (status)
             {
                 case RouteAnalysisStatus.Eligible:
@@ -189,6 +202,10 @@ namespace Parsek.Logistics
                     return "Endpoint vessel could not be identified at dock time.";
                 case RouteAnalysisStatus.UndockedStartOrigin:
                     return "This run starts undocked with cargo already aboard, so the cargo's source was never witnessed. Start the supply run docked to the origin depot, record the mining that produced the cargo, or launch it from KSC.";
+                case RouteAnalysisStatus.UntrackedCargoGain:
+                    return "The transport gained cargo during this run with no recorded source"
+                        + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
+                        + ". Only witnessed gains can route: record the mining with the drill or converter running, or re-record without the unexplained gain.";
                 default:
                     return "Route source is not eligible (" + status + ").";
             }
