@@ -350,19 +350,21 @@ namespace Parsek.InGameTests
             }
 
             // smoke-3 (Clydesdale/Thoroughbred): world-space, zero baked velocity; the
-            // floor must engage with the default exhaust-ward -Y axis.
+            // floor must engage and follow the supplied exhaust axis (the live build
+            // site derives it from the engine's thrust transform per part rig).
             GameObject smoke = GameDatabase.Instance.GetModelPrefab("ReStock/FX/restock-fx-srb-smoke-3");
             InGameAssert.IsNotNull(smoke, "restock-fx-srb-smoke-3 model not loaded");
             var smokeEmitter = smoke.GetComponentInChildren<KSPParticleEmitter>(true);
             InGameAssert.IsNotNull(smokeEmitter, "smoke-3 has no KSPParticleEmitter");
             InGameAssert.IsTrue(smokeEmitter.useWorldSpace,
                 "smoke-3 emitter expected world-space (trail-by-motion asset shape changed?)");
+            Vector3 exhaustAxis = new Vector3(0f, 0f, 1f);
             InGameAssert.IsTrue(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
-                smokeEmitter.useWorldSpace, smokeEmitter.localVelocity, out Vector3 floored),
+                smokeEmitter.useWorldSpace, smokeEmitter.localVelocity, exhaustAxis, out Vector3 floored),
                 "velocity floor did not engage for the world-space near-static smoke emitter");
-            InGameAssert.IsTrue(floored.y < 0f &&
+            InGameAssert.IsTrue(Vector3.Angle(floored, exhaustAxis) < 0.1f &&
                 Mathf.Abs(floored.magnitude - GhostVisualBuilder.WorldSpaceEmitterFloorSpeed) < 0.01f,
-                $"floored velocity {floored} is not exhaust-ward at the floor speed");
+                $"floored velocity {floored} does not follow the exhaust axis at the floor speed");
 
             // The flame core is local-space and fast; it must never be floored.
             GameObject core = GameDatabase.Instance.GetModelPrefab("ReStock/FX/restock-fx-srb-core-1");
@@ -370,7 +372,7 @@ namespace Parsek.InGameTests
             var coreEmitter = core.GetComponentInChildren<KSPParticleEmitter>(true);
             InGameAssert.IsNotNull(coreEmitter, "core-1 has no KSPParticleEmitter");
             InGameAssert.IsFalse(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
-                coreEmitter.useWorldSpace, coreEmitter.localVelocity, out Vector3 _),
+                coreEmitter.useWorldSpace, coreEmitter.localVelocity, exhaustAxis, out Vector3 _),
                 "velocity floor wrongly engaged for the local-space flame core");
         }
 

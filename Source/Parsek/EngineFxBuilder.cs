@@ -537,17 +537,61 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resolves the engine's exhaust direction in prefab world space: the thrust
+        /// transform's forward (+Z; KSP convention points exhaust-ward). Used to aim
+        /// the world-space emitter velocity floor in each FX transform's local frame.
+        /// </summary>
+        private static bool TryResolvePrefabExhaustDirection(
+            Part prefab, ModuleEngines engine, out Vector3 worldDir)
+        {
+            worldDir = Vector3.zero;
+            if (engine != null && engine.thrustTransforms != null)
+            {
+                for (int t = 0; t < engine.thrustTransforms.Count; t++)
+                {
+                    if (engine.thrustTransforms[t] != null)
+                    {
+                        worldDir = engine.thrustTransforms[t].forward;
+                        return true;
+                    }
+                }
+            }
+
+            if (prefab != null && engine != null &&
+                !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+            {
+                var anchors = GhostVisualBuilder.FindTransformsRecursive(
+                    prefab.transform, engine.thrustVectorTransformName);
+                if (anchors.Count > 0 && anchors[0] != null)
+                {
+                    worldDir = anchors[0].forward;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Instantiates model FX entries (MODEL_MULTI_PARTICLE/MODEL_PARTICLE) from EFFECTS config
         /// and parents them to the ghost's mirrored transform hierarchy.
         /// </summary>
         private static void ProcessEngineModelFxEntries(
             List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)> modelFxEntries,
-            Part prefab, EngineGhostInfo info,
+            Part prefab, ModuleEngines engine, EngineGhostInfo info,
             string partName, int moduleIndex,
             Transform modelRoot, Transform ghostModelNode,
             Dictionary<Transform, Transform> cloneMap,
             Dictionary<string, bool> selectedVariantGameObjects)
         {
+            bool hasExhaustDir = TryResolvePrefabExhaustDirection(prefab, engine, out Vector3 exhaustWorldDir);
+            if (!hasExhaustDir && modelFxEntries.Count > 0)
+            {
+                LogHotPathVerbose($"exhaust-dir-miss-{partName}-{moduleIndex}",
+                    $"'{partName}' midx={moduleIndex}: no thrust transform resolvable; " +
+                    "world-space emitter velocity floor unavailable for model FX");
+            }
+
             for (int f = 0; f < modelFxEntries.Count; f++)
             {
                 var (nodeType, transformName, modelName, mmpLocalPos, mmpLocalRot, groupName) = modelFxEntries[f];
@@ -594,6 +638,17 @@ namespace Parsek
                             fxInstance.transform.localRotation = mmpLocalRot;
 
                             GhostVisualBuilder.StripKspFxControllers(fxInstance, info.kspEmitters);
+
+                            if (hasExhaustDir)
+                            {
+                                // Exhaust axis in the emitter's local frame: undo the
+                                // instance's cfg rotation and the source FX transform's
+                                // prefab-space rotation (the ghost mirrors both).
+                                Vector3 exhaustLocal = Quaternion.Inverse(mmpLocalRot) *
+                                    (Quaternion.Inverse(srcFxTransform.rotation) * exhaustWorldDir);
+                                GhostVisualBuilder.ApplyWorldSpaceEmitterVelocityFloor(
+                                    fxInstance, partName, moduleIndex, exhaustLocal);
+                            }
 
                             int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                             if (addedSystems > 0)
@@ -1468,7 +1523,7 @@ namespace Parsek
                 info.speedCurve = speedCurve;
 
                 // Process model FX entries (MODEL_MULTI_PARTICLE/MODEL_PARTICLE variants).
-                ProcessEngineModelFxEntries(modelFxEntries, prefab, info, partName, moduleIndex,
+                ProcessEngineModelFxEntries(modelFxEntries, prefab, engine, info, partName, moduleIndex,
                     modelRoot, ghostModelNode, cloneMap, selectedVariantGameObjects);
 
                 // Process PREFAB_PARTICLE entries (Spark, Twitch, Pug, Juno, Wheesley, Goliath)

@@ -1174,24 +1174,63 @@ namespace Parsek
         /// Decides the minimum-flow velocity for a world-space, near-static particle
         /// emitter on a ghost. Returns false (velocity unchanged) for local-space
         /// emitters and for world-space emitters that already carry real velocity.
-        /// The flow axis is the emitter's own authored axis when it has one, else
-        /// local -Y (ReStock's SRB FX rig convention, matching its sibling flame
-        /// cores).
+        /// The flow axis is the ENGINE'S EXHAUST AXIS expressed in the emitter's
+        /// local frame, NOT the asset's authored axis: ReStock's per-part FX rigs
+        /// orient fxTransformSmoke differently across SRBs (Clydesdale/Thoroughbred
+        /// vs Hammer/Flea), so an assumed asset axis squirts sideways on some parts
+        /// (same lesson as the legacy fx_* thrust-anchor-local rotation fix).
         /// </summary>
         internal static bool TryComputeWorldSpaceEmitterVelocityFloor(
-            bool useWorldSpace, Vector3 localVelocity, out Vector3 flooredVelocity)
+            bool useWorldSpace, Vector3 localVelocity, Vector3 exhaustAxisEmitterLocal,
+            out Vector3 flooredVelocity)
         {
             flooredVelocity = localVelocity;
             if (!useWorldSpace)
                 return false;
 
-            float magnitude = localVelocity.magnitude;
-            if (magnitude >= WorldSpaceEmitterSlowSpeedThreshold)
+            if (localVelocity.magnitude >= WorldSpaceEmitterSlowSpeedThreshold)
                 return false;
 
-            Vector3 axis = magnitude > 0.001f ? localVelocity / magnitude : Vector3.down;
+            Vector3 axis = exhaustAxisEmitterLocal.magnitude > 0.001f
+                ? exhaustAxisEmitterLocal.normalized
+                : Vector3.down;
             flooredVelocity = axis * WorldSpaceEmitterFloorSpeed;
             return true;
+        }
+
+        /// <summary>
+        /// Applies the world-space emitter velocity floor to every KSPParticleEmitter
+        /// under a freshly cloned engine FX instance. Call AFTER StripKspFxControllers
+        /// (the clone is ghost-owned by then). No-op for local-space emitters, i.e.
+        /// every stock FX asset.
+        /// </summary>
+        internal static void ApplyWorldSpaceEmitterVelocityFloor(
+            GameObject fxInstance, string partName, int moduleIndex, Vector3 exhaustAxisEmitterLocal)
+        {
+            if (fxInstance == null)
+                return;
+
+            var emitters = fxInstance.GetComponentsInChildren<KSPParticleEmitter>(true);
+            for (int i = 0; i < emitters.Length; i++)
+            {
+                if (emitters[i] == null)
+                    continue;
+                if (!TryComputeWorldSpaceEmitterVelocityFloor(
+                    emitters[i].useWorldSpace, emitters[i].localVelocity,
+                    exhaustAxisEmitterLocal, out Vector3 floored))
+                {
+                    continue;
+                }
+
+                ParsekLog.VerboseRateLimited("GhostVisual",
+                    $"ws-emitter-floor-{partName}-{moduleIndex}-{fxInstance.name}",
+                    $"world-space emitter velocity floor: '{partName}' midx={moduleIndex} " +
+                    $"fx='{fxInstance.name}' localVelocity {emitters[i].localVelocity} -> {floored} " +
+                    $"(exhaust axis, emitter-local: {exhaustAxisEmitterLocal}; trail-by-motion " +
+                    "asset would pool particles at the nozzle on a static ghost)",
+                    5.0);
+                emitters[i].localVelocity = floored;
+            }
         }
 
         internal static void StripKspFxControllers(GameObject fxClone, List<KspEmitterRef> kspEmitterSink)
@@ -1217,22 +1256,6 @@ namespace Parsek
                                 emitter = behaviours[i],
                                 emitField = emitField
                             });
-                        }
-
-                        var worldSpaceEmitter = behaviours[i] as KSPParticleEmitter;
-                        if (worldSpaceEmitter != null &&
-                            TryComputeWorldSpaceEmitterVelocityFloor(
-                                worldSpaceEmitter.useWorldSpace,
-                                worldSpaceEmitter.localVelocity,
-                                out Vector3 flooredVelocity))
-                        {
-                            ParsekLog.VerboseRateLimited("GhostVisual",
-                                $"ws-emitter-floor-{fxClone.name}",
-                                $"world-space emitter velocity floor: '{fxClone.name}' " +
-                                $"localVelocity {worldSpaceEmitter.localVelocity} -> {flooredVelocity} " +
-                                "(trail-by-motion asset; static ghosts would pool particles at the nozzle)",
-                                5.0);
-                            worldSpaceEmitter.localVelocity = flooredVelocity;
                         }
                         break;
                     case "SmokeTrailControl":
