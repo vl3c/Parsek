@@ -2023,7 +2023,10 @@ namespace Parsek.Logistics
                 return false;
             }
 
-            // Amount: reuse SumRecoveredCredits over the source tree, read from ELS.
+            // Amount: reuse SumRecoveredCredits over the source tree, read from
+            // ELS. ResolveTreeRecordingIds scopes the tree to the route's
+            // creation-time membership snapshot (M-MIS-9-R1), so a branch added
+            // to the tree after creation cannot inflate the recurring credit.
             HashSet<string> treeIds = RouteRunCostCalculator.ResolveTreeRecordingIds(route);
             IReadOnlyList<GameAction> els = SafeComputeEls();
             double recovered = RouteRunCostCalculator.SumRecoveredCredits(route, els, treeIds, out int n);

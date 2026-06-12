@@ -43,6 +43,7 @@ namespace Parsek.Tests.Generators
         private List<InventoryPayloadItem> inventoryCostManifest;
         private string backingMissionTreeId;
         private readonly HashSet<string> excludedIntervalKeys = new HashSet<string>();
+        private readonly HashSet<string> creationTreeRecordingIds = new HashSet<string>();
         private double recordedDockUT = -1.0;
         private string dockMemberRecordingId;
         private double loopAnchorUT = -1.0;
@@ -193,6 +194,12 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RouteFixtureBuilder WithCreationTreeRecordingId(string recordingId)
+        {
+            creationTreeRecordingIds.Add(recordingId);
+            return this;
+        }
+
         public RouteFixtureBuilder WithDockBinding(double recordedDockUtValue, string dockMemberRecId)
         {
             recordedDockUT = recordedDockUtValue;
@@ -263,6 +270,8 @@ namespace Parsek.Tests.Generators
 
             foreach (string key in excludedIntervalKeys)
                 route.ExcludedIntervalKeys.Add(key);
+            foreach (string rid in creationTreeRecordingIds)
+                route.CreationTreeRecordingIds.Add(rid);
 
             if (originSet)
                 route.Origin = origin;
