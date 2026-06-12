@@ -5988,10 +5988,12 @@ namespace Parsek
             // the base-implicit variant is selected (prefab defaults, no geometry toggling).
             engineInfos = EngineFxBuilder.TryBuildEngineFX(prefab, persistentId, partName, modelRoot,
                 modelNode.transform, cloneMap, selectedVariantGameObjects);
+            GhostFxFingerprint.LogEngineInfos(partName, engineInfos);
 
             // Detect RCS parts and clone FX particle systems
             rcsInfos = TryBuildRcsFX(prefab, persistentId, partName, modelRoot,
                 modelNode.transform, cloneMap, raiseRcsVisualOnly, selectedVariantGameObjects);
+            GhostFxFingerprint.LogRcsInfos(partName, rcsInfos);
 
             string ladderAnimName;
             string ladderAnimRootName;
