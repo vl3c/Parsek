@@ -6028,10 +6028,13 @@ namespace Parsek
                 case TrackingStationGhostSource.Segment:
                     Vessel segmentGhost = CreateGhostVesselFromSegment(recordingIndex, traj, segment);
                     if (segmentGhost != null)
+                    {
                         UpdateGhostOrbitForRecording(
                             recordingIndex,
                             segment,
                             loopEpochShiftSeconds: loopEpochShiftSeconds);
+                        ForceImmediateIconDrive(segmentGhost, "create-segment");
+                    }
                     return segmentGhost;
 
                 case TrackingStationGhostSource.EndpointTail:
@@ -6041,11 +6044,14 @@ namespace Parsek
                         segment,
                         TrackingStationGhostSource.EndpointTail);
                     if (endpointTailGhost != null)
+                    {
                         UpdateGhostOrbitForRecording(
                             recordingIndex,
                             segment,
                             TrackingStationGhostSource.EndpointTail,
                             loopEpochShiftSeconds: loopEpochShiftSeconds);
+                        ForceImmediateIconDrive(endpointTailGhost, "create-endpoint-tail");
+                    }
                     return endpointTailGhost;
 
                 case TrackingStationGhostSource.StateVector:
@@ -8186,6 +8192,26 @@ namespace Parsek
         /// Shared: apply an OrbitSegment's Keplerian elements to a ghost vessel's OrbitDriver.
         /// Handles body resolution, orbit construction, SOI transitions, and logging.
         /// </summary>
+        /// <summary>
+        /// Creation-frame icon fix (2026-06-12 retest): pv.Load positions the proto at the RAW
+        /// recorded-epoch orbit, and the per-frame effUT icon drive (GhostOrbitIconDrivePatch on
+        /// OrbitDriver.updateFromParameters) only repositions it on the NEXT OrbitDriver tick - so
+        /// the icon's first rendered frame sat up to ~143 degrees off its line (a visible blip at
+        /// high warp, flagged by the tracer's creation-frame icon-off-orbit/teleport anomalies).
+        /// One explicit drive call AFTER the orbit + loop epoch shift are registered routes through
+        /// the same Harmony patch and lands the icon at the loop effUT before the frame renders.
+        /// </summary>
+        private static void ForceImmediateIconDrive(Vessel vessel, string context)
+        {
+            if (vessel == null || vessel.orbitDriver == null)
+                return;
+            vessel.orbitDriver.updateFromParameters();
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "Forced first icon drive after {0} create: pid={1}",
+                    context, vessel.persistentId));
+        }
+
         private static void ApplyOrbitToVessel(Vessel vessel, OrbitSegment segment, string logContext,
             double loopEpochShiftSeconds = 0.0)
         {
