@@ -396,6 +396,16 @@ namespace Parsek.Tests
                 new Vector3(0f, 0f, 1f), out Quaternion _));
         }
 
+        [Theory]
+        [InlineData(0.5f, false)]
+        [InlineData(24f, false)]
+        [InlineData(26f, true)]    // Twin-Boar smokePoint sits ~200 m out (round-8 probe)
+        [InlineData(199f, true)]
+        public void IsFarFxMount_ThresholdAt25Meters(float distance, bool expected)
+        {
+            Assert.Equal(expected, EngineFxBuilder.IsFarFxMount(distance));
+        }
+
         [Fact]
         public void ExhaustAimedPrefabRotation_DegenerateAxis_FallsBack()
         {

@@ -729,6 +729,21 @@ namespace Parsek
         /// ReStock-authored, or no exhaust axis is resolvable; callers then keep the
         /// stock heuristic.
         /// </summary>
+        // A prefab-FX mount transform farther than this from the part root gets the
+        // instance re-anchored to the engine's thrust transform. ReStock's Twin-Boar
+        // rig nests smokePoint under stacked 20x scales, placing the smoke mount
+        // ~200 m exhaust-ward of the part (the authored launch-smoke column far below
+        // an ascending booster); on a static rotated showcase fixture that becomes an
+        // orphan smoke column hanging 200 m to the side (round-8 probe: smoke instance
+        // measured 199 m from the part's own flames). No stock rig and no other
+        // ReStock rig mounts FX beyond a few meters, so the threshold is uncritical.
+        internal const float FarFxMountReanchorMeters = 25f;
+
+        internal static bool IsFarFxMount(float mountDistanceMeters)
+        {
+            return mountDistanceMeters > FarFxMountReanchorMeters;
+        }
+
         // Below this angle between the FX transform's -Y and the engine's exhaust
         // axis, the rig is trusted as-is (identity, the live PrefabParticleFX
         // contract). LES is the case that needs it: its fxSmoke -Y is authored
@@ -878,6 +893,26 @@ namespace Parsek
                         continue;
 
                     Transform srcFxTransform = fxTransforms[t];
+
+                    // Far-mount re-anchor: a mount transform sitting tens of meters from
+                    // the part (ReStock Twin-Boar's smokePoint, ~200 m exhaust-ward under
+                    // stacked rig scales) reads as an orphan effect on a static ghost.
+                    // Anchor the instance at the engine's thrust transform instead.
+                    float mountDistance = (srcFxTransform.position - prefab.transform.position).magnitude;
+                    if (IsFarFxMount(mountDistance) && engine != null && engine.thrustTransforms != null)
+                    {
+                        for (int a = 0; a < engine.thrustTransforms.Count; a++)
+                        {
+                            if (engine.thrustTransforms[a] == null)
+                                continue;
+                            LogHotPathVerbose($"prefab-farmount-{partName}-{moduleIndex}-{transformName}",
+                                $"(prefab): '{partName}' midx={moduleIndex} mount '{transformName}' " +
+                                $"sits {(int)mountDistance} m from the part root; re-anchoring " +
+                                $"'{prefabName}' to thrust transform '{engine.thrustTransforms[a].name}'");
+                            srcFxTransform = engine.thrustTransforms[a];
+                            break;
+                        }
+                    }
 
                     Transform ghostFxParent = GhostVisualBuilder.ResolveGhostFxParent(
                         srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
