@@ -209,7 +209,8 @@ namespace Parsek.Logistics
                 };
             }
 
-            Dictionary<string, double> resources = BuildResourceDeliveryManifest(window);
+            Dictionary<string, double> resources =
+                BuildResourceDeliveryManifest(window, source?.RecordingId, logMode);
             List<InventoryPayloadItem> inventory = BuildInventoryDeliveryManifest(window);
 
             if ((resources == null || resources.Count == 0) &&
@@ -328,21 +329,22 @@ namespace Parsek.Logistics
                 || HasInventoryPickup(window, out reason);
         }
 
-        // ElectricCharge and IntakeAir are environmental noise, never meaningful
-        // supply cargo: a docked transport recharges its batteries from the depot
-        // and its IntakeAir reading drifts between the dock and undock snapshots,
-        // so either can show a spurious per-resource delta on an otherwise clean
-        // delivery-only run. Design section 5.3 rule 7 ("after EC/IntakeAir
-        // filtering") and section 6 ("EC-only delivery ... remains excluded")
-        // filter them out of BOTH the pickup gate and the delivery manifest,
-        // matching VesselSpawner.ExtractResourceManifest. These two are the only
-        // always-ignored resources the design names.
+        // EC/IntakeAir are the always-ignored environmental-noise resources.
+        // The rule text lives on ResourceTransferability.IsAlwaysIgnored (M2
+        // D1: the transferability rule has one authority).
         private static bool IsIgnoredResource(string name)
         {
-            return name == "ElectricCharge" || name == "IntakeAir";
+            return ResourceTransferability.IsAlwaysIgnored(name);
         }
 
-        private static bool HasResourcePickup(RouteConnectionWindow window, out string reason)
+        // D2 direction-sensitivity (M2): this is a REJECTION-direction check,
+        // so UNDEFINED resource names deliberately stay visible here - an
+        // undefined-name pickup must keep rejecting MixedPickupDelivery.
+        // Skipping undefined names here would let a resource-mod uninstall
+        // flip a recorded pickup rejection into Eligible (fail-open). The
+        // undefined-name exclusion applies only to ADMISSION-direction
+        // outputs (BuildResourceDeliveryManifest).
+        internal static bool HasResourcePickup(RouteConnectionWindow window, out string reason)
         {
             reason = null;
 
@@ -409,8 +411,10 @@ namespace Parsek.Logistics
             return false;
         }
 
-        private static Dictionary<string, double> BuildResourceDeliveryManifest(
-            RouteConnectionWindow window)
+        internal static Dictionary<string, double> BuildResourceDeliveryManifest(
+            RouteConnectionWindow window,
+            string recordingId,
+            RouteAnalysisLogMode logMode)
         {
             var delivery = new Dictionary<string, double>();
             AddResourceDeliveryKeys(delivery, window.DockEndpointResources);
@@ -425,13 +429,25 @@ namespace Parsek.Logistics
             {
                 string name = names[i];
 
-                // EC/IntakeAir are environmental noise (see IsIgnoredResource):
-                // never list them as delivered cargo, so an EC-only "delivery"
-                // (transport charges the depot's batteries) yields an empty
-                // manifest and the candidate is rejected as no-delivery rather
-                // than treated as an EC supply run (design section 6).
-                if (IsIgnoredResource(name))
+                // M2 transferability rule (ResourceTransferability, D1/D2):
+                // this is the ADMISSION direction, so two exclusions apply.
+                // EC/IntakeAir are environmental noise: never list them as
+                // delivered cargo, so an EC-only "delivery" (transport charges
+                // the depot's batteries) yields an empty manifest and the
+                // candidate is rejected as no-delivery rather than treated as
+                // an EC supply run (design section 6); silent, pre-M2
+                // behavior. An UNDEFINED name (its defining mod was
+                // uninstalled) is excluded AND logged - the recording degrades
+                // to NoDeliveryManifest instead of routing a phantom resource,
+                // and reinstalling the mod restores it. HasResourcePickup
+                // (rejection direction) deliberately keeps seeing undefined
+                // names - see the comment there.
+                if (!ResourceTransferability.IsRoutableResource(name, out string excludeReason))
+                {
+                    if (excludeReason == ResourceTransferability.ReasonUndefined)
+                        LogUndefinedResourceExclusion(logMode, name, recordingId);
                     continue;
+                }
 
                 double endpointGain =
                     GetResourceAmount(window.UndockEndpointResources, name) -
@@ -447,6 +463,29 @@ namespace Parsek.Logistics
             }
 
             return delivery.Count > 0 ? delivery : null;
+        }
+
+        // M2 logging plan row 1: the undefined-name admission skip. One-shot
+        // callers (Diagnostic: commit-time / the Create Route dialog) log per
+        // name at Info; the ~1/second candidate sweep (Quiet) folds into one
+        // shared rate-limited key so the poll cannot spam. Per-name logging is
+        // fine in Diagnostic mode: distinct resource names per window are
+        // bounded well under the ~20-item batch-counter threshold.
+        private static void LogUndefinedResourceExclusion(
+            RouteAnalysisLogMode logMode,
+            string name,
+            string recordingId)
+        {
+            string message =
+                $"Resource excluded: name={name} " +
+                $"reason={ResourceTransferability.ReasonUndefined} " +
+                $"recording={recordingId ?? "<none>"}";
+
+            if (logMode == RouteAnalysisLogMode.Diagnostic)
+                ParsekLog.Info(RouteOrchestrator.Tag, message);
+            else
+                ParsekLog.VerboseRateLimited(
+                    RouteOrchestrator.Tag, "resource-excluded-undefined", message);
         }
 
         private static void AddResourceDeliveryKeys(

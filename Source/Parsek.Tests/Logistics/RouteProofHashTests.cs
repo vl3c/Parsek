@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Parsek;
 using Parsek.Logistics;
+using Parsek.Tests.Generators;
 using Xunit;
 
 namespace Parsek.Tests.Logistics
@@ -20,10 +21,12 @@ namespace Parsek.Tests.Logistics
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ResourceTransferability.ResetForTesting();
         }
 
         public void Dispose()
         {
+            ResourceTransferability.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -212,6 +215,79 @@ namespace Parsek.Tests.Logistics
             string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
 
             Assert.NotEqual(hashA, hashB);
+        }
+
+        // catches (M2 resource generality): a stock-name assumption in the
+        // canonical hash lines - CRP-named manifests must hash exactly as
+        // deterministically as stock names, and the NAME must participate
+        // (renaming a witnessed resource is a different witnessed transfer).
+        [Fact]
+        public void Hash_CrpNames_DeterministicAndNameSensitive()
+        {
+            Recording crpA = RecordingWithCrpProof();
+            Recording crpB = RecordingWithCrpProof();
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(crpA);
+            string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(crpB);
+
+            Assert.Equal(hashA, hashB);
+            Assert.NotEqual(RouteProofHasher.NoRouteProofSentinel, hashA);
+
+            // Same amounts under a different resource name set: stock-name
+            // baseline must hash differently.
+            Assert.NotEqual(
+                RouteProofHasher.ComputeRouteProofHashFromRecording(RecordingWithProof()),
+                hashA);
+        }
+
+        // catches (M2 D2 boundary pin): the transferability rule leaking into
+        // the hash. The hash pins the witnessed transfer, name-agnostically;
+        // whether a name currently has a PartResourceDefinition (mod installed
+        // or not) must not change the fingerprint, or uninstalling a resource
+        // mod would flip every affected route to SourceChanged on load.
+        [Fact]
+        public void Hash_IndependentOfResourceDefinitionLookup()
+        {
+            Recording rec = RecordingWithCrpProof();
+
+            ResourceTransferability.DefinitionLookupOverrideForTesting = _ => true;
+            string hashAllDefined = RouteProofHasher.ComputeRouteProofHashFromRecording(rec);
+
+            ResourceTransferability.DefinitionLookupOverrideForTesting = _ => false;
+            string hashNoneDefined = RouteProofHasher.ComputeRouteProofHashFromRecording(rec);
+
+            Assert.Equal(hashAllDefined, hashNoneDefined);
+        }
+
+        // RecordingWithProof with the resource names swapped to the shared
+        // CRP fixture set (amounts/pids unchanged), including the deliberately
+        // UNDEFINED name: capture and hashing are name-agnostic, so even an
+        // uninstalled mod's resource stays part of the fingerprint.
+        private static Recording RecordingWithCrpProof()
+        {
+            Recording rec = RecordingWithProof();
+            RouteConnectionWindow window = rec.RouteConnectionWindows[0];
+            window.DockTransportResources = new Dictionary<string, ResourceAmount>
+            {
+                { CrpFixtures.Karbonite, new ResourceAmount { amount = 1000.0, maxAmount = 1000.0 } }
+            };
+            window.UndockTransportResources = new Dictionary<string, ResourceAmount>
+            {
+                { CrpFixtures.Karbonite, new ResourceAmount { amount = 250.0, maxAmount = 1000.0 } }
+            };
+            window.DockEndpointResources = new Dictionary<string, ResourceAmount>
+            {
+                { CrpFixtures.MetallicOre, new ResourceAmount { amount = 500.0, maxAmount = 500.0 } }
+            };
+            window.UndockEndpointResources = new Dictionary<string, ResourceAmount>
+            {
+                { CrpFixtures.MetallicOre, new ResourceAmount { amount = 1250.0, maxAmount = 1500.0 } },
+                { CrpFixtures.UninstalledModResource, new ResourceAmount { amount = 12.25, maxAmount = 50.0 } }
+            };
+            rec.RouteOriginProof.StartTransportResources = new Dictionary<string, ResourceAmount>
+            {
+                { CrpFixtures.Supplies, new ResourceAmount { amount = 200.0, maxAmount = 200.0 } }
+            };
+            return rec;
         }
 
         // catches: the origin endpoint descriptor fields (M1 / D5) leaking into

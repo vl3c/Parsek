@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Parsek.Logistics;
+using Parsek.Tests.Generators;
 using Xunit;
 
 namespace Parsek.Tests
@@ -21,10 +22,15 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            // The M2 cases install a definition-lookup seam; start and end
+            // every test with the production default (headless null library
+            // treats all names as defined, so legacy fixtures are unaffected).
+            ResourceTransferability.ResetForTesting();
         }
 
         public void Dispose()
         {
+            ResourceTransferability.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -643,6 +649,245 @@ namespace Parsek.Tests
                 l.Contains("[Route]") &&
                 l.Contains("mixed pickup/delivery") &&
                 l.Contains("inventory=ore-container"));
+        }
+
+        // ---------------------------------------------------------------
+        // M2 transferability rule (plan D1/D2): CRP-style mod resources,
+        // undefined names, zero-cost defined resources
+        // ---------------------------------------------------------------
+        // Any defined resource is routable; an UNDEFINED name (uninstalled
+        // mod) is excluded from the ADMISSION-direction delivery manifest and
+        // logged, but stays visible to the REJECTION-direction pickup gate so
+        // a mod uninstall can never flip a rejection into Eligible.
+
+        // catches: a defined mod resource failing to deliver (the M2 point:
+        // the pipeline must be name-agnostic for every defined resource).
+        [Fact]
+        public void BuildResourceDeliveryManifest_CrpNames_Deliver()
+        {
+            ResourceTransferability.DefinitionLookupOverrideForTesting =
+                CrpFixtures.DefinedLookup;
+            RouteConnectionWindow window = BuildNamedResourceDeliveryWindow(
+                CrpFixtures.Karbonite, CrpFixtures.Supplies, CrpFixtures.Uraninite);
+
+            Dictionary<string, double> manifest =
+                RouteAnalysisEngine.BuildResourceDeliveryManifest(
+                    window, "crp-run", RouteAnalysisLogMode.Diagnostic);
+
+            Assert.NotNull(manifest);
+            Assert.Equal(3, manifest.Count);
+            Assert.Equal(50.0, manifest[CrpFixtures.Karbonite]);
+            Assert.Equal(50.0, manifest[CrpFixtures.Supplies]);
+            Assert.Equal(50.0, manifest[CrpFixtures.Uraninite]);
+        }
+
+        // catches: an undefined name flowing into the delivery manifest (and
+        // from there into CostManifest / the funds charge) instead of being
+        // excluded and logged with the recording id.
+        [Fact]
+        public void BuildResourceDeliveryManifest_UndefinedResource_ExcludedAndLogged()
+        {
+            ResourceTransferability.DefinitionLookupOverrideForTesting =
+                CrpFixtures.DefinedLookup;
+            RouteConnectionWindow window = BuildNamedResourceDeliveryWindow(
+                CrpFixtures.Karbonite, CrpFixtures.UninstalledModResource);
+
+            Dictionary<string, double> manifest =
+                RouteAnalysisEngine.BuildResourceDeliveryManifest(
+                    window, "modless-run", RouteAnalysisLogMode.Diagnostic);
+
+            Assert.NotNull(manifest);
+            Assert.Equal(50.0, manifest[CrpFixtures.Karbonite]);
+            Assert.False(manifest.ContainsKey(CrpFixtures.UninstalledModResource),
+                "undefined resource must be excluded from the admission-direction manifest");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains($"Resource excluded: name={CrpFixtures.UninstalledModResource}") &&
+                l.Contains("reason=undefined") &&
+                l.Contains("recording=modless-run"));
+        }
+
+        // catches: a zero-cost defined resource (transferability never
+        // consults cost) being dropped from the manifest.
+        [Fact]
+        public void BuildResourceDeliveryManifest_ZeroCostDefinedResource_StillDelivers()
+        {
+            ResourceTransferability.DefinitionLookupOverrideForTesting =
+                CrpFixtures.DefinedLookup;
+            RouteConnectionWindow window =
+                BuildNamedResourceDeliveryWindow(CrpFixtures.MetallicOre);
+
+            Dictionary<string, double> manifest =
+                RouteAnalysisEngine.BuildResourceDeliveryManifest(
+                    window, "zero-cost-run", RouteAnalysisLogMode.Diagnostic);
+
+            Assert.NotNull(manifest);
+            Assert.Equal(50.0, manifest[CrpFixtures.MetallicOre]);
+        }
+
+        // catches (D2 direction pin, review finding 8): the undefined-name
+        // skip leaking into the REJECTION-direction pickup gate. An
+        // undefined-name pickup must STILL be detected - excluding it would
+        // let a resource-mod uninstall flip a recorded MixedPickupDelivery
+        // rejection into Eligible (fail-open).
+        [Fact]
+        public void HasResourcePickup_UndefinedResourcePickup_StillDetected()
+        {
+            ResourceTransferability.DefinitionLookupOverrideForTesting =
+                CrpFixtures.DefinedLookup;
+            // Undefined resource flows endpoint -> transport: endpoint loses
+            // 10, transport gains 10 across the window.
+            var window = new RouteConnectionWindow
+            {
+                WindowId = "undefined-pickup",
+                DockUT = 10.0,
+                UndockUT = 20.0,
+                DockEndpointResources = new Dictionary<string, ResourceAmount>
+                {
+                    [CrpFixtures.UninstalledModResource] =
+                        new ResourceAmount { amount = 10.0, maxAmount = 50.0 }
+                },
+                UndockEndpointResources = new Dictionary<string, ResourceAmount>
+                {
+                    [CrpFixtures.UninstalledModResource] =
+                        new ResourceAmount { amount = 0.0, maxAmount = 50.0 }
+                },
+                DockTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    [CrpFixtures.UninstalledModResource] =
+                        new ResourceAmount { amount = 0.0, maxAmount = 50.0 }
+                },
+                UndockTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    [CrpFixtures.UninstalledModResource] =
+                        new ResourceAmount { amount = 10.0, maxAmount = 50.0 }
+                }
+            };
+
+            bool pickup = RouteAnalysisEngine.HasResourcePickup(window, out string reason);
+
+            Assert.True(pickup,
+                "undefined-name pickup must stay visible to the rejection-direction gate");
+            Assert.Contains(CrpFixtures.UninstalledModResource, reason);
+        }
+
+        // catches: the D2 degrade contract - a delivery whose ONLY resource
+        // is undefined must reject as NoDeliveryManifest (no phantom route),
+        // not analyze Eligible or throw.
+        [Fact]
+        public void AnalyzeRecording_UndefinedOnlyDelivery_RejectsNoDelivery()
+        {
+            ResourceTransferability.DefinitionLookupOverrideForTesting =
+                CrpFixtures.DefinedLookup;
+            Recording rec = new Recording
+            {
+                RecordingId = "undefined-only",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    BuildNamedResourceDeliveryWindow(CrpFixtures.UninstalledModResource)
+                }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.False(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.NoDeliveryManifest, result.Status);
+        }
+
+        // catches: a CRP-resource run failing end to end through AnalyzeRecording
+        // (the engine-level twin of the direct manifest test).
+        [Fact]
+        public void AnalyzeRecording_CrpDelivery_Eligible()
+        {
+            ResourceTransferability.DefinitionLookupOverrideForTesting =
+                CrpFixtures.DefinedLookup;
+            Recording rec = new Recording
+            {
+                RecordingId = "crp-delivery",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    BuildNamedResourceDeliveryWindow(
+                        CrpFixtures.Karbonite, CrpFixtures.MetallicOre)
+                }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.True(result.IsEligible,
+                $"CRP delivery must analyze Eligible, got {result.Status}");
+            Assert.Equal(50.0, result.ResourceDeliveryManifest[CrpFixtures.Karbonite]);
+            Assert.Equal(50.0, result.ResourceDeliveryManifest[CrpFixtures.MetallicOre]);
+        }
+
+        // catches: the undefined-name skip spamming Info from the ~1/second
+        // candidate sweep (Quiet mode must route through the shared
+        // rate-limited Verbose key, M2 logging plan row 1).
+        [Fact]
+        public void AnalyzeRecording_UndefinedResource_QuietMode_SweepLogIsRateLimitedVerbose()
+        {
+            ResourceTransferability.DefinitionLookupOverrideForTesting =
+                CrpFixtures.DefinedLookup;
+            ParsekLog.VerboseOverrideForTesting = true;
+            Recording rec = new Recording
+            {
+                RecordingId = "quiet-sweep",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    BuildNamedResourceDeliveryWindow(
+                        CrpFixtures.Karbonite, CrpFixtures.UninstalledModResource)
+                }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(
+                rec, RouteAnalysisLogMode.Quiet);
+
+            Assert.True(result.IsEligible);
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE]") &&
+                l.Contains($"Resource excluded: name={CrpFixtures.UninstalledModResource}") &&
+                l.Contains("recording=quiet-sweep"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[INFO]") && l.Contains("Resource excluded"));
+        }
+
+        // Clean delivery window for the given resource names: each flows
+        // transport (80 -> 30) to endpoint (0 -> 50), so delivered =
+        // min(endpointGain, transportLoss) = 50 per resource. No inventory.
+        private static RouteConnectionWindow BuildNamedResourceDeliveryWindow(
+            params string[] resourceNames)
+        {
+            var dockTransport = new Dictionary<string, ResourceAmount>();
+            var undockTransport = new Dictionary<string, ResourceAmount>();
+            var dockEndpoint = new Dictionary<string, ResourceAmount>();
+            var undockEndpoint = new Dictionary<string, ResourceAmount>();
+            foreach (string name in resourceNames)
+            {
+                dockTransport[name] = new ResourceAmount { amount = 80.0, maxAmount = 100.0 };
+                undockTransport[name] = new ResourceAmount { amount = 30.0, maxAmount = 100.0 };
+                dockEndpoint[name] = new ResourceAmount { amount = 0.0, maxAmount = 200.0 };
+                undockEndpoint[name] = new ResourceAmount { amount = 50.0, maxAmount = 200.0 };
+            }
+
+            return new RouteConnectionWindow
+            {
+                WindowId = "named-resource-window",
+                DockUT = 100.0,
+                UndockUT = 160.0,
+                TransferTargetVesselPid = 9001,
+                TransferKind = RouteConnectionKind.DockingPort,
+                DockTransportResources = dockTransport,
+                UndockTransportResources = undockTransport,
+                DockEndpointResources = dockEndpoint,
+                UndockEndpointResources = undockEndpoint,
+                EndpointAtDock = Endpoint(),
+                TransferEndpointSituation = 4
+            };
         }
 
         private static RouteConnectionWindow BuildDeliveryWindow(string id = "window")

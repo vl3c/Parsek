@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Parsek.Tests.Generators;
 using Xunit;
 
 namespace Parsek.Tests
@@ -172,6 +173,82 @@ namespace Parsek.Tests
             Assert.Equal(0.0, loaded.RouteOriginProof.StartDockedOriginAltitude);
             Assert.False(loaded.RouteOriginProof.StartDockedOriginIsSurface);
             Assert.Equal(-1, loaded.RouteOriginProof.StartDockedOriginSituation);
+        }
+
+        [Fact]
+        public void RouteProof_CrpResourceNames_RoundTrip()
+        {
+            // FAILS IF: the proof codec carries any stock-name assumption, or
+            // an UNDEFINED name is dropped/altered on the round trip. Capture
+            // is permissive (M2 D2): recordings are immutable witnesses, so a
+            // resource name with no current PartResourceDefinition must
+            // serialize and read back verbatim - the exclusion happens at
+            // analysis, never in storage.
+            var rec = new Recording
+            {
+                RecordingId = "route-proof-crp",
+                RouteOriginProof = new RouteOriginProof
+                {
+                    StartDockedOriginVesselPid = 7007,
+                    StartTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        [CrpFixtures.Karbonite] =
+                            new ResourceAmount { amount = 320.5, maxAmount = 400.0 }
+                    }
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "crp-window",
+                        DockUT = 100.0,
+                        UndockUT = 180.0,
+                        TransferTargetVesselPid = 9001,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        DockTransportResources = new Dictionary<string, ResourceAmount>
+                        {
+                            [CrpFixtures.Karbonite] =
+                                new ResourceAmount { amount = 320.5, maxAmount = 400.0 },
+                            [CrpFixtures.UninstalledModResource] =
+                                new ResourceAmount { amount = 12.25, maxAmount = 50.0 }
+                        },
+                        UndockTransportResources = new Dictionary<string, ResourceAmount>
+                        {
+                            [CrpFixtures.Karbonite] =
+                                new ResourceAmount { amount = 20.5, maxAmount = 400.0 },
+                            [CrpFixtures.UninstalledModResource] =
+                                new ResourceAmount { amount = 12.25, maxAmount = 50.0 }
+                        },
+                        DockEndpointResources = new Dictionary<string, ResourceAmount>
+                        {
+                            [CrpFixtures.MetallicOre] =
+                                new ResourceAmount { amount = 0.0, maxAmount = 1000.0 }
+                        },
+                        UndockEndpointResources = new Dictionary<string, ResourceAmount>
+                        {
+                            [CrpFixtures.MetallicOre] =
+                                new ResourceAmount { amount = 300.0, maxAmount = 1000.0 }
+                        }
+                    }
+                }
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
+
+            var loaded = new Recording { RecordingId = "route-proof-crp" };
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
+
+            Assert.Equal(320.5,
+                loaded.RouteOriginProof.StartTransportResources[CrpFixtures.Karbonite].amount);
+            RouteConnectionWindow window = loaded.RouteConnectionWindows[0];
+            Assert.Equal(320.5, window.DockTransportResources[CrpFixtures.Karbonite].amount);
+            Assert.Equal(20.5, window.UndockTransportResources[CrpFixtures.Karbonite].amount);
+            Assert.Equal(12.25,
+                window.DockTransportResources[CrpFixtures.UninstalledModResource].amount);
+            Assert.Equal(12.25,
+                window.UndockTransportResources[CrpFixtures.UninstalledModResource].amount);
+            Assert.Equal(300.0, window.UndockEndpointResources[CrpFixtures.MetallicOre].amount);
         }
 
         [Fact]

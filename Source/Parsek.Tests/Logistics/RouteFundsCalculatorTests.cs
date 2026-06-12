@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Parsek.Logistics;
+using Parsek.Tests.Generators;
 using Xunit;
 
 namespace Parsek.Tests.Logistics
@@ -149,6 +150,67 @@ namespace Parsek.Tests.Logistics
 
             // Part cost 200, resource cost 0 (unknown), total = 200.
             Assert.Equal(200.0, cost, 3);
+        }
+
+        // ---------------------------------------------------------------
+        // M2 resource generality (plan D11): CRP-style mod resources priced
+        // at their own unit cost through the injected lookup
+        // ---------------------------------------------------------------
+
+        // catches: a modded resource's unit cost not flowing into the
+        // per-dispatch funds charge (e.g. a stock-name assumption in the walk).
+        [Fact]
+        public void ComputeDispatchFundsCost_ModdedUnitCost_Charged()
+        {
+            ConfigNode vessel = MakeVessel(
+                MakePart("karboniteTank",
+                    (CrpFixtures.Karbonite, 500.0),
+                    (CrpFixtures.Uraninite, 10.0)));
+            var partCosts = new Dictionary<string, float> { { "karboniteTank", 1000f } };
+
+            double cost = RouteFundsCalculator.ComputeDispatchFundsCost(
+                vessel,
+                name => partCosts.TryGetValue(name, out float c) ? c : 0f,
+                CrpFixtures.UnitCostLookup);
+
+            // 1000 (part) + 500 * 0.04 + 10 * 8 = 1100
+            Assert.Equal(1100.0, cost, 3);
+        }
+
+        // catches: a zero-cost DEFINED resource (routes normally per the
+        // transferability rule) contributing a spurious charge.
+        [Fact]
+        public void ComputeDispatchFundsCost_ZeroCostResource_AddsNothing()
+        {
+            ConfigNode vessel = MakeVessel(
+                MakePart("oreHold", (CrpFixtures.MetallicOre, 2500.0)));
+            var partCosts = new Dictionary<string, float> { { "oreHold", 300f } };
+
+            double cost = RouteFundsCalculator.ComputeDispatchFundsCost(
+                vessel,
+                name => partCosts.TryGetValue(name, out float c) ? c : 0f,
+                CrpFixtures.UnitCostLookup);
+
+            // Part cost only: 2500 units at unit cost 0 add nothing.
+            Assert.Equal(300.0, cost, 3);
+        }
+
+        // catches: an UNDEFINED resource name (uninstalled mod) charging
+        // funds - the production lookup returns 0 for undefined names, so the
+        // fixture lookup mirrors that and the charge must stay part-only.
+        [Fact]
+        public void ComputeDispatchFundsCost_UndefinedResource_CostZero()
+        {
+            ConfigNode vessel = MakeVessel(
+                MakePart("mysteryTank", (CrpFixtures.UninstalledModResource, 750.0)));
+            var partCosts = new Dictionary<string, float> { { "mysteryTank", 120f } };
+
+            double cost = RouteFundsCalculator.ComputeDispatchFundsCost(
+                vessel,
+                name => partCosts.TryGetValue(name, out float c) ? c : 0f,
+                CrpFixtures.UnitCostLookup);
+
+            Assert.Equal(120.0, cost, 3);
         }
     }
 }
