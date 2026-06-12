@@ -21,8 +21,12 @@ namespace Parsek.Patches
     ///
     /// This patch intercepts RefreshCrewLists (called before UI list creation)
     /// and walks the VesselCrewManifest to replace any reserved crew with their
-    /// stand-ins. If no stand-in exists for a reserved kerbal, the seat is left
-    /// empty.
+    /// stand-ins. If no stand-in exists for a reserved kerbal, or the stand-in
+    /// is not Available (already Assigned aboard a live vessel from a previous
+    /// launch, or Dead), the seat is left empty — placing an Assigned stand-in
+    /// would seat the same kerbal on two vessels at once. A Missing stand-in
+    /// is rescued to Available first (the shared Missing-rescue convention)
+    /// and then placed.
     /// </summary>
     [HarmonyPatch]
     internal static class CrewAutoAssignPatch
@@ -77,6 +81,49 @@ namespace Parsek.Patches
 
             standInName = null;
             return SlotAction.Clear;
+        }
+
+        /// <summary>
+        /// How a Swap-decided slot actually resolves once the stand-in's roster
+        /// state is known. Pure companion to <see cref="DecideSlotAction"/>:
+        /// that method decides WHETHER a registered stand-in exists; this one
+        /// decides whether that stand-in can actually take the seat.
+        /// </summary>
+        internal enum StandInPlacement
+        {
+            /// <summary>Stand-in is Available and not already in the manifest — place them.</summary>
+            Place,
+            /// <summary>Stand-in name not found in the roster — clear the seat.</summary>
+            ClearNotInRoster,
+            /// <summary>Stand-in is not Available (Assigned aboard a live vessel, Dead, or Missing) — clear the seat.</summary>
+            ClearNotAvailable,
+            /// <summary>Stand-in already occupies a seat in this manifest — clear the seat.</summary>
+            ClearAlreadyInManifest
+        }
+
+        /// <summary>
+        /// Pure decision: given the stand-in's roster presence/status and whether
+        /// they already sit in the current manifest, decide whether the swap can
+        /// place them. An Assigned stand-in is aboard a live vessel; writing them
+        /// into a new launch manifest seats the same kerbal on two vessels at
+        /// once when the manifest commits (the Barton-Kerman duplication bug).
+        /// Ordering: roster presence, then roster status, then manifest
+        /// occupancy. Missing maps to ClearNotAvailable here; the swap body
+        /// rescues Missing stand-ins to Available BEFORE calling this, so a
+        /// Missing verdict only fires for callers that skipped the rescue.
+        /// </summary>
+        internal static StandInPlacement DecideStandInPlacement(
+            bool standInInRoster,
+            ProtoCrewMember.RosterStatus standInStatus,
+            bool standInAlreadyInManifest)
+        {
+            if (!standInInRoster)
+                return StandInPlacement.ClearNotInRoster;
+            if (!CrewReservationManager.IsStandInPlaceable(standInStatus))
+                return StandInPlacement.ClearNotAvailable;
+            if (standInAlreadyInManifest)
+                return StandInPlacement.ClearAlreadyInManifest;
+            return StandInPlacement.Place;
         }
 
         static MethodBase TargetMethod()
@@ -155,7 +202,29 @@ namespace Parsek.Patches
                         case SlotAction.Swap:
                         {
                             ProtoCrewMember standIn = roster[standInName];
-                            if (standIn != null && !crewManifest.Contains(standIn))
+
+                            // Missing-rescue convention (mirrors ReserveCrewIn /
+                            // PlaceOrphanedReplacements /
+                            // RescueReservedMissingCrewInSnapshot): a Missing
+                            // stand-in is alive but orphaned from a removed
+                            // vessel — rescue to Available so the swap can
+                            // place them, matching the pre-guard behavior where
+                            // the blind manifest write let KSP restore them.
+                            if (standIn != null && standIn.rosterStatus
+                                == ProtoCrewMember.RosterStatus.Missing)
+                            {
+                                using (SuppressionGuard.Crew())
+                                    standIn.rosterStatus = ProtoCrewMember.RosterStatus.Available;
+                                ParsekLog.Info(Tag,
+                                    $"Rescued Missing stand-in '{standInName}' → Available " +
+                                    "for crew manifest swap");
+                            }
+
+                            var placement = DecideStandInPlacement(
+                                standIn != null,
+                                standIn?.rosterStatus ?? ProtoCrewMember.RosterStatus.Missing,
+                                standIn != null && crewManifest.Contains(standIn));
+                            if (placement == StandInPlacement.Place)
                             {
                                 pcm.RemoveCrewFromSeat(i);
                                 pcm.AddCrewToSeat(standIn, i);
@@ -167,14 +236,18 @@ namespace Parsek.Patches
                             }
                             else
                             {
-                                // Stand-in already assigned elsewhere or not in roster
+                                // Stand-in not in roster, already in this manifest,
+                                // or not Available — an Assigned stand-in is aboard
+                                // a live vessel and seating them again would
+                                // duplicate the kerbal across vessels.
                                 pcm.RemoveCrewFromSeat(i);
                                 clearCount++;
 
                                 ParsekLog.Verbose(Tag,
                                     $"Cleared reserved '{crewName}' from part " +
                                     $"'{pcm.PartInfo?.title ?? "unknown"}' seat {i} " +
-                                    $"(stand-in '{standInName}' unavailable)");
+                                    $"(stand-in '{standInName}' unavailable: {placement}, " +
+                                    $"status={(standIn != null ? standIn.rosterStatus.ToString() : "not-in-roster")})");
                             }
                             break;
                         }

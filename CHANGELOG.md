@@ -25,6 +25,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- A stand-in kerbal can no longer end up aboard two vessels at once: launching a new mission (or spawning a recorded vessel) while the stand-in was already flying used to duplicate them onto the new vessel. The seat is now left empty when the stand-in is busy, so another crew member can be picked.
 - The re-aim end-to-end in-game test no longer fails intermittently: it now runs a pinned Kerbin-to-Duna geometry instead of seeding from the live clock, and a new manual diagnostic sweep maps which launch windows resolve a re-aimed transfer.
 - The re-aim test suite now also pins the exact launch-window geometry reconstructed from the one observed in-game failure (a 2026-06-11 run on a pre-fix build), verifying the recorded departure still resolves and that any window that cannot be re-aimed falls back cleanly to a faithful replay.
 - The orbit-arc-sampler in-game test no longer fails spuriously depending on where the active vessel sits (for example on the launchpad): it measured sampled orbit points from the scene's moving world origin instead of the planet centre.
