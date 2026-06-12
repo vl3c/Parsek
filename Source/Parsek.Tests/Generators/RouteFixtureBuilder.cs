@@ -17,6 +17,7 @@ namespace Parsek.Tests.Generators
         private string name = "Test Route";
         private RouteStatus status = RouteStatus.Active;
         private bool isKscOrigin;
+        private bool isHarvestOrigin;
         private double kscDispatchFundsCost;
         private double transitDuration;
         private double dispatchInterval;
@@ -75,6 +76,16 @@ namespace Parsek.Tests.Generators
         {
             isKscOrigin = kscOrigin;
             kscDispatchFundsCost = cost;
+            return this;
+        }
+
+        /// <summary>
+        /// M2 harvest origin (plan D7): no origin vessel, empty cost
+        /// manifests, sparse <c>isHarvestOrigin</c> codec key.
+        /// </summary>
+        public RouteFixtureBuilder WithHarvestOrigin(bool harvestOrigin = true)
+        {
+            isHarvestOrigin = harvestOrigin;
             return this;
         }
 
@@ -231,6 +242,7 @@ namespace Parsek.Tests.Generators
                 Name = name,
                 Status = status,
                 IsKscOrigin = isKscOrigin,
+                IsHarvestOrigin = isHarvestOrigin,
                 KscDispatchFundsCost = kscDispatchFundsCost,
                 TransitDuration = transitDuration,
                 DispatchInterval = dispatchInterval,

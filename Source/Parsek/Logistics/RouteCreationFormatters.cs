@@ -21,7 +21,13 @@ namespace Parsek.Logistics
             /// <summary>Launched from a Kerbin launch site (funds origin).</summary>
             Ksc = 1,
             /// <summary>Started docked to an origin depot (start-route proof present).</summary>
-            Depot = 2
+            Depot = 2,
+            /// <summary>
+            /// Cargo harvested en route (M2, plan D7): undocked start whose
+            /// delivery is fully covered by witnessed harvest windows
+            /// (<see cref="RouteAnalysisResult.IsHarvestOrigin"/>).
+            /// </summary>
+            Harvest = 3
         }
 
         /// <summary>
@@ -67,6 +73,17 @@ namespace Parsek.Logistics
         {
             var id = new RouteOriginIdentity { Kind = RouteOriginKind.Unknown };
             if (analysis == null) return id;
+
+            // M2 harvest origin (plan D7): classified directly off the
+            // analysis verdict - the origin recording proves neither a KSC
+            // launch nor a depot proof by definition, so it cannot answer.
+            // The body comes from the first harvest window's open location.
+            if (analysis.IsHarvestOrigin)
+            {
+                id.Kind = RouteOriginKind.Harvest;
+                id.BodyName = analysis.FirstHarvestWindow?.BodyName;
+                return id;
+            }
 
             // Resolve the ORIGIN recording: the tree ROOT (the launch / the
             // recording that started the flight, which carries the launch site and
@@ -275,6 +292,11 @@ namespace Parsek.Logistics
                         + origin.DepotVesselPid.ToString(IC)
                         + ")";
                     break;
+                case RouteOriginKind.Harvest:
+                    // M2 (plan D7): no origin vessel - the cargo was mined /
+                    // converted during the run itself.
+                    originLabel = "harvested en route";
+                    break;
                 default:
                     originLabel = "unknown";
                     break;
@@ -359,6 +381,8 @@ namespace Parsek.Logistics
                     origin = "KSC";
                 else if (!string.IsNullOrEmpty(id.BodyName))
                     origin = id.BodyName;
+                else if (id.Kind == RouteOriginKind.Harvest)
+                    origin = "harvested"; // bodyless harvest window (defensive)
 
                 if (analysis.ConnectionWindow != null
                     && analysis.ConnectionWindow.EndpointAtDock.HasValue

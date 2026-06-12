@@ -257,6 +257,58 @@ namespace Parsek.Tests.Logistics
             };
         }
 
+        // catches (M2, plan D7): a harvest-origin analysis not classifying as
+        // RouteOriginKind.Harvest across the shared origin-identity resolver
+        // (all three display surfaces read it), or the harvest body not
+        // coming from the first window's open location.
+        [Fact]
+        public void ResolveOriginIdentity_HarvestOrigin_ClassifiesHarvest()
+        {
+            RouteAnalysisResult analysis = EligibleAnalysis();
+            // Undocked start: no launch site, no proof on the source.
+            analysis.SourceRecording.StartBodyName = null;
+            analysis.SourceRecording.LaunchSiteName = null;
+            analysis.IsHarvestOrigin = true;
+            analysis.FirstHarvestWindow = new RouteHarvestWindow
+            {
+                WindowId = "hw",
+                StartUT = 10.0,
+                BodyName = "Minmus"
+            };
+
+            RouteCreationFormatters.RouteOriginIdentity id =
+                RouteCreationFormatters.ResolveOriginIdentity(analysis, null);
+
+            Assert.Equal(RouteCreationFormatters.RouteOriginKind.Harvest, id.Kind);
+            Assert.Equal("Minmus", id.BodyName);
+
+            // The candidate-table cell shares the classification.
+            Assert.Equal("harvested en route",
+                LogisticsWindowUI.FormatCandidateOrigin(analysis, null));
+        }
+
+        // catches (M2, plan D7): the dialog summary's Origin line for a
+        // harvest-origin route not reading "harvested en route".
+        [Fact]
+        public void BuildSummaryBlock_HarvestOrigin_LabelsHarvestedEnRoute()
+        {
+            RouteAnalysisResult analysis = EligibleAnalysis();
+            analysis.SourceRecording.StartBodyName = null;
+            analysis.SourceRecording.LaunchSiteName = null;
+            analysis.IsHarvestOrigin = true;
+            analysis.FirstHarvestWindow = new RouteHarvestWindow
+            {
+                WindowId = "hw",
+                StartUT = 10.0,
+                BodyName = "Minmus"
+            };
+
+            string block = RouteCreationFormatters.BuildSummaryBlock(
+                analysis, Game.Modes.SANDBOX);
+
+            Assert.Contains("Origin: harvested en route", block);
+        }
+
         private static RouteRunCostCalculator.RouteRunCost ApplicableRunCost(
             double launch, double recovered, int recoveries)
         {

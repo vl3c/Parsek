@@ -308,6 +308,7 @@ namespace Parsek.Logistics
 
             RouteEndpoint origin;
             string originLabel;
+            bool isHarvestOrigin = false;
             if (isKscOrigin)
             {
                 origin = new RouteEndpoint
@@ -363,13 +364,35 @@ namespace Parsek.Logistics
                 originLabel =
                     "non-ksc:pid=" + origin.VesselPersistentId.ToString(CultureInfo.InvariantCulture);
             }
+            else if (analysis.IsHarvestOrigin && analysis.FirstHarvestWindow != null)
+            {
+                // M2 harvest origin (plan D7): the run started undocked but
+                // every delivered resource was covered by witnessed harvest,
+                // so the "origin" is the environment. Build a DISPLAY-ONLY
+                // endpoint from the FIRST harvest window's open location
+                // (pid 0 - there is no origin vessel to resolve; dispatch
+                // eligibility skips origin resolution and the cargo gate).
+                RouteHarvestWindow firstWindow = analysis.FirstHarvestWindow;
+                origin = new RouteEndpoint
+                {
+                    VesselPersistentId = 0,
+                    BodyName = firstWindow.BodyName ?? string.Empty,
+                    Latitude = firstWindow.Latitude,
+                    Longitude = firstWindow.Longitude,
+                    Altitude = firstWindow.Altitude,
+                    IsSurface = IsSurfaceSituation(firstWindow.SituationAtOpen)
+                };
+                isHarvestOrigin = true;
+                originLabel = "harvest";
+            }
             else
             {
                 ParsekLog.Info(Tag,
                     $"BuildRoute rejected: endpoint-missing (origin unresolvable) source={source.RecordingId ?? "<none>"} " +
                     $"originRec={originRec.RecordingId ?? "<none>"} " +
                     $"launchSite={(string.IsNullOrEmpty(originRec.LaunchSiteName) ? "<none>" : originRec.LaunchSiteName)} " +
-                    $"startBody={originRec.StartBodyName ?? "<none>"} originProof={(originRec.RouteOriginProof != null ? "yes" : "no")}");
+                    $"startBody={originRec.StartBodyName ?? "<none>"} originProof={(originRec.RouteOriginProof != null ? "yes" : "no")} " +
+                    $"harvestOrigin={(analysis.IsHarvestOrigin ? "yes-but-no-window" : "no")}");
                 return new RouteBuildOutcome { RejectReason = "endpoint-missing" };
             }
 
@@ -396,13 +419,44 @@ namespace Parsek.Logistics
 
             // CostManifest / InventoryCostManifest mirror what each cycle
             // delivers — items debit what they deliver in v0. Future cost
-            // shaping can diverge from delivery.
-            var costManifest = analysis.ResourceDeliveryManifest != null
-                ? new Dictionary<string, double>(analysis.ResourceDeliveryManifest)
-                : new Dictionary<string, double>();
-            var inventoryCostManifest = analysis.InventoryDeliveryManifest != null
-                ? new List<InventoryPayloadItem>(analysis.InventoryDeliveryManifest)
-                : new List<InventoryPayloadItem>();
+            // shaping can diverge from delivery. M2 adjustments (delivery
+            // manifests stay untouched in both):
+            // - HARVEST origin (plan D7): the cost manifests are EMPTY -
+            //   harvested cargo debits nothing (19.2.2 item 3); the empty
+            //   manifest makes the dispatch-debit row pair a structural no-op.
+            // - DOCKED origin with harvest data (plan D8): each delivered
+            //   resource's debit basis is reduced by its witnessed harvested
+            //   amount, max(0, delivery - harvested); entries that reduce to
+            //   zero are REMOVED, not kept (finding 16), so the depot is not
+            //   debited for ore the environment provided. The harvested term
+            //   uses the SAME scoped D5/D6 rules as the gain check - the
+            //   BLOCKER-1 scope fix is what keeps this reduction from zeroing
+            //   a depot debit it should not.
+            Dictionary<string, double> costManifest;
+            List<InventoryPayloadItem> inventoryCostManifest;
+            if (isHarvestOrigin)
+            {
+                costManifest = new Dictionary<string, double>();
+                inventoryCostManifest = new List<InventoryPayloadItem>();
+            }
+            else
+            {
+                costManifest = analysis.ResourceDeliveryManifest != null
+                    ? new Dictionary<string, double>(analysis.ResourceDeliveryManifest)
+                    : new Dictionary<string, double>();
+                inventoryCostManifest = analysis.InventoryDeliveryManifest != null
+                    ? new List<InventoryPayloadItem>(analysis.InventoryDeliveryManifest)
+                    : new List<InventoryPayloadItem>();
+
+                // D8: non-KSC docked origin only - KSC CostManifest semantics
+                // stay unchanged (the funds basis is OQ1's job, Phase 6).
+                if (!isKscOrigin && analysis.HarvestedManifest != null
+                    && analysis.HarvestedManifest.Count > 0)
+                {
+                    ReduceCostManifestByHarvested(
+                        costManifest, analysis.HarvestedManifest, ic);
+                }
+            }
 
             // Loop-clock dock binding: recordedDockUT (computed above as the route
             // segment END) is the UT the loop clock crosses each cycle to fire
@@ -439,6 +493,7 @@ namespace Parsek.Logistics
                 SourceRefs = sourceRefs,
                 Origin = origin,
                 IsKscOrigin = isKscOrigin,
+                IsHarvestOrigin = isHarvestOrigin,
                 Stops = new List<RouteStop> { stop },
                 TransitDuration = transitDuration,
                 DispatchInterval = dispatchInterval,
@@ -492,6 +547,66 @@ namespace Parsek.Logistics
                 $"mode={mode}");
 
             return new RouteBuildOutcome { Route = route };
+        }
+
+        /// <summary>
+        /// D8 debit-basis reduction (M2): per delivered resource,
+        /// <c>cost[r] = max(0, delivery[r] - harvested[r])</c>; entries that
+        /// reduce to zero are REMOVED from the manifest, not kept as zero
+        /// (review finding 16: matches the sparse-codec conventions and keeps
+        /// the OriginHasCargo short-resource naming clean). Mutates
+        /// <paramref name="costManifest"/> in place and logs the reduction.
+        /// </summary>
+        internal static void ReduceCostManifestByHarvested(
+            Dictionary<string, double> costManifest,
+            Dictionary<string, double> harvestedManifest,
+            CultureInfo ic)
+        {
+            if (costManifest == null || costManifest.Count == 0
+                || harvestedManifest == null || harvestedManifest.Count == 0)
+                return;
+
+            var reductions = new List<string>();
+            var names = new List<string>(costManifest.Keys);
+            for (int i = 0; i < names.Count; i++)
+            {
+                string name = names[i];
+                if (!harvestedManifest.TryGetValue(name, out double harvested)
+                    || harvested <= 0.0)
+                    continue;
+
+                double before = costManifest[name];
+                double after = before - harvested;
+                if (after > 0.0)
+                {
+                    costManifest[name] = after;
+                    reductions.Add(
+                        $"{name}:{before.ToString("R", ic)}->{after.ToString("R", ic)}");
+                }
+                else
+                {
+                    costManifest.Remove(name);
+                    reductions.Add($"{name}:{before.ToString("R", ic)}->removed");
+                }
+            }
+
+            if (reductions.Count > 0)
+            {
+                ParsekLog.Info(Tag,
+                    "BuildRoute: costManifestReducedByHarvest=[" +
+                    string.Join(",", reductions) + "]");
+            }
+        }
+
+        /// <summary>
+        /// True for the surface situations (<c>Vessel.Situations</c> LANDED=1,
+        /// SPLASHED=2, PRELAUNCH=4). Used to classify the harvest-origin
+        /// display endpoint from <c>RouteHarvestWindow.SituationAtOpen</c>;
+        /// -1 (unknown) and the flight/orbit situations read as non-surface.
+        /// </summary>
+        internal static bool IsSurfaceSituation(int situation)
+        {
+            return situation > 0 && (situation & 0x7) != 0;
         }
 
         /// <summary>

@@ -67,6 +67,22 @@ namespace Parsek.Logistics
         /// <summary>True = Career charges KSC funds instead of physical origin cargo.</summary>
         public bool IsKscOrigin;
 
+        /// <summary>
+        /// True = the route's cargo was HARVESTED en route (M2, plan D7): the
+        /// run started undocked and every delivered resource was covered by
+        /// witnessed harvest windows, so there is no physical origin vessel
+        /// and nothing to debit (19.2.2 item 3 "Harvested - Debit: none").
+        /// <see cref="Origin"/> is a display-only endpoint built from the
+        /// first harvest window's open location (pid 0); dispatch eligibility
+        /// skips origin endpoint resolution and the origin-cargo gate, and
+        /// the per-cycle <see cref="CostManifest"/> is EMPTY (the
+        /// dispatch/debit ledger row pair still emits for row-shape
+        /// stability, as a structural no-op). Mutually exclusive with
+        /// <see cref="IsKscOrigin"/>. Sparse in the codec (omitted when
+        /// false).
+        /// </summary>
+        public bool IsHarvestOrigin;
+
         // --- Resource transfer ---
 
         /// <summary>Per-resource quantities used or delivered across the whole route.</summary>

@@ -69,6 +69,11 @@ namespace Parsek.Logistics
 
             // --- Endpoints + flags ---
             node.AddValue("isKscOrigin", route.IsKscOrigin.ToString());
+            // Sparse harvest-origin flag (M2, plan D7): false (the default,
+            // every pre-M2 route) writes nothing - mirrors the lastHoldKind /
+            // dispatchPriority sparse convention.
+            if (route.IsHarvestOrigin)
+                node.AddValue("isHarvestOrigin", route.IsHarvestOrigin.ToString());
             node.AddValue("kscDispatchFundsCost", route.KscDispatchFundsCost.ToString("R", ic));
 
             // --- Scheduling scalars ---
@@ -228,6 +233,8 @@ namespace Parsek.Logistics
             route.Name = node.GetValue("name");
 
             TryParseBool(node.GetValue("isKscOrigin"), out route.IsKscOrigin);
+            // Sparse harvest-origin flag (M2): absent reads back false.
+            TryParseBool(node.GetValue("isHarvestOrigin"), out route.IsHarvestOrigin);
             TryParseDouble(node.GetValue("kscDispatchFundsCost"), inv, ic, out route.KscDispatchFundsCost);
 
             TryParseDouble(node.GetValue("transitDuration"), inv, ic, out route.TransitDuration);

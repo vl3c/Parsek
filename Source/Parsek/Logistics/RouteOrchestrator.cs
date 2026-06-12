@@ -1318,7 +1318,18 @@ namespace Parsek.Logistics
             OriginDebitOutcome originDebit = default(OriginDebitOutcome);
             if (!route.IsKscOrigin)
             {
-                if (applyPhysicalOriginDebit)
+                if (route.IsHarvestOrigin)
+                {
+                    // M2 harvest origin (plan D7): no physical origin vessel
+                    // exists and the CostManifest is empty by construction, so
+                    // there is NOTHING to debit - but the row pair below still
+                    // emits for row-shape stability (the empty manifest makes
+                    // it a structural no-op: zero funds, no physical write).
+                    ParsekLog.Verbose(Tag,
+                        $"DispatchDebit: route {ShortIdForLog(route)} cycle={cycleId} " +
+                        "harvest origin: physical origin debit skipped (harvested cargo debits nothing)");
+                }
+                else if (applyPhysicalOriginDebit)
                 {
                     var originDebitApplier = OriginDebitApplierForTesting;
                     originDebit = originDebitApplier != null

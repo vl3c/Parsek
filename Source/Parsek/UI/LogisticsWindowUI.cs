@@ -2805,6 +2805,8 @@ namespace Parsek
         private static string FormatOrigin(Route route)
         {
             if (route.IsKscOrigin) return "KSC (funds)";
+            // M2 harvest origin (plan D7): no origin vessel, nothing debited.
+            if (route.IsHarvestOrigin) return "harvested en route";
             if (route.Origin.VesselPersistentId != 0u || !string.IsNullOrEmpty(route.Origin.BodyName))
                 return FormatEndpointShort(route.Origin);
             return "-";
@@ -2825,6 +2827,8 @@ namespace Parsek
                     return "KSC (funds)";
                 case RouteCreationFormatters.RouteOriginKind.Depot:
                     return "depot pid=" + id.DepotVesselPid.ToString(CultureInfo.InvariantCulture);
+                case RouteCreationFormatters.RouteOriginKind.Harvest:
+                    return "harvested en route";
                 default:
                     return "-";
             }
