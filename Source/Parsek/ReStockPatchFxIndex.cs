@@ -4,7 +4,9 @@ namespace Parsek
 {
     /// <summary>
     /// Index of the EFFECTS definitions ReStock authors for stock parts, parsed from
-    /// ReStock's ModuleManager patch FILES on disk (<c>GameData/ReStock/Patches/**/*.cfg</c>).
+    /// ReStock's ModuleManager patch FILES on disk (every
+    /// <c>GameData/ReStock/Patches*/**/*.cfg</c> root: Patches, PatchesMH,
+    /// PatchesLegacy).
     /// MM strips patch nodes from GameDatabase post-patch, so the only way to recover what
     /// the install looked like BEFORE a Waterfall config pack deleted the EFFECTS is to
     /// re-read the patch files; they are plain ConfigNode-parseable cfg text.
@@ -49,7 +51,14 @@ namespace Parsek
             public int DuplicateEffectsConflicts;
         }
 
-        private const string PatchesRelativePath = "GameData/ReStock/Patches";
+        // ReStock ships THREE patch roots: Patches (stock parts), PatchesMH (Making
+        // History engines), PatchesLegacy (v1 deprecated engines). All author fresh
+        // EFFECTS; scanning only Patches/ made MH and legacy engines invisible to the
+        // recovery under Waterfall packs (flames lost / stock look restored, first
+        // ReStock+Waterfall playtest 2026-06-13). ReStockPlus/Patches authors no
+        // EFFECTS (verified) and stays excluded.
+        private const string ReStockRootRelativePath = "GameData/ReStock";
+        private const string PatchRootPrefix = "Patches";
 
         private static Dictionary<string, ReStockPartFxEntry> indexByPartName;
 
@@ -133,11 +142,22 @@ namespace Parsek
 
             try
             {
-                string root = System.IO.Path.Combine(
-                    KSPUtil.ApplicationRootPath ?? string.Empty, PatchesRelativePath);
-                if (!System.IO.Directory.Exists(root))
+                string restockRoot = System.IO.Path.Combine(
+                    KSPUtil.ApplicationRootPath ?? string.Empty, ReStockRootRelativePath);
+                if (!System.IO.Directory.Exists(restockRoot))
                     return null;
-                return System.IO.Directory.GetFiles(root, "*.cfg", System.IO.SearchOption.AllDirectories);
+
+                var files = new List<string>();
+                string[] dirs = System.IO.Directory.GetDirectories(restockRoot);
+                for (int i = 0; i < dirs.Length; i++)
+                {
+                    string dirName = System.IO.Path.GetFileName(dirs[i]);
+                    if (!dirName.StartsWith(PatchRootPrefix, System.StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    files.AddRange(System.IO.Directory.GetFiles(
+                        dirs[i], "*.cfg", System.IO.SearchOption.AllDirectories));
+                }
+                return files.Count > 0 ? files.ToArray() : null;
             }
             catch (System.Exception ex)
             {
