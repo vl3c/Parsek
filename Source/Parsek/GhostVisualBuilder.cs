@@ -2720,9 +2720,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Waterfall fallback for RCS: rebuilds thruster FX definitions from the pristine
-        /// on-disk part config (see PristinePartFxResolver). The pristine running group is
-        /// resolved by RCS-module ordinal.
+        /// Waterfall fallback for RCS: rebuilds thruster FX definitions from the
+        /// ReStock-authored EFFECTS when ReStock authored one for this part (the
+        /// install-faithful look; see ReStockPatchFxIndex), else from the pristine
+        /// on-disk part config (see PristinePartFxResolver). The running group is
+        /// resolved by RCS-module ordinal in both stages.
         /// </summary>
         private static void TryApplyPristineRcsFxFallback(
             Part prefab, int moduleIndex, string partName,
@@ -2731,6 +2733,36 @@ namespace Parsek
         {
             string runtimeName = prefab.partInfo?.name ?? partName;
             var pristine = PristinePartFxResolver.GetForPart(runtimeName, prefab.partInfo?.configFileFullName);
+
+            if (ReStockPatchFxIndex.TryGetForPart(runtimeName, out var restock) &&
+                restock.EffectsNode != null)
+            {
+                string restockGroupName = ReStockPatchFxIndex.ResolveRcsRunningGroupName(
+                    restock, pristine, moduleIndex);
+                ConfigNode restockGroup = restock.EffectsNode.GetNode(restockGroupName);
+                if (restockGroup != null)
+                {
+                    int beforeRestock = fxDefinitions.Count;
+                    ScanRcsEffectGroupModelNodes(restockGroup, fxDefinitions,
+                        ref emissionCurve, ref speedCurve);
+                    if (fxDefinitions.Count > beforeRestock)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"rcs-restock-fallback-{partName}-{moduleIndex}",
+                            $"RCS restock recovery: '{partName}' midx={moduleIndex} added " +
+                            $"{fxDefinitions.Count - beforeRestock} FX definitions " +
+                            $"(group='{restockGroupName}') from '{restock.SourceFile}'",
+                            5.0);
+                        return;
+                    }
+                }
+
+                ParsekLog.VerboseRateLimited("GhostVisual", $"rcs-restock-miss-{partName}-{moduleIndex}",
+                    $"RCS restock recovery: '{partName}' midx={moduleIndex} group " +
+                    $"'{restockGroupName}' {(restockGroup == null ? "not found" : "yielded nothing")}; " +
+                    "falling through to pristine recovery",
+                    5.0);
+            }
+
             if (pristine == null || !pristine.Found || pristine.EffectsNode == null)
             {
                 ParsekLog.VerboseRateLimited("GhostVisual", $"rcs-pristine-miss-{partName}-{moduleIndex}",

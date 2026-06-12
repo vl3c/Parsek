@@ -788,6 +788,13 @@ namespace Parsek
             }
             if (engineModules.Count == 0) return null;
 
+            // The hardcoded per-part FX tunings below were written for the STOCK look.
+            // When ReStock authored this part's EFFECTS, the scanned entries already ARE
+            // the install's correct look and the tunings must stand down (applies with
+            // and without Waterfall; empty index on non-ReStock installs = no change).
+            bool restockAuthoredEffects =
+                ReStockPatchFxIndex.HasAuthoredEffectsFor(prefab.partInfo?.name ?? partName);
+
             var result = new List<EngineGhostInfo>();
 
             for (int e = 0; e < engineModules.Count; e++)
@@ -799,9 +806,21 @@ namespace Parsek
                     moduleIndex = moduleIndex
                 };
 
+                bool TuningStandsDown(string blockName)
+                {
+                    if (!restockAuthoredEffects)
+                        return false;
+                    LogHotPathVerbose($"restock-standdown-{partName}-{moduleIndex}-{blockName}",
+                        $"'{partName}' midx={moduleIndex}: stock {blockName} tuning stands down " +
+                        "(ReStock authored this part's EFFECTS)");
+                    return true;
+                }
+
                 // LES particle FX (LES_Thruster) produces excessive particles at playback distance.
                 // Skip particle FX — the nozzle glow from FXModuleAnimateThrottle provides sufficient visual.
-                if (string.Equals(partName, "LaunchEscapeSystem", System.StringComparison.Ordinal))
+                // ReStock's LES has lightweight model-based EFFECTS instead, so the skip stands down.
+                if (string.Equals(partName, "LaunchEscapeSystem", System.StringComparison.Ordinal) &&
+                    !TuningStandsDown("LES particle-FX skip"))
                 {
                     ParsekLog.Verbose("GhostVisual",
                         $"    Skipping engine particle FX for '{partName}' pid={persistentId}: LES uses nozzle glow only");
@@ -1021,12 +1040,13 @@ namespace Parsek
                 // Ant/Spider configs only define MODEL_MULTI_PARTICLE Monoprop_small in running FX.
                 // Add a Twitch-style prefab flame fallback so they render a visible plume like Twitch.
                 bool isAntOrSpider =
-                    string.Equals(partName, "microEngine.v2", System.StringComparison.OrdinalIgnoreCase) ||
+                    (string.Equals(partName, "microEngine.v2", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "microEngine_v2", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "microEngine", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "radialEngineMini.v2", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "radialEngineMini_v2", System.StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(partName, "radialEngineMini", System.StringComparison.OrdinalIgnoreCase);
+                    string.Equals(partName, "radialEngineMini", System.StringComparison.OrdinalIgnoreCase)) &&
+                    !TuningStandsDown("Ant/Spider plume supplement");
                 if (isAntOrSpider)
                 {
                     AddPrefabFallbackIfMissing(
@@ -1047,7 +1067,8 @@ namespace Parsek
                 // Kickback: force Thumper-style FX so smoke/flame match solidBooster1-1 visuals.
                 // This avoids the stock veryLarge/large smoke prefab orientation mismatch.
                 bool isKickback =
-                    string.Equals(partName, "MassiveBooster", System.StringComparison.OrdinalIgnoreCase);
+                    string.Equals(partName, "MassiveBooster", System.StringComparison.OrdinalIgnoreCase) &&
+                    !TuningStandsDown("Kickback forced Thumper plume");
                 if (isKickback)
                 {
                     int removedKickbackModelFx = modelFxEntries.Count;
@@ -1125,7 +1146,8 @@ namespace Parsek
 
                 // Puff (omsEngine) often renders only Monoprop_big model FX; add a compact blue flame core.
                 bool isPuff =
-                    string.Equals(partName, "omsEngine", System.StringComparison.OrdinalIgnoreCase);
+                    string.Equals(partName, "omsEngine", System.StringComparison.OrdinalIgnoreCase) &&
+                    !TuningStandsDown("Puff blue-flame supplement");
                 if (isPuff)
                 {
                     AddPrefabFallbackIfMissing(
@@ -1144,7 +1166,8 @@ namespace Parsek
                 // Rhino: force a compact Mainsail-like plume profile (small yellow flame + light smoke),
                 // aligned to the actual nozzle thrust axis.
                 bool isRhino =
-                    string.Equals(partName, "Size3AdvancedEngine", System.StringComparison.OrdinalIgnoreCase);
+                    string.Equals(partName, "Size3AdvancedEngine", System.StringComparison.OrdinalIgnoreCase) &&
+                    !TuningStandsDown("Rhino forced compact plume");
                 if (isRhino)
                 {
                     int removedRhinoModelFx = modelFxEntries.Count;
@@ -1190,11 +1213,12 @@ namespace Parsek
                 // Rhino/Mammoth/Twin-Boar can show smoke without a visible core flame in ghost playback.
                 // Add a white flame prefab fallback used by stock medium/large plume setups.
                 bool isHeavyLargeEngine =
-                    string.Equals(partName, "Size3AdvancedEngine", System.StringComparison.OrdinalIgnoreCase) ||
+                    (string.Equals(partName, "Size3AdvancedEngine", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "Size3EngineCluster", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "Size2LFB.v2", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "Size2LFB_v2", System.StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(partName, "Size2LFB", System.StringComparison.OrdinalIgnoreCase);
+                    string.Equals(partName, "Size2LFB", System.StringComparison.OrdinalIgnoreCase)) &&
+                    !TuningStandsDown("heavy-engine white-flame supplement");
                 if (isHeavyLargeEngine)
                 {
                     string preferredTransform = "thrustTransform";
@@ -1220,7 +1244,8 @@ namespace Parsek
                 // Vector (SSME) can look underpowered with only blue_small + model flame.
                 // Add a Skipper-style blue flame core on the same transform as its stock blue_small prefab.
                 bool isVector =
-                    string.Equals(partName, "SSME", System.StringComparison.OrdinalIgnoreCase);
+                    string.Equals(partName, "SSME", System.StringComparison.OrdinalIgnoreCase) &&
+                    !TuningStandsDown("Vector blue-flame supplement");
                 if (isVector)
                 {
                     bool hasSkipperStyleFlame = false;
@@ -1276,7 +1301,7 @@ namespace Parsek
 
                 // RAPIER can resolve to dark/perpendicular smoke when aeroSpike smoke prefab falls back.
                 // Force a Vector-like visible plume: single large smoke + white flame core.
-                if (isRapierPart)
+                if (isRapierPart && !TuningStandsDown("RAPIER plume forcing"))
                 {
                     string rapierSmokeTransform = "smokePoint";
                     Vector3 rapierSmokeOffset = new Vector3(0f, 0f, 1f);
@@ -1512,11 +1537,97 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Counts the ModuleEngines-derived modules on a prefab (the live midx domain).
+        /// </summary>
+        private static int CountEngineModules(Part prefab)
+        {
+            int count = 0;
+            if (prefab == null || prefab.Modules == null)
+                return count;
+            for (int m = 0; m < prefab.Modules.Count; m++)
+            {
+                if (prefab.Modules[m] is ModuleEngines)
+                    count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// ReStock recovery: scans the EFFECTS node ReStock authored for this part (read
+        /// from ReStock's patch files on disk, see ReStockPatchFxIndex) into the entry
+        /// lists. Group filtering resolves per engine-module ordinal through the
+        /// patch-authored -> pristine -> all-groups chain; multi-module parts with no
+        /// per-ordinal source skip recovery (anti-bleed, mirroring the pristine
+        /// ordinal-miss rule). Returns true when any entries were added; the caller then
+        /// skips the stock pristine stages because the install's correct look is
+        /// ReStock's, not stock's.
+        /// </summary>
+        private static bool TryScanReStockEffectsEntries(
+            Part prefab, int moduleIndex, string partName,
+            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)> modelFxEntries,
+            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries,
+            ref FloatCurve emissionCurve, ref FloatCurve speedCurve)
+        {
+            string runtimeName = prefab.partInfo?.name ?? partName;
+            if (!ReStockPatchFxIndex.TryGetForPart(runtimeName, out var restock) ||
+                restock.EffectsNode == null)
+            {
+                return false;
+            }
+
+            var pristine = PristinePartFxResolver.GetForPart(runtimeName, prefab.partInfo?.configFileFullName);
+            if (!ReStockPatchFxIndex.TryResolveEngineGroupFilter(
+                restock, pristine, moduleIndex, CountEngineModules(prefab),
+                out HashSet<string> moduleGroups, out string filterSource))
+            {
+                LogHotPathVerbose($"restock-ordinal-miss-{partName}-{moduleIndex}",
+                    $"restock recovery: '{partName}' midx={moduleIndex} has no per-ordinal " +
+                    "effect-name source (patch or pristine) on a multi-engine-module part; " +
+                    "skipping ReStock EFFECTS recovery for this module");
+                return false;
+            }
+
+            ConfigNode[] allGroups = restock.EffectsNode.GetNodes();
+            string[] allGroupNames = new string[allGroups.Length];
+            for (int g = 0; g < allGroups.Length; g++)
+                allGroupNames[g] = allGroups[g].name ?? "?";
+
+            ConfigNode[] effectGroups;
+            string[] effectGroupNames;
+            if (moduleGroups != null && moduleGroups.Count > 0)
+            {
+                FilterEffectGroups(allGroups, allGroupNames, moduleGroups,
+                    out effectGroups, out effectGroupNames);
+            }
+            else
+            {
+                effectGroups = allGroups;
+                effectGroupNames = allGroupNames;
+            }
+
+            int modelBefore = modelFxEntries.Count;
+            int prefabBefore = prefabFxEntries.Count;
+            ScanEffectsModelFxEntries(effectGroups, effectGroupNames, modelFxEntries,
+                ref emissionCurve, ref speedCurve);
+            ScanEffectsPrefabParticleEntries(effectGroups, effectGroupNames, prefabFxEntries);
+
+            int added = (modelFxEntries.Count - modelBefore) + (prefabFxEntries.Count - prefabBefore);
+            LogHotPathVerbose($"restock-recovery-{partName}-{moduleIndex}",
+                $"restock recovery: '{partName}' midx={moduleIndex} restockScan={added} " +
+                $"(model={modelFxEntries.Count - modelBefore}, " +
+                $"prefab={prefabFxEntries.Count - prefabBefore}, groupFilter={filterSource}) " +
+                $"from '{restock.SourceFile}'" +
+                (added == 0 ? "; falling through to pristine stages" : string.Empty));
+            return added > 0;
+        }
+
+        /// <summary>
         /// SWE-remnant replacement: a config pack that deletes EFFECTS can still leave a
         /// stray particle behind (SWE keeps RAPIER's aerospike spool smoke), which used to
         /// block the empty-scan fallback and leave the ghost with remnants + hardcoded
-        /// supplements instead of the stock composition. When the gate is open and the
-        /// pristine EFFECTS yields particles for this module, prefer them wholesale.
+        /// supplements instead of the stock composition. When the gate is open and a
+        /// recovered EFFECTS (ReStock-authored first, else pristine) yields particles for
+        /// this module, prefer it wholesale.
         /// Returns true when the entries were replaced.
         /// </summary>
         private static bool TryReplaceSweRemnantsWithPristine(
@@ -1525,34 +1636,47 @@ namespace Parsek
             List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries,
             ref FloatCurve emissionCurve, ref FloatCurve speedCurve)
         {
-            string runtimeName = prefab.partInfo?.name ?? partName;
-            var pristine = PristinePartFxResolver.GetForPart(runtimeName, prefab.partInfo?.configFileFullName);
-            if (pristine == null || !pristine.Found || pristine.EffectsNode == null)
-                return false;
+            var replacementModel = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)>();
+            var replacementPrefab = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)>();
+            FloatCurve replacementEmission = null;
+            FloatCurve replacementSpeed = null;
+            string replacementSource;
 
-            var pristineModel = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)>();
-            var pristinePrefab = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)>();
-            FloatCurve pristineEmission = null;
-            FloatCurve pristineSpeed = null;
-            ScanPristineEffectsEntries(pristine, moduleIndex, partName,
-                pristineModel, pristinePrefab, ref pristineEmission, ref pristineSpeed);
+            // ReStock-authored EFFECTS first: when ReStock authored the look, the
+            // remnants must be replaced by IT, not by the stock pristine definitions.
+            if (TryScanReStockEffectsEntries(prefab, moduleIndex, partName,
+                replacementModel, replacementPrefab, ref replacementEmission, ref replacementSpeed))
+            {
+                replacementSource = "restock";
+            }
+            else
+            {
+                string runtimeName = prefab.partInfo?.name ?? partName;
+                var pristine = PristinePartFxResolver.GetForPart(runtimeName, prefab.partInfo?.configFileFullName);
+                if (pristine == null || !pristine.Found || pristine.EffectsNode == null)
+                    return false;
 
-            int pristineAdded = pristineModel.Count + pristinePrefab.Count;
-            if (pristineAdded == 0)
+                ScanPristineEffectsEntries(pristine, moduleIndex, partName,
+                    replacementModel, replacementPrefab, ref replacementEmission, ref replacementSpeed);
+                replacementSource = $"pristine '{pristine.SourcePath}'";
+            }
+
+            int replacementAdded = replacementModel.Count + replacementPrefab.Count;
+            if (replacementAdded == 0)
                 return false;
 
             int dropped = modelFxEntries.Count + prefabFxEntries.Count;
             modelFxEntries.Clear();
             prefabFxEntries.Clear();
-            modelFxEntries.AddRange(pristineModel);
-            prefabFxEntries.AddRange(pristinePrefab);
-            emissionCurve = pristineEmission;
-            speedCurve = pristineSpeed;
+            modelFxEntries.AddRange(replacementModel);
+            prefabFxEntries.AddRange(replacementPrefab);
+            emissionCurve = replacementEmission;
+            speedCurve = replacementSpeed;
 
             LogHotPathVerbose($"pristine-remnant-replace-{partName}-{moduleIndex}",
                 $"waterfall fallback: '{partName}' midx={moduleIndex} replaced {dropped} " +
-                $"post-MM remnant entries with {pristineAdded} pristine entries " +
-                $"from '{pristine.SourcePath}'");
+                $"post-MM remnant entries with {replacementAdded} entries " +
+                $"from {replacementSource}");
             return true;
         }
 
@@ -1568,6 +1692,15 @@ namespace Parsek
             List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries,
             ref FloatCurve emissionCurve, ref FloatCurve speedCurve)
         {
+            // ReStock recovery first: when ReStock authored this part's EFFECTS, the
+            // install-faithful look is ReStock's; the stock pristine definitions only
+            // serve as the fallback when the ReStock scan yields nothing.
+            if (TryScanReStockEffectsEntries(prefab, moduleIndex, partName,
+                modelFxEntries, prefabFxEntries, ref emissionCurve, ref speedCurve))
+            {
+                return true;
+            }
+
             string runtimeName = prefab.partInfo?.name ?? partName;
             var pristine = PristinePartFxResolver.GetForPart(runtimeName, prefab.partInfo?.configFileFullName);
             if (pristine == null || !pristine.Found)
