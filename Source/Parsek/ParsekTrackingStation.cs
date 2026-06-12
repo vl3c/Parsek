@@ -536,6 +536,11 @@ namespace Parsek
                     atmosCachedIndices[i] = -1;
                 int cached = atmosCachedIndices[i];
                 bool rodePolyline = false;
+                // M4b: derotate body-fixed marker sampling by the member's per-launch shift
+                // (0 for non-members / knob-less schedules).
+                double tsBodyFixedShift =
+                    GhostPlaybackLogic.ComputeUnitMemberBodyFixedShiftSeconds(
+                        i, currentUT, effUT, loopUnits);
                 bool resolved = TryResolveRecordingWorldPosition(
                     rec,
                     effUT,
@@ -543,7 +548,8 @@ namespace Parsek
                     out Vector3d worldPos,
                     out _,
                     out TrajectoryPoint sampledPoint,
-                    out string resolveReason);
+                    out string resolveReason,
+                    tsBodyFixedShift);
                 if (resolved)
                 {
                     atmosCachedIndices[i] = cached;
@@ -1539,7 +1545,8 @@ namespace Parsek
             out Vector3d worldPos,
             out CelestialBody body,
             out TrajectoryPoint sampledPoint,
-            out string reason)
+            out string reason,
+            double bodyFixedShiftSeconds = 0.0)
         {
             worldPos = default(Vector3d);
             body = null;
@@ -1586,9 +1593,12 @@ namespace Parsek
                 return false;
             }
 
+            // M4b phasing-knob body-fixed derotation (identity at shift 0): see the flight-map
+            // marker resolver.
             worldPos = body.GetWorldSurfacePosition(
                 pt.Value.latitude,
-                pt.Value.longitude,
+                TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(
+                    pt.Value.longitude, bodyFixedShiftSeconds, body),
                 pt.Value.altitude);
             return true;
         }

@@ -294,10 +294,19 @@ namespace Parsek
                     // inter-body mission) is >> span, so this floor only bites a pathological short-gap
                     // config (where it correctly merges to one-at-a-time single-instance playback).
                     double minSpacing = cadence;
+                    // M4b phasing-loiter knob (docs/dev/plans/mission-loiter-knob.md): builder-side
+                    // engagement rules 2 and 5 (a phasing run exists on the owner's own segments
+                    // before the rendezvous/SOI guard; the extraction UT0 coincides with the span
+                    // start). Rules 3/4 (anchor placement, shiftable partition) are checked inside
+                    // TryBuildRelaunchSchedule on the same effective constraint list the schedule
+                    // uses. A null input simply builds the schedule exactly as before (fail closed).
+                    PhasingKnobInput knobInput = BuildPhasingKnobInput(
+                        committed, memberIndices, ownerIndex, extraction, spanStartUT, spanEndUT,
+                        bodyInfo, mission.Name);
                     if (MissionPeriodicity.TryBuildRelaunchSchedule(
                             extraction.Constraints, extraction.Support, extraction.UT0, referenceUT,
                             bodyInfo, out MissionRelaunchSchedule sched, minSpacing,
-                            extraction.LaunchBodyName, transitedBodyRotationMode))
+                            extraction.LaunchBodyName, transitedBodyRotationMode, knobInput))
                     {
                         // minSpacing >= span guarantees sched.MinIntervalSeconds >= span; this gate is a
                         // defensive belt-and-suspenders that always passes for a built schedule.
@@ -882,6 +891,185 @@ namespace Parsek
                     indexById[rec.RecordingId] = i; // first wins on duplicate ids
             }
             return indexById;
+        }
+
+        /// <summary>
+        /// Builder-side half of the M4b phasing-knob engagement
+        /// (docs/dev/plans/mission-loiter-knob.md sections 3.2/5): detects the phasing run on the
+        /// mission's SELF-LINE segments - every member sharing the OWNER's launch identity
+        /// (pid + guid via <see cref="VesselLaunchIdentity.RecordingsShareLaunch"/>), so a CHAIN
+        /// mission whose parking orbit lives in a continuation segment still engages (the
+        /// 2026-06-11 playtest miss: the chain ROOT carries no OrbitSegments at all). Same-launch
+        /// chain segments are ONE vessel's sequential timeline, so flattening them is safe; the
+        /// per-member discipline of the re-aim branch guards against interleaving OTHER vessels'
+        /// segments, and the identity gate excludes exactly those (the dock-merged partner, debris,
+        /// probes - a partner's parked orbit is a loiter but never OUR phasing instrument).
+        /// Computes the rendezvous/SOI guard UT and packages the run + the static cuts for earlier
+        /// compressible runs. Returns null (knob disengaged, schedule built as today) when no
+        /// compressible self-line loiter lies in-span before the guard, when the extraction UT0
+        /// and span start do not coincide (rule 5 - the residual derivation assumes the schedule's
+        /// launch grid and the clock's phase origin share an origin), or when inputs are degenerate.
+        /// Rules 3/4 (anchor placement, shiftable partition) live in TryBuildRelaunchSchedule.
+        /// Pure apart from gated Verbose logging.
+        /// </summary>
+        internal static PhasingKnobInput BuildPhasingKnobInput(
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<int> memberIndices,
+            int ownerIndex,
+            ConstraintExtraction extraction,
+            double spanStartUT,
+            double spanEndUT,
+            IBodyInfo bodyInfo,
+            string missionName)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            if (bodyInfo == null || committed == null
+                || ownerIndex < 0 || ownerIndex >= committed.Count)
+                return null;
+
+            // Rule 5 (defensive origin coincidence). One second of slack: both values come from the
+            // same member-window scan today, so any real divergence is a builder routing bug.
+            if (double.IsNaN(extraction.UT0) || Math.Abs(extraction.UT0 - spanStartUT) > 1.0)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("Mission",
+                        $"phasing knob disengaged: mission='{missionName}' UT0=" +
+                        $"{extraction.UT0.ToString("F0", ic)} spanStart={spanStartUT.ToString("F0", ic)} " +
+                        "do not coincide (rule 5)");
+                return null;
+            }
+
+            Recording owner = committed[ownerIndex];
+            if (owner == null)
+                return null;
+
+            // Self-line segment gather: the owner plus every member of the SAME launch (chain
+            // continuation segments share the launch pid + guid; the partner / debris / probes do
+            // not). Sequential segments of one timeline sort cleanly into one list.
+            var segs = new List<OrbitSegment>();
+            int selfMembers = 0;
+            for (int mi = 0; mi < (memberIndices?.Count ?? 0); mi++)
+            {
+                int idx = memberIndices[mi];
+                if (idx < 0 || idx >= committed.Count)
+                    continue;
+                Recording rec = committed[idx];
+                if (rec == null)
+                    continue;
+                bool isSelf = idx == ownerIndex
+                    || VesselLaunchIdentity.RecordingsShareLaunch(owner, rec);
+                if (!isSelf)
+                    continue;
+                selfMembers++;
+                if (rec.OrbitSegments != null)
+                    segs.AddRange(rec.OrbitSegments);
+            }
+            if (segs.Count == 0)
+                return null; // no loiter source on the self line: quietly no knob (common case)
+
+            segs.Sort((a, b) => a.startUT.CompareTo(b.startUT));
+            List<ReaimLoiterCompressor.LoiterRun> runs =
+                ReaimLoiterCompressor.DetectRuns(segs, bodyInfo.GravParameter);
+            if (runs.Count == 0)
+                return null; // no closed-orbit loiter at all: quietly no knob
+
+            // Guard UT (rule 2 / the 4.3 cut-placement rule): never cut at or past the first
+            // vessel rendezvous, never across an SOI boundary.
+            double guardUT = spanEndUT;
+            var constraints = extraction.Constraints;
+            for (int i = 0; i < (constraints?.Count ?? 0); i++)
+            {
+                if (constraints[i].Kind != ConstraintKind.VesselOrbital)
+                    continue;
+                double rendezvousUT = extraction.UT0 + constraints[i].PhaseOffsetSeconds;
+                if (rendezvousUT < guardUT)
+                    guardUT = rendezvousUT;
+            }
+            string launchBody = extraction.LaunchBodyName;
+            if (!string.IsNullOrEmpty(launchBody))
+            {
+                for (int i = 0; i < segs.Count; i++)
+                {
+                    if (segs[i].isPredicted || string.IsNullOrEmpty(segs[i].bodyName))
+                        continue;
+                    if (segs[i].bodyName != launchBody)
+                    {
+                        if (segs[i].startUT < guardUT)
+                            guardUT = segs[i].startUT;
+                        break;
+                    }
+                }
+            }
+
+            // Phasing run = the LAST launch-body run ending before the guard (the parking orbit the
+            // player phase-matched with). Earlier compressible runs get static keepRevs=1 cuts.
+            // IN-SPAN REQUIREMENT (review finding): the owner's OrbitSegments are NOT clipped to
+            // the unit span, and a trimmed mission (interval exclusions) can start its render
+            // window mid-recording - a run (or part of one) BEFORE spanStartUT would produce cuts
+            // referencing out-of-span UTs, which the span clock's effSpan/Decompress composition
+            // cannot represent (the cut shortens effSpan but never maps back for in-span samples).
+            // A run not entirely inside [spanStartUT, guardUT] is therefore never the phasing run
+            // and never a static cut; if that excludes every candidate, the knob fails closed.
+            // (EndUT <= guardUT <= spanEndUT already bounds the upper edge; the start needs the
+            // explicit spanStartUT check.)
+            int phasingIdx = -1;
+            for (int i = 0; i < runs.Count; i++)
+            {
+                if (runs[i].StartUT < spanStartUT - 1e-6)
+                    continue;
+                if (runs[i].EndUT > guardUT + 1e-6)
+                    continue;
+                if (!string.IsNullOrEmpty(launchBody) && runs[i].BodyName != launchBody)
+                    continue;
+                phasingIdx = i;
+            }
+            if (phasingIdx < 0)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("Mission",
+                        $"phasing knob disengaged: mission='{missionName}' " +
+                        $"runs={runs.Count.ToString(ic)} none lie in-span before guardUT=" +
+                        $"{guardUT.ToString("F0", ic)} on body '{launchBody ?? "?"}' (rule 2; " +
+                        $"spanStart={spanStartUT.ToString("F0", ic)})");
+                return null;
+            }
+
+            var staticCuts = new List<GhostPlaybackLogic.LoopCut>();
+            for (int i = 0; i < phasingIdx; i++)
+            {
+                if (runs[i].StartUT < spanStartUT - 1e-6)
+                    continue;
+                if (runs[i].EndUT > guardUT + 1e-6)
+                    continue;
+                if (!string.IsNullOrEmpty(launchBody) && runs[i].BodyName != launchBody)
+                    continue;
+                if (runs[i].WholeRevs > 1)
+                {
+                    staticCuts.Add(new GhostPlaybackLogic.LoopCut
+                    {
+                        StartUT = runs[i].StartUT,
+                        LengthSeconds = (runs[i].WholeRevs - 1) * runs[i].PeriodSeconds,
+                    });
+                }
+            }
+
+            ReaimLoiterCompressor.LoiterRun phasing = runs[phasingIdx];
+            if (!SuppressLogging)
+                ParsekLog.Verbose("Mission",
+                    $"phasing knob candidate: mission='{missionName}' run=[" +
+                    $"{phasing.StartUT.ToString("F0", ic)},{phasing.EndUT.ToString("F0", ic)}] " +
+                    $"T={phasing.PeriodSeconds.ToString("F1", ic)}s R={phasing.WholeRevs.ToString(ic)} " +
+                    $"staticCuts={staticCuts.Count.ToString(ic)} guardUT={guardUT.ToString("F0", ic)} " +
+                    $"selfMembers={selfMembers.ToString(ic)} selfSegs={segs.Count.ToString(ic)}");
+            return new PhasingKnobInput
+            {
+                RunStartUT = phasing.StartUT,
+                RunEndUT = phasing.EndUT,
+                PeriodSeconds = phasing.PeriodSeconds,
+                RecordedRevs = phasing.WholeRevs,
+                StaticCuts = staticCuts,
+                SpanSeconds = spanEndUT - spanStartUT,
+            };
         }
     }
 }
