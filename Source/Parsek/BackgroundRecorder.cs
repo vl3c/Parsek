@@ -7887,6 +7887,7 @@ namespace Parsek
             int loadedMatches = 0;
             int recordingMatches = 0;
             int rejected = 0;
+            int deduped = 0;
             int appended = 0;
 
             foreach (Vessel v in involved)
@@ -7909,6 +7910,26 @@ namespace Parsek
                 if (!tree.Recordings.TryGetValue(recordingId, out treeRec))
                     continue;
                 recordingMatches++;
+
+                // Mirrors the foreground recorder's same-UT structural dedup:
+                // multiple structural events inside one Part.Undock() call fire
+                // at the same physics-clock UT and would each append an
+                // identical flagged point. Equal-UT appends pass the #419
+                // tolerance but break strictly-increasing consumers
+                // (Catmull-Rom section fit).
+                if (FlightRecorder.HasStructuralEventSnapshotAtTail(treeRec.Points, eventUT))
+                {
+                    ParsekLog.Verbose("Pipeline-Smoothing",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "BG structural event snapshot deduped: same-UT structural point already " +
+                            "committed (event={0} ut={1:R} vesselId={2} recId={3})",
+                            eventType ?? "unknown",
+                            eventUT,
+                            pid,
+                            recordingId ?? "<null>"));
+                    deduped++;
+                    continue;
+                }
 
                 Vector3 velocity = v.packed
                     ? (Vector3)v.obt_velocity
@@ -7971,13 +7992,13 @@ namespace Parsek
                         relativeApplied ? "true" : "false"));
             }
 
-            if (considered > appended)
+            if (considered > appended + deduped)
             {
                 ParsekLog.Verbose("Pipeline-Smoothing",
                     string.Format(CultureInfo.InvariantCulture,
                         "BG structural event snapshot skipped: event={0} ut={1:R} considered={2} " +
                         "appended={3} backgroundMatches={4} loadedMatches={5} recordingMatches={6} " +
-                        "rejected={7}",
+                        "rejected={7} deduped={8}",
                         eventType ?? "unknown",
                         eventUT,
                         considered,
@@ -7985,7 +8006,8 @@ namespace Parsek
                         backgroundMatches,
                         loadedMatches,
                         recordingMatches,
-                        rejected));
+                        rejected,
+                        deduped));
             }
 
             return appended;

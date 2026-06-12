@@ -9626,6 +9626,47 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure guard: true when the tail of <paramref name="points"/> is already a
+        /// <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>-flagged point at
+        /// <paramref name="eventUT"/> (within <paramref name="toleranceSeconds"/>), so a
+        /// second structural snapshot for the same event UT would add a redundant
+        /// duplicate-UT sample. Multiple structural events fire inside one
+        /// <c>Part.Undock()</c> call at the same physics-clock UT (one <c>onPartUndock</c>
+        /// plus one <c>onPartJointBreak</c> per docking port), and each handler appends
+        /// its own snapshot of the SAME live vessel state — identical UT, position, and
+        /// flags. The equal-UT append is tolerated by the #419 monotonicity guards
+        /// ("boundary seeds"), but strictly-increasing consumers
+        /// (<c>TrajectoryMath.CatmullRomFit</c>) fail on the duplicates, leaving the
+        /// section unsmoothed. Tail-only check is sufficient: the duplicate events fire
+        /// within one physics tick, so no regular sample can interleave between them.
+        /// Tolerance default matches <see cref="TryFindStructuralEventSnapshotPointForUT"/>.
+        /// </summary>
+        internal static bool HasStructuralEventSnapshotAtTail(
+            IReadOnlyList<TrajectoryPoint> points,
+            double eventUT,
+            double toleranceSeconds = 1e-6)
+        {
+            if (points == null
+                || points.Count == 0
+                || double.IsNaN(eventUT)
+                || double.IsInfinity(eventUT)
+                || double.IsNaN(toleranceSeconds)
+                || toleranceSeconds < 0.0)
+            {
+                return false;
+            }
+
+            TrajectoryPoint tail = points[points.Count - 1];
+            if (((TrajectoryPointFlags)tail.flags & TrajectoryPointFlags.StructuralEventSnapshot)
+                != TrajectoryPointFlags.StructuralEventSnapshot)
+            {
+                return false;
+            }
+
+            return Math.Abs(tail.ut - eventUT) <= toleranceSeconds;
+        }
+
+        /// <summary>
         /// Phase 9: appends one <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>-flagged
         /// point per involved vessel that matches this recorder's
         /// <see cref="RecordingVesselId"/>. Callers pass one event UT captured from the live
@@ -9677,6 +9718,26 @@ namespace Parsek
                 vesselsConsidered++;
                 if (v == null) continue;
                 if (v.persistentId != RecordingVesselId) continue;
+
+                // Several structural events can fire for the same vessel at the
+                // same physics-clock UT inside one Part.Undock() call (Undock +
+                // one JointBreak per docking port). Each would commit an
+                // identical flagged point; the duplicates pass the equal-UT
+                // monotonicity tolerance but break strictly-increasing
+                // consumers (Catmull-Rom section fit). One flagged point per
+                // event UT carries all the boundary information.
+                if (HasStructuralEventSnapshotAtTail(Recording, eventUT))
+                {
+                    matchedVessels++;
+                    ParsekLog.Verbose("Pipeline-Smoothing",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "structural event snapshot deduped: same-UT structural point already " +
+                            "committed (eventType={0} ut={1} vesselId={2})",
+                            eventType ?? "<unknown>",
+                            eventUT.ToString("F3", CultureInfo.InvariantCulture),
+                            v.persistentId));
+                    continue;
+                }
 
                 // Same physics state read as a regular tick sample. KSP's
                 // event-fire timing means the live state IS the event-UT state —
