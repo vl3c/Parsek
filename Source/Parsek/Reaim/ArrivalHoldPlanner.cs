@@ -23,6 +23,7 @@ namespace Parsek.Reaim
             public double AlignPeriodSeconds;   // T_rot (landing) or T_station (station); NaN when no hold
             public bool Applied;
             public bool IsStationHold;          // true when AlignPeriodSeconds is the station period
+            public uint AlignAnchorPid;         // the station's anchor vessel pid (logging); 0 for rotation
             public string AmberReason;          // D8 fail-closed surface (UI arrival amber); null when none
 
             internal static ArrivalHoldResult None =>
@@ -33,6 +34,7 @@ namespace Parsek.Reaim
                     AlignPeriodSeconds = double.NaN,
                     Applied = false,
                     IsStationHold = false,
+                    AlignAnchorPid = 0,
                     AmberReason = null,
                 };
 
@@ -140,6 +142,7 @@ namespace Parsek.Reaim
                 AlignPeriodSeconds = tAlign,
                 Applied = true,
                 IsStationHold = isStationHold,
+                AlignAnchorPid = isStationHold ? destSet.StationAnchorPid : 0,
                 AmberReason = null,
             };
         }

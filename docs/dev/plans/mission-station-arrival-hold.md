@@ -418,7 +418,12 @@ Validation is the maintainer's cross-parent playtest save (station in Mun or Dun
   reviewer sanity-check.
 - **Existing-save behavior flip:** previously-rejected cross-parent station missions
   start aligning (schedule or hold) after this change. Intended (the milestone's
-  purpose); fail-closed shapes keep today's behavior; first play untouched.
+  purpose); fail-closed shapes keep today's behavior; first play untouched. ONE
+  alignment-LOSING direction exists (post-implementation review finding 1): a
+  landing+station destination previously got the ROTATION hold (the old classifier
+  rejected the station, so the extractor saw landing-only); under D8 it now gets NO hold
+  plus the amber. Mandated by D8's letter ("amber + faithful") and test-pinned; the
+  post-M4c SolveArrivalWindow follow-up is the path to aligning both.
 - **T_station freshness:** WITHOUT 3.6 the build signature contains no station-orbit
   input (review finding 1: `BuildSignature` folds in only celestial geometry), so a
   boosted station would keep a stale hold/schedule until an unrelated input moved; 3.6

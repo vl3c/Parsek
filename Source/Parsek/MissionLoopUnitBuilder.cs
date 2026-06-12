@@ -546,6 +546,9 @@ namespace Parsek
                                 ParsekLog.Info("Reaim",
                                     $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
                                     $"kind={(arrivalHold.IsStationHold ? "station" : "rotation")} " +
+                                    (arrivalHold.IsStationHold
+                                        ? $"pid={arrivalHold.AlignAnchorPid.ToString(aic)} "
+                                        : "") +
                                     $"Talign={arrivalHold.AlignPeriodSeconds.ToString("R", aic)}s " +
                                     $"hold={arrivalHold.HoldSeconds.ToString("R", aic)}s at " +
                                     $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
@@ -891,8 +894,11 @@ namespace Parsek
         /// <summary>
         /// Appends the looping tree's rendezvous-anchor LIVE orbit identities to the signature
         /// (M4a/M4c, design doc section 8): the distinct vessel anchors of the tree's Relative
-        /// TrackSections, each resolved (anchorVesselId directly; anchorRecordingId through the
-        /// committed recording's pid + launch guid) and probed once via
+        /// TrackSections - each resolved (anchorVesselId directly; anchorRecordingId through the
+        /// committed recording's pid + launch guid) PLUS the OWNING recording's identity for any
+        /// member carrying a vessel-anchored section (the dock merge's mutual anchoring means a
+        /// partner-side section's rendezvous target is the OWNER, per the classifier's
+        /// self-partition rule) - probed once each via
         /// <see cref="IBodyInfo.TryGetVesselOrbit"/>. A boosted station (period change), a
         /// vanished/recovered one (found flip), or a re-orbited one (body change) moves the
         /// digest and rebuilds the cached unit. The period is quantized to whole seconds: a real
@@ -912,8 +918,8 @@ namespace Parsek
             sb.Append("S:");
             if (loopTree == null || loopTree.Recordings == null)
                 return;
-            // pid -> guid (null until a recording-resolved anchor supplies one; a guid-less
-            // direct-pid anchor keeps null, matching the classifier's pid-only fallback).
+            // pid -> guid (null until some identity supplies one; a guid-less direct-pid anchor
+            // keeps null, matching the classifier's pid-only fallback).
             var anchorGuids = new Dictionary<uint, string>();
             foreach (var rec in loopTree.Recordings.Values)
             {
@@ -921,6 +927,7 @@ namespace Parsek
                     continue;
                 if (!string.IsNullOrEmpty(rec.ParentAnchorRecordingId))
                     continue; // debris/decoupled children anchor their own parent, never a rendezvous
+                bool ownsVesselAnchoredSection = false;
                 for (int i = 0; i < rec.TrackSections.Count; i++)
                 {
                     TrackSection sec = rec.TrackSections[i];
@@ -928,22 +935,35 @@ namespace Parsek
                         continue;
                     if (sec.anchorVesselId != 0)
                     {
-                        if (!anchorGuids.ContainsKey(sec.anchorVesselId))
-                            anchorGuids[sec.anchorVesselId] = null;
+                        ownsVesselAnchoredSection = true;
+                        AddAnchorIdentity(anchorGuids, sec.anchorVesselId, null);
                     }
                     else if (!string.IsNullOrEmpty(sec.anchorRecordingId))
                     {
+                        ownsVesselAnchoredSection = true;
                         Recording anchorRec = MissionPeriodicity.FindCommittedRecordingById(
                             committed, sec.anchorRecordingId);
                         if (anchorRec != null && anchorRec.VesselPersistentId != 0)
-                            anchorGuids[anchorRec.VesselPersistentId] = anchorRec.RecordedVesselGuid;
+                            AddAnchorIdentity(anchorGuids,
+                                anchorRec.VesselPersistentId, anchorRec.RecordedVesselGuid);
                     }
                 }
+                // The dock merge's MUTUAL anchoring: a PARTNER member's sections anchor the
+                // mission's own craft, and the classifier reattributes them to the OWNER (the
+                // partner = the station). The owning recording's identity is therefore part of
+                // the anchor universe too - without it, a tree whose only Relative sections are
+                // partner-side would feed the station's live orbit into the constraint while the
+                // signature never probed the station.
+                if (ownsVesselAnchoredSection && rec.VesselPersistentId != 0)
+                    AddAnchorIdentity(anchorGuids, rec.VesselPersistentId, rec.RecordedVesselGuid);
             }
             if (anchorGuids.Count == 0)
                 return;
             var pids = new List<uint>(anchorGuids.Keys);
             pids.Sort();
+            // (AddAnchorIdentity keeps the merge deterministic regardless of the recordings
+            // dictionary's enumeration order, so the digest never flips between builds or across
+            // save/load for identical inputs.)
             for (int i = 0; i < pids.Count; i++)
             {
                 uint pid = pids[i];
@@ -955,6 +975,24 @@ namespace Parsek
                   .Append(found ? (body ?? "-") : "-").Append(';');
             }
             sb.Append('@');
+        }
+
+        /// <summary>Order-independent identity merge for the station-anchor digest: a non-null
+        /// guid always beats null, and between two DIFFERENT non-null guids for one pid (the
+        /// craft-baked pid-collision shape - rejected by the classifier as distinct launches,
+        /// but the digest must still be stable) the ordinal-smaller guid wins, so the digest is
+        /// identical regardless of dictionary enumeration order.</summary>
+        private static void AddAnchorIdentity(Dictionary<uint, string> anchorGuids, uint pid, string guid)
+        {
+            if (!anchorGuids.TryGetValue(pid, out string existing))
+            {
+                anchorGuids[pid] = guid;
+                return;
+            }
+            if (guid == null || existing == guid)
+                return;
+            if (existing == null || string.CompareOrdinal(guid, existing) < 0)
+                anchorGuids[pid] = guid;
         }
 
         // M4c arrival-amber transition log: last reason per TREE ID (mission names are

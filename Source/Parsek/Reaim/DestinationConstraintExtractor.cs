@@ -20,10 +20,14 @@ namespace Parsek.Reaim
     // TARGET body (the landing surface + arrival-orbit hand-off rule already gates its emission
     // upstream, MissionPeriodicity.cs:391-414). Each MoonConfig is an Orbital constraint on a MOON of
     // the target (a body whose reference body is the target) that the recorded in-SOI arc actually
-    // enters the SOI of. The target's OWN Orbital constraint (its heliocentric SOI-entry) is EXCLUDED:
-    // arrival alignment does not care WHERE the ghost crosses the destination SOI edge, only the
-    // destination configuration at entry / landing. 2+ constrained moons (Jool-class) fail closed to
-    // faithful (the deferred deferral boundary, plan section 8b).
+    // enters the SOI of. A VesselOrbital ORBITING THE TARGET is the destination STATION (M4c Tier 2:
+    // the arrival hold substitutes its period for T_rot); one orbiting a MOON of the target fails
+    // closed; any other VesselOrbital (launch-side depot) is skipped. The target's OWN Orbital
+    // constraint (its heliocentric SOI-entry) is EXCLUDED: arrival alignment does not care WHERE the
+    // ghost crosses the destination SOI edge, only the destination configuration at entry / landing.
+    // Fail-closed-to-faithful shapes: 2+ constrained moons (Jool-class, plan section 8b), and the
+    // design-D8 duals - a station combined with ANY second destination-side period (landing rotation
+    // or constrained moon) has no single arrival hold satisfying both.
     internal static class DestinationConstraintExtractor
     {
         /// <summary>
@@ -36,7 +40,9 @@ namespace Parsek.Reaim
             public List<PhaseConstraint> Constraints;
 
             /// <summary>False => fail closed to faithful (the un-aligned render) - a Jool-class
-            /// destination with more constrained moons than this phase supports.</summary>
+            /// destination with more constrained moons than this phase supports, or an M4c
+            /// station-bearing dual shape (landing+station, station+moon, a moon-orbiting
+            /// station): no single arrival hold aligns two destination-side periods (D8).</summary>
             public bool Supported;
 
             /// <summary>Why unsupported (set only when <see cref="Supported"/> is false).</summary>
@@ -121,6 +127,11 @@ namespace Parsek.Reaim
                 {
                     if (c.BodyName == targetBody)
                     {
+                        // The classifier emits at most ONE VesselOrbital (its exactly-one-
+                        // foreign-anchor rule), so the first-wins guard is purely defensive
+                        // against synthetic/test inputs; a duplicate is dropped silently. The
+                        // equally-unreachable moon-station + target-station combination fails
+                        // with the moon reason while these fields carry the target station.
                         if (station == null)
                             station = c;
                         continue;

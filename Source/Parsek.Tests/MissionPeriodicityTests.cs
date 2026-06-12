@@ -1427,6 +1427,94 @@ namespace Parsek.Tests
             Assert.NotNull(unit.RelaunchSchedule);
             Assert.Equal(0.0, unit.ArrivalHoldSeconds);
             Assert.Null(unit.ArrivalAmberReason);
+            // The discriminating residual pin (review finding 5): the scheduled launches must
+            // honor the STATION tolerance (period * 3deg/360 = 15s for the 1800s fake station).
+            // Had the station constraint been silently dropped from the solve, pad+Mun windows
+            // would land at an arbitrary station phase and fail this with ~98% probability per
+            // launch (the inputs are fixed, so the test is deterministic either way).
+            double stationTol = StationPeriod * (3.0 / 360.0);
+            double ut0 = 1000.0;
+            double launch = unit.RelaunchSchedule.FirstLaunchUT;
+            for (int i = 0; i < 3; i++)
+            {
+                double residual = MissionPeriodicity.CircularPhaseError(launch - ut0, StationPeriod);
+                Assert.True(residual <= stationTol + 1e-6,
+                    $"launch {i} at {launch} has station residual {residual} > {stationTol}");
+                launch = unit.RelaunchSchedule.NextLaunchAfter(launch);
+            }
+        }
+
+        [Fact]
+        public void ScheduleK_TwoShiftableConstraints_JointlySatisfied()
+        {
+            // M4c (plan test 5, knob half): the M4b shiftable-group scan serves TWO shiftable
+            // constraints jointly (the Mun-window Orbital and the Mun-depot VesselOrbital both
+            // sit after the phasing loiter, so one rev shift d must satisfy both). Synthetic
+            // commensurate geometry: anchor 600, shiftables 3600 + 900, T_park 100 -> the value
+            // k*600 + d*100 must be a multiple of 3600 (which covers 900); the first (k, d) by
+            // k-then-|d| order is k=5, d=6 (6*5 + 6 = 36 -> 3600).
+            bool found = MissionPeriodicity.TryFindNextScheduleK(
+                600.0,
+                new double[0], new double[0],                  // no unshiftable others
+                new[] { 3600.0, 900.0 }, new[] { 50.0, 10.0 }, // Mun-like + station-like, both shiftable
+                100.0, -2, 10,                                 // T_park, d bounds
+                1, 64,
+                out long k, out long d, out double residual, out bool withinTol);
+
+            Assert.True(found);
+            Assert.True(withinTol);
+            Assert.Equal(5, k);
+            Assert.Equal(6, d);
+            Assert.True(residual <= 10.0 + 1e-9);
+            // Cross-check: the shifted event satisfies BOTH periods.
+            double shifted = k * 600.0 + d * 100.0;
+            Assert.True(MissionPeriodicity.CircularPhaseError(shifted, 3600.0) <= 50.0);
+            Assert.True(MissionPeriodicity.CircularPhaseError(shifted, 900.0) <= 10.0);
+        }
+
+        [Fact]
+        public void Extract_CrossParentStation_DifferentLaunchGuid_Rejected()
+        {
+            // M4c (plan test 4, guid variant): the craft-baked-pid trap on the NEW cross-parent
+            // shape - the live vessel carrying the recorded pid is a DIFFERENT launch of the
+            // same craft, so it must not read as the recorded Duna depot.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            var arrival = OrbitLeg("a", 1600, 2600, "Duna");
+            WithRendezvous(arrival, 1800, 2200, 0, "station-rec");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            arrival.ChainId = "C"; arrival.ChainIndex = 2;
+            var tree = TreeOf("t", ascent, transfer, arrival);
+            var fake = StationFake(body: "Duna");
+            fake.VesselGuids[StationPid] = "22222222-2222-2222-2222-222222222222";
+            var station = StationRecording("station-rec", StationPid,
+                "11111111-1111-1111-1111-111111111111");
+
+            var ex = Extract(tree, fake, extraCommitted: new List<Recording> { station });
+
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("different launch", ex.UnsupportedReason);
+        }
+
+        [Fact]
+        public void Extract_CrossParentStation_AnchorRecordingUnresolvable_Rejected()
+        {
+            // M4c (plan test 4, anchor-recording variant): an anchor-recording-only section on
+            // the cross-parent shape whose recording id resolves to nothing committed.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            var arrival = OrbitLeg("a", 1600, 2600, "Duna");
+            WithRendezvous(arrival, 1800, 2200, 0, "missing-rec");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            arrival.ChainId = "C"; arrival.ChainIndex = 2;
+            var tree = TreeOf("t", ascent, transfer, arrival);
+
+            var ex = Extract(tree, StationFake(body: "Duna"));
+
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("not in the committed set", ex.UnsupportedReason);
         }
 
         // The full re-aim chain with a destination station: ascent (Kerbin surface) + one
@@ -1475,7 +1563,7 @@ namespace Parsek.Tests
             Assert.Null(unit.ArrivalAmberReason);
             Assert.Contains(logLines, l =>
                 l.Contains("[Reaim]") && l.Contains("ARRIVAL HOLD") &&
-                l.Contains("kind=station") && l.Contains("dest=Duna"));
+                l.Contains("kind=station") && l.Contains("pid=4242") && l.Contains("dest=Duna"));
         }
 
         [Fact]
@@ -1531,6 +1619,16 @@ namespace Parsek.Tests
             string sigC = MissionLoopUnitBuilder.BuildSignature(
                 missions, new[] { tree }, committed, 30.0, fakeC);
             Assert.NotEqual(sigA, sigC);
+
+            // A NON-looping tree's anchors contribute nothing: the same station change leaves
+            // the signature unchanged when the mission is not looping (the digest only runs for
+            // looping missions).
+            var offMissions = new[] { new Mission("m1", "t", "Off") { LoopPlayback = false } };
+            string offA = MissionLoopUnitBuilder.BuildSignature(
+                offMissions, new[] { tree }, committed, 30.0, fakeA);
+            string offC = MissionLoopUnitBuilder.BuildSignature(
+                offMissions, new[] { tree }, committed, 30.0, fakeC);
+            Assert.Equal(offA, offC);
         }
 
         // ===================== Phase 1: Solve (Tier-1 phase-lock) =====================
