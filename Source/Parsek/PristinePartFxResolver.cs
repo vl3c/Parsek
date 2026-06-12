@@ -242,8 +242,10 @@ namespace Parsek
                     skippedEvent++;
                     continue;
                 }
-                if (!result.Contains(key))
-                    result.Add(key);
+                // Duplicate keys are kept intentionally: KSP compiles one FX child per key
+                // (Mainsail has two fx_exhaustFlame_yellow_mini verniers), and the stock
+                // ghost path clones each child, so multiplicity is part of the look.
+                result.Add(key);
             }
 
             if (result.Count > 0 || skippedTransient > 0 || skippedNonExhaust > 0 ||

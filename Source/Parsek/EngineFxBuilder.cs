@@ -653,16 +653,24 @@ namespace Parsek
                 {
                     // Waterfall-patched part: the exact prefab's donors may all be patched
                     // away (e.g. the hardcoded Rhino/Puff/Vector supplements name
-                    // size-suffixed flames). Try the family-base cascade before giving up.
-                    List<string> candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(prefabName);
-                    for (int c = 1; c < candidates.Count && fxPrefab == null; c++)
+                    // size-suffixed flames). Try KSP's builtin Effects/ asset for the EXACT
+                    // name first (preserves the true variant look), then the family-base
+                    // cascade before giving up.
+                    fxPrefab = GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(
+                        prefabName, out bool _);
+                    if (fxPrefab == null)
                     {
-                        fxPrefab = GhostVisualBuilder.FindFxPrefab(candidates[c]);
-                        if (fxPrefab != null)
+                        List<string> candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(prefabName);
+                        for (int c = 1; c < candidates.Count && fxPrefab == null; c++)
                         {
-                            LogHotPathVerbose($"prefab-cascade-{partName}-{moduleIndex}-{prefabName}",
-                                $"waterfall fallback: '{partName}' midx={moduleIndex} " +
-                                $"cascaded prefab '{prefabName}' -> '{candidates[c]}'");
+                            fxPrefab = GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(
+                                candidates[c], out bool _);
+                            if (fxPrefab != null)
+                            {
+                                LogHotPathVerbose($"prefab-cascade-{partName}-{moduleIndex}-{prefabName}",
+                                    $"waterfall fallback: '{partName}' midx={moduleIndex} " +
+                                    $"cascaded prefab '{prefabName}' -> '{candidates[c]}'");
+                            }
                         }
                     }
                 }
@@ -872,6 +880,16 @@ namespace Parsek
                 {
                     TryApplyPristineEngineFxFallback(
                         prefab, engine, moduleIndex, partName,
+                        modelFxEntries, prefabFxEntries, ref emissionCurve, ref speedCurve);
+                }
+                else if (waterfallPart && scannedEntryCount > 0)
+                {
+                    // Gate open but the post-MM scan found something: SWE remnants (e.g.
+                    // RAPIER's surviving aerospike spool smoke). Prefer the full pristine
+                    // EFFECTS when it yields particles, so the ghost composes like stock
+                    // instead of remnants + hardcoded supplements.
+                    TryReplaceSweRemnantsWithPristine(
+                        prefab, moduleIndex, partName,
                         modelFxEntries, prefabFxEntries, ref emissionCurve, ref speedCurve);
                 }
 
@@ -1440,12 +1458,109 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Scans the pristine EFFECTS node for one engine-module ordinal into the given
+        /// entry lists. Pristine group filtering uses the PRISTINE module's effect names
+        /// (the live module's fields point at renamed post-MM groups that do not exist in
+        /// the pristine node). Shared by the empty-scan fallback and the SWE-remnant
+        /// replacement.
+        /// </summary>
+        private static void ScanPristineEffectsEntries(
+            PristinePartFxResolver.PristinePartFxData pristine, int moduleIndex, string partName,
+            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)> modelFxEntries,
+            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries,
+            ref FloatCurve emissionCurve, ref FloatCurve speedCurve)
+        {
+            if (pristine.EffectsNode == null)
+                return;
+
+            if (moduleIndex >= pristine.EngineModuleEffectNames.Count)
+            {
+                // Structural mismatch (live engine module without a pristine counterpart,
+                // e.g. another mod added an engine module). Scanning ALL groups here would
+                // bleed other modes' FX onto this module; skip and let the white-flame
+                // last resort handle it.
+                LogHotPathVerbose($"pristine-ordinal-miss-{partName}-{moduleIndex}",
+                    $"waterfall fallback: '{partName}' midx={moduleIndex} has no pristine engine " +
+                    $"module counterpart (pristineEngineModules={pristine.EngineModuleEffectNames.Count}); " +
+                    "skipping pristine EFFECTS recovery for this module");
+                return;
+            }
+
+            ConfigNode[] allGroups = pristine.EffectsNode.GetNodes();
+            string[] allGroupNames = new string[allGroups.Length];
+            for (int g = 0; g < allGroups.Length; g++)
+                allGroupNames[g] = allGroups[g].name ?? "?";
+
+            HashSet<string> moduleGroups = pristine.EngineModuleEffectNames[moduleIndex];
+
+            ConfigNode[] effectGroups;
+            string[] effectGroupNames;
+            if (moduleGroups.Count > 0)
+            {
+                FilterEffectGroups(allGroups, allGroupNames, moduleGroups,
+                    out effectGroups, out effectGroupNames);
+            }
+            else
+            {
+                effectGroups = allGroups;
+                effectGroupNames = allGroupNames;
+            }
+
+            ScanEffectsModelFxEntries(effectGroups, effectGroupNames, modelFxEntries,
+                ref emissionCurve, ref speedCurve);
+            ScanEffectsPrefabParticleEntries(effectGroups, effectGroupNames, prefabFxEntries);
+        }
+
+        /// <summary>
+        /// SWE-remnant replacement: a config pack that deletes EFFECTS can still leave a
+        /// stray particle behind (SWE keeps RAPIER's aerospike spool smoke), which used to
+        /// block the empty-scan fallback and leave the ghost with remnants + hardcoded
+        /// supplements instead of the stock composition. When the gate is open and the
+        /// pristine EFFECTS yields particles for this module, prefer them wholesale.
+        /// Returns true when the entries were replaced.
+        /// </summary>
+        private static bool TryReplaceSweRemnantsWithPristine(
+            Part prefab, int moduleIndex, string partName,
+            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)> modelFxEntries,
+            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries,
+            ref FloatCurve emissionCurve, ref FloatCurve speedCurve)
+        {
+            string runtimeName = prefab.partInfo?.name ?? partName;
+            var pristine = PristinePartFxResolver.GetForPart(runtimeName, prefab.partInfo?.configFileFullName);
+            if (pristine == null || !pristine.Found || pristine.EffectsNode == null)
+                return false;
+
+            var pristineModel = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)>();
+            var pristinePrefab = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)>();
+            FloatCurve pristineEmission = null;
+            FloatCurve pristineSpeed = null;
+            ScanPristineEffectsEntries(pristine, moduleIndex, partName,
+                pristineModel, pristinePrefab, ref pristineEmission, ref pristineSpeed);
+
+            int pristineAdded = pristineModel.Count + pristinePrefab.Count;
+            if (pristineAdded == 0)
+                return false;
+
+            int dropped = modelFxEntries.Count + prefabFxEntries.Count;
+            modelFxEntries.Clear();
+            prefabFxEntries.Clear();
+            modelFxEntries.AddRange(pristineModel);
+            prefabFxEntries.AddRange(pristinePrefab);
+            emissionCurve = pristineEmission;
+            speedCurve = pristineSpeed;
+
+            LogHotPathVerbose($"pristine-remnant-replace-{partName}-{moduleIndex}",
+                $"waterfall fallback: '{partName}' midx={moduleIndex} replaced {dropped} " +
+                $"post-MM remnant entries with {pristineAdded} pristine entries " +
+                $"from '{pristine.SourcePath}'");
+            return true;
+        }
+
+        /// <summary>
         /// Waterfall fallback: rebuilds engine FX entries from the pristine on-disk part
         /// config when the post-MM EFFECTS scan produced nothing (the config pack deleted
-        /// the stock particle nodes; see PristinePartFxResolver). Pristine group filtering
-        /// uses the PRISTINE module's effect names by engine-module ordinal -- the live
-        /// module's fields point at renamed post-MM groups that do not exist in the
-        /// pristine EFFECTS node. Returns true when any entries were recovered.
+        /// the stock particle nodes; see PristinePartFxResolver). Returns true when any
+        /// entries were recovered.
         /// </summary>
         private static bool TryApplyPristineEngineFxFallback(
             Part prefab, ModuleEngines engine, int moduleIndex, string partName,
@@ -1463,48 +1578,8 @@ namespace Parsek
             }
 
             int before = modelFxEntries.Count + prefabFxEntries.Count;
-
-            if (pristine.EffectsNode != null)
-            {
-                if (moduleIndex < pristine.EngineModuleEffectNames.Count)
-                {
-                    ConfigNode[] allGroups = pristine.EffectsNode.GetNodes();
-                    string[] allGroupNames = new string[allGroups.Length];
-                    for (int g = 0; g < allGroups.Length; g++)
-                        allGroupNames[g] = allGroups[g].name ?? "?";
-
-                    HashSet<string> moduleGroups = pristine.EngineModuleEffectNames[moduleIndex];
-
-                    ConfigNode[] effectGroups;
-                    string[] effectGroupNames;
-                    if (moduleGroups.Count > 0)
-                    {
-                        FilterEffectGroups(allGroups, allGroupNames, moduleGroups,
-                            out effectGroups, out effectGroupNames);
-                    }
-                    else
-                    {
-                        effectGroups = allGroups;
-                        effectGroupNames = allGroupNames;
-                    }
-
-                    ScanEffectsModelFxEntries(effectGroups, effectGroupNames, modelFxEntries,
-                        ref emissionCurve, ref speedCurve);
-                    ScanEffectsPrefabParticleEntries(effectGroups, effectGroupNames, prefabFxEntries);
-                }
-                else
-                {
-                    // Structural mismatch (live engine module without a pristine counterpart,
-                    // e.g. another mod added an engine module). Scanning ALL groups here would
-                    // bleed other modes' FX onto this module; skip and let the white-flame
-                    // last resort handle it.
-                    LogHotPathVerbose($"pristine-ordinal-miss-{partName}-{moduleIndex}",
-                        $"waterfall fallback: '{partName}' midx={moduleIndex} has no pristine engine " +
-                        $"module counterpart (pristineEngineModules={pristine.EngineModuleEffectNames.Count}); " +
-                        "skipping pristine EFFECTS recovery for this module");
-                }
-            }
-
+            ScanPristineEffectsEntries(pristine, moduleIndex, partName,
+                modelFxEntries, prefabFxEntries, ref emissionCurve, ref speedCurve);
             int effectsScanAdded = modelFxEntries.Count + prefabFxEntries.Count - before;
 
             // Legacy-fx parts (e.g. Swivel, Poodle, Mainsail): no pristine EFFECTS particles;
@@ -1518,6 +1593,7 @@ namespace Parsek
             int legacySynthAdded = 0;
             int legacySynthUnresolvable = 0;
             int legacySynthSubstituted = 0;
+            int legacyBuiltinResolved = 0;
             int legacyFlameFallback = 0;
             if (effectsScanAdded == 0 && moduleIndex == 0 && pristine.LegacyFxPrefabNames.Count > 0)
             {
@@ -1540,12 +1616,15 @@ namespace Parsek
                     // all be Waterfall-patched while the generic family survives on
                     // unpatched parts like SRBs).
                     string resolved = null;
+                    bool resolvedFromBuiltin = false;
                     List<string> candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(wanted);
                     for (int c = 0; c < candidates.Count; c++)
                     {
-                        if (GhostVisualBuilder.FindFxPrefab(candidates[c]) != null)
+                        if (GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(
+                                candidates[c], out bool fromBuiltin) != null)
                         {
                             resolved = candidates[c];
+                            resolvedFromBuiltin = fromBuiltin;
                             break;
                         }
                     }
@@ -1555,14 +1634,18 @@ namespace Parsek
                         legacySynthUnresolvable++;
                         continue;
                     }
-                    if (!usedResolvedNames.Add(resolved))
+                    bool exactResolution = string.Equals(
+                        resolved, wanted, System.StringComparison.OrdinalIgnoreCase);
+                    if (!usedResolvedNames.Add(resolved) && !exactResolution)
                     {
-                        // Several wanted names collapsing to one donor (Mainsail's yellow
-                        // medium + mini both -> fx_exhaustFlame_yellow) would stack
-                        // identical FX at the same anchor; one instance is enough.
+                        // DIFFERENT wanted names collapsing to one cascade donor would
+                        // stack identical substitute FX at the same anchor; one instance
+                        // is enough. Exact resolutions are never collapsed: duplicate
+                        // pristine keys (Mainsail's two yellow_mini verniers) mean the
+                        // stock look genuinely has that many instances.
                         continue;
                     }
-                    if (!string.Equals(resolved, wanted, System.StringComparison.OrdinalIgnoreCase))
+                    if (!exactResolution)
                     {
                         legacySynthSubstituted++;
                         LogHotPathVerbose($"pristine-legacy-subst-{partName}-{moduleIndex}-{wanted}",
@@ -1571,6 +1654,8 @@ namespace Parsek
                     }
                     if (isFlame)
                         flameResolved = true;
+                    if (resolvedFromBuiltin)
+                        legacyBuiltinResolved++;
                     prefabFxEntries.Add((
                         resolved, anchor, anchorOffset,
                         Quaternion.Euler(-90f, 0f, 0f), true, "pristine-legacy"));
@@ -1599,7 +1684,8 @@ namespace Parsek
                 $"waterfall fallback: '{partName}' midx={moduleIndex} pristine recovery added {added} " +
                 $"entries (effectsScan={effectsScanAdded}, legacySynth={legacySynthAdded}, " +
                 $"legacyUnresolvable={legacySynthUnresolvable}, substituted={legacySynthSubstituted}, " +
-                $"flameFallback={legacyFlameFallback}) from '{pristine.SourcePath}'");
+                $"builtinResolved={legacyBuiltinResolved}, flameFallback={legacyFlameFallback}) " +
+                $"from '{pristine.SourcePath}'");
             return added > 0;
         }
     }

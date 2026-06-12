@@ -63,6 +63,11 @@ namespace Parsek
         // Cache for PREFAB_PARTICLE fx_* prefabs found on PartLoader part prefabs.
         // Built once from PartLoader.LoadedPartsList (stable prefab templates).
         private static Dictionary<string, GameObject> fxPrefabCache;
+
+        // Builtin Effects/ assets resolved for the Waterfall fallback; kept separate from
+        // fxPrefabCache so stock-path FindFxPrefab behavior never depends on gated calls.
+        private static readonly Dictionary<string, GameObject> builtinFxPrefabCache =
+            new Dictionary<string, GameObject>(System.StringComparer.OrdinalIgnoreCase);
         private static bool fxLoadedObjectScanCompleted;
         private static readonly Dictionary<string, string[]> fxPrefabFallbacks =
             new Dictionary<string, string[]>(System.StringComparer.OrdinalIgnoreCase)
@@ -150,6 +155,78 @@ namespace Parsek
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Waterfall-gated resolution: FindFxPrefab first, then KSP's builtin
+        /// "Effects/{name}" Resources path -- the exact path PartLoader uses to compile
+        /// legacy fx_* keys, unreachable by ModuleManager deletes, so size-variant flame
+        /// assets (fx_exhaustFlame_yellow_medium etc.) resolve even when every donor part
+        /// was patched away. Used ONLY by the Waterfall pristine-fallback sites; never on
+        /// stock paths (adding "Effects/" to the shared probe list would bypass the
+        /// deliberate fxPrefabFallbacks substitutions).
+        /// </summary>
+        internal static GameObject FindFxPrefabIncludingBuiltinEffects(
+            string prefabName, out bool fromBuiltinEffects)
+        {
+            fromBuiltinEffects = false;
+            GameObject result = FindFxPrefab(prefabName);
+            if (result != null)
+                return result;
+
+            string normalized = NormalizeFxPrefabName(prefabName);
+            if (string.IsNullOrEmpty(normalized))
+                return null;
+
+            // Separate cache, NEVER the shared fxPrefabCache: a shared insert would make
+            // stock-path FindFxPrefab resolution depend on whether a Waterfall-gated build
+            // ran first (and could bypass the deliberate fxPrefabFallbacks substitutions).
+            // Provenance is preserved so builtinResolved counters stay truthful on every
+            // build, not just the first.
+            if (builtinFxPrefabCache.TryGetValue(normalized, out GameObject cached))
+            {
+                if (cached != null)
+                {
+                    fromBuiltinEffects = true;
+                    return cached;
+                }
+                builtinFxPrefabCache.Remove(normalized);
+            }
+
+            GameObject builtin = Resources.Load<GameObject>($"Effects/{normalized}");
+            if (builtin == null)
+                return null;
+
+            if (!HasAnyParticleComponent(builtin))
+            {
+                ParsekLog.Verbose("GhostVisual",
+                    $"builtin Effects prefab '{normalized}' has no particle components; ignoring");
+                return null;
+            }
+
+            builtinFxPrefabCache[normalized] = builtin;
+            fromBuiltinEffects = true;
+            ParsekLog.Verbose("GhostVisual",
+                $"FX prefab loaded from builtin Effects: '{normalized}'");
+            return builtin;
+        }
+
+        /// <summary>
+        /// A raw (never-instantiated) builtin asset may carry only a KSPParticleEmitter;
+        /// its Awake adds the ParticleSystem at instantiation, which every consumer does.
+        /// </summary>
+        private static bool HasAnyParticleComponent(GameObject prefabRoot)
+        {
+            if (prefabRoot.GetComponentInChildren<ParticleSystem>(true) != null)
+                return true;
+
+            Component[] components = prefabRoot.GetComponentsInChildren<Component>(true);
+            for (int i = 0; i < components.Length; i++)
+            {
+                if (components[i] != null && components[i].GetType().Name == "KSPParticleEmitter")
+                    return true;
+            }
+            return false;
         }
 
         internal static string NormalizeFxPrefabName(string rawName)
@@ -277,6 +354,7 @@ namespace Parsek
         internal static void ClearFxPrefabCache()
         {
             fxPrefabCache = null;
+            builtinFxPrefabCache.Clear();
             fxLoadedObjectScanCompleted = false;
         }
 
@@ -5910,10 +5988,12 @@ namespace Parsek
             // the base-implicit variant is selected (prefab defaults, no geometry toggling).
             engineInfos = EngineFxBuilder.TryBuildEngineFX(prefab, persistentId, partName, modelRoot,
                 modelNode.transform, cloneMap, selectedVariantGameObjects);
+            GhostFxFingerprint.LogEngineInfos(partName, engineInfos);
 
             // Detect RCS parts and clone FX particle systems
             rcsInfos = TryBuildRcsFX(prefab, persistentId, partName, modelRoot,
                 modelNode.transform, cloneMap, raiseRcsVisualOnly, selectedVariantGameObjects);
+            GhostFxFingerprint.LogRcsInfos(partName, rcsInfos);
 
             string ladderAnimName;
             string ladderAnimRootName;
