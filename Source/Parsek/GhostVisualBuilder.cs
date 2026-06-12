@@ -3140,6 +3140,64 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Extracts maskTransform values from depth-mask MODULE nodes (ReStock's
+        /// ModuleRestockDepthMask and any module whose name contains "DepthMask",
+        /// the common community pattern). Depth-mask meshes write depth only at
+        /// render queue ~1999 under the live plugin's queue management; cloned onto
+        /// a ghost they occlude everything behind them, punching a see-through hole
+        /// to the sky/ocean. Empty on stock installs (no such modules).
+        /// </summary>
+        internal static HashSet<string> GetDepthMaskTransformNames(ConfigNode partConfig)
+        {
+            var names = new HashSet<string>();
+            if (partConfig == null) return names;
+
+            var modules = partConfig.GetNodes("MODULE");
+            if (modules == null) return names;
+
+            for (int i = 0; i < modules.Length; i++)
+            {
+                string moduleName = modules[i].GetValue("name");
+                if (string.IsNullOrEmpty(moduleName) ||
+                    moduleName.IndexOf("DepthMask", System.StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+                string maskName = modules[i].GetValue("maskTransform");
+                if (!string.IsNullOrEmpty(maskName))
+                    names.Add(maskName);
+            }
+            return names;
+        }
+
+        /// <summary>
+        /// True when a shader name identifies a depth-mask shader (writes depth only).
+        /// Second detection layer beside the config transform names: catches mask
+        /// meshes whose material already carries the depth shader on the prefab.
+        /// </summary>
+        internal static bool IsDepthMaskShaderName(string shaderName)
+        {
+            return !string.IsNullOrEmpty(shaderName) &&
+                shaderName.IndexOf("DepthMask", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
+        /// Depth-mask renderer detection for the ghost clone loop: the renderer sits on
+        /// (or under) a config-named mask transform, or its material uses a depth-mask
+        /// shader. Stock installs hit neither branch.
+        /// </summary>
+        internal static bool IsDepthMaskRenderer(Renderer renderer, HashSet<string> depthMaskNames)
+        {
+            if (renderer == null)
+                return false;
+            if (IsRendererOnDamagedTransform(renderer.transform, depthMaskNames))
+                return true;
+
+            Material mat = renderer.sharedMaterial;
+            return mat != null && mat.shader != null && IsDepthMaskShaderName(mat.shader.name);
+        }
+
+        /// <summary>
         /// Extracts rootObject values from all ModuleStructuralNode MODULE nodes
         /// in the given part config. These are the internal truss/cap transforms
         /// that should be hidden when procedural fairings are intact.
@@ -5982,6 +6040,20 @@ namespace Parsek
             // wheel meshes simultaneously.
             ConfigNode partConfig = prefab.partInfo?.partConfig;
             HashSet<string> damagedWheelNames = GetDamagedWheelTransformNames(partConfig);
+
+            // Collect depth-mask transform names (ReStock's ModuleRestockDepthMask and
+            // the community ModuleDepthMask pattern). A depth-mask mesh writes DEPTH
+            // ONLY at render queue ~1999 and relies on the live plugin managing the
+            // part's material queues; cloned onto a ghost it occludes everything behind
+            // it instead, punching a see-through hole to the sky/ocean (the round-6
+            // "blueish missing texture" on ReStock claws and jet exhausts). Skip them.
+            HashSet<string> depthMaskNames = GetDepthMaskTransformNames(partConfig);
+            if (depthMaskNames.Count > 0)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"depth_mask_{partName}",
+                    $"  Part '{partName}' pid={persistentId}: found {depthMaskNames.Count} " +
+                    $"depth-mask transform(s): [{string.Join(", ", depthMaskNames)}]; ghost skips them", 60.0);
+            }
             if (damagedWheelNames.Count > 0)
             {
                 ParsekLog.VerboseRateLimited("GhostVisual", $"wheel_damage_{partName}",
@@ -5992,6 +6064,7 @@ namespace Parsek
             int variantSkipped = 0;
             int variantRuleSkipped = 0;
             int damagedSkipped = 0;
+            int depthMaskSkipped = 0;
             int skinnedCloned = 0;
             int nullMeshSkipped = 0;
             for (int r = 0; r < meshRenderers.Length; r++)
@@ -6017,6 +6090,11 @@ namespace Parsek
                 if (IsRendererOnDamagedTransform(mr.transform, damagedWheelNames))
                 {
                     damagedSkipped++;
+                    continue;
+                }
+                if (IsDepthMaskRenderer(mr, depthMaskNames))
+                {
+                    depthMaskSkipped++;
                     continue;
                 }
                 var mf = mr.GetComponent<MeshFilter>();
@@ -6049,7 +6127,8 @@ namespace Parsek
             ParsekLog.VerboseRateLimited("GhostVisual", $"clone_summary_{partName}",
                 $"  Part '{partName}' pid={persistentId}: cloned {meshCloned} MeshRenderers, " +
                 $"{skinnedCloned} SkinnedMeshRenderers, skipped {nullMeshSkipped} null-mesh SMRs, " +
-                $"skipped {damagedSkipped} damaged-wheel renderers", 60.0);
+                $"skipped {damagedSkipped} damaged-wheel renderers, " +
+                $"skipped {depthMaskSkipped} depth-mask renderers", 60.0);
 
             if (hasPartVariants)
             {

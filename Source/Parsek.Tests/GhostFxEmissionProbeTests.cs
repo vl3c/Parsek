@@ -41,13 +41,17 @@ namespace Parsek.Tests
         {
             string line = GhostFxEmissionProbe.BuildProbeLogLine(
                 "Size3EngineCluster", 0, "fx_smokeTrail_veryLarge", 24,
-                Vector3.up, 4.5f, 180f, Quaternion.identity, Vector3.forward);
+                Vector3.up, 4.5f, 180f, Quaternion.identity, Vector3.forward,
+                new Vector3(120.5f, 64.25f, -8.75f), "Parsek_Ghost_3", 0);
 
             Assert.Contains("part='Size3EngineCluster'", line);
             Assert.Contains("fx='fx_smokeTrail_veryLarge'", line);
             Assert.Contains("particles=24", line);
             Assert.Contains("angleFromDown=180.0", line);
             Assert.Contains("meanDirWorld=(0.00,1.00,0.00)", line);
+            Assert.Contains("posWorld=(120.5,64.3,-8.8)", line);
+            Assert.Contains("root='Parsek_Ghost_3'", line);
+            Assert.Contains("rootRenderers=0", line);
         }
 
         [Fact]

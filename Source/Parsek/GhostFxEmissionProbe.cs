@@ -83,7 +83,8 @@ namespace Parsek
         internal static string BuildProbeLogLine(
             string partName, int moduleIndex, string fxName, int particleCount,
             Vector3 meanDirection, float meanSpeed, float angleFromDown,
-            Quaternion instanceLocalRotation, Vector3 parentUpWorld)
+            Quaternion instanceLocalRotation, Vector3 parentUpWorld,
+            Vector3 worldPosition, string rootName, int rootEnabledRenderers)
         {
             // Raw quaternion components, not eulerAngles (a native ECall, untestable in xUnit).
             var ic = System.Globalization.CultureInfo.InvariantCulture;
@@ -97,7 +98,39 @@ namespace Parsek
                 $"{instanceLocalRotation.z.ToString("F2", ic)}," +
                 $"{instanceLocalRotation.w.ToString("F2", ic)}) " +
                 $"parentUpWorld=({parentUpWorld.x.ToString("F2", ic)}," +
-                $"{parentUpWorld.y.ToString("F2", ic)},{parentUpWorld.z.ToString("F2", ic)})";
+                $"{parentUpWorld.y.ToString("F2", ic)},{parentUpWorld.z.ToString("F2", ic)}) " +
+                // Orphan-FX hunt fields: where this FX lives and whether its ghost root
+                // has ANY visible geometry. rootRenderers=0 means smoke with no part.
+                $"posWorld=({worldPosition.x.ToString("F1", ic)}," +
+                $"{worldPosition.y.ToString("F1", ic)},{worldPosition.z.ToString("F1", ic)}) " +
+                $"root='{rootName}' rootRenderers={rootEnabledRenderers}";
+        }
+
+        /// <summary>
+        /// Counts enabled mesh-bearing renderers (MeshRenderer/SkinnedMeshRenderer, not
+        /// particle renderers) under the topmost ancestor of a transform. Zero means the
+        /// FX instance belongs to a ghost with NO visible geometry: an orphan effect.
+        /// </summary>
+        internal static int CountRootEnabledMeshRenderers(Transform t, out string rootName)
+        {
+            rootName = "?";
+            if (t == null)
+                return 0;
+            Transform root = t;
+            while (root.parent != null)
+                root = root.parent;
+            rootName = root.name;
+
+            int enabled = 0;
+            Renderer[] renderers = root.GetComponentsInChildren<Renderer>(false);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] == null || renderers[i] is ParticleSystemRenderer)
+                    continue;
+                if (renderers[i].enabled)
+                    enabled++;
+            }
+            return enabled;
         }
 
         private void Start()
@@ -142,10 +175,12 @@ namespace Parsek
             {
                 loggedKeys.Add(key);
                 float angleFromDown = Vector3.Angle(meanDir, Vector3.down);
+                int rootRenderers = CountRootEnabledMeshRenderers(transform, out string rootName);
                 ParsekLog.Verbose("FxEmissionProbe", BuildProbeLogLine(
                     partName, moduleIndex, fxName, velocities.Count, meanDir, meanSpeed,
                     angleFromDown, transform.localRotation,
-                    transform.parent != null ? transform.parent.up : Vector3.zero));
+                    transform.parent != null ? transform.parent.up : Vector3.zero,
+                    transform.position, rootName, rootRenderers));
                 Destroy(this);
                 return;
             }
