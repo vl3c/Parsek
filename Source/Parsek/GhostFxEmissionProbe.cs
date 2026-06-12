@@ -15,8 +15,10 @@ namespace Parsek
     /// probe measures reality, so a single showroom pass names every misaimed
     /// part in the log: grep "[FxEmissionProbe]" and read angleFromDown
     /// (showroom fixtures stand upright: ~0 = flows down/correct, ~180 = flows up).
-    /// Logged once per (part, midx, fx) per scene session; timeout logs a
-    /// no-particles line so never-emitting instances are visible too.
+    /// Logged once per (part, midx, fx) per PROCESS (the loggedKeys set is never
+    /// cleared at scene switches; re-entries skip re-attachment, deliberately
+    /// cheap for a permanent diagnostic); timeout logs a no-particles line so
+    /// never-emitting instances are visible too.
     /// </summary>
     internal class GhostFxEmissionProbe : MonoBehaviour
     {
@@ -31,6 +33,7 @@ namespace Parsek
 
         private ParticleSystem[] systems;
         private ParticleSystem.Particle[] buffer;
+        private readonly List<Vector3> sampleVelocities = new List<Vector3>();
         private float startTime;
 
         internal static void AttachIfNew(GameObject fxInstance, string partName, int moduleIndex, string fxName)
@@ -140,6 +143,7 @@ namespace Parsek
             if (systems == null || systems.Length == 0)
             {
                 Destroy(this);
+                return;
             }
         }
 
@@ -152,7 +156,8 @@ namespace Parsek
                 return;
             }
 
-            var velocities = new List<Vector3>();
+            List<Vector3> velocities = sampleVelocities;
+            velocities.Clear();
             for (int s = 0; s < systems.Length; s++)
             {
                 ParticleSystem ps = systems[s];

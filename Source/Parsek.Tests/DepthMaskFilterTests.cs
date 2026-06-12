@@ -7,6 +7,10 @@ namespace Parsek.Tests
     /// DepthMask-pattern mods) add depth-only mask meshes managed by a live plugin;
     /// cloned onto ghosts they punch see-through holes, so the clone loop skips them.
     /// Stock configs carry no such modules: the helpers must return empty/false.
+    /// Stock-safety contract (review M1): IsDepthMaskRenderer consults the SHADER
+    /// branch only when the part carries a DepthMask module (non-empty name set);
+    /// module-less parts are never skipped even if a mesh natively uses a
+    /// depth-mask shader (pre-feature ghosts always cloned those without issue).
     /// </summary>
     public class DepthMaskFilterTests
     {

@@ -3184,11 +3184,15 @@ namespace Parsek
         /// <summary>
         /// Depth-mask renderer detection for the ghost clone loop: the renderer sits on
         /// (or under) a config-named mask transform, or its material uses a depth-mask
-        /// shader. Stock installs hit neither branch.
+        /// shader. The shader branch is only consulted when the PART carries a
+        /// DepthMask module (depthMaskNames non-empty): pre-feature ghosts have always
+        /// cloned any natively depth-mask-shaded stock meshes without complaint, so
+        /// skipping must never engage on module-less parts (stock-safe by
+        /// construction, not just by the current install's part set; review M1).
         /// </summary>
         internal static bool IsDepthMaskRenderer(Renderer renderer, HashSet<string> depthMaskNames)
         {
-            if (renderer == null)
+            if (renderer == null || depthMaskNames == null || depthMaskNames.Count == 0)
                 return false;
             if (IsRendererOnDamagedTransform(renderer.transform, depthMaskNames))
                 return true;
@@ -5380,8 +5384,10 @@ namespace Parsek
             bool hasVariantGameObjectRules,
             Dictionary<string, bool> selectedVariantGameObjects,
             HashSet<string> damagedWheelNames,
+            HashSet<string> depthMaskNames,
             uint persistentId, string partName,
-            ref int meshCount, ref int damagedSkipped, ref int nullMeshSkipped)
+            ref int meshCount, ref int damagedSkipped, ref int nullMeshSkipped,
+            ref int depthMaskSkipped)
         {
             int skinnedCloned = 0;
             for (int r = 0; r < skinnedRenderers.Length; r++)
@@ -5405,6 +5411,11 @@ namespace Parsek
                 if (IsRendererOnDamagedTransform(smr.transform, damagedWheelNames))
                 {
                     damagedSkipped++;
+                    continue;
+                }
+                if (IsDepthMaskRenderer(smr, depthMaskNames))
+                {
+                    depthMaskSkipped++;
                     continue;
                 }
 
@@ -6117,8 +6128,8 @@ namespace Parsek
                 skinnedRenderers, modelRoot, modelNode.transform, partRoot.transform,
                 prefab, cloneMap,
                 filterInactiveVariantRenderers, hasVariantGameObjectRules, selectedVariantGameObjects,
-                damagedWheelNames, persistentId, partName,
-                ref meshCount, ref damagedSkipped, ref nullMeshSkipped);
+                damagedWheelNames, depthMaskNames, persistentId, partName,
+                ref meshCount, ref damagedSkipped, ref nullMeshSkipped, ref depthMaskSkipped);
             if (skinnedCloned > 0)
                 added = true;
 

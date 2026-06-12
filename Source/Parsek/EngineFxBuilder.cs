@@ -1001,12 +1001,13 @@ namespace Parsek
                         // INSTANCE (t) so the divergence point names itself.
                         float ghostMountDistance =
                             (fxInstance.transform.position - ghostModelNode.position).magnitude;
+                        var ic = System.Globalization.CultureInfo.InvariantCulture;
                         LogHotPathVerbose($"prefab-place-{partName}-{moduleIndex}-{transformName}-{t}",
                             $"(prefab): '{partName}' midx={moduleIndex} inst={t}/{fxTransforms.Count} " +
                             $"'{prefabName}' mountDistPrefab={(int)mountDistance} " +
                             $"ghostInstDist={(int)ghostMountDistance} " +
-                            $"srcLossyScale={srcFxTransform.lossyScale.x:F1} " +
-                            $"ghostParentLossyScale={ghostFxParent.lossyScale.x:F1}");
+                            $"srcLossyScale={srcFxTransform.lossyScale.x.ToString("F1", ic)} " +
+                            $"ghostParentLossyScale={ghostFxParent.lossyScale.x.ToString("F1", ic)}");
                         GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
                             fxInstance, GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
