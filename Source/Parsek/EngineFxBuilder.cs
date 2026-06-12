@@ -538,21 +538,22 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolves the engine's exhaust direction in prefab world space: the thrust
-        /// transform's forward (+Z; KSP convention points exhaust-ward). Used to aim
-        /// the world-space emitter velocity floor in each FX transform's local frame.
+        /// Resolves the engine's exhaust anchor TRANSFORM on the prefab: the first
+        /// populated thrustTransforms entry, else the thrustVectorTransformName lookup
+        /// (prefab ModuleEngines often have an EMPTY thrustTransforms list; the
+        /// round-9 Twin-Boar re-anchor silently no-oped on exactly that).
         /// </summary>
-        private static bool TryResolvePrefabExhaustDirection(
-            Part prefab, ModuleEngines engine, out Vector3 worldDir)
+        private static bool TryResolvePrefabExhaustAnchor(
+            Part prefab, ModuleEngines engine, out Transform anchor)
         {
-            worldDir = Vector3.zero;
+            anchor = null;
             if (engine != null && engine.thrustTransforms != null)
             {
                 for (int t = 0; t < engine.thrustTransforms.Count; t++)
                 {
                     if (engine.thrustTransforms[t] != null)
                     {
-                        worldDir = engine.thrustTransforms[t].forward;
+                        anchor = engine.thrustTransforms[t];
                         return true;
                     }
                 }
@@ -565,12 +566,27 @@ namespace Parsek
                     prefab.transform, engine.thrustVectorTransformName);
                 if (anchors.Count > 0 && anchors[0] != null)
                 {
-                    worldDir = anchors[0].forward;
+                    anchor = anchors[0];
                     return true;
                 }
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Resolves the engine's exhaust direction in prefab world space: the exhaust
+        /// anchor's forward (+Z; KSP convention points exhaust-ward). Used to aim
+        /// the world-space emitter velocity floor in each FX transform's local frame.
+        /// </summary>
+        private static bool TryResolvePrefabExhaustDirection(
+            Part prefab, ModuleEngines engine, out Vector3 worldDir)
+        {
+            worldDir = Vector3.zero;
+            if (!TryResolvePrefabExhaustAnchor(prefab, engine, out Transform anchor))
+                return false;
+            worldDir = anchor.forward;
+            return true;
         }
 
         /// <summary>
@@ -897,20 +913,24 @@ namespace Parsek
                     // Far-mount re-anchor: a mount transform sitting tens of meters from
                     // the part (ReStock Twin-Boar's smokePoint, ~200 m exhaust-ward under
                     // stacked rig scales) reads as an orphan effect on a static ghost.
-                    // Anchor the instance at the engine's thrust transform instead.
+                    // Anchor the instance at the engine's exhaust anchor instead.
                     float mountDistance = (srcFxTransform.position - prefab.transform.position).magnitude;
-                    if (IsFarFxMount(mountDistance) && engine != null && engine.thrustTransforms != null)
+                    if (IsFarFxMount(mountDistance))
                     {
-                        for (int a = 0; a < engine.thrustTransforms.Count; a++)
+                        if (TryResolvePrefabExhaustAnchor(prefab, engine, out Transform exhaustAnchor))
                         {
-                            if (engine.thrustTransforms[a] == null)
-                                continue;
                             LogHotPathVerbose($"prefab-farmount-{partName}-{moduleIndex}-{transformName}",
                                 $"(prefab): '{partName}' midx={moduleIndex} mount '{transformName}' " +
                                 $"sits {(int)mountDistance} m from the part root; re-anchoring " +
-                                $"'{prefabName}' to thrust transform '{engine.thrustTransforms[a].name}'");
-                            srcFxTransform = engine.thrustTransforms[a];
-                            break;
+                                $"'{prefabName}' to exhaust anchor '{exhaustAnchor.name}'");
+                            srcFxTransform = exhaustAnchor;
+                        }
+                        else
+                        {
+                            LogHotPathVerbose($"prefab-farmount-miss-{partName}-{moduleIndex}-{transformName}",
+                                $"(prefab): '{partName}' midx={moduleIndex} mount '{transformName}' " +
+                                $"sits {(int)mountDistance} m from the part root but no exhaust " +
+                                "anchor is resolvable; instance stays on the far mount");
                         }
                     }
 
