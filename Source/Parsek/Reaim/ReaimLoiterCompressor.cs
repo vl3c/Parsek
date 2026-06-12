@@ -46,26 +46,38 @@ namespace Parsek.Reaim
         }
 
         /// <summary>
-        /// Detects loiter runs in <paramref name="segs"/> (must be startUT-sorted) and returns the
-        /// whole-period cuts that compress each to <paramref name="keepRevs"/> revolutions. A loiter run
-        /// is a maximal contiguous run of same-body, non-predicted, elliptical segments with no &gt;
-        /// <paramref name="aStepRelThreshold"/> semi-major-axis step, whose TOTAL duration exceeds
-        /// <c>keepRevs * T_rep</c> (T_rep = the period from the run's first segment's a). The cut excises
-        /// <c>(wholeRevs - keepRevs)</c> whole periods from the run's start (keeping the tail = N revs +
-        /// remainder, ending at the recorded run end so the exit phase is preserved). Pure. Returns an
-        /// empty list when there are no loiters (then the compressed timeline == the recorded timeline).
+        /// One detected loiter run: a maximal contiguous stretch of same-body, non-predicted,
+        /// elliptical segments traversing at least one whole revolution of the run's anchor period.
+        /// The metadata the per-cycle phasing knob (M4b) solves against: the recorded window, the
+        /// repeat period T_rep, and the recorded whole-rev count R.
         /// </summary>
-        internal static List<GhostPlaybackLogic.LoopCut> ComputeCuts(
+        internal struct LoiterRun
+        {
+            public double StartUT;
+            public double EndUT;
+            public double PeriodSeconds;
+            public long WholeRevs;
+            public string BodyName;
+        }
+
+        /// <summary>
+        /// Detects loiter runs in <paramref name="segs"/> (must be startUT-sorted). A run is a maximal
+        /// contiguous run of same-body, non-predicted, elliptical segments with no &gt;
+        /// <paramref name="aStepRelThreshold"/> semi-major-axis step from the run's FIRST segment
+        /// (T_rep = the period from that first segment's a). Only runs with at least one whole
+        /// revolution (snap-tolerant floor) are returned - a sub-period pass (a transfer arc) is never
+        /// a loiter. Pure; <see cref="ComputeCuts"/> is a thin wrapper over this.
+        /// </summary>
+        internal static List<LoiterRun> DetectRuns(
             IReadOnlyList<OrbitSegment> segs,
             Func<string, double> bodyMu,
-            int keepRevs = DefaultKeepRevs,
             double aStepRelThreshold = DefaultAStepRelThreshold,
             double contiguityEpsilonSeconds = DefaultContiguityEpsilonSeconds,
             double sameOrbitRelThreshold = DefaultSameOrbitRelThreshold)
         {
-            var cuts = new List<GhostPlaybackLogic.LoopCut>();
-            if (segs == null || segs.Count == 0 || bodyMu == null || keepRevs < 0)
-                return cuts;
+            var runs = new List<LoiterRun>();
+            if (segs == null || segs.Count == 0 || bodyMu == null)
+                return runs;
 
             int i = 0;
             while (i < segs.Count)
@@ -126,16 +138,59 @@ namespace Parsek.Reaim
                     // integer number of periods (the seam-exactness requirement of section 2.1). A real
                     // partial revolution (remainder >> 1e-6 rev) is unaffected.
                     long wholeRevs = (long)Math.Floor(dur / tRep + 1e-6);
-                    if (wholeRevs > keepRevs)
+                    if (wholeRevs >= 1)
                     {
-                        double cutLength = (wholeRevs - keepRevs) * tRep;
-                        cuts.Add(new GhostPlaybackLogic.LoopCut { StartUT = runStart, LengthSeconds = cutLength });
+                        runs.Add(new LoiterRun
+                        {
+                            StartUT = runStart,
+                            EndUT = runEnd,
+                            PeriodSeconds = tRep,
+                            WholeRevs = wholeRevs,
+                            BodyName = body,
+                        });
                     }
                 }
 
                 i = j + 1;
             }
 
+            return runs;
+        }
+
+        /// <summary>
+        /// The whole-period cuts that compress each detected loiter run to
+        /// <paramref name="keepRevs"/> revolutions. The cut excises <c>(wholeRevs - keepRevs)</c>
+        /// whole periods from the run's START (keeping the tail = N revs + remainder, ending at the
+        /// recorded run end so the exit phase is preserved). Pure. Returns an empty list when there
+        /// are no loiters (then the compressed timeline == the recorded timeline). Behavior is
+        /// identical to the pre-M4b inline implementation; the run walk lives in
+        /// <see cref="DetectRuns"/> so the per-cycle phasing knob can solve per run.
+        /// </summary>
+        internal static List<GhostPlaybackLogic.LoopCut> ComputeCuts(
+            IReadOnlyList<OrbitSegment> segs,
+            Func<string, double> bodyMu,
+            int keepRevs = DefaultKeepRevs,
+            double aStepRelThreshold = DefaultAStepRelThreshold,
+            double contiguityEpsilonSeconds = DefaultContiguityEpsilonSeconds,
+            double sameOrbitRelThreshold = DefaultSameOrbitRelThreshold)
+        {
+            var cuts = new List<GhostPlaybackLogic.LoopCut>();
+            if (segs == null || segs.Count == 0 || bodyMu == null || keepRevs < 0)
+                return cuts;
+            List<LoiterRun> runs = DetectRuns(
+                segs, bodyMu, aStepRelThreshold, contiguityEpsilonSeconds, sameOrbitRelThreshold);
+            for (int r = 0; r < runs.Count; r++)
+            {
+                if (runs[r].WholeRevs > keepRevs)
+                {
+                    double cutLength = (runs[r].WholeRevs - keepRevs) * runs[r].PeriodSeconds;
+                    cuts.Add(new GhostPlaybackLogic.LoopCut
+                    {
+                        StartUT = runs[r].StartUT,
+                        LengthSeconds = cutLength,
+                    });
+                }
+            }
             return cuts;
         }
     }

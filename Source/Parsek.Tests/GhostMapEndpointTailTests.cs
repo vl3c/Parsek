@@ -50,6 +50,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldOverrideVisibleSegmentWithEndpointTail_LoopMemberInWindow_NeverOverrides()
+        {
+            // The 2026-06-12 playtest bug: a loop member replaying INSIDE its window is
+            // mid-flight - the covering segment at the loop effUT must win even when every
+            // staleness condition would otherwise accept the endpoint tail (here: the exact
+            // inputs the stale-endpoint test above accepts). A docked-ending recording's
+            // garbage tail orbit otherwise replaces the correct parking segment at every
+            // proto re-create (map icon off its line, teleports at warp transitions).
+            OrbitSegment selected = Segment(startUT: 120.0, endUT: 150.0);
+            TailDerivedOrbitSeed tailSeed = AcceptedTailSeed(
+                tailUT: 453.66,
+                latestStoredSegmentEndUT: 150.0);
+
+            bool shouldOverride = GhostMapPresence.ShouldOverrideVisibleSegmentWithEndpointTail(
+                selected,
+                preferredEndpointBody: "Kerbin",
+                endpointSeedSource: "endpoint-segment",
+                tailSeed,
+                terminalMapPresenceRegion: true,
+                loopMemberInWindow: true);
+
+            Assert.False(shouldOverride);
+        }
+
+        [Fact]
         public void ShouldOverrideVisibleSegmentWithEndpointTail_LegitimateInWindowCheckpoint_ReturnsFalse()
         {
             OrbitSegment selected = Segment(startUT: 440.0, endUT: 470.0);

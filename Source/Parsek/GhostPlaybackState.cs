@@ -28,6 +28,12 @@ namespace Parsek
         public int kscPlaybackFrameSourceKey;
         public int partEventIndex;
         public long loopCycleIndex = -1;
+        // M4b phasing knob: the per-frame body-fixed time shift (seconds) of the launch this unit
+        // member is currently replaying (loiter cut < 0, extension > 0; 0 for everything else).
+        // Set by GhostPlaybackEngine.UpdateUnitMemberPlayback each frame; the positioner derotates
+        // Absolute body-fixed point playback by it (TrajectoryMath.FrameTransform.Shift*). Never
+        // persisted.
+        public double bodyFixedShiftSeconds;
         public Dictionary<uint, List<uint>> partTree;
         public HashSet<uint> logicalPartIds;
         public Dictionary<uint, ParachuteGhostInfo> parachuteInfos;

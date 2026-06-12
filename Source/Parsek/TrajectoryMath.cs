@@ -1490,6 +1490,47 @@ namespace Parsek
             }
 
             /// <summary>
+            /// M4b phasing-knob body-fixed derotation: a recorded body-fixed point replayed
+            /// <paramref name="shiftSeconds"/> LATER than its rotation-aligned time renders rotated
+            /// eastward with the planet by <c>shift * 360 / T_rot</c>; resolving at
+            /// <c>lon - thatAngle</c> restores the recorded INERTIAL position (correct physics for
+            /// the vacuum burn/coast arcs the knob shifts; surface-coupled legs are pre-shift, so
+            /// their shift is 0 and this is the identity). Same sign convention as
+            /// <see cref="LiftToInertial"/> (inertialLon = lon + phase(t)). Identity for zero/NaN
+            /// shift, null body, or a degenerate rotation period. Pure.
+            /// </summary>
+            internal static double ShiftLongitudeDegrees(
+                double lonDeg, double shiftSeconds, CelestialBody body)
+            {
+                if (shiftSeconds == 0.0 || double.IsNaN(shiftSeconds) || double.IsInfinity(shiftSeconds))
+                    return lonDeg;
+                double angle = RotationAngleAtUT(body, shiftSeconds);
+                if (angle == 0.0)
+                    return lonDeg;
+                return WrapLongitudeDegrees(lonDeg - angle);
+            }
+
+            /// <summary>
+            /// The attitude companion of <see cref="ShiftLongitudeDegrees"/>: rigidly rotating the
+            /// recorded state about the body's spin axis by <c>-angle</c> maps the recorded
+            /// surface-relative rotation to <c>AngleAxis(-angle, localUp) * srfRel</c> (the spin
+            /// axis is the body's local +Y, the same axis lat/lon are defined about; composing
+            /// <c>bodyRot * AngleAxis(-angle, up) * srfRel</c> equals rotating the applied world
+            /// rotation about the body's world spin axis). Identity for zero/NaN shift or a
+            /// degenerate period. Pure apart from Unity quaternion math.
+            /// </summary>
+            internal static Quaternion ShiftSurfaceRelativeRotation(
+                Quaternion srfRel, double shiftSeconds, CelestialBody body)
+            {
+                if (shiftSeconds == 0.0 || double.IsNaN(shiftSeconds) || double.IsInfinity(shiftSeconds))
+                    return srfRel;
+                double angle = RotationAngleAtUT(body, shiftSeconds);
+                if (angle == 0.0)
+                    return srfRel;
+                return Quaternion.AngleAxis((float)(-angle), Vector3.up) * srfRel;
+            }
+
+            /// <summary>
             /// Lifts body-fixed <c>(lat, lon, alt)</c> at <paramref name="recordedUT"/>
             /// to inertial-longitude <c>(lat, inertialLon, alt)</c>. Inertial
             /// longitude is wrapped to <c>(-180, 180]</c>. Null body or
