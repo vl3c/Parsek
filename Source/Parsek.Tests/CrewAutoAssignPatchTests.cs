@@ -199,5 +199,85 @@ namespace Parsek.Tests
             Assert.Equal(CrewAutoAssignPatch.SlotAction.Clear, action);
             Assert.Null(standIn);
         }
+
+        // ── DecideStandInPlacement — roster-state gate on a Swap-decided slot ──
+        //
+        // DecideSlotAction decides WHETHER a registered stand-in exists;
+        // DecideStandInPlacement decides whether that stand-in can actually
+        // take the seat. An Assigned stand-in is aboard a live vessel from an
+        // earlier launch — placing them into a new manifest seats the same
+        // kerbal on two vessels at once (the Barton Kerman duplication bug).
+
+        [Fact]
+        public void DecideStandInPlacement_AvailableNotInManifest_Places()
+        {
+            var placement = CrewAutoAssignPatch.DecideStandInPlacement(
+                standInInRoster: true,
+                standInStatus: ProtoCrewMember.RosterStatus.Available,
+                standInAlreadyInManifest: false);
+
+            Assert.Equal(CrewAutoAssignPatch.StandInPlacement.Place, placement);
+        }
+
+        [Fact]
+        public void DecideStandInPlacement_AssignedStandIn_ClearsNotAvailable()
+        {
+            // The Barton case: stand-in already aboard another live vessel.
+            var placement = CrewAutoAssignPatch.DecideStandInPlacement(
+                standInInRoster: true,
+                standInStatus: ProtoCrewMember.RosterStatus.Assigned,
+                standInAlreadyInManifest: false);
+
+            Assert.Equal(CrewAutoAssignPatch.StandInPlacement.ClearNotAvailable, placement);
+        }
+
+        [Theory]
+        [InlineData(ProtoCrewMember.RosterStatus.Dead)]
+        [InlineData(ProtoCrewMember.RosterStatus.Missing)]
+        public void DecideStandInPlacement_DeadOrMissingStandIn_ClearsNotAvailable(
+            ProtoCrewMember.RosterStatus status)
+        {
+            var placement = CrewAutoAssignPatch.DecideStandInPlacement(
+                standInInRoster: true,
+                standInStatus: status,
+                standInAlreadyInManifest: false);
+
+            Assert.Equal(CrewAutoAssignPatch.StandInPlacement.ClearNotAvailable, placement);
+        }
+
+        [Fact]
+        public void DecideStandInPlacement_NotInRoster_ClearsNotInRoster()
+        {
+            var placement = CrewAutoAssignPatch.DecideStandInPlacement(
+                standInInRoster: false,
+                standInStatus: ProtoCrewMember.RosterStatus.Available,
+                standInAlreadyInManifest: false);
+
+            Assert.Equal(CrewAutoAssignPatch.StandInPlacement.ClearNotInRoster, placement);
+        }
+
+        [Fact]
+        public void DecideStandInPlacement_AlreadyInManifest_ClearsAlreadyInManifest()
+        {
+            var placement = CrewAutoAssignPatch.DecideStandInPlacement(
+                standInInRoster: true,
+                standInStatus: ProtoCrewMember.RosterStatus.Available,
+                standInAlreadyInManifest: true);
+
+            Assert.Equal(CrewAutoAssignPatch.StandInPlacement.ClearAlreadyInManifest, placement);
+        }
+
+        [Fact]
+        public void DecideStandInPlacement_AssignedWinsOverManifestPresence()
+        {
+            // Status is checked before manifest occupancy: an Assigned stand-in
+            // reports ClearNotAvailable even if they also appear in the manifest.
+            var placement = CrewAutoAssignPatch.DecideStandInPlacement(
+                standInInRoster: true,
+                standInStatus: ProtoCrewMember.RosterStatus.Assigned,
+                standInAlreadyInManifest: true);
+
+            Assert.Equal(CrewAutoAssignPatch.StandInPlacement.ClearNotAvailable, placement);
+        }
     }
 }
