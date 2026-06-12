@@ -15,7 +15,7 @@ namespace Parsek.Logistics
         /// <summary>
         /// M2 funds-basis overload (plan D9 / OQ1): parts term from the
         /// snapshot walk as before, RESOURCE term from the full-run START
-        /// transport manifest when one is supplied — the player pays for what
+        /// transport manifest when one is supplied - the player pays for what
         /// KSC supplied at launch, so harvested cargo aboard at dock is never
         /// billed and fuel burned in transit is no longer free. A null
         /// <paramref name="startResourceManifest"/> falls back to the legacy

@@ -52,6 +52,11 @@ namespace Parsek
                 wroteRunManifest = true;
             }
 
+            // Sticky BG-void tombstone (M2 review follow-up): sparse, written
+            // only when set, so pre-void saves stay byte-identical.
+            if (rec.RunManifestVoided)
+                parent.AddValue("runManifestVoided", rec.RunManifestVoided.ToString());
+
             // M2 harvest windows (plan D4): additive sparse node, same
             // null-preservation contract as the run manifest.
             int writtenHarvestWindows = 0;
@@ -123,6 +128,12 @@ namespace Parsek
             ConfigNode runManifestNode = parent.GetNode(RouteRunManifestNode);
             if (runManifestNode != null)
                 rec.RouteRunManifest = DeserializeRunManifest(runManifestNode);
+
+            // Sticky BG-void tombstone: absent value keeps the field default
+            // (false) so pre-void recordings read back unchanged.
+            string voidedStr = parent.GetValue("runManifestVoided");
+            if (voidedStr != null && bool.TryParse(voidedStr, out bool voided))
+                rec.RunManifestVoided = voided;
 
             // Absent node -> RouteHarvestWindows stays null (same contract).
             ConfigNode harvestWindowsNode = parent.GetNode(RouteHarvestWindowsNode);

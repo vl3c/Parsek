@@ -345,6 +345,15 @@ namespace Parsek
                 skipReason = "no-tree-recording";
                 return false;
             }
+            // Sticky void tombstone (M2 review follow-up): a leg that voided on
+            // a background transition must NEVER re-capture, even when it still
+            // looks "at birth" (the void can land before the first sample is
+            // flushed onto the tree recording). Fail-closed to legacy.
+            if (treeRecording.RunManifestVoided)
+            {
+                skipReason = "manifest-voided";
+                return false;
+            }
             if (treeRecording.RouteRunManifest != null && treeRecording.RouteRunManifest.HasStartHalf)
             {
                 skipReason = "start-half-already-captured";
@@ -402,6 +411,13 @@ namespace Parsek
 
             Dictionary<string, ResourceAmount> startRes =
                 VesselSpawner.ExtractResourceManifest(snapshot, transportPids);
+            // Empty -> null normalization (M2 review follow-up): the codec
+            // drops empty manifests on save (reload yields null) while the
+            // hasher emits ".count=0" for an empty dict - an empty-but-non-null
+            // manifest would therefore flip the hash after one save/load and
+            // mark every route built from it SourceChanged.
+            if (startRes != null && startRes.Count == 0)
+                startRes = null;
 
             var manifest = new RouteRunCargoManifest
             {
@@ -427,7 +443,12 @@ namespace Parsek
         /// overwrite-per-active-stop: a chain-boundary stop abandoned by
         /// ResumeAfterFalseAlarm has already completed an END half, and the
         /// eventual real stop must replace it or post-resume drilling
-        /// double-counts. No-op when either input is null.
+        /// double-counts. No-op when either input is null, or when the capture
+        /// carries NO vessel snapshot (M2 review follow-up): completing
+        /// against a null snapshot would stamp EndCaptured with a null END that
+        /// reads as "complete, resource-less" and inflates the next leg's
+        /// bridge delta - leave the manifest start-only instead (degrades to
+        /// legacy via the presence gate).
         /// </summary>
         internal static void CompleteRunCargoManifestAtStop(
             Recording capture,
@@ -436,10 +457,23 @@ namespace Parsek
             if (capture == null || pending == null)
                 return;
 
+            if (capture.VesselSnapshot == null)
+            {
+                ParsekLog.Verbose("Recorder",
+                    $"RouteRunManifest end skipped: no capture snapshot " +
+                    $"recording={capture.RecordingId ?? "<none>"} (manifest stays start-only)");
+                return;
+            }
+
             bool overwrite = pending.EndCaptured;
-            pending.EndTransportResources = VesselSpawner.ExtractResourceManifest(
+            Dictionary<string, ResourceAmount> endRes = VesselSpawner.ExtractResourceManifest(
                 capture.VesselSnapshot,
                 pending.TransportPartPersistentIds);
+            // Empty -> null normalization: same hash-stability contract as the
+            // START half (the codec drops empty manifests on save).
+            if (endRes != null && endRes.Count == 0)
+                endRes = null;
+            pending.EndTransportResources = endRes;
             pending.EndCaptured = true;
             capture.RouteRunManifest = pending.DeepClone();
 
@@ -454,9 +488,13 @@ namespace Parsek
         /// Voids the active tree recording's run manifest on a background
         /// transition (M2 / plan D3 rule 3): the END half of a BG-transiting leg
         /// can never be captured trustworthily, and a voided manifest makes the
-        /// analysis presence gate degrade that tree to legacy behavior. Returns
-        /// true when a manifest was actually cleared. Warn-logged per the plan's
-        /// logging table.
+        /// analysis presence gate degrade that tree to legacy behavior. ALWAYS
+        /// stamps the sticky <see cref="Recording.RunManifestVoided"/> tombstone
+        /// (M2 review follow-up) - even when no manifest was captured yet -
+        /// so a BG-transited leg that still looks "at birth" can never
+        /// re-capture a mid-life START baseline on promotion. Returns true when
+        /// a manifest was actually cleared. Warn-logged per the plan's logging
+        /// table; tombstone-only marks log Verbose.
         /// </summary>
         internal static bool VoidRunManifestForBackgroundTransition(
             RecordingTree tree,
@@ -470,8 +508,20 @@ namespace Parsek
                 return false;
             }
 
+            bool tombstoneNewlySet = !treeRec.RunManifestVoided;
+            treeRec.RunManifestVoided = true;
+
             if (treeRec.RouteRunManifest == null)
+            {
+                if (tombstoneNewlySet)
+                {
+                    treeRec.MarkFilesDirty();
+                    ParsekLog.Verbose("Recorder",
+                        $"RouteRunManifest void tombstone set: recording={activeRecordingId} " +
+                        $"reason=background-transition (no manifest captured yet)");
+                }
                 return false;
+            }
 
             treeRec.RouteRunManifest = null;
             treeRec.MarkFilesDirty();

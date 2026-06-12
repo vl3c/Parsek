@@ -305,14 +305,21 @@ namespace Parsek.Tests
 
             Assert.True(voided);
             Assert.Null(rec.RouteRunManifest);
+            // Sticky tombstone (review follow-up MINOR 3): the void must leave
+            // a durable marker, not just a null manifest.
+            Assert.True(rec.RunManifestVoided);
             Assert.Contains(logLines, l => l.Contains("[WARN]")
                 && l.Contains("RouteRunManifest voided: recording=bg-leg")
                 && l.Contains("reason=background-transition"));
         }
 
         [Fact]
-        public void Manifest_Void_NoManifest_NoOpNoWarn()
+        public void Manifest_Void_NoManifest_StillSetsTombstone_NoWarn()
         {
+            // The void can land BEFORE any start half was captured (skipped
+            // capture, no snapshot) - the tombstone must still be stamped so
+            // the leg never captures later, but the Warn (manifest actually
+            // cleared) is not emitted.
             var rec = new Recording { RecordingId = "plain-leg" };
             var tree = new RecordingTree { Id = "tree-2", ActiveRecordingId = "plain-leg" };
             tree.AddOrReplaceRecording(rec);
@@ -320,7 +327,107 @@ namespace Parsek.Tests
             bool voided = RouteProofCapture.VoidRunManifestForBackgroundTransition(tree, "plain-leg");
 
             Assert.False(voided);
+            Assert.True(rec.RunManifestVoided);
             Assert.DoesNotContain(logLines, l => l.Contains("RouteRunManifest voided"));
+            Assert.Contains(logLines, l => l.Contains("[Recorder]")
+                && l.Contains("RouteRunManifest void tombstone set: recording=plain-leg"));
+        }
+
+        // catches (review follow-up MINOR 3): a leg that voided BEFORE its
+        // first sample landed still looks "at birth" - without the sticky
+        // tombstone a later promotion would re-capture a mid-life START
+        // baseline, folding BG-period production into "start cargo".
+        [Fact]
+        public void VoidThenPromote_DoesNotRecapture()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "void-at-birth",
+                RouteRunManifest = StartOnlyManifest()
+            };
+            var tree = new RecordingTree { Id = "tree-3", ActiveRecordingId = "void-at-birth" };
+            tree.AddOrReplaceRecording(rec);
+
+            RouteProofCapture.VoidRunManifestForBackgroundTransition(tree, "void-at-birth");
+            // The recording is payload-empty (no points/orbit segments/track
+            // sections): the birth check alone would say "capture".
+            Assert.Null(rec.RouteRunManifest);
+
+            Assert.False(RouteProofCapture.ShouldCaptureRunManifestStartHalf(rec, out string reason));
+            Assert.Equal("manifest-voided", reason);
+        }
+
+        // ---------- Review follow-up MINOR 5: null capture snapshot ----------
+
+        // catches: completion against a null capture snapshot stamping
+        // EndCaptured=true with a null END - that reads as "complete,
+        // resource-less" and inflates the next leg's bridge delta. The
+        // manifest must stay start-only (degrades to legacy).
+        [Fact]
+        public void CompleteRunCargoManifestAtStop_NullSnapshot_LeavesStartOnly()
+        {
+            var pending = StartOnlyManifest(oreAmount: 0.0, 100u);
+            var capture = new Recording { RecordingId = "no-snapshot" };
+
+            RouteProofCapture.CompleteRunCargoManifestAtStop(capture, pending);
+
+            Assert.False(pending.EndCaptured);
+            Assert.Null(pending.EndTransportResources);
+            Assert.Null(capture.RouteRunManifest);
+            Assert.Contains(logLines, l => l.Contains("[Recorder]")
+                && l.Contains("RouteRunManifest end skipped: no capture snapshot")
+                && l.Contains("recording=no-snapshot"));
+        }
+
+        // ---------- Review follow-up MINOR 4: empty -> null normalization ----------
+
+        // catches: an empty-but-non-null manifest surviving capture. The
+        // codec drops empty manifests on save (reload yields null) while the
+        // hasher emits ".count=0" for an empty dict, so an empty manifest
+        // would flip the route hash after one save/load (SourceChanged).
+        [Fact]
+        public void EmptyScopedCapture_NormalizesToNull_AndRoundTripsHashStable()
+        {
+            // Parts with no RESOURCE nodes: scoped extraction yields no
+            // entries on either half.
+            ConfigNode resourcelessSnapshot = MakeVessel(
+                MakePart(100, "probeCore"),
+                MakePart(200, "antenna"));
+
+            RouteRunCargoManifest manifest = RouteProofCapture.BuildRunCargoManifestAtStart(
+                resourcelessSnapshot, isGloopsMode: false, vesselContext: "<test>", recordingVesselId: 5u);
+            Assert.NotNull(manifest);
+            Assert.Null(manifest.StartTransportResources);
+
+            var capture = new Recording
+            {
+                RecordingId = "resource-less",
+                VesselSnapshot = resourcelessSnapshot
+            };
+            RouteProofCapture.CompleteRunCargoManifestAtStop(capture, manifest);
+            Assert.True(manifest.EndCaptured);
+            Assert.Null(manifest.EndTransportResources);
+
+            // Hash stability across one save/load round trip.
+            var rec = new Recording
+            {
+                RecordingId = "resource-less",
+                RouteRunManifest = capture.RouteRunManifest
+            };
+            string hashBefore =
+                Parsek.Logistics.RouteProofHasher.ComputeRouteProofHashFromRecording(rec);
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
+            var loaded = new Recording { RecordingId = "resource-less" };
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
+
+            Assert.NotNull(loaded.RouteRunManifest);
+            Assert.Null(loaded.RouteRunManifest.StartTransportResources);
+            Assert.Null(loaded.RouteRunManifest.EndTransportResources);
+            Assert.True(loaded.RouteRunManifest.EndCaptured);
+            Assert.Equal(hashBefore,
+                Parsek.Logistics.RouteProofHasher.ComputeRouteProofHashFromRecording(loaded));
         }
 
         // ---------- D14: forwarding through the tree-mode stop flush ----------
@@ -396,6 +503,53 @@ namespace Parsek.Tests
             Assert.True(target.RouteRunManifest.EndCaptured);
         }
 
+        // catches (review follow-up MINOR 3): the void tombstone losing to a
+        // late capture forwarding - a voided leg never re-adopts a manifest,
+        // and the tombstone itself propagates sticky one-way.
+        [Fact]
+        public void TreeModeStop_VoidedTarget_NeverAdoptsManifest()
+        {
+            var target = new Recording
+            {
+                RecordingId = "voided-rec",
+                RunManifestVoided = true
+            };
+            var capture = new Recording { RecordingId = "capture" };
+            capture.RouteRunManifest = new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = new List<uint> { 100u },
+                StartTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    { "Ore", new ResourceAmount { amount = 5.0, maxAmount = 100.0 } }
+                },
+                EndCaptured = true
+            };
+
+            ParsekFlight.ApplyCapturedLogisticsMetadataToRecording(target, capture, "test");
+
+            Assert.Null(target.RouteRunManifest);
+            Assert.True(target.RunManifestVoided);
+            Assert.Contains(logLines, l => l.Contains("[Flight]")
+                && l.Contains("run manifest NOT adopted (target voided)"));
+        }
+
+        [Fact]
+        public void TreeModeStop_PropagatesVoidTombstone()
+        {
+            var target = new Recording { RecordingId = "tree-rec" };
+            var capture = new Recording
+            {
+                RecordingId = "capture",
+                RunManifestVoided = true
+            };
+
+            bool changed = ParsekFlight.ApplyCapturedLogisticsMetadataToRecording(
+                target, capture, "test");
+
+            Assert.True(changed);
+            Assert.True(target.RunManifestVoided);
+        }
+
         [Fact]
         public void TreeModeStop_NoCaptureManifest_TargetUntouched()
         {
@@ -446,6 +600,22 @@ namespace Parsek.Tests
             Assert.NotSame(source.RouteRunManifest, target.RouteRunManifest);
             Assert.Equal(new List<uint> { 100u, 200u },
                 target.RouteRunManifest.TransportPartPersistentIds);
+        }
+
+        [Fact]
+        public void CloneSites_CarryVoidTombstone()
+        {
+            var source = new Recording
+            {
+                RecordingId = "src",
+                RunManifestVoided = true
+            };
+
+            Assert.True(Recording.DeepClone(source).RunManifestVoided);
+
+            var target = new Recording { RecordingId = "dst" };
+            target.ApplyPersistenceArtifactsFrom(source);
+            Assert.True(target.RunManifestVoided);
         }
 
         [Fact]

@@ -3994,7 +3994,7 @@ namespace Parsek
             // overwrite-per-active-stop - a chain-boundary stop abandoned by
             // ResumeAfterFalseAlarm leaves a stale END that the eventual real
             // stop's capture must replace.
-            if (source.RouteRunManifest != null)
+            if (source.RouteRunManifest != null && !target.RunManifestVoided)
             {
                 if (target.RouteRunManifest == null || !target.RouteRunManifest.HasStartHalf)
                 {
@@ -4007,6 +4007,22 @@ namespace Parsek
                             source.RouteRunManifest.EndTransportResources);
                     target.RouteRunManifest.EndCaptured = source.RouteRunManifest.EndCaptured;
                 }
+                changed = true;
+            }
+            else if (source.RouteRunManifest != null)
+            {
+                // Sticky void tombstone wins (M2 review follow-up): a voided
+                // leg never re-adopts a manifest - the void is the fail-closed
+                // verdict for the whole leg.
+                ParsekLog.Verbose("Flight",
+                    $"Logistics metadata: run manifest NOT adopted (target voided) " +
+                    $"target={target.RecordingId ?? "<none>"} source={source.RecordingId ?? "<none>"}");
+            }
+
+            // Propagate the void tombstone itself (sticky, one-way).
+            if (source.RunManifestVoided && !target.RunManifestVoided)
+            {
+                target.RunManifestVoided = true;
                 changed = true;
             }
 

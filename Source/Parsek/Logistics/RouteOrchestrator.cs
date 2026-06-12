@@ -2290,15 +2290,15 @@ namespace Parsek.Logistics
         /// 0 when ERS cannot be queried (e.g. during early load) or the
         /// recording / snapshot is missing.
         ///
-        /// <para>M2 funds basis (plan D9 / OQ1): when the source recording —
+        /// <para>M2 funds basis (plan D9 / OQ1): when the source recording -
         /// <c>SourceRefs[0]</c>, the tree ROOT, whose snapshot is taken at the
-        /// FIRST chain/branch boundary — carries a COMPLETE
+        /// FIRST chain/branch boundary - carries a COMPLETE
         /// <see cref="RouteRunCargoManifest"/> (start half present AND
         /// <see cref="RouteRunCargoManifest.EndCaptured"/>, the SAME completeness
         /// gate the harvest analysis uses, plan risk 7: gate and charge must not
         /// diverge), the resource term is priced from the run's START transport
-        /// manifest (the launch load). Recordings without a complete manifest —
-        /// every pre-M2 recording and every degraded leg — keep the legacy
+        /// manifest (the launch load). Recordings without a complete manifest -
+        /// every pre-M2 recording and every degraded leg - keep the legacy
         /// stop-snapshot walk byte-identical, so existing routes keep their
         /// exact cost. Both the eligibility gate and the emit recompute call
         /// this one method, so they always pick the same basis.</para>

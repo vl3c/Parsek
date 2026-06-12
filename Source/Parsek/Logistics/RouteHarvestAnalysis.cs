@@ -550,8 +550,12 @@ namespace Parsek.Logistics
             // by window StartUT, so pre-anchor windows (drilling while docked
             // at the origin - an M3 limitation) and post-dock windows
             // (drilling while docked at the destination) never inflate the
-            // total.
-            for (int i = 0; i < lineage.Count; i++)
+            // total. The leg scan stops AT the arrival leg: the span bound is
+            // inclusive (<= dockUT), so a dock-merge child's window opened at
+            // exactly DockUT (reachable via the mergeUT Planetarium fallback +
+            // a same-frame birth) would otherwise credit post-dock
+            // combined-stack production as harvested.
+            for (int i = 0; i <= arrivalIdx; i++)
             {
                 List<RouteHarvestWindow> windows = lineage[i].Rec?.RouteHarvestWindows;
                 if (windows == null)

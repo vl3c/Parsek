@@ -554,8 +554,13 @@ namespace Parsek.Logistics
         /// <c>cost[r] = max(0, delivery[r] - harvested[r])</c>; entries that
         /// reduce to zero are REMOVED from the manifest, not kept as zero
         /// (review finding 16: matches the sparse-codec conventions and keeps
-        /// the OriginHasCargo short-resource naming clean). Mutates
-        /// <paramref name="costManifest"/> in place and logs the reduction.
+        /// the OriginHasCargo short-resource naming clean). "Zero" uses
+        /// <see cref="RouteHarvestAnalysis.GainEpsilon"/> - a fully-harvested
+        /// delivery whose subtraction leaves double-rounding residue (1e-13
+        /// scale) must remove the entry, not keep a float-residue debit that
+        /// would still gate OriginHasCargo on a resource the depot never owes.
+        /// Mutates <paramref name="costManifest"/> in place and logs the
+        /// reduction.
         /// </summary>
         internal static void ReduceCostManifestByHarvested(
             Dictionary<string, double> costManifest,
@@ -577,7 +582,7 @@ namespace Parsek.Logistics
 
                 double before = costManifest[name];
                 double after = before - harvested;
-                if (after > 0.0)
+                if (after > RouteHarvestAnalysis.GainEpsilon)
                 {
                     costManifest[name] = after;
                     reductions.Add(

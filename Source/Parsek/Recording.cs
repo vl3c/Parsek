@@ -275,6 +275,17 @@ namespace Parsek
         // See RouteRunCargoManifest for the START/END lifecycle contract.
         internal RouteRunCargoManifest RouteRunManifest;
 
+        // Sticky background-void tombstone (M2 review follow-up): set when this
+        // leg transited background and its run manifest was voided. Without
+        // it, a null manifest is indistinguishable from never-captured, so a
+        // leg that voided before its first sample landed (still "at birth" by
+        // the payload check) could re-capture a mid-life START baseline on
+        // promotion. Checked by ShouldCaptureRunManifestStartHalf (voided ->
+        // never re-capture, fail-closed to legacy analysis). Bookkeeping only:
+        // deliberately EXCLUDED from RouteProofHasher - it is not part of the
+        // witnessed transfer.
+        public bool RunManifestVoided;
+
         // Witnessed harvest windows (M2 / plan D4): converter-activity spans
         // with start/end transport manifests. null = none witnessed (or pre-M2
         // recording / optimizer-split half). Windows live on the recorder side
@@ -844,6 +855,7 @@ namespace Parsek
             // route-proof fields. Null stays null - the codec/hasher
             // null-preservation contract.
             RouteRunManifest = source.RouteRunManifest != null ? source.RouteRunManifest.DeepClone() : null;
+            RunManifestVoided = source.RunManifestVoided;
             RouteHarvestWindows = RouteProofMetadata.CloneHarvestWindows(source.RouteHarvestWindows);
             CrewEndStatesResolved = source.CrewEndStatesResolved;
             TerminalSpawnSupersededByRecordingId = source.TerminalSpawnSupersededByRecordingId;
@@ -948,6 +960,7 @@ namespace Parsek
             clone.RouteRunManifest = source.RouteRunManifest != null
                 ? source.RouteRunManifest.DeepClone()
                 : null;
+            clone.RunManifestVoided = source.RunManifestVoided;
             clone.RouteHarvestWindows = RouteProofMetadata.CloneHarvestWindows(source.RouteHarvestWindows);
             clone.FilesDirty = source.FilesDirty;
             clone.SidecarEpoch = source.SidecarEpoch;

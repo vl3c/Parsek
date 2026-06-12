@@ -418,6 +418,37 @@ namespace Parsek.Tests.Logistics
                 l.Contains("costManifestReducedByHarvest=[LiquidFuel:50->removed]"));
         }
 
+        // catches (M2 review follow-up NIT 6): a fully-harvested delivery
+        // whose subtraction leaves double-rounding residue keeping a
+        // float-residue debit entry. "Zero" is RouteHarvestAnalysis.GainEpsilon,
+        // not exact 0.0 - residue at or below it removes the entry; a real
+        // remainder above it stays.
+        [Fact]
+        public void ReduceCostManifestByHarvested_FloatResidue_RemovedAtGainEpsilon()
+        {
+            var costManifest = new Dictionary<string, double>
+            {
+                { "Ore", 50.0 },
+                { "LiquidFuel", 50.0 }
+            };
+            var harvested = new Dictionary<string, double>
+            {
+                // Residue 1e-9 (positive, below GainEpsilon): must remove.
+                { "Ore", 50.0 - 1e-9 },
+                // Real remainder above epsilon: must keep.
+                { "LiquidFuel", 50.0 - 1e-3 }
+            };
+
+            RouteBuilder.ReduceCostManifestByHarvested(
+                costManifest, harvested, CultureInfo.InvariantCulture);
+
+            Assert.False(costManifest.ContainsKey("Ore"));
+            Assert.True(costManifest.ContainsKey("LiquidFuel"));
+            Assert.Equal(1e-3, costManifest["LiquidFuel"], 9);
+            Assert.Contains(logLines, l => l.Contains("costManifestReducedByHarvest=")
+                && l.Contains("Ore:50->removed"));
+        }
+
         // catches: KSC routes' CostManifest semantics changing (the funds
         // basis is OQ1 / Phase 6 work, NOT D8) - harvested data on a KSC run
         // must leave the cost manifest as the full delivery clone.

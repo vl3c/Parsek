@@ -267,6 +267,34 @@ namespace Parsek.Tests
             // a NULL run manifest - a codec that lazily allocates an empty one
             // flips every existing route to SourceChanged on revalidate.
             Assert.Null(loaded.RouteRunManifest);
+            // Absent sticky-void key keeps the default (false).
+            Assert.False(loaded.RunManifestVoided);
+        }
+
+        [Fact]
+        public void RunManifestVoided_RoundTripsViaBothPaths()
+        {
+            // FAILS IF: the sticky BG-void tombstone (review follow-up) is
+            // lost on either persistence path - a reload would let the leg
+            // re-capture a mid-life START baseline.
+            var rec = new Recording
+            {
+                RecordingId = "voided-leg",
+                RunManifestVoided = true
+            };
+
+            var treeNode = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingResourceAndState(treeNode, rec);
+            var loadedTree = new Recording { RecordingId = "voided-leg" };
+            RecordingTree.LoadRecordingResourceAndState(treeNode, loadedTree);
+            Assert.True(loadedTree.RunManifestVoided);
+            Assert.Null(loadedTree.RouteRunManifest);
+
+            var scenarioNode = new ConfigNode("RECORDING");
+            ParsekScenario.SaveRecordingMetadata(scenarioNode, rec);
+            var loadedScenario = new Recording();
+            ParsekScenario.LoadRecordingMetadataForTests(scenarioNode, loadedScenario);
+            Assert.True(loadedScenario.RunManifestVoided);
         }
 
         [Fact]

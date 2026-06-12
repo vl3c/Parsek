@@ -469,6 +469,31 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(hashA, hashB);
         }
 
+        // catches (M2 review follow-up MINOR 3): the sticky RunManifestVoided
+        // tombstone leaking into the hash or its gate. It is capture-lifecycle
+        // bookkeeping, not the witnessed transfer - hashing it would flip a
+        // route to SourceChanged the moment its source leg backgrounds.
+        [Fact]
+        public void Hash_UnchangedByRunManifestVoidedFlag()
+        {
+            Recording recA = RecordingWithProof();
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
+
+            Recording recB = RecordingWithProof();
+            recB.RunManifestVoided = true;
+            Assert.Equal(hashA, RouteProofHasher.ComputeRouteProofHashFromRecording(recB));
+
+            // The flag alone does not make a proof-less recording hashable
+            // either - it stays at the sentinel like any pre-M2 recording.
+            var voidedOnly = new Recording
+            {
+                RecordingId = "voided-only",
+                RunManifestVoided = true
+            };
+            Assert.Equal(RouteProofHasher.NoRouteProofSentinel,
+                RouteProofHasher.ComputeRouteProofHashFromRecording(voidedOnly));
+        }
+
         // catches (M2 D10 byte-stability pin): ANY drift in the canonical bytes
         // emitted for a recording WITHOUT the M2 run-manifest / harvest-window
         // fields. The constant below was computed against the pre-M2 hasher

@@ -67,6 +67,14 @@ namespace Parsek.Logistics
             bool hasRunManifest = rec.RouteRunManifest != null;
             bool hasHarvestWindows = rec.RouteHarvestWindows != null
                 && rec.RouteHarvestWindows.Count > 0;
+            // INTENTIONAL EXCLUSION (M2 review follow-up): the sticky
+            // Recording.RunManifestVoided tombstone is deliberately NOT hashed
+            // and NOT part of this gate - it is capture-lifecycle bookkeeping
+            // (prevents a BG-voided leg from re-capturing a START baseline),
+            // not part of the witnessed transfer. Including it would flip a
+            // route to SourceChanged the moment its source leg backgrounds,
+            // even though the witnessed proof data is unchanged. Pinned by
+            // Hash_UnchangedByRunManifestVoidedFlag.
             if (!hasWindows && !hasOrigin && !hasRunManifest && !hasHarvestWindows)
                 return NoRouteProofSentinel;
 

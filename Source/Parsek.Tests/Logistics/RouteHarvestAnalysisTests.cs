@@ -451,6 +451,36 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(0.0, result.RejectHarvested, 6);
         }
 
+        // catches (M2 review follow-up, MINOR 1): the window span filter is
+        // INCLUSIVE (<= DockUT), so a window on the dock-merge child opened at
+        // exactly DockUT (reachable via the mergeUT Planetarium fallback + a
+        // same-frame birth) would credit post-dock COMBINED-STACK production
+        // as harvested if the leg scan ran past the arrival leg. The scan is
+        // bounded at arrivalIdx - the merge child's windows never enter the
+        // sum.
+        [Fact]
+        public void CheckTransportGains_MergeChildWindowAtExactDockUT_DoesNotCount()
+        {
+            RecordingTree tree = BuildKscTree(out Recording root, out Recording merge);
+            // No windows on the pre-dock lineage: the 120 Ore gain is
+            // unwitnessed. The merge child carries a window opened at exactly
+            // DockUT whose delta would fully cover the gain if counted.
+            merge.RouteHarvestWindows = new List<RouteHarvestWindow>
+            {
+                HarvestWindow(DockUT, DockUT + 50.0, Ore(120.0), Ore(240.0))
+            };
+
+            HarvestGainCheckResult result = RouteHarvestAnalysis.CheckTransportGains(
+                tree, merge, ColonyWindow(120.0, 20.0), RouteAnalysisLogMode.Diagnostic);
+
+            Assert.Equal(HarvestGainOutcome.UntrackedGain, result.Outcome);
+            Assert.Equal("Ore", result.RejectResource);
+            Assert.Equal(120.0, result.RejectGained, 6);
+            Assert.Equal(0.0, result.RejectHarvested, 6);
+            // The merge-child window must not even surface as the D7 endpoint.
+            Assert.Null(result.FirstHarvestWindow);
+        }
+
         // BLOCKER-1 scope pin: two pre-dock legs with DIFFERING pid scopes
         // (a part was lost across the seam) must not bridge their boundary
         // delta even with the boundary witness flags set.
