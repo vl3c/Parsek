@@ -1194,6 +1194,14 @@ namespace Parsek
             // only - tints the T- cell amber with the reason as tooltip; never affects Support.
             public string DriftAmberReason;
 
+            // M4c arrival amber (design D8): set when the resolved re-aim unit's destination-side
+            // alignment failed closed with a station involved (landing + station, station +
+            // constrained moon, moon-orbiting station, station-bearing Jool-class). Read off the
+            // REAL unit (not extraction) so it appears exactly when a built re-aim unit refused
+            // the hold - a mission whose re-aim declines entirely shows no misleading amber.
+            // Display only - tints the T- cell with the reason as tooltip.
+            public string ArrivalAmberReason;
+
             // True when the resolved unit is a re-aim interplanetary loop (cross-parent single-hop). The
             // faithful periodicity Solve reports cross-parent UnsupportedCrossParent (ShouldPhaseLock
             // false), so without this the period / T- cells would read "not aligned" even though the
@@ -1296,6 +1304,9 @@ namespace Parsek
                 ? unit.ReaimSchedule.Value.SynodicPeriodSeconds
                 : double.NaN;
             result.ReaimTargetBody = result.IsReaim ? unit.ReaimPlan.Value.TargetBody : null;
+            // M4c arrival amber: carried by the unit the builder produced (same inputs as the
+            // scene drivers, so the UI deterministically sees the same verdict).
+            result.ArrivalAmberReason = result.UnitBuilt ? unit.ArrivalAmberReason : null;
 
             ParsekLog.VerboseRateLimited("MissionPeriodicity", "missions-ui-solve",
                 $"Missions UI: mission='{mission.Name}' tree={tree.Id} " +
@@ -1367,14 +1378,19 @@ namespace Parsek
                 periodicity.IsScheduled,
                 periodicity.ScheduleAllLaunchesWithinTolerance,
                 periodicity.Solution.WithinTolerance,
-                periodicity.DriftAmberReason);
+                periodicity.DriftAmberReason,
+                periodicity.ArrivalAmberReason,
+                periodicity.IsReaim);
             Color prev = GUI.contentColor;
             if (amber)
                 GUI.contentColor = LoopPeriodClampColor;
-            // D3 drift amber carries its reason as the tooltip, so the player can read WHY the
-            // countdown is amber (station orbit drifted since recording).
-            GUIContent cellContent = periodicity.DriftAmberReason != null
-                ? new GUIContent(text, periodicity.DriftAmberReason)
+            // The amber reasons ride as the tooltip, so the player can read WHY the countdown is
+            // amber (D3 drift: station orbit drifted since recording; M4c arrival: D8 dual
+            // constraint refused the hold). Both can coexist (an emitted-then-dual config).
+            string tooltip = JoinAmberReasons(
+                periodicity.DriftAmberReason, periodicity.ArrivalAmberReason);
+            GUIContent cellContent = tooltip != null
+                ? new GUIContent(text, tooltip)
                 : new GUIContent(text);
             GUILayout.Label(cellContent, compositionCellLabel, GUILayout.Width(ColW_TMinus));
             GUI.contentColor = prev;
@@ -1397,32 +1413,57 @@ namespace Parsek
         ///   the in-tolerance stock Mun.
         /// - A NON-scheduled (fixed-cadence) unit has no schedule; its tolerance IS the fixed m*P fit, so it
         ///   tints off <paramref name="fixedFitWithinTolerance"/> exactly as before (no behavior change).
-        /// In BOTH cases the unit must be phase-locked + constrained
+        /// For the TOLERANCE ambers the unit must be phase-locked + constrained
         /// (<paramref name="isPhaseLockedConstrained"/>) to tint at all; continuous / not-aligned / blank
         /// states read plain. NOT tinted unconditionally off <paramref name="isScheduled"/> - that would
         /// hide a real over-tolerance schedule. A non-null <paramref name="driftAmberReason"/> (the M4a
         /// D3 station-drift surface) also tints a phase-locked cell, independent of the tolerance flags
         /// (alignment is still to the LIVE orbit; the amber says the recorded approach may seam).
-        /// Pure (no Unity); unit-tested.
+        /// Two M4c additions bypass the phase-lock gate, which is false for every re-aim mission:
+        /// a non-null <paramref name="arrivalAmberReason"/> (the D8 dual-constraint refusal, carried by
+        /// the built re-aim unit) always tints, and <paramref name="driftAmberReason"/> also tints when
+        /// <paramref name="isReaimUnit"/> (a drifted cross-parent depot - M4c makes drift amber reachable
+        /// on re-aim missions for the first time; tooltip-without-tint there would repeat the exact
+        /// inconsistency the arrival amber fixes). Pure (no Unity); unit-tested.
         /// </summary>
         internal static bool ShouldTintTMinusAmber(
             bool isPhaseLockedConstrained,
             bool isScheduled,
             bool scheduleAllLaunchesWithinTolerance,
             bool fixedFitWithinTolerance,
-            string driftAmberReason = null)
+            string driftAmberReason = null,
+            string arrivalAmberReason = null,
+            bool isReaimUnit = false)
         {
+            // M4c arrival amber (D8): the destination-side alignment failed closed on a built
+            // re-aim unit - tints regardless of phase-lock (re-aim is never phase-locked).
+            if (!string.IsNullOrEmpty(arrivalAmberReason))
+                return true;
+            // D3 drift amber: display-only, set when the live station orbit drifted past tolerance
+            // from the recorded rendezvous-time orbit. Phase-locked cells (M4a) and re-aim units
+            // (M4c cross-parent depots) both tint.
+            if (driftAmberReason != null && (isPhaseLockedConstrained || isReaimUnit))
+                return true;
             if (!isPhaseLockedConstrained)
                 return false;
-            // D3 drift amber: display-only, set when the live station orbit drifted past tolerance
-            // from the recorded rendezvous-time orbit.
-            if (driftAmberReason != null)
-                return true;
             // Scheduled: amber iff some scheduled launch was over tolerance (bounded-best).
             // Non-scheduled: amber iff the fixed m*P fit missed tolerance (unchanged behavior).
             return isScheduled
                 ? !scheduleAllLaunchesWithinTolerance
                 : !fixedFitWithinTolerance;
+        }
+
+        /// <summary>The T- cell tooltip: the D3 drift and M4c arrival amber reasons joined with
+        /// "; " when both are set, the lone one otherwise, null when neither. Pure.</summary>
+        internal static string JoinAmberReasons(string driftAmberReason, string arrivalAmberReason)
+        {
+            bool hasDrift = !string.IsNullOrEmpty(driftAmberReason);
+            bool hasArrival = !string.IsNullOrEmpty(arrivalAmberReason);
+            if (hasDrift && hasArrival)
+                return driftAmberReason + "; " + arrivalAmberReason;
+            if (hasDrift)
+                return driftAmberReason;
+            return hasArrival ? arrivalAmberReason : null;
         }
 
         /// <summary>

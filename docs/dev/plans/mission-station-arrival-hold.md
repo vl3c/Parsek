@@ -1,6 +1,12 @@
 # M4c - Cross-parent station alignment (Tier 2 of M-MIS-4)
 
-Status: PLANNED (branch `mission-station-arrival-hold`). Parent design:
+Status: IMPLEMENTED (2026-06-12, this branch). Implementation notes vs the plan: the
+builder E2E tests (section 5 tests 14/15) and the signature digest test (test 17) live in
+`MissionPeriodicityTests` rather than `MissionLoopUnitBuilderTests` - the Build-chain
+fixtures (SurfaceLeg/OrbitLeg/WithSoiEntry/FakeBodyInfo.VesselOrbits) are there; the
+existing `ShouldTintTMinusAmber_NotPhaseLocked_NeverTints` stays as-is (its inputs remain
+true under the new gates) with the new bypass polarities pinned in two new tests.
+Validation pending the maintainer's cross-parent playtest save. Parent design:
 `docs/dev/design-mission-phasing-alignment.md` section 6 + decisions D8/D9. Prior phases:
 M4a (`VesselOrbital` Tier 1, PR #1119, plan `docs/dev/plans/mission-vesselorbital-tier1.md`)
 and M4b (per-cycle phasing-loiter knob, PR #1125, plan

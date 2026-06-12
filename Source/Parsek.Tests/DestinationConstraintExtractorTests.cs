@@ -270,5 +270,158 @@ namespace Parsek.Tests
             Assert.Contains("moons=", lines[0]);
             Assert.Contains("supported=", lines[0]);
         }
+
+        // === M4c (Tier 2): the destination-station shape + D8 ================================
+
+        private static PhaseConstraint Station(string orbitedBody, double period = 1800.0, uint pid = 4242)
+            => new PhaseConstraint { Kind = ConstraintKind.VesselOrbital, BodyName = orbitedBody,
+                PeriodSeconds = period, PhaseOffsetSeconds = 800.0, AnchorVesselPid = pid };
+
+        [Fact]
+        public void StationAtTarget_HasStation_PeriodAndPid_ConstraintsListUnchanged()
+        {
+            // M4c plan test 6: a VesselOrbital orbiting the target IS the destination station -
+            // flagged with its live period + pid - but it is NOT added to the Constraints list
+            // (that list stays "DestRotation + 0/1 MoonConfig" for the unwired SolveArrivalWindow,
+            // whose contract D8 keeps untouched).
+            var all = new List<PhaseConstraint> { Rotation("Kerbin"), Orbital("Duna"), Station("Duna") };
+            var bodies = Bodies(("Duna", "Sun"), ("Kerbin", "Sun"));
+
+            var r = DestinationConstraintExtractor.ExtractDestinationConstraints(all, "Duna", bodies);
+
+            Assert.True(r.Supported);
+            Assert.True(r.HasStation);
+            Assert.Equal(1800.0, r.StationPeriodSeconds, 9);
+            Assert.Equal(4242u, r.StationAnchorPid);
+            Assert.False(r.HasLandingRotation);
+            Assert.Empty(r.Constraints); // no station inside the solver list
+        }
+
+        [Fact]
+        public void LaunchSideStation_SkippedAndCounted_NoStationFields()
+        {
+            // M4c plan test 7a: a station orbiting a NON-destination body (the launch-side Kerbin
+            // fuel depot) is not a destination constraint - skipped, counted in the log line, no
+            // station fields, no amber-feeding failure.
+            var all = new List<PhaseConstraint> { Orbital("Duna"), Station("Kerbin") };
+            var bodies = Bodies(("Duna", "Sun"), ("Kerbin", "Sun"));
+
+            var r = DestinationConstraintExtractor.ExtractDestinationConstraints(all, "Duna", bodies);
+
+            Assert.True(r.Supported);
+            Assert.False(r.HasStation);
+            Assert.True(double.IsNaN(r.StationPeriodSeconds));
+            Assert.Contains(logLines, l =>
+                l.Contains("dest-constraints") && l.Contains("nonDestStations=1"));
+        }
+
+        [Fact]
+        public void MoonOrbitingStation_FailsClosed_WithInSystemReason()
+        {
+            // M4c plan test 7b: a station orbiting a MOON of the target (an Ike depot on a Duna
+            // mission) is in-system geometry the single-period hold cannot align - fail closed,
+            // HasStation set (so the arrival amber fires), reason names the shape.
+            var all = new List<PhaseConstraint> { Orbital("Duna"), Station("Ike") };
+            var bodies = Bodies(("Duna", "Sun"), ("Ike", "Duna"));
+
+            var r = DestinationConstraintExtractor.ExtractDestinationConstraints(all, "Duna", bodies);
+
+            Assert.False(r.Supported);
+            Assert.True(r.HasStation);
+            Assert.Contains("in-system station alignment deferred", r.Reason);
+            Assert.Contains("Ike", r.Reason);
+        }
+
+        [Fact]
+        public void StationPlusLanding_D8_FailsClosed()
+        {
+            // M4c plan test 8a (design D8): landing rotation + station at one destination has no
+            // single hold satisfying both periods - fail closed with the reason as the amber.
+            var all = new List<PhaseConstraint>
+            {
+                Rotation("Duna"), Orbital("Duna"), Station("Duna"),
+            };
+            var bodies = Bodies(("Duna", "Sun"));
+
+            var r = DestinationConstraintExtractor.ExtractDestinationConstraints(all, "Duna", bodies);
+
+            Assert.False(r.Supported);
+            Assert.True(r.HasStation);
+            Assert.True(r.HasLandingRotation);
+            Assert.Contains("no single arrival hold aligns both periods", r.Reason);
+        }
+
+        [Fact]
+        public void StationPlusConstrainedMoon_D8Widened_FailsClosed()
+        {
+            // M4c plan test 8b (the D8 widening): a constrained moon is a second destination-side
+            // period exactly like a landing rotation - station + moon fails closed the same way.
+            var all = new List<PhaseConstraint>
+            {
+                Orbital("Duna"), Orbital("Ike", period: 65518.0), Station("Duna"),
+            };
+            var bodies = Bodies(("Duna", "Sun"), ("Ike", "Duna"));
+
+            var r = DestinationConstraintExtractor.ExtractDestinationConstraints(all, "Duna", bodies);
+
+            Assert.False(r.Supported);
+            Assert.True(r.HasStation);
+            Assert.Equal(1, r.ConstrainedMoonCount);
+            Assert.Contains("no single arrival hold aligns both periods", r.Reason);
+        }
+
+        [Fact]
+        public void LandingPlusMoon_NoStation_StaysSupported_DunaOneRegression()
+        {
+            // M4c plan test 8c: the SHIPPED landing+moon combo (Duna One: hold T_rot, Ike rides
+            // the Duna-synchronous resonance) is untouched by the D8 widening - byte-identical.
+            var all = new List<PhaseConstraint>
+            {
+                Rotation("Duna"), Orbital("Duna"), Orbital("Ike", period: 65518.0),
+            };
+            var bodies = Bodies(("Duna", "Sun"), ("Ike", "Duna"));
+
+            var r = DestinationConstraintExtractor.ExtractDestinationConstraints(all, "Duna", bodies);
+
+            Assert.True(r.Supported);
+            Assert.False(r.HasStation);
+            Assert.True(r.HasLandingRotation);
+            Assert.Equal(1, r.ConstrainedMoonCount);
+            Assert.Equal(2, r.Constraints.Count);
+        }
+
+        [Fact]
+        public void StationBearingJoolClass_JoolReasonWins_StationFieldsSurvive()
+        {
+            // M4c plan test 8d: the Jool-class (2+ moons) early return stays FIRST and its reason
+            // wins, but the station fields are populated before the return so the arrival amber
+            // still fires for a station-bearing Jool destination.
+            var all = new List<PhaseConstraint>
+            {
+                Orbital("Jool"), Orbital("Laythe", period: 52981.0), Orbital("Vall", period: 105962.0),
+                Station("Jool"),
+            };
+            var bodies = Bodies(("Jool", "Sun"), ("Laythe", "Jool"), ("Vall", "Jool"));
+
+            var r = DestinationConstraintExtractor.ExtractDestinationConstraints(all, "Jool", bodies);
+
+            Assert.False(r.Supported);
+            Assert.Contains("Jool-class", r.Reason);
+            Assert.True(r.HasStation);
+            Assert.Equal(1800.0, r.StationPeriodSeconds, 9);
+        }
+
+        [Fact]
+        public void StationLogLine_CarriesPidPeriodAndNonDestCount()
+        {
+            var all = new List<PhaseConstraint> { Orbital("Duna"), Station("Duna") };
+            var bodies = Bodies(("Duna", "Sun"));
+
+            DestinationConstraintExtractor.ExtractDestinationConstraints(all, "Duna", bodies);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("dest-constraints") && l.Contains("station=4242@Duna T=1800s") &&
+                l.Contains("nonDestStations=0"));
+        }
     }
 }

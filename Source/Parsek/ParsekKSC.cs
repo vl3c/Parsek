@@ -1188,7 +1188,7 @@ namespace Parsek
                 currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
                 memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
                 out bool isInInterCycleTail, unit.RelaunchSchedule, unit.LoiterCuts,
-                unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.DestRotationPeriodSeconds);
+                unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds);
 
             // Cycle-wrap / camera-handoff diagnostics: the first member to run this frame observes
             // the unit-wide transition and logs it once (rate-limited per unit owner).

@@ -47,6 +47,24 @@ namespace Parsek.Reaim
 
             /// <summary>Distinct moons of the target whose SOI the recorded arc enters.</summary>
             public int ConstrainedMoonCount;
+
+            /// <summary>M4c (Tier 2): true when a VesselOrbital constraint targets the
+            /// destination SYSTEM - orbiting the target itself (the supported station-hold
+            /// shape) or a moon of the target (fail-closed with <see cref="Reason"/>). The
+            /// arrival hold substitutes the station period for T_rot when this is the only
+            /// destination-side constraint; combined with a landing rotation or a constrained
+            /// moon there is no single hold satisfying both periods (design D8), so those
+            /// shapes set <see cref="Supported"/> false and the reason surfaces as the UI
+            /// arrival amber.</summary>
+            public bool HasStation;
+
+            /// <summary>The destination station's LIVE orbital period (the VesselOrbital
+            /// constraint's PeriodSeconds, read at extraction). NaN when no station orbits the
+            /// target itself.</summary>
+            public double StationPeriodSeconds;
+
+            /// <summary>The destination station's anchor vessel pid (logging).</summary>
+            public uint StationAnchorPid;
         }
 
         // The most constrained moons this phase handles (0 or 1). 2+ (a Jool-class mini star system)
@@ -70,10 +88,16 @@ namespace Parsek.Reaim
                 Supported = true,
                 Reason = null,
                 HasLandingRotation = false,
-                ConstrainedMoonCount = 0
+                ConstrainedMoonCount = 0,
+                HasStation = false,
+                StationPeriodSeconds = double.NaN,
+                StationAnchorPid = 0
             };
 
             PhaseConstraint? destRotation = null;
+            PhaseConstraint? station = null;       // VesselOrbital orbiting the target itself
+            string moonStationReason = null;       // VesselOrbital orbiting a moon of the target
+            int nonDestStations = 0;               // launch-side / other-system stations (skipped)
             var moonConfigs = new List<PhaseConstraint>();
             var seenMoons = new HashSet<string>();
 
@@ -84,13 +108,34 @@ namespace Parsek.Reaim
                 if (string.IsNullOrEmpty(c.BodyName))
                     continue;
 
-                // M4c (Tier 2, not yet built): a VesselOrbital (station rendezvous) constraint is
-                // NOT a destination-body constraint - its BodyName is the body the STATION orbits,
-                // which the moon/rotation matching below would misread as a destination orbital
-                // config. M4a-supported missions are same-parent (never re-aim), so this is
-                // defensive; the destination-station hold lands with M4c.
+                // M4c (Tier 2): a VesselOrbital ORBITING THE TARGET is the destination station -
+                // the arrival hold substitutes its orbital period for T_rot. At most one exists
+                // (the classifier's exactly-one-foreign-anchor rule). A station orbiting a MOON
+                // of the target is in-system geometry a single-period hold cannot align (its
+                // recorded-relative configuration depends on the moon phase AND the station
+                // phase jointly): fail closed with the reason as the arrival amber. Any other
+                // VesselOrbital (a launch-side fuel depot, another system) is not a destination
+                // constraint - skipped, counted for the log line; the re-aim path has no
+                // machinery to align a launch-side station phase.
                 if (c.Kind == ConstraintKind.VesselOrbital)
+                {
+                    if (c.BodyName == targetBody)
+                    {
+                        if (station == null)
+                            station = c;
+                        continue;
+                    }
+                    string stationParent = bodyInfo?.ReferenceBodyName(c.BodyName);
+                    if (stationParent == targetBody && !string.IsNullOrEmpty(targetBody))
+                    {
+                        moonStationReason =
+                            "station orbits '" + c.BodyName + "', a moon of destination '" +
+                            targetBody + "': in-system station alignment deferred";
+                        continue;
+                    }
+                    nonDestStations++;
                     continue;
+                }
 
                 if (c.Kind == ConstraintKind.Rotation)
                 {
@@ -112,6 +157,11 @@ namespace Parsek.Reaim
 
             result.HasLandingRotation = destRotation != null;
             result.ConstrainedMoonCount = moonConfigs.Count;
+            // Station fields populated BEFORE any early return so a station-bearing Jool-class
+            // destination still carries them (the arrival amber reads them off the failed set).
+            result.HasStation = station != null || moonStationReason != null;
+            result.StationPeriodSeconds = station?.PeriodSeconds ?? double.NaN;
+            result.StationAnchorPid = station?.AnchorVesselPid ?? 0;
 
             if (moonConfigs.Count > MaxConstrainedMoons)
             {
@@ -122,7 +172,44 @@ namespace Parsek.Reaim
                     moonConfigs.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)
                     + " constrained moons of '" + (targetBody ?? "?") + "' (Jool-class), deferred";
                 result.Constraints.Clear();
-                LogExtract(targetBody, result);
+                LogExtract(targetBody, result, nonDestStations);
+                return result;
+            }
+
+            // M4c fail-closed shapes (design D8 + the moon-station extension). ONE hold aligns
+            // ONE period: a destination with both a station and any other destination-side
+            // period (landing rotation, constrained moon SOI, or the station itself orbiting a
+            // moon) has no single hold satisfying all - fail closed to faithful; the reason
+            // surfaces as the UI arrival amber. Wiring SolveArrivalWindow for the joint pick is
+            // the explicitly deferred post-M4c follow-up. TransitedBodyRotationMode.Drop does
+            // NOT rescue the landing+station case: D8's letter wins; making D8 mode-aware is
+            // SolveArrivalWindow territory.
+            if (moonStationReason != null)
+            {
+                result.Supported = false;
+                result.Reason = moonStationReason;
+                result.Constraints.Clear();
+                LogExtract(targetBody, result, nonDestStations);
+                return result;
+            }
+            if (result.HasStation && result.HasLandingRotation)
+            {
+                result.Supported = false;
+                result.Reason =
+                    "landing rotation + station rendezvous at '" + (targetBody ?? "?") +
+                    "': no single arrival hold aligns both periods (deferred)";
+                result.Constraints.Clear();
+                LogExtract(targetBody, result, nonDestStations);
+                return result;
+            }
+            if (result.HasStation && moonConfigs.Count > 0)
+            {
+                result.Supported = false;
+                result.Reason =
+                    "station rendezvous + constrained moon SOI at '" + (targetBody ?? "?") +
+                    "': no single arrival hold aligns both periods (deferred)";
+                result.Constraints.Clear();
+                LogExtract(targetBody, result, nonDestStations);
                 return result;
             }
 
@@ -131,22 +218,31 @@ namespace Parsek.Reaim
             result.Constraints.AddRange(moonConfigs);
 
             // An empty set (orbit-only arrival: no landing rotation and no constrained moon) stays
-            // Supported - any window is faithful and the arrival solver's no-constraint path handles it.
-            LogExtract(targetBody, result);
+            // Supported - any window is faithful and the arrival solver's no-constraint path handles
+            // it. A station-only set also stays Supported: the hold substitutes T_station.
+            LogExtract(targetBody, result, nonDestStations);
             return result;
         }
 
-        private static void LogExtract(string targetBody, DestinationConstraintSet r)
+        private static void LogExtract(string targetBody, DestinationConstraintSet r, int nonDestStations)
         {
             // Intentional shared gate: the summary reuses MissionPeriodicity.SuppressLogging (the same
             // periodicity subsystem family) rather than a selector-owned flag, so tests silence/observe
             // the whole family with one switch.
             if (MissionPeriodicity.SuppressLogging)
                 return;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
             ParsekLog.Verbose("ReaimArrival",
                 "dest-constraints target=" + (targetBody ?? "?") +
                 " landingRotation=" + r.HasLandingRotation +
                 " moons=" + r.ConstrainedMoonCount +
+                " station=" + (r.HasStation
+                    ? (r.StationAnchorPid != 0
+                        ? r.StationAnchorPid.ToString(ic) + "@" + (targetBody ?? "?") +
+                          " T=" + r.StationPeriodSeconds.ToString("F0", ic) + "s"
+                        : "moon-of-target")
+                    : "none") +
+                " nonDestStations=" + nonDestStations.ToString(ic) +
                 " emitted=" + r.Constraints.Count +
                 " supported=" + r.Supported +
                 (r.Supported ? "" : " reason='" + r.Reason + "'"));

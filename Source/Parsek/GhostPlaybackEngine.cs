@@ -369,7 +369,7 @@ namespace Parsek
                     unit.LoiterCuts,
                     unit.ArrivalHoldSeconds,
                     unit.ArrivalHoldAtUT,
-                    unit.DestRotationPeriodSeconds))
+                    unit.ArrivalAlignPeriodSeconds))
             {
                 return false;
             }
@@ -1880,7 +1880,7 @@ namespace Parsek
                                 parentUnit.SpanEndUT, parentUnit.CadenceSeconds, out parentLoopUT,
                                 out parentCycle, out bool parentInInterCycleTail, parentUnit.RelaunchSchedule,
                                 parentUnit.LoiterCuts, parentUnit.ArrivalHoldSeconds, parentUnit.ArrivalHoldAtUT,
-                                parentUnit.DestRotationPeriodSeconds))
+                                parentUnit.ArrivalAlignPeriodSeconds))
                         {
                             GhostRenderTrace.EmitGuardSkip(
                                 traj, i, ctx.currentUT, "parent-unit-span-clock-unresolved");
@@ -2281,7 +2281,7 @@ namespace Parsek
                 ctx.currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
                 memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
                 out bool isInInterCycleTail, unit.RelaunchSchedule, unit.LoiterCuts,
-                unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.DestRotationPeriodSeconds);
+                unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds);
 
             // Cycle-wrap / camera-handoff diagnostics + watch retarget: the first member of the unit
             // to run this frame observes the unit-wide transition and acts once (rate-limited per
