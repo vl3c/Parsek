@@ -231,14 +231,24 @@ namespace Parsek.Tests
             part.AddValue("fx_exhaustLight_blue", "0.0, -2, 0.0, 0.0, 0.0, 1.0, running");
             part.AddValue("fx_gasBurst_white", "0.0, 0.0, 0.0, 0.0, 1.0, 0.0, decouple");
             part.AddValue("sound_rocket_hard", "running");
+            // Mainsail-style duplicate vernier keys: multiplicity must be preserved
+            // (KSP compiles one FX child per key; the stock ghost path clones each).
+            part.AddValue("fx_exhaustFlame_yellow_mini", "0.041, -1.01, 1.85, 0.0, 1.0, 0.0, running, true");
+            part.AddValue("fx_exhaustFlame_yellow_mini", "-0.041, 1.01, 1.85, 0.0, 1.0, 0.0, running, true");
 
             List<string> kept = PristinePartFxResolver.ParseLegacyFxKeys(part, "mainsailLike");
 
             Assert.Equal(
-                new List<string> { "fx_exhaustFlame_yellow_medium", "fx_smokeTrail_light" },
+                new List<string>
+                {
+                    "fx_exhaustFlame_yellow_medium",
+                    "fx_smokeTrail_light",
+                    "fx_exhaustFlame_yellow_mini",
+                    "fx_exhaustFlame_yellow_mini"
+                },
                 kept);
             Assert.Contains(logLines, l => l.Contains("[WaterfallCompat]") &&
-                l.Contains("kept=2") && l.Contains("skippedTransient=1") && l.Contains("skippedLight=2"));
+                l.Contains("kept=4") && l.Contains("skippedTransient=1") && l.Contains("skippedLight=2"));
         }
 
         [Fact]

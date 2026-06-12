@@ -17,13 +17,13 @@ namespace Parsek.Tests
             string entry = GhostFxFingerprint.FormatEntry(
                 "fx_exhaustFlame_yellow_medium(Clone)", "thrustTransform",
                 new Vector3(0.123f, -2.179f, 0f),
-                new Vector3(270.0001f, 0f, 359.6f),
+                new Vector3(0f, 0.04f, -1.001f),
                 new Vector3(1f, 1f, 1f),
                 0.451f, 0.749f);
 
             Assert.Equal(
                 "fx_exhaustFlame_yellow_medium<thrustTransform pos=(0.12,-2.18,0.00) " +
-                "rot=(270,0,360) scale=(1.00,1.00,1.00) size=0.45 speed=0.75",
+                "dir=(0.0,0.0,-1.0) scale=(1.00,1.00,1.00) size=0.45 speed=0.75",
                 entry);
         }
 
@@ -34,6 +34,18 @@ namespace Parsek.Tests
                 null, null, Vector3.zero, Vector3.zero, Vector3.one, 1f, 1f);
 
             Assert.StartsWith("?<?", entry);
+        }
+
+        [Theory]
+        [InlineData("fx_exhaustFlame_blue_small(Clone)(Clone)", "fx_exhaustFlame_blue_small")]
+        [InlineData("fx_exhaustFlame_yellow_mini(Clone)(Keep Pos)", "fx_exhaustFlame_yellow_mini")]
+        [InlineData("fx_exhaustFlame_yellow_mini(Clone)(Keep Pos)(Clone)", "fx_exhaustFlame_yellow_mini")]
+        [InlineData("fx_smokeTrail_light", "fx_smokeTrail_light")]
+        [InlineData("", "?")]
+        [InlineData(null, "?")]
+        public void CanonicalObjectName_StripsAllInstanceSuffixes(string raw, string expected)
+        {
+            Assert.Equal(expected, GhostFxFingerprint.CanonicalObjectName(raw));
         }
 
         [Fact]

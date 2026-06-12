@@ -19,22 +19,56 @@ namespace Parsek
         private const double LogIntervalSeconds = 5.0;
 
         /// <summary>
-        /// Formats one particle system's visual identity. Pure; values rounded to two
-        /// decimals (InvariantCulture) so float noise never produces false diffs.
+        /// Canonical object name for fingerprinting: strips ALL trailing instance suffixes
+        /// ("(Clone)" repeats from clone-of-clone chains, KSP's "(Keep Pos)"), so the same
+        /// asset fingerprints identically whether it was cloned from a compiled child
+        /// (stock path) or instantiated from the raw builtin asset (Waterfall fallback).
+        /// </summary>
+        internal static string CanonicalObjectName(string rawName)
+        {
+            if (string.IsNullOrEmpty(rawName))
+                return "?";
+
+            string name = rawName.Trim();
+            bool stripped = true;
+            while (stripped)
+            {
+                stripped = false;
+                if (name.EndsWith("(Clone)", System.StringComparison.Ordinal))
+                {
+                    name = name.Substring(0, name.Length - 7).TrimEnd();
+                    stripped = true;
+                }
+                if (name.EndsWith("(Keep Pos)", System.StringComparison.Ordinal))
+                {
+                    name = name.Substring(0, name.Length - 10).TrimEnd();
+                    stripped = true;
+                }
+            }
+            return name.Length > 0 ? name : "?";
+        }
+
+        /// <summary>
+        /// Formats one particle system's visual identity. Pure; values rounded
+        /// (InvariantCulture) so float noise never produces false diffs. Orientation is
+        /// captured as the EMISSION DIRECTION (the local +Y image, the axis particles
+        /// emit along), not raw Euler angles: the stock path and the Waterfall fallback
+        /// produce rotations that differ only by roll around the emission axis, which is
+        /// invisible for axially symmetric FX and must not diff.
         /// </summary>
         internal static string FormatEntry(
             string objectName, string parentName,
-            Vector3 localPos, Vector3 localEuler, Vector3 localScale,
+            Vector3 localPos, Vector3 emissionDir, Vector3 localScale,
             float startSizeMultiplier, float startSpeedMultiplier)
         {
-            string name = GhostVisualBuilder.NormalizeFxPrefabName(objectName) ?? "?";
-            string parent = GhostVisualBuilder.NormalizeFxPrefabName(parentName) ?? "?";
+            string name = CanonicalObjectName(objectName);
+            string parent = CanonicalObjectName(parentName);
             return string.Format(CultureInfo.InvariantCulture,
-                "{0}<{1} pos=({2:F2},{3:F2},{4:F2}) rot=({5:F0},{6:F0},{7:F0}) " +
+                "{0}<{1} pos=({2:F2},{3:F2},{4:F2}) dir=({5:F1},{6:F1},{7:F1}) " +
                 "scale=({8:F2},{9:F2},{10:F2}) size={11:F2} speed={12:F2}",
                 name, parent,
                 localPos.x, localPos.y, localPos.z,
-                localEuler.x, localEuler.y, localEuler.z,
+                emissionDir.x, emissionDir.y, emissionDir.z,
                 localScale.x, localScale.y, localScale.z,
                 startSizeMultiplier, startSpeedMultiplier);
         }
@@ -105,7 +139,7 @@ namespace Parsek
                         t.gameObject.name,
                         t.parent != null ? t.parent.name : "(root)",
                         t.localPosition,
-                        t.localRotation.eulerAngles,
+                        t.localRotation * Vector3.up,
                         t.localScale,
                         main.startSizeMultiplier,
                         main.startSpeedMultiplier));
