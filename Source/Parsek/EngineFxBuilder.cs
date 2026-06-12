@@ -718,11 +718,16 @@ namespace Parsek
         /// <summary>
         /// Resolves the local rotation for a PREFAB_PARTICLE instance without a cfg
         /// localRotation on a ReStock-authored part: aim the prefab's emission axis
-        /// (local +Y) along the engine's exhaust axis expressed in the parent FX
-        /// transform's frame. The stock parent-up heuristic mis-aims on ReStock rigs
-        /// (Mammoth's smokePoint pointed the smoke trail straight up). Returns false
-        /// when the cfg authored a rotation, the part is not ReStock-authored, or no
-        /// exhaust axis is resolvable; callers then keep the stock heuristic.
+        /// along the engine's exhaust axis expressed in the parent FX transform's
+        /// frame. The stock parent-up heuristic mis-aims on ReStock rigs (Mammoth's
+        /// smokePoint pointed the smoke trail straight up). The emission axis of the
+        /// smokeTrail prefabs is local MINUS-Y: MEASURED by GhostFxEmissionProbe
+        /// (round-5 log 2026-06-12): every instance aimed with +Y flowed exactly
+        /// inverted (177-180 deg) while every heuristic instance (identity rotation,
+        /// parent up vertical) flowed correctly, which is only consistent with -Y
+        /// emission. Returns false when the cfg authored a rotation, the part is not
+        /// ReStock-authored, or no exhaust axis is resolvable; callers then keep the
+        /// stock heuristic.
         /// </summary>
         internal static bool TryComputeExhaustAimedPrefabRotation(
             bool hasCfgRotation, bool restockAuthoredEffects, bool hasExhaustDir,
@@ -734,7 +739,7 @@ namespace Parsek
             if (exhaustAxisParentLocal.magnitude <= 0.001f)
                 return false;
 
-            rotation = ManagedFromToRotation(Vector3.up, exhaustAxisParentLocal.normalized);
+            rotation = ManagedFromToRotation(Vector3.down, exhaustAxisParentLocal.normalized);
             return true;
         }
 

@@ -335,26 +335,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ExhaustAimedPrefabRotation_AimsEmissionAxisAlongExhaust()
+        public void ExhaustAimedPrefabRotation_AimsMinusYEmissionAxisAlongExhaust()
         {
             // Mammoth shape: smokePoint rig where the stock parent-up heuristic aimed
             // the smoke trail straight up; the exhaust axis (parent-local) must win.
+            // smokeTrail prefabs emit along local MINUS-Y (measured: round-5 probe log
+            // showed every +Y-aimed instance flowing exactly inverted).
             Vector3 exhaustParentLocal = new Vector3(0f, 0f, 1f);
             Assert.True(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
                 hasCfgRotation: false, restockAuthoredEffects: true, hasExhaustDir: true,
                 exhaustParentLocal, out Quaternion rot));
-            AssertVector3Close(exhaustParentLocal, rot * Vector3.up);
+            AssertVector3Close(exhaustParentLocal, rot * Vector3.down);
+        }
+
+        [Fact]
+        public void ExhaustAimedPrefabRotation_ExhaustAlongMinusY_IsIdentityLike()
+        {
+            // A rig whose parent -Y already points exhaust-ward (the correct-by-
+            // identity case the round-5 probe measured on fxTransformPlume rigs)
+            // needs no rotation.
+            Assert.True(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
+                hasCfgRotation: false, restockAuthoredEffects: true, hasExhaustDir: true,
+                Vector3.down, out Quaternion rot));
+            AssertVector3Close(Vector3.down, rot * Vector3.down);
         }
 
         [Fact]
         public void ExhaustAimedPrefabRotation_OppositeAxis_RotatesFully()
         {
-            // Exhaust pointing straight down (opposite the +Y emission axis): the
+            // Exhaust pointing along +Y (opposite the -Y emission axis): the
             // 180-degree degenerate case must still produce a valid rotation.
             Assert.True(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
                 hasCfgRotation: false, restockAuthoredEffects: true, hasExhaustDir: true,
-                Vector3.down, out Quaternion rot));
-            AssertVector3Close(Vector3.down, rot * Vector3.up);
+                Vector3.up, out Quaternion rot));
+            AssertVector3Close(Vector3.up, rot * Vector3.down);
         }
 
         [Theory]
