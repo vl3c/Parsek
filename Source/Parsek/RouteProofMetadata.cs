@@ -135,6 +135,63 @@ namespace Parsek
         }
     }
 
+    /// <summary>
+    /// Full-run transport-scoped cargo manifest (M2 / plan D3). One per
+    /// Recording, presence-gated: old recordings simply lack it and analyze
+    /// exactly as today.
+    ///
+    /// Lifecycle contract:
+    /// - The START half (scope pid set + start resources) is captured ONCE at
+    ///   the recording's BIRTH (root/user start, undock-split child, dock-merge
+    ///   child, chain-segment birth) and written onto the tree recording
+    ///   immediately. It is NEVER re-captured on BG-promotion or quickload
+    ///   resume (a re-captured mid-run baseline would fold prior gains into
+    ///   "start cargo" and bypass the gain check).
+    /// - The END half completes only on ACTIVE stops (BuildCaptureRecording
+    ///   paths) and is overwrite-per-active-stop: a chain-boundary stop
+    ///   abandoned by ResumeAfterFalseAlarm leaves a stale END that the
+    ///   eventual real stop replaces. ForceStop leaves the END absent.
+    /// - A recording that transits BACKGROUND has its manifest VOIDED.
+    /// - <see cref="EndCaptured"/> is the explicit completion marker so a
+    ///   complete manifest is distinguishable from a start-only one even when
+    ///   the extracted end manifest is null (resource-less vessel). The
+    ///   analysis presence gate (M2 Phase 4) requires BOTH halves.
+    ///
+    /// No inventory fields in M2 - deferred to M3 (plan review finding 13).
+    /// </summary>
+    internal sealed class RouteRunCargoManifest
+    {
+        // Scope set captured at recording start (identical scope rule to the
+        // start-docked origin proof). END extraction is scoped to this set, so
+        // parts decoupled mid-run drop out of the END manifest (losses, which
+        // M2 does not check).
+        public List<uint> TransportPartPersistentIds;
+        public Dictionary<string, ResourceAmount> StartTransportResources;
+        public Dictionary<string, ResourceAmount> EndTransportResources;
+        // True once an active stop completed the END half. Null
+        // EndTransportResources with EndCaptured=true means "captured, vessel
+        // had no resource-bearing parts" - still a complete manifest.
+        public bool EndCaptured;
+
+        internal bool HasStartHalf =>
+            TransportPartPersistentIds != null && TransportPartPersistentIds.Count > 0;
+
+        internal bool IsComplete => HasStartHalf && EndCaptured;
+
+        internal RouteRunCargoManifest DeepClone()
+        {
+            return new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = TransportPartPersistentIds != null
+                    ? new List<uint>(TransportPartPersistentIds)
+                    : null,
+                StartTransportResources = RouteProofMetadata.CloneResourceManifest(StartTransportResources),
+                EndTransportResources = RouteProofMetadata.CloneResourceManifest(EndTransportResources),
+                EndCaptured = EndCaptured
+            };
+        }
+    }
+
     internal static class RouteProofMetadata
     {
         internal static Dictionary<string, ResourceAmount> CloneResourceManifest(

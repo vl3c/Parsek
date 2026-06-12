@@ -1116,6 +1116,16 @@ namespace Parsek
         private RouteOriginProof pendingRouteOriginProof;
         private List<uint> pendingRouteOriginProofStartPartPids;
 
+        // M2 full-run cargo manifest (plan D3). Recorder-private working copy:
+        // the START half is written onto the tree recording immediately at
+        // capture time (write-once); this pending instance exists so
+        // BuildCaptureRecording can complete the END half scoped to the START
+        // pid set and forward a complete clone onto CaptureAtStop. On
+        // quickload resume / recorder re-bind the pending copy is re-adopted
+        // (cloned) from the tree recording's persisted start half - never
+        // re-captured from the live vessel (round-2 BLOCKER 1).
+        private RouteRunCargoManifest pendingRouteRunManifest;
+
         /// <summary>
         /// Read-only view of the controller identity captured at the most recent
         /// <see cref="StartRecording"/> call. Used by
@@ -6306,6 +6316,9 @@ namespace Parsek
             // cannot leak a prior recording's partner detection into the new one.
             pendingRouteOriginProof = null;
             pendingRouteOriginProofStartPartPids = null;
+            // Same leak guard for the M2 run manifest: re-populated (captured or
+            // adopted) in InsertBoundaryAnchorAndSnapshot.
+            pendingRouteRunManifest = null;
 
             hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
                 a => a.name == "PersistentRotation");
@@ -6572,6 +6585,7 @@ namespace Parsek
             pendingStartControllers = ControllerInfo.CaptureFromVessel(v);
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartControllers?.Count ?? 0} start controller part(s)");
             CaptureStartRouteOriginProofIfDocked(v);
+            CaptureRunCargoManifestAtStart(v);
 
             // Launch-unique identity: capture the live Vessel.id Guid (assigned fresh per launch,
             // unlike the craft-baked persistentId). Falls back to the snapshot's `pid` value when
@@ -6704,6 +6718,83 @@ namespace Parsek
                 recordingVesselId: RecordingVesselId,
                 out pendingRouteOriginProof,
                 out pendingRouteOriginProofStartPartPids);
+        }
+
+        /// <summary>
+        /// M2 run-manifest START half producer (plan D3). Runs at every
+        /// recorder start; the BIRTH discriminator
+        /// (<see cref="RouteProofCapture.ShouldCaptureRunManifestStartHalf"/>)
+        /// decides whether this start is a genuine recording birth (capture +
+        /// write-once onto the tree recording immediately) or a re-bind of an
+        /// existing recording (quickload resume: ADOPT the persisted start half
+        /// into the pending copy so the eventual active stop can still complete
+        /// the END half; BG-promotion: manifest was voided at the background
+        /// transition, nothing to adopt - the leg degrades to legacy analysis).
+        /// </summary>
+        private void CaptureRunCargoManifestAtStart(Vessel v)
+        {
+            pendingRouteRunManifest = null;
+
+            if (IsGloopsMode)
+            {
+                ParsekLog.Verbose("Recorder",
+                    $"RouteRunManifest skipped: gloops mode recId={RecordingVesselId} vessel='{v?.vesselName}'");
+                return;
+            }
+
+            Recording treeRec = null;
+            if (ActiveTree != null
+                && !string.IsNullOrEmpty(ActiveTree.ActiveRecordingId)
+                && ActiveTree.Recordings != null)
+            {
+                ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out treeRec);
+            }
+
+            if (!RouteProofCapture.ShouldCaptureRunManifestStartHalf(treeRec, out string skipReason))
+            {
+                if (treeRec != null
+                    && treeRec.RouteRunManifest != null
+                    && treeRec.RouteRunManifest.HasStartHalf)
+                {
+                    // Write-once: the recording was born earlier and its START
+                    // half is already persisted (quickload resume / re-bind).
+                    // Adopt a working clone so the END half can still complete
+                    // at the eventual active stop.
+                    pendingRouteRunManifest = treeRec.RouteRunManifest.DeepClone();
+                    ParsekLog.Verbose("Recorder",
+                        $"RouteRunManifest start adopted (write-once): recording={treeRec.RecordingId} " +
+                        $"parts={pendingRouteRunManifest.TransportPartPersistentIds?.Count ?? 0} " +
+                        $"res={pendingRouteRunManifest.StartTransportResources?.Count ?? 0} " +
+                        $"endCaptured={(pendingRouteRunManifest.EndCaptured ? "1" : "0")}");
+                }
+                else
+                {
+                    ParsekLog.Verbose("Recorder",
+                        $"RouteRunManifest start skipped: reason={skipReason} " +
+                        $"recId={RecordingVesselId} treeRec={treeRec?.RecordingId ?? "(none)"} " +
+                        $"vessel='{v?.vesselName}'");
+                }
+                return;
+            }
+
+            RouteRunCargoManifest manifest = RouteProofCapture.BuildRunCargoManifestAtStart(
+                lastGoodVesselSnapshot,
+                isGloopsMode: false,
+                vesselContext: v?.vesselName,
+                recordingVesselId: RecordingVesselId);
+            if (manifest == null)
+                return; // skip reason logged inside the builder
+
+            pendingRouteRunManifest = manifest;
+            // Write-once onto the tree recording IMMEDIATELY (plan D3 rule 2):
+            // the start half must survive scene exits / quickloads even if this
+            // recorder never reaches an active stop.
+            treeRec.RouteRunManifest = manifest.DeepClone();
+            treeRec.MarkFilesDirty();
+            ParsekLog.Verbose("Recorder",
+                $"RouteRunManifest start written to tree recording: recording={treeRec.RecordingId} " +
+                $"parts={manifest.TransportPartPersistentIds.Count} " +
+                $"res={manifest.StartTransportResources?.Count ?? 0}");
         }
 
         /// <summary>
@@ -7100,6 +7191,12 @@ namespace Parsek
                 capture,
                 pendingRouteOriginProof,
                 pendingRouteOriginProofStartPartPids);
+            // M2 run manifest (plan D3 rule 4): complete the END half from the
+            // capture snapshot scoped to the START pid set - this is the only
+            // path that completes a manifest (active stops: StopRecording,
+            // chain boundary, pid change). ForceStop never builds a capture, so
+            // its legs keep a start-only manifest and degrade to legacy.
+            RouteProofCapture.CompleteRunCargoManifestAtStop(capture, pendingRouteRunManifest);
             capture.GhostVisualSnapshot = initialGhostVisualSnapshot != null
                 ? initialGhostVisualSnapshot.CreateCopy()
                 : (capture.VesselSnapshot != null ? capture.VesselSnapshot.CreateCopy() : null);
@@ -10278,6 +10375,16 @@ namespace Parsek
 
             if (v != null)
                 RefreshFinalizationCache(v, "transition_to_background", force: true);
+
+            // M2 run manifest (plan D3 rule 3): a leg that transits background
+            // can never complete its END half trustworthily - VOID the manifest
+            // on the tree recording (Warn-logged inside) and drop the pending
+            // working copy. The analysis presence gate degrades the tree to
+            // legacy behavior for this lineage.
+            RouteProofCapture.VoidRunManifestForBackgroundTransition(
+                ActiveTree,
+                ActiveTree?.ActiveRecordingId);
+            pendingRouteRunManifest = null;
 
             // Disconnect from Harmony patch (stop physics-frame sampling)
             Patches.PhysicsFramePatch.ActiveRecorder = null;

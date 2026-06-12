@@ -40,6 +40,7 @@ namespace Parsek.Tests.Generators
         private double terrainHeightAtEnd = double.NaN;
         private Dictionary<string, ResourceAmount> startResources;
         private Dictionary<string, ResourceAmount> endResources;
+        private RouteRunCargoManifest routeRunManifest;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
@@ -377,6 +378,31 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        /// <summary>
+        /// M2 full-run cargo manifest (plan D3). Pass <c>endCaptured: false</c>
+        /// with a null <paramref name="endTransportResources"/> for a start-only
+        /// (ForceStop-shaped) manifest. Serialized via the
+        /// <c>RouteProofCodec</c> chokepoint in <see cref="BuildV3Metadata"/>.
+        /// </summary>
+        internal RecordingBuilder WithRouteRunManifest(
+            List<uint> transportPartPersistentIds,
+            Dictionary<string, ResourceAmount> startTransportResources,
+            Dictionary<string, ResourceAmount> endTransportResources,
+            bool endCaptured)
+        {
+            routeRunManifest = new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = transportPartPersistentIds,
+                StartTransportResources = startTransportResources,
+                EndTransportResources = endTransportResources,
+                EndCaptured = endCaptured
+            };
+            return this;
+        }
+
+        /// <summary>Returns the run cargo manifest (may be null).</summary>
+        internal RouteRunCargoManifest GetRouteRunManifest() => routeRunManifest;
+
         // --- v6 TrackSection builder methods ---
 
         /// <summary>
@@ -675,6 +701,11 @@ namespace Parsek.Tests.Generators
             // Resource manifests (Phase 11)
             SerializeResourceManifestInto(node);
 
+            // M2 route-proof metadata (sparse): routes through the same
+            // RouteProofCodec chokepoint both persistence paths use, so test
+            // fixtures exercise the production node shape.
+            SerializeRouteProofMetadataInto(node);
+
             return node;
         }
 
@@ -837,7 +868,24 @@ namespace Parsek.Tests.Generators
             // Resource manifests (Phase 11)
             SerializeResourceManifestInto(node);
 
+            // M2 route-proof metadata (sparse, same chokepoint as BuildV3Metadata)
+            SerializeRouteProofMetadataInto(node);
+
             return node;
+        }
+
+        /// <summary>
+        /// Serializes the M2 route-proof fields (run cargo manifest) through the
+        /// production <c>RouteProofCodec</c> chokepoint. No-op when unset, so
+        /// pre-M2 fixture nodes stay byte-identical.
+        /// </summary>
+        private void SerializeRouteProofMetadataInto(ConfigNode node)
+        {
+            if (routeRunManifest == null)
+                return;
+
+            var proofCarrier = new Recording { RouteRunManifest = routeRunManifest };
+            RecordingStore.SerializeRouteProofMetadata(node, proofCarrier);
         }
 
         /// <summary>Returns the rewind save file name (may be null).</summary>

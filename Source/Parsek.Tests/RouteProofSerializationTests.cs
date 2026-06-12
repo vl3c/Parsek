@@ -263,6 +263,115 @@ namespace Parsek.Tests
             Assert.Equal(RouteConnectionKind.None, loaded.TransferKind);
             Assert.Null(loaded.RouteOriginProof);
             Assert.Null(loaded.RouteConnectionWindows);
+            // M2 (D10 null-preservation pin): an old-shape node must read back
+            // a NULL run manifest - a codec that lazily allocates an empty one
+            // flips every existing route to SourceChanged on revalidate.
+            Assert.Null(loaded.RouteRunManifest);
+        }
+
+        [Fact]
+        public void RouteRunManifest_RoundTripsViaTreeMetadata()
+        {
+            // FAILS IF: the M2 run-manifest node loses the pid scope, either
+            // resource half, or the explicit endCaptured completion marker on
+            // the tree persistence path.
+            var rec = new Recording
+            {
+                RecordingId = "run-manifest-tree",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { 100u, 200u },
+                    StartTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        ["Ore"] = new ResourceAmount { amount = 0.0, maxAmount = 1500.0 },
+                        [CrpFixtures.Karbonite] = new ResourceAmount { amount = 12.5, maxAmount = 50.0 }
+                    },
+                    EndTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        ["Ore"] = new ResourceAmount { amount = 1200.0, maxAmount = 1500.0 }
+                    },
+                    EndCaptured = true
+                }
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
+
+            var loaded = new Recording { RecordingId = "run-manifest-tree" };
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
+
+            Assert.NotNull(loaded.RouteRunManifest);
+            Assert.Equal(new List<uint> { 100u, 200u },
+                loaded.RouteRunManifest.TransportPartPersistentIds);
+            Assert.Equal(0.0, loaded.RouteRunManifest.StartTransportResources["Ore"].amount);
+            Assert.Equal(1500.0, loaded.RouteRunManifest.StartTransportResources["Ore"].maxAmount);
+            Assert.Equal(12.5,
+                loaded.RouteRunManifest.StartTransportResources[CrpFixtures.Karbonite].amount);
+            Assert.Equal(1200.0, loaded.RouteRunManifest.EndTransportResources["Ore"].amount);
+            Assert.True(loaded.RouteRunManifest.EndCaptured);
+            Assert.True(loaded.RouteRunManifest.IsComplete);
+        }
+
+        [Fact]
+        public void RouteRunManifest_RoundTripsViaScenarioMetadata()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "run-manifest-scenario",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { 11u },
+                    StartTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        ["MonoPropellant"] = new ResourceAmount { amount = 40.0, maxAmount = 40.0 }
+                    },
+                    EndCaptured = false
+                }
+            };
+
+            var node = new ConfigNode("RECORDING");
+            ParsekScenario.SaveRecordingMetadata(node, rec);
+
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+
+            Assert.NotNull(loaded.RouteRunManifest);
+            Assert.Equal(new List<uint> { 11u }, loaded.RouteRunManifest.TransportPartPersistentIds);
+            Assert.Equal(40.0, loaded.RouteRunManifest.StartTransportResources["MonoPropellant"].amount);
+            // A ForceStop-shaped start-only manifest must read back start-only:
+            // the analysis presence gate requires BOTH halves (round-2
+            // correction 5), so endCaptured may never invent itself on load.
+            Assert.False(loaded.RouteRunManifest.EndCaptured);
+            Assert.Null(loaded.RouteRunManifest.EndTransportResources);
+            Assert.False(loaded.RouteRunManifest.IsComplete);
+        }
+
+        [Fact]
+        public void RouteRunManifest_BuilderFixture_RoundTrips()
+        {
+            // Pins the generator support (Post-Change Checklist): a
+            // RecordingBuilder fixture carrying a run manifest produces the
+            // production node shape.
+            ConfigNode node = new Generators.RecordingBuilder("Drill Transport")
+                .WithRouteRunManifest(
+                    new List<uint> { 100u, 200u },
+                    new Dictionary<string, ResourceAmount>
+                    {
+                        ["Ore"] = new ResourceAmount { amount = 0.0, maxAmount = 1500.0 }
+                    },
+                    new Dictionary<string, ResourceAmount>
+                    {
+                        ["Ore"] = new ResourceAmount { amount = 900.0, maxAmount = 1500.0 }
+                    },
+                    endCaptured: true)
+                .BuildV3Metadata();
+
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+
+            Assert.NotNull(loaded.RouteRunManifest);
+            Assert.True(loaded.RouteRunManifest.IsComplete);
+            Assert.Equal(900.0, loaded.RouteRunManifest.EndTransportResources["Ore"].amount);
         }
 
         [Fact]

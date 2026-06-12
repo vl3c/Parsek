@@ -8,6 +8,7 @@ namespace Parsek
     {
         private const string RouteOriginProofNode = "ROUTE_ORIGIN_PROOF";
         private const string RouteConnectionWindowsNode = "ROUTE_CONNECTION_WINDOWS";
+        private const string RouteRunManifestNode = "ROUTE_RUN_MANIFEST";
         private const string StoredPartSnapshotNode = "STOREDPART_SNAPSHOT";
         private const string StockStoredPartNode = "STOREDPART";
 
@@ -39,6 +40,17 @@ namespace Parsek
                 wroteOriginProof = true;
             }
 
+            // M2 run manifest (plan D3): additive sparse node - written only
+            // when the manifest carries data, so pre-M2 saves are byte-stable
+            // and absent nodes read back as null (never lazily allocated; the
+            // RouteProofHasher null-vs-empty contract depends on this).
+            bool wroteRunManifest = false;
+            if (HasRunManifestData(rec.RouteRunManifest))
+            {
+                SerializeRunManifest(parent.AddNode(RouteRunManifestNode), rec.RouteRunManifest);
+                wroteRunManifest = true;
+            }
+
             if (rec.RouteConnectionWindows != null && rec.RouteConnectionWindows.Count > 0)
             {
                 ConfigNode windowsNode = null;
@@ -55,12 +67,14 @@ namespace Parsek
                 }
             }
 
-            if (wroteTargetPid || wroteTransferKind || wroteOriginProof || writtenWindows > 0)
+            if (wroteTargetPid || wroteTransferKind || wroteOriginProof || wroteRunManifest
+                || writtenWindows > 0)
                 ParsekLog.Verbose("RecordingStore",
                     $"SerializeRouteProofMetadata: recording={rec.RecordingId} " +
                     $"targetPid={(wroteTargetPid ? rec.TransferTargetVesselPid.ToString(ic) : "none")} " +
                     $"kind={(wroteTransferKind ? rec.TransferKind.ToString() : "none")} " +
-                    $"originProof={wroteOriginProof} windows={writtenWindows}");
+                    $"originProof={wroteOriginProof} runManifest={wroteRunManifest} " +
+                    $"windows={writtenWindows}");
         }
 
         internal static void DeserializeRouteProofMetadata(ConfigNode parent, Recording rec)
@@ -82,6 +96,13 @@ namespace Parsek
             ConfigNode originNode = parent.GetNode(RouteOriginProofNode);
             if (originNode != null)
                 rec.RouteOriginProof = DeserializeOriginProof(originNode);
+
+            // Absent node -> RouteRunManifest stays null (old-shape recordings
+            // and BG-voided legs); the codec must never lazily allocate or the
+            // hasher's null-vs-empty contract flips every route to SourceChanged.
+            ConfigNode runManifestNode = parent.GetNode(RouteRunManifestNode);
+            if (runManifestNode != null)
+                rec.RouteRunManifest = DeserializeRunManifest(runManifestNode);
 
             ConfigNode windowsNode = parent.GetNode(RouteConnectionWindowsNode);
             if (windowsNode == null)
@@ -105,6 +126,45 @@ namespace Parsek
 
             ParsekLog.Verbose("RecordingStore",
                 $"DeserializeRouteProofMetadata: loaded {loaded} connection window(s) for recording={rec.RecordingId}");
+        }
+
+        private static bool HasRunManifestData(RouteRunCargoManifest manifest)
+        {
+            return manifest != null
+                && (HasEntries(manifest.TransportPartPersistentIds)
+                    || HasEntries(manifest.StartTransportResources)
+                    || HasEntries(manifest.EndTransportResources)
+                    || manifest.EndCaptured);
+        }
+
+        private static void SerializeRunManifest(ConfigNode node, RouteRunCargoManifest manifest)
+        {
+            SerializePartPidList(node, "TRANSPORT_PART_PIDS", manifest.TransportPartPersistentIds);
+            SerializeResourceManifest(node, "START_TRANSPORT_RESOURCES", manifest.StartTransportResources);
+            SerializeResourceManifest(node, "END_TRANSPORT_RESOURCES", manifest.EndTransportResources);
+            // Sparse: written only when true (mirrors the lastHoldKind exemplar
+            // style). EndCaptured=true with an absent END_TRANSPORT_RESOURCES
+            // node is a COMPLETE manifest for a resource-less vessel.
+            if (manifest.EndCaptured)
+                node.AddValue("endCaptured", manifest.EndCaptured.ToString());
+            // NO inventory fields in M2 - deferred to M3 (plan finding 13); the
+            // sparse node shape makes adding them later free.
+        }
+
+        private static RouteRunCargoManifest DeserializeRunManifest(ConfigNode node)
+        {
+            var manifest = new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = DeserializePartPidList(node, "TRANSPORT_PART_PIDS"),
+                StartTransportResources = DeserializeResourceManifest(node, "START_TRANSPORT_RESOURCES"),
+                EndTransportResources = DeserializeResourceManifest(node, "END_TRANSPORT_RESOURCES"),
+            };
+
+            string endCapturedStr = node.GetValue("endCaptured");
+            if (endCapturedStr != null && bool.TryParse(endCapturedStr, out bool endCaptured))
+                manifest.EndCaptured = endCaptured;
+
+            return manifest;
         }
 
         private static bool HasOriginProofData(RouteOriginProof proof)

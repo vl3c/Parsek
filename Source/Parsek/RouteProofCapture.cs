@@ -324,6 +324,162 @@ namespace Parsek
                 $"endInv={pendingProof.EndTransportInventory?.Count ?? 0}");
         }
 
+        /// <summary>
+        /// M2 / plan D3 birth discriminator (round-2 BLOCKER 1): the run-manifest
+        /// START half is captured iff the tree's active Recording is at its BIRTH
+        /// (no prior samples of any kind) AND carries no start half yet (the
+        /// write-once guard). The flavor of the recorder start (isPromotion or
+        /// not) is deliberately NOT the discriminator - split children, merge
+        /// children, and chain-segment births all start with isPromotion:true and
+        /// MUST capture, while BG-promotion of an existing recording and quickload
+        /// resume must NOT (a re-captured mid-run baseline would fold prior gains
+        /// into "start cargo" and bypass the gain check).
+        ///
+        /// Pure / static / testable. Logging happens at the call site.
+        /// </summary>
+        internal static bool ShouldCaptureRunManifestStartHalf(Recording treeRecording, out string skipReason)
+        {
+            skipReason = null;
+            if (treeRecording == null)
+            {
+                skipReason = "no-tree-recording";
+                return false;
+            }
+            if (treeRecording.RouteRunManifest != null && treeRecording.RouteRunManifest.HasStartHalf)
+            {
+                skipReason = "start-half-already-captured";
+                return false;
+            }
+            bool hasPoints = treeRecording.Points != null && treeRecording.Points.Count > 0;
+            bool hasOrbitSegments = treeRecording.OrbitSegments != null && treeRecording.OrbitSegments.Count > 0;
+            bool hasTrackSections = treeRecording.TrackSections != null && treeRecording.TrackSections.Count > 0;
+            if (hasPoints || hasOrbitSegments || hasTrackSections)
+            {
+                skipReason = "not-at-birth";
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Builds the START half of a <see cref="RouteRunCargoManifest"/> from the
+        /// recording-start vessel snapshot (M2 / plan D3). Scope = the snapshot's
+        /// full part-pid set, identical to the start-docked origin proof's scope
+        /// rule. Capture stays PERMISSIVE (plan D2): whatever resource names the
+        /// snapshot carries are recorded; undefined-name exclusion happens at
+        /// analysis only. Returns null (with a log mirroring the
+        /// RouteOriginProof skip branches) for gloops mode, a missing snapshot,
+        /// or a snapshot with no usable part pids.
+        /// </summary>
+        internal static RouteRunCargoManifest BuildRunCargoManifestAtStart(
+            ConfigNode snapshot,
+            bool isGloopsMode,
+            string vesselContext,
+            uint recordingVesselId)
+        {
+            if (isGloopsMode)
+            {
+                ParsekLog.Verbose("Recorder",
+                    $"RouteRunManifest skipped: gloops mode recId={recordingVesselId} vessel='{vesselContext}'");
+                return null;
+            }
+            if (snapshot == null)
+            {
+                ParsekLog.Warn("Recorder",
+                    $"RouteRunManifest skipped: no last good snapshot recId={recordingVesselId} " +
+                    $"vessel='{vesselContext}'");
+                return null;
+            }
+
+            List<uint> transportPids = VesselSpawner.CollectPartPersistentIds(snapshot);
+            if (transportPids == null || transportPids.Count == 0)
+            {
+                ParsekLog.Warn("Recorder",
+                    $"RouteRunManifest skipped: snapshot has no part pids recId={recordingVesselId} " +
+                    $"vessel='{vesselContext}'");
+                return null;
+            }
+
+            Dictionary<string, ResourceAmount> startRes =
+                VesselSpawner.ExtractResourceManifest(snapshot, transportPids);
+
+            var manifest = new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = transportPids,
+                StartTransportResources = startRes,
+            };
+
+            ParsekLog.Verbose("Recorder",
+                $"RouteRunManifest start: recId={recordingVesselId} vessel='{vesselContext}' " +
+                $"parts={transportPids.Count} res={startRes?.Count ?? 0}");
+            return manifest;
+        }
+
+        /// <summary>
+        /// Completes the END half of the pending run manifest at an ACTIVE stop
+        /// and forwards a deep clone onto the captured Recording (M2 / plan D3
+        /// rule 4). The END manifest is extracted from
+        /// <c>capture.VesselSnapshot</c> scoped to the START pid set - NEVER from
+        /// a live vessel walk at the stop frame (at the dock pid-change stop the
+        /// live vessel is the merged stack and same-frame crossfeed equalization
+        /// deflates values; mirrors
+        /// <see cref="AttachEndManifestsAndForwardToCapture"/>). The END half is
+        /// overwrite-per-active-stop: a chain-boundary stop abandoned by
+        /// ResumeAfterFalseAlarm has already completed an END half, and the
+        /// eventual real stop must replace it or post-resume drilling
+        /// double-counts. No-op when either input is null.
+        /// </summary>
+        internal static void CompleteRunCargoManifestAtStop(
+            Recording capture,
+            RouteRunCargoManifest pending)
+        {
+            if (capture == null || pending == null)
+                return;
+
+            bool overwrite = pending.EndCaptured;
+            pending.EndTransportResources = VesselSpawner.ExtractResourceManifest(
+                capture.VesselSnapshot,
+                pending.TransportPartPersistentIds);
+            pending.EndCaptured = true;
+            capture.RouteRunManifest = pending.DeepClone();
+
+            ParsekLog.Verbose("Recorder",
+                $"RouteRunManifest end: recording={capture.RecordingId ?? "<none>"} " +
+                $"startRes={pending.StartTransportResources?.Count ?? 0} " +
+                $"endRes={pending.EndTransportResources?.Count ?? 0} " +
+                $"overwrite={(overwrite ? "1" : "0")}");
+        }
+
+        /// <summary>
+        /// Voids the active tree recording's run manifest on a background
+        /// transition (M2 / plan D3 rule 3): the END half of a BG-transiting leg
+        /// can never be captured trustworthily, and a voided manifest makes the
+        /// analysis presence gate degrade that tree to legacy behavior. Returns
+        /// true when a manifest was actually cleared. Warn-logged per the plan's
+        /// logging table.
+        /// </summary>
+        internal static bool VoidRunManifestForBackgroundTransition(
+            RecordingTree tree,
+            string activeRecordingId)
+        {
+            if (tree == null || string.IsNullOrEmpty(activeRecordingId)
+                || tree.Recordings == null
+                || !tree.Recordings.TryGetValue(activeRecordingId, out Recording treeRec)
+                || treeRec == null)
+            {
+                return false;
+            }
+
+            if (treeRec.RouteRunManifest == null)
+                return false;
+
+            treeRec.RouteRunManifest = null;
+            treeRec.MarkFilesDirty();
+            ParsekLog.Warn("Recorder",
+                $"RouteRunManifest voided: recording={activeRecordingId} reason=background-transition");
+            return true;
+        }
+
         internal static RouteConnectionWindow BuildDockRouteConnectionWindow(
             double dockUT,
             uint transferTargetVesselPid,

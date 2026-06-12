@@ -269,6 +269,12 @@ namespace Parsek
         internal List<RouteConnectionWindow> RouteConnectionWindows;
         internal RouteOriginProof RouteOriginProof;
 
+        // Full-run transport-scoped cargo manifest (M2 / plan D3). null = no
+        // data (pre-M2 recording, BG-voided leg, or optimizer-split half) -
+        // the analysis presence gate degrades such trees to legacy behavior.
+        // See RouteRunCargoManifest for the START/END lifecycle contract.
+        internal RouteRunCargoManifest RouteRunManifest;
+
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
 
@@ -827,6 +833,10 @@ namespace Parsek
             TransferKind = source.TransferKind;
             RouteConnectionWindows = RouteProofMetadata.CloneConnectionWindows(source.RouteConnectionWindows);
             RouteOriginProof = source.RouteOriginProof != null ? source.RouteOriginProof.DeepClone() : null;
+            // M2 run-manifest forwarding (plan D14): rides the chain-commit /
+            // persistence-artifact path like the other route-proof fields.
+            // Null stays null - the codec/hasher null-preservation contract.
+            RouteRunManifest = source.RouteRunManifest != null ? source.RouteRunManifest.DeepClone() : null;
             CrewEndStatesResolved = source.CrewEndStatesResolved;
             TerminalSpawnSupersededByRecordingId = source.TerminalSpawnSupersededByRecordingId;
 
@@ -926,6 +936,9 @@ namespace Parsek
             clone.RouteConnectionWindows = RouteProofMetadata.CloneConnectionWindows(source.RouteConnectionWindows);
             clone.RouteOriginProof = source.RouteOriginProof != null
                 ? source.RouteOriginProof.DeepClone()
+                : null;
+            clone.RouteRunManifest = source.RouteRunManifest != null
+                ? source.RouteRunManifest.DeepClone()
                 : null;
             clone.FilesDirty = source.FilesDirty;
             clone.SidecarEpoch = source.SidecarEpoch;
