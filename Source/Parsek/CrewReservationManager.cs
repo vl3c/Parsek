@@ -450,6 +450,32 @@ namespace Parsek
                         continue;
                     }
 
+                    // An Assigned stand-in is already aboard a live vessel —
+                    // adding them to this part would seat the same kerbal on
+                    // two vessels at once. Dead is permanent. Leave the
+                    // reserved original seated instead — same failure handling
+                    // as replacement-not-in-roster above. A Missing stand-in is
+                    // rescued to Available first (the agreed Missing-rescue
+                    // convention; see ClassifyStandInForPlacement).
+                    var placementCheck = ClassifyStandInForPlacement(true, replacement.rosterStatus);
+                    if (placementCheck == StandInPlacementCheck.SkipAssigned
+                        || placementCheck == StandInPlacementCheck.SkipDead)
+                    {
+                        CrewLog($"Cannot swap '{original.name}': stand-in '{replacementName}' " +
+                            $"is {replacement.rosterStatus}" +
+                            (placementCheck == StandInPlacementCheck.SkipAssigned
+                                ? " (aboard another vessel — placing would duplicate the kerbal)"
+                                : " (Dead is permanent)") +
+                            " — leaving original seated");
+                        failCount++;
+                        continue;
+                    }
+                    if (placementCheck == StandInPlacementCheck.PlaceAfterMissingRescue)
+                    {
+                        replacement.rosterStatus = ProtoCrewMember.RosterStatus.Available;
+                        CrewLog($"Rescued Missing stand-in '{replacementName}' → Available before in-flight swap");
+                    }
+
                     int seatIndex = part.protoModuleCrew.IndexOf(original);
                     if (seatIndex < 0)
                     {
@@ -561,6 +587,7 @@ namespace Parsek
             int skippedDeadOrMissingReplacement = 0;     // Warn: alarming
             int skippedReplacementNotInRoster = 0;       // Warn: alarming
             int skippedAlreadyOnActiveVessel = 0;        // Info: nothing to do, expected sometimes
+            int skippedAssignedToOtherVessel = 0;        // Info: stand-in busy on another live vessel — placing would duplicate
             int skippedOriginalStillOnActiveVessel = 0;  // Info: defensive — Pass 1 didn't swap them but they're seated
             int skippedSnapshotMiss = 0;                 // Warn: orphan but no snapshot trail
             int skippedNoMatchingPart = 0;               // Warn: snapshot found but no live part
@@ -640,14 +667,15 @@ namespace Parsek
                     skippedReplacementNotInRoster++;
                     continue;
                 }
-                if (replacement.rosterStatus == ProtoCrewMember.RosterStatus.Dead)
+                var placementCheck = ClassifyStandInForPlacement(true, replacement.rosterStatus);
+                if (placementCheck == StandInPlacementCheck.SkipDead)
                 {
                     ParsekLog.Warn("CrewReservation",
                         $"Orphan placement: skipping '{originalName}' → '{replacementName}': replacement is Dead");
                     skippedDeadOrMissingReplacement++;
                     continue;
                 }
-                if (replacement.rosterStatus == ProtoCrewMember.RosterStatus.Missing)
+                if (placementCheck == StandInPlacementCheck.PlaceAfterMissingRescue)
                 {
                     // Mirrors ReserveCrewIn (CrewReservationManager.cs:84-88): a
                     // Missing reserved kerbal is alive but orphaned from a removed
@@ -670,6 +698,23 @@ namespace Parsek
                     CrewLog($"Orphan placement: skipping '{originalName}' → '{replacementName}': replacement already on active vessel");
                     swappedOriginals.Add(originalName);
                     skippedAlreadyOnActiveVessel++;
+                    continue;
+                }
+
+                // The active-vessel check above only sees the active vessel's
+                // crew. An Assigned stand-in who is NOT on the active vessel is
+                // aboard some OTHER live vessel (loaded or persisted) — placing
+                // them here would seat the same kerbal on two vessels at once.
+                // Leave the stand-in where they are; the orphan stays
+                // unplaced and can be reclaimed on a later pass if the
+                // stand-in frees up. (Checked AFTER the active-vessel skip so
+                // the skippedAlreadyOnActiveVessel bucket keeps its meaning —
+                // a stand-in on the active vessel is Assigned too.)
+                if (placementCheck == StandInPlacementCheck.SkipAssigned)
+                {
+                    CrewLog($"Orphan placement: skipping '{originalName}' → '{replacementName}': " +
+                        "stand-in is Assigned aboard another vessel — placing would duplicate the kerbal");
+                    skippedAssignedToOtherVessel++;
                     continue;
                 }
 
@@ -748,6 +793,7 @@ namespace Parsek
                     $"skippedReplacementNotInRoster={skippedReplacementNotInRoster} " +
                     $"skippedDeadOrMissingReplacement={skippedDeadOrMissingReplacement} " +
                     $"skippedAlreadyOnActiveVessel={skippedAlreadyOnActiveVessel} " +
+                    $"skippedAssignedToOtherVessel={skippedAssignedToOtherVessel} " +
                     $"skippedOriginalStillOnActiveVessel={skippedOriginalStillOnActiveVessel} " +
                     $"skippedSnapshotMiss={skippedSnapshotMiss} " +
                     $"skippedNoMatchingPart={skippedNoMatchingPart}");
@@ -1562,15 +1608,106 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure decision: can a stand-in with the given roster status be placed
+        /// into a seat (crew manifest, live part, or spawn snapshot)? Only
+        /// Available stand-ins are placeable. An Assigned stand-in is already
+        /// aboard a live vessel — a kerbal can be aboard at most one vessel, so
+        /// placing them again duplicates the ProtoCrewMember across vessels
+        /// (the Barton-Kerman-on-four-vessels bug). Dead and Missing stand-ins
+        /// are unusable here; the orphan-placement pass has its own dedicated
+        /// Missing-rescue step that runs BEFORE this predicate.
+        /// </summary>
+        internal static bool IsStandInPlaceable(ProtoCrewMember.RosterStatus status)
+        {
+            return status == ProtoCrewMember.RosterStatus.Available;
+        }
+
+        /// <summary>
+        /// Per-status verdict for placing a stand-in into a live seat.
+        /// See <see cref="ClassifyStandInForPlacement"/>.
+        /// </summary>
+        internal enum StandInPlacementCheck
+        {
+            /// <summary>Available — place normally.</summary>
+            Place,
+            /// <summary>Missing — alive but orphaned from a removed vessel; rescue to Available, then place (mirrors ReserveCrewIn / RescueReservedMissingCrewInSnapshot).</summary>
+            PlaceAfterMissingRescue,
+            /// <summary>Name not in the roster — cannot place.</summary>
+            SkipNotInRoster,
+            /// <summary>Dead is permanent — cannot place.</summary>
+            SkipDead,
+            /// <summary>Assigned aboard a live vessel — placing again would duplicate the kerbal across vessels.</summary>
+            SkipAssigned
+        }
+
+        /// <summary>
+        /// Pure decision shared by the in-flight swap (Pass 1) and the orphan
+        /// placement pass: classify a stand-in's roster state into a placement
+        /// verdict. Keeps the Missing-rescue convention (the three runtime
+        /// paths — ReserveCrewIn, PlaceOrphanedReplacements,
+        /// RescueReservedMissingCrewInSnapshot — agree that Missing is rescued
+        /// to Available before placement) while blocking the duplication case:
+        /// an Assigned stand-in is already aboard a live vessel and must never
+        /// be seated a second time.
+        /// </summary>
+        internal static StandInPlacementCheck ClassifyStandInForPlacement(
+            bool inRoster, ProtoCrewMember.RosterStatus status)
+        {
+            if (!inRoster)
+                return StandInPlacementCheck.SkipNotInRoster;
+            switch (status)
+            {
+                case ProtoCrewMember.RosterStatus.Dead:
+                    return StandInPlacementCheck.SkipDead;
+                case ProtoCrewMember.RosterStatus.Missing:
+                    return StandInPlacementCheck.PlaceAfterMissingRescue;
+                case ProtoCrewMember.RosterStatus.Assigned:
+                    return StandInPlacementCheck.SkipAssigned;
+                default:
+                    return StandInPlacementCheck.Place;
+            }
+        }
+
+        /// <summary>
         /// Pure method: swaps reserved crew names in a vessel snapshot ConfigNode,
         /// replacing each reserved original name with its replacement name.
         /// Used for KSC spawns where SwapReservedCrewInFlight cannot run
         /// (no loaded vessel / no flight scene). Bug #167.
-        /// Returns the number of crew names swapped.
+        ///
+        /// When <paramref name="standInStatusResolver"/> is provided, a stand-in
+        /// who is Assigned (aboard another live vessel) or Dead is NOT written
+        /// into the snapshot; the seat is left empty instead. Writing an
+        /// Assigned name would seat the same kerbal on two vessels at once when
+        /// the snapshot is ProtoVessel-loaded. A resolver returning null (name
+        /// not in roster) is also treated as not placeable — pre-fix that name
+        /// was backfilled by VesselSpawner.EnsureCrewExistInRoster, but a
+        /// missing stand-in name means a failed ApplyToRoster recreate, so the
+        /// conservative empty seat is preferred. A MISSING stand-in flows
+        /// through unchanged: both spawn routes run
+        /// RescueReservedMissingCrewInSnapshot downstream (the agreed
+        /// Missing-rescue path), and this pure method cannot mutate the roster.
+        /// With a null resolver the legacy blind swap is preserved (pure-test
+        /// compatibility). Returns the number of crew names swapped.
         /// </summary>
         internal static int SwapReservedCrewInSnapshot(
-            ConfigNode snapshot, IReadOnlyDictionary<string, string> replacements)
+            ConfigNode snapshot, IReadOnlyDictionary<string, string> replacements,
+            Func<string, ProtoCrewMember.RosterStatus?> standInStatusResolver = null)
         {
+            return SwapReservedCrewInSnapshot(
+                snapshot, replacements, standInStatusResolver, out _);
+        }
+
+        /// <summary>
+        /// Overload exposing how many seats were left empty because the
+        /// stand-in was not placeable, so callers (KSC spawn log) can report
+        /// "0 swapped" and "N seats cleared" as distinct outcomes.
+        /// </summary>
+        internal static int SwapReservedCrewInSnapshot(
+            ConfigNode snapshot, IReadOnlyDictionary<string, string> replacements,
+            Func<string, ProtoCrewMember.RosterStatus?> standInStatusResolver,
+            out int seatsCleared)
+        {
+            seatsCleared = 0;
             if (snapshot == null || replacements == null || replacements.Count == 0)
                 return 0;
 
@@ -1582,17 +1719,44 @@ namespace Parsek
                 string[] crewNames = partNode.GetValues("crew");
                 if (crewNames.Length == 0) { partIndex++; continue; }
 
-                bool anySwapped = false;
+                bool anyChanged = false;
                 var updated = new List<string>(crewNames.Length);
 
                 for (int i = 0; i < crewNames.Length; i++)
                 {
                     if (replacements.TryGetValue(crewNames[i], out string replacementName))
                     {
+                        ProtoCrewMember.RosterStatus? status =
+                            standInStatusResolver?.Invoke(replacementName);
+                        bool blocked = standInStatusResolver != null
+                            && (status == null
+                                || status.Value == ProtoCrewMember.RosterStatus.Assigned
+                                || status.Value == ProtoCrewMember.RosterStatus.Dead);
+                        if (blocked)
+                        {
+                            ParsekLog.Warn("CrewReservation",
+                                $"Snapshot swap: stand-in '{replacementName}' for reserved " +
+                                $"'{crewNames[i]}' is {(status?.ToString() ?? "not in roster")} " +
+                                $"— seat left empty in PART[{partIndex}] to avoid duplicating " +
+                                "the kerbal across vessels");
+                            anyChanged = true;
+                            seatsCleared++;
+                            continue;
+                        }
+                        if (status == ProtoCrewMember.RosterStatus.Missing)
+                        {
+                            // Missing flows through: RescueReservedMissingCrewInSnapshot
+                            // runs on both spawn routes after this swap and rescues
+                            // the (unreserved) Missing stand-in to Available.
+                            ParsekLog.Verbose("CrewReservation",
+                                $"Snapshot swap: stand-in '{replacementName}' is Missing — " +
+                                "written through for the downstream spawn-route Missing rescue");
+                        }
+
                         ParsekLog.Verbose("CrewReservation",
                             $"Snapshot swap: '{crewNames[i]}' -> '{replacementName}' in PART[{partIndex}]");
                         updated.Add(replacementName);
-                        anySwapped = true;
+                        anyChanged = true;
                         swapCount++;
                     }
                     else
@@ -1601,7 +1765,7 @@ namespace Parsek
                     }
                 }
 
-                if (anySwapped)
+                if (anyChanged)
                 {
                     partNode.RemoveValues("crew");
                     for (int i = 0; i < updated.Count; i++)
@@ -1611,9 +1775,10 @@ namespace Parsek
                 partIndex++;
             }
 
-            if (swapCount > 0)
+            if (swapCount > 0 || seatsCleared > 0)
                 ParsekLog.Verbose("CrewReservation",
-                    $"Snapshot crew swap complete: {swapCount} name(s) replaced across {partIndex} part(s)");
+                    $"Snapshot crew swap complete: {swapCount} name(s) replaced, " +
+                    $"{seatsCleared} seat(s) left empty across {partIndex} part(s)");
 
             return swapCount;
         }
