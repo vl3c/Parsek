@@ -254,6 +254,44 @@ namespace Parsek.Tests
             Assert.Equal(EngineFxBuilder.PrefabParticleRotationMode.UseMinus90XRotation, sideways);
         }
 
+        // ---- world-space emitter velocity floor (ReStock SRB smoke models) ---------
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_ZeroVelocity_FlowsExhaustWardMinusY()
+        {
+            // restock-fx-srb-smoke-3 shape: world-space, exactly zero baked velocity.
+            Assert.True(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: true, localVelocity: Vector3.zero, out Vector3 floored));
+            AssertVector3Close(Vector3.down * GhostVisualBuilder.WorldSpaceEmitterFloorSpeed, floored);
+        }
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_SlowVelocity_FlooredAlongAuthoredAxis()
+        {
+            // restock-fx-srb-smoke-1/2 shape: world-space, (0,-1,0) baked velocity.
+            Assert.True(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: true, localVelocity: new Vector3(0f, -1f, 0f), out Vector3 floored));
+            AssertVector3Close(new Vector3(0f, -GhostVisualBuilder.WorldSpaceEmitterFloorSpeed, 0f), floored);
+        }
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_FastWorldSpace_Unchanged()
+        {
+            Assert.False(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: true, localVelocity: new Vector3(0f, 0f, 14f), out Vector3 floored));
+            AssertVector3Close(new Vector3(0f, 0f, 14f), floored);
+        }
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_LocalSpace_NeverFloored()
+        {
+            // Every stock engine FX emitter is local-space (the stock no-op guarantee);
+            // even a zero-velocity local-space emitter must stay untouched.
+            Assert.False(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: false, localVelocity: Vector3.zero, out Vector3 floored));
+            AssertVector3Close(Vector3.zero, floored);
+        }
+
         private static void AssertVector3Close(Vector3 expected, Vector3 actual, float epsilon = 1e-4f)
         {
             Assert.InRange(Mathf.Abs(expected.x - actual.x), 0f, epsilon);

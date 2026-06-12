@@ -1152,6 +1152,48 @@ namespace Parsek
         /// ghosts and the reimplementation is intentionally minimal per the visual efficiency
         /// design principle.
         /// </summary>
+        // ReStock's SRB smoke models (restock-fx-srb-smoke-1/2/3) are world-space
+        // TRAIL assets: live, the plume column comes from the EMITTER (the flying
+        // vessel) moving away from emitted particles; the baked particle velocity is
+        // near zero (smoke-3 is exactly zero; in modern KSP both damping and
+        // emitterVelocityScale are dead fields, and the cfg speed curve maxes at 1.0,
+        // so live full-power velocity equals the baked value). A stationary ghost
+        // (static showcase fixture, hover) never moves, so every particle pools at
+        // the nozzle point. Give such emitters a minimum exhaust-ward flow so the
+        // smoke flows instead of gathering. Provably a no-op on non-ReStock installs:
+        // a 2026-06-12 scan of every Squad/SquadExpansion/ReStock/ReStockPlus .mu
+        // found ZERO stock world-space emitters; only ReStock's three srb-smoke
+        // models (and drill FX outside the engine FX path) are world-space.
+        // Accepted deviation for MOVING ghosts: the smoke column drifts a few m/s
+        // exhaust-ward on top of the motion-painted trail, visually minor next to
+        // vessel speed and physically plausible for exhaust flow.
+        internal const float WorldSpaceEmitterSlowSpeedThreshold = 4f;
+        internal const float WorldSpaceEmitterFloorSpeed = 6f;
+
+        /// <summary>
+        /// Decides the minimum-flow velocity for a world-space, near-static particle
+        /// emitter on a ghost. Returns false (velocity unchanged) for local-space
+        /// emitters and for world-space emitters that already carry real velocity.
+        /// The flow axis is the emitter's own authored axis when it has one, else
+        /// local -Y (ReStock's SRB FX rig convention, matching its sibling flame
+        /// cores).
+        /// </summary>
+        internal static bool TryComputeWorldSpaceEmitterVelocityFloor(
+            bool useWorldSpace, Vector3 localVelocity, out Vector3 flooredVelocity)
+        {
+            flooredVelocity = localVelocity;
+            if (!useWorldSpace)
+                return false;
+
+            float magnitude = localVelocity.magnitude;
+            if (magnitude >= WorldSpaceEmitterSlowSpeedThreshold)
+                return false;
+
+            Vector3 axis = magnitude > 0.001f ? localVelocity / magnitude : Vector3.down;
+            flooredVelocity = axis * WorldSpaceEmitterFloorSpeed;
+            return true;
+        }
+
         internal static void StripKspFxControllers(GameObject fxClone, List<KspEmitterRef> kspEmitterSink)
         {
             if (fxClone == null) return;
@@ -1175,6 +1217,22 @@ namespace Parsek
                                 emitter = behaviours[i],
                                 emitField = emitField
                             });
+                        }
+
+                        var worldSpaceEmitter = behaviours[i] as KSPParticleEmitter;
+                        if (worldSpaceEmitter != null &&
+                            TryComputeWorldSpaceEmitterVelocityFloor(
+                                worldSpaceEmitter.useWorldSpace,
+                                worldSpaceEmitter.localVelocity,
+                                out Vector3 flooredVelocity))
+                        {
+                            ParsekLog.VerboseRateLimited("GhostVisual",
+                                $"ws-emitter-floor-{fxClone.name}",
+                                $"world-space emitter velocity floor: '{fxClone.name}' " +
+                                $"localVelocity {worldSpaceEmitter.localVelocity} -> {flooredVelocity} " +
+                                "(trail-by-motion asset; static ghosts would pool particles at the nozzle)",
+                                5.0);
+                            worldSpaceEmitter.localVelocity = flooredVelocity;
                         }
                         break;
                     case "SmokeTrailControl":
