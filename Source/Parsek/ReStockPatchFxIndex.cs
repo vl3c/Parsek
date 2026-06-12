@@ -426,6 +426,19 @@ namespace Parsek
             return indexByPartName;
         }
 
+        /// <summary>
+        /// True when ReStock is installed (the patch index has entries). ReStock
+        /// deletes the legacy fx_* keys its covered engines carried, which empties
+        /// the legacy FX prefab donor cache install-wide (jets and ReStock-authored
+        /// smoke trails reference fx_smokeTrail_* with no surviving donor part), so
+        /// the builtin Effects/ resolution must also engage without Waterfall.
+        /// </summary>
+        internal static bool IsReStockInstalled()
+        {
+            EnsureBuilt();
+            return indexByPartName.Count > 0;
+        }
+
         internal static void ResetForTesting()
         {
             indexByPartName = null;

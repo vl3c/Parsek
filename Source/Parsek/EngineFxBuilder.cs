@@ -592,6 +592,10 @@ namespace Parsek
                     "world-space emitter velocity floor unavailable for model FX");
             }
 
+            float modelSizeBoost = ResolveModelFxSizeBoost(
+                ReStockPatchFxIndex.HasAuthoredEffectsFor(prefab.partInfo?.name ?? partName),
+                partName);
+
             for (int f = 0; f < modelFxEntries.Count; f++)
             {
                 var (nodeType, transformName, modelName, mmpLocalPos, mmpLocalRot, groupName) = modelFxEntries[f];
@@ -654,7 +658,7 @@ namespace Parsek
                             if (addedSystems > 0)
                             {
                                 GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
-                                    fxInstance, GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
+                                    fxInstance, modelSizeBoost);
                                 GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, nodeType, transformName,
                                     modelName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                                     fxInstance.transform, mmpLocalPos, mmpLocalRot, true);
@@ -684,17 +688,100 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Decides whether a prefab-name miss may probe KSP's builtin Effects/ assets:
+        /// when the part is Waterfall-patched (config packs strip the donor parts the
+        /// prefab cache is built from) OR when ReStock is installed (ReStock deletes
+        /// the legacy fx_* keys on every covered engine, emptying the donor cache for
+        /// names like fx_smokeTrail_light install-wide; jets' only running visual is
+        /// that prefab). False on stock installs: the donor cache resolves there and
+        /// stock paths must keep the deliberate fxPrefabFallbacks substitutions.
+        /// </summary>
+        internal static bool ShouldProbeBuiltinEffectsOnPrefabMiss(
+            bool partHasWaterfallModule, bool reStockInstalled)
+        {
+            return partHasWaterfallModule || reStockInstalled;
+        }
+
+        /// <summary>
+        /// Ghost size boost for MODEL_MULTI_PARTICLE instances. ReStock-authored model
+        /// FX sizes are absolute (live KSP scales emission/lifetime/velocity with
+        /// power, never particle size), so the stock-look boost must not inflate them;
+        /// the per-part overrides were tuned against STOCK prefab plumes.
+        /// </summary>
+        internal static float ResolveModelFxSizeBoost(bool restockAuthoredEffects, string partName)
+        {
+            return restockAuthoredEffects ? 1f : GhostVisualBuilder.ResolveEngineFxSizeBoost(partName);
+        }
+
+        /// <summary>
+        /// Resolves the local rotation for a PREFAB_PARTICLE instance without a cfg
+        /// localRotation on a ReStock-authored part: aim the prefab's emission axis
+        /// (local +Y) along the engine's exhaust axis expressed in the parent FX
+        /// transform's frame. The stock parent-up heuristic mis-aims on ReStock rigs
+        /// (Mammoth's smokePoint pointed the smoke trail straight up). Returns false
+        /// when the cfg authored a rotation, the part is not ReStock-authored, or no
+        /// exhaust axis is resolvable; callers then keep the stock heuristic.
+        /// </summary>
+        internal static bool TryComputeExhaustAimedPrefabRotation(
+            bool hasCfgRotation, bool restockAuthoredEffects, bool hasExhaustDir,
+            Vector3 exhaustAxisParentLocal, out Quaternion rotation)
+        {
+            rotation = Quaternion.identity;
+            if (hasCfgRotation || !restockAuthoredEffects || !hasExhaustDir)
+                return false;
+            if (exhaustAxisParentLocal.magnitude <= 0.001f)
+                return false;
+
+            rotation = ManagedFromToRotation(Vector3.up, exhaustAxisParentLocal.normalized);
+            return true;
+        }
+
+        /// <summary>
+        /// Managed from-to rotation (Quaternion.FromToRotation is a native ECall and
+        /// cannot run under xUnit). Inputs need not be normalized.
+        /// </summary>
+        internal static Quaternion ManagedFromToRotation(Vector3 from, Vector3 to)
+        {
+            Vector3 f = from.normalized;
+            Vector3 t = to.normalized;
+            float dot = Vector3.Dot(f, t);
+            if (dot > 0.999999f)
+                return Quaternion.identity;
+            if (dot < -0.999999f)
+            {
+                // Opposite vectors: rotate 180 degrees around any perpendicular axis.
+                Vector3 ortho = Vector3.Cross(f, Vector3.right);
+                if (ortho.sqrMagnitude < 1e-6f)
+                    ortho = Vector3.Cross(f, Vector3.forward);
+                ortho.Normalize();
+                return new Quaternion(ortho.x, ortho.y, ortho.z, 0f);
+            }
+
+            Vector3 axis = Vector3.Cross(f, t);
+            float s = Mathf.Sqrt((1f + dot) * 2f);
+            float invS = 1f / s;
+            return new Quaternion(axis.x * invS, axis.y * invS, axis.z * invS, s * 0.5f);
+        }
+
+        /// <summary>
         /// Instantiates PREFAB_PARTICLE entries from EFFECTS config and parents them to the
         /// ghost's mirrored transform hierarchy. Handles special cases like RAPIER white flame scaling.
         /// </summary>
         private static void ProcessEnginePrefabFxEntries(
             List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries,
-            Part prefab, EngineGhostInfo info,
+            Part prefab, ModuleEngines engine, EngineGhostInfo info,
             string partName, int moduleIndex,
             Transform modelRoot, Transform ghostModelNode,
             Dictionary<Transform, Transform> cloneMap,
             Dictionary<string, bool> selectedVariantGameObjects)
         {
+            bool restockAuthoredEffects =
+                ReStockPatchFxIndex.HasAuthoredEffectsFor(prefab.partInfo?.name ?? partName);
+            bool hasExhaustDir = TryResolvePrefabExhaustDirection(prefab, engine, out Vector3 exhaustWorldDir);
+            bool probeBuiltinEffects = ShouldProbeBuiltinEffectsOnPrefabMiss(
+                WaterfallCompat.PartHasWaterfallModule(prefab),
+                ReStockPatchFxIndex.IsReStockInstalled());
+
             for (int f = 0; f < prefabFxEntries.Count; f++)
             {
                 var (prefabName, transformName, localOffset, localRot, hasLocalRot, groupName) = prefabFxEntries[f];
@@ -704,13 +791,13 @@ namespace Parsek
                     string.Equals(normalizedPrefabName, "fx_exhaustFlame_white", System.StringComparison.OrdinalIgnoreCase);
 
                 GameObject fxPrefab = GhostVisualBuilder.FindFxPrefab(prefabName);
-                if (fxPrefab == null && WaterfallCompat.PartHasWaterfallModule(prefab))
+                if (fxPrefab == null && probeBuiltinEffects)
                 {
-                    // Waterfall-patched part: the exact prefab's donors may all be patched
-                    // away (e.g. the hardcoded Rhino/Puff/Vector supplements name
-                    // size-suffixed flames). Try KSP's builtin Effects/ asset for the EXACT
-                    // name first (preserves the true variant look), then the family-base
-                    // cascade before giving up.
+                    // Waterfall-patched part or ReStock install: the exact prefab's
+                    // donors may all be patched away (config packs strip them; ReStock
+                    // deletes the legacy fx_* keys outright). Try KSP's builtin
+                    // Effects/ asset for the EXACT name first (preserves the true
+                    // variant look), then the family-base cascade before giving up.
                     fxPrefab = GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(
                         prefabName, out bool _);
                     if (fxPrefab == null)
@@ -779,10 +866,27 @@ namespace Parsek
                     GameObject fxInstance = Object.Instantiate(fxPrefab);
                     fxInstance.transform.SetParent(ghostFxParent, false);
                     fxInstance.transform.localPosition = localOffset;
-                    fxInstance.transform.localRotation = ResolvePrefabParticleLocalRotation(
-                        hasLocalRot,
-                        localRot,
-                        ghostFxParent.up);
+
+                    Vector3 exhaustParentLocal = hasExhaustDir
+                        ? Quaternion.Inverse(srcFxTransform.rotation) * exhaustWorldDir
+                        : Vector3.zero;
+                    if (TryComputeExhaustAimedPrefabRotation(
+                        hasLocalRot, restockAuthoredEffects, hasExhaustDir,
+                        exhaustParentLocal, out Quaternion exhaustAimedRot))
+                    {
+                        fxInstance.transform.localRotation = exhaustAimedRot;
+                        LogHotPathVerbose($"prefab-exhaust-aim-{partName}-{moduleIndex}-{prefabName}",
+                            $"(prefab): '{partName}' midx={moduleIndex} prefab='{prefabName}' " +
+                            $"aimed along exhaust axis {exhaustParentLocal} " +
+                            "(ReStock-authored part; stock parent-up heuristic mis-aims on ReStock rigs)");
+                    }
+                    else
+                    {
+                        fxInstance.transform.localRotation = ResolvePrefabParticleLocalRotation(
+                            hasLocalRot,
+                            localRot,
+                            ghostFxParent.up);
+                    }
 
                     if (isRapierWhiteFlame)
                     {
@@ -1527,7 +1631,7 @@ namespace Parsek
                     modelRoot, ghostModelNode, cloneMap, selectedVariantGameObjects);
 
                 // Process PREFAB_PARTICLE entries (Spark, Twitch, Pug, Juno, Wheesley, Goliath)
-                ProcessEnginePrefabFxEntries(prefabFxEntries, prefab, info, partName, moduleIndex,
+                ProcessEnginePrefabFxEntries(prefabFxEntries, prefab, engine, info, partName, moduleIndex,
                     modelRoot, ghostModelNode, cloneMap, selectedVariantGameObjects);
 
                 if (info.particleSystems.Count > 0)

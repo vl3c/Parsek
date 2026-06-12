@@ -496,6 +496,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsReStockInstalled_TracksIndexEntries()
+        {
+            ReStockPatchFxIndex.EnumeratePatchFilesOverrideForTesting = () => new[] { "x.cfg" };
+            ReStockPatchFxIndex.LoadFileRootOverrideForTesting =
+                path => WrapInFileRoot(BuildSwivelShapePatchNode());
+            Assert.True(ReStockPatchFxIndex.IsReStockInstalled());
+
+            ReStockPatchFxIndex.ResetForTesting();
+            ReStockPatchFxIndex.EnumeratePatchFilesOverrideForTesting = () => null;
+            Assert.False(ReStockPatchFxIndex.IsReStockInstalled());
+        }
+
+        [Fact]
         public void HasAuthoredEffectsFor_FalseForEffectsLessEntry()
         {
             ReStockPatchFxIndex.EnumeratePatchFilesOverrideForTesting = () => new[] { "x.cfg" };

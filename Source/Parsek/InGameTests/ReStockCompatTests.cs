@@ -340,6 +340,28 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "ReStockCompat", Scene = GameScenes.FLIGHT,
+            Description = "ReStock installed: fx_smokeTrail_light resolves via builtin Effects (jets' only running visual; ReStock empties the legacy donor cache)")]
+        public void SmokeTrailResolvesViaBuiltinUnderReStock()
+        {
+            if (!IsReStockInstalled())
+            {
+                InGameAssert.Skip("ReStock not installed; rerun after the CKAN install.");
+                return;
+            }
+
+            InGameAssert.IsTrue(ReStockPatchFxIndex.IsReStockInstalled(),
+                "index reports ReStock absent despite the patch directory existing");
+            InGameAssert.IsTrue(EngineFxBuilder.ShouldProbeBuiltinEffectsOnPrefabMiss(
+                partHasWaterfallModule: false,
+                reStockInstalled: ReStockPatchFxIndex.IsReStockInstalled()),
+                "builtin Effects probing must engage on prefab misses under ReStock without Waterfall");
+            InGameAssert.IsNotNull(
+                GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects("fx_smokeTrail_light", out bool _),
+                "fx_smokeTrail_light unresolvable even via builtin Effects; jets and ReStock " +
+                "smoke trails would render nothing");
+        }
+
+        [InGameTest(Category = "ReStockCompat", Scene = GameScenes.FLIGHT,
             Description = "ReStock installed: SRB smoke world-space emitters get the velocity floor; flame cores stay untouched")]
         public void SrbSmokeWorldSpaceEmitterGetsVelocityFloor()
         {

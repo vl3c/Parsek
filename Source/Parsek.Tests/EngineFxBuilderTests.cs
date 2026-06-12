@@ -308,6 +308,75 @@ namespace Parsek.Tests
             AssertVector3Close(Vector3.zero, floored);
         }
 
+        // ---- ReStock-alone donor scarcity / size fidelity / prefab aim --------------
+
+        [Theory]
+        [InlineData(false, false, false)]
+        [InlineData(true, false, true)]
+        [InlineData(false, true, true)]
+        [InlineData(true, true, true)]
+        public void ShouldProbeBuiltinEffects_WaterfallOrReStock(bool waterfall, bool restock, bool expected)
+        {
+            Assert.Equal(expected, EngineFxBuilder.ShouldProbeBuiltinEffectsOnPrefabMiss(waterfall, restock));
+        }
+
+        [Fact]
+        public void ModelFxSizeBoost_ReStockAuthored_IsAlwaysOne()
+        {
+            // Live KSP never scales model-particle size with power; the stock-tuned
+            // per-part overrides (Rhino 2.7x, Mainsail 2.0x, default 1.5x) must not
+            // inflate ReStock-authored model FX.
+            Assert.Equal(1f, EngineFxBuilder.ResolveModelFxSizeBoost(true, "Size3AdvancedEngine"));
+            Assert.Equal(1f, EngineFxBuilder.ResolveModelFxSizeBoost(true, "Mite"));
+            Assert.Equal(GhostVisualBuilder.ResolveEngineFxSizeBoost("Size3AdvancedEngine"),
+                EngineFxBuilder.ResolveModelFxSizeBoost(false, "Size3AdvancedEngine"));
+            Assert.Equal(GhostVisualBuilder.GhostEngineFxSizeBoost,
+                EngineFxBuilder.ResolveModelFxSizeBoost(false, "Mite"));
+        }
+
+        [Fact]
+        public void ExhaustAimedPrefabRotation_AimsEmissionAxisAlongExhaust()
+        {
+            // Mammoth shape: smokePoint rig where the stock parent-up heuristic aimed
+            // the smoke trail straight up; the exhaust axis (parent-local) must win.
+            Vector3 exhaustParentLocal = new Vector3(0f, 0f, 1f);
+            Assert.True(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
+                hasCfgRotation: false, restockAuthoredEffects: true, hasExhaustDir: true,
+                exhaustParentLocal, out Quaternion rot));
+            AssertVector3Close(exhaustParentLocal, rot * Vector3.up);
+        }
+
+        [Fact]
+        public void ExhaustAimedPrefabRotation_OppositeAxis_RotatesFully()
+        {
+            // Exhaust pointing straight down (opposite the +Y emission axis): the
+            // 180-degree degenerate case must still produce a valid rotation.
+            Assert.True(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
+                hasCfgRotation: false, restockAuthoredEffects: true, hasExhaustDir: true,
+                Vector3.down, out Quaternion rot));
+            AssertVector3Close(Vector3.down, rot * Vector3.up);
+        }
+
+        [Theory]
+        [InlineData(true, true, true)]    // cfg authored a rotation -> cfg wins
+        [InlineData(false, false, true)]  // not ReStock-authored -> stock heuristic
+        [InlineData(false, true, false)]  // no exhaust axis -> stock heuristic
+        public void ExhaustAimedPrefabRotation_FallsBackToHeuristic(
+            bool hasCfgRotation, bool restockAuthored, bool hasExhaustDir)
+        {
+            Assert.False(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
+                hasCfgRotation, restockAuthored, hasExhaustDir,
+                new Vector3(0f, 0f, 1f), out Quaternion _));
+        }
+
+        [Fact]
+        public void ExhaustAimedPrefabRotation_DegenerateAxis_FallsBack()
+        {
+            Assert.False(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
+                hasCfgRotation: false, restockAuthoredEffects: true, hasExhaustDir: true,
+                Vector3.zero, out Quaternion _));
+        }
+
         private static void AssertVector3Close(Vector3 expected, Vector3 actual, float epsilon = 1e-4f)
         {
             Assert.InRange(Mathf.Abs(expected.x - actual.x), 0f, epsilon);
