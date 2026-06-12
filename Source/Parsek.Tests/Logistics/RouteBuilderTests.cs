@@ -913,6 +913,47 @@ namespace Parsek.Tests.Logistics
             return tree;
         }
 
+        // (M-MIS-9-R1) The creation-time tree snapshot scoping the recovery
+        // credit. It must capture the WHOLE tree, including the post-undock
+        // survivor leg that is NOT a route member (gotcha G1: that leg carries
+        // the fly-home-and-recover rows).
+        [Fact]
+        public void BuildRoute_CapturesCreationTreeSnapshot_WholeTree_IncludingPostUndockLeg()
+        {
+            RecordingTree tree = MakeMultiLegTree(out Recording windowChild);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(windowChild);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 2000.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(3, outcome.Route.CreationTreeRecordingIds.Count);
+            Assert.Contains("launch-root", outcome.Route.CreationTreeRecordingIds);
+            Assert.Contains("docked-child", outcome.Route.CreationTreeRecordingIds);
+            // The post-undock leg is NOT in RecordingIds but MUST be in the snapshot.
+            Assert.Contains("survivor", outcome.Route.CreationTreeRecordingIds);
+            Assert.DoesNotContain("survivor", outcome.Route.RecordingIds);
+            Assert.Contains(logLines, l => l.Contains("[Route]")
+                && l.Contains("Built route") && l.Contains("creationTreeRecordings=3"));
+        }
+
+        // (M-MIS-9-R1) The legacy single-recording path (committedTree == null)
+        // must still produce a non-empty snapshot (the member ids), so the
+        // run-cost resolver never mistakes it for a degenerate pre-field route.
+        [Fact]
+        public void BuildRoute_NullTree_CreationSnapshotFallsBackToMemberIds()
+        {
+            Recording source = MakeKscSource();
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            string id = Assert.Single(outcome.Route.CreationTreeRecordingIds);
+            Assert.Equal("src-ksc", id);
+        }
+
         [Fact]
         public void Cre2_CandidateTransitSpanHelper_EqualsCreatedRouteTransitDuration_OnMultiLegTree()
         {

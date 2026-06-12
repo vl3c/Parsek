@@ -25,6 +25,7 @@ All notable changes to Parsek are documented here.
 - The orbit-arc-sampler in-game test no longer fails spuriously depending on where the active vessel sits (for example on the launchpad): it measured sampled orbit points from the scene's moving world origin instead of the planet centre.
 - Warping to a recording's end (Real Spawn Control) now reliably spawns the real vessel: a time jump could previously mark a recording whose window was still ahead as already-flown history and silently skip its end-of-recording spawn.
 - Supply routes: branches added to a route's source tree after creation (a re-fly fork or a switch-fly continuation) no longer silently join the route's rendered loop and delivery span; the backing selection freezes to the creation-time member set.
+- Supply routes: a recovered branch added to a route's source tree after creation no longer inflates the route's recurring recovery credit or its displayed run cost; the credit is scoped to the recordings that existed when the route was created.
 
 ---
 

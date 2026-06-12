@@ -430,6 +430,30 @@ namespace Parsek.Logistics
 
             double loopAnchorUT = initialStatus == RouteStatus.Active ? rootLaunchUT : -1.0;
 
+            // (M-MIS-9-R1) Creation-time tree-membership snapshot scoping the
+            // recovery-credit sum: every recording id in the source tree RIGHT
+            // NOW, including the post-undock fly-home-and-recover leg (gotcha
+            // G1). Post-creation branches mint new ids outside this set, so the
+            // per-cycle credit cannot inflate. The legacy null-tree path falls
+            // back to the member ids so the snapshot is never silently empty.
+            var creationTreeRecordingIds = new HashSet<string>(StringComparer.Ordinal);
+            if (committedTree?.Recordings != null)
+            {
+                foreach (string treeRecId in committedTree.Recordings.Keys)
+                {
+                    if (!string.IsNullOrEmpty(treeRecId))
+                        creationTreeRecordingIds.Add(treeRecId);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < recordingIds.Count; i++)
+                {
+                    if (!string.IsNullOrEmpty(recordingIds[i]))
+                        creationTreeRecordingIds.Add(recordingIds[i]);
+                }
+            }
+
             var route = new Route
             {
                 Id = routeId,
@@ -459,6 +483,7 @@ namespace Parsek.Logistics
                 // Backing-mission definition (design §0; Phase 5 capture).
                 BackingMissionTreeId = source.TreeId,
                 ExcludedIntervalKeys = excludedIntervalKeys,
+                CreationTreeRecordingIds = creationTreeRecordingIds,
                 RecordedDockUT = recordedDockUT,
                 DockMemberRecordingId = source.RecordingId,
                 LoopAnchorUT = loopAnchorUT,
@@ -487,6 +512,7 @@ namespace Parsek.Logistics
                 $"cadenceN={cadenceMultiplier.ToString(ic)} " +
                 $"members={recordingIds.Count.ToString(ic)} " +
                 $"excluded={excludedIntervalKeys.Count.ToString(ic)} " +
+                $"creationTreeRecordings={creationTreeRecordingIds.Count.ToString(ic)} " +
                 $"stop-resources={stopResources.ToString(ic)} " +
                 $"stop-inventory={stopInventory.ToString(ic)} " +
                 $"mode={mode}");

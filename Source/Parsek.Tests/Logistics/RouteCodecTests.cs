@@ -158,6 +158,9 @@ namespace Parsek.Tests.Logistics
                 .WithExcludedIntervalKey("leg-post-undock-survivor")
                 .WithExcludedIntervalKey("leg-post-undock-survivor/seg1")
                 .WithExcludedIntervalKey("leg-offshoot")
+                .WithCreationTreeRecordingId("rec-1")
+                .WithCreationTreeRecordingId("rec-2")
+                .WithCreationTreeRecordingId("rec-post-undock-survivor")
                 .WithDockBinding(255600.0, "rec-2")
                 .WithLoopAnchorUT(255000.0)
                 .WithLastObservedLoopCycleIndex(7)
@@ -247,6 +250,11 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(
                 new SortedSet<string>(original.ExcludedIntervalKeys),
                 new SortedSet<string>(roundTripped.ExcludedIntervalKeys));
+
+            // Creation-time tree snapshot (M-MIS-9-R1)
+            Assert.Equal(
+                new SortedSet<string>(original.CreationTreeRecordingIds),
+                new SortedSet<string>(roundTripped.CreationTreeRecordingIds));
         }
 
         // catches: EXCLUDED_INTERVALS node written for an empty set (save bloat)
@@ -280,6 +288,10 @@ namespace Parsek.Tests.Logistics
             // Empty set writes NO EXCLUDED_INTERVALS node.
             Assert.False(node.HasNode(RouteCodec.ExcludedIntervalsNode),
                 "EXCLUDED_INTERVALS must be omitted when the set is empty");
+            // Empty creation snapshot writes NO CREATION_TREE_RECORDINGS node
+            // (M-MIS-9-R1; the run-cost resolver fails open on the empty set).
+            Assert.False(node.HasNode(RouteCodec.CreationTreeRecordingsNode),
+                "CREATION_TREE_RECORDINGS must be omitted when the snapshot is empty");
             // No backing-mission scalars that are themselves optional / sparse.
             Assert.False(node.HasValue("backingMissionTreeId"),
                 "backingMissionTreeId must be omitted when null");
@@ -292,6 +304,7 @@ namespace Parsek.Tests.Logistics
             Route roundTripped = Route.DeserializeFrom(node);
             Assert.NotNull(roundTripped);
             Assert.Empty(roundTripped.ExcludedIntervalKeys);
+            Assert.Empty(roundTripped.CreationTreeRecordingIds);
             Assert.Null(roundTripped.BackingMissionTreeId);
             Assert.Null(roundTripped.DockMemberRecordingId);
             Assert.Equal(-1.0, roundTripped.RecordedDockUT);

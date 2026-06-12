@@ -14,11 +14,13 @@ namespace Parsek.Logistics
     /// <see cref="RouteOrchestrator.ComputeDispatchFundsCostForRoute"/> so this
     /// file never re-walks the snapshot. The recovery half sums the actual
     /// distance-scaled <c>FundsAwarded</c> the ledger captured for every
-    /// vessel/part recovery in the route's SOURCE TREE (not just the rendered
-    /// [root..undock] member set: the fly-home-and-recover leg is post-undock
-    /// and excluded from the route member set, so scoping to
-    /// <c>Route.RecordingIds</c> would silently return zero recovery, gotcha
-    /// G1). All dependencies are injected so the arithmetic is unit-testable
+    /// vessel/part recovery in the route's SOURCE TREE AS OF ROUTE CREATION
+    /// (not just the rendered [root..undock] member set: the
+    /// fly-home-and-recover leg is post-undock and excluded from the route
+    /// member set, so scoping to <c>Route.RecordingIds</c> would silently
+    /// return zero recovery, gotcha G1; and not the whole CURRENT tree:
+    /// branches added after creation would inflate the recurring credit,
+    /// M-MIS-9-R1). All dependencies are injected so the arithmetic is unit-testable
     /// with deterministic lists; the production caller passes the live
     /// <see cref="EffectiveState.ComputeELS"/> result and the route's resolved
     /// tree-member id set.
@@ -88,9 +90,10 @@ namespace Parsek.Logistics
         /// by the production caller. A null list is treated as no recoveries.
         /// </param>
         /// <param name="treeRecordingIds">
-        /// The recording-id set of the route's source tree (gotcha G1: the WHOLE
-        /// tree, not just <c>Route.RecordingIds</c>). A null / empty set means
-        /// no recordings are in scope, so the sum is 0.
+        /// The recording-id set of the route's source tree (gotcha G1: the whole
+        /// tree as of route creation, not just <c>Route.RecordingIds</c>; see
+        /// <see cref="ResolveTreeRecordingIds(Route)"/>). A null / empty set
+        /// means no recordings are in scope, so the sum is 0.
         /// </param>
         /// <param name="recoveryEventCount">Out: number of rows summed.</param>
         internal static double SumRecoveredCredits(
@@ -134,7 +137,16 @@ namespace Parsek.Logistics
         /// Resolve the recording-id set of the route's source tree
         /// (<c>Route.BackingMissionTreeId</c> -&gt;
         /// <see cref="RouteTreeGuard.FindCommittedTree"/> -&gt;
-        /// <c>RecordingTree.Recordings.Keys</c>). Returns an empty set for a null
+        /// <c>RecordingTree.Recordings.Keys</c>), scoped to the route's
+        /// creation-time membership (M-MIS-9-R1): when
+        /// <c>Route.CreationTreeRecordingIds</c> is non-empty, ids the tree
+        /// gained AFTER route creation (re-fly forks, switch-fly continuations)
+        /// are dropped so a post-creation recovered branch cannot inflate the
+        /// recurring credit. The snapshot was taken from the WHOLE tree at
+        /// creation, so the post-undock fly-home-and-recover leg stays in
+        /// scope (gotcha G1). An empty snapshot FAILS OPEN to the whole
+        /// current tree (degenerate / pre-field route), preserving G1's
+        /// never-silently-zero contract. Returns an empty set for a null
         /// route, a null / empty backing-tree id, or a tree that does not resolve
         /// (degenerate route): the caller then sees recovered = 0, an acceptable
         /// conservative over-statement of cost (gotcha G1).
@@ -170,6 +182,28 @@ namespace Parsek.Logistics
                 if (!string.IsNullOrEmpty(kv.Key))
                     ids.Add(kv.Key);
             }
+
+            // (M-MIS-9-R1) Creation-time freeze: intersect with the snapshot
+            // captured at route creation so post-creation branches never enter
+            // the recovery-credit scope. Empty snapshot = fail open (whole
+            // current tree), logged so the degenerate path is visible.
+            HashSet<string> creation = route.CreationTreeRecordingIds;
+            if (creation == null || creation.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ResolveTreeRecordingIds route={ShortId(route)} treeId={ShortId(treeId)}: " +
+                    $"no creation snapshot: fail-open whole tree ({ids.Count.ToString(CultureInfo.InvariantCulture)} ids)");
+                return ids;
+            }
+
+            int before = ids.Count;
+            ids.IntersectWith(creation);
+            int dropped = before - ids.Count;
+            ParsekLog.Verbose(Tag,
+                $"ResolveTreeRecordingIds route={ShortId(route)} treeId={ShortId(treeId)}: " +
+                $"creation-scope kept={ids.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"droppedPostCreation={dropped.ToString(CultureInfo.InvariantCulture)} " +
+                $"snapshot={creation.Count.ToString(CultureInfo.InvariantCulture)}");
             return ids;
         }
 
@@ -196,9 +230,9 @@ namespace Parsek.Logistics
         /// (injected). Supersede / tombstone exclusions already applied by ELS.
         /// </param>
         /// <param name="treeRecordingIds">
-        /// Source-tree recording-id set (gotcha G1: whole tree, not the route
-        /// member set). Production callers build this via
-        /// <see cref="ResolveTreeRecordingIds"/>.
+        /// Source-tree recording-id set (gotcha G1: whole tree as of route
+        /// creation, not the route member set). Production callers build this
+        /// via <see cref="ResolveTreeRecordingIds(Route)"/>.
         /// </param>
         internal static RouteRunCost Compute(
             Route route,
@@ -268,7 +302,9 @@ namespace Parsek.Logistics
         /// Resolve the recording-id set of a candidate's source tree directly
         /// from the in-hand <see cref="RecordingTree"/> (the candidate already
         /// holds it, so no <see cref="RouteTreeGuard.FindCommittedTree"/> store
-        /// lookup is needed). Returns an empty set for a null tree or a tree
+        /// lookup is needed). No creation-time scoping here (M-MIS-9-R1): the
+        /// candidate has no Route yet, so creation is NOW and the whole tree IS
+        /// the creation-time set. Returns an empty set for a null tree or a tree
         /// with no recordings (then recovered = 0, the same conservative
         /// over-statement as the route path, gotcha G1).
         /// </summary>
