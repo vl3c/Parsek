@@ -1049,75 +1049,13 @@ namespace Parsek
             return VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, rec.VesselPersistentId, liveGuid);
         }
 
-        /// <summary>
-        /// Step-2 narrow-scope predicate for the Logistics route live-anchor bind:
-        /// returns true iff <paramref name="anchorRec"/>'s own launch-matched live
-        /// vessel is loaded (guid-gated <see cref="RealVesselExistsForRecording"/>)
-        /// AND some OTHER committed recording is, at its loop-mapped UT, an in-window
-        /// Relative member whose covering section's anchorRecordingId points at
-        /// <paramref name="anchorRec"/>. Used to suppress the anchor's OWN loop ghost
-        /// double (flight + map) only when the live vessel is actually serving as the
-        /// live-bound anchor of a rendered relative member this cycle — a Depot watched
-        /// looping from afar with NO live relative dependent still draws its own ghost.
-        /// Pure (short-circuits on the per-frame-cached existence check first); the
-        /// member scan only runs when the live launch-matched vessel is loaded.
-        /// </summary>
-        internal static bool IsLiveLaunchMatchedAnchorForActiveRelativeMember(
-            Recording anchorRec,
-            IReadOnlyList<Recording> committed,
-            LoopUnitSet loopUnits,
-            double currentUT)
-        {
-            if (anchorRec == null
-                || string.IsNullOrEmpty(anchorRec.RecordingId)
-                || committed == null)
-            {
-                return false;
-            }
-
-            // Cheap guid-gated existence gate first: only scan when the anchor's own
-            // launch-matched live vessel is actually loaded (per-frame pid cache).
-            if (!RealVesselExistsForRecording(anchorRec))
-                return false;
-
-            for (int j = 0; j < committed.Count; j++)
-            {
-                Recording member = committed[j];
-                if (member == null
-                    || member.TrackSections == null
-                    || member.TrackSections.Count == 0)
-                {
-                    continue;
-                }
-                // Skip the anchor itself (a recording is not its own dependent).
-                if (string.Equals(member.RecordingId, anchorRec.RecordingId, StringComparison.Ordinal))
-                    continue;
-
-                double effUT = ResolveTrackingStationSampleUT(
-                    j, member.StartUT, member.EndUT, currentUT, loopUnits, out bool renderHidden);
-                if (renderHidden)
-                    continue;
-
-                int sectionIndex = TrajectoryMath.FindTrackSectionForUT(member.TrackSections, effUT);
-                if (sectionIndex < 0)
-                    continue;
-
-                TrackSection section = member.TrackSections[sectionIndex];
-                if (section.referenceFrame != ReferenceFrame.Relative)
-                    continue;
-                if (string.IsNullOrEmpty(section.anchorRecordingId))
-                    continue;
-                if (string.Equals(
-                        section.anchorRecordingId.Trim(),
-                        anchorRec.RecordingId,
-                        StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
+        // Step-2 double-suppression (Logistics route live-anchor bind) no longer
+        // re-derives in-window membership here: the old predicate mapped the loop
+        // window through ResolveTrackingStationSampleUT on the previous-frame loop-unit
+        // set, which drifted from the engine's per-frame mapping and returned false on
+        // every frame (0 suppressions despite source=live binds, 2026-06-13 playtest).
+        // The suppression sites now read LiveAnchorBindTracker, stamped by the resolver
+        // at the exact moment it live-binds an anchor (the source=live event).
 
         // Resolves the launch Guid of the live vessel with the given pid (null = none / unknown).
         private static string ResolveLiveVesselGuid(uint vesselPersistentId)

@@ -6213,11 +6213,11 @@ namespace Parsek
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
-                // Step 2: this rec is the live-bound anchor of an in-window relative
-                // member this cycle -> suppress its own loop-ghost double on the map.
+                // Step 2: this rec was just live-bound as the anchor of a relative
+                // member -> suppress its own loop-ghost double on the map. Reads the
+                // resolver's ground-truth bind stamp, not a re-derived loop window.
                 bool liveLaunchMatchedAnchorOfActiveMember = realVesselExists
-                    && GhostPlaybackLogic.IsLiveLaunchMatchedAnchorForActiveRelativeMember(
-                        rec, committed, loopUnits, currentUT);
+                    && LiveAnchorBindTracker.WasLiveBoundRecently(rec.RecordingId);
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(i, out int cached)
                     ? cached
                     : -1;
@@ -9003,11 +9003,11 @@ namespace Parsek
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
-                // Step 2: suppress this rec's own loop-ghost double when it is the
-                // live-bound anchor of an in-window relative member this cycle.
+                // Step 2: suppress this rec's own loop-ghost double when it was just
+                // live-bound as the anchor of a relative member. Reads the resolver's
+                // ground-truth bind stamp, not a re-derived loop window.
                 bool liveLaunchMatchedAnchorOfActiveMember = realVesselExists
-                    && GhostPlaybackLogic.IsLiveLaunchMatchedAnchorForActiveRelativeMember(
-                        rec, committed, loopUnits, currentUT);
+                    && LiveAnchorBindTracker.WasLiveBoundRecently(rec.RecordingId);
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(i, out int cached)
                     ? cached
                     : -1;
@@ -10967,14 +10967,16 @@ namespace Parsek
                 return 0;
             }
 
-            // Step 2: is this overlap recording the live-bound anchor of an in-window
-            // relative member this cycle? If so its own overlap-instance ghosts are
-            // pure duplicates of the live station and must be suppressed (the
-            // hard-coded loopMemberInWindow:true overlap path would otherwise re-create
-            // the double the lifecycle pass suppresses).
+            // Step 2: was this overlap recording just live-bound as the anchor of a
+            // relative member? If so its own overlap-instance ghosts are pure
+            // duplicates of the live station and must be suppressed (the hard-coded
+            // loopMemberInWindow:true overlap path would otherwise re-create the double
+            // the lifecycle pass suppresses). Reads the resolver's ground-truth bind
+            // stamp, not a re-derived loop window.
             bool liveLaunchMatchedAnchorOfActiveMember =
-                GhostPlaybackLogic.IsLiveLaunchMatchedAnchorForActiveRelativeMember(
-                    rec, committed, loopUnits, currentUT);
+                rec != null
+                && GhostPlaybackLogic.RealVesselExistsForRecording(rec)
+                && LiveAnchorBindTracker.WasLiveBoundRecently(rec.RecordingId);
 
             long firstCycle, lastCycle;
             GhostPlaybackLogic.GetActiveCycles(
@@ -11759,8 +11761,10 @@ namespace Parsek
                         ? committedForOverlapSkip[idx]
                         : null;
                     bool liveLaunchMatchedAnchorOfActiveMember =
-                        GhostPlaybackLogic.IsLiveLaunchMatchedAnchorForActiveRelativeMember(
-                            pendingAnchorRec, committedForOverlapSkip, loopUnits, currentUT);
+                        pendingAnchorRec != null
+                        && GhostPlaybackLogic.RealVesselExistsForRecording(pendingAnchorRec)
+                        && LiveAnchorBindTracker.WasLiveBoundRecently(
+                            pendingAnchorRec.RecordingId);
                     TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
                         traj,
                         false,

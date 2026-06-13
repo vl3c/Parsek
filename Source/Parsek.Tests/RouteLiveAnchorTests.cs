@@ -1,16 +1,14 @@
 using System;
-using System.Collections.Generic;
 using Parsek;
-using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
 {
-    // Logistics route live-anchor bind (Step 2): unit coverage for the guid gate on
-    // the anchor's live-vessel match and the narrow "is this anchor serving an
-    // in-window relative member" suppression predicate. Both touch the shared
-    // GhostPlaybackLogic vessel-exists / guid-resolver overrides, so the class is
-    // [Collection("Sequential")] and resets them in the constructor + Dispose.
+    // Logistics route live-anchor bind: unit coverage for the guid gate on the anchor's
+    // live-vessel match (Step 1) and the LiveAnchorBindTracker that drives the Step-2
+    // double-suppression. The guid tests touch the shared GhostPlaybackLogic
+    // vessel-exists / guid-resolver overrides and the tracker is static, so the class is
+    // [Collection("Sequential")] and resets all of them in the constructor + Dispose.
     [Collection("Sequential")]
     public class RouteLiveAnchorTests : IDisposable
     {
@@ -25,15 +23,19 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
+            LiveAnchorBindTracker.ResetForTesting();
         }
 
         public void Dispose()
         {
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
+            LiveAnchorBindTracker.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
+
+        // --- Step 1: guid-gated live-vessel match -------------------------------
 
         [Fact]
         public void RealVesselExistsForRecording_SameCraftDifferentLaunch_DoesNotMatch()
@@ -61,77 +63,71 @@ namespace Parsek.Tests
             Assert.True(GhostPlaybackLogic.RealVesselExistsForRecording(rec));
         }
 
-        [Fact]
-        public void IsLiveLaunchMatchedAnchorForActiveRelativeMember_TrueWithActiveRelativeDependent()
+        // --- Step 2: LiveAnchorBindTracker ground-truth signal ------------------
+
+        [Theory]
+        [InlineData(100, 100, true)]  // bound this frame
+        [InlineData(100, 101, true)]  // bound last frame
+        [InlineData(100, 102, true)]  // window edge (default 2)
+        [InlineData(100, 103, false)] // just past the window: anchor ghost re-appears
+        [InlineData(100, 99, false)]  // negative delta (future stamp) never counts
+        public void IsRecentBind_WindowBoundaries(int boundFrame, int currentFrame, bool expected)
         {
-            // Anchor's launch-matched live vessel is loaded AND an in-window Relative
-            // member points at it -> suppress the anchor's own loop ghost double.
-            Recording anchor = MakeDepotAnchorRecording();
-            Recording member = MakeRelativeMember("deliverer", DepotRecordingId, currentUT: 5.0);
-            var committed = new List<Recording> { anchor, member };
-
-            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == DepotPid);
-            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => DepotLaunchGuid);
-
-            bool result = GhostPlaybackLogic.IsLiveLaunchMatchedAnchorForActiveRelativeMember(
-                anchor, committed, GhostPlaybackLogic.LoopUnitSet.Empty, currentUT: 5.0);
-
-            Assert.True(result);
+            Assert.Equal(
+                expected,
+                LiveAnchorBindTracker.IsRecentBind(
+                    boundFrame, currentFrame, LiveAnchorBindTracker.DefaultRecencyWindowFrames));
         }
 
         [Fact]
-        public void IsLiveLaunchMatchedAnchorForActiveRelativeMember_FalseWithNoRelativeDependent()
+        public void WasLiveBoundRecently_AfterRecord_TrueThroughWindowThenFalse()
         {
-            // A Depot watched looping from afar with NO live relative dependent still
-            // draws its own ghost (validators' point d): no member anchored to it ->
-            // predicate false even though the live vessel is loaded.
-            Recording anchor = MakeDepotAnchorRecording();
-            // A member that is NOT relative-anchored to the Depot.
-            Recording member = MakeRelativeMember("unrelated", "some-other-anchor", currentUT: 5.0);
-            var committed = new List<Recording> { anchor, member };
+            // The resolver stamps the anchor at frame 100 when it live-binds (source=live);
+            // the suppression sites read it on the same and following frames.
+            LiveAnchorBindTracker.RecordLiveBind(DepotRecordingId, 100);
 
-            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == DepotPid);
-            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => DepotLaunchGuid);
-
-            bool result = GhostPlaybackLogic.IsLiveLaunchMatchedAnchorForActiveRelativeMember(
-                anchor, committed, GhostPlaybackLogic.LoopUnitSet.Empty, currentUT: 5.0);
-
-            Assert.False(result);
+            Assert.True(LiveAnchorBindTracker.WasLiveBoundRecently(DepotRecordingId, 100));
+            Assert.True(LiveAnchorBindTracker.WasLiveBoundRecently(DepotRecordingId, 102));
+            Assert.False(LiveAnchorBindTracker.WasLiveBoundRecently(DepotRecordingId, 103));
         }
 
         [Fact]
-        public void IsLiveLaunchMatchedAnchorForActiveRelativeMember_FalseWhenAnchorLiveVesselDifferentLaunch()
+        public void WasLiveBoundRecently_DifferentRecordingId_False()
         {
-            // Same-craft DIFFERENT-launch live vessel: the guid gate rejects the live
-            // match, so the predicate short-circuits false (no suppression).
-            Recording anchor = MakeDepotAnchorRecording();
-            Recording member = MakeRelativeMember("deliverer", DepotRecordingId, currentUT: 5.0);
-            var committed = new List<Recording> { anchor, member };
+            // A bind on one anchor must never suppress a different recording's ghost.
+            LiveAnchorBindTracker.RecordLiveBind(DepotRecordingId, 100);
 
-            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == DepotPid);
-            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => DepotRelaunchGuid);
-
-            bool result = GhostPlaybackLogic.IsLiveLaunchMatchedAnchorForActiveRelativeMember(
-                anchor, committed, GhostPlaybackLogic.LoopUnitSet.Empty, currentUT: 5.0);
-
-            Assert.False(result);
+            Assert.False(LiveAnchorBindTracker.WasLiveBoundRecently("some-other-recording", 100));
         }
 
         [Fact]
-        public void IsLiveLaunchMatchedAnchorForActiveRelativeMember_FalseWhenAnchorLiveVesselAbsent()
+        public void WasLiveBoundRecently_NoRecordOrNullId_False()
         {
-            // No live vessel loaded at all -> distant-watch playback unchanged, the
-            // anchor draws its own ghost.
-            Recording anchor = MakeDepotAnchorRecording();
-            Recording member = MakeRelativeMember("deliverer", DepotRecordingId, currentUT: 5.0);
-            var committed = new List<Recording> { anchor, member };
+            Assert.False(LiveAnchorBindTracker.WasLiveBoundRecently(DepotRecordingId, 100));
+            Assert.False(LiveAnchorBindTracker.WasLiveBoundRecently(null, 100));
+            Assert.False(LiveAnchorBindTracker.WasLiveBoundRecently(string.Empty, 100));
+        }
 
-            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(_ => false);
+        [Fact]
+        public void RecordLiveBind_NullOrEmptyId_NoOp()
+        {
+            // Must not throw and must not register a phantom suppression key.
+            LiveAnchorBindTracker.RecordLiveBind(null, 100);
+            LiveAnchorBindTracker.RecordLiveBind(string.Empty, 100);
 
-            bool result = GhostPlaybackLogic.IsLiveLaunchMatchedAnchorForActiveRelativeMember(
-                anchor, committed, GhostPlaybackLogic.LoopUnitSet.Empty, currentUT: 5.0);
+            Assert.False(LiveAnchorBindTracker.WasLiveBoundRecently(string.Empty, 100));
+        }
 
-            Assert.False(result);
+        [Fact]
+        public void RecordLiveBind_Restamp_ExtendsRecencyFromLatestFrame()
+        {
+            // A sustained docking window re-stamps each in-window frame; the recency
+            // anchors to the LATEST stamp so the suppression holds for the whole window.
+            LiveAnchorBindTracker.RecordLiveBind(DepotRecordingId, 100);
+            Assert.False(LiveAnchorBindTracker.WasLiveBoundRecently(DepotRecordingId, 103));
+
+            LiveAnchorBindTracker.RecordLiveBind(DepotRecordingId, 103);
+            Assert.True(LiveAnchorBindTracker.WasLiveBoundRecently(DepotRecordingId, 103));
         }
 
         private static Recording MakeDepotAnchorRecording()
@@ -144,31 +140,6 @@ namespace Parsek.Tests
                 RecordedVesselGuid = DepotLaunchGuid,
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
-        }
-
-        private static Recording MakeRelativeMember(
-            string recordingId, string anchorRecordingId, double currentUT)
-        {
-            var rec = new Recording
-            {
-                RecordingId = recordingId,
-                VesselName = recordingId,
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-            };
-            rec.TrackSections.Add(new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Relative,
-                startUT = currentUT - 5.0,
-                endUT = currentUT + 5.0,
-                anchorRecordingId = anchorRecordingId,
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = currentUT - 5.0 },
-                    new TrajectoryPoint { ut = currentUT + 5.0 },
-                },
-                checkpoints = new List<OrbitSegment>(),
-            });
-            return rec;
         }
     }
 }

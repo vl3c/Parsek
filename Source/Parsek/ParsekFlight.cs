@@ -1122,6 +1122,11 @@ namespace Parsek
             Instance = this;
             Log("Parsek Flight loaded.");
 
+            // Wire the live frame source for the loop-relative live-anchor bind tracker
+            // (Step-2 double-suppression). The default returns 0 so headless unit tests
+            // of the suppression sites never touch the Time.frameCount Unity ECall.
+            LiveAnchorBindTracker.SetFrameCountProvider(() => Time.frameCount);
+
             GameEvents.onGameSceneLoadRequested.Add(OnSceneChangeRequested);
             GameEvents.onFlightReady.Add(OnFlightReady);
             GameEvents.onVesselWillDestroy.Add(OnVesselWillDestroy);
@@ -1956,6 +1961,11 @@ namespace Parsek
         void OnDestroy()
         {
             Instance = null;
+            // Drop loop-relative live-anchor bind stamps so a stale cross-scene entry
+            // cannot briefly suppress an anchor ghost in the next scene (frame-count
+            // recency would self-correct within a couple of frames, but clearing here
+            // is precise hygiene on scene exit).
+            LiveAnchorBindTracker.Clear();
             // #267: clear the static restore-reentrancy guard. The restore coroutines
             // set it true and clear it in a finally, but Unity abandons a running
             // coroutine when the MonoBehaviour is destroyed (scene change) WITHOUT
@@ -19164,21 +19174,18 @@ namespace Parsek
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
                 // Step 2 (Logistics route live-anchor bind): suppress the anchor's OWN
-                // loop ghost double when its launch-matched live vessel is loaded AND it
-                // is serving as the live-bound anchor of an in-window Relative member this
-                // cycle (the Deliverer ghost now docks against the live Depot, so the
-                // recorded Depot loop ghost ~20 km away is a pure duplicate). Narrowly
-                // scoped: leaves the IsVesselRecordedByTree carve-out intact for a Depot
-                // watched looping from afar with no live relative dependent.
-                // NOTE: this reads the PREVIOUS frame's cachedLoopUnits — ComputePlaybackFlags
-                // runs before DriveMissionLoopUnits rebuilds the set this frame. On the very
-                // first frame the set is Empty, so the predicate's loop-mapped sample UT falls
-                // outside the recorded window and the double is not suppressed for one frame
-                // (cosmetic flicker only). cachedLoopUnits is rebuild-gated and stable from the
-                // next frame on; Step 1 (the actual displacement fix) does not depend on it.
+                // loop ghost double when it was just live-bound as the anchor of a
+                // relative member (the Deliverer ghost now docks against the live Depot,
+                // so the recorded Depot loop ghost ~20 km away is a pure duplicate).
+                // Reads the ground-truth bind signal stamped by the resolver, NOT a
+                // re-derived loop window: the original predicate re-mapped the window
+                // through ResolveTrackingStationSampleUT and never agreed with the
+                // engine's per-frame mapping, returning false on every frame (0
+                // suppressions in the 2026-06-13 playtest despite source=live binds).
+                // Narrowly scoped: a Depot watched looping from afar with no live
+                // relative dependent never gets a bind, so its ghost still draws.
                 bool liveAnchorDoubleSuppressed =
-                    GhostPlaybackLogic.IsLiveLaunchMatchedAnchorForActiveRelativeMember(
-                        rec, committed, cachedLoopUnits, currentUT);
+                    LiveAnchorBindTracker.WasLiveBoundRecently(rec.RecordingId);
                 if (liveAnchorDoubleSuppressed)
                     externalVesselSuppressed = true;
                 TimelineInactiveReason inactiveReason = TimelineInactiveReason.None;
@@ -19826,6 +19833,11 @@ namespace Parsek
                 return null;
             }
 
+            // Ground-truth signal for Step-2 double-suppression: this anchor was just
+            // live-bound by a relative member, so its own loop-ghost is now a duplicate
+            // of the live station. The flight + map suppression sites read this instead
+            // of re-deriving the loop window (which never matched the engine mapping).
+            LiveAnchorBindTracker.RecordLiveBind(anchorRec.RecordingId);
             return (pose.worldPos, pose.worldRotation);
         }
 
