@@ -2439,6 +2439,10 @@ namespace Parsek.Display
             // carries through without re-storing the struct).
             if (!leg.vectorLine.active) leg.vectorLine.active = true;
             leg.vectorLine.Draw3D();
+            // Bug 1 fix (flagged for playtest): re-stamp infinite mesh bounds after every draw so a
+            // tiny near-surface body-fixed leg never frustum-culls when the map camera zooms out.
+            // Draw3D's RecalculateBounds clobbers it each frame, so it must be re-applied here.
+            OverrideLineMeshBoundsAfterDraw(leg.vectorLine);
             leg.lastDrawnFrame = drawFrame;
             return true;
         }
@@ -2510,6 +2514,84 @@ namespace Parsek.Display
             Color stockOrbit = stockNode * 0.5f;
             stockOrbit.a = stockNode.a;
             line.SetColor(stockOrbit);
+        }
+
+        /// <summary>
+        /// Half-extent (metres in scaled space) of the effectively-infinite bounds box stamped onto a
+        /// drawn leg / arc / bridge mesh by <see cref="OverrideLineMeshBoundsAfterDraw"/>. 1e9 dwarfs
+        /// the scaled-space extent of the whole solar system, so the mesh's AABB always intersects the
+        /// map / scaled camera frustum and Unity never frustum-culls a tiny near-surface body-fixed leg
+        /// mesh as the camera pulls back (Bug 1: looped-mission trajectory lines vanishing when zoomed
+        /// out). Standard Unity idiom for always-visible procedural geometry.
+        /// </summary>
+        internal const float InfiniteMeshBoundsHalfExtent = 1e9f;
+
+        /// <summary>
+        /// Pure null-guard decision for <see cref="OverrideLineMeshBoundsAfterDraw"/>: returns true only
+        /// when the line carries a writable mesh-bounds target (a non-null line with a non-null
+        /// <c>rectTransform</c>; the live mesh / MeshFilter reads happen in the Unity-coupled writer,
+        /// which the in-game test exercises). Kept <c>internal static</c> so the guard branches are
+        /// unit-testable without a live Vectrosity GameObject.
+        /// </summary>
+        internal static bool ShouldOverrideMeshBounds(VectorLine line)
+        {
+            return line != null && line.rectTransform != null;
+        }
+
+        /// <summary>
+        /// Stamps an effectively-infinite bounds box on a leg / arc / bridge line's mesh, called
+        /// IMMEDIATELY after each <c>VectorLine.Draw3D()</c>. The Vectrosity 3D path
+        /// (<c>VectorObject3D</c>) owns ONE stable instance mesh per line (assigned once in
+        /// <c>SetupMesh()</c> via <c>GetComponent&lt;MeshFilter&gt;().mesh = m_mesh</c>) and recomputes
+        /// its AABB every draw inside <c>SetVerts() -&gt; RecalculateBounds()</c> (synchronously here
+        /// because <see cref="ApplyStockOrbitLineStyle"/> sets <c>UpdateImmediate = true</c>), so the
+        /// override is re-clobbered + must be re-applied every frame after the draw. A tiny near-surface
+        /// body-fixed leg otherwise frustum-culls when the map camera zooms out; an infinite-bounds mesh
+        /// never does. Material / width / layer / projection are untouched.
+        ///
+        /// <para>FLAGGED FOR PLAYTEST: this is the correct fix IFF the vanish is a frustum cull of the
+        /// line mesh. If the in-game <c>TestPlanesAABB</c> instrumentation (gated on
+        /// <c>mapRenderTracing</c>, emitted at the leg draw site) shows the leg's AABB stays inside the
+        /// frustum at the vanish zoom, this override is a NO-OP for the real mechanism (an in-Draw3D
+        /// per-segment <c>BehindCamera</c> skip is the alternative) and should be reverted. See
+        /// CHANGELOG / todo-and-known-bugs.md.</para>
+        /// </summary>
+        internal static void OverrideLineMeshBoundsAfterDraw(VectorLine line)
+        {
+            if (!ShouldOverrideMeshBounds(line)) return;
+            var go = line.rectTransform.gameObject;
+            if (go == null) return;
+            var mf = go.GetComponent<MeshFilter>();
+            if (mf == null || mf.mesh == null) return;
+            mf.mesh.bounds = new Bounds(Vector3.zero, Vector3.one * InfiniteMeshBoundsHalfExtent);
+        }
+
+        /// <summary>
+        /// Pure scaled-space AABB over the first <paramref name="count"/> points of
+        /// <paramref name="scaledPoints"/> (Bug 1 instrumentation: the leg's submitted geometry extent,
+        /// the quantity Unity frustum-tests). Returns a degenerate zero-centre / zero-size box when the
+        /// span is empty so the caller's <c>TestPlanesAABB</c> read is well-defined. Kept
+        /// <c>internal static</c> for unit-testability (no Unity ECall - pure Vector3 math).
+        /// </summary>
+        internal static Bounds ComputeScaledSpaceAabb(Vector3[] scaledPoints, int count)
+        {
+            if (scaledPoints == null || count <= 0)
+                return new Bounds(Vector3.zero, Vector3.zero);
+            int n = Math.Min(count, scaledPoints.Length);
+            if (n <= 0)
+                return new Bounds(Vector3.zero, Vector3.zero);
+            Vector3 min = scaledPoints[0];
+            Vector3 max = scaledPoints[0];
+            for (int i = 1; i < n; i++)
+            {
+                Vector3 p = scaledPoints[i];
+                if (p.x < min.x) min.x = p.x; else if (p.x > max.x) max.x = p.x;
+                if (p.y < min.y) min.y = p.y; else if (p.y > max.y) max.y = p.y;
+                if (p.z < min.z) min.z = p.z; else if (p.z > max.z) max.z = p.z;
+            }
+            var b = new Bounds();
+            b.SetMinMax(min, max);
+            return b;
         }
 
         /// <summary>
@@ -2598,6 +2680,12 @@ namespace Parsek.Display
             private readonly Dictionary<string, CelestialBody> bodyByName =
                 new Dictionary<string, CelestialBody>(StringComparer.Ordinal);
             private GameScenes bodyMapScene = (GameScenes)(-1);
+
+            // Bug 1 instrumentation one-shot: log the runtime mesh-component path (hasMF / hasMesh)
+            // exactly once per scene so the reader confirms the bounds-override target exists at runtime
+            // (the decompilation proves MeshFilter is present; this is the belt-and-braces live read).
+            // Reset when the scene changes alongside bodyMapScene.
+            private bool zoomProbeComponentPathLogged;
 
             // ----------------------------------------------------------------
             // Pan-stability draw split (FIX 1)
@@ -2782,6 +2870,71 @@ namespace Parsek.Display
             }
 
             /// <summary>
+            /// Bug 1 zoom / frustum-cull observability (flagged for playtest; only called when
+            /// <see cref="MapRenderTrace.IsEnabled"/>). Reads the map camera, computes the drawn leg's
+            /// scaled-space AABB (<see cref="ComputeScaledSpaceAabb"/>), tests it against the camera
+            /// frustum, and reads back the post-draw mesh bounds, then emits one rate-limited Verbose
+            /// line per (recording, leg). On the first drawn leg of each scene it also logs the runtime
+            /// mesh-component path (hasMF / hasMesh) once, confirming the bounds-override target exists.
+            /// Read-only: never mutates camera / line / mesh state. All Unity ECalls are isolated here so
+            /// the closed tracer pays nothing (the caller guards on <see cref="MapRenderTrace.IsEnabled"/>).
+            /// </summary>
+            private void EmitZoomCullProbe(string recordingId, int legIndex, ref LegPolyline leg)
+            {
+                var line = leg.vectorLine;
+                if (line == null) return;
+
+                var pcam = PlanetariumCamera.fetch;
+                Camera cam = PlanetariumCamera.Camera;
+                float distance = pcam != null ? pcam.Distance : float.NaN;
+
+                Bounds legBounds = ComputeScaledSpaceAabb(leg.scratchScaledSpace, leg.PointCount);
+                bool frustumPass = false;
+                if (cam != null)
+                {
+                    Plane[] frustum = GeometryUtility.CalculateFrustumPlanes(cam);
+                    frustumPass = GeometryUtility.TestPlanesAABB(frustum, legBounds);
+                }
+
+                // Post-draw mesh-bounds read-back + one-shot component-path probe.
+                bool hasMF = false;
+                bool hasMesh = false;
+                Vector3 meshExtents = Vector3.zero;
+                if (line.rectTransform != null && line.rectTransform.gameObject != null)
+                {
+                    var mf = line.rectTransform.gameObject.GetComponent<MeshFilter>();
+                    hasMF = mf != null;
+                    if (mf != null && mf.mesh != null)
+                    {
+                        hasMesh = true;
+                        meshExtents = mf.mesh.bounds.extents;
+                    }
+                }
+
+                if (!zoomProbeComponentPathLogged)
+                {
+                    zoomProbeComponentPathLogged = true;
+                    ParsekLog.Verbose(DriverTag, string.Format(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        "Bug1 zoom-probe component-path: rec={0} leg={1} hasMF={2} hasMesh={3} " +
+                        "(MeshFilter is the bounds-override target)",
+                        recordingId, legIndex, hasMF, hasMesh));
+                }
+
+                ParsekLog.VerboseRateLimited(DriverTag, "bug1-zoom-cull." + recordingId,
+                    () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Bug1 zoom-cull probe: rec={0} leg={1} zoom={2:F1} frustumPass={3} " +
+                        "legAabbCenter=({4:F1},{5:F1},{6:F1}) legAabbExtents=({7:F1},{8:F1},{9:F1}) " +
+                        "meshBoundsExtents=({10:F1},{11:F1},{12:F1}) hasMF={13} hasMesh={14}",
+                        recordingId, legIndex, distance, frustumPass,
+                        legBounds.center.x, legBounds.center.y, legBounds.center.z,
+                        legBounds.extents.x, legBounds.extents.y, legBounds.extents.z,
+                        meshExtents.x, meshExtents.y, meshExtents.z,
+                        hasMF, hasMesh),
+                    1.0);
+            }
+
+            /// <summary>
             /// Drops the cached per-scene controller + body-name map on every
             /// scene load so the next LateUpdate re-resolves them once for the
             /// new scene (MINOR-1 / MINOR-2). The DDOL Driver outlives scene
@@ -2802,6 +2955,7 @@ namespace Parsek.Display
                 cachedFlightController = null;
                 bodyMapScene = (GameScenes)(-1);
                 bodyByName.Clear();
+                zoomProbeComponentPathLogged = false;
 
                 // Flush the marker hold cache on every scene switch: a held on-line WORLD position from
                 // the previous scene must never glue a marker in the new scene. The per-frame deactivation
@@ -3365,6 +3519,16 @@ namespace Parsek.Display
                                 string.IsNullOrEmpty(leg.bodyName) ? "<none>" : leg.bodyName,
                                 leg.PointCount, p.ownedByTreatment, pendingTargetLayer,
                                 leg.startUT, leg.endUT));
+
+                    // Bug 1 instrumentation (flagged for playtest, gated on mapRenderTracing): on an
+                    // ACTUAL draw, log the map-camera zoom (PlanetariumCamera.Distance), the leg's
+                    // submitted scaled-space AABB, and whether that AABB passes the camera frustum
+                    // (GeometryUtility.TestPlanesAABB). This is the read that DECIDES Bug 1's fix: zoom
+                    // out until the line vanishes, then grep zoom= vs frustumPass=. If frustumPass goes
+                    // false at the vanish zoom the mesh-bounds override is correct; if it stays true the
+                    // override is a no-op and the vanish is an in-Draw3D per-segment skip.
+                    if (legDrawn && MapRenderTrace.IsEnabled)
+                        EmitZoomCullProbe(p.recordingId, p.legIndex, ref leg);
                 }
                 pendingDraws.Clear();
 
@@ -3642,6 +3806,9 @@ namespace Parsek.Display
                 xform.localScale = Vector3.one;
                 if (!line.active) line.active = true;
                 line.Draw3D();
+                // Bug 1 fix (flagged for playtest): see OverrideLineMeshBoundsAfterDraw - keep the seam
+                // bridge mesh frustum-resident at far zoom, re-applied every draw (Draw3D clobbers it).
+                OverrideLineMeshBoundsAfterDraw(line);
                 entry.lastDrawnFrame = frame;
 
                 // Lazy: the chord-deviation + slice-span diagnostics (playtest-11 straightness report)
@@ -4508,6 +4675,9 @@ namespace Parsek.Display
                 xform.localScale = Vector3.one;
                 if (!line.active) line.active = true;
                 line.Draw3D();
+                // Bug 1 fix (flagged for playtest): see OverrideLineMeshBoundsAfterDraw - keep the
+                // forward-arc mesh frustum-resident at far zoom, re-applied every draw.
+                OverrideLineMeshBoundsAfterDraw(line);
                 arc.lastDrawnFrame = drawFrame;
                 return true;
             }
