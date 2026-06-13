@@ -165,6 +165,24 @@ namespace Parsek
                 return false;
             }
 
+            // Data-loss safeguard (mirrors IsActiveTreeIdleOnPad's Bug #290d
+            // "0 points = data-loss, not idle" guard): if the segment carries no
+            // trajectory payload at all — no usable points, no sections, no orbit
+            // segments — we cannot confirm it is genuinely empty (a sidecar that
+            // failed to load looks the same as a switch that recorded nothing), so
+            // KEEP rather than risk discarding a recording whose data simply did
+            // not load. A genuine no-op coast / sit always has >= 2 points and a
+            // boring section, so this only spares the near-empty sub-second case
+            // (whose ghost cost is negligible anyway).
+            int pointCount = segment.Points?.Count ?? 0;
+            int sectionCount = segment.TrackSections?.Count ?? 0;
+            int orbitSegmentCount = segment.OrbitSegments?.Count ?? 0;
+            if (pointCount < 2 && sectionCount == 0 && orbitSegmentCount == 0)
+            {
+                keepReason = "insufficient-data";
+                return false;
+            }
+
             // Every track section must be "boring": ExoBallistic (coasting in
             // space) or SurfaceStationary (sitting still). Any Atmospheric,
             // ExoPropulsive (thrust), SurfaceMobile (rover driving), or Approach

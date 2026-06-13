@@ -96,9 +96,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EmptySegment_IsNoOp()
+        public void EmptySegment_WithNoPayload_IsKept_InsufficientData()
         {
+            // Data-loss safeguard: a segment with no points / sections / orbit
+            // segments cannot be confirmed empty (a failed sidecar looks the
+            // same), so it is KEPT rather than discarded.
             var rec = new Recording();
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.Equal("insufficient-data", reason);
+        }
+
+        [Fact]
+        public void OrbitalCoast_TwoPointsNoSections_StillEvaluatedAsNoOp()
+        {
+            // >= 2 points means there IS trajectory payload, so the data-loss
+            // guard does not fire and an unremarkable coast is still a no-op.
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 0, altitude = 80000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 100, altitude = 80000, bodyName = "Kerbin" });
             Assert.True(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out _));
         }
 

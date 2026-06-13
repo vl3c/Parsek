@@ -185,6 +185,28 @@ Tolerances (constants, tuned conservatively so we only discard on a clear no-op)
 Conservative bias: **when in doubt, KEEP.** The predicate returns a non-null
 `keepReason` for the first gate that fails, for logging.
 
+### As-built deltas from the gate list above
+
+- **Gate 9 (explicit surface-displacement) was folded into gate 7.** Surface
+  motion is detected by the recorder's own `SurfaceMobile` (> 0.1 m/s)
+  classification, which gate 7 already treats as non-boring → keep. A separate
+  `Points[0]`-relative displacement metric was dropped: it would have had to
+  re-derive lat/lon distance, which is meaningless / hazardous under
+  `ReferenceFrame.Relative` sections (where lat/lon hold metre offsets, not
+  degrees) and for orbital ground tracks. `SurfaceStationary` already means the
+  game itself classified the vessel as not moving.
+- **Descendants (gate 2) are detected via the subtree recording count**
+  (`CollectSwitchSegmentSubtreeRecordingIds(...).Count > 1`), not a separate
+  claiming-branch-point scan: dock / undock / EVA / decouple / breakup all
+  create child recordings that the downward branch-point walk collects, and
+  docking is independently caught by the `Docked` part event + dock target.
+- **Data-loss safeguard added** (Bug #290d precedent): a segment with no payload
+  at all (< 2 points AND no sections AND no orbit segments) is KEPT
+  (`insufficient-data`), since a failed sidecar load is indistinguishable from a
+  nothing-recorded switch. The only cost is not cleaning up a near-empty
+  sub-second segment (negligible ghost cost); a genuine no-op coast / sit always
+  has payload and is still discarded.
+
 ### Live-side wrapper
 
 The evaluator lives on `ParsekFlight` (it owns the recorder + activeTree + the
