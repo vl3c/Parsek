@@ -181,7 +181,7 @@ namespace Parsek
                 // pose exactly as for the recorded pose, so the standoff follows
                 // the live station's current attitude. Guid-gated inside the host
                 // delegate; a same-craft different-launch live vessel never binds.
-                if (TryResolveLiveLaunchMatchedAnchorPose(
+                if (TryBindLiveLaunchMatchedAnchorPose(
                         context,
                         recording,
                         ut,
@@ -208,7 +208,7 @@ namespace Parsek
         /// no live vessel, so the caller falls through to the recorded-anchor pose
         /// unchanged. Logs one Verbose decision line per (focus, anchor) pair.
         /// </summary>
-        private static bool TryResolveLiveLaunchMatchedAnchorPose(
+        private static bool TryBindLiveLaunchMatchedAnchorPose(
             RelativeAnchorResolverContext context,
             Recording recording,
             double ut,

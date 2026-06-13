@@ -1054,7 +1054,8 @@ namespace Parsek
         // window through ResolveTrackingStationSampleUT on the previous-frame loop-unit
         // set, which drifted from the engine's per-frame mapping and returned false on
         // every frame (0 suppressions despite source=live binds, 2026-06-13 playtest).
-        // The suppression sites now read LiveAnchorBindTracker, stamped by the resolver
+        // The suppression sites now read LiveAnchorBindTracker, stamped by the resolver's
+        // host delegate (ParsekFlight.TryResolveLiveLaunchMatchedAnchorPoseForResolver)
         // at the exact moment it live-binds an anchor (the source=live event).
 
         // Resolves the launch Guid of the live vessel with the given pid (null = none / unknown).

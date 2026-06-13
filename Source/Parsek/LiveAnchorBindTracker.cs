@@ -5,9 +5,12 @@ namespace Parsek
 {
     /// <summary>
     /// Ground-truth signal for the loop-relative live-anchor double-suppression
-    /// (PR #1136 Step 2 follow-up). The relative-anchor resolver records here every
-    /// time it actually live-binds a focus member to its anchor's launch-matched live
-    /// vessel (the exact moment that logs <c>relative-anchor-live-bind ... source=live</c>).
+    /// (PR #1136 Step 2 follow-up). The relative-anchor resolver's host delegate
+    /// (<c>ParsekFlight.TryResolveLiveLaunchMatchedAnchorPoseForResolver</c>, invoked
+    /// from <c>RelativeAnchorResolver.TryBindLiveLaunchMatchedAnchorPose</c>) stamps
+    /// here every time it actually live-binds a focus member to its anchor's
+    /// launch-matched live vessel (the exact moment that logs
+    /// <c>relative-anchor-live-bind ... source=live</c>).
     /// The flight + map double-suppression sites then ask "was this anchor live-bound
     /// this or last frame?" instead of independently re-deriving the loop window.
     ///

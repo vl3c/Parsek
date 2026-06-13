@@ -19184,6 +19184,10 @@ namespace Parsek
                 // suppressions in the 2026-06-13 playtest despite source=live binds).
                 // Narrowly scoped: a Depot watched looping from afar with no live
                 // relative dependent never gets a bind, so its ghost still draws.
+                // No realVesselExists guard here (unlike the GhostMapPresence sites): a
+                // recent bind already implies the launch-matched live vessel was loaded,
+                // because RecordLiveBind only fires after the guid-gated
+                // RealVesselExistsForRecording check inside the resolver delegate.
                 bool liveAnchorDoubleSuppressed =
                     LiveAnchorBindTracker.WasLiveBoundRecently(rec.RecordingId);
                 if (liveAnchorDoubleSuppressed)
@@ -19837,6 +19841,11 @@ namespace Parsek
             // live-bound by a relative member, so its own loop-ghost is now a duplicate
             // of the live station. The flight + map suppression sites read this instead
             // of re-deriving the loop window (which never matched the engine mapping).
+            // NOTE: this delegate is also reached from the re-fly anchor-candidate cache
+            // (CacheGhostRecordingAnchorCandidates), so a candidate whose live vessel
+            // happens to be loaded can stamp a bind with no rendered dependent. That
+            // only suppresses the candidate's own ghost for up to the recency window
+            // (~2 frames) and self-corrects, so it is left unguarded.
             LiveAnchorBindTracker.RecordLiveBind(anchorRec.RecordingId);
             return (pose.worldPos, pose.worldRotation);
         }
