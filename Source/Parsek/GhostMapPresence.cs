@@ -1090,6 +1090,84 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Bug 3 burn-seam observability: the LAST render frame each ghost pid had its proto icon
+        /// SUPPRESSED by the icon-drive Prefix in <see cref="Parsek.Patches.GhostOrbitIconDrivePatch"/>.
+        /// This covers BOTH suppress paths: the Director-traced early-return (the path the headline
+        /// burn-seam teleport actually traverses, confirmed in the captured KSP.log) and the no-bounds
+        /// branch. The headline "followed icon teleported for one frame at a burn" symptom is the
+        /// segment -> state-vector (burn) seam: at a loiter/transfer -> burn transition the state-vector
+        /// reseed clears this ghost's segment-drive bounds (<see cref="ghostOrbitBounds"/> etc.) and the
+        /// polyline owns the leg, so for the frame(s) between "suppression opens" and "the next
+        /// StockConic (hyperbolic) segment re-establishes a drive" the proto icon is suppressed and its
+        /// <c>worldPos</c> sits STALE; when the drive re-establishes, the icon un-suppresses and snaps
+        /// by the warp-advanced amount. This dict lets the Prefix detect the ENTER (first suppressed
+        /// frame) and EXIT (first driven frame after a suppressed run) transitions so the next playtest
+        /// log captures the exact stale-window length + the snap magnitude from one grep, BEFORE any
+        /// behavioral continuity fix is chosen (the fix is gated on this read; see
+        /// docs/dev/todo-and-known-bugs.md). Pure observability: it never feeds a decision.
+        /// Cleared per-pid on every ghost teardown (the three <c>RemoveGhostVessel*</c> sites, alongside
+        /// <see cref="ghostsWithSuppressedIcon"/>) and in bulk on scene change / test reset; a stale
+        /// stamp that survives an earlier Prefix early-return self-corrects to a clean ENTER on reuse
+        /// (the strict <c>currentFrame-1</c> adjacency in
+        /// <see cref="ClassifyNoBoundsSuppressionTransition"/> never reads it as a continuing run).
+        /// </summary>
+        internal static readonly Dictionary<uint, int> ghostNoBoundsSuppressLastFrame =
+            new Dictionary<uint, int>();
+
+        /// <summary>
+        /// The no-bounds suppression transition for a ghost pid this frame, for Bug-3 burn-seam
+        /// instrumentation. See <see cref="ClassifyNoBoundsSuppressionTransition"/>.
+        /// </summary>
+        internal enum NoBoundsSuppressTransition
+        {
+            /// <summary>The Prefix found bounds this frame and the pid had no recent no-bounds
+            /// suppression run, so there is no burn-seam transition to log.</summary>
+            None,
+            /// <summary>First no-bounds-suppressed frame of a run (the icon was being driven last
+            /// frame and is now suppressed because the segment bounds were just cleared). Log the
+            /// stale worldPos carried into the suppressed window.</summary>
+            Enter,
+            /// <summary>A continuing no-bounds-suppressed frame within an open run. Not logged
+            /// individually (the per-frame snapshot of the stale position is rate-limited).</summary>
+            Sustain,
+            /// <summary>First driven frame AFTER a no-bounds-suppressed run: the icon un-suppresses
+            /// and snaps. Log the resolved worldPos so the snap magnitude is greppable.</summary>
+            Exit
+        }
+
+        /// <summary>
+        /// PURE: classify this frame's no-bounds suppression transition for a ghost pid, given whether
+        /// the Prefix took the no-bounds suppress path this frame and the frame the pid was last
+        /// no-bounds-suppressed on. <paramref name="suppressedThisFrame"/> is the no-bounds suppress
+        /// decision (Director tracking AND no segment bounds). <paramref name="lastSuppressedFrame"/>
+        /// is <see cref="int.MinValue"/> when the pid has never been no-bounds-suppressed.
+        ///
+        /// Enter   = suppressed this frame, NOT suppressed on the immediately-preceding frame.
+        /// Sustain = suppressed this frame AND suppressed on the immediately-preceding frame.
+        /// Exit    = NOT suppressed this frame, but suppressed on the immediately-preceding frame
+        ///           (the un-suppress snap boundary).
+        /// None    = NOT suppressed this frame and no immediately-preceding suppressed frame.
+        ///
+        /// "Immediately-preceding" is a strict <c>currentFrame - 1</c> match: a non-suppressed frame
+        /// gap between two suppressed frames is its own Exit then Enter, which is exactly the burn-seam
+        /// chatter we want to see frame-accurately in the log.
+        /// </summary>
+        internal static NoBoundsSuppressTransition ClassifyNoBoundsSuppressionTransition(
+            bool suppressedThisFrame,
+            int currentFrame,
+            int lastSuppressedFrame)
+        {
+            bool suppressedLastFrame = lastSuppressedFrame == currentFrame - 1;
+            if (suppressedThisFrame)
+                return suppressedLastFrame
+                    ? NoBoundsSuppressTransition.Sustain
+                    : NoBoundsSuppressTransition.Enter;
+            return suppressedLastFrame
+                ? NoBoundsSuppressTransition.Exit
+                : NoBoundsSuppressTransition.None;
+        }
+
+        /// <summary>
         /// PURE marker-draw / proto-icon-suppression decision (Phase 8c). True when the Parsek
         /// non-proto trajectory marker MUST draw for a ghost pid this frame because the stock proto
         /// icon is hidden; false when the stock proto icon is the visible indicator (skip our marker).
@@ -2496,6 +2574,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
+            ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
             ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
@@ -3566,6 +3645,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitLineGraceUntilFrame.Clear();
+            ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
@@ -3990,6 +4070,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
+            ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
             ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
@@ -8377,6 +8458,102 @@ namespace Parsek
                     context, vessel.persistentId));
         }
 
+        /// <summary>
+        /// Bug 3 facet (b) pure decision: should this freshly-created flight map ghost be queued for the
+        /// post-RunFrame settle pass? Only loop-shifted members (<paramref name="loopEpochShiftSeconds"/>
+        /// != 0) are recreated every frame at extreme warp and read before the shadow seeds them. A
+        /// non-loop create has shift 0 and already glides via stock at the live UT (its create-time
+        /// position is correct), so it is never queued and the settle pass is byte-identical to before for
+        /// non-loop ghosts.
+        /// </summary>
+        internal static bool ShouldSettleFreshlyCreatedLoopGhost(double loopEpochShiftSeconds)
+            => loopEpochShiftSeconds != 0.0;
+
+        /// <summary>
+        /// Bug 3 facet (b): re-drive the icon POSITION of every loop-shifted flight map ghost CREATED this
+        /// frame, AFTER the shadow (<c>ShadowRenderDriver.RunFrame</c>) has written this frame's StockConic
+        /// seed and BEFORE the end-of-frame <see cref="MapRenderProbe"/> reads the icon. The create-time
+        /// <see cref="ForceImmediateIconDrive"/> ran with <c>fresh=False</c> (the seed for the brand-new pid
+        /// did not exist yet), so it took the legacy effUT path whose <c>SetPosition</c> KSP discards on its
+        /// next live re-propagation; the icon would otherwise sit at its raw-epoch SPAWN position when the
+        /// probe reads it. With the seed now fresh, the second <c>updateFromParameters()</c> routes through
+        /// the icon-drive Prefix's Director branch (<c>SeedAndDriveLive</c>) which bakes the loop shift into
+        /// the orbit EPOCH, so the settled on-orbit position survives KSP's live re-propagation and the
+        /// probe records the correct FirstPosition (the read-before-settle <c>icon-off-orbit</c> family).
+        ///
+        /// REQUIRED FRAME ORDERING (load-bearing): per-frame create (RunFlightMapDeferredCreatePass) ->
+        /// shadow RunFrame writes seedByPid -> THIS settle pass -> probe (DefaultExecutionOrder 10000). The
+        /// caller (ParsekFlight.UpdateTimelinePlaybackViaEngine) must invoke this AFTER RunFrame and BEFORE
+        /// the probe. If a future refactor moves RunFrame after the create pass, or moves this before
+        /// RunFrame, the seed is not fresh and the Director branch silently does not engage (the summary
+        /// logs <c>directorActive=0</c>, the symptom returns) - the directorActive readback below is the
+        /// regression tripwire.
+        ///
+        /// Empty-set fast path: zero cost on frames where no loop ghost was created (the steady state).
+        /// Reuses the existing effUT-&gt;world resolution via the icon-drive Prefix (no new shift math). Does
+        /// NOT touch the suppress path: <c>updateFromParameters()</c> re-runs the Prefix, so an off-arc /
+        /// no-bounds / Director-traced freshly-created ghost still suppresses correctly.
+        /// </summary>
+        internal static void SettleFreshlyCreatedLoopGhostIcons()
+        {
+            // Steady-state fast path: nothing created this frame. This method references NO Unity ECall
+            // (the Unity work lives in DriveFreshlyCreatedLoopGhostIcons, reached only on a non-empty set),
+            // so it JIT-verifies + runs headless: the empty-set case is unit-testable directly.
+            if (flightFreshlyCreatedLoopGhostsThisFrame.Count == 0)
+                return;
+
+            DriveFreshlyCreatedLoopGhostIcons();
+            flightFreshlyCreatedLoopGhostsThisFrame.Clear();
+        }
+
+        /// <summary>
+        /// Unity-coupled body of <see cref="SettleFreshlyCreatedLoopGhostIcons"/> (FlightGlobals /
+        /// Planetarium / Time / OrbitDriver). Split out so the empty-set fast path in the caller carries no
+        /// Unity ECall and stays headless-safe (the JIT verifies the WHOLE method on first call, so a
+        /// referenced ECall throws under the test assembly's restricted security zone even behind a guard).
+        /// Only invoked when the work-list is non-empty.
+        /// </summary>
+        private static void DriveFreshlyCreatedLoopGhostIcons()
+        {
+            int settled = 0;
+            int directorActive = 0;
+            uint samplePid = 0u;
+            Vector3d samplePos = Vector3d.zero;
+            double liveUT = Planetarium.GetUniversalTime();
+            int frame = Time.frameCount;
+
+            foreach (uint pid in flightFreshlyCreatedLoopGhostsThisFrame)
+            {
+                // Resolve the freshly-created proto; guard it is still a Parsek map ghost (it could have
+                // been destroyed between create and settle in the same frame - drive nothing then).
+                if (!IsGhostMapVessel(pid))
+                    continue;
+                if (!FlightGlobals.FindVessel(pid, out Vessel v) || v == null || v.orbitDriver == null)
+                    continue;
+
+                // Second drive: the seed is now fresh (written by RunFrame above), so the icon-drive
+                // Prefix takes the Director branch and bakes the loop shift into the epoch.
+                v.orbitDriver.updateFromParameters();
+                settled++;
+                if (Parsek.MapRender.ShadowRenderDriver.IsDirectorDriveActive(pid, frame))
+                    directorActive++;
+                if (samplePid == 0u)
+                {
+                    samplePid = pid;
+                    samplePos = v.GetWorldPos3D();
+                }
+            }
+
+            // One summary line per non-empty frame (batch-counting convention). directorActive>0 proves
+            // the Director branch engaged (the fix working); =0 with settled>0 is the ordering-regression
+            // tripwire. samplePos lets the next playtest confirm FirstPosition != spawn.
+            ParsekLog.Verbose("MapRender",
+                string.Format(ic,
+                    "Settled freshly-created loop ghost icons: settled={0} directorActive={1} " +
+                    "liveUT={2:F1} samplePid={3} sampleWorldPos={4}",
+                    settled, directorActive, liveUT, samplePid, samplePos));
+        }
+
         private static void ApplyOrbitToVessel(Vessel vessel, OrbitSegment segment, string logContext,
             double loopEpochShiftSeconds = 0.0)
         {
@@ -9844,11 +10021,13 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitLineGraceUntilFrame.Clear();
+            ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             ghostOrbitEpochShift.Clear();
+            flightFreshlyCreatedLoopGhostsThisFrame.Clear();
             ClearPolylineOwningStampsForTesting();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
@@ -9897,10 +10076,11 @@ namespace Parsek
             int reverseIdCount = vesselPidToRecordingId.Count;
             int tsStateVectorCount = trackingStationStateVectorOrbitTrajectories.Count;
             int tsStateVectorCacheCount = trackingStationStateVectorCachedIndices.Count;
+            int noBoundsSuppressStampCount = ghostNoBoundsSuppressLastFrame.Count;
 
             int totalTracked = pidCount + suppressedIconCount + orbitBoundsCount
                 + chainCount + indexCount + overlapInstanceCount + reverseCount + reverseIdCount
-                + tsStateVectorCount + tsStateVectorCacheCount;
+                + tsStateVectorCount + tsStateVectorCacheCount + noBoundsSuppressStampCount;
 
             if (totalTracked == 0)
             {
@@ -9914,6 +10094,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitLineGraceUntilFrame.Clear();
+            ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
@@ -10670,6 +10851,22 @@ namespace Parsek
             new HashSet<string>();
 
         /// <summary>
+        /// Bug 3 facet (b): pids of loop-shifted flight map ghost ProtoVessels CREATED this frame by
+        /// the per-frame loop-aware deferred-create pass (<see cref="RunFlightMapDeferredCreatePass"/>).
+        /// At extreme warp these protos are fully destroyed + recreated every frame, so the create-time
+        /// <see cref="ForceImmediateIconDrive"/> runs BEFORE the shadow (<c>ShadowRenderDriver.RunFrame</c>)
+        /// has written this frame's StockConic seed: the icon-drive Prefix sees <c>fresh=False</c>, takes
+        /// the legacy effUT path (discarded by KSP's live re-propagation), and the end-of-frame
+        /// <see cref="MapRenderProbe"/> reads the icon at its raw-epoch SPAWN position (the
+        /// <c>icon-off-orbit</c> read-before-settle anomaly). <see cref="SettleFreshlyCreatedLoopGhostIcons"/>
+        /// re-drives these pids AFTER RunFrame seeds them (so the Director branch bakes the shift into the
+        /// epoch) and before the probe reads. Flight-scoped: only the flight deferred-create pass populates
+        /// it, and only the flight settle-pass site drains it. Cleared every frame by the settle pass.
+        /// </summary>
+        internal static readonly HashSet<uint> flightFreshlyCreatedLoopGhostsThisFrame =
+            new HashSet<uint>();
+
+        /// <summary>
         /// Per-chain dedup: maps chainId → recording index that currently owns the ghost map vessel.
         /// When a new chain segment creates a ghost map vessel, the previous segment's is removed.
         /// Prevents duplicate orbit lines during fast time warp across chain boundaries.
@@ -10704,6 +10901,7 @@ namespace Parsek
             flightSoiGapStateVectorExpectedBodies.Clear();
             flightStateVectorCachedIndices.Clear();
             flightTerminalMapRetentionLoggedIds.Clear();
+            flightFreshlyCreatedLoopGhostsThisFrame.Clear();
             nextMapOrbitUpdateTime = 0f;
         }
 
@@ -11500,6 +11698,7 @@ namespace Parsek
             {
                 ghostMapVesselPids.Remove(ghostPid);
                 ghostsWithSuppressedIcon.Remove(ghostPid);
+                ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
                 ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
                 ghostOrbitBounds.Remove(ghostPid);
                 ghostBodyFrameOrbitBounds.Remove(ghostPid);
@@ -11951,6 +12150,25 @@ namespace Parsek
 
                             if (ghost != null)
                             {
+                                // Bug 3 facet (b): a loop-shifted member is destroyed + recreated
+                                // every frame at extreme warp, so its create-time icon drive ran
+                                // before the shadow seeded this frame's pid and landed on the raw
+                                // SPAWN position. Queue it for the post-RunFrame settle pass, which
+                                // re-drives the icon once the seed is fresh (Director branch bakes the
+                                // shift into the epoch) before the end-of-frame probe reads it. Non-loop
+                                // members (shift 0) glide via stock and are never queued.
+                                if (GhostMapPresence.ShouldSettleFreshlyCreatedLoopGhost(pendingLoopEpochShift))
+                                {
+                                    flightFreshlyCreatedLoopGhostsThisFrame.Add(ghost.persistentId);
+                                    ParsekLog.VerboseRateLimited("MapRender",
+                                        "queue-settle-" + ghost.persistentId,
+                                        string.Format(CultureInfo.InvariantCulture,
+                                            "Queued freshly-created loop ghost for settle pass: " +
+                                            "pid={0} idx={1} shift={2:F1}",
+                                            ghost.persistentId, idx, pendingLoopEpochShift),
+                                        2.0);
+                                }
+
                                 if (GhostMapPresence.IsStateVectorGhostSource(toCreate[i].source))
                                 {
                                     flightStateVectorOrbitTrajectories[idx] = traj;

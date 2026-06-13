@@ -27,6 +27,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- At very high time warp, a looped ghost's map icon no longer sits off its orbit line: these ghosts are rebuilt every frame, and the icon was read at its spawn point before settling onto the orbit. The map now drives the freshly-built icon to its on-orbit position before drawing it.
 - A stand-in kerbal can no longer end up aboard two vessels at once: launching a new mission (or spawning a recorded vessel) while the stand-in was already flying used to duplicate them onto the new vessel. The seat is now left empty when the stand-in is busy, so another crew member can be picked.
 - Docking and undocking no longer record the same trajectory sample up to three times at the event instant, which silently disabled trajectory smoothing for the docked stretch of the recording.
 - The re-aim end-to-end in-game test no longer fails intermittently: it now runs a pinned Kerbin-to-Duna geometry instead of seeding from the live clock, and a new manual diagnostic sweep maps which launch windows resolve a re-aimed transfer.
