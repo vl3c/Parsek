@@ -8701,6 +8701,162 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
+            Description = "Stand-in duplication guard: orphan placement skips a stand-in who is Assigned aboard another vessel instead of duplicating them")]
+        public void OrphanPlacement_AssignedStandIn_SkippedToAvoidDuplicate()
+        {
+            // Guard test for the stand-in duplication bug (Barton Kerman aboard
+            // four vessels): PlaceOrphanedReplacements must NOT place a stand-in
+            // whose rosterStatus is Assigned (aboard another live vessel).
+            // Mirrors the Bug277 fixture but flips the stand-in to Assigned
+            // before the pass and asserts placed == 0 + the skip log line.
+
+            var av = FlightGlobals.ActiveVessel;
+            if (av == null)
+            {
+                InGameAssert.Skip("No active vessel");
+                return;
+            }
+
+            Part target = null;
+            for (int i = 0; i < av.parts.Count; i++)
+            {
+                var p = av.parts[i];
+                if (p != null && p.CrewCapacity > 0 && p.protoModuleCrew.Count < p.CrewCapacity
+                    && p.partInfo != null && !string.IsNullOrEmpty(p.partInfo.name))
+                {
+                    target = p;
+                    break;
+                }
+            }
+            if (target == null)
+            {
+                InGameAssert.Skip("Active vessel has no part with a free crew seat");
+                return;
+            }
+
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                InGameAssert.Skip("No crew roster");
+                return;
+            }
+            var activeCrewNames = new HashSet<string>();
+            for (int p = 0; p < av.parts.Count; p++)
+            {
+                var crew = av.parts[p].protoModuleCrew;
+                for (int c = 0; c < crew.Count; c++)
+                {
+                    if (crew[c] != null && !string.IsNullOrEmpty(crew[c].name))
+                        activeCrewNames.Add(crew[c].name);
+                }
+            }
+            ProtoCrewMember standIn = null;
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
+                    && pcm.type == ProtoCrewMember.KerbalType.Crew
+                    && !activeCrewNames.Contains(pcm.name))
+                {
+                    standIn = pcm;
+                    break;
+                }
+            }
+            if (standIn == null)
+            {
+                InGameAssert.Skip("No Available crew kerbal in roster (not already on active vessel)");
+                return;
+            }
+
+            string fakeOriginal = "DupGuardTest_"
+                + System.Guid.NewGuid().ToString("N").Substring(0, 8) + " Kerman";
+
+            var savedReplacements = new Dictionary<string, string>();
+            foreach (var kvp in CrewReservationManager.CrewReplacements)
+                savedReplacements[kvp.Key] = kvp.Value;
+            int beforeCrewCount = target.protoModuleCrew.Count;
+
+            Recording syntheticRecording = null;
+            bool addedToCommitted = false;
+            var capturedLog = new List<string>();
+            var savedObserver = ParsekLog.TestObserverForTesting;
+            try
+            {
+                CrewReservationManager.ClearReplacementsInternal();
+
+                var snapshot = new ConfigNode("VESSEL");
+                var partNode = snapshot.AddNode("PART");
+                partNode.AddValue("name", target.partInfo.name);
+                partNode.AddValue("pid", target.persistentId.ToString());
+                partNode.AddValue("crew", fakeOriginal);
+
+                syntheticRecording = new Recording
+                {
+                    RecordingId = "test-dup-guard-"
+                        + System.Guid.NewGuid().ToString("N").Substring(0, 8),
+                    VesselName = "DupGuardTestVessel",
+                    GhostVisualSnapshot = snapshot
+                };
+                RecordingStore.AddCommittedInternal(syntheticRecording);
+                addedToCommitted = true;
+
+                CrewReservationManager.SetReplacement(fakeOriginal, standIn.name);
+
+                // Simulate "stand-in busy aboard another vessel": flip to
+                // Assigned (suppressed so GameStateRecorder doesn't record it).
+                using (SuppressionGuard.Crew())
+                    standIn.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
+
+                // Chain the prior observer so a runner-installed observer
+                // doesn't miss the lines emitted during the orphan pass.
+                ParsekLog.TestObserverForTesting = line =>
+                {
+                    capturedLog.Add(line);
+                    savedObserver?.Invoke(line);
+                };
+                var swappedOriginals = new HashSet<string>();
+                int placed = CrewReservationManager.PlaceOrphanedReplacements(roster, swappedOriginals);
+                ParsekLog.TestObserverForTesting = savedObserver;
+
+                InGameAssert.AreEqual(0, placed,
+                    $"PlaceOrphanedReplacements must not place an Assigned stand-in (placed={placed})");
+                InGameAssert.IsFalse(target.protoModuleCrew.Contains(standIn),
+                    $"Assigned stand-in '{standIn.name}' must not appear in target part " +
+                    $"'{target.partInfo.title}' after the orphan pass");
+                InGameAssert.AreEqual(beforeCrewCount, target.protoModuleCrew.Count,
+                    $"Target part crew count must be unchanged (before={beforeCrewCount}, " +
+                    $"after={target.protoModuleCrew.Count})");
+                InGameAssert.IsTrue(capturedLog.Exists(l => l.Contains("[CrewReservation]")
+                        && l.Contains("stand-in is Assigned aboard another vessel")),
+                    "Expected the Assigned-skip log line from the orphan pass");
+                InGameAssert.IsTrue(capturedLog.Exists(l => l.Contains("[CrewReservation]")
+                        && l.Contains("skippedAssignedToOtherVessel=1")),
+                    "Expected skippedAssignedToOtherVessel=1 in the orphan pass summary");
+
+                ParsekLog.Info("TestRunner",
+                    $"Duplication guard: orphan pass correctly skipped Assigned stand-in '{standIn.name}'");
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = savedObserver;
+
+                // Restore the stand-in's real status.
+                using (SuppressionGuard.Crew())
+                    standIn.rosterStatus = ProtoCrewMember.RosterStatus.Available;
+
+                CrewReservationManager.ClearReplacementsInternal();
+                foreach (var kvp in savedReplacements)
+                    CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
+
+                if (addedToCommitted)
+                    RecordingStore.RemoveCommittedInternal(syntheticRecording);
+
+                InGameAssert.AreEqual(beforeCrewCount, target.protoModuleCrew.Count,
+                    $"Rollback failed: target part crew count not restored " +
+                    $"(expected={beforeCrewCount}, actual={target.protoModuleCrew.Count})");
+            }
+        }
+
+        [InGameTest(Category = "CrewReservation", Scene = GameScenes.FLIGHT,
             Description = "Bug #456: orphan placement name-hit fallback places stand-in when snapshot pid=100000 (synthetic showcase) doesn't match any live part pid")]
         public void Bug456_OrphanPlacement_NameHitFallback_PlacesStandin()
         {

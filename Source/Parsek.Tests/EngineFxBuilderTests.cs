@@ -254,6 +254,166 @@ namespace Parsek.Tests
             Assert.Equal(EngineFxBuilder.PrefabParticleRotationMode.UseMinus90XRotation, sideways);
         }
 
+        // ---- world-space emitter velocity floor (ReStock SRB smoke models) ---------
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_ZeroVelocity_FlowsAlongExhaustAxis()
+        {
+            // restock-fx-srb-smoke-3 shape: world-space, exactly zero baked velocity.
+            Assert.True(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: true, localVelocity: Vector3.zero,
+                exhaustAxisEmitterLocal: new Vector3(0f, 0f, 1f), out Vector3 floored));
+            AssertVector3Close(new Vector3(0f, 0f, GhostVisualBuilder.WorldSpaceEmitterFloorSpeed), floored);
+        }
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_SlowVelocity_ExhaustAxisWinsOverAuthoredAxis()
+        {
+            // The asset's authored axis is rig-relative and differs across ReStock's
+            // SRBs (Clydesdale's fxTransformSmoke is oriented differently than
+            // Hammer's, which made an authored-axis floor squirt sideways). The
+            // engine's exhaust axis is the ground truth.
+            Assert.True(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: true, localVelocity: new Vector3(0f, -1f, 0f),
+                exhaustAxisEmitterLocal: new Vector3(1f, 0f, 0f), out Vector3 floored));
+            AssertVector3Close(new Vector3(GhostVisualBuilder.WorldSpaceEmitterFloorSpeed, 0f, 0f), floored);
+        }
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_DegenerateAxis_FallsBackMinusY()
+        {
+            Assert.True(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: true, localVelocity: Vector3.zero,
+                exhaustAxisEmitterLocal: Vector3.zero, out Vector3 floored));
+            AssertVector3Close(Vector3.down * GhostVisualBuilder.WorldSpaceEmitterFloorSpeed, floored);
+        }
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_FastWorldSpace_Unchanged()
+        {
+            Assert.False(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: true, localVelocity: new Vector3(0f, 0f, 14f),
+                exhaustAxisEmitterLocal: Vector3.down, out Vector3 floored));
+            AssertVector3Close(new Vector3(0f, 0f, 14f), floored);
+        }
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_LocalSpace_NeverFloored()
+        {
+            // Every stock engine FX emitter is local-space (the stock no-op guarantee);
+            // even a zero-velocity local-space emitter must stay untouched.
+            Assert.False(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: false, localVelocity: Vector3.zero,
+                exhaustAxisEmitterLocal: Vector3.down, out Vector3 floored));
+            AssertVector3Close(Vector3.zero, floored);
+        }
+
+        // ---- ReStock-alone donor scarcity / size fidelity / prefab aim --------------
+
+        [Theory]
+        [InlineData(false, false, false)]
+        [InlineData(true, false, true)]
+        [InlineData(false, true, true)]
+        [InlineData(true, true, true)]
+        public void ShouldProbeBuiltinEffects_WaterfallOrReStock(bool waterfall, bool restock, bool expected)
+        {
+            Assert.Equal(expected, EngineFxBuilder.ShouldProbeBuiltinEffectsOnPrefabMiss(waterfall, restock));
+        }
+
+        [Fact]
+        public void ModelFxSizeBoost_ReStockAuthored_IsAlwaysOne()
+        {
+            // Live KSP never scales model-particle size with power; the stock-tuned
+            // per-part overrides (Rhino 2.7x, Mainsail 2.0x, default 1.5x) must not
+            // inflate ReStock-authored model FX.
+            Assert.Equal(1f, EngineFxBuilder.ResolveModelFxSizeBoost(true, "Size3AdvancedEngine"));
+            Assert.Equal(1f, EngineFxBuilder.ResolveModelFxSizeBoost(true, "Mite"));
+            Assert.Equal(GhostVisualBuilder.ResolveEngineFxSizeBoost("Size3AdvancedEngine"),
+                EngineFxBuilder.ResolveModelFxSizeBoost(false, "Size3AdvancedEngine"));
+            Assert.Equal(GhostVisualBuilder.GhostEngineFxSizeBoost,
+                EngineFxBuilder.ResolveModelFxSizeBoost(false, "Mite"));
+        }
+
+        [Fact]
+        public void ExhaustAimedPrefabRotation_AimsMinusYEmissionAxisAlongExhaust()
+        {
+            // Mammoth shape: smokePoint rig where the stock parent-up heuristic aimed
+            // the smoke trail straight up; the exhaust axis (parent-local) must win.
+            // smokeTrail prefabs emit along local MINUS-Y (measured: round-5 probe log
+            // showed every +Y-aimed instance flowing exactly inverted).
+            Vector3 exhaustParentLocal = new Vector3(0f, 0f, 1f);
+            Assert.True(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
+                hasCfgRotation: false, restockAuthoredEffects: true, hasExhaustDir: true,
+                exhaustParentLocal, out Quaternion rot));
+            AssertVector3Close(exhaustParentLocal, rot * Vector3.down);
+        }
+
+        [Fact]
+        public void ExhaustAimedPrefabRotation_ExhaustAlongMinusY_IsIdentityLike()
+        {
+            // A rig whose parent -Y already points exhaust-ward (the correct-by-
+            // identity case the round-5 probe measured on fxTransformPlume rigs)
+            // needs no rotation.
+            Assert.True(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
+                hasCfgRotation: false, restockAuthoredEffects: true, hasExhaustDir: true,
+                Vector3.down, out Quaternion rot));
+            AssertVector3Close(Vector3.down, rot * Vector3.down);
+        }
+
+        [Fact]
+        public void ExhaustAimedPrefabRotation_CantedThrustWithinTrustAngle_TrustsRig()
+        {
+            // LES shape (round-6 probe): fxSmoke -Y is authored straight down the
+            // stack (central smoke column) while the escape thrust transform is
+            // deliberately canted ~30 degrees. The rig wins: identity, not the aim.
+            Vector3 cantedExhaust = new Vector3(0f, -0.9f, -0.5f);
+            Assert.True(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
+                hasCfgRotation: false, restockAuthoredEffects: true, hasExhaustDir: true,
+                cantedExhaust, out Quaternion rot));
+            AssertVector3Close(Vector3.down, rot * Vector3.down);
+        }
+
+        [Fact]
+        public void ExhaustAimedPrefabRotation_OppositeAxis_RotatesFully()
+        {
+            // Exhaust pointing along +Y (opposite the -Y emission axis): the
+            // 180-degree degenerate case must still produce a valid rotation.
+            Assert.True(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
+                hasCfgRotation: false, restockAuthoredEffects: true, hasExhaustDir: true,
+                Vector3.up, out Quaternion rot));
+            AssertVector3Close(Vector3.up, rot * Vector3.down);
+        }
+
+        [Theory]
+        [InlineData(true, true, true)]    // cfg authored a rotation -> cfg wins
+        [InlineData(false, false, true)]  // not ReStock-authored -> stock heuristic
+        [InlineData(false, true, false)]  // no exhaust axis -> stock heuristic
+        public void ExhaustAimedPrefabRotation_FallsBackToHeuristic(
+            bool hasCfgRotation, bool restockAuthored, bool hasExhaustDir)
+        {
+            Assert.False(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
+                hasCfgRotation, restockAuthored, hasExhaustDir,
+                new Vector3(0f, 0f, 1f), out Quaternion _));
+        }
+
+        [Theory]
+        [InlineData(0.5f, false)]
+        [InlineData(24f, false)]
+        [InlineData(26f, true)]    // Twin-Boar smokePoint sits ~200 m out (round-8 probe)
+        [InlineData(199f, true)]
+        public void IsFarFxMount_ThresholdAt25Meters(float distance, bool expected)
+        {
+            Assert.Equal(expected, EngineFxBuilder.IsFarFxMount(distance));
+        }
+
+        [Fact]
+        public void ExhaustAimedPrefabRotation_DegenerateAxis_FallsBack()
+        {
+            Assert.False(EngineFxBuilder.TryComputeExhaustAimedPrefabRotation(
+                hasCfgRotation: false, restockAuthoredEffects: true, hasExhaustDir: true,
+                Vector3.zero, out Quaternion _));
+        }
+
         private static void AssertVector3Close(Vector3 expected, Vector3 actual, float epsilon = 1e-4f)
         {
             Assert.InRange(Mathf.Abs(expected.x - actual.x), 0f, epsilon);

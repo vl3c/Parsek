@@ -63,6 +63,11 @@ namespace Parsek
         // Cache for PREFAB_PARTICLE fx_* prefabs found on PartLoader part prefabs.
         // Built once from PartLoader.LoadedPartsList (stable prefab templates).
         private static Dictionary<string, GameObject> fxPrefabCache;
+
+        // Builtin Effects/ assets resolved for the Waterfall fallback; kept separate from
+        // fxPrefabCache so stock-path FindFxPrefab behavior never depends on gated calls.
+        private static readonly Dictionary<string, GameObject> builtinFxPrefabCache =
+            new Dictionary<string, GameObject>(System.StringComparer.OrdinalIgnoreCase);
         private static bool fxLoadedObjectScanCompleted;
         private static readonly Dictionary<string, string[]> fxPrefabFallbacks =
             new Dictionary<string, string[]>(System.StringComparer.OrdinalIgnoreCase)
@@ -150,6 +155,78 @@ namespace Parsek
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Waterfall-gated resolution: FindFxPrefab first, then KSP's builtin
+        /// "Effects/{name}" Resources path -- the exact path PartLoader uses to compile
+        /// legacy fx_* keys, unreachable by ModuleManager deletes, so size-variant flame
+        /// assets (fx_exhaustFlame_yellow_medium etc.) resolve even when every donor part
+        /// was patched away. Used ONLY by the Waterfall pristine-fallback sites; never on
+        /// stock paths (adding "Effects/" to the shared probe list would bypass the
+        /// deliberate fxPrefabFallbacks substitutions).
+        /// </summary>
+        internal static GameObject FindFxPrefabIncludingBuiltinEffects(
+            string prefabName, out bool fromBuiltinEffects)
+        {
+            fromBuiltinEffects = false;
+            GameObject result = FindFxPrefab(prefabName);
+            if (result != null)
+                return result;
+
+            string normalized = NormalizeFxPrefabName(prefabName);
+            if (string.IsNullOrEmpty(normalized))
+                return null;
+
+            // Separate cache, NEVER the shared fxPrefabCache: a shared insert would make
+            // stock-path FindFxPrefab resolution depend on whether a Waterfall-gated build
+            // ran first (and could bypass the deliberate fxPrefabFallbacks substitutions).
+            // Provenance is preserved so builtinResolved counters stay truthful on every
+            // build, not just the first.
+            if (builtinFxPrefabCache.TryGetValue(normalized, out GameObject cached))
+            {
+                if (cached != null)
+                {
+                    fromBuiltinEffects = true;
+                    return cached;
+                }
+                builtinFxPrefabCache.Remove(normalized);
+            }
+
+            GameObject builtin = Resources.Load<GameObject>($"Effects/{normalized}");
+            if (builtin == null)
+                return null;
+
+            if (!HasAnyParticleComponent(builtin))
+            {
+                ParsekLog.Verbose("GhostVisual",
+                    $"builtin Effects prefab '{normalized}' has no particle components; ignoring");
+                return null;
+            }
+
+            builtinFxPrefabCache[normalized] = builtin;
+            fromBuiltinEffects = true;
+            ParsekLog.Verbose("GhostVisual",
+                $"FX prefab loaded from builtin Effects: '{normalized}'");
+            return builtin;
+        }
+
+        /// <summary>
+        /// A raw (never-instantiated) builtin asset may carry only a KSPParticleEmitter;
+        /// its Awake adds the ParticleSystem at instantiation, which every consumer does.
+        /// </summary>
+        private static bool HasAnyParticleComponent(GameObject prefabRoot)
+        {
+            if (prefabRoot.GetComponentInChildren<ParticleSystem>(true) != null)
+                return true;
+
+            Component[] components = prefabRoot.GetComponentsInChildren<Component>(true);
+            for (int i = 0; i < components.Length; i++)
+            {
+                if (components[i] != null && components[i].GetType().Name == "KSPParticleEmitter")
+                    return true;
+            }
+            return false;
         }
 
         internal static string NormalizeFxPrefabName(string rawName)
@@ -277,6 +354,7 @@ namespace Parsek
         internal static void ClearFxPrefabCache()
         {
             fxPrefabCache = null;
+            builtinFxPrefabCache.Clear();
             fxLoadedObjectScanCompleted = false;
         }
 
@@ -1074,6 +1152,87 @@ namespace Parsek
         /// ghosts and the reimplementation is intentionally minimal per the visual efficiency
         /// design principle.
         /// </summary>
+        // ReStock's SRB smoke models (restock-fx-srb-smoke-1/2/3) are world-space
+        // TRAIL assets: live, the plume column comes from the EMITTER (the flying
+        // vessel) moving away from emitted particles; the baked particle velocity is
+        // near zero (smoke-3 is exactly zero; in modern KSP both damping and
+        // emitterVelocityScale are dead fields, and the cfg speed curve maxes at 1.0,
+        // so live full-power velocity equals the baked value). A stationary ghost
+        // (static showcase fixture, hover) never moves, so every particle pools at
+        // the nozzle point. Give such emitters a minimum exhaust-ward flow so the
+        // smoke flows instead of gathering. Provably a no-op on non-ReStock installs:
+        // a 2026-06-12 scan of every Squad/SquadExpansion/ReStock/ReStockPlus .mu
+        // found ZERO stock world-space emitters; only ReStock's three srb-smoke
+        // models (and drill FX outside the engine FX path) are world-space.
+        // Accepted deviation for MOVING ghosts: the smoke column drifts a few m/s
+        // exhaust-ward on top of the motion-painted trail, visually minor next to
+        // vessel speed and physically plausible for exhaust flow.
+        internal const float WorldSpaceEmitterSlowSpeedThreshold = 4f;
+        internal const float WorldSpaceEmitterFloorSpeed = 6f;
+
+        /// <summary>
+        /// Decides the minimum-flow velocity for a world-space, near-static particle
+        /// emitter on a ghost. Returns false (velocity unchanged) for local-space
+        /// emitters and for world-space emitters that already carry real velocity.
+        /// The flow axis is the ENGINE'S EXHAUST AXIS expressed in the emitter's
+        /// local frame, NOT the asset's authored axis: ReStock's per-part FX rigs
+        /// orient fxTransformSmoke differently across SRBs (Clydesdale/Thoroughbred
+        /// vs Hammer/Flea), so an assumed asset axis squirts sideways on some parts
+        /// (same lesson as the legacy fx_* thrust-anchor-local rotation fix).
+        /// </summary>
+        internal static bool TryComputeWorldSpaceEmitterVelocityFloor(
+            bool useWorldSpace, Vector3 localVelocity, Vector3 exhaustAxisEmitterLocal,
+            out Vector3 flooredVelocity)
+        {
+            flooredVelocity = localVelocity;
+            if (!useWorldSpace)
+                return false;
+
+            if (localVelocity.magnitude >= WorldSpaceEmitterSlowSpeedThreshold)
+                return false;
+
+            Vector3 axis = exhaustAxisEmitterLocal.magnitude > 0.001f
+                ? exhaustAxisEmitterLocal.normalized
+                : Vector3.down;
+            flooredVelocity = axis * WorldSpaceEmitterFloorSpeed;
+            return true;
+        }
+
+        /// <summary>
+        /// Applies the world-space emitter velocity floor to every KSPParticleEmitter
+        /// under a freshly cloned engine FX instance. Call AFTER StripKspFxControllers
+        /// (the clone is ghost-owned by then). No-op for local-space emitters, i.e.
+        /// every stock FX asset.
+        /// </summary>
+        internal static void ApplyWorldSpaceEmitterVelocityFloor(
+            GameObject fxInstance, string partName, int moduleIndex, Vector3 exhaustAxisEmitterLocal)
+        {
+            if (fxInstance == null)
+                return;
+
+            var emitters = fxInstance.GetComponentsInChildren<KSPParticleEmitter>(true);
+            for (int i = 0; i < emitters.Length; i++)
+            {
+                if (emitters[i] == null)
+                    continue;
+                if (!TryComputeWorldSpaceEmitterVelocityFloor(
+                    emitters[i].useWorldSpace, emitters[i].localVelocity,
+                    exhaustAxisEmitterLocal, out Vector3 floored))
+                {
+                    continue;
+                }
+
+                ParsekLog.VerboseRateLimited("GhostVisual",
+                    $"ws-emitter-floor-{partName}-{moduleIndex}-{fxInstance.name}",
+                    $"world-space emitter velocity floor: '{partName}' midx={moduleIndex} " +
+                    $"fx='{fxInstance.name}' localVelocity {emitters[i].localVelocity} -> {floored} " +
+                    $"(exhaust axis, emitter-local: {exhaustAxisEmitterLocal}; trail-by-motion " +
+                    "asset would pool particles at the nozzle on a static ghost)",
+                    5.0);
+                emitters[i].localVelocity = floored;
+            }
+        }
+
         internal static void StripKspFxControllers(GameObject fxClone, List<KspEmitterRef> kspEmitterSink)
         {
             if (fxClone == null) return;
@@ -2642,9 +2801,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Waterfall fallback for RCS: rebuilds thruster FX definitions from the pristine
-        /// on-disk part config (see PristinePartFxResolver). The pristine running group is
-        /// resolved by RCS-module ordinal.
+        /// Waterfall fallback for RCS: rebuilds thruster FX definitions from the
+        /// ReStock-authored EFFECTS when ReStock authored one for this part (the
+        /// install-faithful look; see ReStockPatchFxIndex), else from the pristine
+        /// on-disk part config (see PristinePartFxResolver). The running group is
+        /// resolved by RCS-module ordinal in both stages.
         /// </summary>
         private static void TryApplyPristineRcsFxFallback(
             Part prefab, int moduleIndex, string partName,
@@ -2653,6 +2814,36 @@ namespace Parsek
         {
             string runtimeName = prefab.partInfo?.name ?? partName;
             var pristine = PristinePartFxResolver.GetForPart(runtimeName, prefab.partInfo?.configFileFullName);
+
+            if (ReStockPatchFxIndex.TryGetForPart(runtimeName, out var restock) &&
+                restock.EffectsNode != null)
+            {
+                string restockGroupName = ReStockPatchFxIndex.ResolveRcsRunningGroupName(
+                    restock, pristine, moduleIndex);
+                ConfigNode restockGroup = restock.EffectsNode.GetNode(restockGroupName);
+                if (restockGroup != null)
+                {
+                    int beforeRestock = fxDefinitions.Count;
+                    ScanRcsEffectGroupModelNodes(restockGroup, fxDefinitions,
+                        ref emissionCurve, ref speedCurve);
+                    if (fxDefinitions.Count > beforeRestock)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"rcs-restock-fallback-{partName}-{moduleIndex}",
+                            $"RCS restock recovery: '{partName}' midx={moduleIndex} added " +
+                            $"{fxDefinitions.Count - beforeRestock} FX definitions " +
+                            $"(group='{restockGroupName}') from '{restock.SourceFile}'",
+                            5.0);
+                        return;
+                    }
+                }
+
+                ParsekLog.VerboseRateLimited("GhostVisual", $"rcs-restock-miss-{partName}-{moduleIndex}",
+                    $"RCS restock recovery: '{partName}' midx={moduleIndex} group " +
+                    $"'{restockGroupName}' {(restockGroup == null ? "not found" : "yielded nothing")}; " +
+                    "falling through to pristine recovery",
+                    5.0);
+            }
+
             if (pristine == null || !pristine.Found || pristine.EffectsNode == null)
             {
                 ParsekLog.VerboseRateLimited("GhostVisual", $"rcs-pristine-miss-{partName}-{moduleIndex}",
@@ -2946,6 +3137,68 @@ namespace Parsek
                     names.Add(damagedName);
             }
             return names;
+        }
+
+        /// <summary>
+        /// Extracts maskTransform values from depth-mask MODULE nodes (ReStock's
+        /// ModuleRestockDepthMask and any module whose name contains "DepthMask",
+        /// the common community pattern). Depth-mask meshes write depth only at
+        /// render queue ~1999 under the live plugin's queue management; cloned onto
+        /// a ghost they occlude everything behind them, punching a see-through hole
+        /// to the sky/ocean. Empty on stock installs (no such modules).
+        /// </summary>
+        internal static HashSet<string> GetDepthMaskTransformNames(ConfigNode partConfig)
+        {
+            var names = new HashSet<string>();
+            if (partConfig == null) return names;
+
+            var modules = partConfig.GetNodes("MODULE");
+            if (modules == null) return names;
+
+            for (int i = 0; i < modules.Length; i++)
+            {
+                string moduleName = modules[i].GetValue("name");
+                if (string.IsNullOrEmpty(moduleName) ||
+                    moduleName.IndexOf("DepthMask", System.StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+                string maskName = modules[i].GetValue("maskTransform");
+                if (!string.IsNullOrEmpty(maskName))
+                    names.Add(maskName);
+            }
+            return names;
+        }
+
+        /// <summary>
+        /// True when a shader name identifies a depth-mask shader (writes depth only).
+        /// Second detection layer beside the config transform names: catches mask
+        /// meshes whose material already carries the depth shader on the prefab.
+        /// </summary>
+        internal static bool IsDepthMaskShaderName(string shaderName)
+        {
+            return !string.IsNullOrEmpty(shaderName) &&
+                shaderName.IndexOf("DepthMask", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
+        /// Depth-mask renderer detection for the ghost clone loop: the renderer sits on
+        /// (or under) a config-named mask transform, or its material uses a depth-mask
+        /// shader. The shader branch is only consulted when the PART carries a
+        /// DepthMask module (depthMaskNames non-empty): pre-feature ghosts have always
+        /// cloned any natively depth-mask-shaded stock meshes without complaint, so
+        /// skipping must never engage on module-less parts (stock-safe by
+        /// construction, not just by the current install's part set; review M1).
+        /// </summary>
+        internal static bool IsDepthMaskRenderer(Renderer renderer, HashSet<string> depthMaskNames)
+        {
+            if (renderer == null || depthMaskNames == null || depthMaskNames.Count == 0)
+                return false;
+            if (IsRendererOnDamagedTransform(renderer.transform, depthMaskNames))
+                return true;
+
+            Material mat = renderer.sharedMaterial;
+            return mat != null && mat.shader != null && IsDepthMaskShaderName(mat.shader.name);
         }
 
         /// <summary>
@@ -5131,8 +5384,10 @@ namespace Parsek
             bool hasVariantGameObjectRules,
             Dictionary<string, bool> selectedVariantGameObjects,
             HashSet<string> damagedWheelNames,
+            HashSet<string> depthMaskNames,
             uint persistentId, string partName,
-            ref int meshCount, ref int damagedSkipped, ref int nullMeshSkipped)
+            ref int meshCount, ref int damagedSkipped, ref int nullMeshSkipped,
+            ref int depthMaskSkipped)
         {
             int skinnedCloned = 0;
             for (int r = 0; r < skinnedRenderers.Length; r++)
@@ -5156,6 +5411,11 @@ namespace Parsek
                 if (IsRendererOnDamagedTransform(smr.transform, damagedWheelNames))
                 {
                     damagedSkipped++;
+                    continue;
+                }
+                if (IsDepthMaskRenderer(smr, depthMaskNames))
+                {
+                    depthMaskSkipped++;
                     continue;
                 }
 
@@ -5791,6 +6051,20 @@ namespace Parsek
             // wheel meshes simultaneously.
             ConfigNode partConfig = prefab.partInfo?.partConfig;
             HashSet<string> damagedWheelNames = GetDamagedWheelTransformNames(partConfig);
+
+            // Collect depth-mask transform names (ReStock's ModuleRestockDepthMask and
+            // the community ModuleDepthMask pattern). A depth-mask mesh writes DEPTH
+            // ONLY at render queue ~1999 and relies on the live plugin managing the
+            // part's material queues; cloned onto a ghost it occludes everything behind
+            // it instead, punching a see-through hole to the sky/ocean (the round-6
+            // "blueish missing texture" on ReStock claws and jet exhausts). Skip them.
+            HashSet<string> depthMaskNames = GetDepthMaskTransformNames(partConfig);
+            if (depthMaskNames.Count > 0)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"depth_mask_{partName}",
+                    $"  Part '{partName}' pid={persistentId}: found {depthMaskNames.Count} " +
+                    $"depth-mask transform(s): [{string.Join(", ", depthMaskNames)}]; ghost skips them", 60.0);
+            }
             if (damagedWheelNames.Count > 0)
             {
                 ParsekLog.VerboseRateLimited("GhostVisual", $"wheel_damage_{partName}",
@@ -5801,6 +6075,7 @@ namespace Parsek
             int variantSkipped = 0;
             int variantRuleSkipped = 0;
             int damagedSkipped = 0;
+            int depthMaskSkipped = 0;
             int skinnedCloned = 0;
             int nullMeshSkipped = 0;
             for (int r = 0; r < meshRenderers.Length; r++)
@@ -5828,6 +6103,11 @@ namespace Parsek
                     damagedSkipped++;
                     continue;
                 }
+                if (IsDepthMaskRenderer(mr, depthMaskNames))
+                {
+                    depthMaskSkipped++;
+                    continue;
+                }
                 var mf = mr.GetComponent<MeshFilter>();
                 if (mf == null || mf.sharedMesh == null) continue;
 
@@ -5848,8 +6128,8 @@ namespace Parsek
                 skinnedRenderers, modelRoot, modelNode.transform, partRoot.transform,
                 prefab, cloneMap,
                 filterInactiveVariantRenderers, hasVariantGameObjectRules, selectedVariantGameObjects,
-                damagedWheelNames, persistentId, partName,
-                ref meshCount, ref damagedSkipped, ref nullMeshSkipped);
+                damagedWheelNames, depthMaskNames, persistentId, partName,
+                ref meshCount, ref damagedSkipped, ref nullMeshSkipped, ref depthMaskSkipped);
             if (skinnedCloned > 0)
                 added = true;
 
@@ -5858,7 +6138,8 @@ namespace Parsek
             ParsekLog.VerboseRateLimited("GhostVisual", $"clone_summary_{partName}",
                 $"  Part '{partName}' pid={persistentId}: cloned {meshCloned} MeshRenderers, " +
                 $"{skinnedCloned} SkinnedMeshRenderers, skipped {nullMeshSkipped} null-mesh SMRs, " +
-                $"skipped {damagedSkipped} damaged-wheel renderers", 60.0);
+                $"skipped {damagedSkipped} damaged-wheel renderers, " +
+                $"skipped {depthMaskSkipped} depth-mask renderers", 60.0);
 
             if (hasPartVariants)
             {
@@ -5910,10 +6191,12 @@ namespace Parsek
             // the base-implicit variant is selected (prefab defaults, no geometry toggling).
             engineInfos = EngineFxBuilder.TryBuildEngineFX(prefab, persistentId, partName, modelRoot,
                 modelNode.transform, cloneMap, selectedVariantGameObjects);
+            GhostFxFingerprint.LogEngineInfos(partName, engineInfos);
 
             // Detect RCS parts and clone FX particle systems
             rcsInfos = TryBuildRcsFX(prefab, persistentId, partName, modelRoot,
                 modelNode.transform, cloneMap, raiseRcsVisualOnly, selectedVariantGameObjects);
+            GhostFxFingerprint.LogRcsInfos(partName, rcsInfos);
 
             string ladderAnimName;
             string ladderAnimRootName;

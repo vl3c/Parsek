@@ -1340,12 +1340,18 @@ namespace Parsek.Tests
         private const uint EngineShowcasePidBase = 99200000;
         private const uint ColorChangerShowcasePidBase = 99300000;
         private const uint FlagPlantShowcasePid = 99400000;
+        private const uint RestockPlusShowcasePidBase = 99500000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
         // Total visible showcase row entries (indices 0-235, including inventory placement).
         private const int ShowcaseRowCount = 245;
         // Split showcase into three parallel lines to avoid runway clipping.
         private static readonly int ShowcaseEntriesPerLine = (ShowcaseRowCount + 2) / 3;
         private const double ShowcaseLineSpacingMeters = 20.0;
+        // ReStock+ showcase rows live on their own line band behind the three stock
+        // lines (row indices restart at 0 with this distance offset). Extending the
+        // stock row indices instead would wrap RS+ rows onto stock rows' latitudes,
+        // and bumping ShowcaseRowCount would reshuffle every existing row.
+        private const double RestockPlusDistanceOffsetMeters = 3.0 * ShowcaseLineSpacingMeters;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
         // Target top height (meters above KSC ground level). Every part's top is placed at
@@ -1747,10 +1753,12 @@ namespace Parsek.Tests
         /// </summary>
         private static RecordingBuilder BuildCombinedEngineShowcaseRecording(
             double baseUT, string vesselName, string enginePartName, int rowIndex,
-            uint pidBase, bool isSrb = false, bool hasShroud = false)
+            uint pidBase, bool isSrb = false, bool hasShroud = false,
+            double distanceOffsetMeters = 0.0)
         {
             double t = baseUT + 30;
-            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
+            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt,
+                distanceOffsetMeters: distanceOffsetMeters);
             alt += ShowcaseAltitudeOffset(enginePartName);
 
             var b = new RecordingBuilder(vesselName)
@@ -2119,6 +2127,108 @@ namespace Parsek.Tests
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 4", "fairingSize4", 54,
                     ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, FairingShowcasePidBase, SinglePartPid,
                     configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 2.5f, topHeight: 6.0f))
+            };
+        }
+
+        /// <summary>Test seam for the ReStock+ install probe (null = real directory check).</summary>
+        internal static Func<bool> RestockPlusInstalledOverrideForTesting;
+
+        /// <summary>
+        /// True when ReStock+ is installed in the target KSP instance. Showcase entries
+        /// for RS+ parts are injected only then; ghost snapshots referencing missing
+        /// parts would otherwise produce broken showcase ghosts.
+        /// </summary>
+        internal static bool IsRestockPlusInstalled(string kspRoot)
+        {
+            if (RestockPlusInstalledOverrideForTesting != null)
+                return RestockPlusInstalledOverrideForTesting();
+            return Directory.Exists(Path.Combine(kspRoot, "GameData", "ReStockPlus"));
+        }
+
+        /// <summary>
+        /// ReStock+ part showcases (engines, RCS, deployable antennas, service bay,
+        /// fairing bases), placed on the dedicated RS+ line band. Row indices restart
+        /// at 0; one pid base for all RS+ rows. Part names are the RS+ cfg names
+        /// verbatim (no underscores except relay-radial-2_v2 -> dot-form at runtime).
+        /// </summary>
+        internal static RecordingBuilder[] RestockPlusShowcaseRecordings(double baseUT = 0)
+        {
+            const uint pidBase = RestockPlusShowcasePidBase;
+            const double dist = ShowcaseDistanceFromPadMeters;
+            const double offset = RestockPlusDistanceOffsetMeters;
+
+            RecordingBuilder Engine(string name, string part, int row, bool isSrb = false, bool hasShroud = false) =>
+                BuildCombinedEngineShowcaseRecording(baseUT, name, part, row, pidBase,
+                    isSrb: isSrb, hasShroud: hasShroud, distanceOffsetMeters: offset);
+
+            RecordingBuilder Rcs(string name, string part, int row) =>
+                BuildPartShowcaseRecording(baseUT, name, part, row,
+                    dist, PartEventType.RCSActivated, PartEventType.RCSStopped, pidBase, SinglePartPid,
+                    eventValue: 1.0f, moduleIndex: 0,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
+                    distanceOffsetMeters: offset);
+
+            RecordingBuilder Deployable(string name, string part, int row) =>
+                BuildPartShowcaseRecording(baseUT, name, part, row,
+                    dist, PartEventType.DeployableExtended, PartEventType.DeployableRetracted,
+                    pidBase, SinglePartPid, distanceOffsetMeters: offset);
+
+            RecordingBuilder Fairing(string name, string part, int row, float baseRadius, float topHeight) =>
+                BuildPartShowcaseRecording(baseUT, name, part, row,
+                    dist, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned,
+                    pidBase, SinglePartPid,
+                    configureGhostPartNode: p => AddProceduralFairingModule(p, baseRadius, topHeight),
+                    distanceOffsetMeters: offset);
+
+            return new[]
+            {
+                // ── Engines (rows 0-16) ──
+                Engine("Part Showcase - RS+ Torch", "restock-engine-torch", 0, hasShroud: true),
+                Engine("Part Showcase - RS+ Valiant", "restock-engine-125-valiant", 1, hasShroud: true),
+                Engine("Part Showcase - RS+ Pug 1.25m", "restock-engine-125-pug", 2, hasShroud: true),
+                Engine("Part Showcase - RS+ Caravel", "restock-engine-caravel-1", 3, hasShroud: true),
+                Engine("Part Showcase - RS+ Galleon", "restock-engine-galleon-1", 4, hasShroud: true),
+                Engine("Part Showcase - RS+ Schnauzer", "restock-engine-schnauzer-1", 5, hasShroud: true),
+                Engine("Part Showcase - RS+ Ursa", "restock-engine-ursa-1", 6, hasShroud: true),
+                Engine("Part Showcase - RS+ Boar", "restock-engine-boar", 7, hasShroud: true),
+                Engine("Part Showcase - RS+ Cherenkov", "restock-engine-cherenkov", 8, hasShroud: true),
+                Engine("Part Showcase - RS+ Corgi", "restock-engine-375-corgi", 9, hasShroud: true),
+                Engine("Part Showcase - RS+ Panda", "restock-engine-panda-1", 10),
+                Engine("Part Showcase - RS+ Mallet", "restock-srb-mallet-1", 11, isSrb: true, hasShroud: true),
+                Engine("Part Showcase - RS+ Striker", "restock-srb-striker-1", 12, isSrb: true, hasShroud: true),
+                Engine("Part Showcase - RS+ Anvil", "restock-srb-anvil-1", 13, isSrb: true),
+                Engine("Part Showcase - RS+ Castor", "restock-srb-castor-1", 14, isSrb: true),
+                Engine("Part Showcase - RS+ LES", "restock-engine-les-2", 15, isSrb: true),
+                Engine("Part Showcase - RS+ Soyuz Tank Motors", "restock-fueltank-1875-soyuz-1", 16, isSrb: true),
+
+                // ── RCS blocks (rows 17-28) ──
+                Rcs("Part Showcase - RS+ RCS Dual", "restock-rcs-block-dual-1", 17),
+                Rcs("Part Showcase - RS+ RCS Dual Mini", "restock-rcs-block-dual-mini-1", 18),
+                Rcs("Part Showcase - RS+ RCS Multi", "restock-rcs-block-multi-2", 19),
+                Rcs("Part Showcase - RS+ RCS Multi Mini", "restock-rcs-block-multi-mini-2", 20),
+                Rcs("Part Showcase - RS+ RCS Quad Angled", "restock-rcs-block-quad-angled-1", 21),
+                Rcs("Part Showcase - RS+ RCS Quad Angled Mini", "restock-rcs-block-quad-angled-mini-1", 22),
+                Rcs("Part Showcase - RS+ RCS Quad Mini", "restock-rcs-block-quad-mini-1", 23),
+                Rcs("Part Showcase - RS+ RCS Quint", "restock-rcs-block-quint-1", 24),
+                Rcs("Part Showcase - RS+ RCS Quint Mini", "restock-rcs-block-qunit-mini-1", 25),
+                Rcs("Part Showcase - RS+ RCS Triple Angled", "restock-rcs-block-triple-angled-1", 26),
+                Rcs("Part Showcase - RS+ RCS Triple Angled Mini", "restock-rcs-block-triple-angled-mini-1", 27),
+                Rcs("Part Showcase - RS+ RCS Single Mini", "restock-rcs-single-mini-1", 28),
+
+                // ── Deployable antennas (rows 29-31) ──
+                Deployable("Part Showcase - RS+ Antenna Stack", "restock-antenna-stack-3", 29),
+                Deployable("Part Showcase - RS+ Relay Radial", "restock-relay-radial-2", 30),
+                Deployable("Part Showcase - RS+ Relay Radial v2", "restock-relay-radial-2.v2", 31),
+
+                // ── Service bay (row 32) ──
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - RS+ Service Bay", "restock-service-bay-1875-1", 32,
+                    dist, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, pidBase, SinglePartPid,
+                    distanceOffsetMeters: offset),
+
+                // ── Fairing bases (rows 33-35) ──
+                Fairing("Part Showcase - RS+ Fairing 0.625m", "restock-fairing-base-0625-1", 33, 0.3125f, 1.2f),
+                Fairing("Part Showcase - RS+ Fairing 1.875m", "restock-fairing-base-1875-1", 34, 0.9375f, 2.8f),
+                Fairing("Part Showcase - RS+ Fairing 5m", "restock-fairing-base-5-1", 35, 2.5f, 6.0f)
             };
         }
 
@@ -6061,6 +6171,22 @@ namespace Parsek.Tests
                 writer.AddRecordingAsTree(colorChangerShowcases[i]);
             writer.AddRecordingAsTree(InventoryPlacementShowcaseRecording(baseUT));
             writer.AddRecordingAsTree(FlagPlantShowcaseRecording(baseUT));
+
+            // ReStock+ showcases are install-conditional: snapshots referencing parts
+            // that are not installed would produce broken showcase ghosts.
+            if (IsRestockPlusInstalled(kspRoot))
+            {
+                var restockPlusShowcases = RestockPlusShowcaseRecordings(baseUT);
+                for (int i = 0; i < restockPlusShowcases.Length; i++)
+                    writer.AddRecordingAsTree(restockPlusShowcases[i]);
+                ParsekLog.Info("ReStockCompat",
+                    $"InjectAllRecordings: ReStock+ detected; injected {restockPlusShowcases.Length} RS+ showcase rows");
+            }
+            else
+            {
+                ParsekLog.Info("ReStockCompat",
+                    "InjectAllRecordings: ReStock+ not installed; RS+ showcase rows skipped");
+            }
 
             var chainSegments = EvaBoardChain(baseUT);
             chainSegments[0].WithRewindSave("parsek_rw_evab01");

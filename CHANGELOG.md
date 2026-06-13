@@ -9,12 +9,18 @@ All notable changes to Parsek are documented here.
 ### Features
 
 - Waterfall support: with Waterfall plus a config pack such as Stock Waterfall Effects installed, the flown vessel shows Waterfall plumes while ghosts keep their stock-style engine plumes and RCS puffs. Ghost effects are rebuilt from each part's original effect definitions, which the config packs delete.
+- ReStock and ReStock+ support: ghosts keep ReStock's engine plumes and RCS puffs in every configuration (ReStock alone, ReStock plus Waterfall config packs, and ReStock+ parts), and the parts showroom gains ReStock+ engine, RCS, antenna, service bay, and fairing showcases when ReStock+ is installed.
 
 - Supply routes can now start from any docked origin, not just KSC: each cycle physically removes the delivered cargo from the origin vessel's tanks (loaded or unloaded), and the route waits when the origin runs dry. Hub and spoke networks now work by chaining routes.
 - Routes have a dispatch priority you can set in the route detail panel; when several routes contend in the same tick, lower priority numbers go first.
 - A supply run that starts undocked with cargo already aboard is now rejected at analysis with guidance: start docked to the origin, record the mining, or launch it from KSC.
 - Docked-origin routes now record the origin's location at recording start, so a surface depot that changes vessel id can be found again by proximity, like destinations already could.
 - Looped missions that rendezvous with a single station orbiting the launch body now relaunch phase-locked to the station's live orbit (the period cell reads "(station window)"), with an amber countdown tint when the station's orbit has drifted since the recording. Other rendezvous shapes (multiple stations, stations around another body, vanished anchors) keep the previous behavior with a logged reason.
+- Scheduled looped missions with a parking-orbit loiter before the rendezvous or transfer now re-time that loiter automatically each cycle (keeping between 1 and recorded+10 revolutions), so nearly every launch-pad window aligns with the station instead of one in a few hundred, and the recorded dead time stops replaying every loop. A window the re-timer cannot reach launches with the faithful loiter and an amber countdown tint.
+- The station phase tolerance for these aligned windows is now 3 degrees (was 1), sustaining runs of consecutive daily launch windows instead of two or three before a multi-week gap; the Missions window's loop period now reads days instead of weeks for station resupply missions.
+- Re-timed launches no longer teleport during rendezvous burns: recorded burn arcs replayed off the planet's rotation grid are now derotated to their true positions in flight, map, and tracking station views (previously the ghost and its map icon jumped up to 46 degrees around the planet when approaching the station).
+- Looped missions whose recording ends docked no longer show their map icon circling a wrong orbit (and jumping at time-warp changes): the map ghost's orbit could be seeded from the recording's docked endpoint instead of the parking orbit the loop is actually replaying.
+- A looped mission's map icon no longer flashes at a wrong position for one frame when its map ghost is created (most visible as a blip at high time warp).
 - A ghost's map and tracking-station trajectory now draws its full path through the current sphere of influence as one continuous line (the whole ascent and transfer, not just the short arc under the icon), keeps it on screen as the icon travels along it (including across the segments of a chained flight), and stops before the first full repeating orbit and at the first change of sphere of influence. Path pieces that turn with the planet hide once flown past (so the line never overlaps as the planet rotates) while upcoming ones such as the final landing stay visible, and curved connectors bridge them to the orbits on both sides whenever a real gap exists.
 - The Logistics window now says why a route is not delivering: a blocked route's detail panel names the exact hold reason (origin out of a named resource, origin vessel missing, not enough funds, destination full, or stored-part cargo not yet supported) with how long ago it was checked.
 - Supply routes now work with resources from other mods: any resource KSP knows about can be recorded, analyzed, delivered, and charged at its own unit cost, with unknown resource names excluded and logged instead of priced at zero.
@@ -23,11 +29,14 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- A stand-in kerbal can no longer end up aboard two vessels at once: launching a new mission (or spawning a recorded vessel) while the stand-in was already flying used to duplicate them onto the new vessel. The seat is now left empty when the stand-in is busy, so another crew member can be picked.
+- Docking and undocking no longer record the same trajectory sample up to three times at the event instant, which silently disabled trajectory smoothing for the docked stretch of the recording.
 - The re-aim end-to-end in-game test no longer fails intermittently: it now runs a pinned Kerbin-to-Duna geometry instead of seeding from the live clock, and a new manual diagnostic sweep maps which launch windows resolve a re-aimed transfer.
 - The re-aim test suite now also pins the exact launch-window geometry reconstructed from the one observed in-game failure (a 2026-06-11 run on a pre-fix build), verifying the recorded departure still resolves and that any window that cannot be re-aimed falls back cleanly to a faithful replay.
 - The orbit-arc-sampler in-game test no longer fails spuriously depending on where the active vessel sits (for example on the launchpad): it measured sampled orbit points from the scene's moving world origin instead of the planet centre.
 - Warping to a recording's end (Real Spawn Control) now reliably spawns the real vessel: a time jump could previously mark a recording whose window was still ahead as already-flown history and silently skip its end-of-recording spawn.
 - Supply routes: branches added to a route's source tree after creation (a re-fly fork or a switch-fly continuation) no longer silently join the route's rendered loop and delivery span; the backing selection freezes to the creation-time member set.
+- Supply routes: a recovered branch added to a route's source tree after creation no longer inflates the route's recurring recovery credit or its displayed run cost; the credit is scoped to the recordings that existed when the route was created.
 
 ---
 

@@ -2755,15 +2755,27 @@ namespace Parsek
 
                 // Bug #167: apply crew swap directly on the KSC spawn snapshot because
                 // there is no loaded vessel for SwapReservedCrewInFlight to target here.
+                // The roster-status resolver keeps a stand-in who is already
+                // Assigned aboard a live vessel out of the spawn snapshot (the
+                // seat is left empty) — writing them in would seat the same
+                // kerbal on two vessels at once when the ProtoVessel loads.
+                // Null roster (defensive, not expected at KSC): pass a null
+                // resolver to keep the legacy blind swap rather than emptying
+                // every reserved seat with a misleading "not in roster" reason.
                 var replacements = CrewReservationManager.CrewReplacements;
                 if (replacements.Count > 0)
                 {
+                    var kscRoster = HighLogic.CurrentGame?.CrewRoster;
+                    Func<string, ProtoCrewMember.RosterStatus?> statusResolver =
+                        kscRoster == null
+                            ? (Func<string, ProtoCrewMember.RosterStatus?>)null
+                            : name => kscRoster[name]?.rosterStatus;
                     int swapped = CrewReservationManager.SwapReservedCrewInSnapshot(
-                        spawnSnapshot, replacements);
-                    if (swapped > 0)
+                        spawnSnapshot, replacements, statusResolver, out int seatsCleared);
+                    if (swapped > 0 || seatsCleared > 0)
                         ParsekLog.Info("KSCSpawn",
                             $"Crew swap applied to snapshot for #{recIdx} \"{rec.VesselName}\": " +
-                            $"{swapped} crew replaced before spawn");
+                            $"{swapped} crew replaced, {seatsCleared} seat(s) left empty before spawn");
                     else
                         ParsekLog.Verbose("KSCSpawn",
                             $"Crew swap: {replacements.Count} reservation(s) exist but " +

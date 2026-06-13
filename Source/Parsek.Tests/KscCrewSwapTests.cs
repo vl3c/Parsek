@@ -274,5 +274,242 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region IsStandInPlaceable — roster status gate
+
+        [Theory]
+        [InlineData(ProtoCrewMember.RosterStatus.Available, true)]
+        [InlineData(ProtoCrewMember.RosterStatus.Assigned, false)]
+        [InlineData(ProtoCrewMember.RosterStatus.Dead, false)]
+        [InlineData(ProtoCrewMember.RosterStatus.Missing, false)]
+        public void IsStandInPlaceable_OnlyAvailableIsPlaceable(
+            ProtoCrewMember.RosterStatus status, bool expected)
+        {
+            Assert.Equal(expected, CrewReservationManager.IsStandInPlaceable(status));
+        }
+
+        [Fact]
+        public void ClassifyStandInForPlacement_InRoster_MapsStatusToVerdict()
+        {
+            // Internal enum cannot appear in a public Theory signature, so the
+            // mapping is pinned in one fact: Available places, Missing rescues
+            // then places, Assigned and Dead skip.
+            Assert.Equal(CrewReservationManager.StandInPlacementCheck.Place,
+                CrewReservationManager.ClassifyStandInForPlacement(
+                    true, ProtoCrewMember.RosterStatus.Available));
+            Assert.Equal(CrewReservationManager.StandInPlacementCheck.PlaceAfterMissingRescue,
+                CrewReservationManager.ClassifyStandInForPlacement(
+                    true, ProtoCrewMember.RosterStatus.Missing));
+            Assert.Equal(CrewReservationManager.StandInPlacementCheck.SkipAssigned,
+                CrewReservationManager.ClassifyStandInForPlacement(
+                    true, ProtoCrewMember.RosterStatus.Assigned));
+            Assert.Equal(CrewReservationManager.StandInPlacementCheck.SkipDead,
+                CrewReservationManager.ClassifyStandInForPlacement(
+                    true, ProtoCrewMember.RosterStatus.Dead));
+        }
+
+        [Fact]
+        public void ClassifyStandInForPlacement_NotInRoster_AlwaysSkips()
+        {
+            Assert.Equal(CrewReservationManager.StandInPlacementCheck.SkipNotInRoster,
+                CrewReservationManager.ClassifyStandInForPlacement(
+                    false, ProtoCrewMember.RosterStatus.Available));
+            Assert.Equal(CrewReservationManager.StandInPlacementCheck.SkipNotInRoster,
+                CrewReservationManager.ClassifyStandInForPlacement(
+                    false, ProtoCrewMember.RosterStatus.Assigned));
+        }
+
+        #endregion
+
+        #region SwapReservedCrewInSnapshot — stand-in roster-status resolver (duplication guard)
+
+        [Fact]
+        public void SwapReservedCrewInSnapshot_AssignedStandIn_LeavesSeatEmpty()
+        {
+            // The Barton Kerman bug: the stand-in is already Assigned aboard a
+            // live vessel from an earlier launch. Writing them into the spawn
+            // snapshot would seat the same kerbal on two vessels at once —
+            // the seat must be left empty instead.
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Jebediah Kerman");
+            var replacements = new Dictionary<string, string>
+            {
+                { "Jebediah Kerman", "Barton Kerman" }
+            };
+
+            int result = CrewReservationManager.SwapReservedCrewInSnapshot(
+                snapshot, replacements,
+                name => ProtoCrewMember.RosterStatus.Assigned);
+
+            Assert.Equal(0, result);
+            var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
+            Assert.Empty(crew);
+            Assert.Contains(logLines, l => l.Contains("[CrewReservation]")
+                && l.Contains("stand-in 'Barton Kerman' for reserved 'Jebediah Kerman' is Assigned")
+                && l.Contains("seat left empty"));
+            Assert.Contains(logLines, l => l.Contains("[CrewReservation]")
+                && l.Contains("Snapshot crew swap complete: 0 name(s) replaced, 1 seat(s) left empty"));
+        }
+
+        [Fact]
+        public void SwapReservedCrewInSnapshot_AvailableStandIn_SwapsNormally()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Jebediah Kerman");
+            var replacements = new Dictionary<string, string>
+            {
+                { "Jebediah Kerman", "Barton Kerman" }
+            };
+
+            int result = CrewReservationManager.SwapReservedCrewInSnapshot(
+                snapshot, replacements,
+                name => ProtoCrewMember.RosterStatus.Available);
+
+            Assert.Equal(1, result);
+            var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
+            Assert.Single(crew);
+            Assert.Equal("Barton Kerman", crew[0]);
+        }
+
+        [Fact]
+        public void SwapReservedCrewInSnapshot_StandInNotInRoster_LeavesSeatEmpty()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Jebediah Kerman");
+            var replacements = new Dictionary<string, string>
+            {
+                { "Jebediah Kerman", "Barton Kerman" }
+            };
+
+            int result = CrewReservationManager.SwapReservedCrewInSnapshot(
+                snapshot, replacements,
+                name => null);
+
+            Assert.Equal(0, result);
+            Assert.Empty(CrewReservationManager.ExtractCrewFromSnapshot(snapshot));
+            Assert.Contains(logLines, l => l.Contains("[CrewReservation]")
+                && l.Contains("is not in roster") && l.Contains("seat left empty"));
+        }
+
+        [Fact]
+        public void SwapReservedCrewInSnapshot_MixedStatuses_ClearsOnlyBusyStandIn()
+        {
+            // Jeb's stand-in is busy (Assigned elsewhere); Val's is Available.
+            // Bill is not reserved. Only Val's seat is swapped, Jeb's seat is
+            // emptied, Bill keeps his seat, and order is preserved.
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Jebediah Kerman");
+            part.AddValue("crew", "Bill Kerman");
+            part.AddValue("crew", "Valentina Kerman");
+            var replacements = new Dictionary<string, string>
+            {
+                { "Jebediah Kerman", "Barton Kerman" },
+                { "Valentina Kerman", "Ludgee Kerman" }
+            };
+            var statuses = new Dictionary<string, ProtoCrewMember.RosterStatus>
+            {
+                { "Barton Kerman", ProtoCrewMember.RosterStatus.Assigned },
+                { "Ludgee Kerman", ProtoCrewMember.RosterStatus.Available }
+            };
+
+            int result = CrewReservationManager.SwapReservedCrewInSnapshot(
+                snapshot, replacements,
+                name => statuses.TryGetValue(name, out var s)
+                    ? (ProtoCrewMember.RosterStatus?)s : null);
+
+            Assert.Equal(1, result);
+            var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
+            Assert.Equal(2, crew.Count);
+            Assert.Equal("Bill Kerman", crew[0]);
+            Assert.Equal("Ludgee Kerman", crew[1]);
+            Assert.Contains(logLines, l => l.Contains("[CrewReservation]")
+                && l.Contains("Snapshot crew swap complete: 1 name(s) replaced, 1 seat(s) left empty"));
+        }
+
+        [Fact]
+        public void SwapReservedCrewInSnapshot_MissingStandIn_WrittenThroughForDownstreamRescue()
+        {
+            // A Missing stand-in is alive but orphaned from a removed vessel.
+            // Both spawn routes run RescueReservedMissingCrewInSnapshot after
+            // this swap (the agreed Missing-rescue path), so the name is
+            // written through rather than the seat emptied.
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Jebediah Kerman");
+            var replacements = new Dictionary<string, string>
+            {
+                { "Jebediah Kerman", "Barton Kerman" }
+            };
+
+            int result = CrewReservationManager.SwapReservedCrewInSnapshot(
+                snapshot, replacements,
+                name => ProtoCrewMember.RosterStatus.Missing);
+
+            Assert.Equal(1, result);
+            var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
+            Assert.Single(crew);
+            Assert.Equal("Barton Kerman", crew[0]);
+            Assert.Contains(logLines, l => l.Contains("[CrewReservation]")
+                && l.Contains("'Barton Kerman' is Missing")
+                && l.Contains("written through for the downstream spawn-route Missing rescue"));
+        }
+
+        [Fact]
+        public void SwapReservedCrewInSnapshot_OutOverload_ReportsClearedSeatsDistinctly()
+        {
+            // The KSC spawn log distinguishes swapped vs cleared: one busy
+            // stand-in and one available stand-in must report 1 swap + 1 clear.
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Jebediah Kerman");
+            part.AddValue("crew", "Valentina Kerman");
+            var replacements = new Dictionary<string, string>
+            {
+                { "Jebediah Kerman", "Barton Kerman" },
+                { "Valentina Kerman", "Ludgee Kerman" }
+            };
+            var statuses = new Dictionary<string, ProtoCrewMember.RosterStatus>
+            {
+                { "Barton Kerman", ProtoCrewMember.RosterStatus.Assigned },
+                { "Ludgee Kerman", ProtoCrewMember.RosterStatus.Available }
+            };
+
+            int swapped = CrewReservationManager.SwapReservedCrewInSnapshot(
+                snapshot, replacements,
+                name => statuses.TryGetValue(name, out var s)
+                    ? (ProtoCrewMember.RosterStatus?)s : null,
+                out int seatsCleared);
+
+            Assert.Equal(1, swapped);
+            Assert.Equal(1, seatsCleared);
+        }
+
+        [Fact]
+        public void SwapReservedCrewInSnapshot_NullResolver_KeepsLegacyBlindSwap()
+        {
+            // Pure-test compatibility contract: with no resolver the method
+            // cannot know roster status and performs the legacy blind swap.
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Jebediah Kerman");
+            var replacements = new Dictionary<string, string>
+            {
+                { "Jebediah Kerman", "Barton Kerman" }
+            };
+
+            int result = CrewReservationManager.SwapReservedCrewInSnapshot(
+                snapshot, replacements);
+
+            Assert.Equal(1, result);
+            var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
+            Assert.Single(crew);
+            Assert.Equal("Barton Kerman", crew[0]);
+        }
+
+        #endregion
     }
 }

@@ -2447,6 +2447,22 @@ namespace Parsek
                 completedEventFired.Remove(i);
             }
 
+            // (5c) M4b phasing knob: the per-launch body-fixed time shift this member is replaying
+            // under (loiter cut < 0 / extension > 0; exactly 0 for knob-less schedules and uniform
+            // units). The positioner derotates Absolute body-fixed point playback by it so vacuum
+            // burn arcs land at their recorded INERTIAL positions instead of riding the planet's
+            // extra rotation (the 2026-06-11 playtest's 46-degree teleports near the station).
+            double bodyFixedShift = 0.0;
+            if (unit.RelaunchSchedule != null && unit.RelaunchSchedule.HasPhasingKnob
+                && unit.RelaunchSchedule.TryResolveActiveLaunch(
+                    ctx.currentUT, out double knobLaunchUT, out _))
+            {
+                bodyFixedShift = GhostPlaybackLogic.ComputeScheduledBodyFixedShiftSeconds(
+                    ctx.currentUT, knobLaunchUT, spanLoopUT, unit.SpanStartUT);
+            }
+            if (state != null)
+                state.bodyFixedShiftSeconds = bodyFixedShift;
+
             // (6) Render THIS member at the shared loopUT via the normal in-range path. Override the
             // frame UT for positioning (same technique as TryUpdateLoopSyncedDebris).
             var syncCtx = ctx;
@@ -2457,7 +2473,12 @@ namespace Parsek
                     ref state, ref ghostActive))
             {
                 if (state != null)
+                {
                     state.loopCycleIndex = unitCycle;
+                    // A ghost spawned THIS frame got positioned before the stash above could reach
+                    // its fresh state object; stamp it now so the next frame derotates.
+                    state.bodyFixedShiftSeconds = bodyFixedShift;
+                }
             }
         }
 

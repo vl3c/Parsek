@@ -799,10 +799,11 @@ namespace Parsek.Tests
         {
             // M4a test 10b: stock-like incommensurate pad/station periods. The schedule pins the
             // pad EXACTLY (every launch is ut0 + k*KerbinRotation) and every resolved launch puts
-            // the station within ITS 1-degree tolerance (period/360 = 5 s) - the zero-drift
-            // machinery handles the new kind with no special-casing.
+            // the station within ITS station-phase tolerance (3 degrees = period*3/360 = 15 s,
+            // widened from 1 degree on 2026-06-11 playtest evidence) - the zero-drift machinery
+            // handles the new kind with no special-casing.
             const double stationPeriod = 1800.0;
-            double stationTol = stationPeriod / 360.0;
+            double stationTol = stationPeriod * 3.0 / 360.0;
             var constraints = new List<PhaseConstraint>
             {
                 Rotation("Kerbin", KerbinRotation),

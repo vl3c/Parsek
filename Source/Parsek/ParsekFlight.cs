@@ -20902,10 +20902,35 @@ namespace Parsek
 
         #region IGhostPositioner implementation
 
+        // M4b phasing-knob body-fixed derotation: the time shift (seconds) of the positioning call
+        // currently on the stack, read from GhostPlaybackState.bodyFixedShiftSeconds at the
+        // IGhostPositioner entries (InterpolateAndPosition / PositionAtPoint / PositionLoop) and
+        // consumed by the private InterpolateAndPosition / PositionGhostAt when resolving Absolute
+        // body-fixed points (vacuum burn arcs replayed off the rotation-aligned grid render rotated
+        // with the planet otherwise; the 2026-06-11 playtest's 46-degree teleports). Per-call
+        // ambient with try/finally reset rather than threading a parameter through the six-deep
+        // positioning chain; single-threaded Unity main loop, and 0 (the identity) for every
+        // non-knob caller.
+        private double activeBodyFixedShiftSeconds;
+
         void IGhostPositioner.InterpolateAndPosition(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, double ut, bool suppressFx)
         {
             if (state?.ghost == null || traj?.Points == null) return;
+            activeBodyFixedShiftSeconds = state.bodyFixedShiftSeconds;
+            try
+            {
+                InterpolateAndPositionEntryCore(index, traj, state, ut);
+            }
+            finally
+            {
+                activeBodyFixedShiftSeconds = 0.0;
+            }
+        }
+
+        private void InterpolateAndPositionEntryCore(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state, double ut)
+        {
             int playbackIdx = state.playbackIndex;
             InterpolationResult interpResult;
 
@@ -21464,7 +21489,15 @@ namespace Parsek
                 }
             }
 
-            PositionGhostAt(state.ghost, positioned, traj?.RecordingId, altitudeAuthoritative);
+            activeBodyFixedShiftSeconds = state.bodyFixedShiftSeconds;
+            try
+            {
+                PositionGhostAt(state.ghost, positioned, traj?.RecordingId, altitudeAuthoritative);
+            }
+            finally
+            {
+                activeBodyFixedShiftSeconds = 0.0;
+            }
 
             // Keep the watch-mode overlay + diagnostics consistent with the
             // clamped position. WatchModeController reads state.lastInterpolatedAltitude
@@ -21881,9 +21914,17 @@ namespace Parsek
             // retirement branch can set state.anchorRetiredThisFrame for
             // the loop-playback path. Same rationale as in
             // IGhostPositioner.InterpolateAndPositionRelative above.
-            PositionLoopGhost(state.ghost, traj, ref playbackIdx, ut,
-                index, index * 10000, useAnchor, state,
-                ShouldAutoActivateGhost(state), out interpResult);
+            activeBodyFixedShiftSeconds = state.bodyFixedShiftSeconds;
+            try
+            {
+                PositionLoopGhost(state.ghost, traj, ref playbackIdx, ut,
+                    index, index * 10000, useAnchor, state,
+                    ShouldAutoActivateGhost(state), out interpResult);
+            }
+            finally
+            {
+                activeBodyFixedShiftSeconds = 0.0;
+            }
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
         }
@@ -21973,10 +22014,20 @@ namespace Parsek
                 after.recordedGroundClearance, ReferenceFrame.Absolute,
                 after.ut, recordingId);
 
+            // M4b body-fixed derotation (identity when activeBodyFixedShiftSeconds == 0, every
+            // non-knob path): resolve at the shifted longitude so a vacuum point replayed off the
+            // rotation-aligned grid lands at its recorded INERTIAL position instead of riding the
+            // planet's extra rotation.
             Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
-                before.latitude, before.longitude, effectiveAltBefore);
+                before.latitude,
+                TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(
+                    before.longitude, activeBodyFixedShiftSeconds, bodyBefore),
+                effectiveAltBefore);
             Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
-                after.latitude, after.longitude, effectiveAltAfter);
+                after.latitude,
+                TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(
+                    after.longitude, activeBodyFixedShiftSeconds, bodyAfter),
+                effectiveAltAfter);
 
             Vector3d rawLerpPos = Vector3d.Lerp(posBefore, posAfter, t);
             Vector3d interpolatedPos = rawLerpPos;
@@ -22090,7 +22141,9 @@ namespace Parsek
                 interpolatedPos += anchorEps;
 
             ghost.transform.position = interpolatedPos;
-            ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
+            ghost.transform.rotation = bodyBefore.bodyTransform.rotation
+                * TrajectoryMath.FrameTransform.ShiftSurfaceRelativeRotation(
+                    interpolatedRot, activeBodyFixedShiftSeconds, bodyBefore);
 
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT;
             if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
@@ -22632,13 +22685,19 @@ namespace Parsek
                     point.recordedGroundClearance, ReferenceFrame.Absolute,
                     point.ut, recordingId);
 
+            // M4b body-fixed derotation (identity at shift 0): see InterpolateAndPosition.
             Vector3d worldPos = body.GetWorldSurfacePosition(
-                point.latitude, point.longitude, effectiveAltitude);
+                point.latitude,
+                TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(
+                    point.longitude, activeBodyFixedShiftSeconds, body),
+                effectiveAltitude);
 
             Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(point.rotation);
 
             ghost.transform.position = worldPos;
-            ghost.transform.rotation = body.bodyTransform.rotation * sanitized;
+            ghost.transform.rotation = body.bodyTransform.rotation
+                * TrajectoryMath.FrameTransform.ShiftSurfaceRelativeRotation(
+                    sanitized, activeBodyFixedShiftSeconds, body);
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut;
             if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
             {

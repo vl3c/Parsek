@@ -24,7 +24,8 @@ namespace Parsek.Tests.Logistics
     /// Covers the section-9 matrix: T-PAIR, T-CYCLE0, T-STEADY-STATE, T-BLOCK,
     /// T-MODE-GATE, T-PAUSE-FLUSH (immediate TryPause, armed pause-after-cycle,
     /// EndpointLost), T-NODOUBLE, T-CRASH-WINDOW, T-CRASH-WINDOW-TOMBSTONE,
-    /// T-FUNDS-OUT-THEN-BACK, T-AMOUNT, T-SUP, T-SUP-NOBLOCK.
+    /// T-FUNDS-OUT-THEN-BACK, T-AMOUNT, T-SUP, T-SUP-NOBLOCK, plus the
+    /// M-MIS-9-R1 creation-scope guard T-POSTCREATION-BRANCH.
     ///
     /// SCOPE NOTE: T-FUNDS-OUT-THEN-BACK here is the DEFERRAL proof (funds go out
     /// at dispatch and come back one crossing LATER, never same-tick). It is a
@@ -879,6 +880,51 @@ namespace Parsek.Tests.Logistics
             // The already-emitted PAST credit row is left intact (RESOLUTION 1).
             Assert.Contains(Ledger.Actions, a =>
                 a.Type == GameActionType.RouteRecoveryCredited && a.RouteCycleId == "cycle-0");
+        }
+
+        // ==================================================================
+        // T-POSTCREATION-BRANCH (M-MIS-9-R1): a recovered branch added to the
+        // tree AFTER route creation must not inflate the per-cycle credit
+        // ==================================================================
+
+        // catches: the whole-CURRENT-tree sum regression. The route's creation
+        // snapshot holds {root, recovery leg}; a post-creation branch with its
+        // own recovery row lands on the same tree. The credit must equal the
+        // creation-time recovery only. The recover leg is NOT in SourceRefs
+        // (post-undock), so this also re-proves G1 under the freeze: the
+        // snapshot, not the member set, is what keeps it in scope.
+        [Fact]
+        public void PostCreationRecoveredBranch_DoesNotInflateCredit()
+        {
+            const string newBranchRecId = "rec-postcreation-branch";
+            var root = new Recording { RecordingId = RootRecId, TreeId = TreeId, VesselName = "transport" };
+            var recovery = new Recording { RecordingId = RecoveryRecId, TreeId = TreeId, VesselName = "transport-home" };
+            var newBranch = new Recording { RecordingId = newBranchRecId, TreeId = TreeId, VesselName = "late-arrival" };
+            var tree = new RecordingTree { Id = TreeId, RootRecordingId = RootRecId };
+            tree.Recordings[RootRecId] = root;
+            tree.Recordings[RecoveryRecId] = recovery;
+            tree.Recordings[newBranchRecId] = newBranch;
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            SeedRecoveryRow(Recovered, RecoveryRecId);          // creation-time recover leg
+            SeedRecoveryRow(9999.0, newBranchRecId);            // post-creation branch recovery
+
+            var route = BuildLoopRoute();
+            route.CreationTreeRecordingIds.Add(RootRecId);
+            route.CreationTreeRecordingIds.Add(RecoveryRecId);  // whole tree at creation
+            route.PendingRecoveryCreditCycleId = "cycle-0";
+            route.PendingRecoveryCreditDispatchUT = 1000.0;
+            var env = new EligibleEnv { IsCareer = true };
+
+            bool emitted = RouteOrchestrator.EmitPendingRecoveryCredit(route, 1300.0, env);
+
+            Assert.True(emitted);
+            var credit = Assert.Single(Credits());
+            Assert.Equal((float)Recovered, credit.RouteKscFundsCost); // 7300, not 7300+9999
+            Assert.Single(liveCredits);
+            Assert.Equal(Recovered, liveCredits[0]);
+            Assert.Contains(logLines, l => l.Contains("[RouteRunCost]")
+                && l.Contains("droppedPostCreation=1"));
         }
 
         // ==================================================================

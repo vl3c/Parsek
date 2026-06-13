@@ -24,10 +24,12 @@ namespace Parsek.Tests.Logistics
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            RecordingStore.ClearCommittedTreesInternal();
         }
 
         public void Dispose()
         {
+            RecordingStore.ClearCommittedTreesInternal();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -419,6 +421,69 @@ namespace Parsek.Tests.Logistics
 
             Assert.NotNull(ids);
             Assert.Empty(ids);
+        }
+
+        // ==================================================================
+        // ResolveTreeRecordingIds(Route): creation-time scope (M-MIS-9-R1)
+        // ==================================================================
+
+        // catches: a post-creation branch (id absent from the creation-time
+        // snapshot) leaking into the recovery-credit scope and inflating the
+        // recurring credit. The post-undock recover leg IS in the snapshot
+        // (whole tree at creation), so G1 stays satisfied.
+        [Fact]
+        public void ResolveTreeRecordingIds_CreationSnapshot_DropsPostCreationRecording()
+        {
+            RecordingStore.AddCommittedTreeForTesting(
+                MakeTree("tree-1", "rec-root", "rec-recovery", "rec-new-branch"));
+            var route = MakeKscRoute(backingTreeId: "tree-1");
+            route.CreationTreeRecordingIds.Add("rec-root");
+            route.CreationTreeRecordingIds.Add("rec-recovery");
+
+            HashSet<string> ids = RouteRunCostCalculator.ResolveTreeRecordingIds(route);
+
+            Assert.Equal(2, ids.Count);
+            Assert.Contains("rec-root", ids);
+            Assert.Contains("rec-recovery", ids); // post-undock recover leg kept (G1)
+            Assert.DoesNotContain("rec-new-branch", ids);
+            Assert.Contains(logLines, l => l.Contains("[RouteRunCost]")
+                && l.Contains("creation-scope kept=2")
+                && l.Contains("droppedPostCreation=1"));
+        }
+
+        // catches: an empty creation snapshot (degenerate / pre-field route)
+        // zeroing the scope instead of failing open to the whole current tree
+        // (G1's never-silently-zero contract).
+        [Fact]
+        public void ResolveTreeRecordingIds_EmptyCreationSnapshot_FailsOpenWholeTree()
+        {
+            RecordingStore.AddCommittedTreeForTesting(
+                MakeTree("tree-1", "rec-root", "rec-recovery"));
+            var route = MakeKscRoute(backingTreeId: "tree-1"); // snapshot left empty
+
+            HashSet<string> ids = RouteRunCostCalculator.ResolveTreeRecordingIds(route);
+
+            Assert.Equal(2, ids.Count);
+            Assert.Contains("rec-root", ids);
+            Assert.Contains("rec-recovery", ids);
+            Assert.Contains(logLines, l => l.Contains("[RouteRunCost]")
+                && l.Contains("no creation snapshot: fail-open whole tree"));
+        }
+
+        // catches: a stale snapshot id (recording later removed from the tree)
+        // resurfacing in the scope instead of intersecting away.
+        [Fact]
+        public void ResolveTreeRecordingIds_StaleSnapshotId_NotResurfaced()
+        {
+            RecordingStore.AddCommittedTreeForTesting(MakeTree("tree-1", "rec-root"));
+            var route = MakeKscRoute(backingTreeId: "tree-1");
+            route.CreationTreeRecordingIds.Add("rec-root");
+            route.CreationTreeRecordingIds.Add("rec-deleted"); // no longer in the tree
+
+            HashSet<string> ids = RouteRunCostCalculator.ResolveTreeRecordingIds(route);
+
+            string id = Assert.Single(ids);
+            Assert.Equal("rec-root", id);
         }
 
         // ==================================================================

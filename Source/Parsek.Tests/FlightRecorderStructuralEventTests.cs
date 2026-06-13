@@ -334,6 +334,119 @@ namespace Parsek.Tests
                 parentGeneration: 0);
         }
 
+        // ----- HasStructuralEventSnapshotAtTail — same-UT structural dedup guard -----
+        //
+        // Reproduces the 2026-06-12 "orbital supply route" dock/undock artifact:
+        // one Part.Undock() call fired Undock + JointBreak + JointBreak at the
+        // same physics-clock UT, committing three identical flagged points; the
+        // equal-UT appends passed the #419 tolerance but broke the strictly-
+        // increasing Catmull-Rom section fit ("non-monotonic UT at sample 25").
+
+        [Fact]
+        public void HasStructuralEventSnapshotAtTail_NullOrEmptyList_ReturnsFalse()
+        {
+            Assert.False(FlightRecorder.HasStructuralEventSnapshotAtTail(null, 100.0));
+            Assert.False(FlightRecorder.HasStructuralEventSnapshotAtTail(
+                new List<TrajectoryPoint>(), 100.0));
+        }
+
+        [Fact]
+        public void HasStructuralEventSnapshotAtTail_UnflaggedTailAtSameUT_ReturnsFalse()
+        {
+            // A regular tick sample at the event UT must NOT suppress the
+            // structural snapshot — the flag carries boundary information the
+            // regular sample lacks.
+            var points = new List<TrajectoryPoint> { MakePoint(ut: 100.0) };
+
+            Assert.False(FlightRecorder.HasStructuralEventSnapshotAtTail(points, 100.0));
+        }
+
+        [Fact]
+        public void HasStructuralEventSnapshotAtTail_FlaggedTailAtSameUT_ReturnsTrue()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                MakePoint(ut: 99.0),
+                FlightRecorder.ApplyStructuralEventFlag(MakePoint(ut: 100.0)),
+            };
+
+            Assert.True(FlightRecorder.HasStructuralEventSnapshotAtTail(points, 100.0));
+        }
+
+        [Fact]
+        public void HasStructuralEventSnapshotAtTail_FlaggedTailAtDifferentUT_ReturnsFalse()
+        {
+            // Distinct structural events at distinct UTs both deserve points.
+            var points = new List<TrajectoryPoint>
+            {
+                FlightRecorder.ApplyStructuralEventFlag(MakePoint(ut: 100.0)),
+            };
+
+            Assert.False(FlightRecorder.HasStructuralEventSnapshotAtTail(points, 100.5));
+        }
+
+        [Fact]
+        public void HasStructuralEventSnapshotAtTail_EarlierFlaggedPointButUnflaggedTail_ReturnsFalse()
+        {
+            // Tail-only contract: a flagged point deeper in the list does not
+            // suppress a new structural snapshot once regular samples advanced
+            // past it.
+            var points = new List<TrajectoryPoint>
+            {
+                FlightRecorder.ApplyStructuralEventFlag(MakePoint(ut: 100.0)),
+                MakePoint(ut: 101.0),
+            };
+
+            Assert.False(FlightRecorder.HasStructuralEventSnapshotAtTail(points, 101.0));
+        }
+
+        [Fact]
+        public void HasStructuralEventSnapshotAtTail_WithinTolerance_ReturnsTrue()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                FlightRecorder.ApplyStructuralEventFlag(MakePoint(ut: 100.0)),
+            };
+
+            Assert.True(FlightRecorder.HasStructuralEventSnapshotAtTail(
+                points, 100.0 + 1e-7));
+            Assert.False(FlightRecorder.HasStructuralEventSnapshotAtTail(
+                points, 100.0 + 1e-5));
+        }
+
+        [Fact]
+        public void HasStructuralEventSnapshotAtTail_InvalidEventUTOrTolerance_ReturnsFalse()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                FlightRecorder.ApplyStructuralEventFlag(MakePoint(ut: 100.0)),
+            };
+
+            Assert.False(FlightRecorder.HasStructuralEventSnapshotAtTail(points, double.NaN));
+            Assert.False(FlightRecorder.HasStructuralEventSnapshotAtTail(
+                points, double.PositiveInfinity));
+            Assert.False(FlightRecorder.HasStructuralEventSnapshotAtTail(
+                points, 100.0, toleranceSeconds: -1.0));
+            Assert.False(FlightRecorder.HasStructuralEventSnapshotAtTail(
+                points, 100.0, toleranceSeconds: double.NaN));
+        }
+
+        [Fact]
+        public void HasStructuralEventSnapshotAtTail_UndockJointBreakEchoSequence_DedupesSecondAndThird()
+        {
+            // Simulate the observed event order at one undock UT: the Undock
+            // snapshot commits, then the two JointBreak echoes must both be
+            // recognized as redundant against the committed tail.
+            const double undockUT = 6738307.0211730218;
+            var points = new List<TrajectoryPoint> { MakePoint(ut: undockUT - 2.02) };
+
+            Assert.False(FlightRecorder.HasStructuralEventSnapshotAtTail(points, undockUT));
+            points.Add(FlightRecorder.ApplyStructuralEventFlag(MakePoint(ut: undockUT)));
+
+            Assert.True(FlightRecorder.HasStructuralEventSnapshotAtTail(points, undockUT));
+            Assert.True(FlightRecorder.HasStructuralEventSnapshotAtTail(points, undockUT));
+        }
+
         private static TrajectoryPoint MakePoint(double ut)
         {
             return new TrajectoryPoint

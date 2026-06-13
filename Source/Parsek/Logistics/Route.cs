@@ -265,6 +265,23 @@ namespace Parsek.Logistics
         public HashSet<string> ExcludedIntervalKeys = new HashSet<string>();
 
         /// <summary>
+        /// (M-MIS-9-R1) Recording ids of EVERY recording in the source tree at
+        /// route creation, captured by <c>RouteBuilder.BuildRoute</c> and
+        /// persisted by <see cref="RouteCodec"/>. This is the creation-time
+        /// known-recording union that scopes the recovery-credit sum
+        /// (<c>RouteRunCostCalculator.ResolveTreeRecordingIds(Route)</c>
+        /// intersects the CURRENT tree's ids with this set): it contains the
+        /// post-undock fly-home-and-recover leg (gotcha G1 stays satisfied)
+        /// while post-creation branches (re-fly forks, switch-fly
+        /// continuations) mint NEW ids outside it and are excluded from the
+        /// per-cycle credit. Empty set = no snapshot (degenerate or pre-field
+        /// route); the resolver then FAILS OPEN to the whole current tree,
+        /// preserving G1's never-silently-zero contract.
+        /// </summary>
+        public HashSet<string> CreationTreeRecordingIds =
+            new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
         /// Runtime-only cache (M-MIS-9; NOT serialized, <see cref="RouteCodec"/>
         /// untouched) of composition-interval keys auto-excluded by
         /// <see cref="RouteBackingMission.BuildMission"/> against post-creation

@@ -73,21 +73,24 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(pristine.LegacyFxPrefabNames.Contains("fx_exhaustFlame_blue"),
                 "expected fx_exhaustFlame_blue among Swivel's pristine legacy keys");
 
-            // Each synthesized name must resolve to a stock FX prefab through the candidate
-            // cascade (exact, then size-suffix-stripped family base), or the legacy
-            // synthesis drops it. The prefab cache is fed by parts whose post-MM config
-            // still carries legacy fx_* keys (e.g. unpatched SRBs), which SWE might also
-            // strip in future versions.
+            // Each synthesized name must resolve through the SAME chain the runtime
+            // legacy synthesis uses since #1128: donor cache, then KSP's builtin
+            // Effects/ assets, then the size-suffix cascade. Under ReStock the donor
+            // cache is empty install-wide (ReStock deletes the legacy fx_* keys), so
+            // a donor-cache-only check would false-fail while ghosts render fine via
+            // the builtin assets (first ReStock+Waterfall run, 2026-06-13).
             for (int i = 0; i < pristine.LegacyFxPrefabNames.Count; i++)
             {
                 string wanted = pristine.LegacyFxPrefabNames[i];
                 var candidates = PristinePartFxResolver.BuildLegacyFxNameCandidates(wanted);
                 bool resolved = false;
                 for (int c = 0; c < candidates.Count && !resolved; c++)
-                    resolved = GhostVisualBuilder.FindFxPrefab(candidates[c]) != null;
+                    resolved = GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(
+                        candidates[c], out bool _) != null;
                 InGameAssert.IsTrue(resolved,
-                    $"pristine legacy FX prefab '{wanted}' unresolvable through the cascade " +
-                    "(no surviving donor part in this install; ghost degrades to white flame)");
+                    $"pristine legacy FX prefab '{wanted}' unresolvable through the " +
+                    "runtime chain (donor cache + builtin Effects + cascade); ghost " +
+                    "degrades to white flame");
             }
         }
 
@@ -209,6 +212,126 @@ namespace Parsek.InGameTests
             GhostVisualBuilder.ScanRcsEffectGroupModelNodes(group, fxDefinitions, ref emission, ref speed);
             InGameAssert.IsGreaterThan(fxDefinitions.Count, 0,
                 "pristine RCS running group yielded no MODEL_MULTI_PARTICLE definitions");
+        }
+
+        [InGameTest(Category = "WaterfallCompat", Scene = GameScenes.FLIGHT,
+            Description = "ALL Waterfall-patched engines: every pristine FX asset resolves exactly (structural stock-parity sweep)")]
+        public void AllEnginesPristineFxResolveExactly()
+        {
+            if (!WaterfallCompat.IsWaterfallAssemblyLoaded())
+            {
+                InGameAssert.Skip("Waterfall not installed; the stock path runs and parity is trivial.");
+                return;
+            }
+
+            // Structural equivalence guarantee: the stock path compiles legacy keys from
+            // Effects/{name} and scans EFFECTS particle nodes; the Waterfall fallback uses
+            // the SAME pristine names and the SAME assets, with review-verified placement
+            // parity. Therefore parity holds IFF every pristine name resolves EXACTLY
+            // (any miss means a cascade substitution or white-flame would alter the look).
+            int parts = 0, gated = 0, noPristine = 0, legacyNames = 0, prefabEntries = 0, modelEntries = 0;
+            var failures = new List<string>();
+
+            foreach (AvailablePart ap in PartLoader.LoadedPartsList)
+            {
+                Part prefab = ap?.partPrefab;
+                if (prefab == null || prefab.FindModuleImplementing<ModuleEngines>() == null)
+                    continue;
+                parts++;
+                if (!WaterfallCompat.PartHasWaterfallModule(prefab))
+                    continue;
+                gated++;
+
+                var pristine = PristinePartFxResolver.GetForPart(ap.name, ap.configFileFullName);
+                if (pristine == null || !pristine.Found)
+                {
+                    noPristine++;
+                    continue;
+                }
+
+                for (int i = 0; i < pristine.LegacyFxPrefabNames.Count; i++)
+                {
+                    legacyNames++;
+                    string wanted = pristine.LegacyFxPrefabNames[i];
+                    if (GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(wanted, out bool _) == null)
+                        failures.Add($"{ap.name}: legacy '{wanted}' unresolvable (cascade/white-flame would alter look)");
+                }
+
+                if (pristine.EffectsNode != null)
+                {
+                    ConfigNode[] groups = pristine.EffectsNode.GetNodes();
+                    for (int g = 0; g < groups.Length; g++)
+                    {
+                        ConfigNode[] prefabNodes = groups[g].GetNodes("PREFAB_PARTICLE");
+                        for (int p = 0; p < prefabNodes.Length; p++)
+                        {
+                            if (!EngineFxBuilder.TryReadPrefabParticleConfigEntry(
+                                prefabNodes[p], groups[g].name, out var entry))
+                                continue;
+                            prefabEntries++;
+                            if (GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(
+                                    entry.prefabName, out bool _) == null)
+                                failures.Add($"{ap.name}: EFFECTS prefab '{entry.prefabName}' unresolvable");
+                        }
+
+                        string[] modelTypes = { "MODEL_MULTI_PARTICLE_PERSIST", "MODEL_MULTI_PARTICLE", "MODEL_PARTICLE" };
+                        for (int mt = 0; mt < modelTypes.Length; mt++)
+                        {
+                            ConfigNode[] modelNodes = groups[g].GetNodes(modelTypes[mt]);
+                            for (int m = 0; m < modelNodes.Length; m++)
+                            {
+                                string modelName = modelNodes[m].GetValue("modelName");
+                                if (string.IsNullOrEmpty(modelName))
+                                    continue;
+                                modelEntries++;
+                                if (GameDatabase.Instance.GetModelPrefab(modelName) == null)
+                                    failures.Add($"{ap.name}: EFFECTS model '{modelName}' not loaded");
+                            }
+                        }
+                    }
+                }
+            }
+
+            ParsekLog.Info("WaterfallCompat",
+                $"parity sweep: parts={parts} gated={gated} noPristine={noPristine} " +
+                $"legacyNames={legacyNames} prefabEntries={prefabEntries} modelEntries={modelEntries} " +
+                $"failures={failures.Count}");
+
+            InGameAssert.IsGreaterThan(gated, 0,
+                "no Waterfall-patched engines found despite Waterfall being installed (config pack missing?)");
+            if (failures.Count > 0)
+            {
+                int show = failures.Count < 8 ? failures.Count : 8;
+                InGameAssert.Fail(
+                    $"{failures.Count} pristine FX assets do not resolve exactly; first {show}: " +
+                    string.Join("; ", failures.GetRange(0, show).ToArray()));
+            }
+        }
+
+        [InGameTest(Category = "WaterfallCompat", Scene = GameScenes.FLIGHT,
+            Description = "Builtin Effects/ flame variant prefabs resolve exactly (no SRB-flame substitution)")]
+        public void BuiltinEffectsVariantPrefabsResolvable()
+        {
+            // KSP compiles legacy fx_* keys from Resources "Effects/{name}"; these exact
+            // variant assets must resolve so Waterfall-patched ghosts keep their true
+            // flames (Mainsail yellow_medium, verniers yellow_mini, Poodle/Terrier/Thud
+            // blue_small, Bobcat blue_medium) instead of cascading to the SRB-looking
+            // family base. Builtin assets exist on every install; no skip needed.
+            string[] variants =
+            {
+                "fx_exhaustFlame_yellow_medium",
+                "fx_exhaustFlame_yellow_mini",
+                "fx_exhaustFlame_blue_small",
+                "fx_exhaustFlame_blue_medium"
+            };
+            for (int i = 0; i < variants.Length; i++)
+            {
+                GameObject prefab = GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(
+                    variants[i], out bool _);
+                InGameAssert.IsNotNull(prefab,
+                    $"builtin Effects prefab '{variants[i]}' unresolvable; Waterfall-patched " +
+                    "ghosts would substitute the SRB-looking family base flame");
+            }
         }
 
         [InGameTest(Category = "WaterfallCompat", Scene = GameScenes.FLIGHT,

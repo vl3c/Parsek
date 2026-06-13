@@ -49,6 +49,8 @@ namespace Parsek.Logistics
         internal const string ResourceChildNode = "RESOURCE";
         internal const string ExcludedIntervalsNode = "EXCLUDED_INTERVALS";
         internal const string ExcludedIntervalValue = "excludedInterval";
+        internal const string CreationTreeRecordingsNode = "CREATION_TREE_RECORDINGS";
+        internal const string CreationTreeRecordingValue = "id";
 
         // -----------------------------------------------------------------
         // Serialize
@@ -165,6 +167,20 @@ namespace Parsek.Logistics
                 {
                     if (!string.IsNullOrEmpty(key))
                         excludedNode.AddValue(ExcludedIntervalValue, key);
+                }
+            }
+
+            // CREATION_TREE_RECORDINGS (M-MIS-9-R1): the creation-time
+            // tree-membership snapshot scoping the recovery-credit sum. Sparse:
+            // an empty snapshot writes NO node (degenerate / pre-field route;
+            // the run-cost resolver then fails open to the whole current tree).
+            if (route.CreationTreeRecordingIds != null && route.CreationTreeRecordingIds.Count > 0)
+            {
+                ConfigNode creationNode = node.AddNode(CreationTreeRecordingsNode);
+                foreach (string rid in route.CreationTreeRecordingIds)
+                {
+                    if (!string.IsNullOrEmpty(rid))
+                        creationNode.AddValue(CreationTreeRecordingValue, rid);
                 }
             }
 
@@ -321,6 +337,23 @@ namespace Parsek.Logistics
                     {
                         if (!string.IsNullOrEmpty(excluded[i]))
                             route.ExcludedIntervalKeys.Add(excluded[i]);
+                    }
+                }
+            }
+
+            // CREATION_TREE_RECORDINGS (M-MIS-9-R1). A missing node loads as an
+            // empty snapshot: the run-cost resolver fails open to the whole
+            // current tree, which is the pre-field behavior.
+            ConfigNode creationNode = node.GetNode(CreationTreeRecordingsNode);
+            if (creationNode != null)
+            {
+                string[] creationIds = creationNode.GetValues(CreationTreeRecordingValue);
+                if (creationIds != null)
+                {
+                    for (int i = 0; i < creationIds.Length; i++)
+                    {
+                        if (!string.IsNullOrEmpty(creationIds[i]))
+                            route.CreationTreeRecordingIds.Add(creationIds[i]);
                     }
                 }
             }

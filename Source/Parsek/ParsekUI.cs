@@ -1550,12 +1550,19 @@ namespace Parsek
                         sampleUT = effUT;
                     }
 
+                    // M4b: derotate body-fixed marker sampling by the member's per-launch shift
+                    // (0 for non-members / knob-less schedules).
+                    double markerBodyFixedShift =
+                        GhostPlaybackLogic.ComputeUnitMemberBodyFixedShiftSeconds(
+                            kvp.Key, currentUT, sampleUT, flight.Engine.CurrentLoopUnits);
+
                     if (!TryComputeGhostWorldPosition(
                             kvp.Key,
                             committed,
                             sampleUT,
                             out markerPos,
-                            out MapMarkerPositionFailureReason failureReason))
+                            out MapMarkerPositionFailureReason failureReason,
+                            markerBodyFixedShift))
                     {
                         summary.PositionFailure++;
                         if (failureReason == MapMarkerPositionFailureReason.MissingBody)
@@ -1820,7 +1827,8 @@ namespace Parsek
             IReadOnlyList<Recording> committed,
             double ut,
             out Vector3 worldPos,
-            out MapMarkerPositionFailureReason failureReason)
+            out MapMarkerPositionFailureReason failureReason,
+            double bodyFixedShiftSeconds = 0.0)
         {
             worldPos = Vector3.zero;
             failureReason = MapMarkerPositionFailureReason.None;
@@ -1879,6 +1887,11 @@ namespace Parsek
                 return false;
             }
 
+            // M4b phasing-knob body-fixed derotation (identity at shift 0): a knob-shifted
+            // launch's vacuum point must land at its recorded INERTIAL spot, not ride the
+            // planet's extra rotation (the map-icon teleports near the station).
+            lon = TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(
+                lon, bodyFixedShiftSeconds, body);
             worldPos = (Vector3)body.GetWorldSurfacePosition(lat, lon, alt);
             return true;
         }
