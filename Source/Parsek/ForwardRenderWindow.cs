@@ -120,6 +120,16 @@ namespace Parsek
             BodyChange,
             /// <summary>Walked to the end of the segment data with no earlier stop.</summary>
             EndOfData,
+            /// <summary>Reached the destination body's first full-loop closed orbit AFTER
+            /// crossing exactly one SOI (the capture / parking ellipse). The window
+            /// therefore spans the seam: the icon and the stop are in DIFFERENT SOIs, so
+            /// readers MUST NOT infer "icon and stop share an SOI" from this reason.</summary>
+            DestinationClosedOrbit,
+            /// <summary>Reached a SECOND SOI change after one was already crossed (the
+            /// single-SOI cap; e.g. Kerbin-&gt;Sun-&gt;Duna stops at the Sun-&gt;Duna seam
+            /// rather than running the whole heliocentric transfer). The window spans one
+            /// seam, like <see cref="DestinationClosedOrbit"/>.</summary>
+            SecondSoiBound,
         }
 
         /// <summary>
@@ -188,16 +198,26 @@ namespace Parsek
         ///   2. Test the CURRENT element FIRST: if it is itself a full-loop closed
         ///      orbit, return an empty forward range (StopUT == its startUT) so the
         ///      icon-on-closed-orbit case keeps current behaviour, unchanged.
-        ///   3. Otherwise advance through later elements and stop at the EARLIEST of:
-        ///        - the startUT of the first full-loop closed orbit after the icon,
-        ///        - the first body / SOI change (a later element's bodyName differs
-        ///          from the current element's bodyName — the next-SOI element is
-        ///          EXCLUDED, so the stop is that element's startUT),
-        ///        - end of the segment data (the last element's endUT).
+        ///   3. Otherwise advance through later elements, SPANNING exactly one SOI
+        ///      transition into the destination body (so a Kerbin→Mun transfer draws
+        ///      the Mun-approach arcs ahead of the icon while it is still Kerbin-side),
+        ///      and stop at the EARLIEST of:
+        ///        - the destination body's first full-loop closed orbit after crossing
+        ///          one SOI (the capture / parking ellipse → reason
+        ///          <see cref="ForwardStopReason.DestinationClosedOrbit"/>),
+        ///        - a full-loop closed orbit in the SAME SOI as the icon, before any SOI
+        ///          crossing (reason <see cref="ForwardStopReason.FullLoopClosedOrbit"/>),
+        ///        - a SECOND SOI change after one was already crossed — the single-SOI
+        ///          cap, so an interplanetary Kerbin→Sun→Duna walk stops at the second
+        ///          seam instead of the unbounded heliocentric transfer (reason
+        ///          <see cref="ForwardStopReason.SecondSoiBound"/>),
+        ///        - end of the segment data (StopUT = +inf, reason
+        ///          <see cref="ForwardStopReason.EndOfData"/>).
+        ///      The SOI walk is bounded by an explicit counter capped at ONE crossing.
         ///
         /// Predicted / extrapolated elements are NOT gated out: <c>isPredicted</c>
-        /// segments are walked like any other; only the two stop conditions and
-        /// end-of-data terminate the chain.
+        /// segments are walked like any other; only the stop conditions and end-of-data
+        /// terminate the chain.
         /// </summary>
         internal static ForwardWindow ComputeForwardWindow(
             IReadOnlyList<OrbitSegment> effectiveSegments,
@@ -293,6 +313,7 @@ namespace Parsek
             double stopUT;
             ForwardStopReason reason;
             int walkedFwd = 0;
+            int soiTransitionsConsumed = 0; // how many SOI seams the forward walk spanned (capped at ONE)
             if (!bracketed && currentIsClosed)
             {
                 // Gap just before a full-loop closed orbit: the ellipse is the immediate forward boundary and
@@ -303,25 +324,43 @@ namespace Parsek
             else
             {
                 // current is an OPEN element of the run (bracketed on it, or in a gap just before it). Extend
-                // forward through same-SOI open arcs; stop at the first SOI change or full-loop closed orbit,
-                // else run to the end of data (StopUT = +inf so trailing legs past the last orbit segment are
-                // included).
+                // forward through open arcs, SPANNING exactly ONE SOI transition into the destination body so
+                // the approach arcs (and capture ellipse) draw ahead of the icon while it is still on the
+                // departure body (Bug 2: the Kerbin→Mun seam was previously a hard stop). The walk stops at the
+                // destination body's first full-loop closed orbit (the capture ellipse), at a SECOND SOI change
+                // (the single-SOI cap so an interplanetary Kerbin→Sun→Duna walk never runs the whole
+                // heliocentric transfer), at a same-SOI full-loop closed orbit before any crossing, or at the
+                // end of data (StopUT = +inf so trailing legs past the last orbit segment are included).
                 stopUT = current.endUT;
                 reason = ForwardStopReason.EndOfData;
+                string activeBody = currentBody; // body the walk is currently inside
                 for (int i = currentIndex + 1; i < count; i++)
                 {
                     OrbitSegment next = effectiveSegments[i];
                     walkedFwd++;
-                    if (BodyChanged(currentBody, next.bodyName))
+                    if (BodyChanged(activeBody, next.bodyName))
                     {
-                        stopUT = next.startUT;
-                        reason = ForwardStopReason.BodyChange;
-                        break;
+                        if (soiTransitionsConsumed >= 1)
+                        {
+                            // Second distinct SOI change — single-SOI cap. Stop BEFORE it.
+                            stopUT = next.startUT;
+                            reason = ForwardStopReason.SecondSoiBound;
+                            break;
+                        }
+                        // FIRST SOI change: do NOT stop. Cross into the destination body and keep walking the
+                        // same element through the closed-orbit test below (no continue — the destination's
+                        // first element may itself be the capture ellipse).
+                        soiTransitionsConsumed++;
+                        activeBody = next.bodyName;
                     }
                     if (IsFullLoopClosedOrbit(next, SafeMu(muByBody, next.bodyName)))
                     {
                         stopUT = next.startUT;
-                        reason = ForwardStopReason.FullLoopClosedOrbit;
+                        // Distinguish a closed orbit reached AFTER crossing the seam (the Bug 2 capture ellipse,
+                        // icon and stop in different SOIs) from one in the icon's own SOI (the pre-existing case).
+                        reason = soiTransitionsConsumed >= 1
+                            ? ForwardStopReason.DestinationClosedOrbit
+                            : ForwardStopReason.FullLoopClosedOrbit;
                         break;
                     }
                     stopUT = next.endUT;
@@ -345,9 +384,10 @@ namespace Parsek
             ParsekLog.VerboseRateLimited(Tag, "window",
                 string.Format(CultureInfo.InvariantCulture,
                     "Render run curIdx={0} body={1} runStart={2:F1} curStart={3:F1} stopUT={4:F1} reason={5} " +
-                    "walkedFwd={6} walkedBack={7} bracketed={8} segs={9} curUT={10:F1}",
+                    "walkedFwd={6} walkedBack={7} bracketed={8} segs={9} curUT={10:F1} soiCrossed={11}",
                     currentIndex, currentBody ?? "?", window.RunStartUT, window.CurrentElementStartUT,
-                    window.StopUT, window.Reason, walkedFwd, walkedBack, bracketed, count, currentUT));
+                    window.StopUT, window.Reason, walkedFwd, walkedBack, bracketed, count, currentUT,
+                    soiTransitionsConsumed));
 
             return window;
         }

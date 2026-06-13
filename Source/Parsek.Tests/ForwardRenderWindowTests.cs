@@ -132,25 +132,31 @@ namespace Parsek.Tests
         // ComputeForwardStopUT / ComputeForwardWindow
         // ---------------------------------------------------------------------
 
-        // SOI change: ascent (Kerbin) then heliocentric (Sun) → stop at the Sun segment's startUT.
+        // Bug 2 (one-SOI-spanning contract): a single SOI crossing no longer hard-stops the forward walk.
+        // Ascent (Kerbin) → heliocentric (Sun, never a full loop within the arc span) crosses ONE SOI and
+        // then runs to end-of-data, drawing the post-seam arc ahead of the icon. (Pre-Bug-2 this stopped at
+        // the Sun startUT with reason=BodyChange.)
         [Fact]
-        public void ComputeForwardStopUT_StopsAtFirstBodyChange()
+        public void ComputeForwardStopUT_WalksOneSoiThenRunsToEndOfData()
         {
             var segs = new List<OrbitSegment>
             {
                 Seg("Kerbin", 0, 100, ecc: 0.9, sma: 700000.0),   // current: escape arc
                 Seg("Kerbin", 100, 200, ecc: 1.2, sma: -900000.0), // hyperbolic escape, same body
-                Seg("Sun", 200, 5000, ecc: 0.1, sma: 1.0e10),      // SOI change → stop here
+                Seg("Sun", 200, 5000, ecc: 0.1, sma: 1.0e10),      // one SOI change → spanned, walk continues
             };
             var mu = Mu(("Kerbin", KerbinMu), ("Sun", SunMu));
 
             double stop = ForwardRenderWindow.ComputeForwardStopUT(segs, currentUT: 50.0, mu);
-            Assert.Equal(200.0, stop, 6);
+            Assert.True(double.IsPositiveInfinity(stop)); // one SOI crossed, Sun never closes → end of data
 
             var w = ForwardRenderWindow.ComputeForwardWindow(segs, 50.0, mu);
-            Assert.Equal(ForwardRenderWindow.ForwardStopReason.BodyChange, w.Reason);
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.EndOfData, w.Reason);
             Assert.Equal(0, w.CurrentIndex);
             Assert.True(w.HasForwardRange);
+            // The one spanned SOI crossing is reported on the decision line.
+            Assert.Contains(_logLines, l =>
+                l.Contains("[ForwardRenderWindow]") && l.Contains("Render run") && l.Contains("soiCrossed=1"));
         }
 
         // Full-loop closed orbit ahead: transfer arc then a parking ellipse (span >= period)
@@ -226,8 +232,10 @@ namespace Parsek.Tests
             Assert.Equal(1000.0, w.CurrentElementStartUT, 6);
         }
 
-        // Predicted future elements are NOT gated out: a predicted transfer arc is walked, then
-        // the stop fires on the following body change (not on the isPredicted flag).
+        // Predicted future elements are NOT gated out: a predicted escape arc and a predicted
+        // post-seam heliocentric arc are walked just like recorded ones. Under the one-SOI-spanning
+        // contract the single SOI crossing is spanned and the walk runs to end-of-data (the predicted
+        // Sun arc never closes), proving predicted segments are walked (not the isPredicted flag stopping).
         [Fact]
         public void ComputeForwardStopUT_PredictedElementsIncluded()
         {
@@ -235,38 +243,42 @@ namespace Parsek.Tests
             {
                 Seg("Kerbin", 0, 100, ecc: 0.9, sma: 700000.0),                 // current
                 Seg("Kerbin", 100, 200, ecc: 1.3, sma: -900000.0, predicted: true), // predicted escape arc — walked
-                Seg("Sun", 200, 5000, ecc: 0.1, sma: 1.0e10, predicted: true),      // predicted, SOI change → stop
+                Seg("Sun", 200, 5000, ecc: 0.1, sma: 1.0e10, predicted: true),      // predicted, one SOI — spanned
             };
             var mu = Mu(("Kerbin", KerbinMu), ("Sun", SunMu));
 
             double stop = ForwardRenderWindow.ComputeForwardStopUT(segs, currentUT: 50.0, mu);
-            Assert.Equal(200.0, stop, 6);
+            Assert.True(double.IsPositiveInfinity(stop)); // predicted arcs walked, one SOI spanned → end of data
 
             var w = ForwardRenderWindow.ComputeForwardWindow(segs, 50.0, mu);
-            Assert.Equal(ForwardRenderWindow.ForwardStopReason.BodyChange, w.Reason);
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.EndOfData, w.Reason);
         }
 
-        // (CRITICAL) The stop is computed off the EFFECTIVE list, not the recorded one: feed two
-        // lists that differ in where the body change lands and assert the stop tracks the effective
-        // list's geometry.
+        // (CRITICAL) The stop is computed off the EFFECTIVE list, not the recorded one. Under the
+        // one-SOI-spanning contract a single body change no longer stops the walk, so the geometry-sourcing
+        // guard is now anchored on a SAME-SOI full-loop parking ellipse whose startUT differs between the two
+        // lists (both Kerbin-only, no SOI crossing). The stop must track the EFFECTIVE ellipse startUT.
         [Fact]
         public void ComputeForwardStopUT_UsesEffectiveListNotRecorded()
         {
-            // "Recorded": SOI change at UT=200.
+            double sma = 700000.0;
+            double period = ForwardRenderWindow.ComputePeriod(sma, KerbinMu);
+
+            // "Recorded": parking ellipse (full loop) starts at UT=200.
             var recorded = new List<OrbitSegment>
             {
-                Seg("Kerbin", 0, 100, ecc: 0.9, sma: 700000.0),
-                Seg("Kerbin", 100, 200, ecc: 1.2, sma: -900000.0),
-                Seg("Sun", 200, 5000, ecc: 0.1, sma: 1.0e10),
+                Seg("Kerbin", 0, 200, ecc: 0.4, sma: sma),                       // current: transfer arc (partial)
+                Seg("Kerbin", 200, 200 + period + 5.0, ecc: 0.02, sma: sma),     // full parking loop → stop at 200
             };
-            // "Effective" (re-aimed): the same ghost re-aimed so the Kerbin escape is shorter and
-            // the Sun (SOI change) leg starts EARLIER, at UT=150.
+            // "Effective" (re-aimed): the same ghost re-aimed so the transfer is shorter and the parking
+            // ellipse starts EARLIER, at UT=150. Still Kerbin-only — the differentiator is the ellipse startUT,
+            // not an SOI crossing.
             var effective = new List<OrbitSegment>
             {
-                Seg("Kerbin", 0, 150, ecc: 0.9, sma: 700000.0),
-                Seg("Sun", 150, 4800, ecc: 0.12, sma: 1.1e10),
+                Seg("Kerbin", 0, 150, ecc: 0.4, sma: sma),                       // current: shorter transfer arc
+                Seg("Kerbin", 150, 150 + period + 5.0, ecc: 0.02, sma: sma),     // full parking loop → stop at 150
             };
-            var mu = Mu(("Kerbin", KerbinMu), ("Sun", SunMu));
+            var mu = Mu(("Kerbin", KerbinMu));
 
             double stopRecorded = ForwardRenderWindow.ComputeForwardStopUT(recorded, 50.0, mu);
             double stopEffective = ForwardRenderWindow.ComputeForwardStopUT(effective, 50.0, mu);
@@ -370,8 +382,9 @@ namespace Parsek.Tests
             Assert.Equal(123.0, ForwardRenderWindow.ComputeForwardStopUT(null, 123.0, mu), 6);
         }
 
-        // A null mu delegate must not throw and must not classify any segment a full loop: a
-        // would-be parking loop is then walked (no full-loop stop), stopping only on body change.
+        // A null mu delegate must not throw and must not classify any segment a full loop. With every
+        // candidate full-loop suppressed (NaN period) and the lone SOI crossing spanned by the one-SOI rule,
+        // the walk runs cleanly to end-of-data (no full-loop stop, no SecondSoiBound since only one seam).
         [Fact]
         public void ComputeForwardWindow_NullMuDelegateDoesNotThrowAndSkipsFullLoopStop()
         {
@@ -381,16 +394,16 @@ namespace Parsek.Tests
             {
                 Seg("Kerbin", 0, 100, ecc: 0.4, sma: sma),                          // current
                 Seg("Kerbin", 100, 100 + period + 5.0, ecc: 0.02, sma: sma),        // would be a full loop, but mu is null
-                Seg("Sun", 100 + period + 5.0, 1.0e9, ecc: 0.1, sma: 1.0e10),       // body change → stop here instead
+                Seg("Sun", 100 + period + 5.0, 1.0e9, ecc: 0.1, sma: 1.0e10),       // one SOI change → spanned
             };
 
             var w = ForwardRenderWindow.ComputeForwardWindow(segs, 50.0, muByBody: null);
-            Assert.Equal(ForwardRenderWindow.ForwardStopReason.BodyChange, w.Reason);
-            Assert.Equal(100.0 + period + 5.0, w.StopUT, 3);
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.EndOfData, w.Reason);
+            Assert.True(double.IsPositiveInfinity(w.StopUT));
         }
 
         // The decision logging fires (verbose default-on in tests): the forward-window summary
-        // line records the current index, body, and stop reason.
+        // line records the current index, body, the stop reason, and the spanned-SOI count.
         [Fact]
         public void ComputeForwardWindow_LogsWindowDecision()
         {
@@ -403,8 +416,10 @@ namespace Parsek.Tests
 
             ForwardRenderWindow.ComputeForwardWindow(segs, 50.0, mu);
 
+            // One SOI is spanned and Sun never closes within the arc span → reason=EndOfData soiCrossed=1.
             Assert.Contains(_logLines, l =>
-                l.Contains("[ForwardRenderWindow]") && l.Contains("Render run") && l.Contains("reason=BodyChange"));
+                l.Contains("[ForwardRenderWindow]") && l.Contains("Render run") &&
+                l.Contains("reason=EndOfData") && l.Contains("soiCrossed=1"));
         }
 
         // ---------------------------------------------------------------------
@@ -455,7 +470,10 @@ namespace Parsek.Tests
         }
 
         // Backward boundary = a prior full-loop closed orbit: the run starts AFTER it (at its endUT),
-        // so a post-parking transfer run does not redraw the parking ellipse behind it.
+        // so a post-parking transfer run does not redraw the parking ellipse behind it. The Sun leg here
+        // spans ~1e9 s (>> the Sun period), so under the one-SOI-spanning contract the walk crosses ONE SOI
+        // and stops at that Sun ellipse (a full-loop closed orbit in the DESTINATION SOI → DestinationClosedOrbit);
+        // the backward boundary (RunStartUT) and the stopUT are unchanged from the prior contract.
         [Fact]
         public void ComputeForwardWindow_RunStartsAfterPriorClosedOrbit()
         {
@@ -466,15 +484,15 @@ namespace Parsek.Tests
             {
                 Seg("Kerbin", 100, loopEnd, ecc: 0.01, sma: sma),          // prior parking loop (backward boundary)
                 Seg("Kerbin", loopEnd, loopEnd + 100, ecc: 0.6, sma: sma), // current: transfer arc after parking
-                Seg("Sun", loopEnd + 100, 1.0e9, ecc: 0.1, sma: 1.0e10),   // SOI change → forward stop
+                Seg("Sun", loopEnd + 100, 1.0e9, ecc: 0.1, sma: 1.0e10),   // dest closed orbit (span >> Sun period)
             };
             var mu = Mu(("Kerbin", KerbinMu), ("Sun", SunMu));
 
             var w = ForwardRenderWindow.ComputeForwardWindow(segs, currentUT: loopEnd + 50.0, mu);
             Assert.Equal(1, w.CurrentIndex);
-            Assert.Equal(loopEnd, w.RunStartUT, 3);   // run starts AFTER the prior closed orbit
-            Assert.Equal(loopEnd + 100, w.StopUT, 3); // SOI change
-            Assert.Equal(ForwardRenderWindow.ForwardStopReason.BodyChange, w.Reason);
+            Assert.Equal(loopEnd, w.RunStartUT, 3);   // run starts AFTER the prior closed orbit (unchanged)
+            Assert.Equal(loopEnd + 100, w.StopUT, 3); // the destination closed orbit's startUT (unchanged)
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.DestinationClosedOrbit, w.Reason);
         }
 
         // Backward boundary = a prior SOI change: the run starts at the first same-SOI element after it.
@@ -494,6 +512,149 @@ namespace Parsek.Tests
             Assert.Equal(100.0, w.RunStartUT, 6);             // first same-SOI element after the Sun boundary
             Assert.True(double.IsPositiveInfinity(w.StopUT)); // no forward boundary → end of data
             Assert.Equal(ForwardRenderWindow.ForwardStopReason.EndOfData, w.Reason);
+        }
+
+        // ---------------------------------------------------------------------
+        // Bug 2: one-SOI-spanning forward window (Kerbin → Mun capture)
+        // ---------------------------------------------------------------------
+
+        // Bug 2 core case: a Kerbin→Mun transfer. The icon is bracketed on the Kerbin TMI ellipse (a partial
+        // ellipse, NOT a full loop), then a Mun hyperbola (ecc > 1), then the Mun capture ellipse (span >= its
+        // period → a full loop). The forward walk must SPAN the one Kerbin→Mun SOI seam and stop at the capture
+        // ellipse's startUT (reason=DestinationClosedOrbit), so the Mun-approach arcs draw ahead of the icon
+        // while it is still Kerbin-side. (Pre-Bug-2 this hard-stopped at the Mun hyperbola's startUT.)
+        [Fact]
+        public void ComputeForwardWindow_KerbinToMunCaptureSpansSeam()
+        {
+            double munSma = 200000.0;
+            double munPeriod = ForwardRenderWindow.ComputePeriod(munSma, MunMu);
+            double seam = 5000.0;               // Kerbin→Mun SOI crossing UT
+            double captureStart = 6680.0;       // Mun capture ellipse startUT
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 0, seam, ecc: 0.888, sma: 1.0e7),                              // current: TMI ellipse (partial)
+                Seg("Mun", seam, captureStart, ecc: 1.37, sma: -300000.0),                   // Mun approach hyperbola
+                Seg("Mun", captureStart, captureStart + munPeriod + 50.0, ecc: 0.237, sma: munSma), // Mun capture ellipse (full loop)
+            };
+            var mu = Mu(("Kerbin", KerbinMu), ("Mun", MunMu));
+
+            // Icon BRACKETED on the Kerbin TMI element (not in a gap).
+            var w = ForwardRenderWindow.ComputeForwardWindow(segs, currentUT: 2500.0, mu);
+            Assert.Equal(0, w.CurrentIndex);                 // still Kerbin-side
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.DestinationClosedOrbit, w.Reason);
+            Assert.Equal(captureStart, w.StopUT, 3);         // stop at the Mun capture ellipse, ACROSS the seam
+            Assert.True(w.HasForwardRange);
+            // BLOCKER guard: a non-empty, strictly-positive forward range across the seam (StopUT > RunStartUT).
+            Assert.True(w.StopUT > w.RunStartUT);
+            // The one spanned SOI crossing is reported on the decision line.
+            Assert.Contains(_logLines, l =>
+                l.Contains("[ForwardRenderWindow]") && l.Contains("Render run") &&
+                l.Contains("reason=DestinationClosedOrbit") && l.Contains("soiCrossed=1"));
+        }
+
+        // Bug 2 BLOCKER edge: icon on the LAST Kerbin element immediately before the seam (not in a gap). The
+        // window must still span INTO the destination body (not collapse to an empty range at the seam frame).
+        [Fact]
+        public void ComputeForwardWindow_IconOnLastKerbinElementBeforeSeam_SpansIntoDestination()
+        {
+            double munSma = 200000.0;
+            double munPeriod = ForwardRenderWindow.ComputePeriod(munSma, MunMu);
+            double seam = 5000.0;
+            double captureStart = 6680.0;
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 0, 1000.0, ecc: 0.888, sma: 1.0e7),                            // earlier Kerbin coast
+                Seg("Kerbin", 1000.0, seam, ecc: 0.9, sma: 1.0e7),                           // LAST Kerbin element before the seam (current)
+                Seg("Mun", seam, captureStart, ecc: 1.37, sma: -300000.0),                   // Mun approach hyperbola
+                Seg("Mun", captureStart, captureStart + munPeriod + 50.0, ecc: 0.237, sma: munSma), // Mun capture ellipse
+            };
+            var mu = Mu(("Kerbin", KerbinMu), ("Mun", MunMu));
+
+            // Icon bracketed on the last Kerbin element [1000, seam).
+            var w = ForwardRenderWindow.ComputeForwardWindow(segs, currentUT: 4500.0, mu);
+            Assert.Equal(1, w.CurrentIndex);                 // last Kerbin element
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.DestinationClosedOrbit, w.Reason);
+            Assert.Equal(captureStart, w.StopUT, 3);         // spans into the destination, not collapsed at the seam
+            Assert.True(w.HasForwardRange);
+            Assert.True(w.StopUT > w.RunStartUT);
+        }
+
+        // Bug 2 single-SOI cap (flyby, no capture): Kerbin → Mun hyperbola → back to Kerbin (no Mun closed
+        // orbit). The walk spans the first seam, then the SECOND seam (Mun→Kerbin) is the single-SOI cap and
+        // stops the walk there — it never hard-stops at the FIRST Mun seam.
+        [Fact]
+        public void ComputeForwardWindow_KerbinToMunFlybyNoCapture_BoundsAtSecondSoi()
+        {
+            double seam1 = 5000.0;   // Kerbin→Mun
+            double seam2 = 7000.0;   // Mun→Kerbin (flyby exit) — the single-SOI cap
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 0, seam1, ecc: 0.888, sma: 1.0e7),           // current: TMI ellipse
+                Seg("Mun", seam1, seam2, ecc: 1.37, sma: -300000.0),       // Mun flyby hyperbola (no capture)
+                Seg("Kerbin", seam2, 1.0e6, ecc: 0.5, sma: 9.0e6),         // back in Kerbin SOI → second seam (cap)
+            };
+            var mu = Mu(("Kerbin", KerbinMu), ("Mun", MunMu));
+
+            var w = ForwardRenderWindow.ComputeForwardWindow(segs, currentUT: 2500.0, mu);
+            Assert.Equal(0, w.CurrentIndex);                 // still on the first Kerbin element
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.SecondSoiBound, w.Reason);
+            Assert.Equal(seam2, w.StopUT, 3);                // stops at the SECOND seam, not the first
+            Assert.NotEqual(seam1, w.StopUT);                // explicitly NOT the first Mun seam
+            Assert.True(w.HasForwardRange);
+        }
+
+        // Bug 2 single-SOI cap (interplanetary): Kerbin (escape) → Sun (heliocentric transfer, span << its
+        // period so never a full loop) → Duna. Relaxing ONE SOI lands in heliocentric Sun; the cap stops the
+        // walk at the SECOND seam (Sun→Duna) instead of running the whole multi-month transfer to EndOfData.
+        [Fact]
+        public void ComputeForwardWindow_InterplanetaryStopsAtSecondSoi()
+        {
+            double DunaMu = 3.0136321e11;
+            double sunSeam = 5000.0;     // Kerbin→Sun
+            double dunaSeam = 50000.0;   // Sun→Duna (the second seam — the cap)
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 0, sunSeam, ecc: 1.3, sma: -900000.0),       // current: escape hyperbola
+                Seg("Sun", sunSeam, dunaSeam, ecc: 0.2, sma: 2.0e10),      // heliocentric transfer (partial, never closes)
+                Seg("Duna", dunaSeam, dunaSeam + 5000.0, ecc: 1.2, sma: -500000.0), // arrival hyperbola → second seam
+            };
+            var mu = Mu(("Kerbin", KerbinMu), ("Sun", SunMu), ("Duna", DunaMu));
+
+            var w = ForwardRenderWindow.ComputeForwardWindow(segs, currentUT: 2500.0, mu);
+            Assert.Equal(0, w.CurrentIndex);                 // still Kerbin-side
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.SecondSoiBound, w.Reason);
+            Assert.Equal(dunaSeam, w.StopUT, 3);             // the second seam, NOT EndOfData/+inf
+            Assert.False(double.IsPositiveInfinity(w.StopUT));
+            Assert.True(w.HasForwardRange);
+        }
+
+        // Bug 2 backward-walk regression guard: with the icon PAST the seam (on the Mun hyperbola), the
+        // BACKWARD walk must STILL stop at the seam (RunStartUT = the seam), NOT walk back into Kerbin and
+        // redraw the whole ascent/TMI behind the Mun ghost. The forward-only Bug 2 change must not regress the
+        // Mun-side reset. The forward stop is the Mun capture ellipse (same SOI as the icon now → FullLoopClosedOrbit).
+        [Fact]
+        public void ComputeForwardWindow_MunSideWindowUnchanged_BackwardWalkRegressionGuard()
+        {
+            double munSma = 200000.0;
+            double munPeriod = ForwardRenderWindow.ComputePeriod(munSma, MunMu);
+            double seam = 5000.0;
+            double captureStart = 6680.0;
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 0, seam, ecc: 0.888, sma: 1.0e7),                              // Kerbin TMI (must NOT be re-included)
+                Seg("Mun", seam, captureStart, ecc: 1.37, sma: -300000.0),                   // current: Mun hyperbola
+                Seg("Mun", captureStart, captureStart + munPeriod + 50.0, ecc: 0.237, sma: munSma), // Mun capture ellipse
+            };
+            var mu = Mu(("Kerbin", KerbinMu), ("Mun", MunMu));
+
+            // Icon PAST the seam, on the Mun hyperbola.
+            var w = ForwardRenderWindow.ComputeForwardWindow(segs, currentUT: 5800.0, mu);
+            Assert.Equal(1, w.CurrentIndex);                 // Mun hyperbola
+            Assert.Equal(seam, w.RunStartUT, 3);             // backward walk STOPS at the seam (no Kerbin redraw)
+            Assert.Equal(captureStart, w.StopUT, 3);         // forward stop at the Mun capture ellipse
+            // Same SOI as the icon now (no crossing on the forward walk) → the pre-existing FullLoop reason.
+            Assert.Equal(ForwardRenderWindow.ForwardStopReason.FullLoopClosedOrbit, w.Reason);
+            Assert.True(w.HasForwardRange);
         }
     }
 }
