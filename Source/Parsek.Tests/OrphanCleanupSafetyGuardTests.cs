@@ -112,11 +112,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CleanOrphanFiles_NormalDeletion_WhenKnownIdsNonEmpty()
+        public void CleanOrphanFiles_QuarantinesOrphan_WhenKnownIdsNonEmpty()
         {
-            // Existing behavior must be unchanged: with at least one known ID, the guard
-            // is bypassed and unknown sidecars are deleted as orphans.
-            string recordingsDir = CreateRecordingsDir("normal-deletion");
+            // Data-loss fix: an unknown recording sidecar is no longer hard-deleted — it is
+            // MOVED to the _quarantine subfolder so its immutable bulk data stays recoverable
+            // even when the "orphan" is really a still-referenced recording dropped by a
+            // transient state bug (the partial-loss case the count==0 guard cannot catch).
+            string recordingsDir = CreateRecordingsDir("quarantine-orphan");
             var keep = new Recording { RecordingId = "keep-rec", VesselName = "Keep" };
             RecordingStore.AddRecordingWithTreeForTesting(keep);
 
@@ -128,9 +130,70 @@ namespace Parsek.Tests
             logLines.Clear();
             RecordingStore.CleanOrphanFiles();
 
-            Assert.True(File.Exists(keepPrec));
-            Assert.False(File.Exists(orphanPrec));
+            string quarantinedOrphan = Path.Combine(
+                recordingsDir, RecordingStore.OrphanQuarantineDirName, "orphan-rec.prec");
+            Assert.True(File.Exists(keepPrec));            // known recording untouched
+            Assert.False(File.Exists(orphanPrec));         // moved out of the active set
+            Assert.True(File.Exists(quarantinedOrphan));   // preserved in quarantine, NOT deleted
+            Assert.Equal("orphan", File.ReadAllText(quarantinedOrphan));
             Assert.DoesNotContain(logLines, l => l.Contains("REFUSING to delete"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") && l.Contains("Quarantined orphan recording file")
+                && l.Contains("orphan-rec.prec"));
+        }
+
+        [Fact]
+        public void CleanOrphanFiles_QuarantinesPartialLoss_WhenSomeTreesSurvive()
+        {
+            // The exact Duna-mission shape: several recordings are known (their trees survived)
+            // while a subset is orphaned (its tree was dropped). knownIds is non-empty, so the
+            // count==0 guard does NOT fire — quarantine is what keeps the dropped recording's
+            // data recoverable instead of destroying it.
+            string recordingsDir = CreateRecordingsDir("quarantine-partial");
+            var survivor = new Recording { RecordingId = "survivor-rec", VesselName = "Survivor" };
+            RecordingStore.AddRecordingWithTreeForTesting(survivor);
+
+            string survivorPrec = Path.Combine(recordingsDir, "survivor-rec.prec");
+            string droppedPrec = Path.Combine(recordingsDir, "dropped-rec.prec");
+            string droppedVessel = Path.Combine(recordingsDir, "dropped-rec_vessel.craft");
+            File.WriteAllText(survivorPrec, "survive");
+            File.WriteAllText(droppedPrec, "dropped-prec");
+            File.WriteAllText(droppedVessel, "dropped-vessel");
+
+            logLines.Clear();
+            RecordingStore.CleanOrphanFiles();
+
+            string qDir = Path.Combine(recordingsDir, RecordingStore.OrphanQuarantineDirName);
+            Assert.True(File.Exists(survivorPrec));
+            Assert.False(File.Exists(droppedPrec));
+            Assert.False(File.Exists(droppedVessel));
+            Assert.True(File.Exists(Path.Combine(qDir, "dropped-rec.prec")));
+            Assert.True(File.Exists(Path.Combine(qDir, "dropped-rec_vessel.craft")));
+            Assert.DoesNotContain(logLines, l => l.Contains("REFUSING to delete"));
+        }
+
+        [Fact]
+        public void CleanOrphanFiles_QuarantineDoesNotOverwriteExisting_OnRepeatedSweep()
+        {
+            // A second sweep of an orphan whose name already sits in quarantine must NOT
+            // clobber the earlier copy — both are preserved (the new one is suffixed).
+            string recordingsDir = CreateRecordingsDir("quarantine-norepeat");
+            var keep = new Recording { RecordingId = "keep-rec", VesselName = "Keep" };
+            RecordingStore.AddRecordingWithTreeForTesting(keep);
+            File.WriteAllText(Path.Combine(recordingsDir, "keep-rec.prec"), "keep");
+
+            string qDir = Path.Combine(recordingsDir, RecordingStore.OrphanQuarantineDirName);
+            Directory.CreateDirectory(qDir);
+            File.WriteAllText(Path.Combine(qDir, "orphan-rec.prec"), "earlier-copy");
+
+            File.WriteAllText(Path.Combine(recordingsDir, "orphan-rec.prec"), "newer-copy");
+
+            logLines.Clear();
+            RecordingStore.CleanOrphanFiles();
+
+            Assert.Equal("earlier-copy", File.ReadAllText(Path.Combine(qDir, "orphan-rec.prec")));
+            string[] quarantined = Directory.GetFiles(qDir, "orphan-rec.prec*");
+            Assert.Equal(2, quarantined.Length); // earlier + suffixed newer copy
         }
 
         [Fact]

@@ -1091,6 +1091,84 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Bug 3 burn-seam observability: the LAST render frame each ghost pid had its proto icon
+        /// SUPPRESSED by the icon-drive Prefix in <see cref="Parsek.Patches.GhostOrbitIconDrivePatch"/>.
+        /// This covers BOTH suppress paths: the Director-traced early-return (the path the headline
+        /// burn-seam teleport actually traverses, confirmed in the captured KSP.log) and the no-bounds
+        /// branch. The headline "followed icon teleported for one frame at a burn" symptom is the
+        /// segment -> state-vector (burn) seam: at a loiter/transfer -> burn transition the state-vector
+        /// reseed clears this ghost's segment-drive bounds (<see cref="ghostOrbitBounds"/> etc.) and the
+        /// polyline owns the leg, so for the frame(s) between "suppression opens" and "the next
+        /// StockConic (hyperbolic) segment re-establishes a drive" the proto icon is suppressed and its
+        /// <c>worldPos</c> sits STALE; when the drive re-establishes, the icon un-suppresses and snaps
+        /// by the warp-advanced amount. This dict lets the Prefix detect the ENTER (first suppressed
+        /// frame) and EXIT (first driven frame after a suppressed run) transitions so the next playtest
+        /// log captures the exact stale-window length + the snap magnitude from one grep, BEFORE any
+        /// behavioral continuity fix is chosen (the fix is gated on this read; see
+        /// docs/dev/todo-and-known-bugs.md). Pure observability: it never feeds a decision.
+        /// Cleared per-pid on every ghost teardown (the three <c>RemoveGhostVessel*</c> sites, alongside
+        /// <see cref="ghostsWithSuppressedIcon"/>) and in bulk on scene change / test reset; a stale
+        /// stamp that survives an earlier Prefix early-return self-corrects to a clean ENTER on reuse
+        /// (the strict <c>currentFrame-1</c> adjacency in
+        /// <see cref="ClassifyNoBoundsSuppressionTransition"/> never reads it as a continuing run).
+        /// </summary>
+        internal static readonly Dictionary<uint, int> ghostNoBoundsSuppressLastFrame =
+            new Dictionary<uint, int>();
+
+        /// <summary>
+        /// The no-bounds suppression transition for a ghost pid this frame, for Bug-3 burn-seam
+        /// instrumentation. See <see cref="ClassifyNoBoundsSuppressionTransition"/>.
+        /// </summary>
+        internal enum NoBoundsSuppressTransition
+        {
+            /// <summary>The Prefix found bounds this frame and the pid had no recent no-bounds
+            /// suppression run, so there is no burn-seam transition to log.</summary>
+            None,
+            /// <summary>First no-bounds-suppressed frame of a run (the icon was being driven last
+            /// frame and is now suppressed because the segment bounds were just cleared). Log the
+            /// stale worldPos carried into the suppressed window.</summary>
+            Enter,
+            /// <summary>A continuing no-bounds-suppressed frame within an open run. Not logged
+            /// individually (the per-frame snapshot of the stale position is rate-limited).</summary>
+            Sustain,
+            /// <summary>First driven frame AFTER a no-bounds-suppressed run: the icon un-suppresses
+            /// and snaps. Log the resolved worldPos so the snap magnitude is greppable.</summary>
+            Exit
+        }
+
+        /// <summary>
+        /// PURE: classify this frame's no-bounds suppression transition for a ghost pid, given whether
+        /// the Prefix took the no-bounds suppress path this frame and the frame the pid was last
+        /// no-bounds-suppressed on. <paramref name="suppressedThisFrame"/> is the no-bounds suppress
+        /// decision (Director tracking AND no segment bounds). <paramref name="lastSuppressedFrame"/>
+        /// is <see cref="int.MinValue"/> when the pid has never been no-bounds-suppressed.
+        ///
+        /// Enter   = suppressed this frame, NOT suppressed on the immediately-preceding frame.
+        /// Sustain = suppressed this frame AND suppressed on the immediately-preceding frame.
+        /// Exit    = NOT suppressed this frame, but suppressed on the immediately-preceding frame
+        ///           (the un-suppress snap boundary).
+        /// None    = NOT suppressed this frame and no immediately-preceding suppressed frame.
+        ///
+        /// "Immediately-preceding" is a strict <c>currentFrame - 1</c> match: a non-suppressed frame
+        /// gap between two suppressed frames is its own Exit then Enter, which is exactly the burn-seam
+        /// chatter we want to see frame-accurately in the log.
+        /// </summary>
+        internal static NoBoundsSuppressTransition ClassifyNoBoundsSuppressionTransition(
+            bool suppressedThisFrame,
+            int currentFrame,
+            int lastSuppressedFrame)
+        {
+            bool suppressedLastFrame = lastSuppressedFrame == currentFrame - 1;
+            if (suppressedThisFrame)
+                return suppressedLastFrame
+                    ? NoBoundsSuppressTransition.Sustain
+                    : NoBoundsSuppressTransition.Enter;
+            return suppressedLastFrame
+                ? NoBoundsSuppressTransition.Exit
+                : NoBoundsSuppressTransition.None;
+        }
+
+        /// <summary>
         /// PURE marker-draw / proto-icon-suppression decision (Phase 8c). True when the Parsek
         /// non-proto trajectory marker MUST draw for a ghost pid this frame because the stock proto
         /// icon is hidden; false when the stock proto icon is the visible indicator (skip our marker).
@@ -2497,6 +2575,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
+            ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
             ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
@@ -3567,6 +3646,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitLineGraceUntilFrame.Clear();
+            ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
@@ -3844,20 +3924,23 @@ namespace Parsek
         /// the ghost enters its first orbital segment.
         /// </summary>
         internal static Vessel CreateGhostVesselFromSegment(
-            int recordingIndex, IPlaybackTrajectory traj, OrbitSegment segment)
+            int recordingIndex, IPlaybackTrajectory traj, OrbitSegment segment,
+            double loopEpochShiftSeconds = 0.0)
         {
             return CreateGhostVesselFromSegment(
                 recordingIndex,
                 traj,
                 segment,
-                TrackingStationGhostSource.Segment);
+                TrackingStationGhostSource.Segment,
+                loopEpochShiftSeconds);
         }
 
         private static Vessel CreateGhostVesselFromSegment(
             int recordingIndex,
             IPlaybackTrajectory traj,
             OrbitSegment segment,
-            TrackingStationGhostSource source)
+            TrackingStationGhostSource source,
+            double loopEpochShiftSeconds = 0.0)
         {
             if (traj == null) return null;
             string sourceLabel = source == TrackingStationGhostSource.EndpointTail
@@ -3894,7 +3977,8 @@ namespace Parsek
                 "recording index={0} (from {1})",
                 recordingIndex,
                 protoSource);
-            Vessel vessel = BuildAndLoadGhostProtoVessel(traj, segment, logContext, protoSource);
+            Vessel vessel = BuildAndLoadGhostProtoVessel(
+                traj, segment, logContext, protoSource, loopEpochShiftSeconds);
             if (vessel != null)
             {
                 TrackRecordingGhostVessel(recordingIndex, traj, vessel);
@@ -3991,6 +4075,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
+            ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
             ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
@@ -6218,7 +6303,8 @@ namespace Parsek
                     return CreateGhostVesselForRecording(recordingIndex, traj);
 
                 case TrackingStationGhostSource.Segment:
-                    Vessel segmentGhost = CreateGhostVesselFromSegment(recordingIndex, traj, segment);
+                    Vessel segmentGhost = CreateGhostVesselFromSegment(
+                        recordingIndex, traj, segment, loopEpochShiftSeconds);
                     if (segmentGhost != null)
                     {
                         UpdateGhostOrbitForRecording(
@@ -6234,7 +6320,8 @@ namespace Parsek
                         recordingIndex,
                         traj,
                         segment,
-                        TrackingStationGhostSource.EndpointTail);
+                        TrackingStationGhostSource.EndpointTail,
+                        loopEpochShiftSeconds);
                     if (endpointTailGhost != null)
                     {
                         UpdateGhostOrbitForRecording(
@@ -9890,6 +9977,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitLineGraceUntilFrame.Clear();
+            ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
@@ -9943,10 +10031,11 @@ namespace Parsek
             int reverseIdCount = vesselPidToRecordingId.Count;
             int tsStateVectorCount = trackingStationStateVectorOrbitTrajectories.Count;
             int tsStateVectorCacheCount = trackingStationStateVectorCachedIndices.Count;
+            int noBoundsSuppressStampCount = ghostNoBoundsSuppressLastFrame.Count;
 
             int totalTracked = pidCount + suppressedIconCount + orbitBoundsCount
                 + chainCount + indexCount + overlapInstanceCount + reverseCount + reverseIdCount
-                + tsStateVectorCount + tsStateVectorCacheCount;
+                + tsStateVectorCount + tsStateVectorCacheCount + noBoundsSuppressStampCount;
 
             if (totalTracked == 0)
             {
@@ -9960,6 +10049,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitLineGraceUntilFrame.Clear();
+            ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
@@ -10079,7 +10169,8 @@ namespace Parsek
             IPlaybackTrajectory traj,
             OrbitSegment segment,
             string logContext,
-            string protoSource = "visible-segment")
+            string protoSource = "visible-segment",
+            double loopEpochShiftSeconds = 0.0)
         {
             CelestialBody body = FindBodyByName(segment.bodyName);
             if (body == null)
@@ -10091,6 +10182,17 @@ namespace Parsek
                 return null;
             }
 
+            // Bug 3 (creation-frame icon-off-orbit): BAKE the loop epoch shift into the orbit the proto is
+            // LOADED with. ProtoVessel.Load propagates the packed icon at the LIVE Planetarium clock against
+            // the node's epoch; with the raw recorded epoch (loopEpochShiftSeconds=0) that lands the icon
+            // shift-worth-of-mean-anomaly off the recorded phase at creation, snapping onto the line only on
+            // the next physics tick (off EVERY frame at warp, where the proto is recreated each frame).
+            // epoch = segment.epoch + shift makes pv.Load's live-clock propagation land on the recorded
+            // phase at creation, with no settle pass. The per-frame steady-state drive
+            // (StockConicTreatment.SeedAndDriveLive) re-seeds the whole orbit from the RAW segment.epoch +
+            // shift every FixedUpdate, so the baked node epoch governs ONLY the single creation frame and
+            // never compounds. Non-loop / terminal / state-vector ghosts pass shift 0 -> byte-identical to
+            // before. The recorded OrbitSegment is NOT mutated; only this live Orbit instance carries the bake.
             Orbit orbit = new Orbit(
                 segment.inclination,
                 segment.eccentricity,
@@ -10098,7 +10200,7 @@ namespace Parsek
                 segment.longitudeOfAscendingNode,
                 segment.argumentOfPeriapsis,
                 segment.meanAnomalyAtEpoch,
-                segment.epoch,
+                segment.epoch + loopEpochShiftSeconds,
                 body);
 
             return BuildAndLoadGhostProtoVesselCore(
@@ -11560,6 +11662,7 @@ namespace Parsek
             {
                 ghostMapVesselPids.Remove(ghostPid);
                 ghostsWithSuppressedIcon.Remove(ghostPid);
+                ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
                 ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
                 ghostOrbitBounds.Remove(ghostPid);
                 ghostBodyFrameOrbitBounds.Remove(ghostPid);

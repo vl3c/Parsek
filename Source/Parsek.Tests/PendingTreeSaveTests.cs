@@ -89,9 +89,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SaveTreeRecordings_DoesNotWriteLimboPendingAsPending()
+        public void SaveTreeRecordings_WritesLimboPendingAsActiveResumeNode_ForCrashSafety()
         {
-            string recordingsDir = CreateRecordingsDir("limbo-skip-with-sidecar");
+            // Data-loss fix: a Limbo (quickload-resume) pending tree used to be SKIPPED by
+            // OnSave, so a save in the resume window dropped it from persistent.sfs and its
+            // mission + sidecars were later purged as orphans. It is now serialized with the
+            // isActive marker (so it round-trips through TryRestoreActiveTreeNode back into the
+            // Limbo resume flow) and the stranded-sidecar warn no longer fires.
+            string recordingsDir = CreateRecordingsDir("limbo-active-resume");
             File.WriteAllText(Path.Combine(recordingsDir, "rec_limbo.prec"), "p");
             var limbo = MakeTree("tree_limbo", "Limbo Mission", "rec_limbo");
             RecordingStore.StashPendingTree(limbo, PendingTreeState.Limbo);
@@ -99,35 +104,87 @@ namespace Parsek.Tests
             var node = new ConfigNode("PARSEK_SCENARIO");
             ParsekScenario.SaveTreeRecordings(node);
 
-            Assert.Empty(node.GetNodes("RECORDING_TREE"));
-            Assert.False(RecordingStore.PendingTreeSerializedForSave);
+            ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
+            Assert.Single(treeNodes);
+            Assert.True(ParsekScenario.IsActiveTreeNode(treeNodes[0]));
+            Assert.False(ParsekScenario.IsPendingTreeNode(treeNodes[0]));
+            Assert.Equal("tree_limbo", treeNodes[0].GetValue("id"));
+            Assert.True(RecordingStore.PendingTreeSerializedForSave);
+            Assert.DoesNotContain(logLines, l => l.Contains("stranded sidecar"));
             Assert.Contains(logLines, l =>
-                l.Contains("SavePendingTreeIfAny: skipped pending tree")
-                && l.Contains("state=Limbo"));
-            Assert.Contains(logLines, l =>
-                l.Contains("[Scenario]")
-                && l.Contains("writing 0 RECORDING_TREE nodes")
-                && l.Contains("1 stranded sidecar"));
+                l.Contains("serializing Limbo pending tree") && l.Contains("isActive resume node"));
 
+            // Round-trip: loading the serialized node re-stashes it as a Limbo pending tree
+            // (state re-derived from the non-null ActiveRecordingId), exactly as a fresh
+            // quickload would — so the resume continues instead of the tree being lost.
             RecordingStore.ResetForTesting();
-            logLines.Clear();
-            recordingsDir = CreateRecordingsDir("limbo-switch-skip-with-sidecar");
-            File.WriteAllText(Path.Combine(recordingsDir, "rec_limbo_switch.prec"), "p");
+            bool restored = ParsekScenario.TryRestoreActiveTreeNode(node);
+            Assert.True(restored);
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            Assert.Equal("tree_limbo", RecordingStore.PendingTree.Id);
+        }
 
+        [Fact]
+        public void SaveTreeRecordings_WritesLimboVesselSwitchPending_AndRoundTrips()
+        {
+            // The vessel-switch flavor (ActiveRecordingId == null) round-trips to
+            // LimboVesselSwitch — the stash state is re-derived from the null active rec id.
             var vesselSwitch = MakeTree("tree_limbo_switch", "Switch Mission", "rec_limbo_switch");
+            vesselSwitch.ActiveRecordingId = null; // outsider state at stash time (#266)
             RecordingStore.StashPendingTree(vesselSwitch, PendingTreeState.LimboVesselSwitch);
-            node = new ConfigNode("PARSEK_SCENARIO");
+
+            var node = new ConfigNode("PARSEK_SCENARIO");
             ParsekScenario.SaveTreeRecordings(node);
 
-            Assert.Empty(node.GetNodes("RECORDING_TREE"));
-            Assert.False(RecordingStore.PendingTreeSerializedForSave);
-            Assert.Contains(logLines, l =>
-                l.Contains("SavePendingTreeIfAny: skipped pending tree")
-                && l.Contains("state=LimboVesselSwitch"));
-            Assert.Contains(logLines, l =>
-                l.Contains("[Scenario]")
-                && l.Contains("writing 0 RECORDING_TREE nodes")
-                && l.Contains("1 stranded sidecar"));
+            ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
+            Assert.Single(treeNodes);
+            Assert.True(ParsekScenario.IsActiveTreeNode(treeNodes[0]));
+            Assert.True(RecordingStore.PendingTreeSerializedForSave);
+
+            RecordingStore.ResetForTesting();
+            bool restored = ParsekScenario.TryRestoreActiveTreeNode(node);
+            Assert.True(restored);
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.Equal(PendingTreeState.LimboVesselSwitch, RecordingStore.PendingTreeStateValue);
+            Assert.Equal("tree_limbo_switch", RecordingStore.PendingTree.Id);
+        }
+
+        [Fact]
+        public void CollectParkedTreeIdsForMissionPrune_ReturnsActiveAndPendingNodeIds_NotCommitted()
+        {
+            // The parked-id collector feeds MissionStore.PruneOrphans so a mission whose tree
+            // is serialized as an isActive / isPending node (restored later this OnLoad) is not
+            // pruned as an orphan. Committed nodes are excluded (already in the live list).
+            var node = new ConfigNode("PARSEK_SCENARIO");
+            AddTreeNode(node, MakeTree("t_committed", "Committed", "r_c"), isPending: false, isActive: false);
+            AddTreeNode(node, MakeTree("t_active", "Active", "r_a"), isPending: false, isActive: true);
+            AddTreeNode(node, MakeTree("t_pending", "Pending", "r_p"), isPending: true, isActive: false);
+
+            var ids = ParsekScenario.CollectParkedTreeIdsForMissionPrune(node);
+
+            Assert.Contains("t_active", ids);
+            Assert.Contains("t_pending", ids);
+            Assert.DoesNotContain("t_committed", ids);
+        }
+
+        [Fact]
+        public void HasActiveTreeNode_DetectsActiveMarker_GuardForLimboCoexistence()
+        {
+            // The coexistence guard: SavePendingTreeIfAny uses HasActiveTreeNode to avoid
+            // writing a SECOND isActive node when serializing a Limbo resume tree (only the
+            // first round-trips through TryRestoreActiveTreeNode; a second would be lost). The
+            // full fallback fires only with a live flight active tree (not constructible under
+            // xUnit), so we cover the predicate directly here.
+            var node = new ConfigNode("PARSEK_SCENARIO");
+            Assert.False(ParsekScenario.HasActiveTreeNode(node));
+
+            AddTreeNode(node, MakeTree("t_committed", "Committed", "r_c"), isPending: false, isActive: false);
+            AddTreeNode(node, MakeTree("t_pending", "Pending", "r_p"), isPending: true, isActive: false);
+            Assert.False(ParsekScenario.HasActiveTreeNode(node)); // committed + pending only
+
+            AddTreeNode(node, MakeTree("t_active", "Active", "r_a"), isPending: false, isActive: true);
+            Assert.True(ParsekScenario.HasActiveTreeNode(node));  // now an active node is present
         }
 
         [Fact]
@@ -207,10 +264,16 @@ namespace Parsek.Tests
             var saveNode = new ConfigNode("PARSEK_SCENARIO");
             ParsekScenario.SaveTreeRecordings(saveNode);
             ConfigNode[] savedTreeNodes = saveNode.GetNodes("RECORDING_TREE");
-            Assert.Single(savedTreeNodes);
-            Assert.True(ParsekScenario.IsPendingTreeNode(savedTreeNodes[0]));
-            Assert.False(ParsekScenario.IsActiveTreeNode(savedTreeNodes[0]));
-            Assert.Equal("tree_pending_conflict", savedTreeNodes[0].GetValue("id"));
+            // Data-loss fix: BOTH trees now survive the save. The Limbo active-restore tree is
+            // serialized as an isActive resume node (previously it was dropped, losing the
+            // mission), and the preserved pending tree is serialized as an isPending node.
+            Assert.Equal(2, savedTreeNodes.Length);
+            ConfigNode activeNode = Array.Find(savedTreeNodes, ParsekScenario.IsActiveTreeNode);
+            ConfigNode pendingNode = Array.Find(savedTreeNodes, ParsekScenario.IsPendingTreeNode);
+            Assert.NotNull(activeNode);
+            Assert.NotNull(pendingNode);
+            Assert.Equal("tree_active_conflict", activeNode.GetValue("id"));
+            Assert.Equal("tree_pending_conflict", pendingNode.GetValue("id"));
 
             var poppedActive = RecordingStore.PopPendingTree();
             Assert.Equal("tree_active_conflict", poppedActive.Id);
