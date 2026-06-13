@@ -2651,9 +2651,10 @@ namespace Parsek
             }
 
             pendingTree = tree;
-            // SavePendingTreeIfAny only serializes Finalized pending trees today;
-            // restore therefore reinstalls saved pending nodes as Finalized and
-            // does not arm PendingStashedThisTransition.
+            // This path reinstalls saved isPending nodes (Finalized pending trees) only.
+            // Limbo resume trees take the isActive marker instead and round-trip through
+            // TryRestoreActiveTreeNode / StashPendingTree, never here, so reinstating as
+            // Finalized is correct. Does not arm PendingStashedThisTransition.
             pendingTreeState = PendingTreeState.Finalized;
             PendingStashedThisTransition = false;
             pendingTreeSerializedForSave = true;
