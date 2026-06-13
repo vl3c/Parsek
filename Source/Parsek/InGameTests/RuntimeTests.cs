@@ -10209,25 +10209,30 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Bug 1 (looped-mission trajectory lines vanish when zoomed out) coverage. The fix
-        /// (<see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.OverrideLineMeshBoundsAfterDraw"/>)
-        /// stamps an effectively-infinite bounds box on each drawn leg mesh after every
-        /// <c>Draw3D()</c> so Unity never frustum-culls a tiny near-surface body-fixed leg when the map
-        /// camera pulls back. This is Vectrosity / Unity-coupled (a real VectorLine + a live MeshFilter
-        /// mesh + a real camera frustum) so xUnit cannot reach it; the pure null-guard + AABB math are
-        /// covered by GhostTrajectoryPolylineMeshBoundsTests.
+        /// Bug 1 (looped-mission map trajectory lines vanish when zoomed out) coverage. The fix routes
+        /// every leg / arc / bridge draw through
+        /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.DrawMapLine"/>, which mirrors stock
+        /// <c>OrbitRendererBase.DrawSpline</c>: <c>VectorLine.Draw3D()</c> while <c>MapView.Draw3DLines</c>
+        /// is true, else the 2D <c>VectorLine.Draw()</c> path. Stock flips Draw3DLines to false once the map
+        /// camera zooms out past <c>max3DlineDrawDist</c> (1500) - exactly where the always-Draw3D code used
+        /// to vanish. This is Vectrosity / Unity-coupled (a live VectorLine + the runtime MapView state) so
+        /// xUnit cannot reach it; the pure <c>ShouldDraw3DMapLine</c> decision is covered headless by
+        /// GhostTrajectoryPolylineMapModeTests.
         ///
-        /// <para>Asserts (a) the runtime component path - a drawn leg's GameObject carries a MeshFilter
-        /// with a non-null mesh (the bounds-override target the decompilation predicted), and (b) after
-        /// the override the mesh bounds pass <c>GeometryUtility.TestPlanesAABB</c> against a synthetic
-        /// FAR-zoom frustum that the original tight leg AABB would FAIL. Mirrors the
-        /// <c>TryDrawLeg_DrawsSingleLeg</c> setup.</para>
+        /// <para>Asserts (a) after a TryDrawLeg the drawn line's component path matches the LIVE MapView
+        /// mode (3D mode => a MeshFilter mesh via Vectrosity's VectorObject3D; 2D mode => a CanvasRenderer
+        /// and no MeshFilter via VectorObject2D), and (b) BOTH Vectrosity paths build renderable geometry
+        /// for a Parsek orbit-styled line - forcing <c>Draw()</c> swaps the GameObject onto the 2D canvas
+        /// (the new fix path: CanvasRenderer present, MeshFilter destroyed) and forcing <c>Draw3D()</c>
+        /// swaps it back (MeshFilter restored). Component-presence checks are robust even if the offscreen
+        /// draw paints nothing, because Vectrosity does the component swap in SetupCanvasState BEFORE the
+        /// draw loop runs.</para>
         /// </summary>
         [InGameTest(Category = "MapView", Scene = GameScenes.TRACKSTATION,
-            Description = "OverrideLineMeshBoundsAfterDraw keeps a drawn leg mesh frustum-resident at far zoom (Bug 1)")]
-        public void GhostTrajectoryPolyline_MeshBoundsOverride_SurvivesFarZoomFrustum()
+            Description = "Map trajectory lines follow the stock Draw3D/2D mode so they survive far zoom-out (Bug 1)")]
+        public void GhostTrajectoryPolyline_DrawModeFollowsMapView_AndBothPathsRender()
         {
-            var rec = new Recording { RecordingId = "ingame-bug1-bounds-1" };
+            var rec = new Recording { RecordingId = "ingame-bug1-drawmode-1" };
             var frames = new System.Collections.Generic.List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100.0, latitude = -0.1, longitude = -74.5, altitude = 70.0, bodyName = "Kerbin", rotation = Quaternion.identity },
@@ -10263,59 +10268,44 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(drawn, "TryDrawLeg must report the leg drawn for a 3-point leg");
                 InGameAssert.IsTrue(leg.vectorLine != null, "TryDrawLeg must lazily inflate the leg's VectorLine");
 
-                // Null-guard decision (the pure branch xUnit cannot reach - VectorLine lives in
-                // Assembly-CSharp-firstpass, not referenced by the test assembly).
-                InGameAssert.IsTrue(!Parsek.Display.GhostTrajectoryPolylineRenderer.ShouldOverrideMeshBounds(null),
-                    "ShouldOverrideMeshBounds must return false for a null line");
-                InGameAssert.IsTrue(Parsek.Display.GhostTrajectoryPolylineRenderer.ShouldOverrideMeshBounds(leg.vectorLine),
-                    "ShouldOverrideMeshBounds must return true for a live drawn line");
+                // The pure decision must agree with the live MapView state DrawMapLine reads. Short-circuit
+                // the MapView.Draw3DLines read behind the fetch null check (mirrors DrawMapLine).
+                bool present = MapView.fetch != null;
+                bool expect3D = present ? MapView.Draw3DLines : true;
+                InGameAssert.AreEqual(expect3D,
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.ShouldDraw3DMapLine(present, present && MapView.Draw3DLines),
+                    "ShouldDraw3DMapLine must match the live MapView mode");
 
-                // (a) Runtime component path: the drawn leg's GameObject must carry a MeshFilter with a
-                // non-null mesh (the bounds-override target). The decompilation of Vectrosity's
-                // VectorObject3D.SetupMesh proves this; this confirms it on the live runtime.
+                // (a) The drawn leg's component path must match the live mode (TryDrawLeg -> DrawMapLine).
                 var go = leg.vectorLine.rectTransform.gameObject;
-                var mf = go.GetComponent<MeshFilter>();
-                InGameAssert.IsTrue(mf != null, "a drawn leg's GameObject must carry a MeshFilter");
-                InGameAssert.IsTrue(mf.mesh != null, "the leg's MeshFilter must carry a non-null instance mesh");
-
-                // Apply the fix explicitly (the Driver calls this inside TryDrawLeg too; calling it again
-                // is idempotent - it just re-stamps the same box).
-                Parsek.Display.GhostTrajectoryPolylineRenderer.OverrideLineMeshBoundsAfterDraw(leg.vectorLine);
-
-                Bounds overridden = mf.mesh.bounds;
-                float half = Parsek.Display.GhostTrajectoryPolylineRenderer.InfiniteMeshBoundsHalfExtent;
-                InGameAssert.IsTrue(overridden.extents.x >= half * 0.5f,
-                    "the override must stamp an effectively-infinite half-extent on the mesh bounds");
-
-                // (b) Build a synthetic FAR-zoom frustum positioned far from the surface leg. A tight
-                // surface-leg AABB would fall outside it; the infinite-bounds AABB must still pass.
-                var camGo = new GameObject("Bug1FrustumProbeCam");
-                Camera probeCam = camGo.AddComponent<Camera>();
-                try
+                if (expect3D)
                 {
-                    probeCam.fieldOfView = 5f;          // narrow FOV (far zoom-in)
-                    probeCam.nearClipPlane = 1f;
-                    probeCam.farClipPlane = 100f;        // shallow depth: the surface leg is far outside
-                    // Point the camera at empty space far from the surface leg's scaled position.
-                    camGo.transform.position = new Vector3(1e7f, 1e7f, 1e7f);
-                    camGo.transform.rotation = Quaternion.LookRotation(Vector3.up);
-
-                    Plane[] frustum = GeometryUtility.CalculateFrustumPlanes(probeCam);
-
-                    // Sanity: the original tight leg AABB is far outside this frustum.
-                    Bounds tight = Parsek.Display.GhostTrajectoryPolylineRenderer.ComputeScaledSpaceAabb(
-                        leg.scratchScaledSpace, leg.PointCount);
-                    InGameAssert.IsTrue(!GeometryUtility.TestPlanesAABB(frustum, tight),
-                        "the tight surface-leg AABB must FAIL the far-zoom frustum (the cull the fix prevents)");
-
-                    // The overridden infinite-bounds AABB must PASS the same frustum.
-                    InGameAssert.IsTrue(GeometryUtility.TestPlanesAABB(frustum, overridden),
-                        "the infinite-bounds mesh AABB must PASS the far-zoom frustum (Bug 1 fix)");
+                    var mf = go.GetComponent<MeshFilter>();
+                    InGameAssert.IsTrue(mf != null && mf.mesh != null,
+                        "3D map-line mode must leave the drawn leg on the Vectrosity VectorObject3D path (a MeshFilter mesh)");
                 }
-                finally
+                else
                 {
-                    UnityEngine.Object.Destroy(camGo);
+                    InGameAssert.IsTrue(go.GetComponent<MeshFilter>() == null,
+                        "2D map-line mode must not carry a MeshFilter");
+                    InGameAssert.IsTrue(go.GetComponent<UnityEngine.CanvasRenderer>() != null,
+                        "2D map-line mode must render through the Vectrosity VectorObject2D canvas path (a CanvasRenderer)");
                 }
+
+                // (b) Both Vectrosity paths must build renderable geometry for this Parsek orbit-styled
+                // line. Force the 2D path (the new Bug 1 fix path): the GameObject swaps onto the canvas
+                // (CanvasRenderer present, MeshFilter destroyed).
+                leg.vectorLine.Draw();
+                InGameAssert.IsTrue(go.GetComponent<UnityEngine.CanvasRenderer>() != null,
+                    "Draw() must place the line on the 2D canvas (CanvasRenderer present) - the far-zoom render path");
+                InGameAssert.IsTrue(go.GetComponent<MeshFilter>() == null,
+                    "Draw() must destroy the 3D MeshFilter when moving the line onto the 2D canvas");
+
+                // Force back to the 3D path: the MeshFilter is restored.
+                leg.vectorLine.Draw3D();
+                var mf3d = go.GetComponent<MeshFilter>();
+                InGameAssert.IsTrue(mf3d != null && mf3d.mesh != null,
+                    "Draw3D() must restore the 3D MeshFilter mesh (the below-threshold render path)");
             }
             finally
             {
