@@ -16,8 +16,16 @@ namespace Parsek.Reaim
     /// </summary>
     internal interface ITransferSolver
     {
-        /// <summary>Solve Lambert's problem; see <see cref="UvLambert.Solve"/> for the full contract.</summary>
-        bool Solve(double mu, Vector3d r1, Vector3d r2, double tof, bool prograde,
+        /// <summary>
+        /// Solve Lambert's problem; see <see cref="UvLambert.Solve(double, Vector3d, Vector3d, double, bool, Vector3d, out Vector3d, out Vector3d)"/>
+        /// for the full contract. <paramref name="planeNormal"/> is the STABLE handedness axis (the
+        /// launch-plane normal): when supplied, the prograde/retrograde branch rides
+        /// <c>dot(r1 x r2, planeNormal)</c> instead of the noise-dominated <c>cross.z</c>, fixing the
+        /// near-180-degree branch flip; <see cref="Vector3d.zero"/> => legacy <c>cross.z</c> behaviour.
+        /// Keeping the normal on the seam means a future Gooding-style vendor drops in behind this SAME
+        /// interface carrying the normal it wants as its angular-momentum axis h.
+        /// </summary>
+        bool Solve(double mu, Vector3d r1, Vector3d r2, double tof, bool prograde, Vector3d planeNormal,
             out Vector3d v1, out Vector3d v2);
     }
 
@@ -32,8 +40,8 @@ namespace Parsek.Reaim
         /// <summary>Process-wide default instance (stateless, so a singleton is safe).</summary>
         internal static readonly UvLambertTransferSolver Default = new UvLambertTransferSolver();
 
-        public bool Solve(double mu, Vector3d r1, Vector3d r2, double tof, bool prograde,
+        public bool Solve(double mu, Vector3d r1, Vector3d r2, double tof, bool prograde, Vector3d planeNormal,
             out Vector3d v1, out Vector3d v2)
-            => UvLambert.Solve(mu, r1, r2, tof, prograde, out v1, out v2);
+            => UvLambert.Solve(mu, r1, r2, tof, prograde, planeNormal, out v1, out v2);
     }
 }

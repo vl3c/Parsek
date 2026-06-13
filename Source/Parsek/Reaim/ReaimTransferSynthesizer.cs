@@ -43,10 +43,18 @@ namespace Parsek.Reaim
         /// <summary>
         /// Projects <paramref name="v"/> onto the plane through the origin whose normal is
         /// <paramref name="planeNormal"/> (subtracts the component of v along the normal). Returns v
-        /// unchanged when the normal is degenerate (zero-length / NaN). Pure; used to flatten the target
-        /// endpoint into the launch body's orbital plane so the near-180-degree Lambert plane singularity
-        /// cannot flip the transfer onto a wild-inclination / retrograde branch.
+        /// unchanged when the normal is degenerate (zero-length / NaN). Pure.
         /// </summary>
+        /// <remarks>
+        /// RETAINED but no longer called from <see cref="TrySynthesizeTransfer"/>: it formerly flattened the
+        /// target endpoint into the launch body's orbital plane to dodge the near-180-degree Lambert plane
+        /// singularity, but flattening r2 toward antiparallel collapsed sin(dnu) onto the
+        /// MinSinTransferAngle cliff and removed the target's out-of-plane offset (capping re-aim to
+        /// low-inclination targets). It is superseded by feeding the stable launch-plane normal as the
+        /// Lambert handedness axis with the UN-projected target endpoint (see TrySynthesizeTransfer). Kept
+        /// here as a tested general-purpose helper (its xUnit tests stay green) and as the documented
+        /// gated contingency should a future solver want a pre-flattened endpoint.
+        /// </remarks>
         internal static Vector3d ProjectOntoPlane(Vector3d v, Vector3d planeNormal)
         {
             double n2 = planeNormal.sqrMagnitude;
@@ -60,9 +68,11 @@ namespace Parsek.Reaim
         /// (inclination &gt; 90 deg). A transfer between two prograde planets must be prograde; a
         /// retrograde solution (inclination ~180 deg) connects the endpoints but travels the wrong way and
         /// must be rejected. Pure; KSP <c>Orbit.inclination</c> is in degrees, 0..180. The strict
-        /// <c>&gt; 90</c> classifies an exactly-polar (90 deg) transfer as prograde, but the ecliptic plane
-        /// constraint in <see cref="TrySynthesizeTransfer"/> forces the synthesized inclination to near 0 /
-        /// near 180, so the boundary is not reached in practice.
+        /// <c>&gt; 90</c> classifies an exactly-polar (90 deg) transfer as prograde. Since the launch-plane
+        /// normal now drives the Lambert handedness (the r2-projection was removed in the near-180 fix),
+        /// a correctly-handed transfer comes back near 0 (prograde) / near 180 (retrograde) - it carries
+        /// the target's small real inclination rather than being flattened to exactly 0 - so the 90 deg
+        /// boundary is not reached in practice.
         /// </summary>
         internal static bool IsRetrogradeTransfer(double inclinationDegrees)
         {
@@ -127,32 +137,33 @@ namespace Parsek.Reaim
             Vector3d r1 = launchBody.orbit.getRelativePositionAtUT(departureUT).xzy;
             Vector3d r2 = targetBody.orbit.getRelativePositionAtUT(arrivalUT).xzy;
 
-            // Constrain the transfer to the LAUNCH body's orbital plane (the reference / ecliptic plane in
-            // stock KSP) to resolve the near-180-degree Lambert plane singularity. At a Hohmann (~180 deg)
-            // transfer angle the plane normal from r1 x r2 is ill-conditioned: the solver flips between a
-            // wild-inclination and a retrograde branch, which forced the caller's localized departure
-            // search to step DAYS away from the synodic window to find a sane prograde transfer. That step
-            // then desynced the rendered transfer's perigee from where the launch body actually is when the
-            // loop replays the departure (the "heliocentric transfer far from Kerbin" regression). Both the
-            // launch body and the target orbit nearly in this plane, so projecting the TARGET endpoint onto
-            // it (the launch endpoint r1 already lies in it) removes only the target's small out-of-plane
-            // offset (much less than its SOI) and yields a stable, prograde, near-coplanar transfer that
-            // departs the launch body's EXACT position at the nominal synodic departure and still reaches
-            // the target. The plane normal r1 x v_launch lies along the reference normal (the swizzled z
-            // axis), so the Lambert prograde/retrograde branch is now well-determined instead of riding the
-            // tiny out-of-plane component of r1 x r2.
-            // LIMITATION (v1 Kerbin->Duna scope): the projection removes the target's out-of-plane offset
-            // a*sin(inc). TryFindTargetEncounterByProximity below still measures against the target's ACTUAL
-            // position, so the offset must stay inside the target SOI. For a low-inclination target that
-            // holds (Duna ~0.06 deg => ~2.4e7 m, well inside Duna's ~4.7e7 m SOI). A high-inclination target
-            // (e.g. Moho ~7 deg, small SOI) projects FAR outside its SOI, so the proximity check finds no
-            // encounter and re-aim DECLINES to faithful replay for that window. This fails closed (no garbage
-            // transfer); re-aiming a steeply-inclined target is deferred (see the design doc deferred list).
+            // Resolve the near-180-degree Lambert plane singularity by feeding the STABLE launch-plane
+            // normal as the solver's handedness axis with the UN-PROJECTED target endpoint - NOT by
+            // flattening r2 into the launch plane. At a Hohmann (~180 deg) transfer angle the plane normal
+            // from r1 x r2 is ill-conditioned: its sign (which selects the prograde vs retrograde branch)
+            // rides the tiny out-of-plane component and flips on rounding noise, so the solver returns the
+            // wrong (retrograde inc=180) branch and the caller declined to faithful even though a perfectly
+            // good prograde transfer exists. The earlier fix projected r2 onto the launch plane to fix the
+            // branch sign, but that flattened r2 toward antiparallel to r1, collapsing sin(dnu) onto the
+            // MinSinTransferAngle cliff (the very degeneracy it tried to dodge) AND removing the target's
+            // out-of-plane offset.
+            // Instead: compute the launch-plane normal r1 x v_launch (which lies along the reference / swizzled
+            // z axis, i.e. a well-defined fixed axis) and pass it to the solver as the handedness axis, with
+            // the RAW (un-projected) r2. Un-projecting restores the target's out-of-plane component so r1 x r2
+            // regains a well-conditioned magnitude and sin(dnu) lifts off the MinSinTransferAngle cliff, while
+            // the small residual sign ambiguity is resolved by dot(r1 x r2, launchPlaneNormal) instead of the
+            // noise-dominated z component. Both edits are required together: un-projecting alone restores
+            // conditioning but leaves the sign noisy; the normal alone cannot help while r2 is flattened to
+            // near-antiparallel.
+            // The MinSinTransferAngle guard, the IsSaneTransferConic check, and the IsRetrogradeTransfer
+            // direction guard below all stay as the fail-closed backstop: a window that still cannot produce
+            // a same-handedness sane conic declines to faithful (never a wrong conic). Because the offset is
+            // no longer removed, re-aiming an inclined target is now bounded only by the downstream proximity
+            // check (the target must still pass within its SOI), not by the projection.
             Vector3d launchPlaneNormal = Vector3d.Cross(
                 r1, launchBody.orbit.getOrbitalVelocityAtUT(departureUT).xzy);
-            r2 = ProjectOntoPlane(r2, launchPlaneNormal);
 
-            if (!TransferSolver.Solve(mu, r1, r2, tofSeconds, prograde, out Vector3d v1, out _))
+            if (!TransferSolver.Solve(mu, r1, r2, tofSeconds, prograde, launchPlaneNormal, out Vector3d v1, out _))
             {
                 failReason = "lambert no solution (degenerate geometry / non-convergence)";
                 return false;
@@ -173,12 +184,13 @@ namespace Parsek.Reaim
             // Match the recorded mission's DIRECTION (handedness), adapting to what was recorded instead of
             // forcing prograde: the caller passes <paramref name="prograde"/> reflecting the recorded
             // transfer's handedness (prograde => recorded transfer was prograde; if the recorded transfer
-            // was retrograde the caller passes false). Near a ~180-degree (Hohmann) transfer angle the
-            // Lambert prograde/retrograde branch is unstable (it turns on the sign of the tiny r1 x r2 cross
-            // product), so a window can flip handedness: a valid ellipse that connects the endpoints but
-            // travels the WRONG way relative to the recording. IsSaneTransferConic accepts it (ecc < 1,
-            // sma > 0), so guard direction here and let the localized departure search step to a departure
-            // whose transfer matches the recorded handedness (or fall back to faithful).
+            // was retrograde the caller passes false). The launch-plane normal now stabilizes the Lambert
+            // branch near a ~180-degree (Hohmann) transfer angle, so the nominal-departure window should
+            // converge with the requested handedness instead of flipping on the noisy r1 x r2 sign. This
+            // guard REMAINS as the fail-closed backstop: should a window still come back with the wrong
+            // handedness (a valid ellipse that connects the endpoints but travels the WRONG way relative to
+            // the recording, which IsSaneTransferConic accepts as ecc < 1, sma > 0), reject it and let the
+            // localized tof search step (or fall back to faithful) rather than render a wrong conic.
             bool resultRetrograde = IsRetrogradeTransfer(transfer.inclination);
             if (resultRetrograde != !prograde)
             {

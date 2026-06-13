@@ -65,8 +65,30 @@ namespace Parsek.Reaim
         /// branch via the sign of the transfer angle from r1 x r2. Units must be consistent
         /// (mu m^3/s^2, positions m, tof s -&gt; velocities m/s; or km throughout). Pure.
         /// </summary>
+        /// <remarks>
+        /// Thin forwarder to the plane-normal overload with <c>planeNormal = Vector3d.zero</c>, so the
+        /// handedness selector falls back to the historical <c>cross.z</c> branch (byte-identical to the
+        /// pre-handedness-fix behaviour). Every legacy caller and the Curtis 5.2 textbook case route
+        /// through here unchanged.
+        /// </remarks>
         internal static bool Solve(
             double mu, Vector3d r1, Vector3d r2, double tof, bool prograde,
+            out Vector3d v1, out Vector3d v2)
+            => Solve(mu, r1, r2, tof, prograde, Vector3d.zero, out v1, out v2);
+
+        /// <summary>
+        /// Plane-normal overload of <see cref="Solve(double, Vector3d, Vector3d, double, bool, out Vector3d, out Vector3d)"/>.
+        /// Identical contract, plus an optional <paramref name="planeNormal"/> that supplies a STABLE
+        /// handedness axis for the prograde/retrograde branch. When a non-degenerate normal is supplied
+        /// the branch rides <c>dot(r1 x r2, planeNormal)</c> (the projection of the transfer plane normal
+        /// onto a fixed reference axis) instead of the noise-dominated <c>cross.z</c> component; near a
+        /// ~180-degree transfer angle <c>cross.z</c> flips sign on rounding noise and selects the wrong
+        /// (retrograde inc=180) branch, while the projection onto a well-defined normal stays stable.
+        /// <paramref name="planeNormal"/> = <see cref="Vector3d.zero"/> (or NaN) => legacy <c>cross.z</c>
+        /// behaviour, so this is a strict superset of the 7-arg solve. Pure.
+        /// </summary>
+        internal static bool Solve(
+            double mu, Vector3d r1, Vector3d r2, double tof, bool prograde, Vector3d planeNormal,
             out Vector3d v1, out Vector3d v2)
         {
             v1 = Vector3d.zero;
@@ -83,12 +105,21 @@ namespace Parsek.Reaim
             if (cosdnu > 1.0) cosdnu = 1.0;
             if (cosdnu < -1.0) cosdnu = -1.0;
 
-            // Transfer angle (0..2pi), with the prograde/retrograde branch chosen by the z of r1 x r2.
+            // Transfer angle (0..2pi). The prograde/retrograde branch handedness comes from
+            // dot(r1 x r2, planeNormal) when a stable plane normal is supplied (the projection of the
+            // transfer-plane normal onto a fixed reference axis), falling back to cross.z otherwise. Near
+            // a ~180-degree transfer angle cross.z is noise-dominated and flips sign on rounding, picking
+            // the wrong (retrograde inc=180) branch; projecting onto a well-defined normal keeps the
+            // branch stable. With planeNormal = Vector3d.zero/NaN this is identical to the historical
+            // cross.z path (the 7-arg forwarder and Curtis 5.2 are byte-identical).
             Vector3d cross = Vector3d.Cross(r1, r2);
+            double handed = (planeNormal.sqrMagnitude > 0.0 && !double.IsNaN(planeNormal.sqrMagnitude))
+                ? Vector3d.Dot(cross, planeNormal)
+                : cross.z;
             double baseAngle = Math.Acos(cosdnu);
             double dnu = prograde
-                ? (cross.z >= 0.0 ? baseAngle : (2.0 * Math.PI - baseAngle))
-                : (cross.z < 0.0 ? baseAngle : (2.0 * Math.PI - baseAngle));
+                ? (handed >= 0.0 ? baseAngle : (2.0 * Math.PI - baseAngle))
+                : (handed < 0.0 ? baseAngle : (2.0 * Math.PI - baseAngle));
 
             double sindnu = Math.Sin(dnu);
             if (Math.Abs(sindnu) < MinSinTransferAngle)
