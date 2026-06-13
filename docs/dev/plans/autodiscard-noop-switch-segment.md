@@ -288,14 +288,14 @@ if (flight != null
     `activeTree`, `ClearSwitchSegmentSession`, ledger recalc rollback) — *exactly*
     what `AutoDiscardIdleActiveTree` already calls for an idle standalone tree, so
     zero new teardown risk. Returns true.
-  - **CommittedRestoreClone** and **BgMemberOrMixed** — **defer** at scene exit
-    (return false → normal dialog / auto-commit path, today's behavior). The
-    committed-clone bookkeeping (`committedTreeRestoreAttemptTreeId`, clone-slot
-    resolution) is intricate, and the BG-member case has live tree content beyond
-    the segment that must still commit. Both are **covered by Hook 2** when the
-    player re-switches in-flight (the proven `DiscardPriorAndSwitchTo` handles all
-    dispositions). Deferring them at scene exit is a documented minor gap, not a
-    regression — see "Out of scope".
+  - **CommittedRestoreClone** and **BgMemberOrMixed** — **defer** (return false →
+    normal dialog / auto-commit path, today's behavior). The committed-clone
+    bookkeeping (`committedTreeRestoreAttemptTreeId`, clone-slot resolution) is
+    intricate, and the BG-member case has live tree content beyond the segment
+    that must still commit. **Hook 2 defers these too** (see the 2026-06-14
+    data-loss fix below) — they are NOT auto-discarded anywhere; a no-op
+    committed-clone segment falls back to the existing merge / pre-switch dialog
+    (one click), which is the safe, documented behavior.
 - Returns true only for the Standalone teardown; the caller then re-saves
   persistent.sfs and returns true (identical to the idle-on-pad fast path).
 
@@ -309,33 +309,41 @@ prefix exits).
 ### Hook 2 — in-flight re-switch (Map Switch-To, session armed = Case A)
 
 In `MapFocusObjectOnSelectPatch`, the `PreSwitchDialogDecision.OpenDialog` case,
-the real control structure is a ternary (`MapFocusObjectOnSelectPatch.cs:333-335`)
-that picks the session vs no-session handler. Inject a guard **before** that
-ternary, gated on `existingSession != null` (Case A only — S3): if the prior
-session segment is a no-op, **silently scoped-discard it and switch** (no prompt)
-via the existing `DiscardPriorAndSwitchTo` handler, skipping the
-`pre-switch-dialog opening` Info line:
+the real control structure is a ternary (`MapFocusObjectOnSelectPatch.cs`) that
+picks the session vs no-session handler. Inject a guard **before** that ternary,
+gated on `existingSession != null` (Case A only) **AND the Standalone
+disposition**: if the prior session segment is a no-op standalone tree,
+**silently scoped-discard it and switch** (no prompt) via the existing
+`DiscardPriorAndSwitchTo` handler:
 
 ```
-if (existingSession != null
-    && (ParsekFlight.Instance?.TryEvaluateActiveSwitchSegmentNoOp(
-            out reason, out _) ?? false))
-{
-    // prior resumed segment did nothing — drop it, switch with no prompt
-    ParsekLog.Info("SwitchIntentPatch",
-        $"pre-switch no-op auto-discard priorSessionId=... targetPid=...");
-    DiscardPriorAndSwitchTo(vessel, existingSession);   // existing handler
-    return false;
+if (existingSession != null) {
+    bool noOp = ParsekFlight.Instance?.TryEvaluateActiveSwitchSegmentNoOp(
+        out reason, out disposition) ?? false;
+    if (noOp && disposition == Standalone) {
+        DiscardPriorAndSwitchTo(vessel, existingSession);   // existing handler
+        return false;
+    }
+    // noOp but CommittedRestoreClone / BgMemberOrMixed → fall through to the
+    // existing dialog (defer); auto-discarding these in-flight is UNSAFE.
 }
-// else: existing ternary (open dialog Case A / Case B / Case C) unchanged
+// existing ternary (open dialog Case A / Case B / Case C) unchanged
 ```
 
-This **reuses `DiscardPriorAndSwitchTo` verbatim** — the same code the dialog's
-Discard button already runs — so Hook 2 is low risk: it only auto-selects the
-existing Discard path instead of prompting. The evaluator's flush (B1) and its
-Re-Fly / merge-journal guards (S2) make this safe; `DiscardPriorAndSwitchTo`
-itself already handles the post-discard recorder/scene-reload reconciliation
-(it is exercised by the existing dialog path).
+**2026-06-14 data-loss fix (CRITICAL):** the original Hook 2 auto-discarded
+EVERY no-op disposition by reusing `DiscardPriorAndSwitchTo` verbatim. That was
+unsafe for a `CommittedRestoreClone`: the in-flight scoped discard reports
+`droppedPendingClone=False` (the clone is the live active tree, not the pending
+slot), so the clone — still holding the whole committed mission — is left live,
+stranded into the Limbo pending slot on the switch, and later surfaces as a
+whole-tree merge dialog whose discard runs `DiscardPendingTree` and deletes the
+entire mission (observed: a 13-recording "Kerbal X" mission wiped; recovered from
+a snapshot). The fix restricts Hook 2's auto-discard to the **Standalone**
+disposition (which has no committed original to strand — the segment IS the whole
+fresh tree), matching Hook 1. CommittedRestoreClone / BgMemberOrMixed defer to
+the existing dialog. The deeper "in-flight committed-clone discard strands the
+tree → DiscardPendingTree wipes a taken clone" path is a PRE-EXISTING bug tracked
+separately in `docs/dev/todo-and-known-bugs.md` (do not fix in this PR).
 
 Scope guard: **only Case A** (session armed = a resumed segment). The no-session
 Case B / Case C operate on the live `activeTree` (the original flight, not a

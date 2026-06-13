@@ -310,33 +310,56 @@ namespace Parsek.Patches
                     {
                         // No-op auto-discard (Case A only): if the prior
                         // switch-segment session's segment changed nothing
-                        // meaningful, silently drop it and switch with no prompt
-                        // — there is no point prompting the player to merge /
-                        // discard a resumed segment that did nothing, and the
-                        // boring segment only prolongs the ghost state. Reuses
-                        // the existing Discard handler (DiscardPriorAndSwitchTo →
-                        // TryDiscardActiveSwitchSegmentAttempt), the same code the
-                        // dialog's Discard button runs, so all dispositions are
-                        // handled. Case B / Case C operate on the live activeTree
-                        // (the original flight, not a resumed segment) and are out
-                        // of scope.
+                        // meaningful AND it is a STANDALONE tree, silently drop it
+                        // and switch with no prompt — there is no point prompting
+                        // the player to merge / discard a resumed segment that did
+                        // nothing, and the boring segment only prolongs the ghost
+                        // state.
+                        //
+                        // CRITICAL (data-loss fix): only the Standalone disposition
+                        // is safe to auto-discard in-flight. For a
+                        // CommittedRestoreClone the in-flight scoped discard leaves
+                        // the clone tree (carrying the whole committed mission)
+                        // live (droppedPendingClone=False), which then strands in
+                        // the Limbo pending slot on the switch and can later be
+                        // whole-tree-discarded — deleting the entire committed
+                        // mission. So defer every non-Standalone disposition to the
+                        // existing pre-switch dialog (let the player choose
+                        // merge/discard), exactly as the scene-exit hook
+                        // (TryAutoDiscardNoOpSwitchSegment) already does. Case B /
+                        // Case C operate on the live activeTree (the original
+                        // flight, not a resumed segment) and are out of scope.
                         if (existingSession != null)
                         {
                             var noOpFlight = ParsekFlight.Instance;
                             string noOpReason = null;
+                            SwitchSegmentDisposition noOpDisp = SwitchSegmentDisposition.None;
                             bool priorIsNoOp = noOpFlight != null
                                 && noOpFlight.TryEvaluateActiveSwitchSegmentNoOp(
-                                    out noOpReason, out _);
-                            if (priorIsNoOp)
+                                    out noOpReason, out noOpDisp);
+                            if (priorIsNoOp && noOpDisp == SwitchSegmentDisposition.Standalone)
                             {
                                 ParsekLog.Info("SwitchIntentPatch",
-                                    $"pre-switch no-op auto-discard: prior segment changed " +
-                                    $"nothing priorSessionId=" +
+                                    $"pre-switch no-op auto-discard: prior standalone segment " +
+                                    $"changed nothing priorSessionId=" +
                                     $"{existingSession.SessionId.ToString("D", CultureInfo.InvariantCulture)} " +
                                     $"targetPid={vessel.persistentId} reason={noOpReason ?? "<none>"} " +
                                     "- discarding without dialog");
                                 DiscardPriorAndSwitchTo(vessel, existingSession);
                                 return false;
+                            }
+                            if (priorIsNoOp)
+                            {
+                                // No-op but a committed-restore-clone / BG-member:
+                                // auto-discarding in-flight would strand the
+                                // underlying committed tree. Fall through to the
+                                // existing dialog so the player decides.
+                                ParsekLog.Info("SwitchIntentPatch",
+                                    $"pre-switch no-op detected but disposition={noOpDisp} " +
+                                    "is unsafe to in-flight auto-discard - deferring to dialog " +
+                                    $"priorSessionId=" +
+                                    $"{existingSession.SessionId.ToString("D", CultureInfo.InvariantCulture)} " +
+                                    $"targetPid={vessel.persistentId}");
                             }
                         }
 
