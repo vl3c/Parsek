@@ -2478,9 +2478,25 @@ namespace Parsek
             // before the classifier reads it (mirrors IsActiveTreeIdleOnPad). The
             // flush only populates activeTree.ActiveRecordingId; the classifier
             // verifies the segment IS that recording.
-            FlushRecorderIntoActiveTreeForSerialization();
-
-            return RecordingStore.TryClassifyActiveSwitchSegmentNoOp(out reason, out disposition);
+            //
+            // Both callers run inside a Harmony prefix (the HighLogic.LoadScene
+            // scene-exit prefix and the map OnSelect prefix). An exception here
+            // would propagate out and abort the scene transition / the menu
+            // click, so fail closed: log and return keep (no auto-discard).
+            try
+            {
+                FlushRecorderIntoActiveTreeForSerialization();
+                return RecordingStore.TryClassifyActiveSwitchSegmentNoOp(out reason, out disposition);
+            }
+            catch (System.Exception ex)
+            {
+                reason = "exception:" + ex.GetType().Name;
+                disposition = SwitchSegmentDisposition.None;
+                ParsekLog.Warn("SwitchSegment",
+                    $"TryEvaluateActiveSwitchSegmentNoOp threw {ex.GetType().Name}: {ex.Message} " +
+                    "- treating as keep (no auto-discard)");
+                return false;
+            }
         }
 
         /// <summary>

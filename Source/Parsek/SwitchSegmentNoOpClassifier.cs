@@ -41,9 +41,11 @@ namespace Parsek
     /// dock / undock / deploy / parachute / robotic / inventory part event, or an
     /// engine / RCS event at positive throttle (see <see cref="IsMeaningfulPartEvent"/>);
     /// any segment event other than the recording-discontinuity
-    /// <see cref="SegmentEventType.TimeJump"/> marker (so crew transfer,
-    /// controller change, part add/remove/destroy all count); a flag plant; a
-    /// dock target; any non-boring track section
+    /// <see cref="SegmentEventType.TimeJump"/> marker (controller change, part
+    /// add/remove/destroy, crew loss — see the gate's note: this is a defensive
+    /// surface, segment events are not flushed at the live decision point and
+    /// nothing meaningful is missed because those events ride flushed part
+    /// events); a flag plant; a dock target; any non-boring track section
     /// (atmospheric flight, exo-propulsive thrust, surface motion / rover driving,
     /// or airless-body approach — see <see cref="GhostPlaybackLogic.IsBoringEnvironment"/>);
     /// or a change in orbit elements between the segment's first and last orbital
@@ -134,9 +136,21 @@ namespace Parsek
             }
 
             // Any segment event except the TimeJump discontinuity marker counts:
-            // CrewTransfer (user-required), CrewLost, Controller*, Part{Added,
-            // Removed,Destroyed}. Do NOT reuse IsGhostingSegmentEvent — it returns
-            // false for CrewTransfer, which must be KEPT.
+            // CrewLost, Controller*, Part{Added,Removed,Destroyed}, CrewTransfer.
+            // (Do NOT reuse IsGhostingSegmentEvent here — it returns false for
+            // CrewTransfer and the crew/controller types, which this gate keeps.)
+            //
+            // NOTE: this gate is a forward-looking / defensive surface, not a
+            // live keep-path today. The scene-exit and re-switch flush
+            // (FlushRecorderIntoActiveTreeForSerialization) does NOT move
+            // recorder.SegmentEvents into the tree recording, so at the live
+            // decision point this list is empty. In practice nothing is missed:
+            // breakage / part-destruction segment events are accompanied by a
+            // flushed Decoupled / Destroyed PartEvent (caught above), and a pure
+            // intra-vessel crew transfer is not recorded at all (no
+            // onCrewTransferred surface) — documented as a known limitation
+            // alongside fuel transfer, same as any internal-state change with no
+            // visual ghost representation.
             if (segment.SegmentEvents != null)
             {
                 for (int i = 0; i < segment.SegmentEvents.Count; i++)
@@ -227,13 +241,17 @@ namespace Parsek
         internal static bool OrbitElementsUnchanged(Recording segment, out string reason)
         {
             reason = null;
-            bool hasFirst = false;
-            OrbitSample first = default(OrbitSample);
-            OrbitSample last = default(OrbitSample);
 
+            // Collect every orbital sample with its UT, then compare the
+            // earliest vs the latest by UT. OrbitSegments and OrbitalCheckpoint
+            // checkpoints are gathered from two sources and concatenated, so
+            // iteration order is NOT guaranteed to be UT-ascending — sort by UT
+            // (startUT) before picking first/last so a changed orbit cannot
+            // slip past via an out-of-order list.
+            var samples = new List<(double ut, OrbitSample s)>();
             void Consider(OrbitSegment os)
             {
-                var s = new OrbitSample
+                samples.Add((os.startUT, new OrbitSample
                 {
                     inc = os.inclination,
                     ecc = os.eccentricity,
@@ -241,9 +259,7 @@ namespace Parsek
                     lan = os.longitudeOfAscendingNode,
                     aop = os.argumentOfPeriapsis,
                     body = os.bodyName,
-                };
-                if (!hasFirst) { first = s; hasFirst = true; }
-                last = s;
+                }));
             }
 
             if (segment.OrbitSegments != null)
@@ -265,8 +281,12 @@ namespace Parsek
                 }
             }
 
-            if (!hasFirst)
+            if (samples.Count == 0)
                 return true; // no orbital data — nothing to compare
+
+            samples.Sort((a, b) => a.ut.CompareTo(b.ut));
+            OrbitSample first = samples[0].s;
+            OrbitSample last = samples[samples.Count - 1].s;
 
             if (!string.Equals(first.body, last.body, StringComparison.Ordinal))
             {

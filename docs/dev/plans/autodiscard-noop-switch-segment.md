@@ -39,7 +39,13 @@ from) instead of committing it.
      science; science lives in `GameActions`). So science is irrelevant to this
      flight-recording decision.
    - EC drain is **irrelevant** (idle power use is not "doing something").
-   - Crew transfer **counts as doing something** (`SegmentEventType.CrewTransfer`).
+   - Crew transfer was intended to **count as doing something**, but
+     post-implementation review found `SegmentEventType.CrewTransfer` is **never
+     emitted** (no `onCrewTransferred` recording surface) and the scene-exit
+     flush does not move segment events into the tree recording — so a pure
+     intra-vessel crew transfer is NOT detectable. Reclassified (maintainer
+     confirmed 2026-06-13) as a Known Limitation alongside fuel transfer; both
+     are internal-state changes with no visual ghost representation.
    - Fuel transfer between tanks **should** count as doing something (changes
      vessel internal state) — **but see the Known Limitation below; it is not
      detectable from currently-recorded data.**
@@ -361,7 +367,7 @@ default-on setting, or behind `IsAutoMerge`? (Leaning unconditional + logged.)
 | Docking / undocking | Docked/Undocked event + DockTargetVesselPid + child BP | keep |
 | Decouple / staging | Decoupled event + child BP | keep |
 | EVA | EVA claiming child BP | keep |
-| Crew transfer (no movement) | CrewTransfer segment event | keep (user req) |
+| Crew transfer (no movement) | not recorded (no `onCrewTransferred` surface) | **discard (KNOWN LIMITATION)** |
 | Vessel destroyed mid-segment | Destroyed event / terminal Destroyed | keep |
 | Flag plant | FlagEvents non-empty | keep |
 | Parachute/gear/deploy/cargo/robotic/inventory | meaningful part event | keep |
@@ -373,17 +379,25 @@ default-on setting, or behind `IsAutoMerge`? (Leaning unconditional + logged.)
 | Empty segment (0 points) but events/dock/children all clean | — | discard (truly nothing) |
 | Data-loss segment (sidecar epoch mismatch, 0 points but tree expects data) | — | keep (cannot determine) — guard like `IsTreeIdleOnPad`'s anyHasPoints |
 
-### Known limitation: fuel transfer between tanks
+### Known limitation: internal-state changes with no recorded surface (fuel / crew transfer)
 
-A coasting segment whose *only* activity was a tank-to-tank fuel transfer will be
-discarded, because intra-vessel transfer is **not currently recorded** (no event
-type, per-vessel resource totals unchanged, end manifest not captured at the
-decision point). The visual ghost does not represent fuel distribution, so no
-*visual* content is lost (consistent with the project's "Visual & Recording
-Design Principle"). Honoring "keep on fuel transfer" would require a new
-resource-redistribution recording surface (a `ResourceTransfer` part/segment
-event or per-part resource snapshots) — **out of scope for this PR; tracked in
-todo-and-known-bugs.md.** Surfaced explicitly for the user / reviewer to confirm.
+A coasting segment whose *only* activity was an intra-vessel **fuel transfer**
+(tank-to-tank) or **crew transfer** (between parts) will be discarded, because
+neither is currently recorded:
+
+- Fuel transfer: no event type, per-vessel resource totals unchanged, end
+  manifest not captured at the decision point.
+- Crew transfer: no `onCrewTransferred` recording surface — the
+  `SegmentEventType.CrewTransfer` enum value exists but is **never emitted**, and
+  the scene-exit flush (`FlushRecorderIntoActiveTreeForSerialization`) does not
+  move `recorder.SegmentEvents` into the tree recording anyway, so the
+  classifier's segment-event gate is not reached at the live decision point.
+
+Both change only internal state with no visual ghost representation, so no
+*visual* content is lost by discarding (consistent with the project's "Visual &
+Recording Design Principle"). Honoring "keep on fuel/crew transfer" would require
+a new internal-state recording surface — **out of scope for this PR; tracked in
+todo-and-known-bugs.md** (maintainer confirmed 2026-06-13 to document, not build).
 
 ## Files touched
 
