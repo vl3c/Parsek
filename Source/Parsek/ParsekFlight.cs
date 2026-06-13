@@ -217,6 +217,54 @@ namespace Parsek
             => Instance?.activeTree?.ActiveRecordingId ?? "";
 
         /// <summary>
+        /// BUG #2: pure id-selection guard for
+        /// <see cref="GetLiveResumedRecordingIdForDialog"/>. Returns the active
+        /// recording id only when a recorder is actively recording AND there is an
+        /// active tree id; null otherwise. Extracted so the guard is unit-testable
+        /// without a Unity <see cref="Instance"/>.
+        /// </summary>
+        internal static string ResolveLiveResumedRecordingId(
+            bool recorderIsRecording, string activeRecordingId)
+            => recorderIsRecording && !string.IsNullOrEmpty(activeRecordingId)
+                ? activeRecordingId
+                : null;
+
+        /// <summary>
+        /// BUG #2: the currently-live resumed recording id the pre-switch Merge/Discard
+        /// dialog ties its live-segment duration to. Returns the active tree's leaf id
+        /// only while a recorder is actively recording; null off-Unity (Instance null),
+        /// when not recording, or when there is no active tree. The dialog's
+        /// <c>tree.Recordings.ContainsKey</c> guard then confirms the id belongs to the
+        /// tree being rendered (cross-tree safety).
+        /// </summary>
+        internal static string GetLiveResumedRecordingIdForDialog()
+            => Instance != null && Instance.recorder != null
+               && Instance.activeTree != null
+                ? ResolveLiveResumedRecordingId(
+                    Instance.recorder.IsRecording, Instance.activeTree.ActiveRecordingId)
+                : null;
+
+        /// <summary>
+        /// BUG #2: UT at which the current recorder session began appending (the
+        /// live-resume anchor). <c>double.NaN</c> off-Unity (Instance null) or when no
+        /// resume/promote session armed it; the dialog falls back to the tree-wide
+        /// duration on NaN.
+        /// </summary>
+        internal static double GetLiveResumeSessionStartUT()
+            => Instance != null ? Instance.liveResumeSessionStartUT : double.NaN;
+
+        /// <summary>
+        /// BUG #2: reads the current Planetarium UT for the live-resume anchor, returning
+        /// <c>double.NaN</c> when no Planetarium singleton exists (headless / pre-scene).
+        /// A NaN anchor falls the dialog back to the safe tree-wide duration.
+        /// </summary>
+        private static double SafeCurrentUtForResumeAnchor()
+        {
+            try { return Planetarium.GetUniversalTime(); }
+            catch { return double.NaN; }
+        }
+
+        /// <summary>
         /// #431: true when the flight scene has a live tree with a recorder attached.
         /// Used by <see cref="GameStateRecorder.Emit"/> to decide whether an in-flight
         /// untagged event is a drift signal worth a warn log.
@@ -262,6 +310,21 @@ namespace Parsek
 
         // Recording (delegated to FlightRecorder)
         private FlightRecorder recorder;
+
+        /// <summary>
+        /// BUG #2: UT at which the CURRENT recorder session began appending.
+        /// Captured per-session-start in <see cref="PrepareSessionStateForRecorderStart"/>
+        /// (reset to NaN there) and re-armed only on the no-session resume / promote
+        /// paths (<see cref="ResumeCommittedActiveRecording"/>,
+        /// <see cref="PromoteRecordingFromBackground"/>). The pre-switch Merge/Discard
+        /// dialog reads it (via <see cref="GetLiveResumeSessionStartUT"/>) to show the
+        /// short live segment the player just flew instead of the resumed committed
+        /// recording's whole multi-year span — that recording's Points are appended in
+        /// place, so its <c>StartUT</c> is the original launch UT and is the wrong
+        /// anchor. Session-transient (NOT serialized); NaN falls the dialog back to the
+        /// safe tree-wide duration.
+        /// </summary>
+        private double liveResumeSessionStartUT = double.NaN;
         internal List<TrajectoryPoint> recording => recorder?.Recording ?? noRecording;
         private List<OrbitSegment> orbitSegments => recorder?.OrbitSegments ?? noOrbitSegments;
         private static readonly List<TrajectoryPoint> noRecording = new List<TrajectoryPoint>();
@@ -3563,6 +3626,15 @@ namespace Parsek
 
             PrepareSessionStateForRecorderStart("PromoteRecordingFromBackground");
 
+            // BUG #2: same live-resume anchor capture as ResumeCommittedActiveRecording —
+            // a promoted background recording can also carry an old StartUT, so anchor on
+            // the UT at which this recorder session began appending.
+            liveResumeSessionStartUT = SafeCurrentUtForResumeAnchor();
+            ParsekLog.Verbose("Flight",
+                $"liveResumeSessionStartUT set reason=PromoteRecordingFromBackground " +
+                $"recId={backgroundRecordingId} " +
+                $"ut={liveResumeSessionStartUT.ToString("R", CultureInfo.InvariantCulture)}");
+
             ParsekLog.Info("Flight", $"Promoted recording '{backgroundRecordingId}' from background " +
                 $"(pid={newVessel.persistentId})");
             ParsekLog.RecState("PromoteFromBackground:exit", CaptureRecorderState());
@@ -3677,6 +3749,19 @@ namespace Parsek
             }
 
             PrepareSessionStateForRecorderStart("ResumeCommittedActiveRecording");
+
+            // BUG #2: anchor the live-segment duration the pre-switch dialog will show.
+            // The resumed committed recording's Points are appended in place, so its
+            // StartUT is the original (multi-year-ago) launch UT — currentUT - StartUT
+            // would still render the whole span. Capture the UT at which THIS recorder
+            // session began appending so currentUT - liveResumeSessionStartUT yields the
+            // short segment the player just flew.
+            liveResumeSessionStartUT = SafeCurrentUtForResumeAnchor();
+            ParsekLog.Verbose("Flight",
+                $"liveResumeSessionStartUT set reason=ResumeCommittedActiveRecording " +
+                $"recId={recordingId} " +
+                $"ut={liveResumeSessionStartUT.ToString("R", CultureInfo.InvariantCulture)}");
+
             ParsekLog.Info("Flight",
                 $"ResumeCommittedActiveRecording: resumed committed recording '{recordingId}' " +
                 $"on vessel '{activeVessel.vesselName}' pid={activeVessel.persistentId}");
@@ -12970,6 +13055,21 @@ namespace Parsek
         private void PrepareSessionStateForRecorderStart(string reason)
         {
             DisarmPostSwitchAutoRecord(reason);
+
+            // BUG #2: every recorder start resets the live-resume anchor to NaN; only
+            // the no-session resume / promote paths re-arm it (after this call returns)
+            // with the current UT. A fresh launch / split / switch-segment start leaves
+            // it NaN, so the pre-switch dialog falls back to tree-wide (fresh launch) or
+            // the SwitchSegmentSession-armed path (Case A) takes precedence. Resetting
+            // here — rather than at every recorder/activeTree teardown site — guarantees
+            // a prior craft's resume UT cannot leak into a later unrelated tree's dialog.
+            if (!double.IsNaN(liveResumeSessionStartUT))
+            {
+                ParsekLog.Verbose("Flight",
+                    $"liveResumeSessionStartUT cleared reason={reason} " +
+                    $"prevUt={liveResumeSessionStartUT.ToString("R", CultureInfo.InvariantCulture)}");
+            }
+            liveResumeSessionStartUT = double.NaN;
 
             // Reset crash coalescer on every recorder start so a fresh recorder cannot
             // inherit a stale coalescing window from the previous segment or scene.

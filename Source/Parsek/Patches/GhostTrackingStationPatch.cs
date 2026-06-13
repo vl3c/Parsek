@@ -519,6 +519,19 @@ namespace Parsek.Patches
             if (v == null || GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return;
 
+            // BUG #1 root-cause fix: stock SpaceTracking.FlyVessel identifies the
+            // target purely by FlightGlobals.Vessels.IndexOf(v), then loads the
+            // persistent.sfs it just saved and focuses the vessel at that same index.
+            // Parsek's StripFromSave removes ghost map vessels from the SAVED file but
+            // leaves them in the LIVE list, so the live index includes the ghosts that
+            // sit ahead of the target while the loaded file does not — landing the
+            // player in the WRONG vessel by exactly the ghost count preceding the
+            // target. Strip the ghosts from the live list HERE (a Prefix, so before
+            // the stock IndexOf + SaveGame) so the live list and the file are both
+            // ghost-free and the index is consistent first-time. Only fires on a real
+            // (non-ghost) Fly transitioning out of the Tracking Station.
+            GhostMapPresence.RemoveAllGhostVesselsBeforeStockFly(v.persistentId);
+
             var scenario = ParsekScenario.Instance;
             if (scenario == null)
             {
