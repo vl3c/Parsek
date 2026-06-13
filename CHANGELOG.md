@@ -34,6 +34,7 @@ All notable changes to Parsek are documented here.
 - Warping to a recording's end (Real Spawn Control) now reliably spawns the real vessel: a time jump could previously mark a recording whose window was still ahead as already-flown history and silently skip its end-of-recording spawn.
 - Supply routes: branches added to a route's source tree after creation (a re-fly fork or a switch-fly continuation) no longer silently join the route's rendered loop and delivery span; the backing selection freezes to the creation-time member set.
 - Supply routes: a recovered branch added to a route's source tree after creation no longer inflates the route's recurring recovery credit or its displayed run cost; the credit is scoped to the recordings that existed when the route was created.
+- Looped-mission trajectory lines no longer disappear when the map is zoomed out (provisional fix pending an in-game frustum read; enable map render tracing to confirm).
 
 ---
 

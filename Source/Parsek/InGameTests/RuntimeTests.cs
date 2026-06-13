@@ -10124,6 +10124,123 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Bug 1 (looped-mission trajectory lines vanish when zoomed out) coverage. The fix
+        /// (<see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.OverrideLineMeshBoundsAfterDraw"/>)
+        /// stamps an effectively-infinite bounds box on each drawn leg mesh after every
+        /// <c>Draw3D()</c> so Unity never frustum-culls a tiny near-surface body-fixed leg when the map
+        /// camera pulls back. This is Vectrosity / Unity-coupled (a real VectorLine + a live MeshFilter
+        /// mesh + a real camera frustum) so xUnit cannot reach it; the pure null-guard + AABB math are
+        /// covered by GhostTrajectoryPolylineMeshBoundsTests.
+        ///
+        /// <para>Asserts (a) the runtime component path - a drawn leg's GameObject carries a MeshFilter
+        /// with a non-null mesh (the bounds-override target the decompilation predicted), and (b) after
+        /// the override the mesh bounds pass <c>GeometryUtility.TestPlanesAABB</c> against a synthetic
+        /// FAR-zoom frustum that the original tight leg AABB would FAIL. Mirrors the
+        /// <c>TryDrawLeg_DrawsSingleLeg</c> setup.</para>
+        /// </summary>
+        [InGameTest(Category = "MapView", Scene = GameScenes.TRACKSTATION,
+            Description = "OverrideLineMeshBoundsAfterDraw keeps a drawn leg mesh frustum-resident at far zoom (Bug 1)")]
+        public void GhostTrajectoryPolyline_MeshBoundsOverride_SurvivesFarZoomFrustum()
+        {
+            var rec = new Recording { RecordingId = "ingame-bug1-bounds-1" };
+            var frames = new System.Collections.Generic.List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0, latitude = -0.1, longitude = -74.5, altitude = 70.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 200.0, latitude = -0.05, longitude = -74.5, altitude = 20000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 600.0, latitude = 0.0, longitude = -74.5, altitude = 100000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 600.0,
+                frames = frames,
+                checkpoints = new System.Collections.Generic.List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 10f,
+            });
+
+            var legs = Parsek.Display.GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+            InGameAssert.AreEqual(1, legs.Count, "expected one leg from one Absolute section");
+
+            CelestialBody kerbin = FlightGlobals.Bodies.Find(b => b.name == "Kerbin");
+            InGameAssert.IsTrue(kerbin != null, "Kerbin body must resolve");
+
+            var leg = legs[0];
+            int drawFrame = Time.frameCount;
+            bool drawn = Parsek.Display.GhostTrajectoryPolylineRenderer.TryDrawLeg(
+                ref leg, rec, kerbin, /*targetLayer*/ 31, drawFrame, rec.RecordingId, /*legIndex*/ 0);
+
+            try
+            {
+                InGameAssert.IsTrue(drawn, "TryDrawLeg must report the leg drawn for a 3-point leg");
+                InGameAssert.IsTrue(leg.vectorLine != null, "TryDrawLeg must lazily inflate the leg's VectorLine");
+
+                // Null-guard decision (the pure branch xUnit cannot reach - VectorLine lives in
+                // Assembly-CSharp-firstpass, not referenced by the test assembly).
+                InGameAssert.IsTrue(!Parsek.Display.GhostTrajectoryPolylineRenderer.ShouldOverrideMeshBounds(null),
+                    "ShouldOverrideMeshBounds must return false for a null line");
+                InGameAssert.IsTrue(Parsek.Display.GhostTrajectoryPolylineRenderer.ShouldOverrideMeshBounds(leg.vectorLine),
+                    "ShouldOverrideMeshBounds must return true for a live drawn line");
+
+                // (a) Runtime component path: the drawn leg's GameObject must carry a MeshFilter with a
+                // non-null mesh (the bounds-override target). The decompilation of Vectrosity's
+                // VectorObject3D.SetupMesh proves this; this confirms it on the live runtime.
+                var go = leg.vectorLine.rectTransform.gameObject;
+                var mf = go.GetComponent<MeshFilter>();
+                InGameAssert.IsTrue(mf != null, "a drawn leg's GameObject must carry a MeshFilter");
+                InGameAssert.IsTrue(mf.mesh != null, "the leg's MeshFilter must carry a non-null instance mesh");
+
+                // Apply the fix explicitly (the Driver calls this inside TryDrawLeg too; calling it again
+                // is idempotent - it just re-stamps the same box).
+                Parsek.Display.GhostTrajectoryPolylineRenderer.OverrideLineMeshBoundsAfterDraw(leg.vectorLine);
+
+                Bounds overridden = mf.mesh.bounds;
+                float half = Parsek.Display.GhostTrajectoryPolylineRenderer.InfiniteMeshBoundsHalfExtent;
+                InGameAssert.IsTrue(overridden.extents.x >= half * 0.5f,
+                    "the override must stamp an effectively-infinite half-extent on the mesh bounds");
+
+                // (b) Build a synthetic FAR-zoom frustum positioned far from the surface leg. A tight
+                // surface-leg AABB would fall outside it; the infinite-bounds AABB must still pass.
+                var camGo = new GameObject("Bug1FrustumProbeCam");
+                Camera probeCam = camGo.AddComponent<Camera>();
+                try
+                {
+                    probeCam.fieldOfView = 5f;          // narrow FOV (far zoom-in)
+                    probeCam.nearClipPlane = 1f;
+                    probeCam.farClipPlane = 100f;        // shallow depth: the surface leg is far outside
+                    // Point the camera at empty space far from the surface leg's scaled position.
+                    camGo.transform.position = new Vector3(1e7f, 1e7f, 1e7f);
+                    camGo.transform.rotation = Quaternion.LookRotation(Vector3.up);
+
+                    Plane[] frustum = GeometryUtility.CalculateFrustumPlanes(probeCam);
+
+                    // Sanity: the original tight leg AABB is far outside this frustum.
+                    Bounds tight = Parsek.Display.GhostTrajectoryPolylineRenderer.ComputeScaledSpaceAabb(
+                        leg.scratchScaledSpace, leg.PointCount);
+                    InGameAssert.IsTrue(!GeometryUtility.TestPlanesAABB(frustum, tight),
+                        "the tight surface-leg AABB must FAIL the far-zoom frustum (the cull the fix prevents)");
+
+                    // The overridden infinite-bounds AABB must PASS the same frustum.
+                    InGameAssert.IsTrue(GeometryUtility.TestPlanesAABB(frustum, overridden),
+                        "the infinite-bounds mesh AABB must PASS the far-zoom frustum (Bug 1 fix)");
+                }
+                finally
+                {
+                    UnityEngine.Object.Destroy(camGo);
+                }
+            }
+            finally
+            {
+                var line = leg.vectorLine;
+                if (line != null)
+                    Vectrosity.VectorLine.Destroy(ref line);
+            }
+        }
+
+        /// <summary>
         /// Marker pan-stability (FIX 2): a TRANSIENT ride dropout (the head's leg matched but was not
         /// drawn THIS frame - the dominant case while the map camera is actively panning) holds the last
         /// on-line position instead of snapping to the body-fixed head. Seeds the polyline cache for a
