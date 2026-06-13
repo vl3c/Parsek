@@ -261,5 +261,105 @@ namespace Parsek.Tests
             // The shift is also gone, so any incidental read maps live -> eff as identity.
             Assert.Equal(0.0, GhostMapPresence.GetGhostOrbitEpochShift(pid));
         }
+
+        // --- Bug 3 burn-seam: ShouldSuppressIconNoBounds (no-bounds suppress decision) ---
+
+        [Fact]
+        public void ShouldSuppressIconNoBounds_DirectorTracking_Suppresses()
+        {
+            // A director-tracked ghost whose segment bounds were just cleared at a loiter->burn
+            // state-vector reseed: suppress the proto icon so the legacy terminal-visible branch
+            // does not show it on the per-frame phantom eccentric orbit (the residual teleport).
+            Assert.True(GhostOrbitIconDrivePatch.ShouldSuppressIconNoBounds(directorTracking: true));
+        }
+
+        [Fact]
+        public void ShouldSuppressIconNoBounds_NotDirectorTracking_DoesNotSuppress()
+        {
+            // A genuine terminal-orbit ghost (not director-tracked) has shift 0 + a real full
+            // ellipse; stock's live-UT propagation already glides the icon, so it must NOT be
+            // suppressed (suppressing it would blank a correctly-positioned icon).
+            Assert.False(GhostOrbitIconDrivePatch.ShouldSuppressIconNoBounds(directorTracking: false));
+        }
+
+        // --- Bug 3 burn-seam: ClassifyNoBoundsSuppressionTransition (enter / sustain / exit / none) ---
+
+        [Fact]
+        public void ClassifyNoBoundsSuppressionTransition_FirstSuppressedFrame_IsEnter()
+        {
+            // Suppressed this frame, never suppressed before (lastSuppressedFrame = MinValue):
+            // the ENTER of a no-bounds suppression run (the stale window opens).
+            var t = GhostMapPresence.ClassifyNoBoundsSuppressionTransition(
+                suppressedThisFrame: true, currentFrame: 100, lastSuppressedFrame: int.MinValue);
+            Assert.Equal(GhostMapPresence.NoBoundsSuppressTransition.Enter, t);
+        }
+
+        [Fact]
+        public void ClassifyNoBoundsSuppressionTransition_SuppressedAgainImmediately_IsSustain()
+        {
+            // Suppressed this frame AND on the immediately-preceding frame (currentFrame - 1):
+            // a continuing suppressed run, not logged per-frame.
+            var t = GhostMapPresence.ClassifyNoBoundsSuppressionTransition(
+                suppressedThisFrame: true, currentFrame: 101, lastSuppressedFrame: 100);
+            Assert.Equal(GhostMapPresence.NoBoundsSuppressTransition.Sustain, t);
+        }
+
+        [Fact]
+        public void ClassifyNoBoundsSuppressionTransition_DrivenAfterSuppressedRun_IsExit()
+        {
+            // NOT suppressed this frame, but suppressed on the immediately-preceding frame:
+            // the un-suppress EXIT (the icon snap boundary the read needs).
+            var t = GhostMapPresence.ClassifyNoBoundsSuppressionTransition(
+                suppressedThisFrame: false, currentFrame: 102, lastSuppressedFrame: 101);
+            Assert.Equal(GhostMapPresence.NoBoundsSuppressTransition.Exit, t);
+        }
+
+        [Fact]
+        public void ClassifyNoBoundsSuppressionTransition_DrivenWithNoRecentSuppression_IsNone()
+        {
+            // Steady-state driven ghost: not suppressed this frame, no immediately-preceding
+            // suppressed frame -> None (the per-frame fast path that logs nothing).
+            var t = GhostMapPresence.ClassifyNoBoundsSuppressionTransition(
+                suppressedThisFrame: false, currentFrame: 200, lastSuppressedFrame: int.MinValue);
+            Assert.Equal(GhostMapPresence.NoBoundsSuppressTransition.None, t);
+        }
+
+        [Fact]
+        public void ClassifyNoBoundsSuppressionTransition_GapFrameBetweenSuppressed_IsExitThenEnter()
+        {
+            // A non-suppressed frame BETWEEN two suppressed frames is a clean EXIT then ENTER (the
+            // strict currentFrame-1 match), so burn-seam chatter is captured frame-accurately rather
+            // than collapsed. Frame N suppressed, N+1 driven (EXIT), N+2 suppressed (ENTER).
+            var exit = GhostMapPresence.ClassifyNoBoundsSuppressionTransition(
+                suppressedThisFrame: false, currentFrame: 301, lastSuppressedFrame: 300);
+            Assert.Equal(GhostMapPresence.NoBoundsSuppressTransition.Exit, exit);
+
+            // After the EXIT the stamp is pruned, so frame 302's lastSuppressedFrame is MinValue
+            // again (not 301, since 301 was not suppressed) -> ENTER.
+            var enter = GhostMapPresence.ClassifyNoBoundsSuppressionTransition(
+                suppressedThisFrame: true, currentFrame: 302, lastSuppressedFrame: int.MinValue);
+            Assert.Equal(GhostMapPresence.NoBoundsSuppressTransition.Enter, enter);
+        }
+
+        [Fact]
+        public void ClassifyNoBoundsSuppressionTransition_StaleNonAdjacentStamp_IsEnterNotSustain()
+        {
+            // A stamp from many frames ago (not currentFrame-1) does NOT count as suppressed last
+            // frame, so a fresh suppression is an ENTER, not a Sustain. Guards against treating a
+            // stale stamp as a continuing run.
+            var t = GhostMapPresence.ClassifyNoBoundsSuppressionTransition(
+                suppressedThisFrame: true, currentFrame: 500, lastSuppressedFrame: 400);
+            Assert.Equal(GhostMapPresence.NoBoundsSuppressTransition.Enter, t);
+        }
+
+        // --- Bug 3 burn-seam: ghostNoBoundsSuppressLastFrame cleared on reset ---
+
+        [Fact]
+        public void GhostNoBoundsSuppressLastFrame_AfterReset_IsEmpty()
+        {
+            GhostMapPresence.ghostNoBoundsSuppressLastFrame[42u] = 1234;
+            GhostMapPresence.ResetForTesting();
+            Assert.Empty(GhostMapPresence.ghostNoBoundsSuppressLastFrame);
+        }
     }
 }

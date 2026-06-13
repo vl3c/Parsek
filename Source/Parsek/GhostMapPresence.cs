@@ -1090,6 +1090,79 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Bug 3 burn-seam observability: the LAST render frame each ghost pid took the no-bounds
+        /// suppress path in <see cref="Parsek.Patches.GhostOrbitIconDrivePatch"/>. The headline
+        /// "followed icon teleported for one frame at a burn" symptom is the segment -> state-vector
+        /// (burn) seam: at a loiter/transfer -> burn transition the state-vector reseed clears this
+        /// ghost's segment-drive bounds (<see cref="ghostOrbitBounds"/> etc.), so for the frame(s)
+        /// between "bounds cleared" and "the next StockConic (hyperbolic) segment re-establishes a
+        /// drive" the icon-drive Prefix has NO bounds, suppresses the proto icon, and the proto
+        /// <c>worldPos</c> sits STALE; when the drive re-establishes, the icon un-suppresses and snaps
+        /// by the warp-advanced amount. This dict lets the Prefix detect the ENTER (first suppressed
+        /// frame) and EXIT (first driven frame after a suppressed run) transitions so the next playtest
+        /// log captures the exact stale-window length + the snap magnitude from one grep, BEFORE any
+        /// behavioral continuity fix is chosen (the fix is gated on this read; see
+        /// docs/dev/todo-and-known-bugs.md). Pure observability: it never feeds a decision.
+        /// Cleared on every ghost teardown / scene change / test reset alongside
+        /// <see cref="ghostsWithSuppressedIcon"/>.
+        /// </summary>
+        internal static readonly Dictionary<uint, int> ghostNoBoundsSuppressLastFrame =
+            new Dictionary<uint, int>();
+
+        /// <summary>
+        /// The no-bounds suppression transition for a ghost pid this frame, for Bug-3 burn-seam
+        /// instrumentation. See <see cref="ClassifyNoBoundsSuppressionTransition"/>.
+        /// </summary>
+        internal enum NoBoundsSuppressTransition
+        {
+            /// <summary>The Prefix found bounds this frame and the pid had no recent no-bounds
+            /// suppression run, so there is no burn-seam transition to log.</summary>
+            None,
+            /// <summary>First no-bounds-suppressed frame of a run (the icon was being driven last
+            /// frame and is now suppressed because the segment bounds were just cleared). Log the
+            /// stale worldPos carried into the suppressed window.</summary>
+            Enter,
+            /// <summary>A continuing no-bounds-suppressed frame within an open run. Not logged
+            /// individually (the per-frame snapshot of the stale position is rate-limited).</summary>
+            Sustain,
+            /// <summary>First driven frame AFTER a no-bounds-suppressed run: the icon un-suppresses
+            /// and snaps. Log the resolved worldPos so the snap magnitude is greppable.</summary>
+            Exit
+        }
+
+        /// <summary>
+        /// PURE: classify this frame's no-bounds suppression transition for a ghost pid, given whether
+        /// the Prefix took the no-bounds suppress path this frame and the frame the pid was last
+        /// no-bounds-suppressed on. <paramref name="suppressedThisFrame"/> is the no-bounds suppress
+        /// decision (Director tracking AND no segment bounds). <paramref name="lastSuppressedFrame"/>
+        /// is <see cref="int.MinValue"/> when the pid has never been no-bounds-suppressed.
+        ///
+        /// Enter   = suppressed this frame, NOT suppressed on the immediately-preceding frame.
+        /// Sustain = suppressed this frame AND suppressed on the immediately-preceding frame.
+        /// Exit    = NOT suppressed this frame, but suppressed on the immediately-preceding frame
+        ///           (the un-suppress snap boundary).
+        /// None    = NOT suppressed this frame and no immediately-preceding suppressed frame.
+        ///
+        /// "Immediately-preceding" is a strict <c>currentFrame - 1</c> match: a non-suppressed frame
+        /// gap between two suppressed frames is its own Exit then Enter, which is exactly the burn-seam
+        /// chatter we want to see frame-accurately in the log.
+        /// </summary>
+        internal static NoBoundsSuppressTransition ClassifyNoBoundsSuppressionTransition(
+            bool suppressedThisFrame,
+            int currentFrame,
+            int lastSuppressedFrame)
+        {
+            bool suppressedLastFrame = lastSuppressedFrame == currentFrame - 1;
+            if (suppressedThisFrame)
+                return suppressedLastFrame
+                    ? NoBoundsSuppressTransition.Sustain
+                    : NoBoundsSuppressTransition.Enter;
+            return suppressedLastFrame
+                ? NoBoundsSuppressTransition.Exit
+                : NoBoundsSuppressTransition.None;
+        }
+
+        /// <summary>
         /// PURE marker-draw / proto-icon-suppression decision (Phase 8c). True when the Parsek
         /// non-proto trajectory marker MUST draw for a ghost pid this frame because the stock proto
         /// icon is hidden; false when the stock proto icon is the visible indicator (skip our marker).
@@ -3566,6 +3639,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitLineGraceUntilFrame.Clear();
+            ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
@@ -9679,6 +9753,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitLineGraceUntilFrame.Clear();
+            ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
@@ -9732,10 +9807,11 @@ namespace Parsek
             int reverseIdCount = vesselPidToRecordingId.Count;
             int tsStateVectorCount = trackingStationStateVectorOrbitTrajectories.Count;
             int tsStateVectorCacheCount = trackingStationStateVectorCachedIndices.Count;
+            int noBoundsSuppressStampCount = ghostNoBoundsSuppressLastFrame.Count;
 
             int totalTracked = pidCount + suppressedIconCount + orbitBoundsCount
                 + chainCount + indexCount + overlapInstanceCount + reverseCount + reverseIdCount
-                + tsStateVectorCount + tsStateVectorCacheCount;
+                + tsStateVectorCount + tsStateVectorCacheCount + noBoundsSuppressStampCount;
 
             if (totalTracked == 0)
             {
@@ -9749,6 +9825,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitLineGraceUntilFrame.Clear();
+            ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
