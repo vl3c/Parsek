@@ -1096,10 +1096,59 @@ namespace Parsek
         /// </summary>
         internal static System.Func<double> NowUtProviderForTesting;
 
+        /// <summary>
+        /// BUG #2 test seam: override the (live recording id, resume-start UT) pair the
+        /// no-session live-resumed-segment branch reads. Production code leaves this null
+        /// and the resolver reads
+        /// <see cref="ParsekFlight.GetLiveResumedRecordingIdForDialog"/> /
+        /// <see cref="ParsekFlight.GetLiveResumeSessionStartUT"/>; unit tests inject a
+        /// fixed pair so the branch is exercisable without a Unity
+        /// <see cref="ParsekFlight.Instance"/>.
+        /// </summary>
+        internal static System.Func<(string liveRecordingId, double resumeStartUT)>
+            LiveResumedSegmentProviderForTesting;
+
         /// <summary>Clears all test seams in MergeDialog.</summary>
         internal static void ResetTestOverrides()
         {
             NowUtProviderForTesting = null;
+            LiveResumedSegmentProviderForTesting = null;
+        }
+
+        /// <summary>
+        /// BUG #2: resolves the currently-live resumed segment (id + resume-start UT) for
+        /// the no-session dialog branch. Prefers the
+        /// <see cref="LiveResumedSegmentProviderForTesting"/> seam, else reads the
+        /// <see cref="ParsekFlight"/> statics inside try/catch (Unity-static safety),
+        /// falling back to <c>(null, NaN)</c> when neither yields a value.
+        /// </summary>
+        private static void TryGetLiveResumedSegment(
+            out string liveRecordingId, out double resumeStartUT)
+        {
+            var hook = LiveResumedSegmentProviderForTesting;
+            if (hook != null)
+            {
+                try
+                {
+                    var pair = hook();
+                    liveRecordingId = pair.liveRecordingId;
+                    resumeStartUT = pair.resumeStartUT;
+                    return;
+                }
+                catch { /* fall through to ParsekFlight statics */ }
+            }
+
+            try
+            {
+                liveRecordingId = ParsekFlight.GetLiveResumedRecordingIdForDialog();
+                resumeStartUT = ParsekFlight.GetLiveResumeSessionStartUT();
+            }
+            catch
+            {
+                // No Unity ParsekFlight.Instance (unit test without injected seam).
+                liveRecordingId = null;
+                resumeStartUT = double.NaN;
+            }
         }
 
         private static double CurrentUtForSegmentDuration()
@@ -1153,7 +1202,14 @@ namespace Parsek
                 || string.IsNullOrEmpty(session.ActiveSegmentRecordingId)
                 || tree?.Recordings == null)
             {
-                return ComputeTreeDurationRange(tree);
+                // BUG #2: no SwitchSegmentSession is armed (the committed-tree resume
+                // flow re-attaches a live recorder to the EXISTING committed recording
+                // WITHOUT arming a session). Before falling back to the whole-tree span,
+                // try the live-resumed-segment branch: when this dialog's tree carries a
+                // currently-live recording, show the elapsed time since the recorder
+                // session resumed (currentUT - resumeStartUT), not the resumed
+                // recording's multi-year StartUT-anchored span.
+                return ResolveNoSessionDialogBodyDuration(tree);
             }
 
             Recording segment;
@@ -1164,6 +1220,11 @@ namespace Parsek
                 // Different tree than the one carrying the segment: legitimate
                 // case (dialog is for tree B but session targets tree A), no
                 // warning needed. Fall back to tree-wide duration.
+                ParsekLog.Verbose("SwitchSegment",
+                    $"BuildWholeTreeMergeDialogBody: duration source=tree-wide " +
+                    $"recId=<none> " +
+                    $"durationSec={ComputeTreeDurationRange(tree).ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"reason=session-segment-not-in-tree treeId={tree.Id ?? "<null>"}");
                 return ComputeTreeDurationRange(tree);
             }
 
@@ -1245,6 +1306,79 @@ namespace Parsek
                 $"durationSec={segmentDuration.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"sessionId={session.SessionId:D} treeId={tree.Id ?? "<null>"}");
             return segmentDuration;
+        }
+
+        /// <summary>
+        /// BUG #2: duration for the no-SwitchSegmentSession dialog flow (committed-tree
+        /// resume → Map-Switch-To away). When this dialog's <paramref name="tree"/>
+        /// carries a currently-live recording (the resumed committed recording the player
+        /// just flew ~17s on), returns <c>currentUT - resumeStartUT</c> so the dialog
+        /// shows the short live segment instead of the resumed recording's multi-year
+        /// span. The resumed recording's Points are appended in place, so its
+        /// <c>StartUT</c> is the original launch UT and is the WRONG anchor — only the
+        /// per-session resume UT (captured in
+        /// <see cref="ParsekFlight.ResumeCommittedActiveRecording"/>) yields the short
+        /// elapsed time. Falls back to <see cref="ComputeTreeDurationRange"/> when: no
+        /// live recording is armed, the live recording is not in this tree (cross-tree
+        /// safety), the resume UT is non-finite, or the current clock is unavailable /
+        /// regressed behind the resume UT. Reuses the session-armed branch's clamp so a
+        /// UT regression cannot leak a negative duration.
+        /// </summary>
+        internal static double ResolveNoSessionDialogBodyDuration(RecordingTree tree)
+        {
+            string liveId;
+            double resumeStartUT;
+            TryGetLiveResumedSegment(out liveId, out resumeStartUT);
+
+            // Gate: the live recording must belong to THIS dialog's tree (cross-tree
+            // safety, mirroring the session-segment-not-in-tree fallback) AND the resume
+            // anchor must be finite.
+            bool liveInThisTree =
+                !string.IsNullOrEmpty(liveId)
+                && tree?.Recordings != null
+                && tree.Recordings.ContainsKey(liveId);
+            bool resumeFinite =
+                !double.IsNaN(resumeStartUT) && !double.IsInfinity(resumeStartUT);
+
+            if (liveInThisTree && resumeFinite)
+            {
+                double currentUT = CurrentUtForSegmentDuration();
+                if (!double.IsNaN(currentUT)
+                    && !double.IsInfinity(currentUT)
+                    && currentUT > resumeStartUT)
+                {
+                    double liveDuration = currentUT - resumeStartUT;
+                    // Reuse the session-armed branch's clamp: a UT regression
+                    // (rewind crossing the resume UT, etc.) cannot leak a nonsense
+                    // duration into the UI.
+                    if (liveDuration < 0.0
+                        || double.IsNaN(liveDuration)
+                        || double.IsInfinity(liveDuration))
+                    {
+                        liveDuration = 0.0;
+                    }
+                    ParsekLog.Verbose("SwitchSegment",
+                        $"BuildWholeTreeMergeDialogBody: duration source=live-resumed-segment " +
+                        $"recId={liveId} " +
+                        $"durationSec={liveDuration.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"resumeStartUT={resumeStartUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"currentUT={currentUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"treeId={tree.Id ?? "<null>"}");
+                    return liveDuration;
+                }
+            }
+
+            // No live recording, not in this tree, non-finite resume UT, or current
+            // clock unavailable / regressed behind the resume UT: fall back to the
+            // whole-tree span exactly as before.
+            double treeWide = ComputeTreeDurationRange(tree);
+            ParsekLog.Verbose("SwitchSegment",
+                $"BuildWholeTreeMergeDialogBody: duration source=tree-wide " +
+                $"recId={(string.IsNullOrEmpty(liveId) ? "<none>" : liveId)} " +
+                $"durationSec={treeWide.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"reason=no-session liveInThisTree={liveInThisTree} resumeFinite={resumeFinite} " +
+                $"treeId={tree?.Id ?? "<null>"}");
+            return treeWide;
         }
 
         /// <summary>

@@ -35,6 +35,8 @@ All notable changes to Parsek are documented here.
 - Warping to a recording's end (Real Spawn Control) now reliably spawns the real vessel: a time jump could previously mark a recording whose window was still ahead as already-flown history and silently skip its end-of-recording spawn.
 - Supply routes: branches added to a route's source tree after creation (a re-fly fork or a switch-fly continuation) no longer silently join the route's rendered loop and delivery span; the backing selection freezes to the creation-time member set.
 - Supply routes: a recovered branch added to a route's source tree after creation no longer inflates the route's recurring recovery credit or its displayed run cost; the credit is scoped to the recordings that existed when the route was created.
+- Flying a vessel from the Tracking Station no longer drops you into the wrong craft when ghost trajectories are on the map: the ghost vessels were shifting the focused-vessel index, so clicking Fly on one vessel could load a different one.
+- The Merge or Discard prompt shown when you switch away from a vessel you just briefly flew now reports that short new flight's length instead of the whole multi-year span of the resumed recording.
 
 ---
 
