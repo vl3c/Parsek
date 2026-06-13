@@ -1139,9 +1139,16 @@ namespace Parsek
                 return null; // no closed-orbit loiter at all: quietly no knob
 
             // Guard UT (rule 2 / the 4.3 cut-placement rule): never cut at or past the first
-            // vessel rendezvous, never across an SOI boundary.
+            // vessel rendezvous, never across a GENUINE third-body SOI boundary.
             double guardUT = spanEndUT;
             var constraints = extraction.Constraints;
+            // Rendezvous bodies = the body each VesselOrbital station ORBITS (BodyName, set to the
+            // orbited body by ClassifyVesselOrbitalConstraint). The phasing parking loiter that aligns
+            // a destination-body dock (e.g. a Mun-station rendezvous) is AROUND that body, AFTER the
+            // SOI entry into it. Treating the SOI entry into a rendezvous body as a guard would
+            // structurally exclude that loiter; only a genuine THIRD body (neither launch nor a
+            // rendezvous body, e.g. Minmus on a Kerbin->Mun->Minmus hop) must clamp the guard.
+            var rendezvousBodies = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < (constraints?.Count ?? 0); i++)
             {
                 if (constraints[i].Kind != ConstraintKind.VesselOrbital)
@@ -1149,6 +1156,8 @@ namespace Parsek
                 double rendezvousUT = extraction.UT0 + constraints[i].PhaseOffsetSeconds;
                 if (rendezvousUT < guardUT)
                     guardUT = rendezvousUT;
+                if (!string.IsNullOrEmpty(constraints[i].BodyName))
+                    rendezvousBodies.Add(constraints[i].BodyName);
             }
             string launchBody = extraction.LaunchBodyName;
             if (!string.IsNullOrEmpty(launchBody))
@@ -1157,12 +1166,15 @@ namespace Parsek
                 {
                     if (segs[i].isPredicted || string.IsNullOrEmpty(segs[i].bodyName))
                         continue;
-                    if (segs[i].bodyName != launchBody)
-                    {
-                        if (segs[i].startUT < guardUT)
-                            guardUT = segs[i].startUT;
-                        break;
-                    }
+                    // Skip the launch body AND any rendezvous body: their orbit segments (the pad
+                    // ascent, the destination-body parking loiter) are legitimate phasing-run terrain.
+                    // Clamp + stop only at the first segment whose body is NEITHER - a real SOI entry
+                    // into a third body the schedule cannot phase against.
+                    if (segs[i].bodyName == launchBody || rendezvousBodies.Contains(segs[i].bodyName))
+                        continue;
+                    if (segs[i].startUT < guardUT)
+                        guardUT = segs[i].startUT;
+                    break;
                 }
             }
 
@@ -1184,7 +1196,7 @@ namespace Parsek
                     continue;
                 if (runs[i].EndUT > guardUT + 1e-6)
                     continue;
-                if (!string.IsNullOrEmpty(launchBody) && runs[i].BodyName != launchBody)
+                if (!IsPhasingRunBodyAccepted(runs[i].BodyName, launchBody, rendezvousBodies))
                     continue;
                 phasingIdx = i;
             }
@@ -1206,7 +1218,7 @@ namespace Parsek
                     continue;
                 if (runs[i].EndUT > guardUT + 1e-6)
                     continue;
-                if (!string.IsNullOrEmpty(launchBody) && runs[i].BodyName != launchBody)
+                if (!IsPhasingRunBodyAccepted(runs[i].BodyName, launchBody, rendezvousBodies))
                     continue;
                 if (runs[i].WholeRevs > 1)
                 {
@@ -1220,12 +1232,23 @@ namespace Parsek
 
             ReaimLoiterCompressor.LoiterRun phasing = runs[phasingIdx];
             if (!SuppressLogging)
+            {
                 ParsekLog.Verbose("Mission",
                     $"phasing knob candidate: mission='{missionName}' run=[" +
                     $"{phasing.StartUT.ToString("F0", ic)},{phasing.EndUT.ToString("F0", ic)}] " +
                     $"T={phasing.PeriodSeconds.ToString("F1", ic)}s R={phasing.WholeRevs.ToString(ic)} " +
                     $"staticCuts={staticCuts.Count.ToString(ic)} guardUT={guardUT.ToString("F0", ic)} " +
                     $"selfMembers={selfMembers.ToString(ic)} selfSegs={segs.Count.ToString(ic)}");
+                // The destination-body case: the selected phasing run is a parking loiter AROUND a
+                // rendezvous body (e.g. a Mun-station dock), not the launch body. Name the body so the
+                // log shows the knob engaged past the SOI entry into the destination, not on the pad.
+                if (!string.IsNullOrEmpty(launchBody) && phasing.BodyName != launchBody)
+                    ParsekLog.Verbose("Mission",
+                        $"phasing knob rendezvous-body loiter: mission='{missionName}' " +
+                        $"body='{phasing.BodyName ?? "?"}' (launch body '{launchBody}') run=[" +
+                        $"{phasing.StartUT.ToString("F0", ic)},{phasing.EndUT.ToString("F0", ic)}] " +
+                        $"R={phasing.WholeRevs.ToString(ic)}");
+            }
             return new PhasingKnobInput
             {
                 RunStartUT = phasing.StartUT,
@@ -1235,6 +1258,26 @@ namespace Parsek
                 StaticCuts = staticCuts,
                 SpanSeconds = spanEndUT - spanStartUT,
             };
+        }
+
+        /// <summary>
+        /// A loiter run is eligible to be the phasing run (or a static keepRevs=1 cut) when it sits on
+        /// the LAUNCH body (the pad parking orbit the player phase-matched against) OR on a RENDEZVOUS
+        /// body (the body a VesselOrbital station orbits - a destination-body dock parks around it,
+        /// after the SOI entry). A run on any third body (a genuine SOI fly-by the schedule cannot
+        /// phase against) is excluded. An empty <paramref name="launchBody"/> accepts every run (the
+        /// degenerate no-launch-body fallback, unchanged). Pure.
+        /// </summary>
+        internal static bool IsPhasingRunBodyAccepted(
+            string runBodyName, string launchBody, HashSet<string> rendezvousBodies)
+        {
+            if (string.IsNullOrEmpty(launchBody))
+                return true;
+            if (runBodyName == launchBody)
+                return true;
+            return rendezvousBodies != null
+                && !string.IsNullOrEmpty(runBodyName)
+                && rendezvousBodies.Contains(runBodyName);
         }
     }
 }

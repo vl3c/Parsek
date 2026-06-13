@@ -466,15 +466,48 @@ namespace Parsek.Tests
         public void BuildScheduledPeriodCellDisplay_ShowsVariesWithBasis()
         {
             // Fails if the scheduled (non-uniform) period cell does not mark the cadence as varying.
-            // Earth time: 86400 s/day. An orbital (Mun) basis -> "(Mun window, varies)".
+            // Earth time: 86400 s/day. Equal min==max collapses to a single value, so an orbital (Mun)
+            // basis -> "(Mun window, varies)".
             Assert.Equal("~2d (Mun window, varies)",
-                BuildScheduledPeriodCellDisplay(2.0 * 86400.0, ConstraintKind.Orbital, "Mun"));
+                BuildScheduledPeriodCellDisplay(
+                    2.0 * 86400.0, 2.0 * 86400.0, ConstraintKind.Orbital, "Mun"));
             // A rotation basis.
             Assert.Equal("~6h (Kerbin rot, varies)",
-                BuildScheduledPeriodCellDisplay(6.0 * 3600.0, ConstraintKind.Rotation, "Kerbin"));
+                BuildScheduledPeriodCellDisplay(
+                    6.0 * 3600.0, 6.0 * 3600.0, ConstraintKind.Rotation, "Kerbin"));
             // No body -> just "~P (varies)".
             Assert.Equal("~2d (varies)",
-                BuildScheduledPeriodCellDisplay(2.0 * 86400.0, ConstraintKind.Orbital, null));
+                BuildScheduledPeriodCellDisplay(
+                    2.0 * 86400.0, 2.0 * 86400.0, ConstraintKind.Orbital, null));
+        }
+
+        [Fact]
+        public void BuildScheduledPeriodCellDisplay_ShowsRangeWhenMinMaxDiffer()
+        {
+            // Fails if a genuinely varying min!=max cadence is not shown as a "min-max" range. The
+            // high end drops its leading "~" so only one tilde shows; the "varies" basis suffix stays.
+            Assert.Equal("~13d-30d (Mun window, varies)",
+                BuildScheduledPeriodCellDisplay(
+                    13.0 * 86400.0, 30.0 * 86400.0, ConstraintKind.Orbital, "Mun"));
+        }
+
+        [Fact]
+        public void FormatScheduledIntervalRange_CollapsesWithinFivePercent()
+        {
+            // Two ends within ~5% collapse to a single value (no dash) - the tight cadence after the
+            // loiter knob engages. 13d and 13.5d are within 5%, so the range collapses to "~13.5d"
+            // (FormatPeriodCompact rounds the LOW end's 13.0d display to "~13d", but the collapse uses
+            // the low end string).
+            Assert.Equal("~13d",
+                FormatScheduledIntervalRange(13.0 * 86400.0, 13.5 * 86400.0));
+            // Exactly equal -> single value.
+            Assert.Equal("~13d", FormatScheduledIntervalRange(13.0 * 86400.0, 13.0 * 86400.0));
+            // Clearly different (>5%) -> a dash range, single tilde.
+            Assert.Equal("~13d-30d",
+                FormatScheduledIntervalRange(13.0 * 86400.0, 30.0 * 86400.0));
+            // A NaN end falls back to the other end.
+            Assert.Equal("~13d", FormatScheduledIntervalRange(13.0 * 86400.0, double.NaN));
+            Assert.Equal("~30d", FormatScheduledIntervalRange(double.NaN, 30.0 * 86400.0));
         }
 
     }

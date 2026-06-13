@@ -1165,14 +1165,17 @@ namespace Parsek
 
             // True when the resolved unit carries a zero-drift relaunch schedule (a drifting
             // multi-constraint config). The cadence is then NON-UNIFORM, so the period cell shows a
-            // "varies" label off ScheduledTypicalIntervalSeconds instead of the fixed Solution.P.
+            // "varies" RANGE off ScheduledMinIntervalSeconds / ScheduledMaxIntervalSeconds instead of
+            // the fixed Solution.P.
             public bool IsScheduled;
 
-            // The scheduled unit's TYPICAL (mean) relaunch interval - the representative cadence for
-            // the "varies" period-cell label. Read off the schedule's AverageIntervalSeconds (NOT its
-            // MinIntervalSeconds, which often coincides across modes because consecutive faithful k's
-            // hit the same short anchor-step gap). NaN when not scheduled.
-            public double ScheduledTypicalIntervalSeconds;
+            // The scheduled unit's MIN and MAX relaunch interval over the schedule's eager prefix -
+            // the two ends of the "varies" period-cell RANGE ("~13d-1mo"). Read off the schedule's
+            // MinIntervalSeconds / MaxIntervalSeconds. NaN when not scheduled. The range collapses to
+            // a single value when the two ends are within ~5% (a tight cadence after the loiter knob
+            // engages).
+            public double ScheduledMinIntervalSeconds;
+            public double ScheduledMaxIntervalSeconds;
 
             // R3: the SCHEDULE's own worst-launch tolerance flag - true iff every resolved scheduled
             // launch found a within-tolerance window, false once any fell to bounded-best (a genuinely
@@ -1282,13 +1285,15 @@ namespace Parsek
                 ? ComputeNextRelaunchUT(unit, nowUT)
                 : double.NaN;
             // Zero-drift: a scheduled (drifting) unit's cadence is non-uniform -> the period cell
-            // shows a "varies" label off the schedule's AVERAGE (typical) interval, not the fixed
-            // Solution.P. We do NOT use MinIntervalSeconds here: it often coincides across modes
-            // (consecutive faithful k's hit the same short anchor-step gap), so the cell would not
-            // visibly differ when the user flips the A/B mode even when the actual cadence does.
+            // shows a "varies" RANGE off the schedule's min / max gap, not the fixed Solution.P.
             result.IsScheduled = result.UnitBuilt && unit.RelaunchSchedule != null;
-            result.ScheduledTypicalIntervalSeconds = result.IsScheduled
-                ? unit.RelaunchSchedule.AverageIntervalSeconds
+            // Range ends for the "varies" period cell: the schedule's min / max gap over its eager
+            // prefix. Shown as "~min-max (basis, varies)" (collapsing to a single value when tight).
+            result.ScheduledMinIntervalSeconds = result.IsScheduled
+                ? unit.RelaunchSchedule.MinIntervalSeconds
+                : double.NaN;
+            result.ScheduledMaxIntervalSeconds = result.IsScheduled
+                ? unit.RelaunchSchedule.MaxIntervalSeconds
                 : double.NaN;
             // R3: surface the schedule's OWN worst-launch tolerance for the amber tint. Benign default
             // true when not scheduled (the non-scheduled amber path then reads Solution.WithinTolerance,
@@ -1663,25 +1668,63 @@ namespace Parsek
 
         /// <summary>
         /// The period-cell display for a ZERO-DRIFT scheduled unit: the cadence is non-uniform, so we
-        /// show the representative (minimum) interval plus a "varies" marker, e.g.
-        /// "~4d (Mun window, varies)". Pure. A null/empty body shows "~P (varies)".
+        /// show the RANGE of relaunch intervals (min-max over the schedule's eager prefix) plus a
+        /// "varies" marker, e.g. "~13d-1mo (Mun window, varies)". Pure. A null/empty body shows
+        /// "~min-max (varies)". When the two ends are within ~5% (a tight cadence, e.g. after the
+        /// loiter knob engages on the destination-body parking orbit) the range collapses to a single
+        /// value with no dash: "~13d (Mun window, varies)".
         ///
-        /// Note the two parts describe DIFFERENT things, intentionally (review N2): the interval is the
-        /// actual relaunch cadence (which is anchored on the tightest constraint - the launch pad - and
-        /// throttled by the player), while the basis label (<paramref name="kind"/>/<paramref name="bodyName"/>)
-        /// names the DOMINANT celestial event each window targets (the Mun intercept). So
-        /// "~4d (Mun window, varies)" reads as "a varying ~4-day cadence, each launch hitting a Mun
-        /// window" - the cadence is set by the pad alignment, the label tells the player what the
-        /// window is FOR.
+        /// Note the period and the basis describe DIFFERENT things, intentionally (review N2): the
+        /// interval is the actual relaunch cadence (anchored on the tightest constraint - the launch
+        /// pad - and throttled by the player), while the basis label
+        /// (<paramref name="kind"/>/<paramref name="bodyName"/>) names the DOMINANT celestial event
+        /// each window targets (the Mun intercept). So "~13d-1mo (Mun window, varies)" reads as "a
+        /// varying ~13-day-to-1-month cadence, each launch hitting a Mun window".
         /// </summary>
         internal static string BuildScheduledPeriodCellDisplay(
-            double minIntervalSeconds, ConstraintKind kind, string bodyName)
+            double minIntervalSeconds, double maxIntervalSeconds,
+            ConstraintKind kind, string bodyName)
         {
-            string period = FormatPeriodCompact(minIntervalSeconds);
+            string period = FormatScheduledIntervalRange(minIntervalSeconds, maxIntervalSeconds);
             string basis = BuildPeriodBasisLabel(kind, bodyName);
             return string.IsNullOrEmpty(basis)
                 ? period + " (varies)"
                 : period + " " + basis.Substring(0, basis.Length - 1) + ", varies)";
+        }
+
+        /// <summary>
+        /// Formats a relaunch-interval RANGE for the scheduled period cell. Each end goes through
+        /// <see cref="FormatPeriodCompact"/> ("~13d", "~1mo"-style). When the two ends are within ~5%
+        /// (relative to the min) OR render to the same string, the range collapses to a single value
+        /// (no dash). Otherwise they join as "min-max" with the leading "~" dropped from the max so the
+        /// cell reads "~13d-30d", not "~13d-~30d". Pure; a non-positive / NaN min uses the max (and
+        /// vice-versa).
+        /// </summary>
+        internal static string FormatScheduledIntervalRange(double minSeconds, double maxSeconds)
+        {
+            bool minOk = !double.IsNaN(minSeconds) && !double.IsInfinity(minSeconds) && minSeconds > 0.0;
+            bool maxOk = !double.IsNaN(maxSeconds) && !double.IsInfinity(maxSeconds) && maxSeconds > 0.0;
+            if (!minOk && !maxOk)
+                return FormatPeriodCompact(double.NaN); // "~0s"
+            if (!minOk)
+                return FormatPeriodCompact(maxSeconds);
+            if (!maxOk)
+                return FormatPeriodCompact(minSeconds);
+
+            double lo = System.Math.Min(minSeconds, maxSeconds);
+            double hi = System.Math.Max(minSeconds, maxSeconds);
+            string loStr = FormatPeriodCompact(lo);
+            string hiStr = FormatPeriodCompact(hi);
+
+            // Collapse: within ~5% of the low end, or the two ends format identically.
+            if (hi <= lo * 1.05 + 1e-9 || string.Equals(loStr, hiStr, System.StringComparison.Ordinal))
+                return loStr;
+
+            // "min-max": strip the leading "~" from the high end so only one tilde shows.
+            string hiTail = hiStr.StartsWith("~", System.StringComparison.Ordinal)
+                ? hiStr.Substring(1)
+                : hiStr;
+            return loStr + "-" + hiTail;
         }
 
         // The mission span in seconds = (max trimmed end - min trimmed start) over the COMMITTED
@@ -1947,7 +1990,8 @@ namespace Parsek
                     ? BuildReaimPeriodCellDisplay(periodicity.ReaimSynodicSeconds, periodicity.ReaimTargetBody)
                     : periodicity.IsScheduled
                         ? BuildScheduledPeriodCellDisplay(
-                            periodicity.ScheduledTypicalIntervalSeconds, periodicity.DominantKind,
+                            periodicity.ScheduledMinIntervalSeconds,
+                            periodicity.ScheduledMaxIntervalSeconds, periodicity.DominantKind,
                             periodicity.DominantBodyName)
                         : BuildPeriodCellDisplay(
                             periodicity.Solution.P, periodicity.DominantKind, periodicity.DominantBodyName);
