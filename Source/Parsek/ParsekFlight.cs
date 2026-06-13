@@ -2427,6 +2427,82 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Evaluates whether the armed <see cref="SwitchSegmentSession"/>'s
+        /// resumed segment (Tracking-Station Fly / KSC marker Fly / map Switch-To)
+        /// changed nothing meaningful and can be auto-discarded so we do not
+        /// prolong the ghost state for a segment that did nothing. Same spirit as
+        /// <see cref="RecordingOptimizer.TrimBoringTail"/> ("so the ghost finishes
+        /// quickly and the real vessel spawns promptly") and the idle-on-pad
+        /// auto-discard.
+        ///
+        /// <para>This method MUTATES like <see cref="IsActiveTreeIdleOnPad"/>: it
+        /// flushes the live recorder into the active tree
+        /// (<see cref="FlushRecorderIntoActiveTreeForSerialization"/>) so the
+        /// segment recording carries its in-flight payload before the pure
+        /// classifier reads it. Guards out the restore-coroutine,
+        /// Re-Fly-session, and active-merge-journal states (never auto-discard
+        /// across those), then delegates resolution + the no-op decision to
+        /// <see cref="RecordingStore.TryClassifyActiveSwitchSegmentNoOp"/>.</para>
+        /// </summary>
+        internal bool TryEvaluateActiveSwitchSegmentNoOp(
+            out string reason, out SwitchSegmentDisposition disposition)
+        {
+            reason = null;
+            disposition = SwitchSegmentDisposition.None;
+
+            if (restoringActiveTree)
+            {
+                reason = "restoring-active-tree";
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario)
+                || scenario.ActiveSwitchSegmentSession == null)
+            {
+                reason = "no-session";
+                return false;
+            }
+            if (scenario.ActiveReFlySessionMarker != null)
+            {
+                reason = "refly-active";
+                return false;
+            }
+            if (scenario.ActiveMergeJournal != null)
+            {
+                reason = "merge-journal-active";
+                return false;
+            }
+
+            // B1: populate the segment recording from the live recorder buffers
+            // before the classifier reads it (mirrors IsActiveTreeIdleOnPad). The
+            // flush only populates activeTree.ActiveRecordingId; the classifier
+            // verifies the segment IS that recording.
+            FlushRecorderIntoActiveTreeForSerialization();
+
+            return RecordingStore.TryClassifyActiveSwitchSegmentNoOp(out reason, out disposition);
+        }
+
+        /// <summary>
+        /// Tears down a no-op standalone resumed switch segment (the whole live
+        /// active tree IS the no-op segment). Reuses the proven
+        /// <see cref="AutoDiscardActiveTreeCore"/> body — identical to the
+        /// idle-on-pad whole-tree teardown — which also clears any armed
+        /// <see cref="SwitchSegmentSession"/>. Only the
+        /// <see cref="SwitchSegmentDisposition.Standalone"/> disposition routes
+        /// here; CommittedRestoreClone / BgMemberOrMixed are deferred at scene
+        /// exit (covered by the in-flight re-switch hook).
+        /// </summary>
+        internal void AutoDiscardNoOpStandaloneSwitchSegment(string reason)
+        {
+            AutoDiscardActiveTreeCore(
+                reason: reason,
+                screenMessage: "Recording discarded - vessel unchanged after switch",
+                ledgerRecalcReason: "noop-switch-segment-discard",
+                chainStopReason: reason);
+        }
+
+        /// <summary>
         /// Shared teardown body for <see cref="AutoDiscardIdleActiveTree"/>
         /// and <see cref="AutoDiscardActiveTreeWithMessage"/>. The screen
         /// message and ledger-recalc reason are parameterized so the

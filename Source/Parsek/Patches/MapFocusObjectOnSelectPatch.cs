@@ -308,6 +308,38 @@ namespace Parsek.Patches
             {
                 case PreSwitchDialogDecision.OpenDialog:
                     {
+                        // No-op auto-discard (Case A only): if the prior
+                        // switch-segment session's segment changed nothing
+                        // meaningful, silently drop it and switch with no prompt
+                        // — there is no point prompting the player to merge /
+                        // discard a resumed segment that did nothing, and the
+                        // boring segment only prolongs the ghost state. Reuses
+                        // the existing Discard handler (DiscardPriorAndSwitchTo →
+                        // TryDiscardActiveSwitchSegmentAttempt), the same code the
+                        // dialog's Discard button runs, so all dispositions are
+                        // handled. Case B / Case C operate on the live activeTree
+                        // (the original flight, not a resumed segment) and are out
+                        // of scope.
+                        if (existingSession != null)
+                        {
+                            var noOpFlight = ParsekFlight.Instance;
+                            string noOpReason = null;
+                            bool priorIsNoOp = noOpFlight != null
+                                && noOpFlight.TryEvaluateActiveSwitchSegmentNoOp(
+                                    out noOpReason, out _);
+                            if (priorIsNoOp)
+                            {
+                                ParsekLog.Info("SwitchIntentPatch",
+                                    $"pre-switch no-op auto-discard: prior segment changed " +
+                                    $"nothing priorSessionId=" +
+                                    $"{existingSession.SessionId.ToString("D", CultureInfo.InvariantCulture)} " +
+                                    $"targetPid={vessel.persistentId} reason={noOpReason ?? "<none>"} " +
+                                    "- discarding without dialog");
+                                DiscardPriorAndSwitchTo(vessel, existingSession);
+                                return false;
+                            }
+                        }
+
                         // Distinguish the three OpenDialog routes in KSP.log so
                         // a reader can tell Case A (session) from the two
                         // no-session sub-cases: Case B (unloaded target, scene

@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- Resumed recordings that change nothing are now discarded automatically: if you Fly or Switch-To a vessel and then leave the scene (or switch away again) without altering its orbit or landing position, docking, staging, transferring crew, or taking any other action, the do-nothing segment is dropped instead of being kept and replayed as a boring ghost.
 - Waterfall support: with Waterfall plus a config pack such as Stock Waterfall Effects installed, the flown vessel shows Waterfall plumes while ghosts keep their stock-style engine plumes and RCS puffs. Ghost effects are rebuilt from each part's original effect definitions, which the config packs delete.
 - ReStock and ReStock+ support: ghosts keep ReStock's engine plumes and RCS puffs in every configuration (ReStock alone, ReStock plus Waterfall config packs, and ReStock+ parts), and the parts showroom gains ReStock+ engine, RCS, antenna, service bay, and fairing showcases when ReStock+ is installed.
 

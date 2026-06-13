@@ -3440,6 +3440,100 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Classifies the armed <see cref="SwitchSegmentSession"/>'s segment as a
+        /// no-op (safe to auto-discard) or not, and reports the discard
+        /// <see cref="SwitchSegmentDisposition"/>. The caller (ParsekFlight) MUST
+        /// have flushed the live recorder into the active tree first
+        /// (<see cref="ParsekFlight.FlushRecorderIntoActiveTreeForSerialization"/>)
+        /// so the segment recording carries its in-flight payload.
+        ///
+        /// <para>Returns false (keep) — with a diagnostic <paramref name="reason"/>
+        /// — when there is no session, the session tree / segment cannot be
+        /// resolved, the segment is not the live active recording (so the flush
+        /// did not populate it), or the pure
+        /// <see cref="SwitchSegmentNoOpClassifier.IsNoOpSegment"/> predicate keeps
+        /// it. Re-Fly / merge-journal guards live in the ParsekFlight wrapper.</para>
+        /// </summary>
+        internal static bool TryClassifyActiveSwitchSegmentNoOp(
+            out string reason, out SwitchSegmentDisposition disposition)
+        {
+            reason = null;
+            disposition = SwitchSegmentDisposition.None;
+
+            var scenario = ParsekScenario.Instance;
+            var session = object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.ActiveSwitchSegmentSession;
+            if (session == null)
+            {
+                reason = "no-session";
+                return false;
+            }
+
+            RecordingTree tree = FindSegmentTreeForSession(session);
+            if (tree == null || tree.Recordings == null)
+            {
+                reason = "session-tree-missing";
+                return false;
+            }
+
+            string segId = session.ActiveSegmentRecordingId;
+            if (string.IsNullOrEmpty(segId)
+                || !tree.Recordings.TryGetValue(segId, out Recording segment)
+                || segment == null)
+            {
+                reason = "segment-missing";
+                return false;
+            }
+
+            // The flush only populates activeTree.ActiveRecordingId. If the
+            // segment is not the active recording its payload may be stale /
+            // empty (e.g. a torn-down tree after a mid-segment destroy), so we
+            // cannot evaluate it — keep, conservatively.
+            if (!string.Equals(tree.ActiveRecordingId, segId, StringComparison.Ordinal))
+            {
+                reason = "segment-not-active-recording";
+                return false;
+            }
+
+            // Descendants: the subtree set includes the segment itself, so a count
+            // > 1 means dock / undock / EVA / decouple / breakup children exist.
+            // Count 0 = segment absent from the walk (cannot evaluate) -> keep.
+            var subtreeIds = CollectSwitchSegmentSubtreeRecordingIds(tree, session);
+            if (subtreeIds.Count == 0)
+            {
+                reason = "segment-absent-from-subtree";
+                return false;
+            }
+            bool hasDescendants = subtreeIds.Count > 1;
+
+            // Disposition for the scene-exit teardown choice.
+            bool isCommittedClone =
+                !string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId)
+                && (string.Equals(committedTreeRestoreAttemptTreeId, session.TreeId,
+                        StringComparison.Ordinal)
+                    || string.Equals(committedTreeRestoreAttemptTreeId, session.CommittedTreeId,
+                        StringComparison.Ordinal));
+            if (isCommittedClone)
+                disposition = SwitchSegmentDisposition.CommittedRestoreClone;
+            else if (tree.Recordings.Count == subtreeIds.Count)
+                disposition = SwitchSegmentDisposition.Standalone;
+            else
+                disposition = SwitchSegmentDisposition.BgMemberOrMixed;
+
+            bool noOp = SwitchSegmentNoOpClassifier.IsNoOpSegment(
+                segment, hasDescendants, out string keepReason);
+            reason = noOp ? "no-op" : keepReason;
+
+            ParsekLog.Verbose("SwitchSegment",
+                $"TryClassifyActiveSwitchSegmentNoOp: sessionId={session.SessionId:D} " +
+                $"segId={segId} disposition={disposition} subtreeCount={subtreeIds.Count} " +
+                $"hasDescendants={hasDescendants} noOp={noOp} reason={reason ?? "<none>"}");
+
+            return noOp;
+        }
+
+        /// <summary>
         /// Locates the in-memory tree that owns the active switch-segment
         /// session. Prefers the pending tree (where scene-exit Stash usually
         /// puts the active tree) and falls back to the live active tree, the

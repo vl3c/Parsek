@@ -66,6 +66,14 @@ namespace Parsek
         internal static Action<string> AutoDiscardIdleForTesting;
 
         /// <summary>
+        /// Test seam: when non-null, the no-op switch-segment fast path invokes
+        /// this instead of
+        /// <see cref="ParsekFlight.AutoDiscardNoOpStandaloneSwitchSegment"/>.
+        /// Receives the destination scene and the live flight controller.
+        /// </summary>
+        internal static Action<GameScenes, ParsekFlight> AutoDiscardNoOpSwitchSegmentForTesting;
+
+        /// <summary>
         /// Test seam: when non-null, the prefix calls this instead of
         /// <see cref="GamePersistence.SaveGame"/>. Receives the destination
         /// scene; returns true on success, false to simulate save failure.
@@ -98,6 +106,7 @@ namespace Parsek
             s_AllowNextLoadSceneDestination = GameScenes.LOADING;
             ShowDialogForTesting = null;
             AutoDiscardIdleForTesting = null;
+            AutoDiscardNoOpSwitchSegmentForTesting = null;
             SafeWritePersistentForTesting = null;
         }
 
@@ -358,6 +367,59 @@ namespace Parsek
         }
 
         /// <summary>
+        /// No-op resumed-segment fast path. When the armed
+        /// <see cref="SwitchSegmentSession"/>'s segment (Tracking-Station Fly /
+        /// KSC marker Fly / map Switch-To) changed nothing meaningful AND it is a
+        /// standalone tree, tears it down here via
+        /// <see cref="ParsekFlight.AutoDiscardNoOpStandaloneSwitchSegment"/>
+        /// (identical to the idle-on-pad whole-tree teardown) so a boring segment
+        /// that just prolongs the ghost state is not committed. Mirrors
+        /// <see cref="TryAutoDiscardIdleActiveTree"/>: on return-true the caller
+        /// re-saves persistent.sfs and lets the transition proceed with no active
+        /// tree.
+        ///
+        /// <para>CommittedRestoreClone / BgMemberOrMixed dispositions are DEFERRED
+        /// at scene exit (return false → normal commit path); they are covered by
+        /// the in-flight re-switch hook in
+        /// <c>MapFocusObjectOnSelectPatch</c>.</para>
+        /// </summary>
+        internal static bool TryAutoDiscardNoOpSwitchSegment(
+            GameScenes destination, ParsekFlight flight)
+        {
+            if (flight == null) return false;
+            if (!flight.TryEvaluateActiveSwitchSegmentNoOp(
+                    out string reason, out SwitchSegmentDisposition disposition))
+            {
+                return false;
+            }
+
+            if (disposition != SwitchSegmentDisposition.Standalone)
+            {
+                ParsekLog.Info("SceneExit",
+                    $"TryAutoDiscardNoOpSwitchSegment: no-op detected but disposition=" +
+                    $"{disposition} is deferred at scene exit dest={destination} - " +
+                    "falling through to normal commit");
+                return false;
+            }
+
+            string discardReason =
+                $"scene-exit no-op switch-segment auto-discard dest={destination}";
+            ParsekLog.Info("SceneExit",
+                $"TryAutoDiscardNoOpSwitchSegment: no-op standalone switch segment " +
+                $"detected dest={destination} - discarding without commit");
+
+            if (AutoDiscardNoOpSwitchSegmentForTesting != null)
+            {
+                AutoDiscardNoOpSwitchSegmentForTesting(destination, flight);
+            }
+            else
+            {
+                flight.AutoDiscardNoOpStandaloneSwitchSegment(discardReason);
+            }
+            return true;
+        }
+
+        /// <summary>
         /// Pre-LoadScene save: persist Parsek's mutations. For paths where
         /// stock <c>saveAndExit</c> already saved (PauseMenu paths), our
         /// re-save runs after our mutations on top of stock's earlier save.
@@ -571,6 +633,22 @@ namespace Parsek
             }
 
             var flight = ParsekFlight.Instance;
+
+            // (3.5) no-op resumed-segment fast path. If the armed switch-segment
+            //     session's segment (Fly / Switch-To) changed nothing meaningful
+            //     and it is a standalone tree, tear it down here (mirrors the
+            //     idle-on-pad fast path) so a boring segment that only prolongs
+            //     the ghost state is not committed. Runs BEFORE the HasActiveTree
+            //     routing check so that check is taken on post-discard state (the
+            //     teardown nulls activeTree). Non-standalone dispositions defer.
+            if (flight != null
+                && SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment(scene, flight))
+            {
+                if (!SceneExitInterceptor.SafeWritePersistent(scene))
+                    return false;   // MAINMENU save failed: hard-block
+                return true;
+            }
+
             if (flight == null || !flight.HasActiveTree)
             {
                 // Bug C (post-#876 playtest 2026-05-17): an armed

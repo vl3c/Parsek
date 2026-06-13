@@ -1,0 +1,512 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using Xunit;
+
+namespace Parsek.Tests
+{
+    /// <summary>
+    /// Pure-predicate tests for <see cref="SwitchSegmentNoOpClassifier.IsNoOpSegment"/>:
+    /// which resumed (Fly / Switch-To) segments changed nothing meaningful and can
+    /// be auto-discarded vs which must be kept. Covers the locked "did something"
+    /// definition (trajectory / geometry / dock + crew transfer) and the edge-case
+    /// table in docs/dev/plans/autodiscard-noop-switch-segment.md.
+    /// </summary>
+    [Collection("Sequential")]
+    public class SwitchSegmentNoOpClassifierTests : IDisposable
+    {
+        public SwitchSegmentNoOpClassifierTests()
+        {
+            ParsekLog.SuppressLogging = true;
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
+        private static TrackSection Section(
+            SegmentEnvironment env, ReferenceFrame frame = ReferenceFrame.Absolute,
+            double startUT = 0, double endUT = 100,
+            List<OrbitSegment> checkpoints = null)
+        {
+            return new TrackSection
+            {
+                environment = env,
+                referenceFrame = frame,
+                startUT = startUT,
+                endUT = endUT,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = checkpoints ?? new List<OrbitSegment>(),
+            };
+        }
+
+        private static OrbitSegment Orbit(
+            double sma, double ecc = 0, double inc = 0, double lan = 0, double aop = 0,
+            string body = "Kerbin", double startUT = 0, double endUT = 100)
+        {
+            return new OrbitSegment
+            {
+                semiMajorAxis = sma,
+                eccentricity = ecc,
+                inclination = inc,
+                longitudeOfAscendingNode = lan,
+                argumentOfPeriapsis = aop,
+                bodyName = body,
+                startUT = startUT,
+                endUT = endUT,
+            };
+        }
+
+        // ---- no-op (discard) cases ------------------------------------------
+
+        [Fact]
+        public void OrbitalCoast_WithInertEngineSeed_IsNoOp()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic));
+            // Zero-throttle resume seed — inert, must not block discard.
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 0, eventType = PartEventType.EngineShutdown, value = 0f
+            });
+
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void OrbitalCoast_WithTimeJumpOnly_IsNoOp()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic));
+            rec.SegmentEvents.Add(new SegmentEvent { ut = 50, type = SegmentEventType.TimeJump });
+
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out _));
+        }
+
+        [Fact]
+        public void LandedSitStill_IsNoOp()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.SurfaceStationary));
+
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out _));
+        }
+
+        [Fact]
+        public void EmptySegment_IsNoOp()
+        {
+            var rec = new Recording();
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out _));
+        }
+
+        [Fact]
+        public void CosmeticLightOnly_IsNoOp()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic));
+            rec.PartEvents.Add(new PartEvent { ut = 10, eventType = PartEventType.LightOn });
+
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out _));
+        }
+
+        [Fact]
+        public void OrbitUnchanged_TwoIdenticalSegments_IsNoOp()
+        {
+            var rec = new Recording();
+            rec.OrbitSegments.Add(Orbit(sma: 700000, ecc: 0.01, inc: 5));
+            rec.OrbitSegments.Add(Orbit(sma: 700000, ecc: 0.01, inc: 5, startUT: 100, endUT: 200));
+
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out _));
+        }
+
+        // ---- keep cases ------------------------------------------------------
+
+        [Fact]
+        public void NullSegment_IsKept()
+        {
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(null, false, out string reason));
+            Assert.Equal("segment-null", reason);
+        }
+
+        [Fact]
+        public void VesselDestroyed_IsKept()
+        {
+            var rec = new Recording { VesselDestroyed = true };
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.Equal("vessel-destroyed", reason);
+        }
+
+        [Fact]
+        public void HasDescendants_IsKept()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, true, out string reason));
+            Assert.Equal("has-descendants", reason);
+        }
+
+        [Theory]
+        [InlineData(SegmentEnvironment.Atmospheric)]
+        [InlineData(SegmentEnvironment.ExoPropulsive)]
+        [InlineData(SegmentEnvironment.SurfaceMobile)]
+        [InlineData(SegmentEnvironment.Approach)]
+        public void NonBoringSection_IsKept(SegmentEnvironment env)
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic));
+            rec.TrackSections.Add(Section(env, startUT: 100, endUT: 200));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.StartsWith("non-boring-section:", reason);
+        }
+
+        [Fact]
+        public void PositiveThrottleEngine_IsKept()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic));
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 10, eventType = PartEventType.EngineThrottle, value = 0.5f
+            });
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.StartsWith("part-event:", reason);
+        }
+
+        [Fact]
+        public void PositiveRcsThrottle_IsKept()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic));
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 10, eventType = PartEventType.RCSThrottle, value = 0.3f
+            });
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out _));
+        }
+
+        [Theory]
+        [InlineData(PartEventType.Decoupled)]
+        [InlineData(PartEventType.Docked)]
+        [InlineData(PartEventType.Undocked)]
+        [InlineData(PartEventType.ParachuteDeployed)]
+        [InlineData(PartEventType.DeployableExtended)]
+        [InlineData(PartEventType.GearDeployed)]
+        public void StructuralPartEvent_IsKept(PartEventType type)
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic));
+            rec.PartEvents.Add(new PartEvent { ut = 10, eventType = type });
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.StartsWith("part-event:", reason);
+        }
+
+        [Fact]
+        public void DockTarget_IsKept()
+        {
+            var rec = new Recording { DockTargetVesselPid = 12345u };
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.Equal("dock-target", reason);
+        }
+
+        [Theory]
+        [InlineData(SegmentEventType.CrewTransfer)]
+        [InlineData(SegmentEventType.CrewLost)]
+        [InlineData(SegmentEventType.ControllerChange)]
+        [InlineData(SegmentEventType.PartDestroyed)]
+        [InlineData(SegmentEventType.PartAdded)]
+        [InlineData(SegmentEventType.PartRemoved)]
+        public void MeaningfulSegmentEvent_IsKept(SegmentEventType type)
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic));
+            rec.SegmentEvents.Add(new SegmentEvent { ut = 10, type = type });
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.StartsWith("segment-event:", reason);
+        }
+
+        [Fact]
+        public void FlagPlant_IsKept()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.SurfaceStationary));
+            rec.FlagEvents = new List<FlagEvent> { new FlagEvent() };
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.Equal("flag-event", reason);
+        }
+
+        [Fact]
+        public void OrbitSmaChanged_IsKept()
+        {
+            var rec = new Recording();
+            rec.OrbitSegments.Add(Orbit(sma: 700000));
+            rec.OrbitSegments.Add(Orbit(sma: 750000, startUT: 100, endUT: 200));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.Equal("orbit-sma-change", reason);
+        }
+
+        [Fact]
+        public void OrbitBodyChanged_IsKept()
+        {
+            var rec = new Recording();
+            rec.OrbitSegments.Add(Orbit(sma: 700000, body: "Kerbin"));
+            rec.OrbitSegments.Add(Orbit(sma: 700000, body: "Mun", startUT: 100, endUT: 200));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.Equal("orbit-body-change", reason);
+        }
+
+        [Fact]
+        public void OrbitInclinationChanged_IsKept()
+        {
+            var rec = new Recording();
+            rec.OrbitSegments.Add(Orbit(sma: 700000, inc: 5.0));
+            rec.OrbitSegments.Add(Orbit(sma: 700000, inc: 25.0, startUT: 100, endUT: 200));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.Equal("orbit-inc-change", reason);
+        }
+
+        [Fact]
+        public void OrbitalCheckpointSectionChange_IsKept()
+        {
+            // Sparse-section case: no per-frame sections, only OrbitalCheckpoint
+            // sections carrying the (changed) Kepler elements.
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(
+                SegmentEnvironment.ExoBallistic, ReferenceFrame.OrbitalCheckpoint,
+                0, 100, new List<OrbitSegment> { Orbit(sma: 700000) }));
+            rec.TrackSections.Add(Section(
+                SegmentEnvironment.ExoBallistic, ReferenceFrame.OrbitalCheckpoint,
+                100, 200, new List<OrbitSegment> { Orbit(sma: 760000, startUT: 100, endUT: 200) }));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.Equal("orbit-sma-change", reason);
+        }
+    }
+
+    /// <summary>
+    /// Integration tests for the live-side resolver
+    /// <see cref="RecordingStore.TryClassifyActiveSwitchSegmentNoOp"/>: tree /
+    /// segment resolution, disposition classification, and the no-op decision
+    /// against an armed <see cref="SwitchSegmentSession"/>. (The ParsekFlight
+    /// flush + Re-Fly / merge-journal guards and the scene-exit / re-switch hooks
+    /// are runtime-coupled and covered in-game.)
+    /// </summary>
+    [Collection("Sequential")]
+    public class SwitchSegmentNoOpEvaluatorTests : IDisposable
+    {
+        private readonly List<string> logLines = new List<string>();
+
+        public SwitchSegmentNoOpEvaluatorTests()
+        {
+            RecordingStore.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            ParsekScenario.SetInstanceForTesting(null);
+            RecordingStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
+        private static Recording Segment(string id, string treeId, bool noOp)
+        {
+            var rec = new Recording
+            {
+                RecordingId = id,
+                TreeId = treeId,
+                VesselName = "Probe",
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 200.0,
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = noOp ? SegmentEnvironment.ExoBallistic
+                                   : SegmentEnvironment.ExoPropulsive,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100, endUT = 200,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>(),
+            });
+            return rec;
+        }
+
+        private static RecordingTree Tree(string treeId, string activeId, params Recording[] recs)
+        {
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = treeId,
+                BranchPoints = new List<BranchPoint>(),
+            };
+            foreach (var r in recs) tree.AddOrReplaceRecording(r);
+            tree.RootRecordingId = recs.Length > 0 ? recs[0].RecordingId : null;
+            tree.ActiveRecordingId = activeId;
+            return tree;
+        }
+
+        private static SwitchSegmentSession ArmSession(
+            string treeId, string segId, string parentId = null,
+            string committedTreeId = null)
+        {
+            var scenario = ParsekScenario.Instance ?? new ParsekScenario();
+            ParsekScenario.SetInstanceForTesting(scenario);
+            var session = new SwitchSegmentSession
+            {
+                SessionId = Guid.NewGuid(),
+                IntentId = Guid.NewGuid(),
+                EntryReason = SwitchSegmentEntryReason.TrackingStationFly,
+                TreeId = treeId,
+                ParentRecordingId = parentId,
+                ActiveSegmentRecordingId = segId,
+                CommittedTreeId = committedTreeId,
+                SwitchUT = 150.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            scenario.ArmSwitchSegmentSession(session);
+            return session;
+        }
+
+        [Fact]
+        public void NoSession_KeepsWithReason()
+        {
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario());
+            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+                out string reason, out SwitchSegmentDisposition disp);
+            Assert.False(noOp);
+            Assert.Equal("no-session", reason);
+            Assert.Equal(SwitchSegmentDisposition.None, disp);
+        }
+
+        [Fact]
+        public void StandaloneNoOpSegment_IsNoOp_WithStandaloneDisposition()
+        {
+            var seg = Segment("rec_seg", "tree_s", noOp: true);
+            var tree = Tree("tree_s", "rec_seg", seg);
+            RecordingStore.StashPendingTree(tree);
+            ArmSession("tree_s", "rec_seg");
+
+            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+                out string reason, out SwitchSegmentDisposition disp);
+
+            Assert.True(noOp);
+            Assert.Equal("no-op", reason);
+            Assert.Equal(SwitchSegmentDisposition.Standalone, disp);
+        }
+
+        [Fact]
+        public void StandaloneActiveSegment_ThatDidSomething_IsKept()
+        {
+            var seg = Segment("rec_seg", "tree_s", noOp: false); // ExoPropulsive
+            var tree = Tree("tree_s", "rec_seg", seg);
+            RecordingStore.StashPendingTree(tree);
+            ArmSession("tree_s", "rec_seg");
+
+            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+                out string reason, out SwitchSegmentDisposition disp);
+
+            Assert.False(noOp);
+            Assert.StartsWith("non-boring-section:", reason);
+            Assert.Equal(SwitchSegmentDisposition.Standalone, disp);
+        }
+
+        [Fact]
+        public void ContinuationUnderParent_NoOp_IsBgMemberOrMixedDisposition()
+        {
+            var parent = new Recording { RecordingId = "rec_parent", TreeId = "tree_c" };
+            var seg = Segment("rec_seg", "tree_c", noOp: true);
+            var tree = Tree("tree_c", "rec_seg", parent, seg);
+            RecordingStore.StashPendingTree(tree);
+            ArmSession("tree_c", "rec_seg", parentId: "rec_parent");
+
+            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+                out string reason, out SwitchSegmentDisposition disp);
+
+            // No-op decision still true; disposition flags it as deferred-at-scene-exit.
+            Assert.True(noOp);
+            Assert.Equal(SwitchSegmentDisposition.BgMemberOrMixed, disp);
+        }
+
+        [Fact]
+        public void SegmentNotActiveRecording_IsKept()
+        {
+            var parent = new Recording { RecordingId = "rec_parent", TreeId = "tree_n" };
+            var seg = Segment("rec_seg", "tree_n", noOp: true);
+            // Active recording is the PARENT, not the segment.
+            var tree = Tree("tree_n", "rec_parent", parent, seg);
+            RecordingStore.StashPendingTree(tree);
+            ArmSession("tree_n", "rec_seg", parentId: "rec_parent");
+
+            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+                out string reason, out _);
+
+            Assert.False(noOp);
+            Assert.Equal("segment-not-active-recording", reason);
+        }
+
+        [Fact]
+        public void HasDescendantChild_IsKept()
+        {
+            // Segment with a child branch point + child recording → descendants.
+            string bpId = "bp_child";
+            var seg = Segment("rec_seg", "tree_d", noOp: true);
+            seg.ChildBranchPointId = bpId;
+            var child = new Recording
+            {
+                RecordingId = "rec_child", TreeId = "tree_d", ParentBranchPointId = bpId
+            };
+            var tree = Tree("tree_d", "rec_seg", seg, child);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = bpId,
+                Type = BranchPointType.EVA,
+                ParentRecordingIds = new List<string> { "rec_seg" },
+                ChildRecordingIds = new List<string> { "rec_child" },
+            });
+            RecordingStore.StashPendingTree(tree);
+            ArmSession("tree_d", "rec_seg");
+
+            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+                out string reason, out _);
+
+            Assert.False(noOp);
+            Assert.Equal("has-descendants", reason);
+        }
+
+        [Fact]
+        public void LogsDecisionLine()
+        {
+            var seg = Segment("rec_seg", "tree_s", noOp: true);
+            var tree = Tree("tree_s", "rec_seg", seg);
+            RecordingStore.StashPendingTree(tree);
+            ArmSession("tree_s", "rec_seg");
+
+            RecordingStore.TryClassifyActiveSwitchSegmentNoOp(out _, out _);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[SwitchSegment]")
+                && l.Contains("TryClassifyActiveSwitchSegmentNoOp")
+                && l.Contains("noOp=True"));
+        }
+    }
+}
