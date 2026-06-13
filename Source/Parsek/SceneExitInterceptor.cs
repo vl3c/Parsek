@@ -649,12 +649,14 @@ namespace Parsek
             var flight = ParsekFlight.Instance;
 
             // (3.5) no-op resumed-segment fast path. If the armed switch-segment
-            //     session's segment (Fly / Switch-To) changed nothing meaningful
-            //     and it is a standalone tree, tear it down here (mirrors the
-            //     idle-on-pad fast path) so a boring segment that only prolongs
-            //     the ghost state is not committed. Runs BEFORE the HasActiveTree
-            //     routing check so that check is taken on post-discard state (the
-            //     teardown nulls activeTree). Non-standalone dispositions defer.
+            //     session's segment (Fly / Switch-To) changed nothing meaningful,
+            //     drop it here (mirrors the idle-on-pad fast path) so a boring
+            //     segment that only prolongs the ghost state is not committed.
+            //     Standalone tears down the throwaway tree; CommittedRestoreClone
+            //     reverts to the committed original (which survives in
+            //     committedTrees); only BgMemberOrMixed defers. Runs BEFORE the
+            //     HasActiveTree routing check so that check is taken on
+            //     post-discard state (the teardown nulls activeTree).
             if (flight != null
                 && SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment(scene, flight))
             {

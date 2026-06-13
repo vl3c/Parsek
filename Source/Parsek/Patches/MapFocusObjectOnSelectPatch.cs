@@ -693,6 +693,21 @@ namespace Parsek.Patches
                 ? priorSession.SessionId.ToString("D", CultureInfo.InvariantCulture)
                 : "<none>";
 
+            // Mirror MergePriorAndSwitchTo's guard: the revert-clone teardown runs
+            // a ledger recalc (AutoDiscardActiveTreeCore) that must not race a
+            // Re-Fly merge journal finisher. Player retries after it completes.
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario) && scenario.ActiveMergeJournal != null)
+            {
+                ParsekLog.Warn("SwitchIntentPatch",
+                    $"discard-refused-active-merge-journal " +
+                    $"priorSessionId={priorSessionIdStr} " +
+                    $"journal={scenario.ActiveMergeJournal.JournalId ?? "<no-id>"}");
+                ParsekLog.ScreenMessage(
+                    "Switch-to discard: re-fly merge in progress - retry in a moment", 3f);
+                return;
+            }
+
             try
             {
                 var flight = ParsekFlight.Instance;
