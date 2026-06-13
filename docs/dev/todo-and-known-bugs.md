@@ -13,6 +13,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Fixed - quickload-resume Limbo-tree data loss (mission silently purged)
+
+**Symptom (found 2026-06-13 in the `orbital supply route` career save):** a whole mission ("Duna Supply 1": its Missions entry, its recording tree, and all 13 recordings + sidecars) vanished while the flown Duna vessels stayed in the FLIGHTSTATE. Reconstructed from KSP auto-backups + `collect-logs` snapshots; the save was recovered by splicing the tree + mission nodes and the sidecars back from the `2026-06-13_1750_loopanchor-pr-playtest` snapshot.
+
+**Root cause (two compounding defects):**
+1. **Non-durable Limbo window.** A quickload (F9) while a mission tree is the active recording tree stashes it into the in-memory `PendingTreeState.Limbo` slot (`TryRestoreActiveTreeNode` removes the committed copy via `RemoveCommittedTreeById`) and defers the re-commit to a later `OnFlightReady`. `ParsekScenario.SavePendingTreeIfAny` serialized ONLY `Finalized` pending trees, so any `OnSave` in that window (autosave / scene-exit / exiting KSP to switch git branches before `OnFlightReady` fired) wrote a `persistent.sfs` with the tree missing. Evidence: 19:01 log `pend.tree=3daf0cff:Limbo`, `Quickload-resume context armed ... trimScope=TreeWide`, `MissionLoopUnit: mission='Duna Supply 1' ... tree not found; no unit`; the 19:02-saved file already had 5 trees + 6 missions (orphaned Duna mission, tree node gone).
+2. **Destructive orphan cleanup.** Once the tree was gone but the `MISSION` still referenced its treeId, `MissionStore.PruneOrphans` removed the mission and `RecordingStore.CleanOrphanFiles` hard-deleted the immutable sidecars (`DeleteRecordingFiles`). The existing `knownIds.Count == 0` safety guard is all-or-nothing, so it never fired here (5 surviving trees kept `knownIds` non-empty while a SUBSET was orphaned).
+
+**Fix (PR, branch `fix-limbo-tree-dataloss`):**
+- Layer 1 (trigger): `SavePendingTreeIfAny` now serializes `Limbo` / `LimboVesselSwitch` pending trees too, using the same `isActive` marker as `SaveActiveTreeIfAny` so the node round-trips through `TryRestoreActiveTreeNode` straight back into the Limbo resume flow (the stash state is re-derived from `ActiveRecordingId`: non-null -> Limbo, null -> LimboVesselSwitch). Guarded by `HasActiveTreeNode`: if an active node was already written this save (unexpected coexistence with a live active tree), the Limbo tree falls back to a plain committed node so it is still durable.
+- Layer 1b (mission survival): on cold load the mission reconcile (`MissionStore.PruneOrphans`) runs BEFORE `TryRestoreActiveTreeNode` restores the parked tree, so without protection the mission name + loop settings would still be stripped even though the tree now survives. `PruneOrphans` gained an `additionalLiveTreeIds` param; the OnLoad call passes `CollectParkedTreeIdsForMissionPrune(node)` (ids of every isActive / isPending RECORDING_TREE node in the save, plus any already-stashed pending / saved-pending tree) so a parked tree's mission is not treated as an orphan.
+- Layer 2 (defense in depth): `CleanOrphanFiles` now MOVES orphaned recording sidecars into a `_quarantine` subfolder (`QuarantineOrphanRecordingFile`) instead of deleting them, honoring the never-delete-recorded-files rule; legacy (`.pcrf`) and transient (`.tmp`/`.stage`/`.bak`) artifacts are still hard-deleted. Partial-loss (a subset of trees dropped) is now recoverable even though the count==0 guard cannot catch it.
+- Tests: rewrote `PendingTreeSaveTests.SaveTreeRecordings_DoesNotWriteLimboPendingAsPending` (it encoded the buggy skip) into pass/round-trip tests for both Limbo flavors + the coexistence predicate; updated `TryRestorePendingTreeNode_ActiveAndPendingMarkers...` to expect both trees surviving the save; added quarantine + partial-loss + no-overwrite tests in `OrphanCleanupSafetyGuardTests` / `Bug290OrphanSidecarTests`. Full suite 15303/15303.
+
+---
+
 ## In progress - Forward trajectory rendering (flight-map + tracking-station)
 
 **Goal:** render the FUTURE portion of a ghost's trajectory ahead of the icon, as one continuous chained line, stopping before the first full-loop closed orbit and at the first SOI change. Plan: `docs/dev/plans/forward-trajectory-render.md` (Option 1 - draw at the live production surfaces with a pure forward-window helper; not the Director-extension Option 2). Branch `claude/flight-map-trajectory-render-io6be0`.

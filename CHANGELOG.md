@@ -37,6 +37,7 @@ All notable changes to Parsek are documented here.
 - Supply routes: a recovered branch added to a route's source tree after creation no longer inflates the route's recurring recovery credit or its displayed run cost; the credit is scoped to the recordings that existed when the route was created.
 - Flying a vessel from the Tracking Station no longer drops you into the wrong craft when ghost trajectories are on the map: the ghost vessels were shifting the focused-vessel index, so clicking Fly on one vessel could load a different one.
 - The Merge or Discard prompt shown when you switch away from a vessel you just briefly flew now reports that short new flight's length instead of the whole multi-year span of the resumed recording.
+- A mission no longer disappears (its Missions entry, recording tree, and saved recordings all gone, while the flown vessels stay in the game) if you quickload while recording it and then save or exit before the flight finishes resuming. The in-progress recording now survives the save, and orphan cleanup moves stray recording files to a quarantine folder instead of deleting them, so this kind of loss stays recoverable.
 
 ---
 
