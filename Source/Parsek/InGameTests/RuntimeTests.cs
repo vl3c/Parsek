@@ -10209,6 +10209,130 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Bug 1 (looped-mission map trajectory lines vanish when zoomed out) coverage. The fix routes
+        /// every leg / arc / bridge draw through
+        /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.DrawMapLine"/>, which mirrors stock
+        /// <c>OrbitRendererBase.DrawSpline</c>: <c>VectorLine.Draw3D()</c> while <c>MapView.Draw3DLines</c>
+        /// is true, else the 2D <c>VectorLine.Draw()</c> path. Stock flips Draw3DLines to false once the map
+        /// camera zooms out past <c>max3DlineDrawDist</c> (1500) - exactly where the always-Draw3D code used
+        /// to vanish. This is Vectrosity / Unity-coupled (a live VectorLine + the runtime MapView state) so
+        /// xUnit cannot reach it; the pure <c>ShouldDraw3DMapLine</c> decision is covered headless by
+        /// GhostTrajectoryPolylineMapModeTests.
+        ///
+        /// <para>Asserts (a) after a TryDrawLeg the drawn line's component path matches the LIVE MapView
+        /// mode (3D mode => a MeshFilter mesh via Vectrosity's VectorObject3D; 2D mode => a CanvasRenderer
+        /// and no MeshFilter via VectorObject2D); (b) BOTH Vectrosity paths build geometry for a Parsek
+        /// orbit-styled line - forcing <c>Draw()</c> swaps the GameObject onto the 2D canvas (CanvasRenderer
+        /// present, MeshFilter destroyed) and forcing <c>Draw3D()</c> swaps it back (MeshFilter restored);
+        /// and (c) <c>RebuildLineForMode</c> (the Bug 1 fix invoked on every 3D&lt;-&gt;2D flip, because the
+        /// in-place swap in (b) leaves the 2D canvas Graphic non-rendering) returns a FRESH, distinct line
+        /// object that preserves the name + point count, mirroring stock's MakeLine-on-flip. Component-presence
+        /// checks are robust even if the offscreen draw paints nothing, because Vectrosity does the component
+        /// swap in SetupCanvasState BEFORE the draw loop runs.</para>
+        /// </summary>
+        [InGameTest(Category = "MapView", Scene = GameScenes.TRACKSTATION,
+            Description = "Map trajectory lines follow the stock Draw3D/2D mode so they survive far zoom-out (Bug 1)")]
+        public void GhostTrajectoryPolyline_DrawModeFollowsMapView_AndBothPathsRender()
+        {
+            var rec = new Recording { RecordingId = "ingame-bug1-drawmode-1" };
+            var frames = new System.Collections.Generic.List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0, latitude = -0.1, longitude = -74.5, altitude = 70.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 200.0, latitude = -0.05, longitude = -74.5, altitude = 20000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 600.0, latitude = 0.0, longitude = -74.5, altitude = 100000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 600.0,
+                frames = frames,
+                checkpoints = new System.Collections.Generic.List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 10f,
+            });
+
+            var legs = Parsek.Display.GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+            InGameAssert.AreEqual(1, legs.Count, "expected one leg from one Absolute section");
+
+            CelestialBody kerbin = FlightGlobals.Bodies.Find(b => b.name == "Kerbin");
+            InGameAssert.IsTrue(kerbin != null, "Kerbin body must resolve");
+
+            var leg = legs[0];
+            int drawFrame = Time.frameCount;
+            bool drawn = Parsek.Display.GhostTrajectoryPolylineRenderer.TryDrawLeg(
+                ref leg, rec, kerbin, /*targetLayer*/ 31, drawFrame, rec.RecordingId, /*legIndex*/ 0);
+
+            try
+            {
+                InGameAssert.IsTrue(drawn, "TryDrawLeg must report the leg drawn for a 3-point leg");
+                InGameAssert.IsTrue(leg.vectorLine != null, "TryDrawLeg must lazily inflate the leg's VectorLine");
+
+                // The pure decision must agree with the live MapView state DrawMapLine reads. Short-circuit
+                // the MapView.Draw3DLines read behind the fetch null check (mirrors DrawMapLine).
+                bool present = MapView.fetch != null;
+                bool expect3D = present ? MapView.Draw3DLines : true;
+                InGameAssert.AreEqual(expect3D,
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.ShouldDraw3DMapLine(present, present && MapView.Draw3DLines),
+                    "ShouldDraw3DMapLine must match the live MapView mode");
+
+                // (a) The drawn leg's component path must match the live mode (TryDrawLeg -> DrawMapLine).
+                var go = leg.vectorLine.rectTransform.gameObject;
+                if (expect3D)
+                {
+                    var mf = go.GetComponent<MeshFilter>();
+                    InGameAssert.IsTrue(mf != null && mf.mesh != null,
+                        "3D map-line mode must leave the drawn leg on the Vectrosity VectorObject3D path (a MeshFilter mesh)");
+                }
+                else
+                {
+                    InGameAssert.IsTrue(go.GetComponent<MeshFilter>() == null,
+                        "2D map-line mode must not carry a MeshFilter");
+                    InGameAssert.IsTrue(go.GetComponent<UnityEngine.CanvasRenderer>() != null,
+                        "2D map-line mode must render through the Vectrosity VectorObject2D canvas path (a CanvasRenderer)");
+                }
+
+                // (b) Both Vectrosity paths must build renderable geometry for this Parsek orbit-styled
+                // line. Force the 2D path (the new Bug 1 fix path): the GameObject swaps onto the canvas
+                // (CanvasRenderer present, MeshFilter destroyed).
+                leg.vectorLine.Draw();
+                InGameAssert.IsTrue(go.GetComponent<UnityEngine.CanvasRenderer>() != null,
+                    "Draw() must place the line on the 2D canvas (CanvasRenderer present) - the far-zoom render path");
+                InGameAssert.IsTrue(go.GetComponent<MeshFilter>() == null,
+                    "Draw() must destroy the 3D MeshFilter when moving the line onto the 2D canvas");
+
+                // Force back to the 3D path: the MeshFilter is restored.
+                leg.vectorLine.Draw3D();
+                var mf3d = go.GetComponent<MeshFilter>();
+                InGameAssert.IsTrue(mf3d != null && mf3d.mesh != null,
+                    "Draw3D() must restore the 3D MeshFilter mesh (the below-threshold render path)");
+
+                // (c) Bug 1 fix: RebuildLineForMode (run on every map-line mode flip, because the in-place
+                // swap above leaves the 2D canvas Graphic non-rendering) must return a FRESH, distinct line
+                // that preserves the name + point count - stock's MakeLine-on-flip behavior.
+                var before = leg.vectorLine;
+                int pc = leg.PointCount;
+                string nm = before.name;
+                var rebuilt = Parsek.Display.GhostTrajectoryPolylineRenderer.RebuildLineForMode(before, pc);
+                leg.vectorLine = rebuilt; // RebuildLineForMode destroys `before`; retarget finally at the live line
+                InGameAssert.IsTrue(rebuilt != null, "RebuildLineForMode must return a fresh line");
+                InGameAssert.IsTrue(!ReferenceEquals(rebuilt, before),
+                    "RebuildLineForMode must return a NEW line object (stock rebuilds on every mode flip)");
+                InGameAssert.AreEqual(nm, rebuilt.name, "the rebuilt line must preserve the line name");
+                InGameAssert.IsTrue(rebuilt.points3 != null && rebuilt.points3.Count == pc,
+                    "the rebuilt line must preserve the point count");
+            }
+            finally
+            {
+                var line = leg.vectorLine;
+                if (line != null)
+                    Vectrosity.VectorLine.Destroy(ref line);
+            }
+        }
+
+        /// <summary>
         /// Marker pan-stability (FIX 2): a TRANSIENT ride dropout (the head's leg matched but was not
         /// drawn THIS frame - the dominant case while the map camera is actively panning) holds the last
         /// on-line position instead of snapping to the body-fixed head. Seeds the polyline cache for a

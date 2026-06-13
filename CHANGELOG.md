@@ -28,16 +28,20 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- Looped-mission map and tracking-station trajectory lines no longer vanish when the map is zoomed far out. Past the zoom-out threshold they now switch to the same flat 2D drawing mode stock orbit lines use, instead of staying in a 3D mode that drops them at distance.
+- At high time warp, a looped ghost's map icon is now placed on its orbit line as soon as it appears. These ghosts are rebuilt every frame and the icon used to start at its spawn point and snap onto the orbit a frame later; the map now positions the freshly-built icon on its recorded orbit at creation.
 - A stand-in kerbal can no longer end up aboard two vessels at once: launching a new mission (or spawning a recorded vessel) while the stand-in was already flying used to duplicate them onto the new vessel. The seat is now left empty when the stand-in is busy, so another crew member can be picked.
 - Docking and undocking no longer record the same trajectory sample up to three times at the event instant, which silently disabled trajectory smoothing for the docked stretch of the recording.
 - The re-aim end-to-end in-game test no longer fails intermittently: it now runs a pinned Kerbin-to-Duna geometry instead of seeding from the live clock, and a new manual diagnostic sweep maps which launch windows resolve a re-aimed transfer.
-- The re-aim test suite now also pins the exact launch-window geometry reconstructed from the one observed in-game failure (a 2026-06-11 run on a pre-fix build), verifying the recorded departure still resolves and that any window that cannot be re-aimed falls back cleanly to a faithful replay.
+- A looped interplanetary transfer no longer falls back to a faithful replay near a half-orbit (Hohmann) transfer angle, where the re-aim solver could pick the wrong direction and reject an otherwise good window, so more launch windows now re-aim. Steeply-inclined targets (like Moho) are also no longer ruled out up front, and results worse than faithful still fall back cleanly.
+- The re-aim test suite now also pins the exact launch-window geometry reconstructed from the one observed in-game failure (a 2026-06-11 run on a pre-fix build); after the near-half-orbit direction fix the recorded departure (the window that previously fell back) now re-aims successfully, and later windows re-aim or fall back cleanly to a faithful replay.
 - The orbit-arc-sampler in-game test no longer fails spuriously depending on where the active vessel sits (for example on the launchpad): it measured sampled orbit points from the scene's moving world origin instead of the planet centre.
 - Warping to a recording's end (Real Spawn Control) now reliably spawns the real vessel: a time jump could previously mark a recording whose window was still ahead as already-flown history and silently skip its end-of-recording spawn.
 - Supply routes: branches added to a route's source tree after creation (a re-fly fork or a switch-fly continuation) no longer silently join the route's rendered loop and delivery span; the backing selection freezes to the creation-time member set.
 - Supply routes: a recovered branch added to a route's source tree after creation no longer inflates the route's recurring recovery credit or its displayed run cost; the credit is scoped to the recordings that existed when the route was created.
 - Flying a vessel from the Tracking Station no longer drops you into the wrong craft when ghost trajectories are on the map: the ghost vessels were shifting the focused-vessel index, so clicking Fly on one vessel could load a different one.
 - The Merge or Discard prompt shown when you switch away from a vessel you just briefly flew now reports that short new flight's length instead of the whole multi-year span of the resumed recording.
+- A mission no longer disappears (its Missions entry, recording tree, and saved recordings all gone, while the flown vessels stay in the game) if you quickload while recording it and then save or exit before the flight finishes resuming. The in-progress recording now survives the save, and orphan cleanup moves stray recording files to a quarantine folder instead of deleting them, so this kind of loss stays recoverable.
 
 ---
 
@@ -296,7 +300,7 @@ All notable changes to Parsek are documented here.
 
 ### Known limitations
 
-- A looped interplanetary mission now re-aims its transfer to the target's current position so it reaches the target (see Looping, above); the exception is a steeply-inclined target (like Moho), whose transfer window is skipped so the mission replays its original transfer for now. Single-body and moon missions (Mun, Minmus) relaunch at the correct window, though a moon mission's orbit may still sit slightly off the launch site (closed in a later update).
+- A looped interplanetary mission now re-aims its transfer to the target's current position so it reaches the target (see Looping, above). A steeply-inclined target (like Moho) is no longer ruled out up front: such a window now re-aims whenever the re-aimed path still passes through the target's sphere of influence, and only otherwise falls back to a faithful replay; a highly eccentric target (Moho, Eeloo) can still skip windows whose required travel time falls outside the search band (handled in a later update). Single-body and moon missions (Mun, Minmus) relaunch at the correct window, though a moon mission's orbit may still sit slightly off the launch site (closed in a later update).
 
 ---
 

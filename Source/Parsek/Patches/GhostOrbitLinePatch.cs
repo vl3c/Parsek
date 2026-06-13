@@ -90,6 +90,24 @@ namespace Parsek.Patches
                 reason: "on-arc-drive");
         }
 
+        /// <summary>
+        /// PURE: in the no-bounds early-return branch (a director-tracked ghost whose segment-drive
+        /// bounds were just cleared at a loiter/transfer -> burn state-vector reseed), should the
+        /// proto icon be SUPPRESSED this frame? True when the Director is tracking the ghost at all
+        /// (<paramref name="directorTracking"/>): the legacy gap-glide reseeds a per-frame synthesized
+        /// phantom eccentric orbit, and showing the icon on it (the terminal-visible branch in
+        /// <see cref="GhostOrbitLinePatch"/>) is the residual burn-seam teleport. False otherwise
+        /// (a non-director terminal-orbit ghost has shift 0 and a real full ellipse, so stock's
+        /// live-UT propagation already glides the icon and it must NOT be suppressed).
+        ///
+        /// Split out from <see cref="Prefix"/> for two reasons: (1) it is the decision the Bug-3
+        /// burn-seam instrumentation classifies the suppression-enter / un-suppress-exit transition
+        /// from, and (2) the convention requires every decision method be unit-testable off the Unity
+        /// runtime. Behaviour is byte-identical to the inline <c>if (IsDirectorTracking(...))</c> it
+        /// replaced.
+        /// </summary>
+        internal static bool ShouldSuppressIconNoBounds(bool directorTracking) => directorTracking;
+
         /// <summary>Result of <see cref="ResolveIconDriveDecision"/>.</summary>
         internal readonly struct IconDriveDecision
         {
@@ -135,6 +153,13 @@ namespace Parsek.Patches
                         "Director TracedPath suppress pid={0} frame={1} (polyline owns the leg, proto icon hidden)",
                         pid, Time.frameCount),
                     1.0);
+                // Bug 3 burn-seam instrumentation: the Director-traced suppress path is THE branch the
+                // headline burn-seam teleport (rec 04177024, pid 413625158) traverses - the captured
+                // KSP.log shows the stale window logging only "Director TracedPath suppress", never the
+                // no-bounds branch below (which the icon-drive Prefix never reaches because this early
+                // return pre-empts it). Stamp the suppression-ENTER here so the un-suppress EXIT (the
+                // snap) fires correctly when the next frame re-establishes a StockConic drive below.
+                EmitIconSuppressTransition(__instance, pid, suppressedThisFrame: true, currentUT: Planetarium.GetUniversalTime());
                 return true;
             }
 
@@ -168,10 +193,35 @@ namespace Parsek.Patches
                 // icon on it (the residual teleport). If the Director is tracking this ghost at all,
                 // suppress the proto icon so the marker pass draws the polyline instead; the icon re-shows
                 // once the Director re-establishes a StockConic drive (the hyperbolic).
-                if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(pid, Time.frameCount))
+                bool directorTracking =
+                    Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(pid, Time.frameCount);
+                bool suppressNoBounds =
+                    GhostOrbitIconDrivePatch.ShouldSuppressIconNoBounds(directorTracking);
+                if (suppressNoBounds)
                     GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
 
+                // Bug 3 burn-seam instrumentation (observability only, never feeds a decision): record
+                // the suppression-ENTER and un-suppress-EXIT boundary frames with the proto worldPos so
+                // the next playtest log shows, from one grep, the stale-window length and the snap
+                // magnitude at the un-suppress (the headline "icon teleported for one frame at a burn"
+                // symptom is this segment -> state-vector seam suppression-exit, NOT the doc's
+                // warp-reseed-lag). The behavioral continuity fix is gated on this read; see
+                // docs/dev/todo-and-known-bugs.md. This is the alternate suppress path; the Director-
+                // traced early-return above carries the same instrumentation for the path the headline
+                // event actually takes.
+                EmitIconSuppressTransition(__instance, pid, suppressNoBounds, currentUT);
+
                 return true;
+            }
+            else
+            {
+                // Found segment bounds this frame. If this pid was icon-suppressed (Director-traced or
+                // no-bounds) on the immediately-preceding frame, this is the un-suppress EXIT (the
+                // StockConic / hyperbolic drive re-established) — log the snap-side boundary too. The
+                // cheap O(1) last-frame check inside short-circuits to None (no work) for the steady-
+                // state never-suppressed ghost, so this adds only one dict lookup per driven ghost per
+                // frame.
+                EmitIconSuppressTransition(__instance, pid, suppressedThisFrame: false, currentUT: currentUT);
             }
 
             double shift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
@@ -323,6 +373,72 @@ namespace Parsek.Patches
             // Tier-C icon-jump anomaly), behind the mapRenderTracing setting, so the steady-state
             // per-frame cost is gone from normal play. See docs/dev/design-map-ts-render-tracer.md.
             return false;
+        }
+
+        /// <summary>
+        /// Bug 3 burn-seam observability: classify and (on the ENTER / EXIT boundaries only) log this
+        /// ghost pid's proto-icon suppression transition this frame, then update the per-pid last-frame
+        /// stamp so the next frame can detect EXIT. Pure-observability: the result NEVER feeds a
+        /// decision. Called from BOTH icon-suppress paths in <see cref="Prefix"/> - the Director-traced
+        /// early-return (the path the headline burn-seam teleport actually traverses) and the no-bounds
+        /// branch - plus the un-suppress side on the drive-path else branch, so the transition is
+        /// classified regardless of which suppress branch opened the stale window. The two boundary
+        /// frames carry the proto worldPos (raw + body-relative, matching the MapRenderProbe icon-jump
+        /// convention) so the next playtest log shows, from one grep, the stale-window length and the
+        /// un-suppress snap magnitude that IS the "icon teleported for one frame at a burn" symptom. The
+        /// Sustain (continuing-suppressed) frames are not logged per-frame to avoid spam; the Enter line
+        /// already pins the stale worldPos.
+        /// </summary>
+        private static void EmitIconSuppressTransition(
+            OrbitDriver driver, uint pid, bool suppressedThisFrame, double currentUT)
+        {
+            int frame = Time.frameCount;
+            int lastSuppressed = GhostMapPresence.ghostNoBoundsSuppressLastFrame.TryGetValue(pid, out int f)
+                ? f
+                : int.MinValue;
+            GhostMapPresence.NoBoundsSuppressTransition transition =
+                GhostMapPresence.ClassifyNoBoundsSuppressionTransition(
+                    suppressedThisFrame, frame, lastSuppressed);
+
+            // Maintain the stamp: set on suppressed frames, prune on the EXIT frame so a later run is a
+            // clean ENTER again. (Sustain keeps extending the stamp.)
+            if (suppressedThisFrame)
+                GhostMapPresence.ghostNoBoundsSuppressLastFrame[pid] = frame;
+            else if (transition == GhostMapPresence.NoBoundsSuppressTransition.Exit)
+                GhostMapPresence.ghostNoBoundsSuppressLastFrame.Remove(pid);
+
+            // Steady-state fast path: most driven ghosts are never no-bounds-suppressed, so the
+            // transition is None and we return before any Unity read / string format.
+            if (transition != GhostMapPresence.NoBoundsSuppressTransition.Enter
+                && transition != GhostMapPresence.NoBoundsSuppressTransition.Exit)
+                return;
+
+            Vector3d worldPos = driver != null && driver.vessel != null
+                ? driver.vessel.GetWorldPos3D()
+                : Vector3d.zero;
+            CelestialBody refBody = driver != null ? driver.referenceBody : null;
+            Vector3d bodyRelPos = refBody != null
+                ? worldPos - (Vector3d)refBody.position
+                : worldPos;
+            bool directorTracking =
+                Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(pid, frame);
+
+            // Key the rate limiter by TRANSITION so the EXIT (un-suppress snap) is never dropped by a
+            // preceding ENTER within the rate window: at warp the stale window is often sub-second, so
+            // a shared key would suppress the snap line the read needs. Each of {Enter, Exit} gets its
+            // own ~1 s budget per pid, which is enough to capture the pairs without per-frame spam.
+            ParsekLog.VerboseRateLimited("GhostOrbitIcon",
+                "icon-suppress-" + transition + "-" + pid,
+                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Icon suppress {0} pid={1} frame={2} liveUT={3:F1} directorTracking={4} " +
+                    "lastSuppressedFrame={5} worldPos=({6:F0},{7:F0},{8:F0}) bodyRelPos=({9:F0},{10:F0},{11:F0}) " +
+                    "body={12} scene={13}",
+                    transition, pid, frame, currentUT, directorTracking,
+                    lastSuppressed == int.MinValue ? "none" : lastSuppressed.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    worldPos.x, worldPos.y, worldPos.z,
+                    bodyRelPos.x, bodyRelPos.y, bodyRelPos.z,
+                    refBody != null ? refBody.name : "-", HighLogic.LoadedScene),
+                1.0);
         }
     }
 
