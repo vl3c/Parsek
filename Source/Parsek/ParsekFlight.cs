@@ -19577,25 +19577,6 @@ namespace Parsek
                 }
             }
 
-            // Bug 3 facet (b): settle the icons of any loop-shifted map ghosts created THIS frame by the
-            // per-frame loop-aware deferred-create pass (above, in DriveMapPresence). REQUIRED ORDERING:
-            // create (DriveMapPresence) -> shadow RunFrame writes seedByPid (just above) -> THIS settle
-            // pass -> end-of-frame MapRenderProbe (DefaultExecutionOrder 10000). Must run AFTER RunFrame so
-            // the brand-new pid's StockConic seed is fresh (the create-time icon drive ran before it
-            // existed and landed on the spawn position), and BEFORE the probe so it records the settled
-            // on-orbit FirstPosition. Empty-set fast path => zero cost when no loop ghost was created. Own
-            // try/catch (mirrors the shadow guard): never break the live flight update.
-            try
-            {
-                GhostMapPresence.SettleFreshlyCreatedLoopGhostIcons();
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.VerboseRateLimited("MapRender", "settle-fresh-loop-exception",
-                    "SettleFreshlyCreatedLoopGhostIcons threw (suppressed): "
-                        + ex.GetType().Name + ": " + ex.Message, 10.0);
-            }
-
             // Phase F: per-frame resource delta application removed.
             // The standalone applier (ApplyResourceDeltas, gated by ManagesOwnResources)
             // and the tree lump-sum applier (ApplyTreeResourceDeltas/ApplyTreeLumpSum)

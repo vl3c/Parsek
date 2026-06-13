@@ -3923,20 +3923,23 @@ namespace Parsek
         /// the ghost enters its first orbital segment.
         /// </summary>
         internal static Vessel CreateGhostVesselFromSegment(
-            int recordingIndex, IPlaybackTrajectory traj, OrbitSegment segment)
+            int recordingIndex, IPlaybackTrajectory traj, OrbitSegment segment,
+            double loopEpochShiftSeconds = 0.0)
         {
             return CreateGhostVesselFromSegment(
                 recordingIndex,
                 traj,
                 segment,
-                TrackingStationGhostSource.Segment);
+                TrackingStationGhostSource.Segment,
+                loopEpochShiftSeconds);
         }
 
         private static Vessel CreateGhostVesselFromSegment(
             int recordingIndex,
             IPlaybackTrajectory traj,
             OrbitSegment segment,
-            TrackingStationGhostSource source)
+            TrackingStationGhostSource source,
+            double loopEpochShiftSeconds = 0.0)
         {
             if (traj == null) return null;
             string sourceLabel = source == TrackingStationGhostSource.EndpointTail
@@ -3973,7 +3976,8 @@ namespace Parsek
                 "recording index={0} (from {1})",
                 recordingIndex,
                 protoSource);
-            Vessel vessel = BuildAndLoadGhostProtoVessel(traj, segment, logContext, protoSource);
+            Vessel vessel = BuildAndLoadGhostProtoVessel(
+                traj, segment, logContext, protoSource, loopEpochShiftSeconds);
             if (vessel != null)
             {
                 TrackRecordingGhostVessel(recordingIndex, traj, vessel);
@@ -6272,7 +6276,8 @@ namespace Parsek
                     return CreateGhostVesselForRecording(recordingIndex, traj);
 
                 case TrackingStationGhostSource.Segment:
-                    Vessel segmentGhost = CreateGhostVesselFromSegment(recordingIndex, traj, segment);
+                    Vessel segmentGhost = CreateGhostVesselFromSegment(
+                        recordingIndex, traj, segment, loopEpochShiftSeconds);
                     if (segmentGhost != null)
                     {
                         UpdateGhostOrbitForRecording(
@@ -6288,7 +6293,8 @@ namespace Parsek
                         recordingIndex,
                         traj,
                         segment,
-                        TrackingStationGhostSource.EndpointTail);
+                        TrackingStationGhostSource.EndpointTail,
+                        loopEpochShiftSeconds);
                     if (endpointTailGhost != null)
                     {
                         UpdateGhostOrbitForRecording(
@@ -8458,102 +8464,6 @@ namespace Parsek
                     context, vessel.persistentId));
         }
 
-        /// <summary>
-        /// Bug 3 facet (b) pure decision: should this freshly-created flight map ghost be queued for the
-        /// post-RunFrame settle pass? Only loop-shifted members (<paramref name="loopEpochShiftSeconds"/>
-        /// != 0) are recreated every frame at extreme warp and read before the shadow seeds them. A
-        /// non-loop create has shift 0 and already glides via stock at the live UT (its create-time
-        /// position is correct), so it is never queued and the settle pass is byte-identical to before for
-        /// non-loop ghosts.
-        /// </summary>
-        internal static bool ShouldSettleFreshlyCreatedLoopGhost(double loopEpochShiftSeconds)
-            => loopEpochShiftSeconds != 0.0;
-
-        /// <summary>
-        /// Bug 3 facet (b): re-drive the icon POSITION of every loop-shifted flight map ghost CREATED this
-        /// frame, AFTER the shadow (<c>ShadowRenderDriver.RunFrame</c>) has written this frame's StockConic
-        /// seed and BEFORE the end-of-frame <see cref="MapRenderProbe"/> reads the icon. The create-time
-        /// <see cref="ForceImmediateIconDrive"/> ran with <c>fresh=False</c> (the seed for the brand-new pid
-        /// did not exist yet), so it took the legacy effUT path whose <c>SetPosition</c> KSP discards on its
-        /// next live re-propagation; the icon would otherwise sit at its raw-epoch SPAWN position when the
-        /// probe reads it. With the seed now fresh, the second <c>updateFromParameters()</c> routes through
-        /// the icon-drive Prefix's Director branch (<c>SeedAndDriveLive</c>) which bakes the loop shift into
-        /// the orbit EPOCH, so the settled on-orbit position survives KSP's live re-propagation and the
-        /// probe records the correct FirstPosition (the read-before-settle <c>icon-off-orbit</c> family).
-        ///
-        /// REQUIRED FRAME ORDERING (load-bearing): per-frame create (RunFlightMapDeferredCreatePass) ->
-        /// shadow RunFrame writes seedByPid -> THIS settle pass -> probe (DefaultExecutionOrder 10000). The
-        /// caller (ParsekFlight.UpdateTimelinePlaybackViaEngine) must invoke this AFTER RunFrame and BEFORE
-        /// the probe. If a future refactor moves RunFrame after the create pass, or moves this before
-        /// RunFrame, the seed is not fresh and the Director branch silently does not engage (the summary
-        /// logs <c>directorActive=0</c>, the symptom returns) - the directorActive readback below is the
-        /// regression tripwire.
-        ///
-        /// Empty-set fast path: zero cost on frames where no loop ghost was created (the steady state).
-        /// Reuses the existing effUT-&gt;world resolution via the icon-drive Prefix (no new shift math). Does
-        /// NOT touch the suppress path: <c>updateFromParameters()</c> re-runs the Prefix, so an off-arc /
-        /// no-bounds / Director-traced freshly-created ghost still suppresses correctly.
-        /// </summary>
-        internal static void SettleFreshlyCreatedLoopGhostIcons()
-        {
-            // Steady-state fast path: nothing created this frame. This method references NO Unity ECall
-            // (the Unity work lives in DriveFreshlyCreatedLoopGhostIcons, reached only on a non-empty set),
-            // so it JIT-verifies + runs headless: the empty-set case is unit-testable directly.
-            if (flightFreshlyCreatedLoopGhostsThisFrame.Count == 0)
-                return;
-
-            DriveFreshlyCreatedLoopGhostIcons();
-            flightFreshlyCreatedLoopGhostsThisFrame.Clear();
-        }
-
-        /// <summary>
-        /// Unity-coupled body of <see cref="SettleFreshlyCreatedLoopGhostIcons"/> (FlightGlobals /
-        /// Planetarium / Time / OrbitDriver). Split out so the empty-set fast path in the caller carries no
-        /// Unity ECall and stays headless-safe (the JIT verifies the WHOLE method on first call, so a
-        /// referenced ECall throws under the test assembly's restricted security zone even behind a guard).
-        /// Only invoked when the work-list is non-empty.
-        /// </summary>
-        private static void DriveFreshlyCreatedLoopGhostIcons()
-        {
-            int settled = 0;
-            int directorActive = 0;
-            uint samplePid = 0u;
-            Vector3d samplePos = Vector3d.zero;
-            double liveUT = Planetarium.GetUniversalTime();
-            int frame = Time.frameCount;
-
-            foreach (uint pid in flightFreshlyCreatedLoopGhostsThisFrame)
-            {
-                // Resolve the freshly-created proto; guard it is still a Parsek map ghost (it could have
-                // been destroyed between create and settle in the same frame - drive nothing then).
-                if (!IsGhostMapVessel(pid))
-                    continue;
-                if (!FlightGlobals.FindVessel(pid, out Vessel v) || v == null || v.orbitDriver == null)
-                    continue;
-
-                // Second drive: the seed is now fresh (written by RunFrame above), so the icon-drive
-                // Prefix takes the Director branch and bakes the loop shift into the epoch.
-                v.orbitDriver.updateFromParameters();
-                settled++;
-                if (Parsek.MapRender.ShadowRenderDriver.IsDirectorDriveActive(pid, frame))
-                    directorActive++;
-                if (samplePid == 0u)
-                {
-                    samplePid = pid;
-                    samplePos = v.GetWorldPos3D();
-                }
-            }
-
-            // One summary line per non-empty frame (batch-counting convention). directorActive>0 proves
-            // the Director branch engaged (the fix working); =0 with settled>0 is the ordering-regression
-            // tripwire. samplePos lets the next playtest confirm FirstPosition != spawn.
-            ParsekLog.Verbose("MapRender",
-                string.Format(ic,
-                    "Settled freshly-created loop ghost icons: settled={0} directorActive={1} " +
-                    "liveUT={2:F1} samplePid={3} sampleWorldPos={4}",
-                    settled, directorActive, liveUT, samplePid, samplePos));
-        }
-
         private static void ApplyOrbitToVessel(Vessel vessel, OrbitSegment segment, string logContext,
             double loopEpochShiftSeconds = 0.0)
         {
@@ -10027,7 +9937,6 @@ namespace Parsek
             ghostLastAppliedOrbitBody.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             ghostOrbitEpochShift.Clear();
-            flightFreshlyCreatedLoopGhostsThisFrame.Clear();
             ClearPolylineOwningStampsForTesting();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
@@ -10214,7 +10123,8 @@ namespace Parsek
             IPlaybackTrajectory traj,
             OrbitSegment segment,
             string logContext,
-            string protoSource = "visible-segment")
+            string protoSource = "visible-segment",
+            double loopEpochShiftSeconds = 0.0)
         {
             CelestialBody body = FindBodyByName(segment.bodyName);
             if (body == null)
@@ -10226,6 +10136,17 @@ namespace Parsek
                 return null;
             }
 
+            // Bug 3 (creation-frame icon-off-orbit): BAKE the loop epoch shift into the orbit the proto is
+            // LOADED with. ProtoVessel.Load propagates the packed icon at the LIVE Planetarium clock against
+            // the node's epoch; with the raw recorded epoch (loopEpochShiftSeconds=0) that lands the icon
+            // shift-worth-of-mean-anomaly off the recorded phase at creation, snapping onto the line only on
+            // the next physics tick (off EVERY frame at warp, where the proto is recreated each frame).
+            // epoch = segment.epoch + shift makes pv.Load's live-clock propagation land on the recorded
+            // phase at creation, with no settle pass. The per-frame steady-state drive
+            // (StockConicTreatment.SeedAndDriveLive) re-seeds the whole orbit from the RAW segment.epoch +
+            // shift every FixedUpdate, so the baked node epoch governs ONLY the single creation frame and
+            // never compounds. Non-loop / terminal / state-vector ghosts pass shift 0 -> byte-identical to
+            // before. The recorded OrbitSegment is NOT mutated; only this live Orbit instance carries the bake.
             Orbit orbit = new Orbit(
                 segment.inclination,
                 segment.eccentricity,
@@ -10233,7 +10154,7 @@ namespace Parsek
                 segment.longitudeOfAscendingNode,
                 segment.argumentOfPeriapsis,
                 segment.meanAnomalyAtEpoch,
-                segment.epoch,
+                segment.epoch + loopEpochShiftSeconds,
                 body);
 
             return BuildAndLoadGhostProtoVesselCore(
@@ -10851,22 +10772,6 @@ namespace Parsek
             new HashSet<string>();
 
         /// <summary>
-        /// Bug 3 facet (b): pids of loop-shifted flight map ghost ProtoVessels CREATED this frame by
-        /// the per-frame loop-aware deferred-create pass (<see cref="RunFlightMapDeferredCreatePass"/>).
-        /// At extreme warp these protos are fully destroyed + recreated every frame, so the create-time
-        /// <see cref="ForceImmediateIconDrive"/> runs BEFORE the shadow (<c>ShadowRenderDriver.RunFrame</c>)
-        /// has written this frame's StockConic seed: the icon-drive Prefix sees <c>fresh=False</c>, takes
-        /// the legacy effUT path (discarded by KSP's live re-propagation), and the end-of-frame
-        /// <see cref="MapRenderProbe"/> reads the icon at its raw-epoch SPAWN position (the
-        /// <c>icon-off-orbit</c> read-before-settle anomaly). <see cref="SettleFreshlyCreatedLoopGhostIcons"/>
-        /// re-drives these pids AFTER RunFrame seeds them (so the Director branch bakes the shift into the
-        /// epoch) and before the probe reads. Flight-scoped: only the flight deferred-create pass populates
-        /// it, and only the flight settle-pass site drains it. Cleared every frame by the settle pass.
-        /// </summary>
-        internal static readonly HashSet<uint> flightFreshlyCreatedLoopGhostsThisFrame =
-            new HashSet<uint>();
-
-        /// <summary>
         /// Per-chain dedup: maps chainId → recording index that currently owns the ghost map vessel.
         /// When a new chain segment creates a ghost map vessel, the previous segment's is removed.
         /// Prevents duplicate orbit lines during fast time warp across chain boundaries.
@@ -10901,7 +10806,6 @@ namespace Parsek
             flightSoiGapStateVectorExpectedBodies.Clear();
             flightStateVectorCachedIndices.Clear();
             flightTerminalMapRetentionLoggedIds.Clear();
-            flightFreshlyCreatedLoopGhostsThisFrame.Clear();
             nextMapOrbitUpdateTime = 0f;
         }
 
@@ -12150,25 +12054,6 @@ namespace Parsek
 
                             if (ghost != null)
                             {
-                                // Bug 3 facet (b): a loop-shifted member is destroyed + recreated
-                                // every frame at extreme warp, so its create-time icon drive ran
-                                // before the shadow seeded this frame's pid and landed on the raw
-                                // SPAWN position. Queue it for the post-RunFrame settle pass, which
-                                // re-drives the icon once the seed is fresh (Director branch bakes the
-                                // shift into the epoch) before the end-of-frame probe reads it. Non-loop
-                                // members (shift 0) glide via stock and are never queued.
-                                if (GhostMapPresence.ShouldSettleFreshlyCreatedLoopGhost(pendingLoopEpochShift))
-                                {
-                                    flightFreshlyCreatedLoopGhostsThisFrame.Add(ghost.persistentId);
-                                    ParsekLog.VerboseRateLimited("MapRender",
-                                        "queue-settle-" + ghost.persistentId,
-                                        string.Format(CultureInfo.InvariantCulture,
-                                            "Queued freshly-created loop ghost for settle pass: " +
-                                            "pid={0} idx={1} shift={2:F1}",
-                                            ghost.persistentId, idx, pendingLoopEpochShift),
-                                        2.0);
-                                }
-
                                 if (GhostMapPresence.IsStateVectorGhostSource(toCreate[i].source))
                                 {
                                     flightStateVectorOrbitTrajectories[idx] = traj;
