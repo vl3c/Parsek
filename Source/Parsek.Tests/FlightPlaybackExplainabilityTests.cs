@@ -21,12 +21,14 @@ namespace Parsek.Tests
             FlightRecorder.FrameCountProviderForTesting = () => 123;
             ReFlySettleStabilityTracker.Reset();
             PlaybackScopeTracker.ResetForTesting();
+            LiveAnchorBindTracker.ResetForTesting();
         }
 
         public void Dispose()
         {
             ReFlySettleStabilityTracker.Reset();
             PlaybackScopeTracker.ResetForTesting();
+            LiveAnchorBindTracker.ResetForTesting();
             FlightRecorder.FrameCountProviderForTesting = null;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -295,6 +297,111 @@ namespace Parsek.Tests
                 // The former per-recording "Spawn suppressed for #N" line is gone.
                 Assert.DoesNotContain(logLines, l =>
                     l.Contains("[Spawner]") && l.Contains("Spawn suppressed for #"));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void ComputePlaybackFlags_LiveAnchorDoubleSuppressed_CountsOnAlreadyRenderedAnchorWithoutInflatingSpawnTotal()
+        {
+            // Step-2 (PR #1136 live-anchor double-suppression): when the anchor's own
+            // loop ghost was just live-bound by a relative member, Step-2 suppresses the
+            // recorded anchor double. In the playtest the anchor (Depot) was ALREADY
+            // rendered, so the suppression took the destroy/skip path (skipReason =
+            // external-vessel-suppressed) rather than the spawn-suppression branch. This
+            // test pins that the live-anchor-double-suppressed histogram count increments
+            // for such an already-rendered anchor (finalNeedsSpawn == true, so it never
+            // enters the spawn-suppression branch) and that the spawn-suppressed head
+            // total counts ONLY the genuinely spawn-suppressed recording, not the Step-2
+            // firing.
+            RecordingStore.ResetForTesting();
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+
+                // Anchor: spawnable + in replay scope so finalNeedsSpawn == true. It is
+                // NOT spawn-suppressed; only Step-2 acts on it (via the destroy/skip
+                // path, since externalVesselSuppressed drives the skipReason).
+                var anchor = MakeRecording("rec-anchor", "Live Depot");
+                anchor.VesselSnapshot = new ConfigNode("VESSEL");
+                anchor.TerminalStateValue = TerminalState.Orbiting;
+                ArmReplayScope(anchor);
+
+                // A genuinely spawn-suppressed recording (no snapshot / no terminal) that
+                // is NOT live-bound: it must remain the sole contributor to the head
+                // "Spawn suppressed: N recording(s)" total.
+                var spawnSuppressed = MakeRecording("rec-spawn-suppressed", "Plain Ghost");
+
+                var committed = new List<Recording> { anchor, spawnSuppressed };
+
+                // Make the anchor's bind "recent": the default frame provider is 0, so a
+                // same-frame RecordLiveBind reads back as recent in WasLiveBoundRecently.
+                LiveAnchorBindTracker.RecordLiveBind("rec-anchor");
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
+
+                // Step-2 fired on the already-rendered anchor: it is suppressed via the
+                // skip path, but stays spawnable (Block A skipped, so not in the spawn
+                // total).
+                Assert.True(flags[0].skipGhost);
+                Assert.Equal(GhostPlaybackSkipReason.ExternalVesselSuppressed, flags[0].skipReason);
+                Assert.True(flags[0].needsSpawn);
+
+                var summaryLines = logLines
+                    .Where(l => l.Contains("[Spawner]") && l.Contains("Spawn suppressed:"))
+                    .ToList();
+                Assert.Single(summaryLines);
+
+                // The Step-2 firing is measurable: the histogram carries the
+                // live-anchor-double-suppressed key with a non-zero count.
+                Assert.Contains("live-anchor-double-suppressed=1", summaryLines[0]);
+
+                // The head total counts ONLY the genuinely spawn-suppressed recording;
+                // the Step-2 firing on the already-rendered anchor did not inflate it.
+                Assert.Contains("Spawn suppressed: 1 recording(s)", summaryLines[0]);
+
+                // A dedicated per-anchor line is also emitted so the Step-2 firing is
+                // visible even when the rate-limited batched summary is crowded out.
+                Assert.Contains(
+                    logLines,
+                    l => l.Contains("[Anchor]") && l.Contains("Step-2 suppressed live-anchor double"));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void ComputePlaybackFlags_LiveAnchorDoubleSuppressedOnly_StillEmitsSummaryWithZeroSpawnTotal()
+        {
+            // A frame where the ONLY suppression is Step-2 on an already-rendered anchor:
+            // the spawn-suppressed total is 0, yet the batched summary must still emit so
+            // the destroy/skip-path double-suppression stays visible in the log.
+            RecordingStore.ResetForTesting();
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+
+                var anchor = MakeRecording("rec-anchor-only", "Live Depot");
+                anchor.VesselSnapshot = new ConfigNode("VESSEL");
+                anchor.TerminalStateValue = TerminalState.Orbiting;
+                ArmReplayScope(anchor);
+
+                var committed = new List<Recording> { anchor };
+                LiveAnchorBindTracker.RecordLiveBind("rec-anchor-only");
+
+                ComputePlaybackFlagsForTesting(host, committed, 200.0);
+
+                var summaryLines = logLines
+                    .Where(l => l.Contains("[Spawner]") && l.Contains("Spawn suppressed:"))
+                    .ToList();
+                Assert.Single(summaryLines);
+                Assert.Contains("Spawn suppressed: 0 recording(s)", summaryLines[0]);
+                Assert.Contains("live-anchor-double-suppressed=1", summaryLines[0]);
             }
             finally
             {

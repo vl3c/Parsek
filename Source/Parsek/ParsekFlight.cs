@@ -19162,6 +19162,13 @@ namespace Parsek
             var spawnSuppressedByReason = spawnSuppressedReasonScratch;
             spawnSuppressedByReason.Clear();
             int spawnSuppressedCount = 0;
+            // Step-2 firings are counted separately from spawnSuppressedCount: a
+            // live-anchor double can be suppressed via the destroy/skip path on an
+            // ALREADY-SPAWNED ghost (not a spawn-suppression), so folding it into the
+            // spawn total would inflate "Spawn suppressed: N". This counter holds the
+            // per-frame Step-2 firing count for the emit gate; the histogram below
+            // carries the matching live-anchor-double-suppressed key for the log line.
+            int liveAnchorDoubleSuppressedCount = 0;
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -19268,17 +19275,39 @@ namespace Parsek
                     spawnSuppressedCount++;
                 }
 
-                // Fold the Step-2 live-anchor-double suppression into the SAME batched
-                // histogram (no per-recording line) so the playtest log shows how many
-                // anchor doubles were suppressed and why, riding the one summary emitted
-                // after the loop. Counted even for debris-anchored cases since the anchor
-                // here is a station, not debris.
+                // Step-2 (live-anchor double-suppression) count. This block is reached
+                // for EVERY committed recording each frame (no continue precedes it), so
+                // it fires whenever Step-2 suppressed the anchor's own loop ghost double,
+                // whether via the spawn path (ghost not yet spawned) or the destroy/skip
+                // path (ghost already rendered, then torn down via externalVesselSuppressed
+                // -> skipReason). It is deliberately NOT folded into spawnSuppressedCount:
+                // the earlier code bumped spawnSuppressedCount here, which inflated the
+                // "Spawn suppressed: N" head with already-spawned ghosts (and could
+                // double-count a recording that also hit the spawn-suppression branch).
+                // The dedicated counter keeps the spawn total honest while the histogram
+                // key carries the Step-2 number; the post-loop emit gate fires on either
+                // count so a Step-2-only frame still logs the summary. Counted even for
+                // debris-anchored cases since the anchor here is a station, not debris.
                 if (liveAnchorDoubleSuppressed)
                 {
                     const string liveAnchorDoubleKey = "live-anchor-double-suppressed";
                     spawnSuppressedByReason.TryGetValue(liveAnchorDoubleKey, out int liveAnchorCount);
                     spawnSuppressedByReason[liveAnchorDoubleKey] = liveAnchorCount + 1;
-                    spawnSuppressedCount++;
+                    liveAnchorDoubleSuppressedCount++;
+
+                    // The batched summary above is rate-limited under a shared key, so a
+                    // rare 1-2 frame Step-2 firing (a warp-fast docking) is easily crowded
+                    // out by spawn-suppression summaries and never appears - exactly why
+                    // the live log read 0 even though Step-2 fired. Emit a dedicated
+                    // per-anchor rate-limited line so each docking's suppression is
+                    // guaranteed visible at least once, independent of the spawn summary.
+                    ParsekLog.VerboseRateLimited(
+                        "Anchor",
+                        "step2-double-suppress|" + (rec.RecordingId ?? "(none)"),
+                        "Step-2 suppressed live-anchor double: rec=" + (rec.RecordingId ?? "(none)")
+                            + " vessel=\"" + (rec.VesselName ?? "(none)") + "\""
+                            + " (own loop ghost hidden while a relative member docks the live vessel)",
+                        5.0);
                 }
 
                 flags[i] = new TrajectoryPlaybackFlags
@@ -19316,8 +19345,10 @@ namespace Parsek
             // One batched, rate-limited summary instead of one line per suppressed
             // recording. Shared key + VerboseRateLimited hard-caps the rate so the
             // per-frame summary cannot spam even when the committed list is large or a
-            // reason oscillates frame-to-frame.
-            if (spawnSuppressedCount > 0)
+            // reason oscillates frame-to-frame. The gate also fires on a Step-2-only
+            // frame (spawn total 0, live-anchor-double-suppressed > 0) so the
+            // destroy/skip-path double-suppression stays measurable in the log.
+            if (spawnSuppressedCount > 0 || liveAnchorDoubleSuppressedCount > 0)
             {
                 ParsekLog.VerboseRateLimited(
                     "Spawner",
