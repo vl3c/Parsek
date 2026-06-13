@@ -480,6 +480,7 @@ namespace Parsek
                         int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                         if (addedSystems > 0)
                         {
+                            GhostFxEmissionProbe.AttachIfNew(fxClone, partName, moduleIndex, child.name);
                             GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
                                 fxClone, GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
                             clonesAdded++;
@@ -537,17 +538,81 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resolves the engine's exhaust anchor TRANSFORM on the prefab: the first
+        /// populated thrustTransforms entry, else the thrustVectorTransformName lookup
+        /// (prefab ModuleEngines often have an EMPTY thrustTransforms list; the
+        /// round-9 Twin-Boar re-anchor silently no-oped on exactly that).
+        /// </summary>
+        private static bool TryResolvePrefabExhaustAnchor(
+            Part prefab, ModuleEngines engine, out Transform anchor)
+        {
+            anchor = null;
+            if (engine != null && engine.thrustTransforms != null)
+            {
+                for (int t = 0; t < engine.thrustTransforms.Count; t++)
+                {
+                    if (engine.thrustTransforms[t] != null)
+                    {
+                        anchor = engine.thrustTransforms[t];
+                        return true;
+                    }
+                }
+            }
+
+            if (prefab != null && engine != null &&
+                !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+            {
+                var anchors = GhostVisualBuilder.FindTransformsRecursive(
+                    prefab.transform, engine.thrustVectorTransformName);
+                if (anchors.Count > 0 && anchors[0] != null)
+                {
+                    anchor = anchors[0];
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Resolves the engine's exhaust direction in prefab world space: the exhaust
+        /// anchor's forward (+Z; KSP convention points exhaust-ward). Used to aim
+        /// the world-space emitter velocity floor in each FX transform's local frame.
+        /// </summary>
+        private static bool TryResolvePrefabExhaustDirection(
+            Part prefab, ModuleEngines engine, out Vector3 worldDir)
+        {
+            worldDir = Vector3.zero;
+            if (!TryResolvePrefabExhaustAnchor(prefab, engine, out Transform anchor))
+                return false;
+            worldDir = anchor.forward;
+            return true;
+        }
+
+        /// <summary>
         /// Instantiates model FX entries (MODEL_MULTI_PARTICLE/MODEL_PARTICLE) from EFFECTS config
         /// and parents them to the ghost's mirrored transform hierarchy.
         /// </summary>
         private static void ProcessEngineModelFxEntries(
             List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)> modelFxEntries,
-            Part prefab, EngineGhostInfo info,
+            Part prefab, ModuleEngines engine, EngineGhostInfo info,
             string partName, int moduleIndex,
             Transform modelRoot, Transform ghostModelNode,
             Dictionary<Transform, Transform> cloneMap,
             Dictionary<string, bool> selectedVariantGameObjects)
         {
+            bool hasExhaustDir = TryResolvePrefabExhaustDirection(prefab, engine, out Vector3 exhaustWorldDir);
+            if (!hasExhaustDir && modelFxEntries.Count > 0)
+            {
+                LogHotPathVerbose($"exhaust-dir-miss-{partName}-{moduleIndex}",
+                    $"'{partName}' midx={moduleIndex}: no thrust transform resolvable; " +
+                    "world-space emitter velocity floor unavailable for model FX");
+            }
+
+            float modelSizeBoost = ResolveModelFxSizeBoost(
+                ReStockPatchFxIndex.HasAuthoredEffectsFor(prefab.partInfo?.name ?? partName),
+                partName);
+
             for (int f = 0; f < modelFxEntries.Count; f++)
             {
                 var (nodeType, transformName, modelName, mmpLocalPos, mmpLocalRot, groupName) = modelFxEntries[f];
@@ -595,11 +660,23 @@ namespace Parsek
 
                             GhostVisualBuilder.StripKspFxControllers(fxInstance, info.kspEmitters);
 
+                            if (hasExhaustDir)
+                            {
+                                // Exhaust axis in the emitter's local frame: undo the
+                                // instance's cfg rotation and the source FX transform's
+                                // prefab-space rotation (the ghost mirrors both).
+                                Vector3 exhaustLocal = Quaternion.Inverse(mmpLocalRot) *
+                                    (Quaternion.Inverse(srcFxTransform.rotation) * exhaustWorldDir);
+                                GhostVisualBuilder.ApplyWorldSpaceEmitterVelocityFloor(
+                                    fxInstance, partName, moduleIndex, exhaustLocal);
+                            }
+
                             int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                             if (addedSystems > 0)
                             {
+                                GhostFxEmissionProbe.AttachIfNew(fxInstance, partName, moduleIndex, modelName);
                                 GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
-                                    fxInstance, GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
+                                    fxInstance, modelSizeBoost);
                                 GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, nodeType, transformName,
                                     modelName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                                     fxInstance.transform, mmpLocalPos, mmpLocalRot, true);
@@ -629,17 +706,141 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Decides whether a prefab-name miss may probe KSP's builtin Effects/ assets:
+        /// when the part is Waterfall-patched (config packs strip the donor parts the
+        /// prefab cache is built from) OR when ReStock is installed (ReStock deletes
+        /// the legacy fx_* keys on every covered engine, emptying the donor cache for
+        /// names like fx_smokeTrail_light install-wide; jets' only running visual is
+        /// that prefab). False on stock installs: the donor cache resolves there and
+        /// stock paths must keep the deliberate fxPrefabFallbacks substitutions.
+        /// </summary>
+        internal static bool ShouldProbeBuiltinEffectsOnPrefabMiss(
+            bool partHasWaterfallModule, bool reStockInstalled)
+        {
+            return partHasWaterfallModule || reStockInstalled;
+        }
+
+        /// <summary>
+        /// Ghost size boost for MODEL_MULTI_PARTICLE instances. ReStock-authored model
+        /// FX sizes are absolute (live KSP scales emission/lifetime/velocity with
+        /// power, never particle size), so the stock-look boost must not inflate them;
+        /// the per-part overrides were tuned against STOCK prefab plumes.
+        /// </summary>
+        internal static float ResolveModelFxSizeBoost(bool restockAuthoredEffects, string partName)
+        {
+            return restockAuthoredEffects ? 1f : GhostVisualBuilder.ResolveEngineFxSizeBoost(partName);
+        }
+
+        /// <summary>
+        /// Resolves the local rotation for a PREFAB_PARTICLE instance without a cfg
+        /// localRotation on a ReStock-authored part: aim the prefab's emission axis
+        /// along the engine's exhaust axis expressed in the parent FX transform's
+        /// frame. The stock parent-up heuristic mis-aims on ReStock rigs (Mammoth's
+        /// smokePoint pointed the smoke trail straight up). The emission axis of the
+        /// smokeTrail prefabs is local MINUS-Y: MEASURED by GhostFxEmissionProbe
+        /// (round-5 log 2026-06-12): every instance aimed with +Y flowed exactly
+        /// inverted (177-180 deg) while every heuristic instance (identity rotation,
+        /// parent up vertical) flowed correctly, which is only consistent with -Y
+        /// emission. Returns false when the cfg authored a rotation, the part is not
+        /// ReStock-authored, or no exhaust axis is resolvable; callers then keep the
+        /// stock heuristic.
+        /// </summary>
+        // A prefab-FX mount transform farther than this from the part root gets the
+        // instance re-anchored to the engine's thrust transform. ReStock's Twin-Boar
+        // rig nests smokePoint under stacked 20x scales, placing the smoke mount
+        // ~200 m exhaust-ward of the part (the authored launch-smoke column far below
+        // an ascending booster); on a static rotated showcase fixture that becomes an
+        // orphan smoke column hanging 200 m to the side (round-8 probe: smoke instance
+        // measured 199 m from the part's own flames). No stock rig and no other
+        // ReStock rig mounts FX beyond a few meters, so the threshold is uncritical.
+        internal const float FarFxMountReanchorMeters = 25f;
+
+        internal static bool IsFarFxMount(float mountDistanceMeters)
+        {
+            return mountDistanceMeters > FarFxMountReanchorMeters;
+        }
+
+        // Below this angle between the FX transform's -Y and the engine's exhaust
+        // axis, the rig is trusted as-is (identity, the live PrefabParticleFX
+        // contract). LES is the case that needs it: its fxSmoke -Y is authored
+        // straight down the stack (central smoke column) while the escape thrust
+        // transform is deliberately canted ~30 degrees (Apollo-style); aiming the
+        // smoke onto the canted thrust axis was wrong. Round-6 probe data: every
+        // measured rig sits at either ~1 deg (trust) or ~90/180 deg (aim), so the
+        // threshold is uncritical anywhere between.
+        internal const float PrefabRigTrustAngleDegrees = 45f;
+
+        internal static bool TryComputeExhaustAimedPrefabRotation(
+            bool hasCfgRotation, bool restockAuthoredEffects, bool hasExhaustDir,
+            Vector3 exhaustAxisParentLocal, out Quaternion rotation)
+        {
+            rotation = Quaternion.identity;
+            if (hasCfgRotation || !restockAuthoredEffects || !hasExhaustDir)
+                return false;
+            if (exhaustAxisParentLocal.magnitude <= 0.001f)
+                return false;
+
+            Vector3 axis = exhaustAxisParentLocal.normalized;
+            // The transform's own -Y is the prefab's emission axis under the live
+            // identity contract. When it already roughly agrees with the exhaust
+            // axis, the rig author oriented it deliberately; keep identity.
+            float dotWithMinusY = Vector3.Dot(axis, Vector3.down);
+            if (dotWithMinusY >= Mathf.Cos(PrefabRigTrustAngleDegrees * Mathf.Deg2Rad))
+            {
+                rotation = Quaternion.identity;
+                return true;
+            }
+
+            rotation = ManagedFromToRotation(Vector3.down, axis);
+            return true;
+        }
+
+        /// <summary>
+        /// Managed from-to rotation (Quaternion.FromToRotation is a native ECall and
+        /// cannot run under xUnit). Inputs need not be normalized.
+        /// </summary>
+        internal static Quaternion ManagedFromToRotation(Vector3 from, Vector3 to)
+        {
+            Vector3 f = from.normalized;
+            Vector3 t = to.normalized;
+            float dot = Vector3.Dot(f, t);
+            if (dot > 0.999999f)
+                return Quaternion.identity;
+            if (dot < -0.999999f)
+            {
+                // Opposite vectors: rotate 180 degrees around any perpendicular axis.
+                Vector3 ortho = Vector3.Cross(f, Vector3.right);
+                if (ortho.sqrMagnitude < 1e-6f)
+                    ortho = Vector3.Cross(f, Vector3.forward);
+                ortho.Normalize();
+                return new Quaternion(ortho.x, ortho.y, ortho.z, 0f);
+            }
+
+            Vector3 axis = Vector3.Cross(f, t);
+            float s = Mathf.Sqrt((1f + dot) * 2f);
+            float invS = 1f / s;
+            return new Quaternion(axis.x * invS, axis.y * invS, axis.z * invS, s * 0.5f);
+        }
+
+        /// <summary>
         /// Instantiates PREFAB_PARTICLE entries from EFFECTS config and parents them to the
         /// ghost's mirrored transform hierarchy. Handles special cases like RAPIER white flame scaling.
         /// </summary>
         private static void ProcessEnginePrefabFxEntries(
             List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries,
-            Part prefab, EngineGhostInfo info,
+            Part prefab, ModuleEngines engine, EngineGhostInfo info,
             string partName, int moduleIndex,
             Transform modelRoot, Transform ghostModelNode,
             Dictionary<Transform, Transform> cloneMap,
             Dictionary<string, bool> selectedVariantGameObjects)
         {
+            bool restockAuthoredEffects =
+                ReStockPatchFxIndex.HasAuthoredEffectsFor(prefab.partInfo?.name ?? partName);
+            bool hasExhaustDir = TryResolvePrefabExhaustDirection(prefab, engine, out Vector3 exhaustWorldDir);
+            bool probeBuiltinEffects = ShouldProbeBuiltinEffectsOnPrefabMiss(
+                WaterfallCompat.PartHasWaterfallModule(prefab),
+                ReStockPatchFxIndex.IsReStockInstalled());
+
             for (int f = 0; f < prefabFxEntries.Count; f++)
             {
                 var (prefabName, transformName, localOffset, localRot, hasLocalRot, groupName) = prefabFxEntries[f];
@@ -649,13 +850,13 @@ namespace Parsek
                     string.Equals(normalizedPrefabName, "fx_exhaustFlame_white", System.StringComparison.OrdinalIgnoreCase);
 
                 GameObject fxPrefab = GhostVisualBuilder.FindFxPrefab(prefabName);
-                if (fxPrefab == null && WaterfallCompat.PartHasWaterfallModule(prefab))
+                if (fxPrefab == null && probeBuiltinEffects)
                 {
-                    // Waterfall-patched part: the exact prefab's donors may all be patched
-                    // away (e.g. the hardcoded Rhino/Puff/Vector supplements name
-                    // size-suffixed flames). Try KSP's builtin Effects/ asset for the EXACT
-                    // name first (preserves the true variant look), then the family-base
-                    // cascade before giving up.
+                    // Waterfall-patched part or ReStock install: the exact prefab's
+                    // donors may all be patched away (config packs strip them; ReStock
+                    // deletes the legacy fx_* keys outright). Try KSP's builtin
+                    // Effects/ asset for the EXACT name first (preserves the true
+                    // variant look), then the family-base cascade before giving up.
                     fxPrefab = GhostVisualBuilder.FindFxPrefabIncludingBuiltinEffects(
                         prefabName, out bool _);
                     if (fxPrefab == null)
@@ -709,6 +910,36 @@ namespace Parsek
 
                     Transform srcFxTransform = fxTransforms[t];
 
+                    // Far-mount re-anchor: an instance whose EFFECTIVE placement point
+                    // sits tens of meters from the part reads as an orphan effect on a
+                    // static ghost. The distance must be measured at TransformPoint of
+                    // the cfg localOffset, NOT the bare mount transform: ReStock's
+                    // Twin-Boar smokePoint sits 5 m from the part but carries lossyScale
+                    // 200, so its localOffset of one meter places the instance 200 m out
+                    // (round-11 forensics: mountDistPrefab=5 ghostInstDist=200
+                    // srcLossyScale=200.0; live PrefabParticleFX applies the same raw
+                    // localPosition, so the live column really is 200 m exhaust-ward).
+                    float mountDistance =
+                        (srcFxTransform.TransformPoint(localOffset) - prefab.transform.position).magnitude;
+                    if (IsFarFxMount(mountDistance))
+                    {
+                        if (TryResolvePrefabExhaustAnchor(prefab, engine, out Transform exhaustAnchor))
+                        {
+                            LogHotPathVerbose($"prefab-farmount-{partName}-{moduleIndex}-{transformName}",
+                                $"(prefab): '{partName}' midx={moduleIndex} mount '{transformName}' " +
+                                $"sits {(int)mountDistance} m from the part root; re-anchoring " +
+                                $"'{prefabName}' to exhaust anchor '{exhaustAnchor.name}'");
+                            srcFxTransform = exhaustAnchor;
+                        }
+                        else
+                        {
+                            LogHotPathVerbose($"prefab-farmount-miss-{partName}-{moduleIndex}-{transformName}",
+                                $"(prefab): '{partName}' midx={moduleIndex} mount '{transformName}' " +
+                                $"sits {(int)mountDistance} m from the part root but no exhaust " +
+                                "anchor is resolvable; instance stays on the far mount");
+                        }
+                    }
+
                     Transform ghostFxParent = GhostVisualBuilder.ResolveGhostFxParent(
                         srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
                     if (ghostFxParent == null)
@@ -724,10 +955,27 @@ namespace Parsek
                     GameObject fxInstance = Object.Instantiate(fxPrefab);
                     fxInstance.transform.SetParent(ghostFxParent, false);
                     fxInstance.transform.localPosition = localOffset;
-                    fxInstance.transform.localRotation = ResolvePrefabParticleLocalRotation(
-                        hasLocalRot,
-                        localRot,
-                        ghostFxParent.up);
+
+                    Vector3 exhaustParentLocal = hasExhaustDir
+                        ? Quaternion.Inverse(srcFxTransform.rotation) * exhaustWorldDir
+                        : Vector3.zero;
+                    if (TryComputeExhaustAimedPrefabRotation(
+                        hasLocalRot, restockAuthoredEffects, hasExhaustDir,
+                        exhaustParentLocal, out Quaternion exhaustAimedRot))
+                    {
+                        fxInstance.transform.localRotation = exhaustAimedRot;
+                        LogHotPathVerbose($"prefab-exhaust-aim-{partName}-{moduleIndex}-{prefabName}",
+                            $"(prefab): '{partName}' midx={moduleIndex} prefab='{prefabName}' " +
+                            $"aimed along exhaust axis {exhaustParentLocal} " +
+                            "(ReStock-authored part; stock parent-up heuristic mis-aims on ReStock rigs)");
+                    }
+                    else
+                    {
+                        fxInstance.transform.localRotation = ResolvePrefabParticleLocalRotation(
+                            hasLocalRot,
+                            localRot,
+                            ghostFxParent.up);
+                    }
 
                     if (isRapierWhiteFlame)
                     {
@@ -746,6 +994,20 @@ namespace Parsek
                     int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                     if (addedSystems > 0)
                     {
+                        GhostFxEmissionProbe.AttachIfNew(fxInstance, partName, moduleIndex, prefabName);
+                        // Round-10 placement forensics: the Twin-Boar smoke instance lands
+                        // ~200 m out on the ghost while the prefab-side mount distance
+                        // reads under the far-mount threshold; log both sides per
+                        // INSTANCE (t) so the divergence point names itself.
+                        float ghostMountDistance =
+                            (fxInstance.transform.position - ghostModelNode.position).magnitude;
+                        var ic = System.Globalization.CultureInfo.InvariantCulture;
+                        LogHotPathVerbose($"prefab-place-{partName}-{moduleIndex}-{transformName}-{t}",
+                            $"(prefab): '{partName}' midx={moduleIndex} inst={t}/{fxTransforms.Count} " +
+                            $"'{prefabName}' mountDistPrefab={(int)mountDistance} " +
+                            $"ghostInstDist={(int)ghostMountDistance} " +
+                            $"srcLossyScale={srcFxTransform.lossyScale.x.ToString("F1", ic)} " +
+                            $"ghostParentLossyScale={ghostFxParent.lossyScale.x.ToString("F1", ic)}");
                         GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
                             fxInstance, GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
@@ -788,6 +1050,13 @@ namespace Parsek
             }
             if (engineModules.Count == 0) return null;
 
+            // The hardcoded per-part FX tunings below were written for the STOCK look.
+            // When ReStock authored this part's EFFECTS, the scanned entries already ARE
+            // the install's correct look and the tunings must stand down (applies with
+            // and without Waterfall; empty index on non-ReStock installs = no change).
+            bool restockAuthoredEffects =
+                ReStockPatchFxIndex.HasAuthoredEffectsFor(prefab.partInfo?.name ?? partName);
+
             var result = new List<EngineGhostInfo>();
 
             for (int e = 0; e < engineModules.Count; e++)
@@ -799,9 +1068,21 @@ namespace Parsek
                     moduleIndex = moduleIndex
                 };
 
+                bool TuningStandsDown(string blockName)
+                {
+                    if (!restockAuthoredEffects)
+                        return false;
+                    LogHotPathVerbose($"restock-standdown-{partName}-{moduleIndex}-{blockName}",
+                        $"'{partName}' midx={moduleIndex}: stock {blockName} tuning stands down " +
+                        "(ReStock authored this part's EFFECTS)");
+                    return true;
+                }
+
                 // LES particle FX (LES_Thruster) produces excessive particles at playback distance.
                 // Skip particle FX — the nozzle glow from FXModuleAnimateThrottle provides sufficient visual.
-                if (string.Equals(partName, "LaunchEscapeSystem", System.StringComparison.Ordinal))
+                // ReStock's LES has lightweight model-based EFFECTS instead, so the skip stands down.
+                if (string.Equals(partName, "LaunchEscapeSystem", System.StringComparison.Ordinal) &&
+                    !TuningStandsDown("LES particle-FX skip"))
                 {
                     ParsekLog.Verbose("GhostVisual",
                         $"    Skipping engine particle FX for '{partName}' pid={persistentId}: LES uses nozzle glow only");
@@ -1021,12 +1302,13 @@ namespace Parsek
                 // Ant/Spider configs only define MODEL_MULTI_PARTICLE Monoprop_small in running FX.
                 // Add a Twitch-style prefab flame fallback so they render a visible plume like Twitch.
                 bool isAntOrSpider =
-                    string.Equals(partName, "microEngine.v2", System.StringComparison.OrdinalIgnoreCase) ||
+                    (string.Equals(partName, "microEngine.v2", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "microEngine_v2", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "microEngine", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "radialEngineMini.v2", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "radialEngineMini_v2", System.StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(partName, "radialEngineMini", System.StringComparison.OrdinalIgnoreCase);
+                    string.Equals(partName, "radialEngineMini", System.StringComparison.OrdinalIgnoreCase)) &&
+                    !TuningStandsDown("Ant/Spider plume supplement");
                 if (isAntOrSpider)
                 {
                     AddPrefabFallbackIfMissing(
@@ -1047,7 +1329,8 @@ namespace Parsek
                 // Kickback: force Thumper-style FX so smoke/flame match solidBooster1-1 visuals.
                 // This avoids the stock veryLarge/large smoke prefab orientation mismatch.
                 bool isKickback =
-                    string.Equals(partName, "MassiveBooster", System.StringComparison.OrdinalIgnoreCase);
+                    string.Equals(partName, "MassiveBooster", System.StringComparison.OrdinalIgnoreCase) &&
+                    !TuningStandsDown("Kickback forced Thumper plume");
                 if (isKickback)
                 {
                     int removedKickbackModelFx = modelFxEntries.Count;
@@ -1125,7 +1408,8 @@ namespace Parsek
 
                 // Puff (omsEngine) often renders only Monoprop_big model FX; add a compact blue flame core.
                 bool isPuff =
-                    string.Equals(partName, "omsEngine", System.StringComparison.OrdinalIgnoreCase);
+                    string.Equals(partName, "omsEngine", System.StringComparison.OrdinalIgnoreCase) &&
+                    !TuningStandsDown("Puff blue-flame supplement");
                 if (isPuff)
                 {
                     AddPrefabFallbackIfMissing(
@@ -1144,7 +1428,8 @@ namespace Parsek
                 // Rhino: force a compact Mainsail-like plume profile (small yellow flame + light smoke),
                 // aligned to the actual nozzle thrust axis.
                 bool isRhino =
-                    string.Equals(partName, "Size3AdvancedEngine", System.StringComparison.OrdinalIgnoreCase);
+                    string.Equals(partName, "Size3AdvancedEngine", System.StringComparison.OrdinalIgnoreCase) &&
+                    !TuningStandsDown("Rhino forced compact plume");
                 if (isRhino)
                 {
                     int removedRhinoModelFx = modelFxEntries.Count;
@@ -1190,11 +1475,12 @@ namespace Parsek
                 // Rhino/Mammoth/Twin-Boar can show smoke without a visible core flame in ghost playback.
                 // Add a white flame prefab fallback used by stock medium/large plume setups.
                 bool isHeavyLargeEngine =
-                    string.Equals(partName, "Size3AdvancedEngine", System.StringComparison.OrdinalIgnoreCase) ||
+                    (string.Equals(partName, "Size3AdvancedEngine", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "Size3EngineCluster", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "Size2LFB.v2", System.StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(partName, "Size2LFB_v2", System.StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(partName, "Size2LFB", System.StringComparison.OrdinalIgnoreCase);
+                    string.Equals(partName, "Size2LFB", System.StringComparison.OrdinalIgnoreCase)) &&
+                    !TuningStandsDown("heavy-engine white-flame supplement");
                 if (isHeavyLargeEngine)
                 {
                     string preferredTransform = "thrustTransform";
@@ -1220,7 +1506,8 @@ namespace Parsek
                 // Vector (SSME) can look underpowered with only blue_small + model flame.
                 // Add a Skipper-style blue flame core on the same transform as its stock blue_small prefab.
                 bool isVector =
-                    string.Equals(partName, "SSME", System.StringComparison.OrdinalIgnoreCase);
+                    string.Equals(partName, "SSME", System.StringComparison.OrdinalIgnoreCase) &&
+                    !TuningStandsDown("Vector blue-flame supplement");
                 if (isVector)
                 {
                     bool hasSkipperStyleFlame = false;
@@ -1276,7 +1563,7 @@ namespace Parsek
 
                 // RAPIER can resolve to dark/perpendicular smoke when aeroSpike smoke prefab falls back.
                 // Force a Vector-like visible plume: single large smoke + white flame core.
-                if (isRapierPart)
+                if (isRapierPart && !TuningStandsDown("RAPIER plume forcing"))
                 {
                     string rapierSmokeTransform = "smokePoint";
                     Vector3 rapierSmokeOffset = new Vector3(0f, 0f, 1f);
@@ -1443,11 +1730,11 @@ namespace Parsek
                 info.speedCurve = speedCurve;
 
                 // Process model FX entries (MODEL_MULTI_PARTICLE/MODEL_PARTICLE variants).
-                ProcessEngineModelFxEntries(modelFxEntries, prefab, info, partName, moduleIndex,
+                ProcessEngineModelFxEntries(modelFxEntries, prefab, engine, info, partName, moduleIndex,
                     modelRoot, ghostModelNode, cloneMap, selectedVariantGameObjects);
 
                 // Process PREFAB_PARTICLE entries (Spark, Twitch, Pug, Juno, Wheesley, Goliath)
-                ProcessEnginePrefabFxEntries(prefabFxEntries, prefab, info, partName, moduleIndex,
+                ProcessEnginePrefabFxEntries(prefabFxEntries, prefab, engine, info, partName, moduleIndex,
                     modelRoot, ghostModelNode, cloneMap, selectedVariantGameObjects);
 
                 if (info.particleSystems.Count > 0)
@@ -1512,11 +1799,97 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Counts the ModuleEngines-derived modules on a prefab (the live midx domain).
+        /// </summary>
+        private static int CountEngineModules(Part prefab)
+        {
+            int count = 0;
+            if (prefab == null || prefab.Modules == null)
+                return count;
+            for (int m = 0; m < prefab.Modules.Count; m++)
+            {
+                if (prefab.Modules[m] is ModuleEngines)
+                    count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// ReStock recovery: scans the EFFECTS node ReStock authored for this part (read
+        /// from ReStock's patch files on disk, see ReStockPatchFxIndex) into the entry
+        /// lists. Group filtering resolves per engine-module ordinal through the
+        /// patch-authored -> pristine -> all-groups chain; multi-module parts with no
+        /// per-ordinal source skip recovery (anti-bleed, mirroring the pristine
+        /// ordinal-miss rule). Returns true when any entries were added; the caller then
+        /// skips the stock pristine stages because the install's correct look is
+        /// ReStock's, not stock's.
+        /// </summary>
+        private static bool TryScanReStockEffectsEntries(
+            Part prefab, int moduleIndex, string partName,
+            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)> modelFxEntries,
+            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries,
+            ref FloatCurve emissionCurve, ref FloatCurve speedCurve)
+        {
+            string runtimeName = prefab.partInfo?.name ?? partName;
+            if (!ReStockPatchFxIndex.TryGetForPart(runtimeName, out var restock) ||
+                restock.EffectsNode == null)
+            {
+                return false;
+            }
+
+            var pristine = PristinePartFxResolver.GetForPart(runtimeName, prefab.partInfo?.configFileFullName);
+            if (!ReStockPatchFxIndex.TryResolveEngineGroupFilter(
+                restock, pristine, moduleIndex, CountEngineModules(prefab),
+                out HashSet<string> moduleGroups, out string filterSource))
+            {
+                LogHotPathVerbose($"restock-ordinal-miss-{partName}-{moduleIndex}",
+                    $"restock recovery: '{partName}' midx={moduleIndex} has no per-ordinal " +
+                    "effect-name source (patch or pristine) on a multi-engine-module part; " +
+                    "skipping ReStock EFFECTS recovery for this module");
+                return false;
+            }
+
+            ConfigNode[] allGroups = restock.EffectsNode.GetNodes();
+            string[] allGroupNames = new string[allGroups.Length];
+            for (int g = 0; g < allGroups.Length; g++)
+                allGroupNames[g] = allGroups[g].name ?? "?";
+
+            ConfigNode[] effectGroups;
+            string[] effectGroupNames;
+            if (moduleGroups != null && moduleGroups.Count > 0)
+            {
+                FilterEffectGroups(allGroups, allGroupNames, moduleGroups,
+                    out effectGroups, out effectGroupNames);
+            }
+            else
+            {
+                effectGroups = allGroups;
+                effectGroupNames = allGroupNames;
+            }
+
+            int modelBefore = modelFxEntries.Count;
+            int prefabBefore = prefabFxEntries.Count;
+            ScanEffectsModelFxEntries(effectGroups, effectGroupNames, modelFxEntries,
+                ref emissionCurve, ref speedCurve);
+            ScanEffectsPrefabParticleEntries(effectGroups, effectGroupNames, prefabFxEntries);
+
+            int added = (modelFxEntries.Count - modelBefore) + (prefabFxEntries.Count - prefabBefore);
+            LogHotPathVerbose($"restock-recovery-{partName}-{moduleIndex}",
+                $"restock recovery: '{partName}' midx={moduleIndex} restockScan={added} " +
+                $"(model={modelFxEntries.Count - modelBefore}, " +
+                $"prefab={prefabFxEntries.Count - prefabBefore}, groupFilter={filterSource}) " +
+                $"from '{restock.SourceFile}'" +
+                (added == 0 ? "; falling through to pristine stages" : string.Empty));
+            return added > 0;
+        }
+
+        /// <summary>
         /// SWE-remnant replacement: a config pack that deletes EFFECTS can still leave a
         /// stray particle behind (SWE keeps RAPIER's aerospike spool smoke), which used to
         /// block the empty-scan fallback and leave the ghost with remnants + hardcoded
-        /// supplements instead of the stock composition. When the gate is open and the
-        /// pristine EFFECTS yields particles for this module, prefer them wholesale.
+        /// supplements instead of the stock composition. When the gate is open and a
+        /// recovered EFFECTS (ReStock-authored first, else pristine) yields particles for
+        /// this module, prefer it wholesale.
         /// Returns true when the entries were replaced.
         /// </summary>
         private static bool TryReplaceSweRemnantsWithPristine(
@@ -1525,34 +1898,47 @@ namespace Parsek
             List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries,
             ref FloatCurve emissionCurve, ref FloatCurve speedCurve)
         {
-            string runtimeName = prefab.partInfo?.name ?? partName;
-            var pristine = PristinePartFxResolver.GetForPart(runtimeName, prefab.partInfo?.configFileFullName);
-            if (pristine == null || !pristine.Found || pristine.EffectsNode == null)
-                return false;
+            var replacementModel = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)>();
+            var replacementPrefab = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)>();
+            FloatCurve replacementEmission = null;
+            FloatCurve replacementSpeed = null;
+            string replacementSource;
 
-            var pristineModel = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)>();
-            var pristinePrefab = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)>();
-            FloatCurve pristineEmission = null;
-            FloatCurve pristineSpeed = null;
-            ScanPristineEffectsEntries(pristine, moduleIndex, partName,
-                pristineModel, pristinePrefab, ref pristineEmission, ref pristineSpeed);
+            // ReStock-authored EFFECTS first: when ReStock authored the look, the
+            // remnants must be replaced by IT, not by the stock pristine definitions.
+            if (TryScanReStockEffectsEntries(prefab, moduleIndex, partName,
+                replacementModel, replacementPrefab, ref replacementEmission, ref replacementSpeed))
+            {
+                replacementSource = "restock";
+            }
+            else
+            {
+                string runtimeName = prefab.partInfo?.name ?? partName;
+                var pristine = PristinePartFxResolver.GetForPart(runtimeName, prefab.partInfo?.configFileFullName);
+                if (pristine == null || !pristine.Found || pristine.EffectsNode == null)
+                    return false;
 
-            int pristineAdded = pristineModel.Count + pristinePrefab.Count;
-            if (pristineAdded == 0)
+                ScanPristineEffectsEntries(pristine, moduleIndex, partName,
+                    replacementModel, replacementPrefab, ref replacementEmission, ref replacementSpeed);
+                replacementSource = $"pristine '{pristine.SourcePath}'";
+            }
+
+            int replacementAdded = replacementModel.Count + replacementPrefab.Count;
+            if (replacementAdded == 0)
                 return false;
 
             int dropped = modelFxEntries.Count + prefabFxEntries.Count;
             modelFxEntries.Clear();
             prefabFxEntries.Clear();
-            modelFxEntries.AddRange(pristineModel);
-            prefabFxEntries.AddRange(pristinePrefab);
-            emissionCurve = pristineEmission;
-            speedCurve = pristineSpeed;
+            modelFxEntries.AddRange(replacementModel);
+            prefabFxEntries.AddRange(replacementPrefab);
+            emissionCurve = replacementEmission;
+            speedCurve = replacementSpeed;
 
             LogHotPathVerbose($"pristine-remnant-replace-{partName}-{moduleIndex}",
                 $"waterfall fallback: '{partName}' midx={moduleIndex} replaced {dropped} " +
-                $"post-MM remnant entries with {pristineAdded} pristine entries " +
-                $"from '{pristine.SourcePath}'");
+                $"post-MM remnant entries with {replacementAdded} entries " +
+                $"from {replacementSource}");
             return true;
         }
 
@@ -1568,6 +1954,15 @@ namespace Parsek
             List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries,
             ref FloatCurve emissionCurve, ref FloatCurve speedCurve)
         {
+            // ReStock recovery first: when ReStock authored this part's EFFECTS, the
+            // install-faithful look is ReStock's; the stock pristine definitions only
+            // serve as the fallback when the ReStock scan yields nothing.
+            if (TryScanReStockEffectsEntries(prefab, moduleIndex, partName,
+                modelFxEntries, prefabFxEntries, ref emissionCurve, ref speedCurve))
+            {
+                return true;
+            }
+
             string runtimeName = prefab.partInfo?.name ?? partName;
             var pristine = PristinePartFxResolver.GetForPart(runtimeName, prefab.partInfo?.configFileFullName);
             if (pristine == null || !pristine.Found)

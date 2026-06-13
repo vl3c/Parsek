@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Features
 
 - Waterfall support: with Waterfall plus a config pack such as Stock Waterfall Effects installed, the flown vessel shows Waterfall plumes while ghosts keep their stock-style engine plumes and RCS puffs. Ghost effects are rebuilt from each part's original effect definitions, which the config packs delete.
+- ReStock and ReStock+ support: ghosts keep ReStock's engine plumes and RCS puffs in every configuration (ReStock alone, ReStock plus Waterfall config packs, and ReStock+ parts), and the parts showroom gains ReStock+ engine, RCS, antenna, service bay, and fairing showcases when ReStock+ is installed.
 
 - Supply routes can now start from any docked origin, not just KSC: each cycle physically removes the delivered cargo from the origin vessel's tanks (loaded or unloaded), and the route waits when the origin runs dry. Hub and spoke networks now work by chaining routes.
 - Routes have a dispatch priority you can set in the route detail panel; when several routes contend in the same tick, lower priority numbers go first.
@@ -26,6 +27,8 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- A stand-in kerbal can no longer end up aboard two vessels at once: launching a new mission (or spawning a recorded vessel) while the stand-in was already flying used to duplicate them onto the new vessel. The seat is now left empty when the stand-in is busy, so another crew member can be picked.
+- Docking and undocking no longer record the same trajectory sample up to three times at the event instant, which silently disabled trajectory smoothing for the docked stretch of the recording.
 - The re-aim end-to-end in-game test no longer fails intermittently: it now runs a pinned Kerbin-to-Duna geometry instead of seeding from the live clock, and a new manual diagnostic sweep maps which launch windows resolve a re-aimed transfer.
 - The re-aim test suite now also pins the exact launch-window geometry reconstructed from the one observed in-game failure (a 2026-06-11 run on a pre-fix build), verifying the recorded departure still resolves and that any window that cannot be re-aimed falls back cleanly to a faithful replay.
 - The orbit-arc-sampler in-game test no longer fails spuriously depending on where the active vessel sits (for example on the launchpad): it measured sampled orbit points from the scene's moving world origin instead of the planet centre.
