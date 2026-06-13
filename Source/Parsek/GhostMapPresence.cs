@@ -1090,21 +1090,26 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Bug 3 burn-seam observability: the LAST render frame each ghost pid took the no-bounds
-        /// suppress path in <see cref="Parsek.Patches.GhostOrbitIconDrivePatch"/>. The headline
-        /// "followed icon teleported for one frame at a burn" symptom is the segment -> state-vector
-        /// (burn) seam: at a loiter/transfer -> burn transition the state-vector reseed clears this
-        /// ghost's segment-drive bounds (<see cref="ghostOrbitBounds"/> etc.), so for the frame(s)
-        /// between "bounds cleared" and "the next StockConic (hyperbolic) segment re-establishes a
-        /// drive" the icon-drive Prefix has NO bounds, suppresses the proto icon, and the proto
+        /// Bug 3 burn-seam observability: the LAST render frame each ghost pid had its proto icon
+        /// SUPPRESSED by the icon-drive Prefix in <see cref="Parsek.Patches.GhostOrbitIconDrivePatch"/>.
+        /// This covers BOTH suppress paths: the Director-traced early-return (the path the headline
+        /// burn-seam teleport actually traverses, confirmed in the captured KSP.log) and the no-bounds
+        /// branch. The headline "followed icon teleported for one frame at a burn" symptom is the
+        /// segment -> state-vector (burn) seam: at a loiter/transfer -> burn transition the state-vector
+        /// reseed clears this ghost's segment-drive bounds (<see cref="ghostOrbitBounds"/> etc.) and the
+        /// polyline owns the leg, so for the frame(s) between "suppression opens" and "the next
+        /// StockConic (hyperbolic) segment re-establishes a drive" the proto icon is suppressed and its
         /// <c>worldPos</c> sits STALE; when the drive re-establishes, the icon un-suppresses and snaps
         /// by the warp-advanced amount. This dict lets the Prefix detect the ENTER (first suppressed
         /// frame) and EXIT (first driven frame after a suppressed run) transitions so the next playtest
         /// log captures the exact stale-window length + the snap magnitude from one grep, BEFORE any
         /// behavioral continuity fix is chosen (the fix is gated on this read; see
         /// docs/dev/todo-and-known-bugs.md). Pure observability: it never feeds a decision.
-        /// Cleared on every ghost teardown / scene change / test reset alongside
-        /// <see cref="ghostsWithSuppressedIcon"/>.
+        /// Cleared per-pid on every ghost teardown (the three <c>RemoveGhostVessel*</c> sites, alongside
+        /// <see cref="ghostsWithSuppressedIcon"/>) and in bulk on scene change / test reset; a stale
+        /// stamp that survives an earlier Prefix early-return self-corrects to a clean ENTER on reuse
+        /// (the strict <c>currentFrame-1</c> adjacency in
+        /// <see cref="ClassifyNoBoundsSuppressionTransition"/> never reads it as a continuing run).
         /// </summary>
         internal static readonly Dictionary<uint, int> ghostNoBoundsSuppressLastFrame =
             new Dictionary<uint, int>();
@@ -2569,6 +2574,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
+            ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
             ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
@@ -3899,6 +3905,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
+            ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
             ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
@@ -11412,6 +11419,7 @@ namespace Parsek
             {
                 ghostMapVesselPids.Remove(ghostPid);
                 ghostsWithSuppressedIcon.Remove(ghostPid);
+                ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
                 ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
                 ghostOrbitBounds.Remove(ghostPid);
                 ghostBodyFrameOrbitBounds.Remove(ghostPid);

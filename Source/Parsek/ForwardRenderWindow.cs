@@ -116,7 +116,10 @@ namespace Parsek
             IconOnClosedOrbit,
             /// <summary>Reached the first full-loop closed orbit after the icon.</summary>
             FullLoopClosedOrbit,
-            /// <summary>Reached the first body / SOI change after the icon.</summary>
+            /// <summary>Reached the first body / SOI change after the icon. RETAINED for historical
+            /// clarity; no longer assigned (Bug 2 made the forward walk SPAN one SOI rather than stop at
+            /// the first change, so the seam now resolves to <see cref="DestinationClosedOrbit"/> or
+            /// <see cref="SecondSoiBound"/>). Kept for save-shape stability; do not branch on it.</summary>
             BodyChange,
             /// <summary>Walked to the end of the segment data with no earlier stop.</summary>
             EndOfData,

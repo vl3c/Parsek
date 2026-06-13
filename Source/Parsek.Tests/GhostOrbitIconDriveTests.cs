@@ -361,5 +361,43 @@ namespace Parsek.Tests
             GhostMapPresence.ResetForTesting();
             Assert.Empty(GhostMapPresence.ghostNoBoundsSuppressLastFrame);
         }
+
+        // --- Bug 3 burn-seam: the Director-traced suppress path (the path the headline event takes)
+        //     classifies Enter then Exit through the SAME stamp the no-bounds branch uses. The
+        //     EmitIconSuppressTransition emitter is Unity-coupled (private), so this replays the exact
+        //     stamp-maintenance + classify sequence the emitter runs to prove the wiring across the two
+        //     suppress branches produces a clean Enter/Exit pair (the deliverable: the grep fires). ---
+
+        [Fact]
+        public void IconSuppressTransition_DirectorTracedThenDriven_ClassifiesEnterThenExit()
+        {
+            const uint pid = 413625158u; // the headline burn-seam ghost from the captured log
+
+            // Frame N: Director-traced early-return suppresses the icon (no prior stamp) -> ENTER.
+            int lastN = GhostMapPresence.ghostNoBoundsSuppressLastFrame.TryGetValue(pid, out int fN)
+                ? fN : int.MinValue;
+            var tN = GhostMapPresence.ClassifyNoBoundsSuppressionTransition(
+                suppressedThisFrame: true, currentFrame: 104448, lastSuppressedFrame: lastN);
+            Assert.Equal(GhostMapPresence.NoBoundsSuppressTransition.Enter, tN);
+            GhostMapPresence.ghostNoBoundsSuppressLastFrame[pid] = 104448; // emitter stamps suppressed frames
+
+            // Frame N+1: still Director-traced -> SUSTAIN, stamp extends.
+            int lastN1 = GhostMapPresence.ghostNoBoundsSuppressLastFrame[pid];
+            var tN1 = GhostMapPresence.ClassifyNoBoundsSuppressionTransition(
+                suppressedThisFrame: true, currentFrame: 104449, lastSuppressedFrame: lastN1);
+            Assert.Equal(GhostMapPresence.NoBoundsSuppressTransition.Sustain, tN1);
+            GhostMapPresence.ghostNoBoundsSuppressLastFrame[pid] = 104449;
+
+            // Frame N+2: the StockConic (hyperbolic) drive re-establishes, the Prefix reaches the
+            // bounds-found else branch with suppressedThisFrame=false -> EXIT (the snap boundary), and
+            // the emitter prunes the stamp so a later run is a clean ENTER again.
+            int lastN2 = GhostMapPresence.ghostNoBoundsSuppressLastFrame[pid];
+            var tN2 = GhostMapPresence.ClassifyNoBoundsSuppressionTransition(
+                suppressedThisFrame: false, currentFrame: 104450, lastSuppressedFrame: lastN2);
+            Assert.Equal(GhostMapPresence.NoBoundsSuppressTransition.Exit, tN2);
+            GhostMapPresence.ghostNoBoundsSuppressLastFrame.Remove(pid);
+
+            Assert.False(GhostMapPresence.ghostNoBoundsSuppressLastFrame.ContainsKey(pid));
+        }
     }
 }

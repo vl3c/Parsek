@@ -3355,8 +3355,9 @@ namespace Parsek.Display
 
                     // ---- FORWARD ADDITIVE PASS (Step 3, forward-trajectory-render plan) ----
                     // Draw the FUTURE portion of the trajectory ahead of the icon as one continuous chain,
-                    // up to the forward stop (first full-loop closed orbit / first SOI change / end of
-                    // data). This is PURELY ADDITIVE: it enqueues forward legs (B') + forward arcs (C) that
+                    // up to the forward stop (destination capture orbit after spanning one SOI / same-SOI
+                    // full loop / second SOI change / end of data). This is PURELY ADDITIVE: it enqueues
+                    // forward legs (B') + forward arcs (C) that
                     // do NOT touch drewNonOrbitalLegRecordings / anyDrawn, so the current element renders
                     // exactly as today and the ownership contract is unchanged (the CRITICAL Step 3
                     // prerequisite, safest option (a)). Gated on the SAME visibility the rest of the loop
@@ -3990,8 +3991,9 @@ namespace Parsek.Display
             /// <summary>
             /// FORWARD ADDITIVE PASS (Step 3, forward-trajectory-render plan, Option 1). For one recording,
             /// computes the per-ghost forward render window from the re-aimed EFFECTIVE segments and enqueues
-            /// the FUTURE legs (B') + FUTURE arcs (C) ahead of the icon, up to the forward stop (first
-            /// full-loop closed orbit / first SOI change / end of data). PURELY ADDITIVE: nothing here
+            /// the FUTURE legs (B') + FUTURE arcs (C) ahead of the icon, up to the forward stop (destination
+            /// capture orbit after spanning one SOI / same-SOI full loop / second SOI change / end of data).
+            /// PURELY ADDITIVE: nothing here
             /// touches <c>drewNonOrbitalLegRecordings</c> / <c>anyDrawn</c>, so the current element renders
             /// (and publishes ownership) exactly as today (the SAFEST Step 3 CRITICAL option (a)).
             ///

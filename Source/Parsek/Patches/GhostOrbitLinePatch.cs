@@ -153,6 +153,13 @@ namespace Parsek.Patches
                         "Director TracedPath suppress pid={0} frame={1} (polyline owns the leg, proto icon hidden)",
                         pid, Time.frameCount),
                     1.0);
+                // Bug 3 burn-seam instrumentation: the Director-traced suppress path is THE branch the
+                // headline burn-seam teleport (rec 04177024, pid 413625158) traverses - the captured
+                // KSP.log shows the stale window logging only "Director TracedPath suppress", never the
+                // no-bounds branch below (which the icon-drive Prefix never reaches because this early
+                // return pre-empts it). Stamp the suppression-ENTER here so the un-suppress EXIT (the
+                // snap) fires correctly when the next frame re-establishes a StockConic drive below.
+                EmitIconSuppressTransition(__instance, pid, suppressedThisFrame: true, currentUT: Planetarium.GetUniversalTime());
                 return true;
             }
 
@@ -199,19 +206,22 @@ namespace Parsek.Patches
                 // magnitude at the un-suppress (the headline "icon teleported for one frame at a burn"
                 // symptom is this segment -> state-vector seam suppression-exit, NOT the doc's
                 // warp-reseed-lag). The behavioral continuity fix is gated on this read; see
-                // docs/dev/todo-and-known-bugs.md.
-                EmitNoBoundsSuppressTransition(__instance, pid, suppressNoBounds, currentUT);
+                // docs/dev/todo-and-known-bugs.md. This is the alternate suppress path; the Director-
+                // traced early-return above carries the same instrumentation for the path the headline
+                // event actually takes.
+                EmitIconSuppressTransition(__instance, pid, suppressNoBounds, currentUT);
 
                 return true;
             }
             else
             {
-                // Found segment bounds this frame. If this pid was no-bounds-suppressed on the
-                // immediately-preceding frame, this is the un-suppress EXIT (the StockConic /
-                // hyperbolic drive re-established) — log the snap-side boundary too. The cheap O(1)
-                // last-frame check inside short-circuits to None (no work) for the steady-state
-                // never-suppressed ghost, so this adds only one dict lookup per driven ghost per frame.
-                EmitNoBoundsSuppressTransition(__instance, pid, suppressedThisFrame: false, currentUT: currentUT);
+                // Found segment bounds this frame. If this pid was icon-suppressed (Director-traced or
+                // no-bounds) on the immediately-preceding frame, this is the un-suppress EXIT (the
+                // StockConic / hyperbolic drive re-established) — log the snap-side boundary too. The
+                // cheap O(1) last-frame check inside short-circuits to None (no work) for the steady-
+                // state never-suppressed ghost, so this adds only one dict lookup per driven ghost per
+                // frame.
+                EmitIconSuppressTransition(__instance, pid, suppressedThisFrame: false, currentUT: currentUT);
             }
 
             double shift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
@@ -367,15 +377,19 @@ namespace Parsek.Patches
 
         /// <summary>
         /// Bug 3 burn-seam observability: classify and (on the ENTER / EXIT boundaries only) log this
-        /// ghost pid's no-bounds suppression transition this frame, then update the per-pid last-frame
+        /// ghost pid's proto-icon suppression transition this frame, then update the per-pid last-frame
         /// stamp so the next frame can detect EXIT. Pure-observability: the result NEVER feeds a
-        /// decision. The two boundary frames carry the proto worldPos (raw + body-relative, matching
-        /// the MapRenderProbe icon-jump convention) so the next playtest log shows, from one grep, the
-        /// stale-window length and the un-suppress snap magnitude that IS the "icon teleported for one
-        /// frame at a burn" symptom. The Sustain (continuing-suppressed) frames are not logged
-        /// per-frame to avoid spam; the Enter line already pins the stale worldPos.
+        /// decision. Called from BOTH icon-suppress paths in <see cref="Prefix"/> - the Director-traced
+        /// early-return (the path the headline burn-seam teleport actually traverses) and the no-bounds
+        /// branch - plus the un-suppress side on the drive-path else branch, so the transition is
+        /// classified regardless of which suppress branch opened the stale window. The two boundary
+        /// frames carry the proto worldPos (raw + body-relative, matching the MapRenderProbe icon-jump
+        /// convention) so the next playtest log shows, from one grep, the stale-window length and the
+        /// un-suppress snap magnitude that IS the "icon teleported for one frame at a burn" symptom. The
+        /// Sustain (continuing-suppressed) frames are not logged per-frame to avoid spam; the Enter line
+        /// already pins the stale worldPos.
         /// </summary>
-        private static void EmitNoBoundsSuppressTransition(
+        private static void EmitIconSuppressTransition(
             OrbitDriver driver, uint pid, bool suppressedThisFrame, double currentUT)
         {
             int frame = Time.frameCount;
@@ -414,9 +428,9 @@ namespace Parsek.Patches
             // a shared key would suppress the snap line the read needs. Each of {Enter, Exit} gets its
             // own ~1 s budget per pid, which is enough to capture the pairs without per-frame spam.
             ParsekLog.VerboseRateLimited("GhostOrbitIcon",
-                "nobounds-suppress-" + transition + "-" + pid,
+                "icon-suppress-" + transition + "-" + pid,
                 string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "No-bounds suppress {0} pid={1} frame={2} liveUT={3:F1} directorTracking={4} " +
+                    "Icon suppress {0} pid={1} frame={2} liveUT={3:F1} directorTracking={4} " +
                     "lastSuppressedFrame={5} worldPos=({6:F0},{7:F0},{8:F0}) bodyRelPos=({9:F0},{10:F0},{11:F0}) " +
                     "body={12} scene={13}",
                     transition, pid, frame, currentUT, directorTracking,
