@@ -10221,12 +10221,14 @@ namespace Parsek.InGameTests
         ///
         /// <para>Asserts (a) after a TryDrawLeg the drawn line's component path matches the LIVE MapView
         /// mode (3D mode => a MeshFilter mesh via Vectrosity's VectorObject3D; 2D mode => a CanvasRenderer
-        /// and no MeshFilter via VectorObject2D), and (b) BOTH Vectrosity paths build renderable geometry
-        /// for a Parsek orbit-styled line - forcing <c>Draw()</c> swaps the GameObject onto the 2D canvas
-        /// (the new fix path: CanvasRenderer present, MeshFilter destroyed) and forcing <c>Draw3D()</c>
-        /// swaps it back (MeshFilter restored). Component-presence checks are robust even if the offscreen
-        /// draw paints nothing, because Vectrosity does the component swap in SetupCanvasState BEFORE the
-        /// draw loop runs.</para>
+        /// and no MeshFilter via VectorObject2D); (b) BOTH Vectrosity paths build geometry for a Parsek
+        /// orbit-styled line - forcing <c>Draw()</c> swaps the GameObject onto the 2D canvas (CanvasRenderer
+        /// present, MeshFilter destroyed) and forcing <c>Draw3D()</c> swaps it back (MeshFilter restored);
+        /// and (c) <c>RebuildLineForMode</c> (the Bug 1 fix invoked on every 3D&lt;-&gt;2D flip, because the
+        /// in-place swap in (b) leaves the 2D canvas Graphic non-rendering) returns a FRESH, distinct line
+        /// object that preserves the name + point count, mirroring stock's MakeLine-on-flip. Component-presence
+        /// checks are robust even if the offscreen draw paints nothing, because Vectrosity does the component
+        /// swap in SetupCanvasState BEFORE the draw loop runs.</para>
         /// </summary>
         [InGameTest(Category = "MapView", Scene = GameScenes.TRACKSTATION,
             Description = "Map trajectory lines follow the stock Draw3D/2D mode so they survive far zoom-out (Bug 1)")]
@@ -10306,6 +10308,21 @@ namespace Parsek.InGameTests
                 var mf3d = go.GetComponent<MeshFilter>();
                 InGameAssert.IsTrue(mf3d != null && mf3d.mesh != null,
                     "Draw3D() must restore the 3D MeshFilter mesh (the below-threshold render path)");
+
+                // (c) Bug 1 fix: RebuildLineForMode (run on every map-line mode flip, because the in-place
+                // swap above leaves the 2D canvas Graphic non-rendering) must return a FRESH, distinct line
+                // that preserves the name + point count - stock's MakeLine-on-flip behavior.
+                var before = leg.vectorLine;
+                int pc = leg.PointCount;
+                string nm = before.name;
+                var rebuilt = Parsek.Display.GhostTrajectoryPolylineRenderer.RebuildLineForMode(before, pc);
+                leg.vectorLine = rebuilt; // RebuildLineForMode destroys `before`; retarget finally at the live line
+                InGameAssert.IsTrue(rebuilt != null, "RebuildLineForMode must return a fresh line");
+                InGameAssert.IsTrue(!ReferenceEquals(rebuilt, before),
+                    "RebuildLineForMode must return a NEW line object (stock rebuilds on every mode flip)");
+                InGameAssert.AreEqual(nm, rebuilt.name, "the rebuilt line must preserve the line name");
+                InGameAssert.IsTrue(rebuilt.points3 != null && rebuilt.points3.Count == pc,
+                    "the rebuilt line must preserve the point count");
             }
             finally
             {

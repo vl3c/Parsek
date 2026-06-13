@@ -136,6 +136,11 @@ namespace Parsek.Display
         {
             public VectorLine line;
             public int lastDrawnFrame;
+            // Map-line mode (0=unbuilt, 1=3D Draw3D, 2=2D Draw) the line was last built for. Bug 1:
+            // Vectrosity's in-place VectorObject3D<->VectorObject2D swap leaves the 2D canvas Graphic
+            // non-rendering, so the line is rebuilt when this differs from the live mode (stock MakeLine-
+            // on-flip). See RebuildMapLineIfModeChanged.
+            public int lineMode;
         }
 
         private static readonly Dictionary<string, BridgeLineEntry> bridgeLineByRecording =
@@ -497,6 +502,14 @@ namespace Parsek.Display
             /// </summary>
             public int lastDrawnFrame;
 
+            /// <summary>
+            /// Map-line mode (0=unbuilt, 1=3D Draw3D, 2=2D Draw) <see cref="vectorLine"/> was last built
+            /// for. Bug 1: Vectrosity's in-place VectorObject3D&lt;-&gt;VectorObject2D swap leaves the 2D
+            /// canvas Graphic non-rendering, so the line is rebuilt when this differs from the live mode
+            /// (stock MakeLine-on-flip). See <c>RebuildMapLineIfModeChanged</c>.
+            /// </summary>
+            public int lineMode;
+
             /// <summary>Number of points in this leg (M).</summary>
             public int PointCount => lats != null ? lats.Length : 0;
         }
@@ -560,6 +573,14 @@ namespace Parsek.Display
 
             /// <summary><c>Time.frameCount</c> of the last frame this arc drew (deactivation sweep).</summary>
             public int lastDrawnFrame;
+
+            /// <summary>
+            /// Map-line mode (0=unbuilt, 1=3D Draw3D, 2=2D Draw) <see cref="vectorLine"/> was last built
+            /// for. Bug 1: Vectrosity's in-place VectorObject3D&lt;-&gt;VectorObject2D swap leaves the 2D
+            /// canvas Graphic non-rendering, so the line is rebuilt when this differs from the live mode
+            /// (stock MakeLine-on-flip). See <c>RebuildMapLineIfModeChanged</c>.
+            /// </summary>
+            public int lineMode;
 
             /// <summary>
             /// The OrbitSegment this arc was sampled from (playtest-9 rotating-frame fix): kept so the
@@ -2333,25 +2354,22 @@ namespace Parsek.Display
             // drawStart/drawEnd range slicing does NOT work, because
             // VectorLine.Draw3D() zeroes every vertex outside the
             // current window on each call, leaving only the last leg.
+            // Bug 1: rebuild the line when the map-line mode flipped (3D Draw3D <-> 2D Draw at the
+            // far-zoom threshold) - Vectrosity's in-place swap leaves the 2D canvas line non-rendering, so
+            // (like stock) the line is recreated on flip. See RebuildLineForMode.
+            int legWantMode = MapLineUses3D() ? 1 : 2;
+            if (leg.vectorLine != null && leg.lineMode != legWantMode)
+                leg.vectorLine = RebuildLineForMode(leg.vectorLine, m);
             if (leg.vectorLine == null)
                 leg.vectorLine = BuildLegVectorLine(recordingId, legIndex, m);
+            leg.lineMode = legWantMode;
             if (leg.vectorLine == null) return false;
 
-            leg.vectorLine.rectTransform.gameObject.layer = targetLayer;
-
-            // Stable scaled-space placement: zero the line's transform
-            // every frame (matches OrbitRendererBase's REDRAW path,
-            // which sets OrbitLine.rectTransform.position = zero before
-            // each redraw). The points3 we feed are ABSOLUTE ScaledSpace
-            // positions, so the line's GameObject transform must be the
-            // identity; otherwise the mesh inherits its parent/canvas
-            // transform and visibly drifts as the map camera pans
-            // (it is not anchored in space). Position is the load-bearing
-            // reset; rotation/scale are pinned defensively.
-            var lineXform = leg.vectorLine.rectTransform;
-            lineXform.position = Vector3.zero;
-            lineXform.rotation = Quaternion.identity;
-            lineXform.localScale = Vector3.one;
+            // Layer 31 always; in 3D mode also zero the world transform so the absolute-scaled-space mesh
+            // is not double-transformed (matches OrbitRendererBase's REDRAW path). In 2D mode the line is
+            // a Vectrosity canvas child and the world-position reset would shove it off the canvas plane
+            // (Bug 1 zoom-out vanish), so it is skipped there. See PrepareMapLineTransform.
+            PrepareMapLineTransform(leg.vectorLine, targetLayer);
 
             // CRITICAL geometry (warp-strobe fix, take 2 - strobe-free AND never invisible).
             // A body-fixed surface point must follow the planet's spin. Two failed approaches and
@@ -2465,17 +2483,45 @@ namespace Parsek.Display
         internal static VectorLine BuildLegVectorLine(
             string recordingId, int legIndex, int pointCount)
         {
+            return BuildContinuousMapLine(
+                "ParsekGhostTrajectoryPolyline-" + recordingId + "-leg" + legIndex, pointCount);
+        }
+
+        /// <summary>
+        /// Shared builder for a stock-orbit-styled <c>LineType.Continuous</c> map line with
+        /// <paramref name="pointCount"/> zero points (width 5f, <see cref="ApplyStockOrbitLineStyle"/>).
+        /// Backs <see cref="BuildLegVectorLine"/>, <see cref="BuildForwardArcVectorLine"/>, and the Bug 1
+        /// <see cref="RebuildLineForMode"/> rebuild (which preserves the prior line's name).
+        /// </summary>
+        internal static VectorLine BuildContinuousMapLine(string name, int pointCount)
+        {
             if (pointCount <= 0) return null;
             var points = new List<Vector3>(pointCount);
             for (int i = 0; i < pointCount; i++)
                 points.Add(Vector3.zero);
-            var line = new VectorLine(
-                "ParsekGhostTrajectoryPolyline-" + recordingId + "-leg" + legIndex,
-                points,
-                5f,
-                LineType.Continuous);
+            var line = new VectorLine(name, points, 5f, LineType.Continuous);
             ApplyStockOrbitLineStyle(line);
             return line;
+        }
+
+        /// <summary>
+        /// Bug 1 rebuild-on-flip: destroys <paramref name="existing"/> and recreates it (same name +
+        /// <paramref name="pointCount"/>, stock orbit-line style) for the current map-line mode. Vectrosity's
+        /// in-place <c>VectorObject3D</c>&lt;-&gt;<c>VectorObject2D</c> swap (toggling <c>Draw3D()</c>/
+        /// <c>Draw()</c> on ONE line at the far-zoom 2D flip) leaves the 2D canvas Graphic non-rendering, so
+        /// the line vanishes past the threshold; stock sidesteps this by rebuilding the line on every mode
+        /// flip (<c>OrbitRendererBase</c> calls <c>MakeLine</c>), which this mirrors. The caller re-copies
+        /// the points into the fresh line the same frame, so no geometry is lost.
+        /// </summary>
+        internal static VectorLine RebuildLineForMode(VectorLine existing, int pointCount)
+        {
+            string name = existing != null ? existing.name : "ParsekGhostMapLine";
+            if (existing != null)
+            {
+                var old = existing;
+                VectorLine.Destroy(ref old);
+            }
+            return BuildContinuousMapLine(name, pointCount);
         }
 
         /// <summary>
@@ -2535,6 +2581,43 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// Live wrapper over <see cref="ShouldDraw3DMapLine"/>: reads the runtime MapView state (the
+        /// <c>MapView.Draw3DLines</c> read short-circuited behind the <c>MapView.fetch</c> null check) and
+        /// returns whether map lines are in stock 3D (<c>Draw3D()</c>) mode this frame, false in the 2D
+        /// (<c>Draw()</c>) mode stock flips to past the far-zoom threshold. Used by both
+        /// <see cref="DrawMapLine"/> and the draw-site transform setup so they agree within a frame.
+        /// </summary>
+        internal static bool MapLineUses3D()
+        {
+            bool present = MapView.fetch != null;
+            return ShouldDraw3DMapLine(present, present && MapView.Draw3DLines);
+        }
+
+        /// <summary>
+        /// Applies a leg / arc / bridge line's per-frame transform for the CURRENT map-line mode, called
+        /// right before <see cref="DrawMapLine"/>. The layer (stock orbit-line layer 31) is set in BOTH
+        /// modes. The world-transform zeroing (<c>position = 0</c>, identity rotation, unit scale) is done
+        /// ONLY in 3D (<c>Draw3D()</c>) mode: there the line is an unparented world mesh of ABSOLUTE
+        /// scaled-space points, so its GameObject transform must be the identity or the mesh inherits a
+        /// parent transform and drifts as the map camera pans. In 2D (<c>Draw()</c>) mode the line lives
+        /// under KSP's Vectrosity ScreenSpaceCamera canvas (<c>vectorCam</c>, layer 31); forcing world
+        /// <c>position = 0</c> every frame shoves the canvas child off the canvas plane so it never paints
+        /// - the Bug 1 zoom-out vanish past the 2D-flip threshold. In 2D the canvas-managed RectTransform
+        /// is left untouched (stock writes position only on recalculation, which is why stock 2D orbit
+        /// lines render and Parsek's did not).
+        /// </summary>
+        internal static void PrepareMapLineTransform(VectorLine line, int targetLayer)
+        {
+            if (line == null || line.rectTransform == null) return;
+            line.rectTransform.gameObject.layer = targetLayer;
+            if (!MapLineUses3D()) return;
+            var xform = line.rectTransform;
+            xform.position = Vector3.zero;
+            xform.rotation = Quaternion.identity;
+            xform.localScale = Vector3.one;
+        }
+
+        /// <summary>
         /// Draws a leg / arc / bridge line in the SAME map-line mode stock orbit lines use this frame:
         /// <c>Draw3D()</c> when <see cref="ShouldDraw3DMapLine"/> (the live <c>MapView.Draw3DLines</c>),
         /// else the 2D <c>Draw()</c> path. This IS the Bug 1 fix - past the stock far-zoom 2D-flip
@@ -2549,8 +2632,7 @@ namespace Parsek.Display
         internal static void DrawMapLine(VectorLine line)
         {
             if (line == null) return;
-            bool present = MapView.fetch != null;
-            if (ShouldDraw3DMapLine(present, present && MapView.Draw3DLines))
+            if (MapLineUses3D())
                 line.Draw3D();
             else
                 line.Draw();
@@ -2566,17 +2648,8 @@ namespace Parsek.Display
         internal static VectorLine BuildForwardArcVectorLine(
             string recordingId, int arcIndex, int pointCount)
         {
-            if (pointCount <= 0) return null;
-            var points = new List<Vector3>(pointCount);
-            for (int i = 0; i < pointCount; i++)
-                points.Add(Vector3.zero);
-            var line = new VectorLine(
-                "ParsekGhostForwardArc-" + recordingId + "-arc" + arcIndex,
-                points,
-                5f,
-                LineType.Continuous);
-            ApplyStockOrbitLineStyle(line);
-            return line;
+            return BuildContinuousMapLine(
+                "ParsekGhostForwardArc-" + recordingId + "-arc" + arcIndex, pointCount);
         }
 
         /// <summary>
@@ -3669,6 +3742,14 @@ namespace Parsek.Display
                     };
                     bridgeLineByRecording[lineKey] = entry;
                 }
+                // Bug 1: rebuild on a map-line mode flip (3D Draw3D <-> 2D Draw) - the in-place Vectrosity
+                // swap leaves the 2D canvas line non-rendering. See RebuildLineForMode.
+                int bridgeWantMode = MapLineUses3D() ? 1 : 2;
+                if (entry.line != null && entry.lineMode != bridgeWantMode)
+                    entry.line = RebuildLineForMode(entry.line, BridgeMergeSampleCount + 1);
+                if (entry.line == null)
+                    entry.line = BuildLegVectorLine(lineKey, -1, BridgeMergeSampleCount + 1);
+                entry.lineMode = bridgeWantMode;
                 var line = entry.line;
                 if (line == null) return false;
 
@@ -3679,11 +3760,9 @@ namespace Parsek.Display
                 line.drawStart = 0;
                 line.drawEnd = BridgeMergeSampleCount;
 
-                line.rectTransform.gameObject.layer = pendingTargetLayer;
-                var xform = line.rectTransform;
-                xform.position = Vector3.zero;
-                xform.rotation = Quaternion.identity;
-                xform.localScale = Vector3.one;
+                // Layer 31 always; world-transform zeroing only in 3D mode (2D canvas children must keep
+                // their canvas placement or they vanish on zoom-out - Bug 1). See PrepareMapLineTransform.
+                PrepareMapLineTransform(line, pendingTargetLayer);
                 if (!line.active) line.active = true;
                 // Bug 1 fix: draw in the stock map-line mode (Draw3D / 2D Draw past the far-zoom
                 // threshold) so the seam bridge never vanishes on zoom-out. See DrawMapLine.
@@ -4475,6 +4554,7 @@ namespace Parsek.Display
                         scratchScaledSpace = new Vector3[cnt],
                         vectorLine = BuildForwardArcVectorLine(recordingId, sampled, cnt),
                         lastDrawnFrame = -1,
+                        lineMode = MapLineUses3D() ? 1 : 2,
                         sourceSegment = seg,
                     };
                     if (arc.vectorLine == null) continue;
@@ -4517,6 +4597,18 @@ namespace Parsek.Display
                 if (body == null) return false;
 
                 int m = arc.bodyRelOffsets.Length;
+                // Bug 1: rebuild the arc line on a map-line mode flip (3D Draw3D <-> 2D Draw at the
+                // far-zoom threshold). The arc line is built during sampling (not lazily here), so the
+                // rebuild must happen at the draw site. Vectrosity's in-place swap leaves the 2D canvas
+                // line non-rendering, so it is recreated like stock. See RebuildLineForMode.
+                int arcWantMode = MapLineUses3D() ? 1 : 2;
+                if (arc.lineMode != arcWantMode)
+                {
+                    line = RebuildLineForMode(line, m);
+                    arc.vectorLine = line;
+                    arc.lineMode = arcWantMode;
+                    if (line == null) return false;
+                }
                 var scaledBody = body.scaledBody;
                 Transform scaledXform = scaledBody != null ? scaledBody.transform : null;
                 if (scaledXform != null)
@@ -4547,11 +4639,9 @@ namespace Parsek.Display
                 line.drawStart = drawStartIndex > 0 && drawStartIndex < m - 1 ? drawStartIndex : 0;
                 line.drawEnd = drawEndIndex > line.drawStart && drawEndIndex < m ? drawEndIndex : m - 1;
 
-                line.rectTransform.gameObject.layer = targetLayer;
-                var xform = line.rectTransform;
-                xform.position = Vector3.zero;
-                xform.rotation = Quaternion.identity;
-                xform.localScale = Vector3.one;
+                // Layer 31 always; world-transform zeroing only in 3D mode (2D canvas children must keep
+                // their canvas placement or they vanish on zoom-out - Bug 1). See PrepareMapLineTransform.
+                PrepareMapLineTransform(line, targetLayer);
                 if (!line.active) line.active = true;
                 // Bug 1 fix: draw in the stock map-line mode (Draw3D / 2D Draw past the far-zoom
                 // threshold) so the forward arc never vanishes on zoom-out. See DrawMapLine.
