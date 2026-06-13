@@ -362,6 +362,70 @@ namespace Parsek.Tests
             Assert.Empty(GhostMapPresence.ghostNoBoundsSuppressLastFrame);
         }
 
+        // --- Bug 3 facet (b): ShouldSettleFreshlyCreatedLoopGhost (queue-for-settle decision) ---
+
+        [Fact]
+        public void ShouldSettleFreshlyCreatedLoopGhost_LoopShifted_True()
+        {
+            // A loop-shifted member (non-zero epoch shift) is destroyed + recreated every frame at
+            // extreme warp, so its create-time icon drive ran before the shadow seeded the new pid:
+            // queue it for the post-RunFrame settle pass.
+            Assert.True(GhostMapPresence.ShouldSettleFreshlyCreatedLoopGhost(37345153.84));
+        }
+
+        [Fact]
+        public void ShouldSettleFreshlyCreatedLoopGhost_NegativeShift_True()
+        {
+            // A loop where the recorded clock runs ahead of live yields a negative shift; it is still
+            // a loop-shifted member that needs settling.
+            Assert.True(GhostMapPresence.ShouldSettleFreshlyCreatedLoopGhost(-12345.0));
+        }
+
+        [Fact]
+        public void ShouldSettleFreshlyCreatedLoopGhost_ZeroShift_False()
+        {
+            // A non-loop create has shift 0: its create-time position is already correct (stock glides
+            // it at the live UT), so it is never queued and the settle pass is byte-identical to before
+            // for non-loop ghosts.
+            Assert.False(GhostMapPresence.ShouldSettleFreshlyCreatedLoopGhost(0.0));
+        }
+
+        // --- Bug 3 facet (b): the per-frame work-list set is cleared on reset ---
+
+        [Fact]
+        public void FlightFreshlyCreatedLoopGhostsThisFrame_AfterReset_IsEmpty()
+        {
+            GhostMapPresence.flightFreshlyCreatedLoopGhostsThisFrame.Add(21256233u);
+            GhostMapPresence.ResetForTesting();
+            Assert.Empty(GhostMapPresence.flightFreshlyCreatedLoopGhostsThisFrame);
+        }
+
+        [Fact]
+        public void FlightFreshlyCreatedLoopGhostsThisFrame_AfterClearFlightMapPresenceState_IsEmpty()
+        {
+            GhostMapPresence.flightFreshlyCreatedLoopGhostsThisFrame.Add(21256233u);
+            GhostMapPresence.ClearFlightMapPresenceState();
+            Assert.Empty(GhostMapPresence.flightFreshlyCreatedLoopGhostsThisFrame);
+        }
+
+        // --- Bug 3 facet (b): the settle pass empty-set fast path is a headless-safe no-op ---
+
+        [Fact]
+        public void SettleFreshlyCreatedLoopGhostIcons_EmptySet_DoesNotThrow()
+        {
+            // The steady-state fast path: with no loop ghost created this frame the method must return
+            // BEFORE touching any Unity API (FlightGlobals / Planetarium / Time), so it is safe to call
+            // headless. ResetForTesting() leaves the set empty.
+            GhostMapPresence.ResetForTesting();
+            Assert.Empty(GhostMapPresence.flightFreshlyCreatedLoopGhostsThisFrame);
+
+            var ex = Record.Exception(() => GhostMapPresence.SettleFreshlyCreatedLoopGhostIcons());
+            Assert.Null(ex);
+
+            // Still empty (nothing added, nothing to clear).
+            Assert.Empty(GhostMapPresence.flightFreshlyCreatedLoopGhostsThisFrame);
+        }
+
         // --- Bug 3 burn-seam: the Director-traced suppress path (the path the headline event takes)
         //     classifies Enter then Exit through the SAME stamp the no-bounds branch uses. The
         //     EmitIconSuppressTransition emitter is Unity-coupled (private), so this replays the exact
