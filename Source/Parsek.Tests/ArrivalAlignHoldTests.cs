@@ -342,7 +342,7 @@ namespace Parsek.Tests
         public void Clock_NoHold_ByteIdenticalRegardlessOfRotationPeriod(double rotationPeriod)
         {
             // With arrivalHoldSeconds = 0 (alignment Off) the per-loop branch is gated out, so any
-            // arrivalHoldRotationPeriod (including a valid one) leaves loopUT / cycleIndex byte-identical to
+            // arrivalHoldAlignPeriod (including a valid one) leaves loopUT / cycleIndex byte-identical to
             // the no-period call, across a swept range of currentUT and several loops.
             const double anchor = 0, s0 = 0, s1 = 1000, cad = 1000; // cadence == span -> multiple loops
             for (double t = 0.0; t <= 5200.0; t += 37.0)
@@ -352,7 +352,7 @@ namespace Parsek.Tests
                 bool okNew = GhostPlaybackLogic.TryComputeSpanLoopUT(
                     t, anchor, s0, s1, cad, out double newUT, out long newCyc, out bool newTail,
                     schedule: null, loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
-                    arrivalHoldRotationPeriod: rotationPeriod);
+                    arrivalHoldAlignPeriod: rotationPeriod);
                 Assert.Equal(okBase, okNew);
                 Assert.Equal(baseUT, newUT, Tol);
                 Assert.Equal(baseCyc, newCyc);
@@ -371,7 +371,7 @@ namespace Parsek.Tests
                 GhostPlaybackLogic.TryComputeSpanLoopUT(
                     currentUT, anchor, s0, s1, cad, out double loopUT, out long _, out bool _,
                     schedule: null, loiterCuts: null, arrivalHoldSeconds: hold, arrivalHoldAtUT: holdAt,
-                    arrivalHoldRotationPeriod: double.NaN);
+                    arrivalHoldAlignPeriod: double.NaN);
                 Assert.Equal(expect, loopUT, Tol);
             }
             // Same expectations as Clock_WithHold_BeforeIdentity_WithinHeld_AfterDeferred (constant hold).
@@ -393,7 +393,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.TryComputeSpanLoopUT(
                 900.0, anchor, s0, s1, cad, out double loop0, out long cyc0, out bool _,
                 schedule: null, loiterCuts: null, arrivalHoldSeconds: hold, arrivalHoldAtUT: holdAt,
-                arrivalHoldRotationPeriod: tRot);
+                arrivalHoldAlignPeriod: tRot);
             Assert.Equal(0, cyc0);
             Assert.Equal(700.0, loop0, Tol);
 
@@ -407,9 +407,32 @@ namespace Parsek.Tests
             GhostPlaybackLogic.TryComputeSpanLoopUT(
                 6900.0, anchor, s0, s1, cad, out double loop3, out long cyc3, out bool _,
                 schedule: null, loiterCuts: null, arrivalHoldSeconds: hold, arrivalHoldAtUT: holdAt,
-                arrivalHoldRotationPeriod: tRot);
+                arrivalHoldAlignPeriod: tRot);
             Assert.Equal(3, cyc3);
             Assert.Equal(600.0, loop3, Tol);
+        }
+
+        [Fact]
+        public void Clock_StationHold_TStationDrivesPerLoopDrift_EndToEnd()
+        {
+            // M4c (plan test 13): the clock's per-loop drift correction is period-agnostic - with
+            // the unit carrying T_STATION as arrivalHoldAlignPeriod (the station-hold
+            // substitution), W_N is computed against the station period, not any rotation value.
+            // Same geometry as the T_rot test above but with a station-scale period: tStation =
+            // 300; drift = cad mod tStation = 2000 mod 300 = 200; W_2 = ((200 - 2*200) mod 300 +
+            // 300) mod 300 = 100. currentUT in loop 2 with phaseInCycle 900: holdPhasePos 600;
+            // phase 900 > 600 + W_2(100) -> after the hold -> loopUT = 900 - 100 = 800.
+            const double anchor = 0, s0 = 0, s1 = 1000, cad = 2000, hold = 200, holdAt = 600, tStation = 300;
+
+            double w2 = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(hold, 2L, cad, tStation);
+            Assert.Equal(100.0, w2, Tol);
+
+            GhostPlaybackLogic.TryComputeSpanLoopUT(
+                4900.0, anchor, s0, s1, cad, out double loop2, out long cyc2, out bool _,
+                schedule: null, loiterCuts: null, arrivalHoldSeconds: hold, arrivalHoldAtUT: holdAt,
+                arrivalHoldAlignPeriod: tStation);
+            Assert.Equal(2, cyc2);
+            Assert.Equal(800.0, loop2, Tol);
         }
     }
 }

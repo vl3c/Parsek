@@ -3670,6 +3670,171 @@ namespace Parsek
         }
 
         // ------------------------------------------------------------------
+        // Tracking Station "Fly" ghost-index-drift fix (BUG #1)
+        // ------------------------------------------------------------------
+
+        // Reason string handed to RemoveAllGhostVessels on the pre-stock TS Fly
+        // strip so the GhostMap summary line ties the removal to this code path.
+        internal const string TsFlyBeforeStockIndexofReason = "ts-fly-before-stock-indexof";
+
+        // ComputeFlyIndexDrift sentinel: the Fly target pid was not present in the
+        // live FlightGlobals.Vessels list when the strip ran (defensive, e.g. another
+        // mod removed it). Logged distinctly via a Warn; removal still proceeds.
+        internal const int FlyIndexDriftTargetNotInLiveList = -1;
+
+        /// <summary>
+        /// PURE, Unity-free, unit-testable. Returns the index drift the player would
+        /// have suffered on a Tracking Station "Fly" if the ghost map vessels were
+        /// stripped from the saved persistent.sfs (current StripFromSave behaviour)
+        /// but NOT from the live FlightGlobals.Vessels list — i.e. the off-by amount
+        /// stock FlightDriver.StartAndFocusVessel(file, IndexOf(v)) would land wrong by.
+        ///
+        /// Stock SpaceTracking.FlyVessel identifies the target purely by its index in
+        /// the live FlightGlobals.Vessels list, then focuses the vessel at that same
+        /// index in the (ghost-free) loaded file. The drift is exactly the number of
+        /// ghost pids that occupy a live index strictly LESS than the target's live
+        /// index, because each such ghost shifts the target one slot earlier in the
+        /// ghost-free file.
+        ///
+        /// Contract:
+        ///   - target not present in liveVesselPids -> FlyIndexDriftTargetNotInLiveList (-1).
+        ///   - target present at live index t -> count of i in [0, t) where
+        ///     liveVesselPids[i] is in ghostPids.
+        ///   - drift == 0: the Fly would have landed correctly even without the fix.
+        ///   - drift > 0: the bug magnitude the strip prevents.
+        /// </summary>
+        internal static int ComputeFlyIndexDrift(
+            IReadOnlyList<uint> liveVesselPids,
+            ISet<uint> ghostPids,
+            uint targetPid)
+        {
+            if (liveVesselPids == null)
+                return FlyIndexDriftTargetNotInLiveList;
+
+            int targetIndex = -1;
+            for (int i = 0; i < liveVesselPids.Count; i++)
+            {
+                if (liveVesselPids[i] == targetPid)
+                {
+                    targetIndex = i;
+                    break;
+                }
+            }
+
+            if (targetIndex < 0)
+                return FlyIndexDriftTargetNotInLiveList;
+
+            if (ghostPids == null || ghostPids.Count == 0)
+                return 0;
+
+            int drift = 0;
+            for (int i = 0; i < targetIndex; i++)
+            {
+                if (ghostPids.Contains(liveVesselPids[i]))
+                    drift++;
+            }
+
+            return drift;
+        }
+
+        /// <summary>
+        /// PURE log-line formatter for the pre-stock TS Fly ghost strip diagnostic.
+        /// Returned string is the message body (subsystem tag added by the caller via
+        /// ParsekLog.Info). Kept separate from the Unity-touching removal so the
+        /// diagnostic numbers can be asserted in xUnit without a live FlightGlobals.
+        /// </summary>
+        internal static string FormatFlyStripDiagnostic(
+            uint targetPid,
+            int ghostCount,
+            int liveVesselsBefore,
+            int flyIndexDriftAvoided)
+        {
+            return string.Format(ic,
+                "TS Fly pre-stock ghost strip: targetPid={0} ghostCount={1} " +
+                "liveVesselsBefore={2} flyIndexDriftAvoided={3} - removed all ghost map " +
+                "vessels before stock IndexOf/SaveGame so the live list and persistent.sfs " +
+                "are ghost-consistent",
+                targetPid,
+                ghostCount,
+                liveVesselsBefore,
+                flyIndexDriftAvoided);
+        }
+
+        /// <summary>
+        /// Tracking Station "Fly" root-cause fix (BUG #1). Removes all ghost map
+        /// vessels from the live FlightGlobals.Vessels list BEFORE stock
+        /// SpaceTracking.FlyVessel computes IndexOf(v) + SaveGame, so the live list and
+        /// the persistent.sfs StripFromSave produces are both ghost-free and stock
+        /// StartAndFocusVessel lands on the intended vessel the first time.
+        ///
+        /// Called only for a real (non-ghost) Fly target by
+        /// SwitchIntentTrackingStationFlyPatch (the ghost-block path keeps ghosts
+        /// alive — the player stays in the Tracking Station). Removal itself is always
+        /// safe: it is what ParsekTrackingStation.OnDestroy -> RemoveAllGhostVessels
+        /// does a moment later; on a real Fly the scene is transitioning out, so the
+        /// icons vanishing a few frames early is invisible.
+        ///
+        /// Captures the live pid list and the would-be index drift via the pure
+        /// ComputeFlyIndexDrift BEFORE removal so the logged number reflects the bug
+        /// the strip just prevented.
+        /// </summary>
+        internal static void RemoveAllGhostVesselsBeforeStockFly(uint targetPid)
+        {
+            int ghostCount = ghostMapVesselPids.Count;
+
+            // Build the live pid list + target drift from the still-polluted list
+            // captured BEFORE RemoveAllGhostVessels, so the logged drift is the
+            // off-by amount the strip avoided (post-strip the list is ghost-free).
+            var livePids = new List<uint>();
+            var liveVessels = FlightGlobals.Vessels;
+            if (liveVessels != null)
+            {
+                for (int i = 0; i < liveVessels.Count; i++)
+                {
+                    Vessel vessel = liveVessels[i];
+                    if (vessel != null)
+                        livePids.Add(vessel.persistentId);
+                }
+            }
+
+            if (ghostCount == 0)
+            {
+                // Common no-ghost Fly: nothing to strip, no index drift possible.
+                // Single Verbose line so the case is observable without spam.
+                ParsekLog.Verbose("SwitchIntentPatch",
+                    string.Format(ic,
+                        "TS Fly pre-stock ghost strip: no ghost map vessels to strip " +
+                        "targetPid={0} liveVessels={1} - stock IndexOf/SaveGame already ghost-consistent",
+                        targetPid,
+                        livePids.Count));
+                return;
+            }
+
+            int drift = ComputeFlyIndexDrift(livePids, ghostMapVesselPids, targetPid);
+            if (drift == FlyIndexDriftTargetNotInLiveList)
+            {
+                // Defensive: another mod removed the target from the live list before
+                // the strip ran. Removal is still safe and is what TS-cleanup does,
+                // so proceed; the warn flags that the drift could not be measured.
+                ParsekLog.Warn("SwitchIntentPatch",
+                    string.Format(ic,
+                        "TS Fly pre-stock ghost strip: targetPid={0} not found in live " +
+                        "FlightGlobals.Vessels (ghostCount={1} liveVessels={2}) - drift " +
+                        "unmeasurable; proceeding with ghost removal anyway (always safe)",
+                        targetPid,
+                        ghostCount,
+                        livePids.Count));
+            }
+            else
+            {
+                ParsekLog.Info("SwitchIntentPatch",
+                    FormatFlyStripDiagnostic(targetPid, ghostCount, livePids.Count, drift));
+            }
+
+            RemoveAllGhostVessels(TsFlyBeforeStockIndexofReason);
+        }
+
+        // ------------------------------------------------------------------
         // Recording-index-based ghost map (for timeline playback ghosts)
         // ------------------------------------------------------------------
 
