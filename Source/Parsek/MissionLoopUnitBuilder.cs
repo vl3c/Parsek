@@ -953,7 +953,14 @@ namespace Parsek
                 // partner = the station). The owning recording's identity is therefore part of
                 // the anchor universe too - without it, a tree whose only Relative sections are
                 // partner-side would feed the station's live orbit into the constraint while the
-                // signature never probed the station.
+                // signature never probed the station. This (and the early-set of
+                // ownsVesselAnchoredSection before the anchor-recording-id resolves) makes the
+                // digest a strict SUPERSET of the classifier's emitted-anchor set: it may probe
+                // a self-anchoring or unresolvable-recording owner the classifier emits no
+                // constraint for. Harmless - the digest only gates cache invalidation, so
+                // over-inclusion can at worst cost an occasional extra rebuild, never a missed
+                // change or a wrong constraint (the constraint set is built independently). The
+                // ParentAnchorRecordingId guard above still keeps debris/decoupled children out.
                 if (ownsVesselAnchoredSection && rec.VesselPersistentId != 0)
                     AddAnchorIdentity(anchorGuids, rec.VesselPersistentId, rec.RecordedVesselGuid);
             }
@@ -981,8 +988,9 @@ namespace Parsek
         /// guid always beats null, and between two DIFFERENT non-null guids for one pid (the
         /// craft-baked pid-collision shape - rejected by the classifier as distinct launches,
         /// but the digest must still be stable) the ordinal-smaller guid wins, so the digest is
-        /// identical regardless of dictionary enumeration order.</summary>
-        private static void AddAnchorIdentity(Dictionary<uint, string> anchorGuids, uint pid, string guid)
+        /// identical regardless of dictionary enumeration order. Net effect: "ordinal-min of all
+        /// non-null offers for this pid, else null". internal for direct unit testing.</summary>
+        internal static void AddAnchorIdentity(Dictionary<uint, string> anchorGuids, uint pid, string guid)
         {
             if (!anchorGuids.TryGetValue(pid, out string existing))
             {

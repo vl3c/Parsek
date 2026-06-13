@@ -1631,6 +1631,89 @@ namespace Parsek.Tests
             Assert.Equal(offA, offC);
         }
 
+        [Fact]
+        public void AddAnchorIdentity_OrderIndependentMerge()
+        {
+            // M4c review finding 1: the station-anchor digest's per-pid guid merge must be
+            // order-independent so the signature never flips across save/load enumeration order.
+            // Net contract: "ordinal-min of all non-null offers for a pid, else null". The
+            // single-anchor digest test above never exercises these branches, so pin them
+            // directly (AddAnchorIdentity is internal for this).
+            const uint pid = 7u;
+
+            // Non-null beats null regardless of arrival order.
+            foreach (var order in new[] { new[] { (string)null, "B" }, new[] { "B", (string)null } })
+            {
+                var d = new Dictionary<uint, string>();
+                foreach (var g in order) MissionLoopUnitBuilder.AddAnchorIdentity(d, pid, g);
+                Assert.Equal("B", d[pid]);
+            }
+
+            // Ordinal-min wins among differing non-null guids, in every permutation.
+            foreach (var order in new[]
+            {
+                new[] { "A", "B", "C" }, new[] { "C", "B", "A" },
+                new[] { "B", "A", "C" }, new[] { "C", "A", "B" },
+            })
+            {
+                var d = new Dictionary<uint, string>();
+                foreach (var g in order) MissionLoopUnitBuilder.AddAnchorIdentity(d, pid, g);
+                Assert.Equal("A", d[pid]);
+            }
+
+            // null + null stays null; the null-then-non-null mix lands ordinal-min too.
+            var dn = new Dictionary<uint, string>();
+            MissionLoopUnitBuilder.AddAnchorIdentity(dn, pid, null);
+            MissionLoopUnitBuilder.AddAnchorIdentity(dn, pid, null);
+            Assert.Null(dn[pid]);
+            var dm = new Dictionary<uint, string>();
+            foreach (var g in new[] { (string)null, "B", (string)null, "A" })
+                MissionLoopUnitBuilder.AddAnchorIdentity(dm, pid, g);
+            Assert.Equal("A", dm[pid]);
+        }
+
+        [Fact]
+        public void BuildSignature_StationAnchorDigest_StableAcrossAnchorOrder()
+        {
+            // M4c review finding 1 (end-to-end): the SAME station referenced once pid-only
+            // (guid-less section) and once recording-resolved (guid-bearing) must yield an
+            // identical signature regardless of which member the recordings dictionary
+            // enumerates first - the order-independence merge applied through the real digest.
+            const uint depotPid = 9090u;
+            string depotGuid = "33333333-3333-3333-3333-333333333333";
+            var fake = StockFake();
+            fake.VesselOrbits[depotPid] = (1800.0, "Kerbin");
+            fake.Mu["Kerbin"] = KerbinMu;
+            fake.VesselGuids[depotPid] = depotGuid;
+
+            // The depot's own committed recording (supplies the guid for the recording-resolved
+            // section), and two craft members: one anchors the depot by pid, one by recording id.
+            var depotRec = StationRecording("depot-rec", depotPid, depotGuid);
+
+            RecordingTree BuildTree(bool pidMemberFirst)
+            {
+                var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+                var byPid = OrbitLeg("p", 1100, 1600, "Kerbin");
+                WithRendezvous(byPid, 1200, 1300, depotPid);            // guid-less direct pid
+                var byRec = OrbitLeg("r", 1600, 2100, "Kerbin");
+                WithRendezvous(byRec, 1700, 1800, 0, "depot-rec");      // recording-resolved guid
+                ascent.ChainId = "C"; ascent.ChainIndex = 0;
+                byPid.ChainId = "C"; byPid.ChainIndex = 1;
+                byRec.ChainId = "C"; byRec.ChainIndex = 2;
+                return pidMemberFirst
+                    ? TreeOf("t", ascent, byPid, byRec)
+                    : TreeOf("t", ascent, byRec, byPid);
+            }
+
+            var missions = new[] { LoopMissionFor("t", 5000.0) };
+            string sigPidFirst = MissionLoopUnitBuilder.BuildSignature(
+                missions, new[] { BuildTree(true) }, new List<Recording> { depotRec }, 30.0, fake);
+            string sigRecFirst = MissionLoopUnitBuilder.BuildSignature(
+                missions, new[] { BuildTree(false) }, new List<Recording> { depotRec }, 30.0, fake);
+
+            Assert.Equal(sigPidFirst, sigRecFirst);
+        }
+
         // ===================== Phase 1: Solve (Tier-1 phase-lock) =====================
 
         private static PhaseConstraint Rotation(string body, double period, double offset)
