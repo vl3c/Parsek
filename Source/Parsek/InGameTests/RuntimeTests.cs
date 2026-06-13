@@ -5810,6 +5810,91 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "BUG#1: RemoveAllGhostVesselsBeforeStockFly leaves FlightGlobals.Vessels ghost-free so stock FlyVessel IndexOf matches the ghost-free saved file")]
+        public IEnumerator TrackingStationFlyStrip_RemovesGhostsFromLiveList()
+        {
+            using (var scope = new SyntheticTrackingStationRecordingScope("fly-strip"))
+            using (var capture = new TrackingStationLogCapture())
+            {
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+
+                // Let KSP process the ProtoVessel load so the ghost is registered
+                // in FlightGlobals.Vessels before the strip runs.
+                yield return null;
+                yield return null;
+
+                uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
+                InGameAssert.IsTrue(ghostPid != 0,
+                    "Synthetic TS recording should have a ghost PID after lifecycle update");
+                InGameAssert.IsNotNull(FindVesselByPersistentId(ghostPid),
+                    "Synthetic TS ghost PID should resolve to a live Vessel before the strip");
+                InGameAssert.IsTrue(GhostMapPresence.IsGhostMapVessel(ghostPid),
+                    "Ghost PID should be tagged as a ghost before the strip");
+
+                // Pick a real (non-ghost) live vessel as the would-be Fly target.
+                // The synthetic scope's recording has no real vessel, so a host
+                // body / any non-ghost is fine: the strip only reads its pid for
+                // the drift diagnostic. Use the ghost's own pid as a defensive
+                // target if no real vessel is present — the strip still removes
+                // the ghost; the drift just logs the sentinel.
+                uint targetPid = ghostPid;
+                var vessels = FlightGlobals.Vessels;
+                if (vessels != null)
+                {
+                    for (int i = 0; i < vessels.Count; i++)
+                    {
+                        Vessel candidate = vessels[i];
+                        if (candidate == null)
+                            continue;
+                        if (!GhostMapPresence.IsGhostMapVessel(candidate.persistentId))
+                        {
+                            targetPid = candidate.persistentId;
+                            break;
+                        }
+                    }
+                }
+
+                // This is exactly what SwitchIntentTrackingStationFlyPatch.Prefix
+                // calls on a real-vessel Fly, BEFORE stock FlyVessel computes
+                // IndexOf(v) + SaveGame.
+                GhostMapPresence.RemoveAllGhostVesselsBeforeStockFly(targetPid);
+
+                // Post-strip: the ghost must no longer be tagged, and the live
+                // FlightGlobals.Vessels list must contain zero ghost map vessels,
+                // so stock IndexOf(v) matches the ghost-free saved file.
+                InGameAssert.IsFalse(GhostMapPresence.IsGhostMapVessel(ghostPid),
+                    "Ghost PID should be untagged after RemoveAllGhostVesselsBeforeStockFly");
+
+                int remainingGhosts = 0;
+                vessels = FlightGlobals.Vessels;
+                if (vessels != null)
+                {
+                    for (int i = 0; i < vessels.Count; i++)
+                    {
+                        Vessel candidate = vessels[i];
+                        if (candidate == null)
+                            continue;
+                        if (GhostMapPresence.IsGhostMapVessel(candidate.persistentId))
+                            remainingGhosts++;
+                    }
+                }
+
+                InGameAssert.AreEqual(0, remainingGhosts,
+                    "FlightGlobals.Vessels must be ghost-free after the pre-stock TS Fly strip");
+
+                AssertNoCapturedTrackingStationErrors(capture,
+                    "TS Fly pre-stock ghost strip");
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TrackingStationFlyStrip_RemovesGhostsFromLiveList: ghostPid={0} targetPid={1} remainingGhosts={2}",
+                        ghostPid,
+                        targetPid,
+                        remainingGhosts));
+            }
+        }
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
             Description = "#1005: MapRenderProbe reads a real orbit-line active truth (True/False) via OrbitRendererBase.OrbitLine, not a broken reflection sentinel")]
         public IEnumerator MapRenderProbe_ReadsRealLineActiveTruth()
         {
