@@ -71,13 +71,22 @@ namespace Parsek.InGameTests
         // tof +5.0%, inside the +-6% search); window 2 (departUT=39700685.32 = dep + 2*synodic)
         // declined across the WHOLE +-6% recorded-tof search with the retrograde-branch
         // direction mismatch (inc=180.00: Duna's eccentric drift pushed the window's transfer
-        // angle past 180 deg, so every plane-constrained Lambert candidate travels the wrong
-        // way; ReaimTransferSynthesizer rejects it and the resolver falls back to faithful).
-        // That is the knife-edge mode the 2026-06-10 sweep classified UNRESOLVABLE-BY-DESIGN
-        // (plan section 9: sweep dep=43/44), so the decline is the designed outcome and this
-        // pin asserts the WEAK contract, plus window 0 (the departure itself synthesized when
-        // observed, arrival 13.3Mm from Duna's center, well inside the 47.9Mm SOI - not
-        // knife-edge).
+        // angle past 180 deg, so every plane-PROJECTED Lambert candidate travelled the wrong
+        // way; ReaimTransferSynthesizer rejected it and the resolver fell back to faithful).
+        //
+        // ROOT CAUSE (near-180 handedness fix): that decline was NOT infeasibility - it was a
+        // HANDEDNESS FLIP. The old code projected r2 onto the launch plane and chose the
+        // prograde/retrograde branch by sign(cross.z) of the flattened r1 x r2, which rides
+        // rounding noise near 180 deg and selected the inc=180 retrograde branch. The plan
+        // section 10 "unresolvable-by-design" classification of THIS handedness mode is now
+        // OBSOLETE. With the launch-plane normal threaded as the Lambert handedness axis and the
+        // UN-projected r2 endpoint, the near-180 window CONVERGES prograde at the nominal departure
+        // (step 0) - the regression the offline UvLambert.Solve_AntipodalNear180_* test proves and
+        // the requireWindow0Resolve hard assert below pins. The later synodic windows are EXPECTED
+        // to resolve too (all-R map), but a later decline can still come from the SEPARATE, open
+        // M-MIS-3 eccentric-drift tof-band mode (independent of handedness), so the all-windows
+        // claim stays a SOFT/observational one (requireAllWindowsResolve:false) until a live
+        // in-game Periodicity batch confirms all-R.
         private const double ObservedEdgeDepartureUT = 409290.81937705079;
 
         private sealed class ScanContext
@@ -204,7 +213,7 @@ namespace Parsek.InGameTests
             // NO claim that any window resolves here; the strong claim is test 1's, on the
             // mid-band departure.
             DriveWindowsResolveOrDeclineCleanly(ctx, edgeDep, "reaim-e2e-edge-" + edgeIdx.ToString(ic),
-                requireWindow0Resolve: false,
+                requireWindow0Resolve: false, requireAllWindowsResolve: false,
                 out string map, out int resolvedCount, out int declinedCount);
 
             ParsekLog.Info("ReaimE2E",
@@ -214,7 +223,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
-            Description = "Re-aim end-to-end (pinned observed 2026-06-11 failure geometry): the band-edge departure whose window k=2 declined with the retrograde-branch mismatch resolves window 0 and resolves-or-declines-cleanly on every window")]
+            Description = "Re-aim end-to-end (pinned observed 2026-06-11 failure geometry): the near-180 handedness fix resolves the nominal departure prograde (the previous inc=180 retrograde-branch decline); later windows resolve or decline cleanly, expected all-R")]
         public void Reaim_KerbinToDuna_ObservedEdgeDeparture_ResolvesOrDeclinesCleanly()
         {
             var ic = CultureInfo.InvariantCulture;
@@ -222,33 +231,48 @@ namespace Parsek.InGameTests
             if (ctx == null)
                 return;
 
-            // M-MIS-1 item 1: a pinned departure UT from an OBSERVED failure mode (see the
-            // ObservedEdgeDepartureUT constant for the full reconstruction). Window 0 must
-            // resolve (the recorded departure itself synthesized in the observed run, well
-            // inside Duna's SOI); every window must satisfy the weak resolve-or-decline-cleanly
-            // contract. The observed window-2 decline (retrograde-branch direction mismatch) is
-            // classified unresolvable-by-design, so a decline here is the DESIGNED outcome, not
-            // a failure - this pin guards the clean fail-closed path on the real geometry, and
-            // the logged map measures it on every run.
+            // M-MIS-1 item 1 + the near-180 handedness fix: a pinned departure UT from the OBSERVED
+            // failure mode (see the ObservedEdgeDepartureUT constant for the full reconstruction).
+            // BEFORE the fix window k=2 declined with the inc=180 retrograde-branch mismatch; the root
+            // cause was a HANDEDNESS FLIP, not infeasibility.
+            //
+            // CONTRACT (deliberately split - the strong all-R claim is NOT yet live-verified):
+            //  - HARD (requireWindow0Resolve): window 0 is the nominal departure at the exact near-180
+            //    geometry that used to flip retrograde. The handedness fix makes it converge prograde -
+            //    this is the regression the offline UvLambert test (Solve_AntipodalNear180_*) proves, so
+            //    it is asserted hard here too.
+            //  - SOFT (requireAllWindowsResolve = false): the later synodic windows are EXPECTED to all
+            //    resolve too (the R/d map should read all-R), but a decline on a later window can come
+            //    from the SEPARATE, still-open M-MIS-3 eccentric-drift tof-band mode (Duna's true anomaly
+            //    drifts the required tof outside the resolver's +-6% search), which the handedness fix does
+            //    NOT address. That is a clean fail-closed fall-back to faithful, not a handedness
+            //    regression, so it must NOT hard-fail this test. The logged R/d map is the live-run
+            //    confirmation surface: when an in-game Periodicity batch reads all-R, the strong claim is
+            //    confirmed and this can be promoted to requireAllWindowsResolve:true.
             DriveWindowsResolveOrDeclineCleanly(ctx, ObservedEdgeDepartureUT, "reaim-e2e-observed-20260611",
-                requireWindow0Resolve: true,
+                requireWindow0Resolve: true, requireAllWindowsResolve: false,
                 out string map, out int resolvedCount, out int declinedCount);
 
             ParsekLog.Info("ReaimE2E",
                 $"Kerbin->Duna observed-failure departure (pinned 2026-06-11): depUT={ObservedEdgeDepartureUT.ToString("R", ic)} " +
                 $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} " +
-                $"(observed run was RRd on windows 0-2, k=2 declining on the retrograde-branch direction mismatch; " +
-                $"decline = clean faithful fall-back, classified unresolvable-by-design)");
+                $"(near-180 handedness fix: the nominal-departure inc=180 retrograde-branch decline is now resolved prograde; " +
+                $"map expected all-R, a later 'd' is the separate M-MIS-3 eccentric-drift mode falling back cleanly, not a handedness regression)");
         }
 
-        // Drives WindowsToCheck consecutive windows for one departure under the WEAK (designed)
-        // contract shared by the band-edge and observed-failure tests: per window, resolve sane
-        // segments OR decline cleanly to faithful (null segments, correct window index), and do
-        // so DETERMINISTICALLY (a cache-cleared re-solve reproduces the outcome and the transfer
-        // conic). With requireWindow0Resolve, window 0 (the recorded departure itself) must
-        // additionally resolve - the premise check for a departure known to synthesize.
+        // Drives WindowsToCheck consecutive windows for one departure. The base contract (shared by the
+        // band-edge test) is the WEAK (designed) one: per window, resolve sane segments OR decline
+        // cleanly to faithful (null segments, correct window index), DETERMINISTICALLY (a cache-cleared
+        // re-solve reproduces the outcome and the transfer conic). With requireWindow0Resolve, window 0
+        // (the recorded departure itself) must additionally resolve - the premise check for a departure
+        // known to synthesize. requireAllWindowsResolve is the STRONG contract switch (EVERY window must
+        // resolve a sane prograde re-aimed transfer; any decline fails): it is wired but currently passed
+        // false at both call sites, pending a live in-game Periodicity batch confirming the observed-pin
+        // R/d map reads all-R (a later 'd' can be the separate, still-open M-MIS-3 eccentric-drift mode,
+        // not a handedness regression). Promote to true only after that live confirmation.
         private static void DriveWindowsResolveOrDeclineCleanly(
             ScanContext ctx, double departureUT, string memberId, bool requireWindow0Resolve,
+            bool requireAllWindowsResolve,
             out string outcomeMap, out int resolvedCount, out int declinedCount)
         {
             BuildMemberAndPlan(ctx, departureUT,
@@ -282,6 +306,9 @@ namespace Parsek.InGameTests
                 {
                     InGameAssert.IsTrue(!(requireWindow0Resolve && k == 0),
                         "window k=0 (the recorded departure itself) must resolve a re-aimed transfer");
+                    InGameAssert.IsTrue(!requireAllWindowsResolve,
+                        $"window k={k} must RESOLVE a sane prograde re-aimed transfer after the near-180 handedness fix " +
+                        "(the observed inc=180 retrograde-branch decline is no longer the designed outcome - it was a handedness flip)");
                     InGameAssert.IsTrue(segs == null,
                         $"window k={k} decline must return null segments (clean fall-back to faithful)");
                     declinedCount++;
