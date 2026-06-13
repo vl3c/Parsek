@@ -6877,7 +6877,8 @@ namespace Parsek
                 IReadOnlyList<LoopCut> loiterCuts = null,
                 double arrivalHoldSeconds = 0.0,
                 double arrivalHoldAtUT = double.NaN,
-                double destRotationPeriodSeconds = double.NaN)
+                double arrivalAlignPeriodSeconds = double.NaN,
+                string arrivalAmberReason = null)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6893,7 +6894,8 @@ namespace Parsek
                 LoiterCuts = loiterCuts;
                 ArrivalHoldSeconds = arrivalHoldSeconds;
                 ArrivalHoldAtUT = arrivalHoldAtUT;
-                DestRotationPeriodSeconds = destRotationPeriodSeconds;
+                ArrivalAlignPeriodSeconds = arrivalAlignPeriodSeconds;
+                ArrivalAmberReason = arrivalAmberReason;
             }
 
             /// <summary>
@@ -7010,17 +7012,28 @@ namespace Parsek
             internal double ArrivalHoldAtUT { get; }
 
             /// <summary>
-            /// The destination body's rotation period T_rot (seconds) used to align the arrival hold, carried
-            /// so the loop clock can re-align the hold per replayed loop. The reference hold
-            /// (<see cref="ArrivalHoldSeconds"/>, W_0) aligns ONE loop; the synodic launch cadence is not a
-            /// whole number of destination rotations, so the deorbit rotation phase drifts a fraction of a turn
-            /// each loop. The loop clock subtracts the per-loop drift (cycleIndex * (cadence mod T_rot))
-            /// mod-wrapped into [0, T_rot) so every loop re-aligns. NaN (the "no period" sentinel, matching the
-            /// <see cref="ArrivalHoldAtUT"/> NaN convention) on every non-re-aim unit and on a re-aim landing
-            /// with alignment off / no rotation constraint, in which case the per-loop adjustment is skipped and
-            /// the span clock stays byte-identical to the constant-hold behavior.
+            /// The destination-side alignment period (seconds) used by the arrival hold, carried so the loop
+            /// clock can re-align the hold per replayed loop: the destination body's rotation period T_rot for
+            /// a landing, or the destination STATION's orbital period T_station for an orbit-rendezvous
+            /// (M4c Tier 2). The reference hold (<see cref="ArrivalHoldSeconds"/>, W_0) aligns ONE loop; the
+            /// synodic launch cadence is not a whole number of alignment periods, so the destination-side phase
+            /// drifts a fraction of a turn each loop. The loop clock subtracts the per-loop drift
+            /// (cycleIndex * (cadence mod T_align)) mod-wrapped into [0, T_align) so every loop re-aligns. NaN
+            /// (the "no period" sentinel, matching the <see cref="ArrivalHoldAtUT"/> NaN convention) on every
+            /// non-re-aim unit and on a re-aim arrival with no hold, in which case the per-loop adjustment is
+            /// skipped and the span clock stays byte-identical to the constant-hold behavior.
             /// </summary>
-            internal double DestRotationPeriodSeconds { get; }
+            internal double ArrivalAlignPeriodSeconds { get; }
+
+            /// <summary>
+            /// The arrival-alignment AMBER reason for a re-aim unit whose destination-side alignment failed
+            /// closed with a station involved (design D8: landing rotation + station, station + constrained
+            /// moon, a moon-orbiting station, or a station-bearing Jool-class destination - no single hold
+            /// aligns two destination-side periods). Display-only: the Missions window tints the T- cell and
+            /// shows this as the tooltip; the transfer still re-aims, the arrival replays faithful (hold 0).
+            /// Null on every other unit. Transient like the unit itself (never persisted).
+            /// </summary>
+            internal string ArrivalAmberReason { get; }
         }
 
         /// <summary>
@@ -7324,7 +7337,7 @@ namespace Parsek
         /// span start or the span has zero/negative duration, so callers never see a negative
         /// phase. Pure except a single rate-limited Verbose line emitted once per replayed loop
         /// ONLY on the re-aim per-loop-hold branch (<paramref name="arrivalHoldSeconds"/> &gt; 0 with a
-        /// valid <paramref name="arrivalHoldRotationPeriod"/>); the common path stays silent and
+        /// valid <paramref name="arrivalHoldAlignPeriod"/>); the common path stays silent and
         /// per-frame callers still own their own rate-limiting.
         ///
         /// <paramref name="isInInterCycleTail"/> (mirrors <see cref="ComputeLoopPhaseFromUT"/>'s
@@ -7351,7 +7364,7 @@ namespace Parsek
             IReadOnlyList<LoopCut> loiterCuts = null,
             double arrivalHoldSeconds = 0.0,
             double arrivalHoldAtUT = double.NaN,
-            double arrivalHoldRotationPeriod = double.NaN)
+            double arrivalHoldAlignPeriod = double.NaN)
         {
             loopUT = spanStartUT;
             cycleIndex = 0;
@@ -7477,13 +7490,13 @@ namespace Parsek
             if (hold > 0.0)
             {
                 double w0 = hold;
-                hold = ComputePerLoopArrivalHoldSeconds(w0, cycleIndex, cycleDuration, arrivalHoldRotationPeriod);
+                hold = ComputePerLoopArrivalHoldSeconds(w0, cycleIndex, cycleDuration, arrivalHoldAlignPeriod);
                 // Per-frame hot path: rate-limited per mission (keyed on phaseAnchorUT + spanStartUT, NOT
                 // cycleIndex, so the key set stays bounded by mission count rather than growing one entry per
                 // replayed loop). The message carries cycleIndex and W_N, so a playtest sees W_N step as the
                 // loop advances across the periodic lines, without per-frame spam.
-                if (!double.IsNaN(arrivalHoldRotationPeriod) && !double.IsInfinity(arrivalHoldRotationPeriod)
-                    && arrivalHoldRotationPeriod > 0.0)
+                if (!double.IsNaN(arrivalHoldAlignPeriod) && !double.IsInfinity(arrivalHoldAlignPeriod)
+                    && arrivalHoldAlignPeriod > 0.0)
                 {
                     var hic = CultureInfo.InvariantCulture;
                     ParsekLog.VerboseRateLimited(
@@ -7494,7 +7507,7 @@ namespace Parsek
                         $"perloop-hold.{phaseAnchorUT.ToString("R", hic)}.{spanStartUT.ToString("R", hic)}",
                         $"per-loop arrival hold: cycleIndex={cycleIndex.ToString(hic)} " +
                         $"W0={w0.ToString("R", hic)}s cadence={cycleDuration.ToString("R", hic)}s " +
-                        $"Trot={arrivalHoldRotationPeriod.ToString("R", hic)}s WN={hold.ToString("R", hic)}s");
+                        $"Talign={arrivalHoldAlignPeriod.ToString("R", hic)}s WN={hold.ToString("R", hic)}s");
                 }
             }
             // Defense-in-depth: never let the hold push the active span past the cadence (a mid-span cycle
@@ -7658,7 +7671,7 @@ namespace Parsek
             IReadOnlyList<LoopCut> loiterCuts = null,
             double arrivalHoldSeconds = 0.0,
             double arrivalHoldAtUT = double.NaN,
-            double arrivalHoldRotationPeriod = double.NaN)
+            double arrivalHoldAlignPeriod = double.NaN)
         {
             spanLoopUT = spanStartUT;
             unitCycle = 0;
@@ -7667,7 +7680,7 @@ namespace Parsek
             if (!TryComputeSpanLoopUT(
                     currentUT, phaseAnchorUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT,
                     out unitCycle, out isInInterCycleTail, schedule, loiterCuts,
-                    arrivalHoldSeconds, arrivalHoldAtUT, arrivalHoldRotationPeriod))
+                    arrivalHoldSeconds, arrivalHoldAtUT, arrivalHoldAlignPeriod))
                 return UnitMemberRenderDecision.SpanClockUnresolved;
 
             // Inter-cycle tail (the "wait" between cycles when cadence > span): render nothing.
@@ -7728,7 +7741,7 @@ namespace Parsek
                 unit.LoiterCuts,
                 unit.ArrivalHoldSeconds,
                 unit.ArrivalHoldAtUT,
-                unit.DestRotationPeriodSeconds);
+                unit.ArrivalAlignPeriodSeconds);
 
             if (decision == UnitMemberRenderDecision.Render)
                 return loopUT;

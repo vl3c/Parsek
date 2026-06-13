@@ -528,11 +528,15 @@ namespace Parsek
                                     $"/{recordedSpan.ToString("F0", ric)}");
                             }
 
-                            // Destination-SOI arrival alignment (re-aim cross-parent landing): the loop-clock
-                            // arrival HOLD that defers the in-SOI replay so the destination's rotation phase at
-                            // the deorbit recurs to recorded. None (hold 0) for alignment off / an unsupported
-                            // destination / an orbit-only arrival, leaving the span clock byte-identical.
-                            // extraction is in scope; phaseAnchorUT + loiterCuts are final (post pad-align).
+                            // Destination-SOI arrival alignment (re-aim cross-parent arrival): the loop-clock
+                            // arrival HOLD that defers the in-SOI replay so the destination-side phase recurs
+                            // to recorded - the destination's ROTATION at the deorbit for a landing, or the
+                            // destination STATION's orbital phase at the SOI entry for an orbit-rendezvous
+                            // (M4c Tier 2, T_station for T_rot). None (hold 0) for rotation alignment off /
+                            // an unsupported destination (incl. the D8 dual-constraint shapes, which carry
+                            // the amber reason) / an orbit-only no-station arrival, leaving the span clock
+                            // byte-identical. extraction is in scope; phaseAnchorUT + loiterCuts are final
+                            // (post pad-align).
                             arrivalHold = ArrivalHoldPlanner.ComputeArrivalHold(
                                 extraction.Constraints, plan.TargetBody, plan.RecordedArrivalUT,
                                 transitedBodyRotationMode, phaseAnchorUT, spanStartUT, loiterCuts, bodyInfo);
@@ -541,9 +545,15 @@ namespace Parsek
                                 var aic = CultureInfo.InvariantCulture;
                                 ParsekLog.Info("Reaim",
                                     $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
+                                    $"kind={(arrivalHold.IsStationHold ? "station" : "rotation")} " +
+                                    (arrivalHold.IsStationHold
+                                        ? $"pid={arrivalHold.AlignAnchorPid.ToString(aic)} "
+                                        : "") +
+                                    $"Talign={arrivalHold.AlignPeriodSeconds.ToString("R", aic)}s " +
                                     $"hold={arrivalHold.HoldSeconds.ToString("R", aic)}s at " +
                                     $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
-                                    $"(aligns the deorbit rotation phase, mode={transitedBodyRotationMode})");
+                                    $"(aligns the {(arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
+                                    $"phase, mode={transitedBodyRotationMode})");
                             }
                         }
                         else if (!SuppressLogging)
@@ -562,6 +572,12 @@ namespace Parsek
                 }
             }
 
+            // M4c arrival-amber transition (set/clear once per change): evaluated on EVERY build,
+            // not just inside the re-aim branch, so the amber also CLEARS when re-aim disengages,
+            // the station vanishes, or the dual constraint resolves (arrivalHold defaults to None
+            // with a null AmberReason on all those paths).
+            LogArrivalAmberTransition(tree.Id, mission.Name, arrivalHold.AmberReason);
+
             // 8. Build the unit (carrying the per-member trimmed render windows + the optional
             //    zero-drift schedule; null schedule => the existing uniform-cadence span clock; the
             //    optional re-aim plan + synodic schedule drive the flight engine's per-window transfer
@@ -571,7 +587,7 @@ namespace Parsek
                 ownerIndex, memberArray, spanStartUT, spanEndUT, effectiveCadence, phaseAnchorUT,
                 effectiveOverlapCadence, memberWindowByIndex, relaunchSchedule, reaimPlan, reaimSchedule,
                 loiterCuts, arrivalHold.HoldSeconds, arrivalHold.HoldAtUT,
-                arrivalHold.RotationPeriodSeconds);
+                arrivalHold.AlignPeriodSeconds, arrivalHold.AmberReason);
 
             if (!SuppressLogging)
             {
@@ -784,7 +800,15 @@ namespace Parsek
                     // P re-derives and the unit rebuilds. Only computed when bodyInfo is supplied
                     // (the phase-lock wiring); without it the signature is byte-identical to before.
                     if (bodyInfo != null)
+                    {
                         AppendTransitedBodyDigest(sb, loopTree, bodyInfo, ic);
+                        // M4a/M4c anchor orbit identity (design doc section 8): the rendezvous
+                        // anchor's LIVE orbit feeds the VesselOrbital constraint (schedule on
+                        // same-parent shapes, arrival hold on cross-parent shapes), so a boosted
+                        // or vanished station must move the signature or the cached unit keeps a
+                        // stale T_station.
+                        AppendStationAnchorDigest(sb, loopTree, committed, bodyInfo, ic);
+                    }
                 }
             }
 
@@ -865,6 +889,147 @@ namespace Parsek
                   .Append(bodyInfo.OrbitalVelocity(b).ToString("R", ic)).Append(';');
             }
             sb.Append('@');
+        }
+
+        /// <summary>
+        /// Appends the looping tree's rendezvous-anchor LIVE orbit identities to the signature
+        /// (M4a/M4c, design doc section 8): the distinct vessel anchors of the tree's Relative
+        /// TrackSections - each resolved (anchorVesselId directly; anchorRecordingId through the
+        /// committed recording's pid + launch guid) PLUS the OWNING recording's identity for any
+        /// member carrying a vessel-anchored section (the dock merge's mutual anchoring means a
+        /// partner-side section's rendezvous target is the OWNER, per the classifier's
+        /// self-partition rule) - probed once each via
+        /// <see cref="IBodyInfo.TryGetVesselOrbit"/>. A boosted station (period change), a
+        /// vanished/recovered one (found flip), or a re-orbited one (body change) moves the
+        /// digest and rebuilds the cached unit. The period is quantized to whole seconds: a real
+        /// boost moves it by far more (the station tolerance is ~20s at 3 degrees), while a
+        /// LOADED vessel's per-frame numeric orbit noise stays below the quantum - the residual
+        /// accepted churn is a live vessel matching an anchor pid under ACTIVE THRUST sweeping
+        /// integer-second boundaries for the burn duration (transient, bounded, only while that
+        /// tree loops). Sorted by pid so enumeration order never perturbs the digest.
+        /// </summary>
+        private static void AppendStationAnchorDigest(
+            System.Text.StringBuilder sb,
+            RecordingTree loopTree,
+            IReadOnlyList<Recording> committed,
+            IBodyInfo bodyInfo,
+            CultureInfo ic)
+        {
+            sb.Append("S:");
+            if (loopTree == null || loopTree.Recordings == null)
+                return;
+            // pid -> guid (null until some identity supplies one; a guid-less direct-pid anchor
+            // keeps null, matching the classifier's pid-only fallback).
+            var anchorGuids = new Dictionary<uint, string>();
+            foreach (var rec in loopTree.Recordings.Values)
+            {
+                if (rec == null || rec.TrackSections == null)
+                    continue;
+                if (!string.IsNullOrEmpty(rec.ParentAnchorRecordingId))
+                    continue; // debris/decoupled children anchor their own parent, never a rendezvous
+                bool ownsVesselAnchoredSection = false;
+                for (int i = 0; i < rec.TrackSections.Count; i++)
+                {
+                    TrackSection sec = rec.TrackSections[i];
+                    if (sec.referenceFrame != ReferenceFrame.Relative)
+                        continue;
+                    if (sec.anchorVesselId != 0)
+                    {
+                        ownsVesselAnchoredSection = true;
+                        AddAnchorIdentity(anchorGuids, sec.anchorVesselId, null);
+                    }
+                    else if (!string.IsNullOrEmpty(sec.anchorRecordingId))
+                    {
+                        ownsVesselAnchoredSection = true;
+                        Recording anchorRec = MissionPeriodicity.FindCommittedRecordingById(
+                            committed, sec.anchorRecordingId);
+                        if (anchorRec != null && anchorRec.VesselPersistentId != 0)
+                            AddAnchorIdentity(anchorGuids,
+                                anchorRec.VesselPersistentId, anchorRec.RecordedVesselGuid);
+                    }
+                }
+                // The dock merge's MUTUAL anchoring: a PARTNER member's sections anchor the
+                // mission's own craft, and the classifier reattributes them to the OWNER (the
+                // partner = the station). The owning recording's identity is therefore part of
+                // the anchor universe too - without it, a tree whose only Relative sections are
+                // partner-side would feed the station's live orbit into the constraint while the
+                // signature never probed the station. This (and the early-set of
+                // ownsVesselAnchoredSection before the anchor-recording-id resolves) makes the
+                // digest a strict SUPERSET of the classifier's emitted-anchor set: it may probe
+                // a self-anchoring or unresolvable-recording owner the classifier emits no
+                // constraint for. Harmless - the digest only gates cache invalidation, so
+                // over-inclusion can at worst cost an occasional extra rebuild, never a missed
+                // change or a wrong constraint (the constraint set is built independently). The
+                // ParentAnchorRecordingId guard above still keeps debris/decoupled children out.
+                if (ownsVesselAnchoredSection && rec.VesselPersistentId != 0)
+                    AddAnchorIdentity(anchorGuids, rec.VesselPersistentId, rec.RecordedVesselGuid);
+            }
+            if (anchorGuids.Count == 0)
+                return;
+            var pids = new List<uint>(anchorGuids.Keys);
+            pids.Sort();
+            // (AddAnchorIdentity keeps the merge deterministic regardless of the recordings
+            // dictionary's enumeration order, so the digest never flips between builds or across
+            // save/load for identical inputs.)
+            for (int i = 0; i < pids.Count; i++)
+            {
+                uint pid = pids[i];
+                bool found = bodyInfo.TryGetVesselOrbit(
+                    pid, anchorGuids[pid], out double period, out string body);
+                sb.Append(pid.ToString(ic)).Append('=')
+                  .Append(found ? "1" : "0").Append(',')
+                  .Append(found ? System.Math.Floor(period).ToString("F0", ic) : "-").Append(',')
+                  .Append(found ? (body ?? "-") : "-").Append(';');
+            }
+            sb.Append('@');
+        }
+
+        /// <summary>Order-independent identity merge for the station-anchor digest: a non-null
+        /// guid always beats null, and between two DIFFERENT non-null guids for one pid (the
+        /// craft-baked pid-collision shape - rejected by the classifier as distinct launches,
+        /// but the digest must still be stable) the ordinal-smaller guid wins, so the digest is
+        /// identical regardless of dictionary enumeration order. Net effect: "ordinal-min of all
+        /// non-null offers for this pid, else null". internal for direct unit testing.</summary>
+        internal static void AddAnchorIdentity(Dictionary<uint, string> anchorGuids, uint pid, string guid)
+        {
+            if (!anchorGuids.TryGetValue(pid, out string existing))
+            {
+                anchorGuids[pid] = guid;
+                return;
+            }
+            if (guid == null || existing == guid)
+                return;
+            if (existing == null || string.CompareOrdinal(guid, existing) < 0)
+                anchorGuids[pid] = guid;
+        }
+
+        // M4c arrival-amber transition log: last reason per TREE ID (mission names are
+        // player-renamable via MissionGroupLink, so a name key would leak entries and fire
+        // spurious transitions on rename), so the set/clear/changed Info line fires once per
+        // transition, not per build. Suppressed builds (the UI rebuilds with SuppressLogging
+        // set) neither log nor consume the transition, so the next unsuppressed build still
+        // reports it - the M4a LogDriftAmberTransition pattern.
+        private static readonly Dictionary<string, string> lastArrivalAmberReasonByTree =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        internal static void ResetArrivalAmberLogForTesting()
+        {
+            lastArrivalAmberReasonByTree.Clear();
+        }
+
+        private static void LogArrivalAmberTransition(string treeId, string missionName, string reason)
+        {
+            if (SuppressLogging)
+                return;
+            string key = treeId ?? "?";
+            lastArrivalAmberReasonByTree.TryGetValue(key, out string prev);
+            if (string.Equals(prev, reason, StringComparison.Ordinal))
+                return;
+            lastArrivalAmberReasonByTree[key] = reason;
+            ParsekLog.Info("Reaim",
+                reason != null
+                    ? $"Arrival amber SET: tree={key} mission='{missionName}' {reason}"
+                    : $"Arrival amber CLEARED: tree={key} mission='{missionName}'");
         }
 
         private static RecordingTree FindTree(IReadOnlyList<RecordingTree> trees, string treeId)

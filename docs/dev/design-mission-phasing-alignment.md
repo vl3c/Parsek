@@ -9,7 +9,10 @@ prime consumer. This note records the decisions; implementation follows in separ
 **Status:** decisions recorded; M4a (Tier 1 `VesselOrbital`, section 5) IMPLEMENTED on branch
 `mission-vesselorbital-tier1` per `docs/dev/plans/mission-vesselorbital-tier1.md`; M4b (the
 loiter knob) SHIPPED 2026-06-11 (branch `mission-loiter-knob`, plan
-`docs/dev/plans/mission-loiter-knob.md`); M4c (Tier 2) not yet implemented. Parent doc: `docs/parsek-missions-design.md`
+`docs/dev/plans/mission-loiter-knob.md`); M4c (Tier 2, section 6) SHIPPED 2026-06-12 (branch
+`mission-station-arrival-hold`, plan `docs/dev/plans/mission-station-arrival-hold.md`; the
+section-8 anchor-orbit signature input, deferred from M4a, shipped with it).
+Parent doc: `docs/parsek-missions-design.md`
 (sections 7.4 / 7.5 / 14). Consumers: logistics supply routes
 (`docs/parsek-logistics-supply-routes-design.md`), M-MIS-2 P4 (the destination-loiter
 re-timer shares the knob built here).

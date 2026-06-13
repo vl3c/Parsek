@@ -27,6 +27,7 @@ namespace Parsek.Tests
             MissionPeriodicity.SuppressLogging = false;
             MissionLoopUnitBuilder.SuppressLogging = false;
             MissionPeriodicity.ResetDriftAmberLogForTesting();
+            MissionLoopUnitBuilder.ResetArrivalAmberLogForTesting();
         }
 
         public void Dispose()
@@ -1061,14 +1062,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Extract_CrossParentStation_UnsupportedRendezvous()
+        public void Extract_NonTransitedStation_UnsupportedRendezvous()
         {
-            // Test 6: a station orbiting a body OTHER than the launch body (e.g. around the Mun
-            // while launching from Kerbin) is the Tier 2 / M4c shape - fail closed in M4a.
+            // Test 6 (M4c revision of the M4a cross-parent reject): a station orbiting a body
+            // the mission's included window never TRANSITS (here the Mun - the resupply tree has
+            // no Mun orbit segments) has no alignment basis - still fail closed. The M4c-lifted
+            // shape (station around a TRANSITED body) is covered by the M4c tests below.
             var ex = Extract(ResupplyTree(), StationFake(body: "Mun"));
 
             Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
-            Assert.Contains("Tier 2", ex.UnsupportedReason);
+            Assert.Contains("emitted no Orbital constraint", ex.UnsupportedReason);
         }
 
         [Fact]
@@ -1308,12 +1311,407 @@ namespace Parsek.Tests
         public void Extract_RejectedRendezvous_LogsReason()
         {
             // Test 14b: a reject flows through the summary's why= field with the specific reason
-            // (here the cross-parent station), so a fail-closed shape is never a silent branch.
+            // (here a station around a never-transited body), so a fail-closed shape is never a
+            // silent branch.
             Extract(ResupplyTree(), StationFake(body: "Mun"));
 
             Assert.Contains(logLines, l =>
                 l.Contains("[MissionPeriodicity]") && l.Contains("ExtractConstraints") &&
-                l.Contains("support=UnsupportedRendezvous") && l.Contains("Tier 2"));
+                l.Contains("support=UnsupportedRendezvous") &&
+                l.Contains("emitted no Orbital constraint"));
+        }
+
+        // ===================== M4c: cross-parent station (Tier 2) =====================
+        // docs/dev/plans/mission-station-arrival-hold.md: the rule-3 split (a station around a
+        // TRANSITED body emits; emission never touches Support), the destination-station arrival
+        // hold, and the D8 dual-constraint amber.
+
+        // The cross-parent resupply shape: Kerbin ascent + Kerbin orbit, then a Duna orbit leg
+        // carrying the rendezvous Relative section anchored to the station.
+        private static RecordingTree CrossParentResupplyTree(uint anchorPid = StationPid)
+        {
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            var arrival = OrbitLeg("a", 1600, 2600, "Duna");
+            WithRendezvous(arrival, 1800, 2200, anchorPid);
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            arrival.ChainId = "C"; arrival.ChainIndex = 2;
+            return TreeOf("t", ascent, transfer, arrival);
+        }
+
+        [Fact]
+        public void Extract_CrossParentTransitedStation_EmitsVesselOrbital_SupportUntouched()
+        {
+            // M4c test 1a: a station orbiting the cross-parent DESTINATION (Duna, which the
+            // mission transits - Orbital(Duna) emitted) emits the VesselOrbital constraint, and
+            // the emit NEVER touches Support: the mission stays UnsupportedCrossParent (set by
+            // the step-4 orbital scan), so the builder's re-aim branch still runs and the
+            // arrival hold can consume the constraint. Flipping Support here would phase-lock
+            // the mission and silently skip the re-aim transfer (the regression the
+            // DestinationConstraintExtractor header warns about).
+            var ex = Extract(CrossParentResupplyTree(), StationFake(body: "Duna"));
+
+            Assert.Equal(Support.UnsupportedCrossParent, ex.Support);
+            Assert.Contains("synodic", ex.UnsupportedReason); // the cross-parent reason, not a rendezvous reject
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal("Duna", vo.BodyName);                 // the ORBITED body (the destination)
+            Assert.Equal(StationPeriod, vo.PeriodSeconds);     // the LIVE station period
+            Assert.Equal(StationPid, vo.AnchorVesselPid);
+            Assert.Equal(800.0, vo.PhaseOffsetSeconds);        // 1800 - 1000
+        }
+
+        [Fact]
+        public void Extract_SameParentTransitedStation_EmitsVesselOrbital_StaysSupported()
+        {
+            // M4c test 1b (the Mun-depot shape): a station orbiting a TRANSITED same-parent body
+            // emits the constraint and Support stays Supported, so the zero-drift schedule + M4b
+            // knob align the station with ZERO new scheduling code. The other polarity of the
+            // "emit never touches Support" invariant.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            var munLeg = OrbitLeg("m", 1600, 2600, "Mun");
+            WithRendezvous(munLeg, 1800, 2200, StationPid);
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            munLeg.ChainId = "C"; munLeg.ChainIndex = 2;
+            var tree = TreeOf("t", ascent, transfer, munLeg);
+
+            var ex = Extract(tree, StationFake(body: "Mun"));
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Null(ex.UnsupportedReason);
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal("Mun", vo.BodyName);
+            Assert.Equal(StationPid, vo.AnchorVesselPid);
+            // The transited-body Orbital constraint coexists (the joint schedule solves both).
+            Assert.Contains(ex.Constraints,
+                c => c.Kind == ConstraintKind.Orbital && c.BodyName == "Mun");
+        }
+
+        [Fact]
+        public void Extract_CrossParentStation_VanishedAnchor_Rejected()
+        {
+            // M4c test 4: the M4a anchor policy applies unchanged to the new shape - a vanished
+            // (recovered/deorbited) anchor on a cross-parent destination fails closed to
+            // UnsupportedRendezvous (which deliberately overwrites UnsupportedCrossParent for
+            // the report; the re-aim transfer still runs off !phaseLocked, just with no station
+            // constraint and no hold).
+            var ex = Extract(CrossParentResupplyTree(), StockFake()); // no VesselOrbits entry
+
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("not in save / no closed orbit", ex.UnsupportedReason);
+        }
+
+        [Fact]
+        public void Build_SameParentDepot_AttachesScheduleNoHold()
+        {
+            // M4c shape A end-to-end through the live Build if-chain: pad Rotation(Kerbin) +
+            // Orbital(Mun) + VesselOrbital(station@Mun) is a drifting multi-constraint config -
+            // the zero-drift schedule attaches (the station is just one more constraint), and
+            // the arrival hold stays zero (the hold is re-aim-only).
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithSoiEntry(transfer, 1600, 2000, "Mun");
+            WithRendezvous(transfer, 1700, 1900, StationPid);
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", 1000.0 + 1.5 * MunOrbit);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StationFake(body: "Mun"));
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.NotNull(unit.RelaunchSchedule);
+            Assert.Equal(0.0, unit.ArrivalHoldSeconds);
+            Assert.Null(unit.ArrivalAmberReason);
+            // The discriminating residual pin (review finding 5): the scheduled launches must
+            // honor the STATION tolerance (period * 3deg/360 = 15s for the 1800s fake station).
+            // Had the station constraint been silently dropped from the solve, pad+Mun windows
+            // would land at an arbitrary station phase and fail this with ~98% probability per
+            // launch (the inputs are fixed, so the test is deterministic either way).
+            double stationTol = StationPeriod * (3.0 / 360.0);
+            double ut0 = 1000.0;
+            double launch = unit.RelaunchSchedule.FirstLaunchUT;
+            for (int i = 0; i < 3; i++)
+            {
+                double residual = MissionPeriodicity.CircularPhaseError(launch - ut0, StationPeriod);
+                Assert.True(residual <= stationTol + 1e-6,
+                    $"launch {i} at {launch} has station residual {residual} > {stationTol}");
+                launch = unit.RelaunchSchedule.NextLaunchAfter(launch);
+            }
+        }
+
+        [Fact]
+        public void ScheduleK_TwoShiftableConstraints_JointlySatisfied()
+        {
+            // M4c (plan test 5, knob half): the M4b shiftable-group scan serves TWO shiftable
+            // constraints jointly (the Mun-window Orbital and the Mun-depot VesselOrbital both
+            // sit after the phasing loiter, so one rev shift d must satisfy both). Synthetic
+            // commensurate geometry: anchor 600, shiftables 3600 + 900, T_park 100 -> the value
+            // k*600 + d*100 must be a multiple of 3600 (which covers 900); the first (k, d) by
+            // k-then-|d| order is k=5, d=6 (6*5 + 6 = 36 -> 3600).
+            bool found = MissionPeriodicity.TryFindNextScheduleK(
+                600.0,
+                new double[0], new double[0],                  // no unshiftable others
+                new[] { 3600.0, 900.0 }, new[] { 50.0, 10.0 }, // Mun-like + station-like, both shiftable
+                100.0, -2, 10,                                 // T_park, d bounds
+                1, 64,
+                out long k, out long d, out double residual, out bool withinTol);
+
+            Assert.True(found);
+            Assert.True(withinTol);
+            Assert.Equal(5, k);
+            Assert.Equal(6, d);
+            Assert.True(residual <= 10.0 + 1e-9);
+            // Cross-check: the shifted event satisfies BOTH periods.
+            double shifted = k * 600.0 + d * 100.0;
+            Assert.True(MissionPeriodicity.CircularPhaseError(shifted, 3600.0) <= 50.0);
+            Assert.True(MissionPeriodicity.CircularPhaseError(shifted, 900.0) <= 10.0);
+        }
+
+        [Fact]
+        public void Extract_CrossParentStation_DifferentLaunchGuid_Rejected()
+        {
+            // M4c (plan test 4, guid variant): the craft-baked-pid trap on the NEW cross-parent
+            // shape - the live vessel carrying the recorded pid is a DIFFERENT launch of the
+            // same craft, so it must not read as the recorded Duna depot.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            var arrival = OrbitLeg("a", 1600, 2600, "Duna");
+            WithRendezvous(arrival, 1800, 2200, 0, "station-rec");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            arrival.ChainId = "C"; arrival.ChainIndex = 2;
+            var tree = TreeOf("t", ascent, transfer, arrival);
+            var fake = StationFake(body: "Duna");
+            fake.VesselGuids[StationPid] = "22222222-2222-2222-2222-222222222222";
+            var station = StationRecording("station-rec", StationPid,
+                "11111111-1111-1111-1111-111111111111");
+
+            var ex = Extract(tree, fake, extraCommitted: new List<Recording> { station });
+
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("different launch", ex.UnsupportedReason);
+        }
+
+        [Fact]
+        public void Extract_CrossParentStation_AnchorRecordingUnresolvable_Rejected()
+        {
+            // M4c (plan test 4, anchor-recording variant): an anchor-recording-only section on
+            // the cross-parent shape whose recording id resolves to nothing committed.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            var arrival = OrbitLeg("a", 1600, 2600, "Duna");
+            WithRendezvous(arrival, 1800, 2200, 0, "missing-rec");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            arrival.ChainId = "C"; arrival.ChainIndex = 2;
+            var tree = TreeOf("t", ascent, transfer, arrival);
+
+            var ex = Extract(tree, StationFake(body: "Duna"));
+
+            Assert.Equal(Support.UnsupportedRendezvous, ex.Support);
+            Assert.Contains("not in the committed set", ex.UnsupportedReason);
+        }
+
+        // The full re-aim chain with a destination station: ascent (Kerbin surface) + one
+        // journey member whose OrbitSegments classify as Kerbin parking -> Sun coast -> Duna
+        // arrival, with the rendezvous Relative section inside the Duna window.
+        private static RecordingTree ReaimStationTree(bool withDunaLanding = false)
+        {
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var journey = OrbitLeg("o", 1100, 6000, "Kerbin");          // parking (closed, sma 700000)
+            WithSoiEntry(journey, 6000, 1000000, "Sun");                 // heliocentric coast
+            WithSoiEntry(journey, 1000000, 1005000, "Duna");             // arrival leg
+            WithRendezvous(journey, 1001000, 1004000, StationPid);       // dock with the depot
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            journey.ChainId = "C"; journey.ChainIndex = 1;
+            if (!withDunaLanding)
+                return TreeOf("t", ascent, journey);
+            // A Duna landing leg: surface section of Duna -> Rotation(Duna) emitted (the Duna
+            // orbit handoff already exists on the journey member) -> the D8 dual shape.
+            var landing = SurfaceLeg("d", 1005000, 1005100, "Duna");
+            landing.ChainId = "C"; landing.ChainIndex = 2;
+            return TreeOf("t", ascent, journey, landing);
+        }
+
+        [Fact]
+        public void Build_ReaimWithDestinationStation_AppliesStationHold()
+        {
+            // M4c headline E2E (plan test 14): the integration-only hazard is the
+            // ReaimClassifier's plan.TargetBody vs the station constraint's BodyName (from
+            // TryGetVesselOrbit) silently mismatching - then HasStation never fires and the hold
+            // no-ops with no amber. Drive the live Build if-chain and assert the hold IS the
+            // station kind: nonzero hold, align period == T_station (the fake's Duna rotation
+            // would give a different period), no amber, kind=station log line.
+            var tree = ReaimStationTree();
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", 1.2e6);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StationFake(body: "Duna"));
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.True(unit.IsReaim);
+            Assert.True(unit.ArrivalHoldSeconds > 0.0,
+                $"expected a station hold, got {unit.ArrivalHoldSeconds}");
+            Assert.Equal(StationPeriod, unit.ArrivalAlignPeriodSeconds, 9);
+            Assert.True(unit.ArrivalHoldSeconds < StationPeriod); // W in [0, T_station)
+            Assert.Null(unit.ArrivalAmberReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Reaim]") && l.Contains("ARRIVAL HOLD") &&
+                l.Contains("kind=station") && l.Contains("pid=4242") && l.Contains("dest=Duna"));
+        }
+
+        [Fact]
+        public void Build_ReaimWithStationAndLanding_FailsClosedWithAmber()
+        {
+            // M4c D8 E2E (plan test 15): a destination with BOTH a landing rotation and a
+            // station has no single hold satisfying both periods - the hold stays zero, the
+            // unit carries the amber reason, and the transition logs SET once.
+            var tree = ReaimStationTree(withDunaLanding: true);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", 1.2e6);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StationFake(body: "Duna"));
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.True(unit.IsReaim); // the transfer still re-aims; only the arrival is faithful
+            Assert.Equal(0.0, unit.ArrivalHoldSeconds);
+            Assert.NotNull(unit.ArrivalAmberReason);
+            Assert.Contains("no single arrival hold", unit.ArrivalAmberReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Reaim]") && l.Contains("Arrival amber SET") &&
+                l.Contains("tree=t") && l.Contains("no single arrival hold"));
+        }
+
+        [Fact]
+        public void BuildSignature_StationAnchorDigest_TracksLivePeriodAndPresence()
+        {
+            // M4c plan test 17 (closes the M4a design debt, design doc section 8): the build
+            // signature folds in the rendezvous anchor's LIVE orbit identity, so a boosted
+            // station (period change past the 1s quantum) or a vanished/recovered one (found
+            // flip) rebuilds the cached unit instead of keeping a stale T_station. Lives here
+            // (not MissionLoopUnitBuilderTests) for the FakeBodyInfo.VesselOrbits fixture.
+            var tree = CrossParentResupplyTree();
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var missions = new[] { LoopMissionFor("t", 5000.0) };
+
+            var fakeA = StationFake(body: "Duna");
+            string sigA = MissionLoopUnitBuilder.BuildSignature(
+                missions, new[] { tree }, committed, 30.0, fakeA);
+            string sigA2 = MissionLoopUnitBuilder.BuildSignature(
+                missions, new[] { tree }, committed, 30.0, fakeA);
+            Assert.Equal(sigA, sigA2); // same inputs -> identical (no churn)
+
+            // Boosted station: period moves past the whole-second quantum -> signature moves.
+            var fakeB = StationFake(period: StationPeriod + 5.0, body: "Duna");
+            string sigB = MissionLoopUnitBuilder.BuildSignature(
+                missions, new[] { tree }, committed, 30.0, fakeB);
+            Assert.NotEqual(sigA, sigB);
+
+            // Vanished station (recovered/deorbited): the found flag flips -> signature moves.
+            var fakeC = StockFake();
+            string sigC = MissionLoopUnitBuilder.BuildSignature(
+                missions, new[] { tree }, committed, 30.0, fakeC);
+            Assert.NotEqual(sigA, sigC);
+
+            // A NON-looping tree's anchors contribute nothing: the same station change leaves
+            // the signature unchanged when the mission is not looping (the digest only runs for
+            // looping missions).
+            var offMissions = new[] { new Mission("m1", "t", "Off") { LoopPlayback = false } };
+            string offA = MissionLoopUnitBuilder.BuildSignature(
+                offMissions, new[] { tree }, committed, 30.0, fakeA);
+            string offC = MissionLoopUnitBuilder.BuildSignature(
+                offMissions, new[] { tree }, committed, 30.0, fakeC);
+            Assert.Equal(offA, offC);
+        }
+
+        [Fact]
+        public void AddAnchorIdentity_OrderIndependentMerge()
+        {
+            // M4c review finding 1: the station-anchor digest's per-pid guid merge must be
+            // order-independent so the signature never flips across save/load enumeration order.
+            // Net contract: "ordinal-min of all non-null offers for a pid, else null". The
+            // single-anchor digest test above never exercises these branches, so pin them
+            // directly (AddAnchorIdentity is internal for this).
+            const uint pid = 7u;
+
+            // Non-null beats null regardless of arrival order.
+            foreach (var order in new[] { new[] { (string)null, "B" }, new[] { "B", (string)null } })
+            {
+                var d = new Dictionary<uint, string>();
+                foreach (var g in order) MissionLoopUnitBuilder.AddAnchorIdentity(d, pid, g);
+                Assert.Equal("B", d[pid]);
+            }
+
+            // Ordinal-min wins among differing non-null guids, in every permutation.
+            foreach (var order in new[]
+            {
+                new[] { "A", "B", "C" }, new[] { "C", "B", "A" },
+                new[] { "B", "A", "C" }, new[] { "C", "A", "B" },
+            })
+            {
+                var d = new Dictionary<uint, string>();
+                foreach (var g in order) MissionLoopUnitBuilder.AddAnchorIdentity(d, pid, g);
+                Assert.Equal("A", d[pid]);
+            }
+
+            // null + null stays null; the null-then-non-null mix lands ordinal-min too.
+            var dn = new Dictionary<uint, string>();
+            MissionLoopUnitBuilder.AddAnchorIdentity(dn, pid, null);
+            MissionLoopUnitBuilder.AddAnchorIdentity(dn, pid, null);
+            Assert.Null(dn[pid]);
+            var dm = new Dictionary<uint, string>();
+            foreach (var g in new[] { (string)null, "B", (string)null, "A" })
+                MissionLoopUnitBuilder.AddAnchorIdentity(dm, pid, g);
+            Assert.Equal("A", dm[pid]);
+        }
+
+        [Fact]
+        public void BuildSignature_StationAnchorDigest_StableAcrossAnchorOrder()
+        {
+            // M4c review finding 1 (end-to-end): the SAME station referenced once pid-only
+            // (guid-less section) and once recording-resolved (guid-bearing) must yield an
+            // identical signature regardless of which member the recordings dictionary
+            // enumerates first - the order-independence merge applied through the real digest.
+            const uint depotPid = 9090u;
+            string depotGuid = "33333333-3333-3333-3333-333333333333";
+            var fake = StockFake();
+            fake.VesselOrbits[depotPid] = (1800.0, "Kerbin");
+            fake.Mu["Kerbin"] = KerbinMu;
+            fake.VesselGuids[depotPid] = depotGuid;
+
+            // The depot's own committed recording (supplies the guid for the recording-resolved
+            // section), and two craft members: one anchors the depot by pid, one by recording id.
+            var depotRec = StationRecording("depot-rec", depotPid, depotGuid);
+
+            RecordingTree BuildTree(bool pidMemberFirst)
+            {
+                var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+                var byPid = OrbitLeg("p", 1100, 1600, "Kerbin");
+                WithRendezvous(byPid, 1200, 1300, depotPid);            // guid-less direct pid
+                var byRec = OrbitLeg("r", 1600, 2100, "Kerbin");
+                WithRendezvous(byRec, 1700, 1800, 0, "depot-rec");      // recording-resolved guid
+                ascent.ChainId = "C"; ascent.ChainIndex = 0;
+                byPid.ChainId = "C"; byPid.ChainIndex = 1;
+                byRec.ChainId = "C"; byRec.ChainIndex = 2;
+                return pidMemberFirst
+                    ? TreeOf("t", ascent, byPid, byRec)
+                    : TreeOf("t", ascent, byRec, byPid);
+            }
+
+            var missions = new[] { LoopMissionFor("t", 5000.0) };
+            string sigPidFirst = MissionLoopUnitBuilder.BuildSignature(
+                missions, new[] { BuildTree(true) }, new List<Recording> { depotRec }, 30.0, fake);
+            string sigRecFirst = MissionLoopUnitBuilder.BuildSignature(
+                missions, new[] { BuildTree(false) }, new List<Recording> { depotRec }, 30.0, fake);
+
+            Assert.Equal(sigPidFirst, sigRecFirst);
         }
 
         // ===================== Phase 1: Solve (Tier-1 phase-lock) =====================
