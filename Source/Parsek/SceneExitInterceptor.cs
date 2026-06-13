@@ -369,19 +369,22 @@ namespace Parsek
         /// <summary>
         /// No-op resumed-segment fast path. When the armed
         /// <see cref="SwitchSegmentSession"/>'s segment (Tracking-Station Fly /
-        /// KSC marker Fly / map Switch-To) changed nothing meaningful AND it is a
-        /// standalone tree, tears it down here via
-        /// <see cref="ParsekFlight.AutoDiscardNoOpStandaloneSwitchSegment"/>
-        /// (identical to the idle-on-pad whole-tree teardown) so a boring segment
-        /// that just prolongs the ghost state is not committed. Mirrors
-        /// <see cref="TryAutoDiscardIdleActiveTree"/>: on return-true the caller
-        /// re-saves persistent.sfs and lets the transition proceed with no active
-        /// tree.
+        /// KSC marker Fly / map Switch-To) changed nothing meaningful, drops it
+        /// here so a boring segment that just prolongs the ghost state is not
+        /// committed. Mirrors <see cref="TryAutoDiscardIdleActiveTree"/>: on
+        /// return-true the caller re-saves persistent.sfs and lets the transition
+        /// proceed with no active tree.
         ///
-        /// <para>CommittedRestoreClone / BgMemberOrMixed dispositions are DEFERRED
-        /// at scene exit (return false → normal commit path); they are covered by
-        /// the in-flight re-switch hook in
-        /// <c>MapFocusObjectOnSelectPatch</c>.</para>
+        /// <para>Disposition handling: <see cref="SwitchSegmentDisposition.Standalone"/>
+        /// tears down the whole throwaway tree
+        /// (<see cref="ParsekFlight.AutoDiscardNoOpStandaloneSwitchSegment"/>).
+        /// <see cref="SwitchSegmentDisposition.CommittedRestoreClone"/> tears down
+        /// the live clone and reverts to the committed original
+        /// (<see cref="ParsekFlight.DiscardActiveSwitchSegmentAttemptRevertingLiveClone"/>)
+        /// — the committed mission is preserved, the boring resume dropped, no
+        /// dialog. <see cref="SwitchSegmentDisposition.BgMemberOrMixed"/> is
+        /// DEFERRED (return false → normal commit path) because the rest of the
+        /// live tree must still commit.</para>
         /// </summary>
         internal static bool TryAutoDiscardNoOpSwitchSegment(
             GameScenes destination, ParsekFlight flight)
@@ -393,7 +396,8 @@ namespace Parsek
                 return false;
             }
 
-            if (disposition != SwitchSegmentDisposition.Standalone)
+            if (disposition != SwitchSegmentDisposition.Standalone
+                && disposition != SwitchSegmentDisposition.CommittedRestoreClone)
             {
                 ParsekLog.Info("SceneExit",
                     $"TryAutoDiscardNoOpSwitchSegment: no-op detected but disposition=" +
@@ -405,12 +409,22 @@ namespace Parsek
             string discardReason =
                 $"scene-exit no-op switch-segment auto-discard dest={destination}";
             ParsekLog.Info("SceneExit",
-                $"TryAutoDiscardNoOpSwitchSegment: no-op standalone switch segment " +
+                $"TryAutoDiscardNoOpSwitchSegment: no-op switch segment ({disposition}) " +
                 $"detected dest={destination} - discarding without commit");
 
             if (AutoDiscardNoOpSwitchSegmentForTesting != null)
             {
                 AutoDiscardNoOpSwitchSegmentForTesting(destination, flight);
+            }
+            else if (disposition == SwitchSegmentDisposition.CommittedRestoreClone)
+            {
+                // Revert to the committed original (which stays in committedTrees,
+                // copy-on-write); the boring resume segment + the clone are dropped.
+                flight.DiscardActiveSwitchSegmentAttemptRevertingLiveClone(
+                    reason: discardReason,
+                    screenMessage: "Recording discarded - vessel unchanged after switch",
+                    ledgerRecalcReason: "noop-switch-segment-discard-revert-clone",
+                    out _);
             }
             else
             {

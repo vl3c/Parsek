@@ -2785,6 +2785,21 @@ namespace Parsek
             ClearCommittedTreeRestoreAttempt(reason);
         }
 
+        /// <summary>
+        /// True when <paramref name="treeId"/> is the tree currently armed as a
+        /// committed-tree restore attempt (a copy-on-write clone of a committed
+        /// tree is the live active tree). Used by the in-flight discard helper to
+        /// detect a live committed clone BEFORE the discard clears the attempt,
+        /// so it can tear the clone down (the committed original survives in
+        /// committedTrees) instead of leaving it to strand.
+        /// </summary>
+        internal static bool IsCommittedTreeRestoreAttemptTree(string treeId)
+        {
+            return !string.IsNullOrEmpty(treeId)
+                && string.Equals(committedTreeRestoreAttemptTreeId, treeId,
+                    StringComparison.Ordinal);
+        }
+
         internal static bool IsCommittedTreeRestoreAttemptRecordingId(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId)

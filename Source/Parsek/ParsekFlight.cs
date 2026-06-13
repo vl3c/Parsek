@@ -2500,14 +2500,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Tears down a no-op standalone resumed switch segment (the whole live
-        /// active tree IS the no-op segment). Reuses the proven
-        /// <see cref="AutoDiscardActiveTreeCore"/> body — identical to the
-        /// idle-on-pad whole-tree teardown — which also clears any armed
-        /// <see cref="SwitchSegmentSession"/>. Only the
-        /// <see cref="SwitchSegmentDisposition.Standalone"/> disposition routes
-        /// here; CommittedRestoreClone / BgMemberOrMixed are deferred at scene
-        /// exit (covered by the in-flight re-switch hook).
+        /// Tears down a no-op STANDALONE resumed switch segment (the whole live
+        /// active tree IS the no-op segment — a fresh tree with no committed
+        /// history). Reuses the proven <see cref="AutoDiscardActiveTreeCore"/>
+        /// body — identical to the idle-on-pad whole-tree teardown — which also
+        /// clears any armed <see cref="SwitchSegmentSession"/>. CommittedRestoreClone
+        /// is handled separately by
+        /// <see cref="DiscardActiveSwitchSegmentAttemptRevertingLiveClone"/>
+        /// (revert to the committed original); BgMemberOrMixed defers.
         /// </summary>
         internal void AutoDiscardNoOpStandaloneSwitchSegment(string reason)
         {
@@ -2516,6 +2516,63 @@ namespace Parsek
                 screenMessage: "Recording discarded - vessel unchanged after switch",
                 ledgerRecalcReason: "noop-switch-segment-discard",
                 chainStopReason: reason);
+        }
+
+        /// <summary>
+        /// Scoped-discards the active switch segment and, when the segment lives
+        /// in a still-live in-flight COMMITTED-RESTORE CLONE, tears the clone down
+        /// so it is never serialized as the active tree — reverting cleanly to the
+        /// committed original (which stays in <c>committedTrees</c> the whole
+        /// in-flight session, copy-on-write). This is the fix for the data-loss
+        /// path where an in-flight committed-clone discard left the clone live,
+        /// it stranded into the Limbo pending slot on the next switch, and a later
+        /// whole-tree discard wiped the committed mission.
+        ///
+        /// <para>Used by every PRE-STASH discard path (the in-flight pre-switch
+        /// Discard handler and scene-exit Hook 1's committed-clone branch). The
+        /// scene-exit MANUAL merge-dialog Discard is POST-stash and stays on its
+        /// own (already-safe) path.</para>
+        ///
+        /// <para>The clone tree id is captured BEFORE the scoped discard, because
+        /// <see cref="RecordingStore.TryDiscardActiveSwitchSegmentAttempt"/>
+        /// clears the restore attempt; the teardown then fires only when the
+        /// captured clone is still the live <c>activeTree</c> afterward, so an
+        /// unrelated active tree is never nulled. Standalone segments have a null
+        /// clone id and keep their existing (untorn-down) behavior here — the
+        /// caller routes Standalone to
+        /// <see cref="AutoDiscardNoOpStandaloneSwitchSegment"/> when a full
+        /// teardown is wanted.</para>
+        /// </summary>
+        internal RecordingStore.SwitchSegmentDiscardDisposition
+            DiscardActiveSwitchSegmentAttemptRevertingLiveClone(
+                string reason, string screenMessage, string ledgerRecalcReason,
+                out string discardReason)
+        {
+            string cloneTreeId =
+                activeTree != null
+                && RecordingStore.IsCommittedTreeRestoreAttemptTree(activeTree.Id)
+                    ? activeTree.Id
+                    : null;
+
+            var disposition = RecordingStore.TryDiscardActiveSwitchSegmentAttempt(
+                out discardReason);
+
+            // In-flight (pre-stash) the committed clone is the live activeTree, not
+            // the pending slot, so the scoped discard leaves it intact
+            // (droppedPendingClone=False). Tear it down so it is never serialized
+            // isActive; the committed original survives in committedTrees.
+            if (cloneTreeId != null
+                && activeTree != null
+                && string.Equals(activeTree.Id, cloneTreeId, StringComparison.Ordinal))
+            {
+                ParsekLog.Info("SwitchSegment",
+                    $"DiscardActiveSwitchSegmentAttemptRevertingLiveClone: tearing down live " +
+                    $"committed-restore clone treeId={cloneTreeId} to revert to the committed " +
+                    $"original (reason={reason})");
+                AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason);
+            }
+
+            return disposition;
         }
 
         /// <summary>
