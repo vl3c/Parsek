@@ -46,6 +46,16 @@ namespace Parsek
         public readonly TryResolveOrbitalAnchorPose OrbitalCheckpointPoseResolver;
         public readonly Func<uint, string, double, (Vector3d pos, Quaternion rot)?> TryResolveLiveAnchorTransform;
 
+        // Host-injected seam (Logistics route live-anchor bind): given a resolved
+        // anchor Recording + target UT, returns the LIVE pose of that recording's
+        // launch-matched live vessel when one is loaded (guid-gated), or null to
+        // keep the recorded-anchor fallback. Lets a non-loop Relative member (route
+        // delivery dock) bind against the live station the player is flying instead
+        // of the station's recorded absolute position ~20 km away. Null keeps the
+        // pure resolver free of FlightGlobals / RecordingStore; legacy callers that
+        // do not wire it resolve exactly as before.
+        public readonly Func<Recording, double, (Vector3d pos, Quaternion rot)?> TryResolveLiveLaunchMatchedAnchorPose;
+
         public RelativeAnchorResolverContext(
             RecordingTree focusTree,
             string focusRecordingId = null,
@@ -57,7 +67,8 @@ namespace Parsek
             Func<TrajectoryPoint, Vector3d> absoluteWorldPositionResolver = null,
             Func<TrajectoryPoint, Quaternion> bodyWorldRotationResolver = null,
             TryResolveOrbitalAnchorPose orbitalCheckpointPoseResolver = null,
-            Func<uint, string, double, (Vector3d pos, Quaternion rot)?> tryResolveLiveAnchorTransform = null)
+            Func<uint, string, double, (Vector3d pos, Quaternion rot)?> tryResolveLiveAnchorTransform = null,
+            Func<Recording, double, (Vector3d pos, Quaternion rot)?> tryResolveLiveLaunchMatchedAnchorPose = null)
         {
             FocusTree = focusTree;
             FocusRecordingId = focusRecordingId;
@@ -72,6 +83,7 @@ namespace Parsek
             BodyWorldRotationResolver = bodyWorldRotationResolver;
             OrbitalCheckpointPoseResolver = orbitalCheckpointPoseResolver;
             TryResolveLiveAnchorTransform = tryResolveLiveAnchorTransform;
+            TryResolveLiveLaunchMatchedAnchorPose = tryResolveLiveLaunchMatchedAnchorPose;
         }
     }
 
@@ -159,12 +171,93 @@ namespace Parsek
                     return false;
                 }
 
+                // Logistics route live-anchor bind: when the resolved anchor
+                // recording's own launch-matched live vessel is currently loaded
+                // (e.g. the Depot station the player is flying), bind the anchor
+                // pose to the LIVE vessel transform instead of the recorded
+                // absolute position. Without this a looped delivery ghost docks
+                // against the station's recorded Mun position ~20 km away. The
+                // caller applies the recorded anchor-local offset against this
+                // pose exactly as for the recorded pose, so the standoff follows
+                // the live station's current attitude. Guid-gated inside the host
+                // delegate; a same-craft different-launch live vessel never binds.
+                if (TryResolveLiveLaunchMatchedAnchorPose(
+                        context,
+                        recording,
+                        ut,
+                        out pose))
+                {
+                    return true;
+                }
+
                 return TryResolveRecordingPose(context, recording, ut, activeVisited, out pose, out failure);
             }
             finally
             {
                 activeVisited.Remove(anchorRecordingId);
             }
+        }
+
+        /// <summary>
+        /// Logistics route live-anchor bind (Step 1). When the host delegate
+        /// resolves a LIVE launch-matched pose for the anchor <paramref name="recording"/>
+        /// (its own recorded craft is currently loaded and guid-matches), returns
+        /// that pose so a non-loop Relative member docks against the live station
+        /// rather than its recorded absolute position. Returns false (and leaves
+        /// <paramref name="pose"/> default) when the delegate is unwired or yields
+        /// no live vessel, so the caller falls through to the recorded-anchor pose
+        /// unchanged. Logs one Verbose decision line per (focus, anchor) pair.
+        /// </summary>
+        private static bool TryResolveLiveLaunchMatchedAnchorPose(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double ut,
+            out AnchorPose pose)
+        {
+            pose = default;
+            if (context.TryResolveLiveLaunchMatchedAnchorPose == null || recording == null)
+                return false;
+
+            (Vector3d pos, Quaternion rot)? livePose =
+                context.TryResolveLiveLaunchMatchedAnchorPose(recording, ut);
+            if (!livePose.HasValue
+                || !IsFinite(livePose.Value.pos)
+                || !IsFinite(livePose.Value.rot))
+            {
+                LogLiveAnchorBindDecision(context, recording, ut, bound: false);
+                return false;
+            }
+
+            pose = new AnchorPose(
+                livePose.Value.pos,
+                livePose.Value.rot,
+                resolvedSectionIndex: -1,
+                resolvedRecordingId: recording.RecordingId);
+            LogLiveAnchorBindDecision(context, recording, ut, bound: true);
+            return true;
+        }
+
+        private static void LogLiveAnchorBindDecision(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double ut,
+            bool bound)
+        {
+            string anchorRecordingId = recording.RecordingId ?? "(none)";
+            string focus = context.FocusRecordingId ?? "(none)";
+            ParsekLog.VerboseRateLimited(
+                "Anchor",
+                "relative-anchor-live-bind|" + focus + "|" + anchorRecordingId,
+                bound
+                    ? "relative-anchor-live-bind: focusRecordingId=" + focus
+                        + " anchorRecordingId=" + anchorRecordingId
+                        + " anchorPid=" + recording.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                        + " source=live ut=" + FormatDoubleR(ut)
+                    : "relative-anchor-live-bind: focusRecordingId=" + focus
+                        + " anchorRecordingId=" + anchorRecordingId
+                        + " anchorPid=" + recording.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                        + " source=recorded reason=no-launch-matched-live ut=" + FormatDoubleR(ut),
+                5.0);
         }
 
         // Post-controlled-child-extension: this predicate is semantically "does the

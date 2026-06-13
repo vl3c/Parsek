@@ -23752,6 +23752,136 @@ namespace Parsek.InGameTests
             yield break;
         }
 
+        /// <summary>
+        /// Logistics route live-anchor bind (Step 1/2): when the player is flying the
+        /// launch-matched anchor vessel (e.g. the Depot station) and a looped Relative
+        /// member (e.g. the Deliverer delivery) is playing, the member ghost must dock
+        /// against the LIVE anchor, not the anchor's recorded absolute position ~20 km
+        /// away. Asserts the resolver binds the anchor pose to the live vessel's
+        /// transform (position AND rotation), so a looped delivery ghost tracks the live
+        /// station. Skips when no committed Relative member resolves to a launch-matched
+        /// loaded live anchor (the common case without an active supply route).
+        /// </summary>
+        [InGameTest(Category = "RouteLiveAnchor", Scene = GameScenes.FLIGHT,
+            Description = "A looped Relative member's anchor pose binds to the live launch-matched anchor vessel (position + attitude), not its recorded position ~20 km away; no anchor ghost double at the recorded coords")]
+        public IEnumerator LoopedRelativeMemberDocksWithLiveAnchor()
+        {
+            // Let one frame pass so the playback engine has positioned ghosts.
+            yield return null;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("PRECONDITION: no committed recordings");
+
+            double ut = Planetarium.GetUniversalTime();
+
+            // Find a committed Relative member whose anchorRecordingId resolves to a
+            // recording whose launch-matched live vessel is currently loaded.
+            Recording boundMember = null;
+            Recording anchorRec = null;
+            Vessel liveAnchor = null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording member = committed[i];
+                if (member == null || member.TrackSections == null) continue;
+                for (int s = 0; s < member.TrackSections.Count; s++)
+                {
+                    TrackSection sec = member.TrackSections[s];
+                    if (sec.referenceFrame != ReferenceFrame.Relative) continue;
+                    if (string.IsNullOrEmpty(sec.anchorRecordingId)) continue;
+
+                    string anchorId = sec.anchorRecordingId.Trim();
+                    Recording candidateAnchor = null;
+                    for (int a = 0; a < committed.Count; a++)
+                    {
+                        if (committed[a] != null
+                            && string.Equals(committed[a].RecordingId, anchorId, System.StringComparison.Ordinal))
+                        {
+                            candidateAnchor = committed[a];
+                            break;
+                        }
+                    }
+                    if (candidateAnchor == null) continue;
+                    if (!GhostPlaybackLogic.RealVesselExistsForRecording(candidateAnchor)) continue;
+
+                    Vessel v = FlightRecorder.FindVesselByPid(candidateAnchor.VesselPersistentId);
+                    if (v == null || v.transform == null) continue;
+
+                    boundMember = member;
+                    anchorRec = candidateAnchor;
+                    liveAnchor = v;
+                    break;
+                }
+                if (boundMember != null) break;
+            }
+
+            if (boundMember == null)
+                InGameAssert.Skip("PRECONDITION: no Relative member resolves to a launch-matched loaded live anchor (no active supply route at a live station)");
+
+            Vector3d liveAnchorWorld = (Vector3d)liveAnchor.transform.position;
+            Quaternion liveAnchorRot = liveAnchor.transform.rotation;
+
+            // Resolve the anchor pose through the SAME resolver the map / KSC playback
+            // uses. With the live-anchor bind it must return the live vessel pose, not
+            // the recorded absolute Mun position ~20 km away.
+            TrackSection relSection = default(TrackSection);
+            for (int s = 0; s < boundMember.TrackSections.Count; s++)
+            {
+                if (boundMember.TrackSections[s].referenceFrame == ReferenceFrame.Relative
+                    && !string.IsNullOrEmpty(boundMember.TrackSections[s].anchorRecordingId)
+                    && string.Equals(
+                        boundMember.TrackSections[s].anchorRecordingId.Trim(),
+                        anchorRec.RecordingId,
+                        System.StringComparison.Ordinal))
+                {
+                    relSection = boundMember.TrackSections[s];
+                    break;
+                }
+            }
+
+            double resolveUT = ut;
+            if (ut < relSection.startUT) resolveUT = relSection.startUT;
+            else if (ut > relSection.endUT) resolveUT = relSection.endUT;
+
+            bool resolved = RecordedRelativeAnchorPoseResolver.TryResolveSectionAnchorPose(
+                boundMember, relSection, resolveUT, out AnchorPose anchorPose);
+            InGameAssert.IsTrue(resolved,
+                $"anchor pose should resolve for member '{boundMember.VesselName}' "
+                + $"anchor '{anchorRec.VesselName}' at ut={resolveUT.ToString("F1", CultureInfo.InvariantCulture)}");
+
+            // (1) Anchor pose is within a few metres of the LIVE anchor transform, NOT
+            // ~20 km at the recorded position.
+            double posDelta = (anchorPose.WorldPos - liveAnchorWorld).magnitude;
+            InGameAssert.IsTrue(posDelta < 50.0,
+                $"anchor pose bound to live vessel: |pose - liveAnchor|={posDelta.ToString("F1", CultureInfo.InvariantCulture)} m "
+                + "(expected < 50 m; a recorded-absolute fallback would be ~20000 m)");
+
+            // (2) Anchor pose attitude matches the live anchor rotation (docking
+            // attitude resolves against the live frame, not the recorded frame).
+            float angleDeg = Quaternion.Angle(anchorPose.WorldRotation, liveAnchorRot);
+            InGameAssert.IsTrue(angleDeg < 5.0f,
+                $"anchor pose attitude matches live vessel: angle={angleDeg.ToString("F2", CultureInfo.InvariantCulture)} deg (expected < 5 deg)");
+
+            // (3) No anchor ghost double parked at the recorded absolute coords ~20 km
+            // from the live anchor (the duplicate the suppression removes).
+            int doublesFound = 0;
+            foreach (uint pid in GhostMapPresence.ghostMapVesselPids)
+            {
+                if (!FlightGlobals.FindVessel(pid, out Vessel ghost) || ghost == null) continue;
+                if (ghost.persistentId != anchorRec.VesselPersistentId) continue;
+                double ghostDelta = ((Vector3d)ghost.GetWorldPos3D() - liveAnchorWorld).magnitude;
+                if (ghostDelta > 5000.0)
+                    doublesFound++;
+            }
+            InGameAssert.IsTrue(doublesFound == 0,
+                $"no anchor ghost double > 5 km from the live anchor (found {doublesFound})");
+
+            ParsekLog.Info("TestRunner",
+                $"LoopedRelativeMemberDocksWithLiveAnchor PASS: member='{boundMember.VesselName}' "
+                + $"anchor='{anchorRec.VesselName}' posDelta={posDelta.ToString("F1", CultureInfo.InvariantCulture)}m "
+                + $"angle={angleDeg.ToString("F2", CultureInfo.InvariantCulture)}deg doubles={doublesFound}");
+        }
+
         #endregion
     }
 }

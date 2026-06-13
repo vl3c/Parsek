@@ -19163,6 +19163,24 @@ namespace Parsek
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
+                // Step 2 (Logistics route live-anchor bind): suppress the anchor's OWN
+                // loop ghost double when its launch-matched live vessel is loaded AND it
+                // is serving as the live-bound anchor of an in-window Relative member this
+                // cycle (the Deliverer ghost now docks against the live Depot, so the
+                // recorded Depot loop ghost ~20 km away is a pure duplicate). Narrowly
+                // scoped: leaves the IsVesselRecordedByTree carve-out intact for a Depot
+                // watched looping from afar with no live relative dependent.
+                // NOTE: this reads the PREVIOUS frame's cachedLoopUnits — ComputePlaybackFlags
+                // runs before DriveMissionLoopUnits rebuilds the set this frame. On the very
+                // first frame the set is Empty, so the predicate's loop-mapped sample UT falls
+                // outside the recorded window and the double is not suppressed for one frame
+                // (cosmetic flicker only). cachedLoopUnits is rebuild-gated and stable from the
+                // next frame on; Step 1 (the actual displacement fix) does not depend on it.
+                bool liveAnchorDoubleSuppressed =
+                    GhostPlaybackLogic.IsLiveLaunchMatchedAnchorForActiveRelativeMember(
+                        rec, committed, cachedLoopUnits, currentUT);
+                if (liveAnchorDoubleSuppressed)
+                    externalVesselSuppressed = true;
                 TimelineInactiveReason inactiveReason = TimelineInactiveReason.None;
                 if (!string.IsNullOrEmpty(rec.RecordingId))
                     timelineInactiveIds.TryGetValue(rec.RecordingId, out inactiveReason);
@@ -19236,6 +19254,19 @@ namespace Parsek
                     string reasonKey = string.IsNullOrEmpty(reason) ? "(none)" : reason;
                     spawnSuppressedByReason.TryGetValue(reasonKey, out int reasonCount);
                     spawnSuppressedByReason[reasonKey] = reasonCount + 1;
+                    spawnSuppressedCount++;
+                }
+
+                // Fold the Step-2 live-anchor-double suppression into the SAME batched
+                // histogram (no per-recording line) so the playtest log shows how many
+                // anchor doubles were suppressed and why, riding the one summary emitted
+                // after the loop. Counted even for debris-anchored cases since the anchor
+                // here is a station, not debris.
+                if (liveAnchorDoubleSuppressed)
+                {
+                    const string liveAnchorDoubleKey = "live-anchor-double-suppressed";
+                    spawnSuppressedByReason.TryGetValue(liveAnchorDoubleKey, out int liveAnchorCount);
+                    spawnSuppressedByReason[liveAnchorDoubleKey] = liveAnchorCount + 1;
                     spawnSuppressedCount++;
                 }
 
@@ -19745,7 +19776,57 @@ namespace Parsek
                 absoluteWorldPositionResolver: ResolveAnchorResolverPointWorldPosition,
                 bodyWorldRotationResolver: ResolveAnchorResolverBodyWorldRotation,
                 orbitalCheckpointPoseResolver: TryResolveFlightOrbitalAnchorPose,
-                tryResolveLiveAnchorTransform: TryGetLiveAnchorTransformDelegate());
+                tryResolveLiveAnchorTransform: TryGetLiveAnchorTransformDelegate(),
+                tryResolveLiveLaunchMatchedAnchorPose: TryResolveLiveLaunchMatchedAnchorPoseForResolver);
+        }
+
+        // Logistics route live-anchor bind (Step 1): resolves the LIVE pose of an
+        // anchor recording's own launch-matched live vessel for the relative
+        // resolver. Returns null (recorded-anchor fallback) when: the recording is
+        // null / has no pid; the launch-matched live vessel is not loaded (guid-gated
+        // RealVesselExistsForRecording, so a same-craft DIFFERENT-launch live vessel
+        // never binds); or the live transform is unavailable. Reuses
+        // TryResolveLoopLiveAnchorPose so the anchor frame is the recorder's
+        // vesselTransform.position / rotation (NOT GetWorldPos3D/CoMD), keeping the
+        // docking attitude correct. Headless-safe: RealVesselExistsForRecording and
+        // FindVesselByPid both return false/null without FlightGlobals.
+        //
+        // The bind is guid-GATED (RealVesselExistsForRecording) but the transform is
+        // then resolved by pid (FindVesselByPid inside TryResolveLoopLiveAnchorPose).
+        // KSP regenerates a craft-baked pid on collision with a currently-live vessel,
+        // so two same-craft launches cannot be simultaneously loaded sharing the pid;
+        // the pid-only transform resolve therefore cannot pick the wrong live vessel
+        // after the guid gate passes.
+        //
+        // UT-ALIGNMENT: `ut` is intentionally unused here — the bind returns the live
+        // anchor's CURRENT transform, not its pose at `ut`. Correct for the steady
+        // route-station case; for the broadening risk on non-looped relative ghosts
+        // whose live anchor has moved on, see the "Known limitation / playtest-verify"
+        // note in docs/dev/todo-and-known-bugs.md (2026-06-13 entry).
+        internal static (Vector3d pos, Quaternion rot)? TryResolveLiveLaunchMatchedAnchorPoseForResolver(
+            Recording anchorRec,
+            double ut)
+        {
+            if (anchorRec == null || anchorRec.VesselPersistentId == 0u)
+                return null;
+
+            ParsekFlight instance = Instance;
+            if (instance == null)
+                return null;
+
+            if (!GhostPlaybackLogic.RealVesselExistsForRecording(anchorRec))
+                return null;
+
+            if (!instance.TryResolveLoopLiveAnchorPose(
+                    anchorRec.VesselPersistentId,
+                    anchorRec.RecordingId,
+                    ut,
+                    out RelativeAnchorPose pose))
+            {
+                return null;
+            }
+
+            return (pose.worldPos, pose.worldRotation);
         }
 
         private static readonly Func<uint, string, double, (Vector3d pos, Quaternion rot)?> LiveAnchorTransformDelegate =
