@@ -21,14 +21,16 @@ namespace Parsek.Tests
             FlightRecorder.FrameCountProviderForTesting = () => 123;
             ReFlySettleStabilityTracker.Reset();
             PlaybackScopeTracker.ResetForTesting();
-            LiveAnchorBindTracker.ResetForTesting();
+            GhostPlaybackLogic.ResetVesselExistsOverride();
+            GhostPlaybackLogic.ResetVesselCacheForTesting();
         }
 
         public void Dispose()
         {
             ReFlySettleStabilityTracker.Reset();
             PlaybackScopeTracker.ResetForTesting();
-            LiveAnchorBindTracker.ResetForTesting();
+            GhostPlaybackLogic.ResetVesselExistsOverride();
+            GhostPlaybackLogic.ResetVesselCacheForTesting();
             FlightRecorder.FrameCountProviderForTesting = null;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -304,107 +306,194 @@ namespace Parsek.Tests
             }
         }
 
-        [Fact]
-        public void ComputePlaybackFlags_LiveAnchorDoubleSuppressed_CountsOnAlreadyRenderedAnchorWithoutInflatingSpawnTotal()
+        private const uint AnchorDepotPid = 4277041026u;
+        private const string AnchorDepotLaunchGuid = "424fd14c8870407f81dffdf606a92db2";
+        private const string AnchorDepotRelaunchGuid = "05d3ea0f00000000000000000000ffff";
+
+        private static Recording MakeLiveAnchorRecording(string recordingId)
         {
-            // Step-2 (PR #1136 live-anchor double-suppression): when the anchor's own
-            // loop ghost was just live-bound by a relative member, Step-2 suppresses the
-            // recorded anchor double. In the playtest the anchor (Depot) was ALREADY
-            // rendered, so the suppression took the destroy/skip path (skipReason =
-            // external-vessel-suppressed) rather than the spawn-suppression branch. This
-            // test pins that the live-anchor-double-suppressed histogram count increments
-            // for such an already-rendered anchor (finalNeedsSpawn == true, so it never
-            // enters the spawn-suppression branch) and that the spawn-suppressed head
-            // total counts ONLY the genuinely spawn-suppressed recording, not the Step-2
-            // firing.
+            var anchor = MakeRecording(recordingId, "Live Depot");
+            anchor.VesselSnapshot = new ConfigNode("VESSEL");
+            anchor.TerminalStateValue = TerminalState.Orbiting;
+            anchor.VesselPersistentId = AnchorDepotPid;
+            anchor.RecordedVesselGuid = AnchorDepotLaunchGuid;
+            // The Step-2 whole-loop suppression is scoped to LOOP MEMBERS (mirroring the
+            // map-side loopMemberInWindow carve-out): only a looping member's own ghost is
+            // hidden when its launch-matched live vessel is loaded. The route Depot anchor
+            // is a loop member, so mark it as such for the suppression gate to fire.
+            anchor.LoopPlayback = true;
+            return anchor;
+        }
+
+        [Fact]
+        public void ComputePlaybackFlags_WholeLoopSuppression_HidesAnchorGhostWhenLaunchMatchedLiveVesselLoaded()
+        {
+            // Step-2 (generalized whole-loop double-suppression): whenever the anchor's
+            // launch-matched live vessel is loaded in the scene, its OWN loop ghost is a
+            // duplicate of the live station and must be hidden for the WHOLE loop, not
+            // just during the docking bind window. The in-bubble mesh suppression is the
+            // externalVesselSuppressed skip (skipReason = external-vessel-suppressed); the
+            // anchor still stays spawnable (needsSpawn unaffected). The spawn-suppressed
+            // head total counts ONLY the genuinely spawn-suppressed recording, since the
+            // Step-2 firing is a skip-path suppression, not a spawn suppression.
             RecordingStore.ResetForTesting();
             try
             {
                 ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
 
-                // Anchor: spawnable + in replay scope so finalNeedsSpawn == true. It is
-                // NOT spawn-suppressed; only Step-2 acts on it (via the destroy/skip
-                // path, since externalVesselSuppressed drives the skipReason).
-                var anchor = MakeRecording("rec-anchor", "Live Depot");
-                anchor.VesselSnapshot = new ConfigNode("VESSEL");
-                anchor.TerminalStateValue = TerminalState.Orbiting;
+                var anchor = MakeLiveAnchorRecording("rec-anchor");
                 ArmReplayScope(anchor);
 
-                // A genuinely spawn-suppressed recording (no snapshot / no terminal) that
-                // is NOT live-bound: it must remain the sole contributor to the head
-                // "Spawn suppressed: N recording(s)" total.
+                // A genuinely spawn-suppressed recording (no snapshot / no terminal) whose
+                // launch-matched live vessel is absent: it must remain the sole
+                // contributor to the head "Spawn suppressed: N recording(s)" total.
                 var spawnSuppressed = MakeRecording("rec-spawn-suppressed", "Plain Ghost");
 
                 var committed = new List<Recording> { anchor, spawnSuppressed };
 
-                // Make the anchor's bind "recent": the default frame provider is 0, so a
-                // same-frame RecordLiveBind reads back as recent in WasLiveBoundRecently.
-                LiveAnchorBindTracker.RecordLiveBind("rec-anchor");
+                // The anchor's launch-matched live vessel is loaded (same pid + same
+                // launch guid) => RealVesselExistsForRecording(anchor) is true.
+                GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == AnchorDepotPid);
+                GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => AnchorDepotLaunchGuid);
 
                 TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
 
-                // Step-2 fired on the already-rendered anchor: it is suppressed via the
-                // skip path, but stays spawnable (Block A skipped, so not in the spawn
-                // total).
+                // Whole-loop suppression fired on the anchor: suppressed via the skip path,
+                // but stays spawnable (not in the spawn total).
                 Assert.True(flags[0].skipGhost);
                 Assert.Equal(GhostPlaybackSkipReason.ExternalVesselSuppressed, flags[0].skipReason);
                 Assert.True(flags[0].needsSpawn);
+
+                // A dedicated per-anchor line is emitted at the decision site.
+                Assert.Contains(
+                    logLines,
+                    l => l.Contains("[Anchor]")
+                        && l.Contains("Step-2 suppressed live-anchor double (whole loop)"));
 
                 var summaryLines = logLines
                     .Where(l => l.Contains("[Spawner]") && l.Contains("Spawn suppressed:"))
                     .ToList();
                 Assert.Single(summaryLines);
-
-                // The Step-2 firing is measurable: the histogram carries the
-                // live-anchor-double-suppressed key with a non-zero count.
-                Assert.Contains("live-anchor-double-suppressed=1", summaryLines[0]);
-
-                // The head total counts ONLY the genuinely spawn-suppressed recording;
-                // the Step-2 firing on the already-rendered anchor did not inflate it.
+                // The head total counts ONLY the genuinely spawn-suppressed recording; the
+                // Step-2 skip-path firing on the anchor did not inflate it, and there is no
+                // longer a live-anchor-double histogram key.
                 Assert.Contains("Spawn suppressed: 1 recording(s)", summaryLines[0]);
-
-                // A dedicated per-anchor line is also emitted so the Step-2 firing is
-                // visible even when the rate-limited batched summary is crowded out.
-                Assert.Contains(
-                    logLines,
-                    l => l.Contains("[Anchor]") && l.Contains("Step-2 suppressed live-anchor double"));
+                Assert.DoesNotContain("live-anchor-double-suppressed", summaryLines[0]);
             }
             finally
             {
+                GhostPlaybackLogic.ResetVesselExistsOverride();
                 RecordingStore.ResetForTesting();
             }
         }
 
         [Fact]
-        public void ComputePlaybackFlags_LiveAnchorDoubleSuppressedOnly_StillEmitsSummaryWithZeroSpawnTotal()
+        public void ComputePlaybackFlags_WholeLoopSuppression_DifferentLaunch_DoesNotSuppressAnchorGhost()
         {
-            // A frame where the ONLY suppression is Step-2 on an already-rendered anchor:
-            // the spawn-suppressed total is 0, yet the batched summary must still emit so
-            // the destroy/skip-path double-suppression stays visible in the log.
+            // Guid gate (criterion B): a same-craft DIFFERENT-launch live vessel (same
+            // craft-baked pid, conclusively different launch guid) must NOT trigger
+            // suppression. RealVesselExistsForRecording returns false, so the anchor ghost
+            // is not skipped via the Step-2 path.
             RecordingStore.ResetForTesting();
             try
             {
                 ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
 
-                var anchor = MakeRecording("rec-anchor-only", "Live Depot");
-                anchor.VesselSnapshot = new ConfigNode("VESSEL");
-                anchor.TerminalStateValue = TerminalState.Orbiting;
+                var anchor = MakeLiveAnchorRecording("rec-anchor");
                 ArmReplayScope(anchor);
-
                 var committed = new List<Recording> { anchor };
-                LiveAnchorBindTracker.RecordLiveBind("rec-anchor-only");
 
-                ComputePlaybackFlagsForTesting(host, committed, 200.0);
+                GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == AnchorDepotPid);
+                GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => AnchorDepotRelaunchGuid);
 
-                var summaryLines = logLines
-                    .Where(l => l.Contains("[Spawner]") && l.Contains("Spawn suppressed:"))
-                    .ToList();
-                Assert.Single(summaryLines);
-                Assert.Contains("Spawn suppressed: 0 recording(s)", summaryLines[0]);
-                Assert.Contains("live-anchor-double-suppressed=1", summaryLines[0]);
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
+
+                Assert.False(flags[0].skipGhost);
+                Assert.NotEqual(GhostPlaybackSkipReason.ExternalVesselSuppressed, flags[0].skipReason);
+                Assert.DoesNotContain(
+                    logLines,
+                    l => l.Contains("[Anchor]") && l.Contains("Step-2 suppressed live-anchor double"));
             }
             finally
             {
+                GhostPlaybackLogic.ResetVesselExistsOverride();
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void ComputePlaybackFlags_WholeLoopSuppression_NoLiveVessel_DoesNotSuppressAnchorGhost()
+        {
+            // Watch-from-afar (criterion D): the anchor's launch-matched live vessel is NOT
+            // loaded, so the Step-2 whole-loop gate does not fire and the anchor ghost
+            // still draws normally.
+            RecordingStore.ResetForTesting();
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+
+                var anchor = MakeLiveAnchorRecording("rec-anchor");
+                ArmReplayScope(anchor);
+                var committed = new List<Recording> { anchor };
+
+                GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => false);
+                GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => AnchorDepotLaunchGuid);
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
+
+                Assert.False(flags[0].skipGhost);
+                Assert.NotEqual(GhostPlaybackSkipReason.ExternalVesselSuppressed, flags[0].skipReason);
+                Assert.DoesNotContain(
+                    logLines,
+                    l => l.Contains("[Anchor]") && l.Contains("Step-2 suppressed live-anchor double"));
+            }
+            finally
+            {
+                GhostPlaybackLogic.ResetVesselExistsOverride();
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void ComputePlaybackFlags_WholeLoopSuppression_NonLoopRecording_NotSuppressedEvenWithLaunchMatchedLiveVessel()
+        {
+            // Scope tightening (must-fix): the Step-2 whole-loop suppression is gated on
+            // loop membership (loopingLike), MIRRORING the map-side loopMemberInWindow
+            // carve-out. A NON-loop recording whose launch-matched live vessel is loaded
+            // and which is in active replay scope (e.g. an active re-fly history ghost, or
+            // a rewound non-loop recording) must NOT be whole-loop suppressed: only its
+            // own engine path decides its visibility. This is the one renderable non-loop
+            // case the previous unscoped gate over-reached; it pins that the gate no
+            // longer fires for non-loop recordings.
+            RecordingStore.ResetForTesting();
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+
+                // Same as the route anchor, but NOT a loop member (LoopPlayback stays
+                // false). Its launch-matched live vessel is loaded (same pid + guid), so
+                // RealVesselExistsForRecording is true, yet the loop-membership gate keeps
+                // the Step-2 suppression from firing.
+                var anchor = MakeLiveAnchorRecording("rec-anchor");
+                anchor.LoopPlayback = false;
+                ArmReplayScope(anchor);
+                var committed = new List<Recording> { anchor };
+
+                GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == AnchorDepotPid);
+                GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => AnchorDepotLaunchGuid);
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
+
+                // Not suppressed via the Step-2 external-vessel path, and no Step-2 line.
+                Assert.False(flags[0].skipGhost);
+                Assert.NotEqual(GhostPlaybackSkipReason.ExternalVesselSuppressed, flags[0].skipReason);
+                Assert.DoesNotContain(
+                    logLines,
+                    l => l.Contains("[Anchor]") && l.Contains("Step-2 suppressed live-anchor double"));
+            }
+            finally
+            {
+                GhostPlaybackLogic.ResetVesselExistsOverride();
                 RecordingStore.ResetForTesting();
             }
         }
