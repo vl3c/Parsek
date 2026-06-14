@@ -55,88 +55,17 @@ namespace Parsek
         {
             double safeAltitude = ComputeSafeAltitude(atmosphereDepth, safetyMargin);
 
-            if (!IsFinite(currentAltitude))
-            {
-                return BuildDecision(
-                    TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
-                    ReasonNonFinitePropagatedAltitude,
-                    "propagated altitude is not finite",
-                    currentAltitude,
-                    atmosphereDepth,
-                    safetyMargin,
-                    safeAltitude,
-                    periapsisAltitude,
-                    apoapsisAltitude);
-            }
+            if (CheckCurrentAltitudeFinite(currentAltitude, atmosphereDepth, safetyMargin, safeAltitude, periapsisAltitude, apoapsisAltitude, out var decision))
+                return decision;
 
-            if (currentAltitude < safeAltitude)
-            {
-                if (IsFinite(apoapsisAltitude) && apoapsisAltitude >= safeAltitude)
-                {
-                    return BuildDecision(
-                        TerminalOrbitSpawnSafetyAction.DeferUntilSafe,
-                        ReasonCurrentAltitudeBelowSafeAltitude,
-                        string.Format(
-                            CultureInfo.InvariantCulture,
-                            "propagated altitude {0:F1}m is below safe altitude {1:F1}m",
-                            currentAltitude,
-                            safeAltitude),
-                        currentAltitude,
-                        atmosphereDepth,
-                        safetyMargin,
-                        safeAltitude,
-                        periapsisAltitude,
-                        apoapsisAltitude);
-                }
+            if (CheckCurrentAltitudeAboveSafe(currentAltitude, atmosphereDepth, safetyMargin, safeAltitude, periapsisAltitude, apoapsisAltitude, out decision))
+                return decision;
 
-                return BuildDecision(
-                    TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
-                    ReasonOrbitNeverClearsSafeAltitude,
-                    string.Format(
-                        CultureInfo.InvariantCulture,
-                        "propagated altitude {0:F1}m is below safe altitude {1:F1}m and apoapsis {2:F1}m does not clear it",
-                        currentAltitude,
-                        safeAltitude,
-                        apoapsisAltitude),
-                    currentAltitude,
-                    atmosphereDepth,
-                    safetyMargin,
-                    safeAltitude,
-                    periapsisAltitude,
-                    apoapsisAltitude);
-            }
+            if (CheckPeriapsisFinite(currentAltitude, atmosphereDepth, safetyMargin, safeAltitude, periapsisAltitude, apoapsisAltitude, out decision))
+                return decision;
 
-            if (!IsFinite(periapsisAltitude))
-            {
-                return BuildDecision(
-                    TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
-                    ReasonNonFinitePeriapsis,
-                    "terminal orbit periapsis is not finite",
-                    currentAltitude,
-                    atmosphereDepth,
-                    safetyMargin,
-                    safeAltitude,
-                    periapsisAltitude,
-                    apoapsisAltitude);
-            }
-
-            if (periapsisAltitude < safeAltitude)
-            {
-                return BuildDecision(
-                    TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
-                    ReasonPeriapsisBelowSafeAltitude,
-                    string.Format(
-                        CultureInfo.InvariantCulture,
-                        "terminal orbit periapsis {0:F1}m is below safe altitude {1:F1}m",
-                        periapsisAltitude,
-                        safeAltitude),
-                    currentAltitude,
-                    atmosphereDepth,
-                    safetyMargin,
-                    safeAltitude,
-                    periapsisAltitude,
-                    apoapsisAltitude);
-            }
+            if (CheckPeriapsisAboveSafe(currentAltitude, atmosphereDepth, safetyMargin, safeAltitude, periapsisAltitude, apoapsisAltitude, out decision))
+                return decision;
 
             return BuildDecision(
                 TerminalOrbitSpawnSafetyAction.SpawnNow,
@@ -153,6 +82,146 @@ namespace Parsek
                 safeAltitude,
                 periapsisAltitude,
                 apoapsisAltitude);
+        }
+
+        private static bool CheckCurrentAltitudeFinite(
+            double currentAltitude,
+            double atmosphereDepth,
+            double safetyMargin,
+            double safeAltitude,
+            double periapsisAltitude,
+            double apoapsisAltitude,
+            out TerminalOrbitSpawnSafetyDecision decision)
+        {
+            if (!IsFinite(currentAltitude))
+            {
+                decision = BuildDecision(
+                    TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
+                    ReasonNonFinitePropagatedAltitude,
+                    "propagated altitude is not finite",
+                    currentAltitude,
+                    atmosphereDepth,
+                    safetyMargin,
+                    safeAltitude,
+                    periapsisAltitude,
+                    apoapsisAltitude);
+                return true;
+            }
+
+            decision = default;
+            return false;
+        }
+
+        private static bool CheckCurrentAltitudeAboveSafe(
+            double currentAltitude,
+            double atmosphereDepth,
+            double safetyMargin,
+            double safeAltitude,
+            double periapsisAltitude,
+            double apoapsisAltitude,
+            out TerminalOrbitSpawnSafetyDecision decision)
+        {
+            if (currentAltitude < safeAltitude)
+            {
+                if (IsFinite(apoapsisAltitude) && apoapsisAltitude >= safeAltitude)
+                {
+                    decision = BuildDecision(
+                        TerminalOrbitSpawnSafetyAction.DeferUntilSafe,
+                        ReasonCurrentAltitudeBelowSafeAltitude,
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "propagated altitude {0:F1}m is below safe altitude {1:F1}m",
+                            currentAltitude,
+                            safeAltitude),
+                        currentAltitude,
+                        atmosphereDepth,
+                        safetyMargin,
+                        safeAltitude,
+                        periapsisAltitude,
+                        apoapsisAltitude);
+                    return true;
+                }
+
+                decision = BuildDecision(
+                    TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
+                    ReasonOrbitNeverClearsSafeAltitude,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "propagated altitude {0:F1}m is below safe altitude {1:F1}m and apoapsis {2:F1}m does not clear it",
+                        currentAltitude,
+                        safeAltitude,
+                        apoapsisAltitude),
+                    currentAltitude,
+                    atmosphereDepth,
+                    safetyMargin,
+                    safeAltitude,
+                    periapsisAltitude,
+                    apoapsisAltitude);
+                return true;
+            }
+
+            decision = default;
+            return false;
+        }
+
+        private static bool CheckPeriapsisFinite(
+            double currentAltitude,
+            double atmosphereDepth,
+            double safetyMargin,
+            double safeAltitude,
+            double periapsisAltitude,
+            double apoapsisAltitude,
+            out TerminalOrbitSpawnSafetyDecision decision)
+        {
+            if (!IsFinite(periapsisAltitude))
+            {
+                decision = BuildDecision(
+                    TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
+                    ReasonNonFinitePeriapsis,
+                    "terminal orbit periapsis is not finite",
+                    currentAltitude,
+                    atmosphereDepth,
+                    safetyMargin,
+                    safeAltitude,
+                    periapsisAltitude,
+                    apoapsisAltitude);
+                return true;
+            }
+
+            decision = default;
+            return false;
+        }
+
+        private static bool CheckPeriapsisAboveSafe(
+            double currentAltitude,
+            double atmosphereDepth,
+            double safetyMargin,
+            double safeAltitude,
+            double periapsisAltitude,
+            double apoapsisAltitude,
+            out TerminalOrbitSpawnSafetyDecision decision)
+        {
+            if (periapsisAltitude < safeAltitude)
+            {
+                decision = BuildDecision(
+                    TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
+                    ReasonPeriapsisBelowSafeAltitude,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "terminal orbit periapsis {0:F1}m is below safe altitude {1:F1}m",
+                        periapsisAltitude,
+                        safeAltitude),
+                    currentAltitude,
+                    atmosphereDepth,
+                    safetyMargin,
+                    safeAltitude,
+                    periapsisAltitude,
+                    apoapsisAltitude);
+                return true;
+            }
+
+            decision = default;
+            return false;
         }
 
         internal static bool ShouldHoldDeferredSpawnUntilUT(
