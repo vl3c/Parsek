@@ -233,8 +233,115 @@ namespace Parsek
                 livePose.Value.rot,
                 resolvedSectionIndex: -1,
                 resolvedRecordingId: recording.RecordingId);
+            RecordLiveBoundAnchor(recording.RecordingId);
             LogLiveAnchorBindDecision(context, recording, ut, bound: true);
             return true;
+        }
+
+        // === Per-frame live-anchor-bind ledger (Step-2 suppression gate) =========
+        // A recording's OWN in-bubble/map ghost must be hidden as a live-anchor
+        // duplicate ONLY while its launch-matched live vessel is CURRENTLY serving
+        // as the LIVE docking anchor that some in-window relative member binds to
+        // this frame, NOT merely because some live vessel carrying its pid is
+        // loaded (the whole-loop existence check over-suppressed every parked route
+        // craft). The authoritative "rec is a live docking anchor right now" signal
+        // is the Step-1 live-bind event above: TryBindLiveLaunchMatchedAnchorPose
+        // resolves a LIVE anchor pose (source=live) exactly when an in-window
+        // relative member is docking the live station this frame. We stamp the
+        // bound anchor's RecordingId into a process-static, frame-scoped set; the
+        // flight/map Step-2 gate consumes it one frame later (ComputePlaybackFlags
+        // runs before engine.UpdatePlayback, where positioning fires the binds).
+        // A continuously-docking anchor re-stamps every frame, so the
+        // this-or-last-frame tolerance keeps it suppressed every frame; a docking
+        // that just started/ended flashes the duplicate at most ~1 frame
+        // (sub-perceptual at the ~20 km standoff). Allocation-free in steady state:
+        // the set is Cleared once per frame on the first bind and only holds the
+        // bounded set of in-window docking anchors.
+        private static readonly HashSet<string> liveBoundAnchorRecIds =
+            new HashSet<string>(StringComparer.Ordinal);
+        private static int liveBoundAnchorFrame = int.MinValue;
+
+        // Injectable frame source so the ledger is headless-testable. Defaults to
+        // Time.frameCount (isolated through a NoInlining accessor + try/catch so the
+        // xUnit runner never JITs the Unity ECall).
+        internal static Func<int> FrameProviderForTesting;
+
+        private static int ResolveLiveBindFrame()
+        {
+            if (FrameProviderForTesting != null)
+                return FrameProviderForTesting();
+
+            try
+            {
+                return ResolveUnityFrameCount();
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int ResolveUnityFrameCount()
+        {
+            return Time.frameCount;
+        }
+
+        private static void RecordLiveBoundAnchor(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return;
+
+            int frame = ResolveLiveBindFrame();
+            if (frame != liveBoundAnchorFrame)
+            {
+                liveBoundAnchorRecIds.Clear();
+                liveBoundAnchorFrame = frame;
+            }
+
+            liveBoundAnchorRecIds.Add(recordingId);
+        }
+
+        /// <summary>
+        /// True when <paramref name="recordingId"/> was resolved as a LIVE docking
+        /// anchor (Step-1 source=live bind) during the current or immediately
+        /// previous frame. The Step-2 double-suppression gate consumes this: the
+        /// flight predicate runs before the per-frame positioning that fires the
+        /// binds, so it reads the previous frame's set; a still-docking anchor
+        /// re-stamps every frame, so the one-frame tolerance keeps it suppressed
+        /// continuously. O(1): a HashSet.Contains plus a frame-delta compare.
+        /// </summary>
+        internal static bool WasLiveBoundThisOrLastFrame(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+            if (!liveBoundAnchorRecIds.Contains(recordingId))
+                return false;
+
+            long delta = (long)ResolveLiveBindFrame() - liveBoundAnchorFrame;
+            return delta >= 0 && delta <= 1;
+        }
+
+        /// <summary>
+        /// Snapshot of the recordings live-bound during the most recent bind frame
+        /// (diagnostics / tests). Allocates; not for the per-frame path.
+        /// </summary>
+        internal static IReadOnlyCollection<string> SnapshotLiveBoundAnchors()
+        {
+            return new List<string>(liveBoundAnchorRecIds);
+        }
+
+        /// <summary>
+        /// Clears the live-bind ledger and the injectable frame source. Call from
+        /// test setup/teardown ([Collection("Sequential")]) to avoid cross-test
+        /// bleed of stamped anchor ids.
+        /// </summary>
+        internal static void ResetForTesting()
+        {
+            liveBoundAnchorRecIds.Clear();
+            liveBoundAnchorFrame = int.MinValue;
+            FrameProviderForTesting = null;
         }
 
         private static void LogLiveAnchorBindDecision(

@@ -24085,10 +24085,37 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(doublesFound == 0,
                 $"no anchor ghost double > 5 km from the live anchor (found {doublesFound})");
 
+            // (4) Step-2 live-bind-event suppression scope. The TryResolveSectionAnchorPose
+            // resolve above drove the live-bind ledger: the anchor recording is now stamped
+            // as live-bound (it IS being docked this frame), the inbound MEMBER is not (the
+            // member is the resolver focus, never the resolved anchor). So:
+            //  - the inbound member's OWN ghost is NEVER Step-2 suppressed (its delivery
+            //    mesh must draw - this is the over-suppression regression the fix removes);
+            //  - the anchor's OWN duplicate IS Step-2 suppressed only while it is the live
+            //    docking anchor (its launch-matched live vessel is loaded + it was just
+            //    live-bound). Both are evaluated as loop members (loopingLike:true).
+            InGameAssert.IsTrue(
+                !GhostPlaybackLogic.IsLiveAnchorDoubleSuppressed(boundMember, true),
+                $"inbound member '{boundMember.VesselName}' must NOT be live-anchor "
+                + "suppressed (its delivery mesh draws docking the live station)");
+
+            bool anchorLiveBound =
+                RelativeAnchorResolver.WasLiveBoundThisOrLastFrame(anchorRec.RecordingId);
+            InGameAssert.IsTrue(anchorLiveBound,
+                $"anchor '{anchorRec.VesselName}' should be live-bound after the resolve "
+                + "(the delivery member just docked it through the resolver)");
+            // The anchor's own live vessel is loaded (checked above) and it is now
+            // live-bound, so while it is being docked its duplicate ghost is suppressed.
+            InGameAssert.IsTrue(
+                GhostPlaybackLogic.IsLiveAnchorDoubleSuppressed(anchorRec, true),
+                $"anchor '{anchorRec.VesselName}' duplicate ghost should be suppressed while "
+                + "a delivery member is live-binding its loaded launch-matched vessel");
+
             ParsekLog.Info("TestRunner",
                 $"LoopedRelativeMemberDocksWithLiveAnchor PASS: member='{boundMember.VesselName}' "
                 + $"anchor='{anchorRec.VesselName}' posDelta={posDelta.ToString("F1", CultureInfo.InvariantCulture)}m "
-                + $"angle={angleDeg.ToString("F2", CultureInfo.InvariantCulture)}deg doubles={doublesFound}");
+                + $"angle={angleDeg.ToString("F2", CultureInfo.InvariantCulture)}deg doubles={doublesFound} "
+                + $"anchorLiveBound={anchorLiveBound} memberSuppressed=false");
         }
 
         #endregion
