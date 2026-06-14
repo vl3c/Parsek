@@ -519,20 +519,28 @@ namespace Parsek
                 // driven (on-arc, line-shown) icon is checked - the genuine bug case.
                 if (offOrbit != null && !GhostMapPresence.IsIconSuppressed(pid))
                 {
-                    // Director-drive (unconditional since 8e S4) bakes the loop shift into the orbit EPOCH
-                    // and resolves the icon at the LIVE clock, so the orbit's own LIVE-clock position IS
-                    // the recorded phase the icon should sit on - compare against effUT = currentUT
-                    // (shift 0). The legacy raw-epoch path drives the icon at effUT = currentUT - shift,
-                    // so it keeps the recorded-clock comparison. The active check is keyed on the SEED
-                    // (refreshed by the shadow in Update every render frame), the SAME predicate the
-                    // icon-drive + arc-clip use, so all three agree even on no-FixedUpdate frames - no
-                    // stale-stamp double-shift artifact. angleIconVsOrbitEff ~= 0 means the icon rides its
-                    // OWN line; recorded-phase correctness is proven by the in-game epoch-bake test.
-                    double offShift =
-                        Parsek.MapRender.ShadowRenderDriver.IsDirectorDriveActive(pid, Time.frameCount)
-                        ? 0.0
-                        : GhostMapPresence.GetGhostOrbitEpochShift(pid);
-                    double offEffUT = currentUT - offShift;
+                    // Compare against the UT the icon-drive ACTUALLY propagated the icon to this frame
+                    // (recorded by GhostOrbitIconDrivePatch at the SetPosition site), not a clock this
+                    // probe re-derives. The drive (OrbitDriver LateUpdate, exec-order 0) and this probe
+                    // (exec-order 10000) used to evaluate IsDirectorDriveActive independently; the
+                    // shadow's StockConic seed can flip to "fresh" between them within one frame, so the
+                    // drive placed the icon at the legacy shifted phase while the probe assumed the
+                    // director unshifted phase, producing a spurious icon-off-orbit angle on the frame
+                    // after a ghost is created / reseeded. Reading the drive's recorded propagateUT makes
+                    // the reference conic match where the icon physically is, by construction, while still
+                    // flagging a REAL off-orbit (icon NOT at its driven phase). A stale / absent record (a
+                    // frame the icon-drive did not run, e.g. stock re-took the drive at a stale-segment
+                    // transition) falls back to the legacy derivation: the director epoch-bake resolves
+                    // the icon at the live clock (shift 0), the legacy raw-epoch path at effUT = currentUT
+                    // - shift. recorded-phase correctness is proven by the in-game epoch-bake test.
+                    bool hasDrivenUT = GhostMapPresence.TryGetFreshIconDrivePropagateUT(
+                        pid, Time.frameCount,
+                        Parsek.MapRender.ShadowRenderDriver.SeedFreshnessFrames, out double drivenUT);
+                    double offEffUT = MapRenderTrace.ResolveIconReferenceUT(
+                        hasDrivenUT, drivenUT, currentUT,
+                        Parsek.MapRender.ShadowRenderDriver.IsDirectorDriveActive(pid, Time.frameCount),
+                        GhostMapPresence.GetGhostOrbitEpochShift(pid));
+                    double offShift = currentUT - offEffUT;
                     Vector3d orbitRelEff = OrbitRelativePositionYup(offOrbit, offEffUT);
                     // Degenerate / unresolved orbit: a zero predicted position makes
                     // Vector3d.Angle return 90 deg (acos of a zero dot) - a phantom

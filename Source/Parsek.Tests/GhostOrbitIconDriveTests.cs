@@ -399,5 +399,74 @@ namespace Parsek.Tests
 
             Assert.False(GhostMapPresence.ghostNoBoundsSuppressLastFrame.ContainsKey(pid));
         }
+
+        // --- icon-drive propagateUT record + freshness gate (probe icon-off-orbit reference clock) ---
+
+        [Fact]
+        public void IconDrivePropagateUT_FreshRecord_ReturnsDrivenUT()
+        {
+            const uint pid = 42u;
+            GhostMapPresence.RecordIconDrivePropagateUT(pid, propagateUT: 13453.3, frame: 14626);
+
+            bool has = GhostMapPresence.TryGetFreshIconDrivePropagateUT(
+                pid, currentFrame: 14626, freshnessFrames: 2, out double ut);
+
+            Assert.True(has);
+            Assert.Equal(13453.3, ut, 3);
+        }
+
+        [Fact]
+        public void IconDrivePropagateUT_WithinFreshnessWindow_StillFresh()
+        {
+            const uint pid = 42u;
+            GhostMapPresence.RecordIconDrivePropagateUT(pid, propagateUT: 13453.3, frame: 14625);
+
+            // Recorded at frame 14625, read at 14627: within a 2-frame window (the drive ran a frame
+            // or two before this probe sample), so the record is still trusted.
+            bool has = GhostMapPresence.TryGetFreshIconDrivePropagateUT(
+                pid, currentFrame: 14627, freshnessFrames: 2, out double ut);
+
+            Assert.True(has);
+            Assert.Equal(13453.3, ut, 3);
+        }
+
+        [Fact]
+        public void IconDrivePropagateUT_StaleRecord_FallsBack()
+        {
+            const uint pid = 42u;
+            GhostMapPresence.RecordIconDrivePropagateUT(pid, propagateUT: 13453.3, frame: 14625);
+
+            // Read 5 frames later (the icon-drive did not run since, e.g. stock re-took the drive at a
+            // stale-segment transition): the record is no longer trusted, so the probe falls back to
+            // its own derivation rather than comparing against a phase the icon may have left.
+            bool has = GhostMapPresence.TryGetFreshIconDrivePropagateUT(
+                pid, currentFrame: 14630, freshnessFrames: 2, out double ut);
+
+            Assert.False(has);
+            Assert.Equal(0.0, ut);
+        }
+
+        [Fact]
+        public void IconDrivePropagateUT_AbsentRecord_FallsBack()
+        {
+            bool has = GhostMapPresence.TryGetFreshIconDrivePropagateUT(
+                vesselPid: 999u, currentFrame: 14626, freshnessFrames: 2, out double ut);
+
+            Assert.False(has);
+            Assert.Equal(0.0, ut);
+        }
+
+        [Fact]
+        public void IconDrivePropagateUT_ClearedByReset()
+        {
+            const uint pid = 42u;
+            GhostMapPresence.RecordIconDrivePropagateUT(pid, propagateUT: 13453.3, frame: 14626);
+            GhostMapPresence.ResetForTesting();
+
+            bool has = GhostMapPresence.TryGetFreshIconDrivePropagateUT(
+                pid, currentFrame: 14626, freshnessFrames: 2, out _);
+
+            Assert.False(has);
+        }
     }
 }
