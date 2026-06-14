@@ -128,6 +128,46 @@ namespace Parsek
                 id != null && tree.Recordings != null && tree.Recordings.TryGetValue(id, out var r) ? r : null;
 
             // 1. Launch: one per root leg.
+            AddLaunchSteps(steps, structure, Rec);
+
+            // 2. Branch-point events. Collect decoupler PIDs handled here so the staging
+            //    pass can dedup the Decoupled PartEvent that mirrors a controlled split.
+            var handledDecouplerPids = new HashSet<uint>();
+            AddBranchPointSteps(steps, tree, structure, Rec, handledDecouplerPids);
+
+            // 3. Staging part events across all member recordings.
+            AddStagingSteps(steps, tree, handledDecouplerPids);
+
+            // 4. Terminal: one per controlled leg that ends in a terminal state.
+            AddTerminalSteps(steps, structure, Rec);
+
+            // 5. Deterministic chronological sort.
+            steps.Sort(CompareStep);
+
+            // 6. Collapse simultaneous identical events into one "xN" row (e.g. several engine
+            //    shrouds or radial decouplers separating in the same frame), so a big stack
+            //    does not list "Shroud jettisoned" a dozen times.
+            steps = CollapseSimultaneous(steps);
+
+            if (!SuppressLogging)
+                ParsekLog.Verbose("Mission",
+                    $"BuildStructureList: tree={tree.Id ?? "<null>"} steps={steps.Count} " +
+                    $"launch={CountKind(steps, StructureStepKind.Launch)} " +
+                    $"staging={CountKind(steps, StructureStepKind.Staging)} " +
+                    $"sep={CountKind(steps, StructureStepKind.Separation)} " +
+                    $"dock={CountKind(steps, StructureStepKind.Dock)} " +
+                    $"undock={CountKind(steps, StructureStepKind.Undock)} " +
+                    $"eva={CountKind(steps, StructureStepKind.Eva)} " +
+                    $"terminal={CountKind(steps, StructureStepKind.Terminal)}");
+            return steps;
+        }
+
+        /// <summary>
+        /// Phase 1: emits one Launch step per root leg. Extracted verbatim from Build.
+        /// </summary>
+        private static void AddLaunchSteps(
+            List<StructureStep> steps, MissionStructure structure, Func<string, Recording> Rec)
+        {
             foreach (var rootId in structure.RootLegIds)
             {
                 if (!structure.LegsById.TryGetValue(rootId, out MissionLeg leg))
@@ -147,10 +187,20 @@ namespace Parsek
                     VesselName = LegLabel(leg)
                 });
             }
+        }
 
-            // 2. Branch-point events. Collect decoupler PIDs handled here so the staging
-            //    pass can dedup the Decoupled PartEvent that mirrors a controlled split.
-            var handledDecouplerPids = new HashSet<uint>();
+        /// <summary>
+        /// Phase 2: emits branch-point event steps and records the handled decoupler PIDs
+        /// (mutating <paramref name="handledDecouplerPids"/>) so the staging pass can dedup
+        /// the mirrored Decoupled PartEvent. Extracted verbatim from Build.
+        /// </summary>
+        private static void AddBranchPointSteps(
+            List<StructureStep> steps,
+            RecordingTree tree,
+            MissionStructure structure,
+            Func<string, Recording> Rec,
+            HashSet<uint> handledDecouplerPids)
+        {
             if (tree.BranchPoints != null)
             {
                 foreach (BranchPoint bp in tree.BranchPoints)
@@ -190,19 +240,28 @@ namespace Parsek
                         handledDecouplerPids.Add(bp.DecouplerPartId);
                 }
             }
+        }
 
-            // 3. Staging part events across all member recordings. Decoupled events are
-            //    dropped when a controlled Separation branch point already covers the same
-            //    decoupler PID; fairing / shroud have no branch-point counterpart and pass
-            //    through. Cross-recording dedup is UT-TOLERANT, not UT-blind: the same
-            //    physical event recorded on more than one member recording carries the same
-            //    (pid, eventType) at NEARLY the same UT (sub-second recorder skew), so a
-            //    same-key event within the tolerance is a duplicate. A same-key event FAR
-            //    outside it is a genuinely DISTINCT staging of a craft-baked PID - e.g. a
-            //    Re-Fly fork of the same craft living in the same tree re-jettisoning its
-            //    fairing - and must survive (persistentId is craft-baked, NOT launch-unique).
-            //    Recordings iterate in RecordingId order so the surviving representative is
-            //    stable across save/load (Dictionary enumeration order is not).
+        /// <summary>
+        /// Phase 3: emits staging part-event steps across all member recordings, with the
+        /// UT-tolerant cross-recording dedup and decoupler-PID drop. Extracted verbatim
+        /// from Build.
+        /// </summary>
+        private static void AddStagingSteps(
+            List<StructureStep> steps, RecordingTree tree, HashSet<uint> handledDecouplerPids)
+        {
+            // Staging part events across all member recordings. Decoupled events are
+            // dropped when a controlled Separation branch point already covers the same
+            // decoupler PID; fairing / shroud have no branch-point counterpart and pass
+            // through. Cross-recording dedup is UT-TOLERANT, not UT-blind: the same
+            // physical event recorded on more than one member recording carries the same
+            // (pid, eventType) at NEARLY the same UT (sub-second recorder skew), so a
+            // same-key event within the tolerance is a duplicate. A same-key event FAR
+            // outside it is a genuinely DISTINCT staging of a craft-baked PID - e.g. a
+            // Re-Fly fork of the same craft living in the same tree re-jettisoning its
+            // fairing - and must survive (persistentId is craft-baked, NOT launch-unique).
+            // Recordings iterate in RecordingId order so the surviving representative is
+            // stable across save/load (Dictionary enumeration order is not).
             var seenStagingUts = new Dictionary<string, List<double>>();
             if (tree.Recordings != null)
             {
@@ -258,8 +317,15 @@ namespace Parsek
                     }
                 }
             }
+        }
 
-            // 4. Terminal: one per controlled leg that ends in a terminal state.
+        /// <summary>
+        /// Phase 4: emits one Terminal step per controlled leg that ends in a terminal
+        /// state. Extracted verbatim from Build.
+        /// </summary>
+        private static void AddTerminalSteps(
+            List<StructureStep> steps, MissionStructure structure, Func<string, Recording> Rec)
+        {
             foreach (MissionLeg leg in structure.LegsById.Values)
             {
                 if (!leg.TerminalStateValue.HasValue) continue;
@@ -279,26 +345,6 @@ namespace Parsek
                     VesselName = LegLabel(leg)
                 });
             }
-
-            // 5. Deterministic chronological sort.
-            steps.Sort(CompareStep);
-
-            // 6. Collapse simultaneous identical events into one "xN" row (e.g. several engine
-            //    shrouds or radial decouplers separating in the same frame), so a big stack
-            //    does not list "Shroud jettisoned" a dozen times.
-            steps = CollapseSimultaneous(steps);
-
-            if (!SuppressLogging)
-                ParsekLog.Verbose("Mission",
-                    $"BuildStructureList: tree={tree.Id ?? "<null>"} steps={steps.Count} " +
-                    $"launch={CountKind(steps, StructureStepKind.Launch)} " +
-                    $"staging={CountKind(steps, StructureStepKind.Staging)} " +
-                    $"sep={CountKind(steps, StructureStepKind.Separation)} " +
-                    $"dock={CountKind(steps, StructureStepKind.Dock)} " +
-                    $"undock={CountKind(steps, StructureStepKind.Undock)} " +
-                    $"eva={CountKind(steps, StructureStepKind.Eva)} " +
-                    $"terminal={CountKind(steps, StructureStepKind.Terminal)}");
-            return steps;
         }
 
         private static string LegLabel(MissionLeg leg)
