@@ -2183,9 +2183,13 @@ namespace Parsek.Tests
             // the ~3.5 years the old exact-Mun lock produced.
             Assert.True(unit.PhaseAnchorUT - anchorEnable < 100.0 * KerbinRotation,
                 "the first faithful window should be reached within ~100 pad rotations (days), not years");
+            // The scheduled line surfaces the schedule's OWN aggregate tolerance (not the fixed-cadence
+            // fallback), so a reader sees the windows actually flown. The headline fallback verdict is
+            // relabeled fixedCadenceWithinTol to remove the ambiguity with the schedule's verdict.
             Assert.Contains(logLines, l =>
                 l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock APPLIED") &&
-                l.Contains("zeroDrift=yes"));
+                l.Contains("zeroDrift=yes") && l.Contains("scheduleWithinTol=") &&
+                l.Contains("scheduleWorstResidual=") && l.Contains("fixedCadenceWithinTol="));
         }
 
         [Fact]
