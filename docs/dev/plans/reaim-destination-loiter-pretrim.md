@@ -79,6 +79,14 @@ The search band is the **low end** (`r=1` = maximal trim, up to `~10` kept), mat
 (`GhostPlaybackLogic.cs:7163`). The destination cut is constant across loops (lives in one cycle), so
 no per-loop change is needed.
 
+**Known residual (pre-existing, shared with the shipped hold):** the runtime gates per-loop drift
+correction on `hold > 0.0` (`GhostPlaybackLogic.cs:7444`), so when loop 0 aligns EXACTLY (`W_0 == 0`,
+which the minimize-`W` objective makes more reachable than the shipped path's entry-anchored hold) the
+later loops' deorbit drifts `N * (cadence mod T_rot)` uncorrected. This is identical to the shipped
+`w == 0` behavior, not a P4 regression; if a looped landing aligns on loop 0 and visibly drifts later,
+the fix is to extend the `> 0` gate to a `W_0 == 0` carry, in `ComputePerLoopArrivalHoldSeconds`
+(touches both the landing and station holds, so out of P4 scope).
+
 **Reused helpers, nothing re-derived:** `DetectRuns`, `LoopCut` construction, `CompressSpanUT`,
 `TotalCutLength`, `ComputeArrivalAlignHoldSeconds`, `ComputePerLoopArrivalHoldSeconds`,
 `ScheduleToleranceSecondsFor`.

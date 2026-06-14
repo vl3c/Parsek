@@ -565,6 +565,12 @@ namespace Parsek
                                     spanStartUT, span, transitedBodyRotationMode, bodyInfo);
                             if (destTrim.Applied)
                             {
+                                // Reassigning loiterCuts here is consistent with the cutBeforeDeparture
+                                // phase-anchor shift already computed from the full `cuts`: every cut that
+                                // differs between `cuts` and `p4Cuts` (the dropped post-arrival keepRevs=1
+                                // dest cut, the re-timed dest cut) starts at/after the SOI entry, hence
+                                // after the departure, so it contributes 0 to CompressSpanUT(departureUT)
+                                // and the shift is identical either way.
                                 var p4Cuts = new List<GhostPlaybackLogic.LoopCut>(launchSideCuts);
                                 if (destTrim.HasDestinationCut)
                                     p4Cuts.Add(destTrim.DestinationCut);
@@ -1137,7 +1143,10 @@ namespace Parsek
                 DestinationConstraintExtractor.ExtractDestinationConstraints(
                     extraction.Constraints, plan.TargetBody, bodyInfo);
             // The deorbit anchor: the destination rotation constraint's phase offset is the earliest
-            // target-body surface-section start relative to UT0 == spanStart (MissionPeriodicity).
+            // target-body surface-section start relative to UT0. INVARIANT: UT0 == spanStartUT - both
+            // derive from the same ComputeTrimmedMemberWindows span (extraction.UT0 is hard-asserted
+            // within 1s of spanStartUT in BuildPhasingKnobInput rule 5), so adding spanStartUT recovers
+            // the recorded surface UT.
             double recordedDestSurfaceUT = spanStartUT + destRotation.PhaseOffsetSeconds;
             return DestinationLoiterTrim.SolveTrimAndHold(
                 loiterRuns, launchSideCuts, destSet, destRotation, extraction.LaunchBodyName,

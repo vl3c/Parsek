@@ -233,6 +233,39 @@ namespace Parsek.Tests
             Assert.Equal(55.0, r.HoldSeconds, 6);
         }
 
+        [Fact]
+        public void LaunchSideAndDestinationCut_CombineInTrialMap_ShiftsOptimalKeepRevs()
+        {
+            // A non-empty launch-side cut (a compressed Kerbin parking loiter) folds into the trial map
+            // alongside the destination cut: same destination run as SolveIntermediate, plus a launch
+            // cut of 130s at StartUT=20. W(r) = ((5-r)*35 + (130-50)) mod 100 -> min at r=4 (W=15),
+            // versus r=3 without the launch cut. Exercises trialCuts.AddRange(launchSideCuts) + the
+            // combined CompressSpanUT (the only path the all-null-launchSideCuts cases never reached).
+            var runs = new List<ReaimLoiterCompressor.LoiterRun> { Run(Target, 200.0, 35.0, 5) };
+            var launchSideCuts = new List<GhostPlaybackLogic.LoopCut>
+            {
+                new GhostPlaybackLogic.LoopCut { StartUT = 20.0, LengthSeconds = 130.0 },
+            };
+            var r = DestinationLoiterTrim.SolveTrimAndHold(
+                runs, launchSideCuts, Landing(), Rotation(Target, 100.0), Launch, Target,
+                recordedArrivalUT: 150.0, recordedDestSurfaceUT: 400.0, rotationPeriod: 100.0,
+                phaseAnchorUT: 50.0, spanStartUT: 0.0, spanSeconds: 1.0e6,
+                mode: TransitedBodyRotationMode.Loose, maxKeepRevs: 10, bodyInfo: new TrimFake());
+            Assert.True(r.Applied);
+            Assert.Equal(4, r.DestinationKeepRevs);
+            Assert.True(r.HasDestinationCut);
+            Assert.Equal(35.0, r.DestinationCut.LengthSeconds, 9); // (5-4) * 35
+            Assert.Equal(15.0, r.HoldSeconds, 6);
+
+            // Alignment invariant with BOTH cuts assembled (launch-side + the re-timed destination cut).
+            const double D = 400.0, phaseAnchor = 50.0, spanStart = 0.0, tRot = 100.0;
+            var allCuts = new List<GhostPlaybackLogic.LoopCut>(launchSideCuts) { r.DestinationCut };
+            double liveSurface = phaseAnchor + (GhostPlaybackLogic.CompressSpanUT(D, allCuts) - spanStart);
+            double aligned = ((liveSurface + r.HoldSeconds) - D) % tRot;
+            if (aligned < 0) aligned += tRot;
+            Assert.Equal(0.0, aligned, 6);
+        }
+
         // === Selector ====================================================================
 
         [Fact]
