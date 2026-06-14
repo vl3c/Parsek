@@ -2606,23 +2606,25 @@ namespace Parsek
             }
 
             var scenario = ParsekScenario.Instance;
-            if (!object.ReferenceEquals(null, scenario))
+            if (object.ReferenceEquals(null, scenario))
             {
-                if (scenario.ActiveSwitchSegmentSession != null)
-                {
-                    reason = "has-session"; // the session path owns this
-                    return false;
-                }
-                if (scenario.ActiveReFlySessionMarker != null)
-                {
-                    reason = "refly-active";
-                    return false;
-                }
-                if (scenario.ActiveMergeJournal != null)
-                {
-                    reason = "merge-journal-active";
-                    return false;
-                }
+                reason = "no-scenario";
+                return false;
+            }
+            if (scenario.ActiveSwitchSegmentSession != null)
+            {
+                reason = "has-session"; // the session path owns this
+                return false;
+            }
+            if (scenario.ActiveReFlySessionMarker != null)
+            {
+                reason = "refly-active";
+                return false;
+            }
+            if (scenario.ActiveMergeJournal != null)
+            {
+                reason = "merge-journal-active";
+                return false;
             }
 
             if (activeTree == null)
@@ -2638,6 +2640,19 @@ namespace Parsek
             if (double.IsNaN(liveResumeSessionStartUT))
             {
                 reason = "no-resume-anchor";
+                return false;
+            }
+
+            // BgMemberOrMixed analog (data-loss guard): a revert tears the WHOLE
+            // clone down (AutoDiscardActiveTreeCore -> backgroundRecorder
+            // .DiscardWithoutPersist), so if any background member is being tracked
+            // with accrued state, that newly-recorded trajectory would be lost.
+            // Defer to the dialog/commit (today's behavior) — never auto-revert a
+            // clone with live background content. Mirrors the session path's
+            // BgMemberOrMixed deferral.
+            if (backgroundRecorder != null && backgroundRecorder.HasAccruedBackgroundContent)
+            {
+                reason = "background-content-present";
                 return false;
             }
 

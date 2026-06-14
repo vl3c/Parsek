@@ -75,6 +75,17 @@ namespace Parsek
         private Dictionary<uint, BackgroundOnRailsState> onRailsStates
             = new Dictionary<uint, BackgroundOnRailsState>();
 
+        /// <summary>
+        /// True when this recorder is tracking any background members (loaded or
+        /// on-rails) with accrued state that <see cref="DiscardWithoutPersist"/>
+        /// would drop unflushed. The no-session committed-resume no-op revert
+        /// checks this to DEFER (keep) rather than tear down a clone whose
+        /// background members may have recorded real trajectory during the resume
+        /// — the no-session analog of the session path's BgMemberOrMixed deferral.
+        /// </summary>
+        internal bool HasAccruedBackgroundContent =>
+            loadedStates.Count > 0 || onRailsStates.Count > 0;
+
         // Per-vessel last-known finalization tails. Consumers land in later phases;
         // this phase only owns refresh and transfer.
         private Dictionary<uint, RecordingFinalizationCache> finalizationCaches

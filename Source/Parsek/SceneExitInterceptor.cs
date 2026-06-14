@@ -456,11 +456,23 @@ namespace Parsek
                 $"TryAutoDiscardNoOpNoSessionCommittedResume: no-op committed-restore resume " +
                 $"detected dest={destination} - reverting to committed original");
 
-            if (AutoDiscardNoOpSwitchSegmentForTesting != null)
-                AutoDiscardNoOpSwitchSegmentForTesting(destination, flight);
-            else
-                flight.AutoDiscardNoOpNoSessionCommittedResume(discardReason);
-            return true;
+            // Wrap the teardown: this runs in the HighLogic.LoadScene Harmony
+            // prefix, so a throw must not escape and abort the transition.
+            try
+            {
+                if (AutoDiscardNoOpSwitchSegmentForTesting != null)
+                    AutoDiscardNoOpSwitchSegmentForTesting(destination, flight);
+                else
+                    flight.AutoDiscardNoOpNoSessionCommittedResume(discardReason);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("SceneExit",
+                    $"TryAutoDiscardNoOpNoSessionCommittedResume teardown threw " +
+                    $"{ex.GetType().Name}: {ex.Message} - falling through to normal commit");
+                return false;
+            }
         }
 
         /// <summary>
