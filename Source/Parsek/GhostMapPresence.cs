@@ -250,6 +250,26 @@ namespace Parsek
             gapGlideBodyFixedFallbackCount = 0;
         }
 
+        // Seam CoMD-refresh counters (Bug A loop-icon-warp-lag): how many state-vector reseed
+        // frames forced a synchronous VesselPrecalculate.CalculatePhysicsStats() to re-snap the
+        // ghost's cached Vessel.CoMD (what GetWorldPos3D and the map icon read) onto the
+        // just-reseeded conic the line draws, vs how many were steady-state (conic unchanged
+        // since the last reseed, so CoMD already tracks it via the normal FixedUpdate path).
+        // Emitted via a shared-key summary so a KSP.log capture proves the refresh actually fired
+        // (refreshed>0) rather than silently no-op'ing (the PR-#885 trap). maxOffDeg is the
+        // tracing-gated post-refresh icon-vs-conic angle (should collapse to ~0). Cumulative across
+        // the session; reset only for testing.
+        internal static int seamComdRefreshCount;
+        internal static int seamComdSteadyCount;
+        internal static double seamComdMaxOffOrbitDegPostRefresh;
+
+        internal static void ResetSeamComdCountersForTesting()
+        {
+            seamComdRefreshCount = 0;
+            seamComdSteadyCount = 0;
+            seamComdMaxOffOrbitDegPostRefresh = 0.0;
+        }
+
         internal struct GhostMapVisibilityCounters
         {
             public int uniqueTracked;
@@ -1049,6 +1069,19 @@ namespace Parsek
         /// </summary>
         internal static readonly Dictionary<uint, string> ghostLastAppliedOrbitBody
             = new Dictionary<uint, string>();
+
+        /// <summary>
+        /// Last (sma, ecc, epoch) triple Parsek drove onto each ghost via a state-vector reseed.
+        /// <see cref="GhostOrbitElementsChanged"/> compares against it so the seam CoMD re-snap in
+        /// <see cref="UpdateGhostOrbitFromStateVectors"/> fires only on the frame the reseed actually
+        /// changes the conic (the director &lt;-&gt; gap-glide seam), not on a steady-state re-apply of
+        /// the same recorded point. Cleared per-pid alongside <see cref="ghostLastAppliedOrbitBody"/>
+        /// (a stale triple surviving a ghost-pid reuse would falsely short-circuit the first post-reuse
+        /// seam refresh).
+        /// </summary>
+        internal static readonly Dictionary<uint, (double sma, double ecc, double epoch)>
+            ghostLastAppliedOrbitElements
+            = new Dictionary<uint, (double sma, double ecc, double epoch)>();
 
         /// <summary>
         /// True if any live map-ghost's playback head (<paramref name="currentUT"/>, live frame) has moved
@@ -2580,6 +2613,7 @@ namespace Parsek
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostLastAppliedOrbitBody.Remove(ghostPid);
+            ghostLastAppliedOrbitElements.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
             ghostOrbitEpochShift.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
@@ -3650,6 +3684,7 @@ namespace Parsek
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
+            ghostLastAppliedOrbitElements.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             ghostOrbitEpochShift.Clear();
             vesselsByChainPid.Clear();
@@ -4080,6 +4115,7 @@ namespace Parsek
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostLastAppliedOrbitBody.Remove(ghostPid);
+            ghostLastAppliedOrbitElements.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
             ghostOrbitEpochShift.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
@@ -8389,6 +8425,72 @@ namespace Parsek
             vessel.orbitDriver.updateFromParameters();
             NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
 
+            // Seam CoMD re-snap (Bug A loop-icon-warp-lag): this state-vector reseed runs in a Parsek
+            // per-frame pass AFTER this frame's VesselPrecalculate.FixedUpdate, so the cached
+            // Vessel.CoMD (the value Vessel.GetWorldPos3D returns, and what the map icon renders at)
+            // still holds the PRE-reseed conic phase - while the orbit LINE is drawn from the
+            // freshly-reseeded elements. updateFromParameters() above propagated orbitDriver.pos to the
+            // live clock and moved the vessel TRANSFORM via SetPosition, but SetPosition does NOT touch
+            // CoMD, and GetWorldPos3D returns the cached CoMD (only self-recomputing while
+            // !firstStatsRunComplete - true only at creation, which is why ForceImmediateIconDrive
+            // works at creation but a steady-state re-drive does not). So at high warp the
+            // (currentUT - reseed-epoch) gap leaves the icon up to ~168 deg off its own line for one
+            // frame until the NEXT FixedUpdate refreshes CoMD (the loopShift=0.0 icon-off-orbit /
+            // icon-teleport anomaly, rec 04177 idx 43). Force the same CalculatePhysicsStats() refresh
+            // GetWorldPos3D itself uses (it sets CoMD = mainBody.position + orbitDriver.pos for a packed
+            // orbiting ghost) so the icon lands on the conic THIS frame. The director-drive path needs
+            // no equivalent: its reseed runs INSIDE FixedUpdate alongside CalculatePhysicsStats, so its
+            // CoMD is never stale (its frames stay < 3 deg in the capture). Gated to the conic-change
+            // seam (cheap sma/ecc/epoch compare) so steady-state reseeds add no per-ghost cost.
+            Orbit svOrbit = vessel.orbitDriver.orbit;
+            if (svOrbit != null)
+            {
+                bool svHadLast = ghostLastAppliedOrbitElements.TryGetValue(
+                    vessel.persistentId, out var svLast);
+                // The reseed seeds orbit.epoch = ut + loopEpochShiftSeconds, which advances every live
+                // frame at warp, so the epoch facet (1e-3 s) trips on every genuine reseed - exactly the
+                // frames CoMD is stale - and an unchanged conic (same recorded point re-applied) skips.
+                bool svSeam = GhostOrbitElementsChanged(
+                    svHadLast, svLast.sma, svLast.ecc, svLast.epoch,
+                    svOrbit.semiMajorAxis, svOrbit.eccentricity, svOrbit.epoch);
+                if (svSeam)
+                {
+                    if (vessel.precalc != null)
+                    {
+                        vessel.precalc.CalculatePhysicsStats();
+                        seamComdRefreshCount++;
+                        if (MapRenderTrace.IsEnabled)
+                        {
+                            double postAngle = SeamIconOffOrbitAngleDeg(
+                                vessel, svOrbit, Planetarium.GetUniversalTime());
+                            if (!double.IsNaN(postAngle))
+                                seamComdMaxOffOrbitDegPostRefresh = System.Math.Max(
+                                    seamComdMaxOffOrbitDegPostRefresh, postAngle);
+                        }
+                    }
+                    ghostLastAppliedOrbitElements[vessel.persistentId] =
+                        (svOrbit.semiMajorAxis, svOrbit.eccentricity, svOrbit.epoch);
+                }
+                else
+                {
+                    seamComdSteadyCount++;
+                }
+
+                // Shared-key proof-of-fire (no-op trap guard, PR-#885 lesson): a KSP.log capture of a
+                // warp re-fly must show refreshed>0 (the seam path engaged) and, with mapRenderTracing
+                // on, maxOffDeg<1 (the icon re-snapped onto its conic). steady>0 confirms the seam gate
+                // is filtering rather than refreshing every frame. The IsVerboseEnabled guard keeps the
+                // string.Format off the per-ghost per-frame path in normal (verbose-off) play - the
+                // counters above are int/double increments, the only steady-state cost.
+                if (ParsekLog.IsVerboseEnabled)
+                    ParsekLog.VerboseRateLimited(Tag, "seam-comd-refresh-summary",
+                        string.Format(ic,
+                            "Seam CoMD re-snap summary: refreshed={0} steady={1} maxOffDegPostRefresh={2:F2} "
+                            + "(state-vector reseed re-snaps the icon CoMD onto its conic at live UT)",
+                            seamComdRefreshCount, seamComdSteadyCount, seamComdMaxOffOrbitDegPostRefresh),
+                        5.0);
+            }
+
             if (soiChanged && vessel.orbitRenderer != null)
             {
                 vessel.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
@@ -8461,6 +8563,65 @@ namespace Parsek
         {
             return string.IsNullOrEmpty(lastAppliedBodyName)
                 || !string.Equals(lastAppliedBodyName, newBodyName, System.StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// True when the orbit elements about to be applied to a ghost differ from the last-applied
+        /// triple for it (or nothing was applied yet, or any NEW element is non-finite). Gates the
+        /// seam CoMD re-snap in <see cref="UpdateGhostOrbitFromStateVectors"/> so it fires once per
+        /// genuine conic change, not on every steady-state reseed of the same recorded point - keeping
+        /// the per-ghost per-frame cost flat (the visual-efficiency invariant). Pure / Unity-free.
+        /// Epsilons: sma relative 1e-6 (metre-scale orbits), ecc absolute 1e-9, epoch absolute 1e-3 s.
+        /// A non-finite NEW element counts as CHANGED so the gate never suppresses and strands a stale
+        /// icon (the downstream CalculatePhysicsStats tolerates it and the next FixedUpdate corrects).
+        /// </summary>
+        internal static bool GhostOrbitElementsChanged(
+            bool hadLast, double lastSma, double lastEcc, double lastEpoch,
+            double newSma, double newEcc, double newEpoch)
+        {
+            if (!hadLast)
+                return true;
+            if (double.IsNaN(newSma) || double.IsInfinity(newSma)
+                || double.IsNaN(newEcc) || double.IsInfinity(newEcc)
+                || double.IsNaN(newEpoch) || double.IsInfinity(newEpoch))
+                return true;
+            double smaTol = System.Math.Max(1.0, System.Math.Abs(lastSma) * 1e-6);
+            return System.Math.Abs(newSma - lastSma) > smaTol
+                || System.Math.Abs(newEcc - lastEcc) > 1e-9
+                || System.Math.Abs(newEpoch - lastEpoch) > 1e-3;
+        }
+
+        /// <summary>
+        /// Pure angle (deg) between the icon's body-relative world position and the conic's
+        /// body-relative position at the same UT - the SAME quantity MapRenderProbe's icon-off-orbit
+        /// anomaly measures. Returns NaN for a degenerate / unresolved input (either vector below a
+        /// 1 m floor) so the proof summary skips it instead of logging a phantom 90 deg (the angle of
+        /// a zero vector). Unity-math only (<see cref="Vector3d.Angle"/>); xUnit-tested directly.
+        /// </summary>
+        internal static double IconVsOrbitAngleDeg(Vector3d bodyRelIcon, Vector3d bodyRelOrbitAtUT)
+        {
+            if (bodyRelIcon.sqrMagnitude <= 1.0 || bodyRelOrbitAtUT.sqrMagnitude <= 1.0)
+                return double.NaN;
+            double a = Vector3d.Angle(bodyRelIcon, bodyRelOrbitAtUT);
+            return double.IsNaN(a) ? double.NaN : a;
+        }
+
+        /// <summary>
+        /// Post-refresh proof metric: angle between the ghost icon's actual body-relative world
+        /// position (<see cref="Vessel.GetWorldPos3D"/> - referenceBody.position, i.e. the cached CoMD
+        /// just refreshed by CalculatePhysicsStats) and the conic's body-relative position at
+        /// <paramref name="currentUT"/> (the phase the line draws). ~0 after the re-snap. Mirrors
+        /// MapRenderProbe.OrbitRelativePositionYup (getRelativePositionAtUT + Swizzle) so the metric
+        /// agrees with the probe's anomaly. NaN-safe; called only under MapRenderTrace.IsEnabled.
+        /// </summary>
+        internal static double SeamIconOffOrbitAngleDeg(Vessel vessel, Orbit orbit, double currentUT)
+        {
+            if (vessel == null || orbit == null || orbit.referenceBody == null)
+                return double.NaN;
+            Vector3d bodyRelIcon = vessel.GetWorldPos3D() - orbit.referenceBody.position;
+            Vector3d rel = orbit.getRelativePositionAtUT(currentUT);
+            rel.Swizzle();
+            return IconVsOrbitAngleDeg(bodyRelIcon, rel);
         }
 
         /// <summary>
@@ -9995,6 +10156,7 @@ namespace Parsek
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
+            ghostLastAppliedOrbitElements.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             ghostOrbitEpochShift.Clear();
             ClearPolylineOwningStampsForTesting();
@@ -10067,6 +10229,7 @@ namespace Parsek
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
+            ghostLastAppliedOrbitElements.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             ghostOrbitEpochShift.Clear();
             vesselsByChainPid.Clear();
@@ -11687,6 +11850,7 @@ namespace Parsek
                 ghostOrbitBounds.Remove(ghostPid);
                 ghostBodyFrameOrbitBounds.Remove(ghostPid);
                 ghostLastAppliedOrbitBody.Remove(ghostPid);
+                ghostLastAppliedOrbitElements.Remove(ghostPid);
                 ghostOrbitLoopShiftedPids.Remove(ghostPid);
                 ghostOrbitEpochShift.Remove(ghostPid);
                 vesselPidToRecordingIndex.Remove(ghostPid);
