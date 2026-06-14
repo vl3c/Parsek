@@ -229,6 +229,110 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Tail variant of <see cref="IsNoOpSegment"/> for the NO-SESSION
+        /// committed-restore resume path (<c>ResumeCommittedActiveRecording</c>),
+        /// where the recorder appends a live tail onto an EXISTING committed
+        /// recording instead of creating a fresh segment recording. The committed
+        /// history before <paramref name="sinceUT"/> (the live-resume anchor,
+        /// <c>liveResumeSessionStartUT</c>) is NOT a no-op (it is the whole
+        /// mission), so this only inspects content at or after the resume anchor:
+        /// did the RESUME change anything?
+        ///
+        /// <para>Same "meaningful" definition as <see cref="IsNoOpSegment"/>, but
+        /// every gate is filtered to <c>ut &gt;= sinceUT</c> (sections: any
+        /// section whose <c>endUT &gt; sinceUT</c> that is non-boring; orbit:
+        /// elements of the segment covering the resume anchor vs the last). A
+        /// no-op result means the resume coasted/sat — reverting the clone to its
+        /// committed original (which survives in <c>committedTrees</c>, copy-on-write)
+        /// loses no replayable content. Dock targets / descendants are caught via
+        /// the post-anchor Docked / Decoupled / branch part events.</para>
+        /// </summary>
+        internal static bool IsNoOpResumeTail(
+            Recording segment, double sinceUT, out string keepReason)
+        {
+            keepReason = null;
+
+            if (segment == null)
+            {
+                keepReason = "segment-null";
+                return false;
+            }
+            if (double.IsNaN(sinceUT))
+            {
+                // No resume anchor — cannot scope the tail; keep conservatively.
+                keepReason = "no-resume-anchor";
+                return false;
+            }
+            if (segment.VesselDestroyed)
+            {
+                keepReason = "vessel-destroyed";
+                return false;
+            }
+
+            if (segment.PartEvents != null)
+            {
+                for (int i = 0; i < segment.PartEvents.Count; i++)
+                {
+                    PartEvent evt = segment.PartEvents[i];
+                    if (evt.ut >= sinceUT && IsMeaningfulPartEvent(evt))
+                    {
+                        keepReason = "part-event:" + evt.eventType;
+                        return false;
+                    }
+                }
+            }
+
+            if (segment.SegmentEvents != null)
+            {
+                for (int i = 0; i < segment.SegmentEvents.Count; i++)
+                {
+                    SegmentEvent se = segment.SegmentEvents[i];
+                    if (se.ut >= sinceUT && se.type != SegmentEventType.TimeJump)
+                    {
+                        keepReason = "segment-event:" + se.type;
+                        return false;
+                    }
+                }
+            }
+
+            if (segment.FlagEvents != null)
+            {
+                for (int i = 0; i < segment.FlagEvents.Count; i++)
+                {
+                    if (segment.FlagEvents[i].ut >= sinceUT)
+                    {
+                        keepReason = "flag-event";
+                        return false;
+                    }
+                }
+            }
+
+            // Any track section that extends past the resume anchor must be boring.
+            if (segment.TrackSections != null)
+            {
+                for (int i = 0; i < segment.TrackSections.Count; i++)
+                {
+                    TrackSection sec = segment.TrackSections[i];
+                    if (sec.endUT > sinceUT
+                        && !GhostPlaybackLogic.IsBoringEnvironment(sec.environment))
+                    {
+                        keepReason = "non-boring-section:" + sec.environment;
+                        return false;
+                    }
+                }
+            }
+
+            // Orbit elements must not have changed across the resume window.
+            if (!OrbitElementsUnchangedSince(segment, sinceUT, out string orbitReason))
+            {
+                keepReason = orbitReason;
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Compares the first and last orbital samples drawn (in list order) from
         /// the segment's <see cref="Recording.OrbitSegments"/> and any
         /// <see cref="ReferenceFrame.OrbitalCheckpoint"/> track-section checkpoints.
@@ -239,8 +343,20 @@ namespace Parsek
         /// frames).
         /// </summary>
         internal static bool OrbitElementsUnchanged(Recording segment, out string reason)
+            => OrbitElementsUnchangedSince(segment, double.NaN, out reason);
+
+        /// <summary>
+        /// As <see cref="OrbitElementsUnchanged"/>, but when <paramref name="sinceUT"/>
+        /// is finite only considers orbital samples whose segment extends past it
+        /// (<c>endUT &gt; sinceUT</c>) — i.e. the orbit across a resume window,
+        /// ignoring the committed history before the resume anchor. Used by the
+        /// no-session committed-resume tail check.
+        /// </summary>
+        internal static bool OrbitElementsUnchangedSince(
+            Recording segment, double sinceUT, out string reason)
         {
             reason = null;
+            bool filtered = !double.IsNaN(sinceUT);
 
             // Collect every orbital sample with its UT, then compare the
             // earliest vs the latest by UT. OrbitSegments and OrbitalCheckpoint
@@ -251,6 +367,10 @@ namespace Parsek
             var samples = new List<(double ut, OrbitSample s)>();
             void Consider(OrbitSegment os)
             {
+                // Skip segments entirely before the resume anchor (committed
+                // history); keep ones overlapping or after it.
+                if (filtered && os.endUT <= sinceUT)
+                    return;
                 samples.Add((os.startUT, new OrbitSample
                 {
                     inc = os.inclination,

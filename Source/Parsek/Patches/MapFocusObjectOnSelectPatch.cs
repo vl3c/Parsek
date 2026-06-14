@@ -361,6 +361,28 @@ namespace Parsek.Patches
                             }
                         }
 
+                        // No-op auto-discard for the NO-SESSION committed-restore
+                        // resume (Case B / Case C): if the PRIOR active tree is a
+                        // committed-mission clone resumed without a session
+                        // (ResumeCommittedActiveRecording) and the resume tail
+                        // changed nothing, revert it to the committed original and
+                        // switch with no prompt — reuses the existing no-session
+                        // Discard handler (DiscardActiveRecordingAndSwitchTo →
+                        // AutoDiscardActiveTreeWithMessage, which tears the clone
+                        // down so the committed original in committedTrees
+                        // survives). This closes the in-flight map Switch-To gap.
+                        if (existingSession == null
+                            && (ParsekFlight.Instance?.TryEvaluateNoSessionCommittedResumeNoOp(
+                                    out string noSessionNoOpReason) ?? false))
+                        {
+                            ParsekLog.Info("SwitchIntentPatch",
+                                $"pre-switch no-op auto-discard: prior no-session committed-restore " +
+                                $"resume changed nothing targetPid={vessel.persistentId} " +
+                                $"reason={noSessionNoOpReason ?? "<none>"} - reverting without dialog");
+                            DiscardActiveRecordingAndSwitchTo(vessel);
+                            return false;
+                        }
+
                         // Distinguish the three OpenDialog routes in KSP.log so
                         // a reader can tell Case A (session) from the two
                         // no-session sub-cases: Case B (unloaded target, scene

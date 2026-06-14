@@ -312,6 +312,119 @@ namespace Parsek.Tests
             Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
             Assert.Equal("orbit-sma-change", reason);
         }
+
+        // ---- IsNoOpResumeTail (no-session committed-restore resume) ----------
+        // The committed history before sinceUT must be ignored; only the resume
+        // tail (>= sinceUT) decides.
+
+        [Fact]
+        public void ResumeTail_BoringCoast_IsNoOp()
+        {
+            var rec = new Recording();
+            // Committed history section (ignored: endUT == sinceUT, not > it).
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic, startUT: 0, endUT: 100));
+            // Resume tail: coasting.
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic, startUT: 100, endUT: 200));
+            // A meaningful event in the committed history (before the resume) is ignored.
+            rec.PartEvents.Add(new PartEvent { ut = 50, eventType = PartEventType.Decoupled });
+
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, 100, out _));
+        }
+
+        [Fact]
+        public void ResumeTail_MeaningfulPartEventAfterAnchor_IsKept()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic, startUT: 100, endUT: 200));
+            rec.PartEvents.Add(new PartEvent { ut = 150, eventType = PartEventType.Decoupled });
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, 100, out string reason));
+            Assert.StartsWith("part-event:", reason);
+        }
+
+        [Fact]
+        public void ResumeTail_NonBoringSectionAfterAnchor_IsKept()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoPropulsive, startUT: 100, endUT: 200));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, 100, out string reason));
+            Assert.StartsWith("non-boring-section:", reason);
+        }
+
+        [Fact]
+        public void ResumeTail_NonBoringSectionBeforeAnchor_Ignored_IsNoOp()
+        {
+            var rec = new Recording();
+            // A burn that happened BEFORE the resume (committed history) is ignored.
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoPropulsive, startUT: 0, endUT: 90));
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic, startUT: 100, endUT: 200));
+
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, 100, out _));
+        }
+
+        [Fact]
+        public void ResumeTail_NaNAnchor_IsKept()
+        {
+            var rec = new Recording();
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic, startUT: 100, endUT: 200));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, double.NaN, out string reason));
+            Assert.Equal("no-resume-anchor", reason);
+        }
+
+        [Fact]
+        public void ResumeTail_OrbitChangedAfterAnchor_IsKept()
+        {
+            var rec = new Recording();
+            rec.OrbitSegments.Add(Orbit(sma: 700000, startUT: 90, endUT: 150));
+            rec.OrbitSegments.Add(Orbit(sma: 800000, startUT: 150, endUT: 200));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, 100, out string reason));
+            Assert.Equal("orbit-sma-change", reason);
+        }
+
+        [Fact]
+        public void ResumeTail_OrbitUnchangedAfterAnchor_IsNoOp()
+        {
+            var rec = new Recording();
+            // Pre-resume orbit differs, but it is ignored (endUT <= anchor).
+            rec.OrbitSegments.Add(Orbit(sma: 500000, startUT: 0, endUT: 100));
+            rec.OrbitSegments.Add(Orbit(sma: 700000, startUT: 100, endUT: 150));
+            rec.OrbitSegments.Add(Orbit(sma: 700000, startUT: 150, endUT: 200));
+
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, 100, out _));
+        }
+
+        [Fact]
+        public void ResumeTail_FlagAfterAnchor_IsKept_BeforeIgnored()
+        {
+            var keep = new Recording();
+            keep.TrackSections.Add(Section(SegmentEnvironment.SurfaceStationary, startUT: 100, endUT: 200));
+            keep.FlagEvents = new List<FlagEvent> { new FlagEvent { ut = 150 } };
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(keep, 100, out string reason));
+            Assert.Equal("flag-event", reason);
+
+            var noop = new Recording();
+            noop.TrackSections.Add(Section(SegmentEnvironment.SurfaceStationary, startUT: 100, endUT: 200));
+            noop.FlagEvents = new List<FlagEvent> { new FlagEvent { ut = 50 } }; // pre-resume, ignored
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(noop, 100, out _));
+        }
+
+        [Fact]
+        public void ResumeTail_CrewTransferAfterAnchor_IsKept_TimeJumpIgnored()
+        {
+            var keep = new Recording();
+            keep.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic, startUT: 100, endUT: 200));
+            keep.SegmentEvents.Add(new SegmentEvent { ut = 150, type = SegmentEventType.CrewTransfer });
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(keep, 100, out string reason));
+            Assert.StartsWith("segment-event:", reason);
+
+            var noop = new Recording();
+            noop.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic, startUT: 100, endUT: 200));
+            noop.SegmentEvents.Add(new SegmentEvent { ut = 150, type = SegmentEventType.TimeJump });
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(noop, 100, out _));
+        }
     }
 
     /// <summary>

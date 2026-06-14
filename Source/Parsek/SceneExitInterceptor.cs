@@ -434,6 +434,36 @@ namespace Parsek
         }
 
         /// <summary>
+        /// No-op fast path for the NO-SESSION committed-restore resume (you Fly /
+        /// Switch-To a vessel from a committed mission via a scene reload; OnLoad
+        /// resumes the committed tree in-place without arming a
+        /// <see cref="SwitchSegmentSession"/>). If the resume tail changed
+        /// nothing, reverts the clone to the committed original (which survives in
+        /// committedTrees) so a do-nothing revisit of a tracked mission is dropped
+        /// silently at scene exit instead of prompting / committing. Runs after
+        /// the session-based <see cref="TryAutoDiscardNoOpSwitchSegment"/>.
+        /// </summary>
+        internal static bool TryAutoDiscardNoOpNoSessionCommittedResume(
+            GameScenes destination, ParsekFlight flight)
+        {
+            if (flight == null) return false;
+            if (!flight.TryEvaluateNoSessionCommittedResumeNoOp(out string reason))
+                return false;
+
+            string discardReason =
+                $"scene-exit no-op no-session committed-resume revert dest={destination}";
+            ParsekLog.Info("SceneExit",
+                $"TryAutoDiscardNoOpNoSessionCommittedResume: no-op committed-restore resume " +
+                $"detected dest={destination} - reverting to committed original");
+
+            if (AutoDiscardNoOpSwitchSegmentForTesting != null)
+                AutoDiscardNoOpSwitchSegmentForTesting(destination, flight);
+            else
+                flight.AutoDiscardNoOpNoSessionCommittedResume(discardReason);
+            return true;
+        }
+
+        /// <summary>
         /// Pre-LoadScene save: persist Parsek's mutations. For paths where
         /// stock <c>saveAndExit</c> already saved (PauseMenu paths), our
         /// re-save runs after our mutations on top of stock's earlier save.
@@ -659,6 +689,19 @@ namespace Parsek
             //     post-discard state (the teardown nulls activeTree).
             if (flight != null
                 && SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment(scene, flight))
+            {
+                if (!SceneExitInterceptor.SafeWritePersistent(scene))
+                    return false;   // MAINMENU save failed: hard-block
+                return true;
+            }
+
+            // (3.6) no-op NO-SESSION committed-restore resume: revisiting a
+            //     tracked mission (resumed via ResumeCommittedActiveRecording, no
+            //     session) and leaving without changing anything reverts the clone
+            //     to the committed original. Closes the MAINMENU / scene-exit gap
+            //     where the session-based check above sees no session.
+            if (flight != null
+                && SceneExitInterceptor.TryAutoDiscardNoOpNoSessionCommittedResume(scene, flight))
             {
                 if (!SceneExitInterceptor.SafeWritePersistent(scene))
                     return false;   // MAINMENU save failed: hard-block

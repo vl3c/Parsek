@@ -2576,6 +2576,124 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Evaluates the NO-SESSION committed-restore resume path: when you Fly /
+        /// Switch-To a vessel that belongs to a committed Parsek mission via a
+        /// scene reload, OnLoad resumes the committed tree in-place
+        /// (<c>ResumeCommittedActiveRecording</c>) as a copy-on-write clone
+        /// WITHOUT arming a <see cref="SwitchSegmentSession"/> (it sets
+        /// <see cref="liveResumeSessionStartUT"/> instead). The session-based
+        /// no-op auto-discard never sees this, so a do-nothing revisit of a
+        /// tracked mission used to fall through to the merge dialog. This returns
+        /// true when the resume TAIL (since the live-resume anchor) changed
+        /// nothing meaningful, so the caller can revert the clone to the committed
+        /// original via <see cref="AutoDiscardNoOpNoSessionCommittedResume"/>.
+        ///
+        /// <para>Guards out: an armed <see cref="SwitchSegmentSession"/> (the
+        /// session path owns that), restore-coroutine, Re-Fly, and merge-journal.
+        /// Requires the active tree to be the armed committed-restore clone, a
+        /// finite resume anchor, and a resolvable active recording. MUTATES like
+        /// <see cref="IsActiveTreeIdleOnPad"/>: flushes the recorder so the tail
+        /// is readable. Fails closed (keep) on exception.</para>
+        /// </summary>
+        internal bool TryEvaluateNoSessionCommittedResumeNoOp(out string reason)
+        {
+            reason = null;
+
+            if (restoringActiveTree)
+            {
+                reason = "restoring-active-tree";
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario))
+            {
+                if (scenario.ActiveSwitchSegmentSession != null)
+                {
+                    reason = "has-session"; // the session path owns this
+                    return false;
+                }
+                if (scenario.ActiveReFlySessionMarker != null)
+                {
+                    reason = "refly-active";
+                    return false;
+                }
+                if (scenario.ActiveMergeJournal != null)
+                {
+                    reason = "merge-journal-active";
+                    return false;
+                }
+            }
+
+            if (activeTree == null)
+            {
+                reason = "no-active-tree";
+                return false;
+            }
+            if (!RecordingStore.IsCommittedTreeRestoreAttemptTree(activeTree.Id))
+            {
+                reason = "not-committed-restore-clone";
+                return false;
+            }
+            if (double.IsNaN(liveResumeSessionStartUT))
+            {
+                reason = "no-resume-anchor";
+                return false;
+            }
+
+            string recId = activeTree.ActiveRecordingId;
+            if (string.IsNullOrEmpty(recId)
+                || activeTree.Recordings == null
+                || !activeTree.Recordings.TryGetValue(recId, out Recording rec)
+                || rec == null)
+            {
+                reason = "no-active-recording";
+                return false;
+            }
+
+            try
+            {
+                FlushRecorderIntoActiveTreeForSerialization();
+                bool noOp = SwitchSegmentNoOpClassifier.IsNoOpResumeTail(
+                    rec, liveResumeSessionStartUT, out string keepReason);
+                reason = noOp ? "no-op" : keepReason;
+                ParsekLog.Verbose("SwitchSegment",
+                    $"TryEvaluateNoSessionCommittedResumeNoOp: treeId={activeTree.Id} " +
+                    $"recId={recId} " +
+                    $"sinceUT={liveResumeSessionStartUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"noOp={noOp} reason={reason ?? "<none>"}");
+                return noOp;
+            }
+            catch (System.Exception ex)
+            {
+                reason = "exception:" + ex.GetType().Name;
+                ParsekLog.Warn("SwitchSegment",
+                    $"TryEvaluateNoSessionCommittedResumeNoOp threw {ex.GetType().Name}: " +
+                    $"{ex.Message} - treating as keep");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Reverts a no-op no-session committed-restore resume: clears the
+        /// committed-tree restore attempt and tears the live clone down via
+        /// <see cref="AutoDiscardActiveTreeCore"/> (in-memory only — deletes no
+        /// files, never touches <c>committedTrees</c>), so the committed original
+        /// survives and the clone is never serialized active. The session path's
+        /// restore-attempt clear is done by the scoped discard; here there is no
+        /// session/segment to scoped-discard, so the clear is explicit.
+        /// </summary>
+        internal void AutoDiscardNoOpNoSessionCommittedResume(string reason)
+        {
+            RecordingStore.ClearCommittedTreeRestoreAttempt(
+                "noop-no-session-committed-resume-revert");
+            AutoDiscardActiveTreeWithMessage(
+                reason: reason,
+                screenMessage: "Recording discarded - vessel unchanged after switch",
+                ledgerRecalcReason: "noop-no-session-committed-resume-discard");
+        }
+
+        /// <summary>
         /// Shared teardown body for <see cref="AutoDiscardIdleActiveTree"/>
         /// and <see cref="AutoDiscardActiveTreeWithMessage"/>. The screen
         /// message and ledger-recalc reason are parameterized so the
