@@ -93,7 +93,29 @@ namespace Parsek
         /// tombstone reverses it through the same recalc + patch path that reverses
         /// a recovery <see cref="GameActionType.FundsEarning"/>.
         /// </summary>
-        RouteRecoveryCredited = 28
+        RouteRecoveryCredited = 28,
+
+        /// <summary>
+        /// Per-window pickup debit (logistics M3, plan Phase 4 / OQ4 / D6): cargo
+        /// flowed FROM a stop's endpoint ONTO the transport across a connection
+        /// window (the reverse of <see cref="RouteCargoDelivered"/>), and the
+        /// witnessed amount was PHYSICALLY removed from the endpoint vessel at the
+        /// dock crossing. The mirror of <see cref="RouteCargoDebited"/> but for a
+        /// per-window pickup ENDPOINT, not the dispatch-time origin. Carries the
+        /// ACTUAL debited manifest (<see cref="GameAction.RouteResourceManifest"/>),
+        /// the requested-on-shortfall manifest
+        /// (<see cref="GameAction.RouteRequestedResourceManifest"/>) when the source
+        /// came up short / unresolved, and the endpoint pid
+        /// (<see cref="GameAction.RouteOriginVesselPid"/>). Emits ZERO funds
+        /// (loaded-en-route cargo debits its physical source, never funds, design
+        /// D6); no resource module consumes it (the physical removal happened LIVE
+        /// at emit and is reverted by the rewind quicksave, exactly like
+        /// <see cref="RouteCargoDebited"/>'s physical half), so it is NOT a
+        /// resource-impacting action and supersede does NOT strict-block on it.
+        /// Sequence is assigned AFTER <see cref="RouteDispatched"/> (Seq0) so the
+        /// ledger walker sees dispatch first at the shared UT.
+        /// </summary>
+        RouteCargoPickedUp = 29
     }
 
     /// <summary>How science was collected — transmitted from orbit or recovered on the ground.</summary>
@@ -686,6 +708,9 @@ namespace Parsek
                 case GameActionType.RouteRecoveryCredited:
                     SerializeRouteRecoveryCredited(node);
                     break;
+                case GameActionType.RouteCargoPickedUp:
+                    SerializeRouteCargoPickedUp(node);
+                    break;
             }
         }
 
@@ -822,6 +847,9 @@ namespace Parsek
                     break;
                 case GameActionType.RouteRecoveryCredited:
                     DeserializeRouteRecoveryCredited(node, a);
+                    break;
+                case GameActionType.RouteCargoPickedUp:
+                    DeserializeRouteCargoPickedUp(node, a);
                     break;
             }
 
@@ -1278,6 +1306,32 @@ namespace Parsek
         {
             ReadRouteCommon(n, a);
             TryParseFloat(n, "routeKscFundsCost", out a.RouteKscFundsCost);
+        }
+
+        // RouteCargoPickedUp (logistics M3, plan Phase 4 / OQ4 / D6): the
+        // pickup-direction mirror of RouteCargoDebited's physical-debit shape.
+        // Carries the actual debited manifest (resource), the requested-on-shortfall
+        // manifest (requestedResource), and the endpoint pid (routeOriginVesselPid),
+        // all sparse. NO funds field is written: a pickup emits ZERO funds
+        // (loaded-en-route cargo debits its physical source, never funds, D6), so
+        // unlike RouteCargoDebited there is no routeKscFundsCost line.
+        private void SerializeRouteCargoPickedUp(ConfigNode n)
+        {
+            WriteRouteCommon(n);
+            WriteResourceManifest(n, "resource", RouteResourceManifest);
+            WriteResourceManifest(n, "requestedResource", RouteRequestedResourceManifest);
+            if (RouteOriginVesselPid != 0u)
+                n.AddValue("routeOriginVesselPid", RouteOriginVesselPid.ToString(IC));
+        }
+
+        private static void DeserializeRouteCargoPickedUp(ConfigNode n, GameAction a)
+        {
+            ReadRouteCommon(n, a);
+            a.RouteResourceManifest = ReadResourceManifest(n, "resource");
+            a.RouteRequestedResourceManifest = ReadResourceManifest(n, "requestedResource");
+            string pidStr = n.GetValue("routeOriginVesselPid");
+            if (pidStr != null && uint.TryParse(pidStr, NumberStyles.Integer, IC, out uint endpointPid))
+                a.RouteOriginVesselPid = endpointPid;
         }
 
         /// <summary>

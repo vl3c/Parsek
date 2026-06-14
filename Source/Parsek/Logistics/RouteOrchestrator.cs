@@ -969,26 +969,33 @@ namespace Parsek.Logistics
             // return. Idempotent via the credit's own keyed backstop (guard 3).
             EmitPendingRecoveryCredit(route, currentUT, env);
 
-            // ELS idempotency backstop (must-fix #4). LastObservedLoopCycleIndex
-            // (persisted via the Phase 1 codec) is the PRIMARY re-fire guard, but a
-            // save/reload mid-cycle, a Rewind, or a double-tick can re-present the
-            // SAME cycleId. EmitDispatchDebit has no idempotency guard of its own,
-            // so without this check a replayed cycle would emit ORPHAN
-            // RouteDispatched/RouteCargoDebited rows (ApplyDelivery would then skip
-            // the delivery, leaving a partial double-charge). Check (routeId,
-            // cycleId) in ELS up front and emit NOTHING on a replay — the caller
+            // ELS idempotency backstop (must-fix #4 + M3 OQ4 re-key).
+            // LastObservedLoopCycleIndex (persisted via the Phase 1 codec) is the
+            // PRIMARY re-fire guard, but a save/reload mid-cycle, a Rewind, or a
+            // double-tick can re-present the SAME cycleId. EmitDispatchDebit has no
+            // idempotency guard of its own, so without this check a replayed cycle
+            // would emit ORPHAN RouteDispatched/RouteCargoDebited rows AND re-apply
+            // the per-window pickup endpoint debit.
+            //
+            // M3 OQ4 re-key (the correctness fix): the guard is keyed on the
+            // DIRECTION-AGNOSTIC RouteDispatched row (every cycle emits exactly one),
+            // NOT the RouteCargoDelivered row (which a pickup-ONLY route never emits,
+            // D6). Keying on delivery would let a pickup-only route's endpoint debit
+            // re-apply every reload (risk register #1). Check (routeId, cycleId) on
+            // the dispatch row up front and emit NOTHING on a replay - the caller
             // still snaps LastObservedLoopCycleIndex forward.
-            if (IsDeliveryAlreadyInLedger(route.Id, cycleId))
+            if (IsDispatchAlreadyInLedger(route.Id, cycleId))
             {
                 // Mirror ApplyDelivery's replay branch: bump CompletedCycles so the
                 // NEXT cycle's id (cycle-{Completed+Skipped}) advances past this
-                // already-delivered one. Without it, the next crossing would
-                // recompute the same already-in-ledger cycleId and replay-skip
-                // forever (the route would render but never deliver again).
+                // already-dispatched one. PRESERVE this bump (OQ4): without it a
+                // pickup-only route's next crossing would recompute the same
+                // already-in-ledger cycleId and replay-skip FOREVER (the route would
+                // render but never pick up / deliver again).
                 route.CompletedCycles += 1;
                 ParsekLog.Verbose(Tag,
                     $"EmitLoopCycle: route {ShortIdForLog(route)} cycle={cycleId} " +
-                    $"already in ledger (replay) — emitting nothing, bumped " +
+                    $"already in ledger (replay, dispatch-keyed) - emitting nothing, bumped " +
                     $"completedCycles={route.CompletedCycles.ToString(IC)}");
                 return false;
             }
@@ -1017,22 +1024,126 @@ namespace Parsek.Logistics
                     $"cycle={cycleId} dispatchUT={currentUT.ToString("R", IC)}");
             }
 
-            // Delivery half. ApplyDelivery resolves the live destination vessel,
-            // plans + applies the fill, debits Career funds, emits
-            // RouteCargoDelivered, and bumps CompletedCycles. It recomputes the
-            // SAME cycleId internally (Completed+Skipped unchanged between the two
-            // halves). For a ghost-driving loop-route the status is Active, so
-            // ApplyDelivery's terminal TransitionTo(Active) is a self-transition
-            // (no InTransit involved). Routed through the DeliveryApplierForTesting
-            // seam so xUnit can verify the full three-row fire without a live
-            // Vessel (production leaves the seam null -> calls ApplyDelivery
-            // VERBATIM).
-            var deliveryApplier = DeliveryApplierForTesting;
-            if (deliveryApplier != null)
-                deliveryApplier(route, currentUT, env);
+            // Pickup half (M3, D6). When the cycle stop carries a witnessed pickup
+            // manifest, physically debit the per-window pickup ENDPOINT and emit one
+            // RouteCargoPickedUp row under the SAME cycleId, with a deterministic
+            // Sequence AFTER RouteDispatched (Seq0) + RouteCargoDebited (Seq1). Fired
+            // BETWEEN the dispatch-debit half and the delivery half so all of a
+            // mixed window's rows share one cycleId and a stable order. A
+            // pure-delivery route has no pickup manifest and skips this (no
+            // RouteCargoPickedUp row).
+            if (RouteHasPickupManifest(route))
+            {
+                EmitPickupHalf(route, currentUT, env, cycleId);
+            }
+
+            // Delivery half (M3 gate, D6). Skip ENTIRELY for a pure-PICKUP route
+            // (no delivery manifest): firing ApplyDelivery on an empty plan would
+            // emit a RouteCargoDelivered row even with nothing to deliver, which is
+            // exactly what created the OQ4 replay hole (the re-key above keys on
+            // RouteDispatched precisely so a delivery-less cycle is still
+            // idempotent). When a delivery manifest IS present, ApplyDelivery
+            // resolves the live destination vessel, plans + applies the fill,
+            // debits Career funds, emits RouteCargoDelivered, and bumps
+            // CompletedCycles. It recomputes the SAME cycleId internally
+            // (Completed+Skipped unchanged between the halves). For a ghost-driving
+            // loop-route the status is Active, so ApplyDelivery's terminal
+            // TransitionTo(Active) is a self-transition (no InTransit involved).
+            // Routed through the DeliveryApplierForTesting seam so xUnit can verify
+            // the full fire without a live Vessel (production leaves the seam null
+            // -> calls ApplyDelivery VERBATIM).
+            if (RouteHasDeliveryManifest(route))
+            {
+                var deliveryApplier = DeliveryApplierForTesting;
+                if (deliveryApplier != null)
+                    deliveryApplier(route, currentUT, env);
+                else
+                    ApplyDelivery(route, currentUT, env);
+            }
             else
-                ApplyDelivery(route, currentUT, env);
+            {
+                // Pure-pickup route: no delivery half. CompletedCycles is normally
+                // bumped by ApplyDelivery (the only counter advance on the fire
+                // path); without a delivery the loop would recompute the SAME
+                // cycleId next crossing and replay-skip forever (the dispatch-keyed
+                // backstop would now match its own RouteDispatched row). Bump it
+                // here so the next cycle's id advances - the pure-pickup analogue of
+                // ApplyDelivery's CompletedCycles increment.
+                route.CompletedCycles += 1;
+                ParsekLog.Info(Tag,
+                    $"EmitLoopCycle: route {ShortIdForLog(route)} cycle={cycleId} " +
+                    $"pure-pickup (no delivery manifest) - delivery half skipped, " +
+                    $"bumped completedCycles={route.CompletedCycles.ToString(IC)}");
+            }
             return true;
+        }
+
+        /// <summary>
+        /// Pickup half of the M3 two-direction loop applier (D6). Resolves the
+        /// cycle stop's witnessed pickup endpoint + manifest, physically debits the
+        /// endpoint via <see cref="ApplyPickupDebit"/> (the Phase 3 reusable
+        /// per-window endpoint debit, routed through the
+        /// <see cref="PickupDebitApplierForTesting"/> seam), and emits ONE
+        /// <see cref="GameActionType.RouteCargoPickedUp"/> row carrying the ACTUAL
+        /// debited manifest, the requested-on-shortfall manifest, and the endpoint
+        /// pid. The row's <c>Sequence</c> is 2 - AFTER <c>RouteDispatched</c> (Seq0)
+        /// and <c>RouteCargoDebited</c> (Seq1) emitted by
+        /// <see cref="EmitDispatchDebit"/> - so the ledger walker (and the
+        /// <c>RouteModule</c> out-of-order guard) sees dispatch before the pickup at
+        /// the shared UT. Emits ZERO funds (a pickup debits its physical source,
+        /// never funds, D6). Reuses the same loaded-gate-per-vessel capture and
+        /// unresolved-at-emit honest-bookkeeping rules as the M1 origin debit (via
+        /// <see cref="ApplyPickupDebit"/>).
+        /// </summary>
+        internal static void EmitPickupHalf(
+            Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId)
+        {
+            RouteStop stop = ResolveCycleStop(route);
+            if (stop == null)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PickupHalf: route {ShortIdForLog(route)} cycle={cycleId} no resolvable " +
+                    "cycle stop - emitting nothing");
+                return;
+            }
+
+            Dictionary<string, double> pickupManifest = stop.PickupManifest;
+            OriginDebitOutcome pickup = ApplyPickupDebit(stop.Endpoint, pickupManifest, env, route.Id);
+
+            if (pickup.Short && !pickup.Unresolved)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PickupDebit: route {ShortIdForLog(route)} cycle={cycleId} SHORT at apply - " +
+                    "clamped to stored; requested manifest recorded on the pickup row " +
+                    $"(debitedResources={(pickup.ActualDebited?.Count ?? 0).ToString(IC)} " +
+                    $"requestedResources={(pickup.RequestedOnShortfall?.Count ?? 0).ToString(IC)})");
+            }
+
+            // RouteCargoPickedUp row. Mirror of the debited row's payload shape
+            // (actual manifest, requested-on-shortfall, endpoint pid) but ZERO funds
+            // and Sequence 2 (after dispatch Seq0 + debit Seq1). Zero actuals
+            // serialize as no manifest.
+            var pickedUpAction = new GameAction
+            {
+                Type = GameActionType.RouteCargoPickedUp,
+                UT = currentUT,
+                RouteId = route.Id,
+                RouteCycleId = cycleId,
+                RouteStopIndex = route.PendingStopIndex >= 0 ? route.PendingStopIndex : 0,
+                Sequence = 2,
+                RouteResourceManifest = pickup.ActualDebited,
+                RouteRequestedResourceManifest = pickup.RequestedOnShortfall,
+                RouteOriginVesselPid = pickup.OriginVesselPid,
+            };
+            Ledger.AddAction(pickedUpAction);
+
+            ParsekLog.Info(Tag,
+                $"PickupHalf: route {ShortIdForLog(route)} cycle={cycleId} " +
+                $"ut={currentUT.ToString("R", IC)} " +
+                $"endpointPid={pickup.OriginVesselPid.ToString(IC)} " +
+                $"pickedUpResources={(pickup.ActualDebited?.Count ?? 0).ToString(IC)} " +
+                $"requestedResources={(pickup.RequestedOnShortfall?.Count ?? 0).ToString(IC)} " +
+                $"short={(pickup.Short ? "1" : "0")} unresolved={(pickup.Unresolved ? "1" : "0")}");
         }
 
         /// <summary>
@@ -2067,6 +2178,55 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// DIRECTION-AGNOSTIC per-cycle ELS idempotency check (M3 OQ4, the replay
+        /// re-key). Returns <c>true</c> if any non-tombstoned
+        /// <see cref="GameActionType.RouteDispatched"/> row already exists for the
+        /// given <paramref name="routeId"/> + <paramref name="cycleId"/> pair.
+        ///
+        /// <para><b>Why RouteDispatched, not RouteCargoDelivered.</b> Every loop
+        /// crossing emits exactly one <c>RouteDispatched</c> row regardless of
+        /// direction, but a pickup-ONLY route emits NO <c>RouteCargoDelivered</c>
+        /// row (the delivery half is skipped, D6). Keying the backstop on the
+        /// delivery row (the pre-M3 behavior of <see cref="EmitLoopCycle"/>) would
+        /// never fire for a pickup-only route, so its endpoint debit would
+        /// RE-APPLY every save/reload (the M3 replay hole, risk register #1).
+        /// Keying on <c>RouteDispatched</c> makes the guard fire for every cycle
+        /// shape: deliver-only, pickup-only, and mixed. This is the LOOP-PATH-ONLY
+        /// guard; the legacy <see cref="ApplyDelivery"/> path keeps using
+        /// <see cref="IsDeliveryAlreadyInLedger"/> (dead for loop routes, M1 D11).
+        /// Structural mirror of <see cref="IsDeliveryAlreadyInLedger"/>.</para>
+        /// </summary>
+        private static bool IsDispatchAlreadyInLedger(string routeId, string cycleId)
+        {
+            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
+                return false;
+
+            IReadOnlyList<GameAction> els;
+            try
+            {
+                els = EffectiveState.ComputeELS();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"IsDispatchAlreadyInLedger: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as not-in-ledger");
+                return false;
+            }
+
+            if (els == null) return false;
+            for (int i = 0; i < els.Count; i++)
+            {
+                GameAction a = els[i];
+                if (a == null) continue;
+                if (a.Type != GameActionType.RouteDispatched) continue;
+                if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
+                if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// ELS-based idempotency check for the recovery credit
         /// (logistics-recovery-credit, design doc section 6.4). Exact structural
         /// mirror of <see cref="IsDeliveryAlreadyInLedger"/> but scanning for a
@@ -2536,6 +2696,60 @@ namespace Parsek.Logistics
                     $"SafeComputeErs: ComputeERS threw {ex.GetType().Name}: {ex.Message}; treating as empty");
                 return null;
             }
+        }
+
+        // ==================================================================
+        // M3 direction helpers (plan Phase 4 D6)
+        // ==================================================================
+
+        /// <summary>
+        /// True when the route's resolved cycle stop carries a DELIVERY manifest
+        /// (resource or inventory) - i.e. cargo flows FROM the transport ONTO the
+        /// endpoint. A pure-PICKUP route has no delivery manifest, so the delivery
+        /// half of <see cref="EmitLoopCycle"/> must be SKIPPED (no
+        /// <c>RouteCargoDelivered</c> row, D6): firing <see cref="ApplyDelivery"/>
+        /// on an empty plan would otherwise emit a delivered row even with nothing
+        /// to deliver, masking the pickup-only replay hole the OQ4 re-key fixes.
+        /// Reads the same stop <see cref="ApplyDelivery"/> resolves (PendingStopIndex
+        /// fallback 0). Pure / internal for direct testing.
+        /// </summary>
+        internal static bool RouteHasDeliveryManifest(Route route)
+        {
+            RouteStop stop = ResolveCycleStop(route);
+            if (stop == null) return false;
+            bool hasResource = stop.DeliveryManifest != null && stop.DeliveryManifest.Count > 0;
+            bool hasInventory = stop.InventoryDeliveryManifest != null && stop.InventoryDeliveryManifest.Count > 0;
+            return hasResource || hasInventory;
+        }
+
+        /// <summary>
+        /// True when the route's resolved cycle stop carries a PICKUP manifest
+        /// (resource; M3 Phase 2). When true, the pickup half of
+        /// <see cref="EmitLoopCycle"/> resolves the endpoint and physically debits
+        /// the witnessed load term (D6). Inventory pickup is Phase 5; this Phase 4
+        /// wiring covers the RESOURCE pickup manifest only. Pure / internal for
+        /// direct testing.
+        /// </summary>
+        internal static bool RouteHasPickupManifest(Route route)
+        {
+            RouteStop stop = ResolveCycleStop(route);
+            return stop != null && stop.PickupManifest != null && stop.PickupManifest.Count > 0;
+        }
+
+        /// <summary>
+        /// Resolves the single cycle stop the loop crossing fires against - the
+        /// SAME stop <see cref="ApplyDelivery"/> reads (PendingStopIndex, falling
+        /// back to 0 when &lt; 0). v0 routes are single-stop. Returns null when
+        /// the route has no stops or the index is out of range.
+        /// </summary>
+        private static RouteStop ResolveCycleStop(Route route)
+        {
+            if (route == null || route.Stops == null || route.Stops.Count == 0)
+                return null;
+            int stopIndex = route.PendingStopIndex >= 0 ? route.PendingStopIndex : 0;
+            if (stopIndex < 0 || stopIndex >= route.Stops.Count)
+                return null;
+            return route.Stops[stopIndex];
         }
 
         private static Dictionary<string, double> CloneManifest(Dictionary<string, double> source)

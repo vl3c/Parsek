@@ -1239,6 +1239,56 @@ namespace Parsek.Tests
             Assert.Equal(7300f, result.RouteKscFundsCost);
         }
 
+        // M3 (plan Phase 4 / OQ4 / D6): the pickup row round-trips with
+        // RouteId / RouteCycleId / RouteStopIndex / the ACTUAL debited manifest /
+        // the requested-on-shortfall manifest / the endpoint pid preserved, and
+        // carries NO funds field (a pickup emits zero funds, so routeKscFundsCost
+        // is never written and reads back at the 0 default).
+        [Fact]
+        public void Serialize_RouteCargoPickedUp_RoundTripsManifestsAndEndpointPid_NoFunds()
+        {
+            var original = new GameAction
+            {
+                UT = 56000.0,
+                Type = GameActionType.RouteCargoPickedUp,
+                RouteId = "route-pickup",
+                RouteCycleId = "cycle-2",
+                RouteStopIndex = 0,
+                Sequence = 2, // after RouteDispatched (0) + RouteCargoDebited (1)
+                RouteResourceManifest = new Dictionary<string, double>
+                {
+                    { "Ore", 40.0 }, // actuals (clamped short)
+                },
+                RouteRequestedResourceManifest = new Dictionary<string, double>
+                {
+                    { "Ore", 100.0 }, // requested-on-shortfall
+                },
+                RouteOriginVesselPid = 3149815921u, // the ENDPOINT pid
+                // Set a non-zero funds cost on the in-memory object to prove the
+                // pickup codec NEVER writes a funds line (zero funds, D6).
+                RouteKscFundsCost = 999f,
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.RouteCargoPickedUp, result.Type);
+            Assert.Equal("route-pickup", result.RouteId);
+            Assert.Equal("cycle-2", result.RouteCycleId);
+            Assert.Equal(0, result.RouteStopIndex);
+            Assert.Equal(2, result.Sequence);
+            Assert.Equal(40.0, result.RouteResourceManifest["Ore"]);
+            Assert.NotNull(result.RouteRequestedResourceManifest);
+            Assert.Equal(100.0, result.RouteRequestedResourceManifest["Ore"]);
+            Assert.Equal(3149815921u, result.RouteOriginVesselPid);
+            // No funds line written -> reads back at the 0 default (NOT 999).
+            Assert.Equal(0f, result.RouteKscFundsCost);
+
+            // Confirm the on-disk shape carries no funds key.
+            var parent = new ConfigNode("ROOT");
+            original.SerializeInto(parent);
+            Assert.Null(parent.GetNode("GAME_ACTION").GetValue("routeKscFundsCost"));
+        }
+
         // T-TYPE forward-safety: an unknown future type id does NOT throw; it
         // deserializes to a warn + skip (the row keeps its default type, the
         // unknown id is logged). Guards GameAction.cs Enum.IsDefined behavior.
@@ -1254,7 +1304,7 @@ namespace Parsek.Tests
             var ex = Record.Exception(() => result = GameAction.DeserializeFrom(node));
             Assert.Null(ex);
             Assert.NotNull(result);
-            // RouteRecoveryCredited (28) is the highest DEFINED id; 9999 is unknown,
+            // RouteCargoPickedUp (29) is the highest DEFINED id; 9999 is unknown,
             // so the type field stays at its default and the row is harmless.
             Assert.NotEqual((GameActionType)9999, result.Type);
         }

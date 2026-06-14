@@ -70,6 +70,15 @@ namespace Parsek
             /// nothing (T-ROUTEMODULE-OBSERVE).</summary>
             internal int PhysicalDebits;
 
+            /// <summary>Count of <see cref="GameActionType.RouteCargoPickedUp"/> rows with a
+            /// resolved pickup ENDPOINT (non-zero <see cref="GameAction.RouteOriginVesselPid"/>;
+            /// M3 per-window pickup debit). DIAGNOSTIC ONLY - same observe-only contract as
+            /// <see cref="PhysicalDebits"/>: the cargo was physically removed from the endpoint
+            /// LIVE at emit time (<c>RouteOrchestrator.EmitLoopCycle</c> pickup half) and is
+            /// reverted by the rewind quicksave restore, NOT by this walk. RouteModule observes
+            /// the row and mutates nothing (T-ROUTEMODULE-OBSERVE).</summary>
+            internal int PhysicalPickups;
+
             /// <summary>True once a <see cref="GameActionType.RoutePaused"/> row has been processed.
             /// Skeleton scope: this flag survives subsequent <see cref="GameActionType.RouteDispatched"/>
             /// rows on the same route — the skeleton accepts the dispatch with a warn and still
@@ -136,6 +145,9 @@ namespace Parsek
                 case GameActionType.RouteCargoDebited:
                     ProcessCargoDebited(action);
                     break;
+                case GameActionType.RouteCargoPickedUp:
+                    ProcessCargoPickedUp(action);
+                    break;
                 case GameActionType.RouteCargoDelivered:
                     ProcessCargoDelivered(action);
                     break;
@@ -166,6 +178,7 @@ namespace Parsek
             int totalDelivered = 0;
             int totalCredited = 0;
             int totalPhysicalDebits = 0;
+            int totalPhysicalPickups = 0;
 
             foreach (var kv in byRoute)
             {
@@ -175,6 +188,7 @@ namespace Parsek
                 totalDelivered += kv.Value.DeliveredStops;
                 totalCredited += kv.Value.CreditedCycles;
                 totalPhysicalDebits += kv.Value.PhysicalDebits;
+                totalPhysicalPickups += kv.Value.PhysicalPickups;
             }
 
             ParsekLog.Verbose(Tag,
@@ -183,7 +197,8 @@ namespace Parsek
                 $"totalDispatched={totalDispatched.ToString(IC)}, " +
                 $"totalDelivered={totalDelivered.ToString(IC)}, " +
                 $"totalCredited={totalCredited.ToString(IC)}, " +
-                $"physicalDebits={totalPhysicalDebits.ToString(IC)}");
+                $"physicalDebits={totalPhysicalDebits.ToString(IC)}, " +
+                $"physicalPickups={totalPhysicalPickups.ToString(IC)}");
         }
 
         // ================================================================
@@ -263,6 +278,43 @@ namespace Parsek
                 $"requested={requestedSize.ToString(IC)}, " +
                 $"originPid={action.RouteOriginVesselPid.ToString(IC)}, " +
                 $"kscFundsCost={action.RouteKscFundsCost.ToString("R", IC)}, " +
+                $"ut={action.UT.ToString("R", IC)} (observe-only, no cargo mutation)");
+        }
+
+        /// <summary>
+        /// Observes a <see cref="GameActionType.RouteCargoPickedUp"/> row (M3
+        /// per-window pickup debit). OBSERVE-ONLY (T-ROUTEMODULE-OBSERVE), the
+        /// exact mirror of <see cref="ProcessCargoDebited"/>: the physical removal
+        /// of cargo FROM the pickup endpoint happened LIVE at emit time
+        /// (<c>RouteOrchestrator.EmitLoopCycle</c> pickup half) and is reverted by
+        /// the rewind quicksave restore; this walk only counts the row (a resolved
+        /// endpoint pid = physical pickup) and logs its attribution fields. A
+        /// pickup row carries NO funds, so there is nothing for
+        /// <see cref="FundsModule"/> to replay either. A future edit MUST NOT
+        /// mutate vessel cargo from here - rewriting tanks from the recalc walk is
+        /// the one thing the apply pattern forbids.
+        /// </summary>
+        private void ProcessCargoPickedUp(GameAction action)
+        {
+            if (!TryGetOrCreateState(action, "RouteCargoPickedUp", out RouteWalkState state, out string routeId))
+                return;
+
+            state.LastActionUT = action.UT;
+
+            int manifestSize = action.RouteResourceManifest?.Count ?? 0;
+            int requestedSize = action.RouteRequestedResourceManifest?.Count ?? 0;
+            // Endpoint pid is set only by an actual physical pickup debit (M3
+            // loop-path emit); an unresolved-at-emit pickup carries a full
+            // requested manifest with pid 0 and must not count as physical.
+            if (action.RouteOriginVesselPid != 0u)
+                state.PhysicalPickups++;
+
+            ParsekLog.Verbose(Tag,
+                $"Processed RouteCargoPickedUp for route={routeId}, " +
+                $"cycleId={action.RouteCycleId ?? "(none)"}, " +
+                $"resources={manifestSize.ToString(IC)}, " +
+                $"requested={requestedSize.ToString(IC)}, " +
+                $"endpointPid={action.RouteOriginVesselPid.ToString(IC)}, " +
                 $"ut={action.UT.ToString("R", IC)} (observe-only, no cargo mutation)");
         }
 

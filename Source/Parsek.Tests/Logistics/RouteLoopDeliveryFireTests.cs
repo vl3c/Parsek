@@ -683,14 +683,17 @@ namespace Parsek.Tests.Logistics
             InstallUnitResolver(BuildUnit());
             InstallFakeDeliveryApplier();
 
-            // Pre-seed a delivered row for cycle-0 so the crossing replay-skips.
+            // Pre-seed a DISPATCHED row for cycle-0 so the crossing replay-skips.
+            // M3 OQ4 re-key: the loop replay backstop now keys on RouteDispatched
+            // (direction-agnostic), NOT RouteCargoDelivered (which a pickup-only
+            // route never emits), so the seed must be a RouteDispatched row.
             Ledger.AddAction(new GameAction
             {
-                Type = GameActionType.RouteCargoDelivered,
+                Type = GameActionType.RouteDispatched,
                 UT = 150.0,
                 RouteId = route.Id,
                 RouteCycleId = "cycle-0",
-                RouteStopIndex = 0,
+                RouteStopIndex = -1,
                 Sequence = 0,
             });
             int before = Ledger.Actions.Count;
@@ -754,16 +757,18 @@ namespace Parsek.Tests.Logistics
             InstallFakeDeliveryApplier();
             var env = new EligibleEnv();
 
-            // Pre-seed a delivered row for cycle-0 (simulates a save written after
+            // Pre-seed a DISPATCHED row for cycle-0 (simulates a save written after
             // the cycle fired, then reloaded with LastObservedLoopCycleIndex still
-            // at -1 in the in-memory route).
+            // at -1 in the in-memory route). M3 OQ4 re-key: the loop replay backstop
+            // keys on RouteDispatched (direction-agnostic), so the replay seed is a
+            // RouteDispatched row.
             Ledger.AddAction(new GameAction
             {
-                Type = GameActionType.RouteCargoDelivered,
+                Type = GameActionType.RouteDispatched,
                 UT = 150.0,
                 RouteId = route.Id,
                 RouteCycleId = "cycle-0",
-                RouteStopIndex = 0,
+                RouteStopIndex = -1,
                 Sequence = 0,
             });
             int before = Ledger.Actions.Count;
@@ -1051,15 +1056,16 @@ namespace Parsek.Tests.Logistics
                 return new RouteOrchestrator.OriginDebitOutcome();
             };
 
-            // Pre-seed a delivered row for cycle-0 (save written after the
-            // cycle fired, reloaded with the stale in-memory cursor).
+            // Pre-seed a DISPATCHED row for cycle-0 (save written after the
+            // cycle fired, reloaded with the stale in-memory cursor). M3 OQ4
+            // re-key: the loop replay backstop keys on RouteDispatched.
             Ledger.AddAction(new GameAction
             {
-                Type = GameActionType.RouteCargoDelivered,
+                Type = GameActionType.RouteDispatched,
                 UT = 150.0,
                 RouteId = route.Id,
                 RouteCycleId = "cycle-0",
-                RouteStopIndex = 0,
+                RouteStopIndex = -1,
                 Sequence = 0,
             });
             int before = Ledger.Actions.Count;
