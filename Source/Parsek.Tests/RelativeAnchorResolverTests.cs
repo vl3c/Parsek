@@ -92,6 +92,135 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LiveLaunchMatchedAnchor_BindsToLivePose_WhenDelegateReturnsPose()
+        {
+            // Logistics route live-anchor bind (Step 1): when the host delegate
+            // resolves a LIVE pose for the anchor recording, TryResolveAnchorPose
+            // returns THAT live pose, not the recorded body.GetWorldSurfacePosition
+            // pose. This is what places a looped delivery ghost at the live station
+            // instead of the station's recorded Mun position ~20 km away.
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeAbsoluteRecording(
+                "anchor-rec",
+                tree.Id,
+                startWorld: new Vector3d(20821, 0, 0), // recorded ~20.8 km away
+                endWorld: new Vector3d(20821, 0, 0),
+                startUT: 0.0,
+                endUT: 10.0);
+            anchor.VesselPersistentId = 4277041026u;
+            tree.AddOrReplaceRecording(anchor);
+
+            var livePos = new Vector3d(1000, 2000, 3000);
+            var liveRot = RotationZDegrees(37.0);
+            var context = MakeContext(
+                tree,
+                focusRecordingId: "focus-rec",
+                liveLaunchMatchedAnchorPoseResolver: (rec, ut) =>
+                    rec.RecordingId == "anchor-rec" ? (livePos, liveRot) : ((Vector3d, Quaternion)?)null);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                "anchor-rec",
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out _);
+
+            Assert.True(resolved);
+            // Live pose, NOT the recorded (20821,0,0) absolute position.
+            Assert.Equal(livePos.x, pose.WorldPos.x, 3);
+            Assert.Equal(livePos.y, pose.WorldPos.y, 3);
+            Assert.Equal(livePos.z, pose.WorldPos.z, 3);
+            // Attitude must propagate too: a position-correct / rotation-wrong bind
+            // docks at the right spot with the wrong attitude, because the caller
+            // resolves member world rotation against parentPose.WorldRotation. Lock
+            // the live anchor rotation into the bound AnchorPose so docking attitude
+            // correctness is asserted in a headless test that always runs (not only
+            // the in-game RouteLiveAnchor test, which skips with no live anchor).
+            Assert.True(
+                TrajectoryMath.ComputeQuaternionAngleDegrees(liveRot, pose.WorldRotation) < 0.01f,
+                "live-bind AnchorPose.WorldRotation must carry the live anchor rotation");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Anchor]") &&
+                l.Contains("relative-anchor-live-bind") &&
+                l.Contains("anchorRecordingId=anchor-rec") &&
+                l.Contains("source=live"));
+        }
+
+        [Fact]
+        public void LiveLaunchMatchedAnchor_FallsBackToRecorded_WhenDelegateReturnsNull()
+        {
+            // No-regression contract: when the launch-matched live vessel is absent
+            // (delegate returns null) the resolver falls through to the recorded
+            // anchor pose, so distant-watch playback is unchanged.
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeAbsoluteRecording(
+                "anchor-rec",
+                tree.Id,
+                startWorld: new Vector3d(20821, 0, 0),
+                endWorld: new Vector3d(20821, 0, 0),
+                startUT: 0.0,
+                endUT: 10.0);
+            tree.AddOrReplaceRecording(anchor);
+
+            var context = MakeContext(
+                tree,
+                focusRecordingId: "focus-rec",
+                liveLaunchMatchedAnchorPoseResolver: (rec, ut) => null);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                "anchor-rec",
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out _);
+
+            Assert.True(resolved);
+            // Recorded absolute pose (the MakeContext absoluteWorldPositionResolver
+            // maps lat/lon/alt straight to x/y/z = (20821,0,0)).
+            Assert.Equal(20821.0, pose.WorldPos.x, 3);
+            Assert.Equal(0.0, pose.WorldPos.y, 3);
+            Assert.Equal(0.0, pose.WorldPos.z, 3);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Anchor]") &&
+                l.Contains("relative-anchor-live-bind") &&
+                l.Contains("source=recorded") &&
+                l.Contains("reason=no-launch-matched-live"));
+        }
+
+        [Fact]
+        public void LiveLaunchMatchedAnchor_NullDelegate_Unchanged()
+        {
+            // The seam is inert when not wired (legacy callers): the resolver
+            // returns exactly the recorded pose and emits no live-bind decision.
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeAbsoluteRecording(
+                "anchor-rec",
+                tree.Id,
+                startWorld: new Vector3d(20821, 0, 0),
+                endWorld: new Vector3d(20821, 0, 0),
+                startUT: 0.0,
+                endUT: 10.0);
+            tree.AddOrReplaceRecording(anchor);
+
+            // liveLaunchMatchedAnchorPoseResolver omitted -> delegate == null.
+            var context = MakeContext(tree, focusRecordingId: "focus-rec");
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                "anchor-rec",
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out _);
+
+            Assert.True(resolved);
+            Assert.Equal(20821.0, pose.WorldPos.x, 3);
+            Assert.DoesNotContain(logLines, l => l.Contains("relative-anchor-live-bind"));
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_EmptyAnchorRecordingId_ReturnsFalseWithReason()
         {
             var context = MakeContext(new RecordingTree { Id = "tree" });
@@ -2145,7 +2274,8 @@ namespace Parsek.Tests
             Func<TrajectoryPoint, Vector3d> absoluteWorldPositionResolver = null,
             string focusRecordingId = null,
             IReadOnlyDictionary<string, Recording> provisionalRecordings = null,
-            Func<uint, string, double, (Vector3d pos, Quaternion rot)?> liveAnchorTransformResolver = null)
+            Func<uint, string, double, (Vector3d pos, Quaternion rot)?> liveAnchorTransformResolver = null,
+            Func<Recording, double, (Vector3d pos, Quaternion rot)?> liveLaunchMatchedAnchorPoseResolver = null)
         {
             return new RelativeAnchorResolverContext(
                 tree,
@@ -2158,7 +2288,8 @@ namespace Parsek.Tests
                 absoluteWorldPositionResolver: absoluteWorldPositionResolver
                     ?? (p => new Vector3d(p.latitude, p.longitude, p.altitude)),
                 bodyWorldRotationResolver: p => Quaternion.identity,
-                tryResolveLiveAnchorTransform: liveAnchorTransformResolver);
+                tryResolveLiveAnchorTransform: liveAnchorTransformResolver,
+                tryResolveLiveLaunchMatchedAnchorPose: liveLaunchMatchedAnchorPoseResolver);
         }
 
         private static Recording MakeAbsoluteRecording(

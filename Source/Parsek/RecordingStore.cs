@@ -2651,9 +2651,10 @@ namespace Parsek
             }
 
             pendingTree = tree;
-            // SavePendingTreeIfAny only serializes Finalized pending trees today;
-            // restore therefore reinstalls saved pending nodes as Finalized and
-            // does not arm PendingStashedThisTransition.
+            // This path reinstalls saved isPending nodes (Finalized pending trees) only.
+            // Limbo resume trees take the isActive marker instead and round-trip through
+            // TryRestoreActiveTreeNode / StashPendingTree, never here, so reinstating as
+            // Finalized is correct. Does not arm PendingStashedThisTransition.
             pendingTreeState = PendingTreeState.Finalized;
             PendingStashedThisTransition = false;
             pendingTreeSerializedForSave = true;
@@ -6016,29 +6017,74 @@ namespace Parsek
 
                 if (!knownIds.Contains(extractedId))
                 {
-                    try
-                    {
-                        File.Delete(files[i]);
+                    // Data-loss fix: orphaned RECORDING sidecars (.prec / craft / .pann with a
+                    // real recording id) are MOVED to a quarantine subfolder, never hard-deleted.
+                    // A sidecar can be "orphaned" not only by genuine garbage but by a transient
+                    // state bug that drops a still-referenced tree (e.g. a Limbo quickload-resume
+                    // tree that fell out of persistent.sfs — see the SavePendingTreeIfAny fix).
+                    // Deleting then was a one-way destruction of immutable recorded data; quarantine
+                    // de-clutters the active set while keeping the bulk data fully recoverable.
+                    // Legacy (.pcrf) and transient (.tmp/.stage/.bak) artifacts above are still
+                    // hard-deleted — they are by definition junk, not recorded data.
+                    if (QuarantineOrphanRecordingFile(files[i], recordingsDir, fileName, extractedId))
                         orphanCount++;
-                        ParsekLog.Verbose("RecordingStore", $"Deleted orphan file: {fileName} (id={extractedId})");
-                    }
-                    catch (Exception ex)
-                    {
-                        ParsekLog.Warn("RecordingStore", $"Failed to delete orphan file '{fileName}': {ex.Message}");
-                    }
                 }
             }
 
             if (orphanCount > 0 || legacyCount > 0 || transientCount > 0)
                 ParsekLog.Info("RecordingStore",
-                    $"Cleaned {orphanCount} orphaned recording file(s)" +
-                    (legacyCount > 0 ? $", {legacyCount} legacy sidecar file(s)" : "") +
-                    (transientCount > 0 ? $", {transientCount} transient sidecar artifact(s)" : "") +
+                    $"Cleaned orphan files: quarantined {orphanCount} orphaned recording file(s)" +
+                    (legacyCount > 0 ? $", deleted {legacyCount} legacy sidecar file(s)" : "") +
+                    (transientCount > 0 ? $", deleted {transientCount} transient sidecar artifact(s)" : "") +
                     (skippedUnrecognized > 0 ? $", skipped {skippedUnrecognized} unrecognized file(s)" : ""));
             else
                 ParsekLog.Verbose("RecordingStore",
                     $"CleanOrphanFiles: no orphans found" +
                     (skippedUnrecognized > 0 ? $", skipped {skippedUnrecognized} unrecognized file(s)" : ""));
+        }
+
+        /// <summary>
+        /// Subfolder under Parsek/Recordings/ where orphaned recording sidecars are parked by
+        /// <see cref="CleanOrphanFiles"/> instead of being deleted. Top-level-only directory
+        /// scans (Directory.GetFiles) never descend into it, so quarantined files are not
+        /// re-scanned or double-counted.
+        /// </summary>
+        internal const string OrphanQuarantineDirName = "_quarantine";
+
+        /// <summary>
+        /// Moves an orphaned recording sidecar into the <see cref="OrphanQuarantineDirName"/>
+        /// subfolder of <paramref name="recordingsDir"/>. Non-destructive: the immutable bulk
+        /// data is preserved and recoverable. If a same-named file already sits in quarantine
+        /// (e.g. a prior sweep of the same id), the existing copy is kept and the new one is
+        /// suffixed so nothing is overwritten. Returns true if the file was moved.
+        /// </summary>
+        private static bool QuarantineOrphanRecordingFile(
+            string filePath, string recordingsDir, string fileName, string extractedId)
+        {
+            try
+            {
+                string quarantineDir = Path.Combine(recordingsDir, OrphanQuarantineDirName);
+                Directory.CreateDirectory(quarantineDir);
+                string dest = Path.Combine(quarantineDir, fileName);
+                if (File.Exists(dest))
+                {
+                    // Preserve the earlier quarantined copy; park this one alongside it.
+                    string suffixed = Path.Combine(
+                        quarantineDir,
+                        fileName + ".dup" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                    dest = suffixed;
+                }
+                File.Move(filePath, dest);
+                ParsekLog.Verbose("RecordingStore",
+                    $"Quarantined orphan recording file: {fileName} (id={extractedId}) -> {OrphanQuarantineDirName}/");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"Failed to quarantine orphan recording file '{fileName}': {ex.Message} (left in place, NOT deleted)");
+                return false;
+            }
         }
 
         #region Rewind

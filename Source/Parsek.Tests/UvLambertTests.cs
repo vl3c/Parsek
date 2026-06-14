@@ -29,6 +29,19 @@ namespace Parsek.Tests
             Assert.Equal(-3.3125, v2.x, 2);
             Assert.Equal(-4.1966, v2.y, 2);
             Assert.Equal(-0.38529, v2.z, 2);
+
+            // The plane-normal overload with planeNormal=Vector3d.zero must fall back to the historical
+            // cross.z handedness path, so it returns the SAME Curtis velocities BYTE-FOR-BYTE as the 7-arg
+            // forwarder (proves the zero/NaN-normal fallback is identical and no current caller regresses).
+            bool okN = UvLambert.Solve(MuEarthKm, r1, r2, 3600.0, prograde: true, Vector3d.zero,
+                out Vector3d nv1, out Vector3d nv2);
+            Assert.True(okN);
+            Assert.Equal(v1.x, nv1.x);
+            Assert.Equal(v1.y, nv1.y);
+            Assert.Equal(v1.z, nv1.z);
+            Assert.Equal(v2.x, nv2.x);
+            Assert.Equal(v2.y, nv2.y);
+            Assert.Equal(v2.z, nv2.z);
         }
 
         [Fact]
@@ -59,6 +72,17 @@ namespace Parsek.Tests
             Assert.True(p);
             Assert.True(r);
             Assert.True((vp - vr).magnitude > 0.1);
+
+            // Same via the plane-normal overload (normal = +z, the natural reference for this xy-plane
+            // geometry): prograde and retrograde must both solve, differ, and each round-trip onto r2.
+            var normal = new Vector3d(0.0, 0.0, 1.0);
+            bool pn = UvLambert.Solve(MuEarthKm, r1, r2, 1800.0, true, normal, out Vector3d vpn, out _);
+            bool rn = UvLambert.Solve(MuEarthKm, r1, r2, 1800.0, false, normal, out Vector3d vrn, out _);
+            Assert.True(pn);
+            Assert.True(rn);
+            Assert.True((vpn - vrn).magnitude > 0.1);
+            Assert.True((PropagateTwoBody(r1, vpn, MuEarthKm, 1800.0) - r2).magnitude < 0.01 * r2.magnitude);
+            Assert.True((PropagateTwoBody(r1, vrn, MuEarthKm, 1800.0) - r2).magnitude < 0.01 * r2.magnitude);
         }
 
         [Fact]
@@ -90,6 +114,17 @@ namespace Parsek.Tests
                     Assert.True(miss < 0.01 * r2.magnitude,
                         $"angle={aDeg}deg tof={d}d: success must reach r2, miss={miss:E2} of {r2.magnitude:E2}");
                     checkedSuccesses++;
+
+                    // The plane-normal overload must hold the SAME fail-closed-correctness contract: with
+                    // the ecliptic normal (+z, the plane these heliocentric endpoints lie in) supplied as
+                    // the handedness axis, every claimed success still round-trips onto r2 within 1%.
+                    if (UvLambert.Solve(muSun, r1, r2, tof, prograde: true, new Vector3d(0.0, 0.0, 1.0),
+                            out Vector3d v1n, out _))
+                    {
+                        double missN = (PropagateTwoBody(r1, v1n, muSun, tof) - r2).magnitude;
+                        Assert.True(missN < 0.01 * r2.magnitude,
+                            $"angle={aDeg}deg tof={d}d (plane-normal): success must reach r2, miss={missN:E2} of {r2.magnitude:E2}");
+                    }
                 }
             }
             // Sanity: at least the near-Hohmann geometries solved (so the test actually exercised the
@@ -107,6 +142,68 @@ namespace Parsek.Tests
             // ~0-degree transfer (same direction).
             var r2b = new Vector3d(8000.0, 0.0, 0.0);
             Assert.False(UvLambert.Solve(MuEarthKm, r1, r2b, 3600.0, true, out _, out _));
+
+            // Supplying a plane normal does NOT rescue an EXACTLY collinear pair: the MinSinTransferAngle
+            // guard is untouched, so |sin(dnu)| ~ 0 still fails closed regardless of the handedness axis
+            // (the normal only resolves the branch sign for NEAR-180 geometries that are not collinear).
+            var normal = new Vector3d(0.0, 0.0, 1.0);
+            Assert.False(UvLambert.Solve(MuEarthKm, r1, r2, 3600.0, true, normal, out _, out _));
+            Assert.False(UvLambert.Solve(MuEarthKm, r1, r2b, 3600.0, true, normal, out _, out _));
+        }
+
+        [Fact]
+        public void Solve_AntipodalNear180_PlaneNormalSelectsPrograde_LegacyCrossZFlips()
+        {
+            // THE core regression for the near-180 handedness fix. Geometry: the launch plane is tilted so
+            // its normal n = +y (NOT the working-frame z axis), with in-plane axes u=+x and w=(0,0,-1).
+            // r1 lies along +u; r2 is near-antipodal IN THE PLANE (transfer angle ~178 deg, the near-180
+            // regime where the branch sign is fragile) PLUS a tiny OUT-OF-PLANE perturbation along n.
+            //
+            // In this frame cross.z (the legacy handedness quantity) is small (~5.6e4) and FLIPS sign with
+            // the out-of-plane perturbation, so the legacy path selects the WRONG long-way (>180 deg)
+            // branch; dot(r1 x r2, n) is large (~1.95e6) and stable, so the plane-normal path selects the
+            // correct prograde short-way branch. (Branch arithmetic verified offline: legacy picks 182 deg,
+            // dot(c,n) picks 178 deg.)
+            const double R = 7000.0, R2 = 8000.0;
+            var u = new Vector3d(1.0, 0.0, 0.0);
+            var w = new Vector3d(0.0, 0.0, -1.0);
+            var n = new Vector3d(0.0, 1.0, 0.0); // launch-plane normal = u x w; well-defined reference axis
+            double alpha = 2.0 * System.Math.PI / 180.0; // 2 deg from antiparallel -> ~178 deg transfer
+            var r1 = R * u;
+            var r2InPlane = (-R2 * System.Math.Cos(alpha)) * u + (R2 * System.Math.Sin(alpha)) * w;
+            // The out-of-plane perturbation sign that flips legacy cross.z to the WRONG branch (offline-verified).
+            var r2 = r2InPlane + (-1e-3 * R2) * n;
+            double tof = 2600.0; // s: a near-Hohmann short-way transfer between |r1|=7000 and |r2|=8000 km
+
+            // (a) The plane-normal solve must succeed.
+            bool ok = UvLambert.Solve(MuEarthKm, r1, r2, tof, prograde: true, n, out Vector3d v1, out _);
+            Assert.True(ok, "plane-normal solve must converge on the near-180 prograde geometry");
+
+            // (b) The result must be PROGRADE relative to the supplied normal (the prograde branch, NOT the
+            // retrograde inc=180 long-way branch): the orbit angular momentum r1 x v1 points along +n.
+            double hDotN = Vector3d.Dot(Vector3d.Cross(r1, v1), n);
+            Assert.True(hDotN > 0.0,
+                $"transfer must be prograde wrt the supplied normal (dot(r1 x v1, n)={hDotN} must be > 0)");
+
+            // (b') and the solved departure velocity must actually round-trip onto r2 (fail-closed-correctness).
+            Vector3d end = PropagateTwoBody(r1, v1, MuEarthKm, tof);
+            double miss = (end - r2).magnitude;
+            Assert.True(miss < 0.01 * r2.magnitude,
+                $"prograde solution must reach r2 (miss={miss} km of {r2.magnitude} km)");
+
+            // (c) Control: the LEGACY cross.z path (planeNormal = Vector3d.zero) on the SAME noise-perturbed
+            // geometry returns the WRONG (retrograde) handedness or declines - documenting that the normal
+            // input is what fixes the branch. It must NOT silently return the same correct prograde solution.
+            bool okLegacy = UvLambert.Solve(MuEarthKm, r1, r2, tof, prograde: true, Vector3d.zero,
+                out Vector3d v1Legacy, out _);
+            if (okLegacy)
+            {
+                double hDotNLegacy = Vector3d.Dot(Vector3d.Cross(r1, v1Legacy), n);
+                Assert.True(hDotNLegacy < 0.0,
+                    $"legacy cross.z path must pick the WRONG (retrograde) branch here (dot(r1 x v1, n)={hDotNLegacy} should be < 0)");
+            }
+            // (okLegacy == false, i.e. the legacy path declines on this geometry, is also an acceptable
+            // "the normal is what fixes it" outcome.)
         }
 
         [Fact]

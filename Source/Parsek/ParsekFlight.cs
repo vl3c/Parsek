@@ -217,6 +217,54 @@ namespace Parsek
             => Instance?.activeTree?.ActiveRecordingId ?? "";
 
         /// <summary>
+        /// BUG #2: pure id-selection guard for
+        /// <see cref="GetLiveResumedRecordingIdForDialog"/>. Returns the active
+        /// recording id only when a recorder is actively recording AND there is an
+        /// active tree id; null otherwise. Extracted so the guard is unit-testable
+        /// without a Unity <see cref="Instance"/>.
+        /// </summary>
+        internal static string ResolveLiveResumedRecordingId(
+            bool recorderIsRecording, string activeRecordingId)
+            => recorderIsRecording && !string.IsNullOrEmpty(activeRecordingId)
+                ? activeRecordingId
+                : null;
+
+        /// <summary>
+        /// BUG #2: the currently-live resumed recording id the pre-switch Merge/Discard
+        /// dialog ties its live-segment duration to. Returns the active tree's leaf id
+        /// only while a recorder is actively recording; null off-Unity (Instance null),
+        /// when not recording, or when there is no active tree. The dialog's
+        /// <c>tree.Recordings.ContainsKey</c> guard then confirms the id belongs to the
+        /// tree being rendered (cross-tree safety).
+        /// </summary>
+        internal static string GetLiveResumedRecordingIdForDialog()
+            => Instance != null && Instance.recorder != null
+               && Instance.activeTree != null
+                ? ResolveLiveResumedRecordingId(
+                    Instance.recorder.IsRecording, Instance.activeTree.ActiveRecordingId)
+                : null;
+
+        /// <summary>
+        /// BUG #2: UT at which the current recorder session began appending (the
+        /// live-resume anchor). <c>double.NaN</c> off-Unity (Instance null) or when no
+        /// resume/promote session armed it; the dialog falls back to the tree-wide
+        /// duration on NaN.
+        /// </summary>
+        internal static double GetLiveResumeSessionStartUT()
+            => Instance != null ? Instance.liveResumeSessionStartUT : double.NaN;
+
+        /// <summary>
+        /// BUG #2: reads the current Planetarium UT for the live-resume anchor, returning
+        /// <c>double.NaN</c> when no Planetarium singleton exists (headless / pre-scene).
+        /// A NaN anchor falls the dialog back to the safe tree-wide duration.
+        /// </summary>
+        private static double SafeCurrentUtForResumeAnchor()
+        {
+            try { return Planetarium.GetUniversalTime(); }
+            catch { return double.NaN; }
+        }
+
+        /// <summary>
         /// #431: true when the flight scene has a live tree with a recorder attached.
         /// Used by <see cref="GameStateRecorder.Emit"/> to decide whether an in-flight
         /// untagged event is a drift signal worth a warn log.
@@ -262,6 +310,21 @@ namespace Parsek
 
         // Recording (delegated to FlightRecorder)
         private FlightRecorder recorder;
+
+        /// <summary>
+        /// BUG #2: UT at which the CURRENT recorder session began appending.
+        /// Captured per-session-start in <see cref="PrepareSessionStateForRecorderStart"/>
+        /// (reset to NaN there) and re-armed only on the no-session resume / promote
+        /// paths (<see cref="ResumeCommittedActiveRecording"/>,
+        /// <see cref="PromoteRecordingFromBackground"/>). The pre-switch Merge/Discard
+        /// dialog reads it (via <see cref="GetLiveResumeSessionStartUT"/>) to show the
+        /// short live segment the player just flew instead of the resumed committed
+        /// recording's whole multi-year span — that recording's Points are appended in
+        /// place, so its <c>StartUT</c> is the original launch UT and is the wrong
+        /// anchor. Session-transient (NOT serialized); NaN falls the dialog back to the
+        /// safe tree-wide duration.
+        /// </summary>
+        private double liveResumeSessionStartUT = double.NaN;
         internal List<TrajectoryPoint> recording => recorder?.Recording ?? noRecording;
         private List<OrbitSegment> orbitSegments => recorder?.OrbitSegments ?? noOrbitSegments;
         private static readonly List<TrajectoryPoint> noRecording = new List<TrajectoryPoint>();
@@ -3553,6 +3616,15 @@ namespace Parsek
 
             PrepareSessionStateForRecorderStart("PromoteRecordingFromBackground");
 
+            // BUG #2: same live-resume anchor capture as ResumeCommittedActiveRecording —
+            // a promoted background recording can also carry an old StartUT, so anchor on
+            // the UT at which this recorder session began appending.
+            liveResumeSessionStartUT = SafeCurrentUtForResumeAnchor();
+            ParsekLog.Verbose("Flight",
+                $"liveResumeSessionStartUT set reason=PromoteRecordingFromBackground " +
+                $"recId={backgroundRecordingId} " +
+                $"ut={liveResumeSessionStartUT.ToString("R", CultureInfo.InvariantCulture)}");
+
             ParsekLog.Info("Flight", $"Promoted recording '{backgroundRecordingId}' from background " +
                 $"(pid={newVessel.persistentId})");
             ParsekLog.RecState("PromoteFromBackground:exit", CaptureRecorderState());
@@ -3667,6 +3739,19 @@ namespace Parsek
             }
 
             PrepareSessionStateForRecorderStart("ResumeCommittedActiveRecording");
+
+            // BUG #2: anchor the live-segment duration the pre-switch dialog will show.
+            // The resumed committed recording's Points are appended in place, so its
+            // StartUT is the original (multi-year-ago) launch UT — currentUT - StartUT
+            // would still render the whole span. Capture the UT at which THIS recorder
+            // session began appending so currentUT - liveResumeSessionStartUT yields the
+            // short segment the player just flew.
+            liveResumeSessionStartUT = SafeCurrentUtForResumeAnchor();
+            ParsekLog.Verbose("Flight",
+                $"liveResumeSessionStartUT set reason=ResumeCommittedActiveRecording " +
+                $"recId={recordingId} " +
+                $"ut={liveResumeSessionStartUT.ToString("R", CultureInfo.InvariantCulture)}");
+
             ParsekLog.Info("Flight",
                 $"ResumeCommittedActiveRecording: resumed committed recording '{recordingId}' " +
                 $"on vessel '{activeVessel.vesselName}' pid={activeVessel.persistentId}");
@@ -12961,6 +13046,21 @@ namespace Parsek
         {
             DisarmPostSwitchAutoRecord(reason);
 
+            // BUG #2: every recorder start resets the live-resume anchor to NaN; only
+            // the no-session resume / promote paths re-arm it (after this call returns)
+            // with the current UT. A fresh launch / split / switch-segment start leaves
+            // it NaN, so the pre-switch dialog falls back to tree-wide (fresh launch) or
+            // the SwitchSegmentSession-armed path (Case A) takes precedence. Resetting
+            // here — rather than at every recorder/activeTree teardown site — guarantees
+            // a prior craft's resume UT cannot leak into a later unrelated tree's dialog.
+            if (!double.IsNaN(liveResumeSessionStartUT))
+            {
+                ParsekLog.Verbose("Flight",
+                    $"liveResumeSessionStartUT cleared reason={reason} " +
+                    $"prevUt={liveResumeSessionStartUT.ToString("R", CultureInfo.InvariantCulture)}");
+            }
+            liveResumeSessionStartUT = double.NaN;
+
             // Reset crash coalescer on every recorder start so a fresh recorder cannot
             // inherit a stale coalescing window from the previous segment or scene.
             if (crashCoalescer != null)
@@ -19163,6 +19263,44 @@ namespace Parsek
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
+                // Loop-membership term, mirroring the map side's loopMemberInWindow gate.
+                // Computed here (the later BUG-B dormancy block reuses it) so the Step-2
+                // suppression below can scope itself to loop members only.
+                bool loopingLike = rec.LoopPlayback
+                    || chainLooping
+                    || (cachedLoopUnits != null && cachedLoopUnits.IsMember(i));
+                // Step 2 (Logistics route live-anchor bind): suppress a LOOP MEMBER's OWN
+                // loop ghost for the WHOLE loop whenever its launch-matched live vessel
+                // is loaded in the scene (the Deliverer ghost docks against the live
+                // Depot, so the recorded Depot loop ghost ~20 km away is a pure
+                // duplicate that the player must never see while they control the real
+                // Depot). Keyed on the guid-gated RealVesselExistsForRecording, not the
+                // docking bind window: the bind only fires while the dependent is
+                // actively docking (~2 frames), but the duplicate is wrong for the entire
+                // loop, dependent present or not. Guid gate (VesselLaunchIdentity) means a
+                // same-craft DIFFERENT-launch live vessel never suppresses (persistentId
+                // is craft-baked, three same-craft distinct-launch Depot launches exist
+                // on disk). Scoped to loopingLike to MATCH the map-side loopMemberInWindow
+                // carve-out (GhostMapPresence.ResolveMapPresenceGhostSource): the gate must
+                // never reach the active recording's own ghost, an active re-fly session,
+                // or a tree-history ghost shown via ShouldSkipExternalVesselGhost's
+                // carve-outs — only a looping member whose live vessel is loaded. A Depot
+                // watched looping from afar with no live vessel loaded fails the existence
+                // check, so its ghost still draws.
+                bool liveAnchorDoubleSuppressed = loopingLike
+                    && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
+                if (liveAnchorDoubleSuppressed)
+                {
+                    externalVesselSuppressed = true;
+                    ParsekLog.VerboseRateLimited(
+                        "Anchor",
+                        "step2-whole-loop-suppress|" + (rec.RecordingId ?? "(none)"),
+                        "Step-2 suppressed live-anchor double (whole loop): rec="
+                            + (rec.RecordingId ?? "(none)")
+                            + " vessel=\"" + (rec.VesselName ?? "(none)") + "\""
+                            + " (own loop ghost hidden while its launch-matched live vessel is loaded)",
+                        5.0);
+                }
                 TimelineInactiveReason inactiveReason = TimelineInactiveReason.None;
                 if (!string.IsNullOrEmpty(rec.RecordingId))
                     timelineInactiveIds.TryGetValue(rec.RecordingId, out inactiveReason);
@@ -19179,9 +19317,6 @@ namespace Parsek
                 // recording is noted each frame so a later rewind re-arms its scope.
                 double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
                 PlaybackScopeTracker.NotePlayhead(rec.RecordingId, currentUT, activationStartUT);
-                bool loopingLike = rec.LoopPlayback
-                    || chainLooping
-                    || (cachedLoopUnits != null && cachedLoopUnits.IsMember(i));
                 bool historicalNeverReplayed = !loopingLike
                     && activeReFlyMarker == null
                     && PlaybackScopeTracker.IsHistoricalNeverReplayed(
@@ -19274,7 +19409,10 @@ namespace Parsek
             // One batched, rate-limited summary instead of one line per suppressed
             // recording. Shared key + VerboseRateLimited hard-caps the rate so the
             // per-frame summary cannot spam even when the committed list is large or a
-            // reason oscillates frame-to-frame.
+            // reason oscillates frame-to-frame. The Step-2 whole-loop double-suppression
+            // is an externalVesselSuppressed skip already covered by the generic
+            // skip-reason logging (LogGhostSkipReasonChangeIfNeeded) plus its own
+            // dedicated "Anchor" Verbose line at the decision site above.
             if (spawnSuppressedCount > 0)
             {
                 ParsekLog.VerboseRateLimited(
@@ -19745,7 +19883,62 @@ namespace Parsek
                 absoluteWorldPositionResolver: ResolveAnchorResolverPointWorldPosition,
                 bodyWorldRotationResolver: ResolveAnchorResolverBodyWorldRotation,
                 orbitalCheckpointPoseResolver: TryResolveFlightOrbitalAnchorPose,
-                tryResolveLiveAnchorTransform: TryGetLiveAnchorTransformDelegate());
+                tryResolveLiveAnchorTransform: TryGetLiveAnchorTransformDelegate(),
+                tryResolveLiveLaunchMatchedAnchorPose: TryResolveLiveLaunchMatchedAnchorPoseForResolver);
+        }
+
+        // Logistics route live-anchor bind (Step 1): resolves the LIVE pose of an
+        // anchor recording's own launch-matched live vessel for the relative
+        // resolver. Returns null (recorded-anchor fallback) when: the recording is
+        // null / has no pid; the launch-matched live vessel is not loaded (guid-gated
+        // RealVesselExistsForRecording, so a same-craft DIFFERENT-launch live vessel
+        // never binds); or the live transform is unavailable. Reuses
+        // TryResolveLoopLiveAnchorPose so the anchor frame is the recorder's
+        // vesselTransform.position / rotation (NOT GetWorldPos3D/CoMD), keeping the
+        // docking attitude correct. Headless-safe: RealVesselExistsForRecording and
+        // FindVesselByPid both return false/null without FlightGlobals.
+        //
+        // The bind is guid-GATED (RealVesselExistsForRecording) but the transform is
+        // then resolved by pid (FindVesselByPid inside TryResolveLoopLiveAnchorPose).
+        // KSP regenerates a craft-baked pid on collision with a currently-live vessel,
+        // so two same-craft launches cannot be simultaneously loaded sharing the pid;
+        // the pid-only transform resolve therefore cannot pick the wrong live vessel
+        // after the guid gate passes.
+        //
+        // UT-ALIGNMENT: `ut` is intentionally unused here — the bind returns the live
+        // anchor's CURRENT transform, not its pose at `ut`. Correct for the steady
+        // route-station case; for the broadening risk on non-looped relative ghosts
+        // whose live anchor has moved on, see the "Known limitation / playtest-verify"
+        // note in docs/dev/todo-and-known-bugs.md (2026-06-13 entry).
+        internal static (Vector3d pos, Quaternion rot)? TryResolveLiveLaunchMatchedAnchorPoseForResolver(
+            Recording anchorRec,
+            double ut)
+        {
+            if (anchorRec == null || anchorRec.VesselPersistentId == 0u)
+                return null;
+
+            ParsekFlight instance = Instance;
+            if (instance == null)
+                return null;
+
+            if (!GhostPlaybackLogic.RealVesselExistsForRecording(anchorRec))
+                return null;
+
+            if (!instance.TryResolveLoopLiveAnchorPose(
+                    anchorRec.VesselPersistentId,
+                    anchorRec.RecordingId,
+                    ut,
+                    out RelativeAnchorPose pose))
+            {
+                return null;
+            }
+
+            // Step 1 (the live-bind pose) is all that happens here now. The Step-2
+            // double-suppression no longer keys off a per-bind stamp: it suppresses the
+            // anchor's own loop ghost for the WHOLE loop whenever its guid-gated
+            // launch-matched live vessel is loaded (GhostPlaybackLogic
+            // .RealVesselExistsForRecording), which subsumes the bind window.
+            return (pose.worldPos, pose.worldRotation);
         }
 
         private static readonly Func<uint, string, double, (Vector3d pos, Quaternion rot)?> LiveAnchorTransformDelegate =
