@@ -443,16 +443,7 @@ namespace Parsek.Logistics
         // pid == 0 and empty body name match that contract -- KSC origins (pid == 0)
         // omit the key on both sides.
         private static void SerializeEndpoint(ConfigNode node, RouteEndpoint ep, CultureInfo ic)
-        {
-            if (ep.VesselPersistentId != 0)
-                node.AddValue("vesselPersistentId", ep.VesselPersistentId.ToString(ic));
-            if (!string.IsNullOrEmpty(ep.BodyName))
-                node.AddValue("bodyName", ep.BodyName);
-            node.AddValue("latitude", ep.Latitude.ToString("R", ic));
-            node.AddValue("longitude", ep.Longitude.ToString("R", ic));
-            node.AddValue("altitude", ep.Altitude.ToString("R", ic));
-            node.AddValue("isSurface", ep.IsSurface.ToString());
-        }
+            => RouteNodeCodec.SerializeEndpoint(node, ep, ic);
 
         private static RouteEndpoint DeserializeEndpoint(
             ConfigNode node, NumberStyles inv, CultureInfo ic)
@@ -739,24 +730,7 @@ namespace Parsek.Logistics
         }
 
         private static RouteConnectionKind ParseConnectionKind(string raw)
-        {
-            if (string.IsNullOrEmpty(raw))
-                return RouteConnectionKind.None;
-
-            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int intValue)
-                && Enum.IsDefined(typeof(RouteConnectionKind), intValue))
-            {
-                return (RouteConnectionKind)intValue;
-            }
-
-            if (Enum.TryParse(raw, out RouteConnectionKind kind)
-                && Enum.IsDefined(typeof(RouteConnectionKind), kind))
-            {
-                return kind;
-            }
-
-            return RouteConnectionKind.Unknown;
-        }
+            => RouteNodeCodec.ParseConnectionKind(raw);
 
         private static void TryParseBool(string raw, out bool value)
         {
