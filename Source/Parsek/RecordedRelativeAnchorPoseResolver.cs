@@ -111,7 +111,14 @@ namespace Parsek
                 pendingTree: RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null,
                 absoluteWorldPositionResolver: ResolveAbsoluteWorldPosition,
                 bodyWorldRotationResolver: ResolveBodyWorldRotation,
-                orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPose);
+                orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPose,
+                // Logistics route live-anchor bind (Step 1): map-presence / KSC
+                // playback binds the anchor pose to the live launch-matched vessel
+                // when its craft is loaded, so a looped delivery ghost tracks the
+                // live station rather than its recorded Mun position. The delegate
+                // is FLIGHT/MAP/TS-safe and guid-gated; null headless.
+                tryResolveLiveLaunchMatchedAnchorPose:
+                    ParsekFlight.TryResolveLiveLaunchMatchedAnchorPoseForResolver);
             return true;
         }
 

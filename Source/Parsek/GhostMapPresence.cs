@@ -580,6 +580,7 @@ namespace Parsek
 
         internal const string TrackingStationGhostSkipSuppressed = "suppressed";
         internal const string TrackingStationGhostSkipAlreadySpawned = "already-spawned";
+        internal const string TrackingStationGhostSkipLiveAnchorDouble = "live-anchor-double";
         internal const string TrackingStationGhostSkipEndpointConflict = "endpoint-conflict";
         internal const string TrackingStationGhostSkipUnseedableTerminalOrbit = "terminal-orbit-unseedable";
         internal const string TrackingStationGhostSkipStateVectorThreshold = "state-vector-threshold";
@@ -5061,7 +5062,8 @@ namespace Parsek
             bool allowSoiGapStateVectorFallback = false,
             string expectedSoiGapBody = null,
             bool acceptTerminalOrbitForLoopSynthesis = false,
-            bool loopMemberInWindow = false)
+            bool loopMemberInWindow = false,
+            bool liveLaunchMatchedAnchorOfActiveMember = false)
         {
             segment = default(OrbitSegment);
             stateVectorPoint = default(TrajectoryPoint);
@@ -5168,9 +5170,34 @@ namespace Parsek
             // decision we draw the animated loop ghost ALONGSIDE the real vessel in that
             // case (both icons may show). Re-fly / active-session duplicates stay blocked
             // because isSuppressed is evaluated above this gate.
-            if (alreadyMaterialized && !loopMemberInWindow)
+            // Step 2 (Logistics route live-anchor bind): when this recording's
+            // guid-gated launch-matched live vessel is loaded, its own loop ghost is a
+            // pure duplicate of the live station for the WHOLE loop (the dependent member
+            // docks against the live vessel, not this recorded position ~20 km away).
+            // Suppress it like a non-loop already-spawned vessel even though
+            // loopMemberInWindow is true (the caller feeds the whole-loop term here, not
+            // a docking bind window). Every other loopMemberInWindow case still draws
+            // alongside the real vessel.
+            if (alreadyMaterialized && (!loopMemberInWindow || liveLaunchMatchedAnchorOfActiveMember))
             {
-                skipReason = TrackingStationGhostSkipAlreadySpawned;
+                skipReason = liveLaunchMatchedAnchorOfActiveMember
+                    ? TrackingStationGhostSkipLiveAnchorDouble
+                    : TrackingStationGhostSkipAlreadySpawned;
+                if (liveLaunchMatchedAnchorOfActiveMember)
+                {
+                    ParsekLog.VerboseRateLimited(Tag,
+                        string.Format(ic, "anchor-double-suppressed-{0}", recId),
+                        string.Format(ic,
+                            "anchor-double-suppressed (whole loop): rec={0} anchorPid={1} "
+                            + "reason=launch-matched-live-vessel-loaded",
+                            recId,
+                            (traj as Recording)?.VesselPersistentId ?? 0u),
+                        5.0);
+                    return ReturnDecision(
+                        TrackingStationGhostSource.None,
+                        skipReason,
+                        "live-anchor double suppressed");
+                }
                 return ReturnDecision(TrackingStationGhostSource.None, skipReason, "already spawned");
             }
             if (alreadyMaterialized)
@@ -6439,6 +6466,12 @@ namespace Parsek
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
+                // Step 2: suppress this rec's OWN loop-ghost double for the WHOLE loop
+                // whenever its guid-gated launch-matched live vessel is loaded (not just
+                // during the docking bind). realVesselExists is the same guid-gated
+                // RealVesselExistsForRecording, so a same-craft different-launch vessel
+                // never suppresses; a member watched from afar with no live vessel draws.
+                bool liveLaunchMatchedAnchorOfActiveMember = realVesselExists;
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(i, out int cached)
                     ? cached
                     : -1;
@@ -6456,7 +6489,8 @@ namespace Parsek
                     "tracking-station-lifecycle",
                     // Loop member replaying in its window (effUT != live currentUT): allow the
                     // map ghost to be created alongside any persisted real terminal vessel.
-                    loopMemberInWindow: (currentUT - effUT) != 0.0);
+                    loopMemberInWindow: (currentUT - effUT) != 0.0,
+                    liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
                 trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None) continue;
 
@@ -8976,7 +9010,8 @@ namespace Parsek
             TrackingStationGhostSourceBatch batch,
             int recordingIndex,
             string context,
-            bool loopMemberInWindow = false)
+            bool loopMemberInWindow = false,
+            bool liveLaunchMatchedAnchorOfActiveMember = false)
         {
             // Both create callers (the per-frame lifecycle pass AND the one-shot startup create)
             // now sample at the loop-mapped effUT and pass loopMemberInWindow, so for an in-window
@@ -9002,7 +9037,8 @@ namespace Parsek
                 out skipReason,
                 recordingIndex: recordingIndex,
                 acceptTerminalOrbitForLoopSynthesis: false,
-                loopMemberInWindow: loopMemberInWindow);
+                loopMemberInWindow: loopMemberInWindow,
+                liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
 
             // BUG-B: in the live tracking-station create paths (batch != null), a committed recording
             // that WOULD seed a map icon (source != None) but is purely historical (the player only ever
@@ -9221,6 +9257,11 @@ namespace Parsek
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
+                // Step 2: suppress this rec's OWN loop-ghost double for the WHOLE loop
+                // whenever its guid-gated launch-matched live vessel is loaded (not just
+                // during the docking bind). Mirrors the lifecycle pass; realVesselExists
+                // is guid-gated so a same-craft different-launch vessel never suppresses.
+                bool liveLaunchMatchedAnchorOfActiveMember = realVesselExists;
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(i, out int cached)
                     ? cached
                     : -1;
@@ -9239,13 +9280,18 @@ namespace Parsek
                     "tracking-station-startup",
                     // Loop member replaying in its window (effUT != live currentUT): allow the map ghost
                     // to be created alongside any persisted real terminal vessel, matching the lifecycle pass.
-                    loopMemberInWindow: (currentUT - effUT) != 0.0);
+                    loopMemberInWindow: (currentUT - effUT) != 0.0,
+                    liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
                 trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None)
                 {
                     if (skipReason == "debris") skippedDebris++;
                     else if (skipReason == TrackingStationGhostSkipSuppressed) skippedSuppressed++;
                     else if (skipReason == TrackingStationGhostSkipAlreadySpawned) skippedSpawned++;
+                    // Step-2 whole-loop live-anchor double is an already-materialized
+                    // duplicate; bucket it with skippedSpawned so it is not mis-attributed
+                    // to skippedNoOrbit in the startup summary.
+                    else if (skipReason == TrackingStationGhostSkipLiveAnchorDouble) skippedSpawned++;
                     else if (skipReason == TrackingStationGhostSkipEndpointConflict) skippedEndpointConflict++;
                     else if (skipReason == TrackingStationGhostSkipUnseedableTerminalOrbit) skippedUnseedableTerminalOrbit++;
                     else if (skipReason != null && skipReason.StartsWith("terminal")) skippedTerminal++;
@@ -11194,6 +11240,17 @@ namespace Parsek
                 return 0;
             }
 
+            // Step 2: suppress this overlap recording's OWN instance ghosts for the
+            // WHOLE loop whenever its guid-gated launch-matched live vessel is loaded
+            // (the hard-coded loopMemberInWindow:true overlap path would otherwise
+            // re-create the double the lifecycle pass suppresses). Keyed on the
+            // guid-gated RealVesselExistsForRecording, NOT the pid-only
+            // IsMaterializedForMapPresence, so a same-craft different-launch vessel
+            // never suppresses.
+            bool liveLaunchMatchedAnchorOfActiveMember =
+                rec != null
+                && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
+
             long firstCycle, lastCycle;
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT,
@@ -11254,7 +11311,8 @@ namespace Parsek
                 double loopEpochShiftSeconds = currentUT - effUT;
 
                 Vessel inst = CreateOverlapInstanceVessel(
-                    recIdx, rec, cycle, effUT, loopEpochShiftSeconds);
+                    recIdx, rec, cycle, effUT, loopEpochShiftSeconds,
+                    liveLaunchMatchedAnchorOfActiveMember);
                 if (inst != null)
                 {
                     created++;
@@ -11453,7 +11511,8 @@ namespace Parsek
         /// orbit source is resolved at <paramref name="effUT"/> exactly like the per-index create.
         /// </summary>
         private static Vessel CreateOverlapInstanceVessel(
-            int recIdx, Recording rec, long cycle, double effUT, double loopEpochShiftSeconds)
+            int recIdx, Recording rec, long cycle, double effUT, double loopEpochShiftSeconds,
+            bool liveLaunchMatchedAnchorOfActiveMember = false)
         {
             if (overlapInstanceVessels.ContainsKey((recIdx, cycle)))
                 return overlapInstanceVessels[(recIdx, cycle)];
@@ -11474,7 +11533,8 @@ namespace Parsek
                 out string skipReason,
                 recordingIndex: recIdx,
                 // A live overlap instance always has a non-zero epoch shift, so it is "in window".
-                loopMemberInWindow: true);
+                loopMemberInWindow: true,
+                liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
 
             if (!IsMapCreateAcceptedSource(source))
             {
@@ -11967,6 +12027,19 @@ namespace Parsek
                     int cachedStateVectorIndex = flightStateVectorCachedIndices.TryGetValue(idx, out int cached)
                         ? cached
                         : -1;
+                    // Step 2 (flight map presence): suppress this rec's OWN loop-ghost
+                    // double for the WHOLE loop whenever its guid-gated launch-matched
+                    // live vessel is loaded (mirrors the TS lifecycle pass). Keyed on the
+                    // guid-gated RealVesselExistsForRecording, NOT the pid-only
+                    // IsMaterializedForMapPresence that feeds alreadyMaterialized here, so
+                    // a same-craft different-launch vessel never suppresses.
+                    Recording pendingAnchorRec = (committedForOverlapSkip != null
+                        && idx >= 0 && idx < committedForOverlapSkip.Count)
+                        ? committedForOverlapSkip[idx]
+                        : null;
+                    bool liveLaunchMatchedAnchorOfActiveMember =
+                        pendingAnchorRec != null
+                        && GhostPlaybackLogic.RealVesselExistsForRecording(pendingAnchorRec);
                     TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
                         traj,
                         false,
@@ -11982,7 +12055,8 @@ namespace Parsek
                         allowSoiGapStateVectorFallback: pending.AllowSoiGapStateVectorFallback,
                         expectedSoiGapBody: pending.ExpectedSoiGapBody,
                         acceptTerminalOrbitForLoopSynthesis: acceptTerminalOrbitForLoopSynthesis,
-                        loopMemberInWindow: isLoopMemberInWindow);
+                        loopMemberInWindow: isLoopMemberInWindow,
+                        liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
                     flightStateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
                     // Re-aim: swap the recorded covering segment for the re-aimed one at create time so

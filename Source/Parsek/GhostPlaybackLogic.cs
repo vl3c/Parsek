@@ -1049,6 +1049,13 @@ namespace Parsek
             return VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, rec.VesselPersistentId, liveGuid);
         }
 
+        // Step-2 double-suppression (Logistics route live-anchor bind) keys directly on
+        // RealVesselExistsForRecording above: a loop member's OWN ghost is suppressed for
+        // the WHOLE loop whenever its guid-gated launch-matched live vessel is loaded,
+        // not just during the ~2-frame docking bind window. The whole-loop existence
+        // check subsumes any per-bind signal (a live-bind can only happen while the live
+        // vessel is loaded), so no separate bind tracker is needed.
+
         // Resolves the launch Guid of the live vessel with the given pid (null = none / unknown).
         private static string ResolveLiveVesselGuid(uint vesselPersistentId)
         {
