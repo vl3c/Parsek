@@ -15,19 +15,40 @@ id.Length > 8                  ->  id.Substring(0, 8)
 else                           ->  id
 ```
 
-— is **byte-identical** across at least four files, plus several thin `Route`-typed
-wrappers:
+— is **byte-identical** across (at least) the following `Logistics/` files. The
+copies below were verified byte-identical at audit time; the table is the in-scope
+fold set. (Find the full census at implementation with
+`grep -rn "string ShortId" Source/Parsek` and body-compare each hit.)
 
-| Site | Member (as-of-audit) |
-|------|------|
-| `Logistics/RouteStore.cs` | `ShortId(string)` @224 |
-| `Logistics/RouteTreeGuard.cs` | `ShortId(string)` @310 |
-| `Logistics/RouteRunCostCalculator.cs` | `ShortId(string)` @505 (+ `ShortId(Route)` @500) |
-| `Logistics/RouteOrchestrator.cs` | `ShortIdForLog` |
-| `Logistics/Route.cs` | `ShortIdForLog` @500 (on `this.Id`) |
-| `Logistics/LiveRouteRuntimeEnvironment.cs` | `ShortIdForRoute` @305 |
+| Site (in scope) | Member (as-of-audit) | Body verified |
+|------|------|------|
+| `Logistics/RouteStore.cs` | `ShortId(string)` @224 | ✅ identical |
+| `Logistics/RouteCadence.cs` | `ShortId(string)` @182 | ✅ identical |
+| `Logistics/RoutePriority.cs` | `ShortId(string)` @63 | ✅ identical |
+| `Logistics/RouteTreeGuard.cs` | `ShortId(string)` @310 | confirm |
+| `Logistics/RouteRunCostCalculator.cs` | `ShortId(string)` @505 (+ `ShortId(Route)` @500) | confirm |
+| `Logistics/RouteOrchestrator.cs` | `ShortIdForLog(Route)` @2408 | confirm |
+| `Logistics/Route.cs` | `ShortIdForLog()` @500 (on `this.Id`) | confirm |
+| `Logistics/LiveRouteRuntimeEnvironment.cs` | `ShortIdForRoute(Route)` @305 | confirm |
 
 Confirm each body is byte-identical before folding (checklist item 10).
+
+### Excluded near-misses — do NOT fold into `RouteIds.Short`
+
+These look similar but are **not** behavior-equivalent or are out of scope; folding
+them would change output or touch deferred code (a zero-logic-change violation):
+
+- `MilestoneStore.cs:25` `ShortId` — returns **`"?"`** for empty input, not
+  `"<no-id>"` (and orders the ternary the other way). Different output string;
+  leave it.
+- `GhostRenderTrace.cs:1076` / `MapRenderTrace.cs:1090` `ShortId` — part of the
+  tracer formatter set CLAUDE.md **explicitly defers** (and forbids touching
+  `GhostRenderTrace.cs`). Out of scope regardless of body.
+- `ReFlySettleStabilityTracker.cs`, `FlightRecorder.cs:6541`,
+  `MissionRouteStructureList.cs:583`, `PlaybackTrace.cs:383`, `UI/LogisticsWindowUI.cs:2907`
+  — same-shaped `ShortId`s outside `Logistics/`. Cross-subsystem; not part of this
+  slice. If a later pass wants them, body-verify each (the empty sentinel varies)
+  and treat as its own owner decision.
 
 ## Proposal
 
@@ -64,7 +85,12 @@ every wrapper still returns the identical string and that no log line changed.
 
 ## Optional Micro-Follow-Up (separate, even smaller)
 
-`IsFinite(double)` / `IsFinite(Vector3d)` is triplicated across `OrbitReseed`,
-`OrbitSeedResolver`, and `OrbitalCheckpointDensifier`. A `OrbitMathUtil.IsFinite`
-owner would fold it. Very low value — include only if a maintainer wants the tidy;
-same wrapper-delegation discipline as above. Confirm byte-identical bodies first.
+`IsFinite(double)` / `IsFinite(Vector3d)` / `IsFinite(Quaternion)` is duplicated
+**pervasively** — ~30+ copies across the codebase (`TrajectoryMath`, `GhostMapPresence`,
+`FlightRecorder`, `BackgroundRecorder`, `ParsekFlight`, `OrbitReseed`,
+`OrbitSeedResolver`, `OrbitalCheckpointDensifier`, `RelativeAnchorResolver`,
+`VesselSpawner`, `RecordingStore`, …). A shared `MathFiniteUtil.IsFinite` owner could
+fold them, but the breadth makes this a large, low-value sweep (and several bodies
+must be body-verified — not all are identical). **Very low priority; likely skip.**
+Note `TerminalOrbitSpawnSafety.IsFinite` (@284) is already `internal static` if an
+owner is ever wanted. Confirm byte-identical bodies before folding any subset.
