@@ -2183,9 +2183,16 @@ namespace Parsek.Tests
             // the ~3.5 years the old exact-Mun lock produced.
             Assert.True(unit.PhaseAnchorUT - anchorEnable < 100.0 * KerbinRotation,
                 "the first faithful window should be reached within ~100 pad rotations (days), not years");
+            // The scheduled line surfaces the schedule's OWN aggregate tolerance (not the fixed-cadence
+            // fallback), so a reader sees the windows actually flown. Assert the exact CONTRAST the fix
+            // exists to surface for this drifting same-parent Mun config: the fixed-cadence fallback is
+            // amber (fixedCadenceWithinTol=no - the dropped pad-rotation cannot hold at a whole Mun
+            // multiple), while the zero-drift schedule flies faithful (scheduleWithinTol=yes - the pad
+            // is locked exactly and the Mun sits within its SOI tolerance).
             Assert.Contains(logLines, l =>
                 l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock APPLIED") &&
-                l.Contains("zeroDrift=yes"));
+                l.Contains("zeroDrift=yes") && l.Contains("scheduleWithinTol=yes") &&
+                l.Contains("scheduleWorstResidual=") && l.Contains("fixedCadenceWithinTol=no"));
         }
 
         [Fact]
