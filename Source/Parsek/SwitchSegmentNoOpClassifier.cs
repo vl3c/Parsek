@@ -271,15 +271,31 @@ namespace Parsek
                 keepReason = "no-resume-anchor";
                 return false;
             }
-            if (segment.VesselDestroyed)
+
+            // A destruction is meaningful to the RESUME only if it happened WITHIN
+            // the window. The destroyed terminal seals at the recording's end, so
+            // scope these two gates by EndUT — unlike IsNoOpSegment (the session
+            // path, where the segment IS the resume), the no-session caller runs
+            // this tail check across EVERY recording in the restored clone,
+            // including old committed debris destroyed in its ORIGINAL flight
+            // (boosters / spent stages). Those end far before the resume anchor
+            // (EndUT < sinceUT) and must NOT block the discard — otherwise every
+            // real mission tree (which always carries destroyed debris) would
+            // refuse to auto-discard a do-nothing resume. An in-window destruction
+            // ends at EndUT >= sinceUT (and is independently caught by the scoped
+            // Destroyed part event below).
+            if (segment.EndUT >= sinceUT)
             {
-                keepReason = "vessel-destroyed";
-                return false;
-            }
-            if (segment.TerminalStateValue == TerminalState.Destroyed)
-            {
-                keepReason = "terminal-destroyed";
-                return false;
+                if (segment.VesselDestroyed)
+                {
+                    keepReason = "vessel-destroyed";
+                    return false;
+                }
+                if (segment.TerminalStateValue == TerminalState.Destroyed)
+                {
+                    keepReason = "terminal-destroyed";
+                    return false;
+                }
             }
 
             if (segment.PartEvents != null)
