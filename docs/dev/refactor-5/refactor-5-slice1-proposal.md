@@ -4,7 +4,7 @@
 **Status:** Proposal. Implementation-ready, but NOT yet implemented. Every change
 here is **behavior-preserving (zero logic change)** and must pass the validation +
 clean-context review gate in §5 before it lands.
-**Parent audit:** `docs/dev/plans/refactor-5-inventory.md` (Slice 1).
+**Parent audit:** `docs/dev/refactor-5/refactor-5-inventory.md` (Slice 1).
 **Rules of record:** `docs/dev/refactor-guidelines.md` (the checklist a clean
 reviewer applies) and the Refactor-4 plan's Extraction Rules.
 

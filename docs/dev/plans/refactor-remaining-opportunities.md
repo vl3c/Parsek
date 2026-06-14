@@ -16,7 +16,7 @@ it.
 refactor-4 (176 → 380 files). The files created since that pass — the new
 `Logistics/`, `Rendering/`, `MapRender/`, `Reaim/`, `Display/` subsystems plus
 the Mission/Re-Fly/tracer additions — are audited separately in
-`docs/dev/plans/refactor-5-inventory.md`. That report's headline: the new code is
+`docs/dev/refactor-5/refactor-5-inventory.md`. That report's headline: the new code is
 markedly better-factored than the legacy giants, with a small, well-scoped
 candidate list (a few large pure methods, repeated-block dedups, and a handful of
 byte-order/runtime-careful cross-file owners). The candidates below still cover

@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-14. **Status:** Proposal (not implemented). **DEFERRED** until a
 work block explicitly budgets in-game validation.
-**Roadmap:** `docs/dev/plans/refactor-5-slices.md` (shared rules + validation gate).
+**Roadmap:** `docs/dev/refactor-5/refactor-5-slices.md` (shared rules + validation gate).
 
 These are still **behavior-preserving** same-file extractions, but the target code
 is Unity / IMGUI / Harmony / reflection-coupled, so there is **no headless xUnit net

@@ -1,7 +1,7 @@
 # Refactor-5 Slice 2 Proposal — Pure Repeated-Block Dedups
 
 **Date:** 2026-06-14. **Status:** Proposal (not implemented).
-**Roadmap:** `docs/dev/plans/refactor-5-slices.md` (shared rules + the universal
+**Roadmap:** `docs/dev/refactor-5/refactor-5-slices.md` (shared rules + the universal
 validation/review gate apply here verbatim).
 
 Scope: byte-identical repeated blocks within a single file, folded into one private

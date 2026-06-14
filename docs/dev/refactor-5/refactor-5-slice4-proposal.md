@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-14. **Status:** Proposal (not implemented). Discuss before
 landing — these move code across files.
-**Roadmap:** `docs/dev/plans/refactor-5-slices.md` (shared rules + validation gate).
+**Roadmap:** `docs/dev/refactor-5/refactor-5-slices.md` (shared rules + validation gate).
 
 Pass 2 = a proven-identical block moved to a new owner behind compatibility
 wrappers, with the original call sites unchanged. Each item below is independent;

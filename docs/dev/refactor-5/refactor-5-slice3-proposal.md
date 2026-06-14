@@ -1,7 +1,7 @@
 # Refactor-5 Slice 3 Proposal — `RouteIds.Short` Cross-Cutting Owner
 
 **Date:** 2026-06-14. **Status:** Proposal (not implemented).
-**Roadmap:** `docs/dev/plans/refactor-5-slices.md` (shared rules + validation gate).
+**Roadmap:** `docs/dev/refactor-5/refactor-5-slices.md` (shared rules + validation gate).
 
 Small, independent, **pure** Pass-2 dedup. Can land any time.
 

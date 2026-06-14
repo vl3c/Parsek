@@ -1,7 +1,7 @@
 # Refactor-5 Slice 5 Proposal — Remaining Pure Same-File Phase Extractions
 
 **Date:** 2026-06-14. **Status:** Proposal (not implemented).
-**Roadmap:** `docs/dev/plans/refactor-5-slices.md` (shared rules + validation gate).
+**Roadmap:** `docs/dev/refactor-5/refactor-5-slices.md` (shared rules + validation gate).
 
 Pure (headless) Pass-1 same-file phase extractions that didn't make Slice 1's top
 three. Each is independent; do them in any order, one commit per method/file. Line
