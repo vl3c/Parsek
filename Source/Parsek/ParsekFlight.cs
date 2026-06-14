@@ -20276,11 +20276,13 @@ namespace Parsek
                 return null;
             }
 
-            // Step 1 (the live-bind pose) is all that happens here now. The Step-2
-            // double-suppression no longer keys off a per-bind stamp: it suppresses the
-            // anchor's own loop ghost for the WHOLE loop whenever its guid-gated
-            // launch-matched live vessel is loaded (GhostPlaybackLogic
-            // .RealVesselExistsForRecording), which subsumes the bind window.
+            // Step 1 (the live-bind pose) is all that happens here. The resolver stamps
+            // the live-bind ledger (RelativeAnchorResolver.RecordLiveBoundAnchor) on the
+            // source=live bind event, which the Step-2 double-suppression consumes one
+            // frame later via RelativeAnchorResolver.WasLiveBoundThisOrLastFrame: the
+            // anchor's own loop ghost is hidden ONLY while a relative member is actually
+            // docking its live vessel (scoped to the live-bind event), NOT for the whole
+            // loop merely because its guid-matched live vessel is loaded.
             return (pose.worldPos, pose.worldRotation);
         }
 

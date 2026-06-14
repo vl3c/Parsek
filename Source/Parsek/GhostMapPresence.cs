@@ -5171,13 +5171,14 @@ namespace Parsek
             // case (both icons may show). Re-fly / active-session duplicates stay blocked
             // because isSuppressed is evaluated above this gate.
             // Step 2 (Logistics route live-anchor bind): when this recording's
-            // guid-gated launch-matched live vessel is loaded, its own loop ghost is a
-            // pure duplicate of the live station for the WHOLE loop (the dependent member
-            // docks against the live vessel, not this recorded position ~20 km away).
-            // Suppress it like a non-loop already-spawned vessel even though
-            // loopMemberInWindow is true (the caller feeds the whole-loop term here, not
-            // a docking bind window). Every other loopMemberInWindow case still draws
-            // alongside the real vessel.
+            // guid-gated launch-matched live vessel is loaded AND it is the LIVE docking
+            // anchor a relative member is binding to this-or-last frame (the Step-1
+            // live-bind event), its own loop ghost is a pure duplicate of the live
+            // station at that moment (the dependent member docks against the live vessel,
+            // not this recorded position ~20 km away). Suppress it like a non-loop
+            // already-spawned vessel even though loopMemberInWindow is true (the caller
+            // feeds the live-bind-event term here, not a whole-loop existence check).
+            // Every other loopMemberInWindow case still draws alongside the real vessel.
             if (alreadyMaterialized && (!loopMemberInWindow || liveLaunchMatchedAnchorOfActiveMember))
             {
                 skipReason = liveLaunchMatchedAnchorOfActiveMember
@@ -5188,8 +5189,8 @@ namespace Parsek
                     ParsekLog.VerboseRateLimited(Tag,
                         string.Format(ic, "anchor-double-suppressed-{0}", recId),
                         string.Format(ic,
-                            "anchor-double-suppressed (whole loop): rec={0} anchorPid={1} "
-                            + "reason=launch-matched-live-vessel-loaded",
+                            "anchor-double-suppressed (live-bind event): rec={0} anchorPid={1} "
+                            + "reason=launch-matched-live-vessel-loaded-and-live-bound",
                             recId,
                             (traj as Recording)?.VesselPersistentId ?? 0u),
                         5.0);
@@ -9294,7 +9295,7 @@ namespace Parsek
                     if (skipReason == "debris") skippedDebris++;
                     else if (skipReason == TrackingStationGhostSkipSuppressed) skippedSuppressed++;
                     else if (skipReason == TrackingStationGhostSkipAlreadySpawned) skippedSpawned++;
-                    // Step-2 whole-loop live-anchor double is an already-materialized
+                    // Step-2 live-anchor double (live-bind event) is an already-materialized
                     // duplicate; bucket it with skippedSpawned so it is not mis-attributed
                     // to skippedNoOrbit in the startup summary.
                     else if (skipReason == TrackingStationGhostSkipLiveAnchorDouble) skippedSpawned++;
