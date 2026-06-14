@@ -453,6 +453,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Schedule_MaxIntervalSeconds_ReflectsTheLongestProbeInterval()
+        {
+            // Guards the period-cell RANGE high end: the max gap over the SAME eager prefix the min /
+            // average sample. For this geometry the prefix's longest gap is 900s (vs the 400s min from
+            // Schedule_MinIntervalSeconds_ReflectsTheShortestProbeInterval), and the max is always
+            // >= the min.
+            var schedule = new MissionRelaunchSchedule(
+                0.0, 100.0, new double[] { 31.0 }, new double[] { 2.0 }, 0.0, 100);
+            Assert.Equal(900.0, schedule.MaxIntervalSeconds, 6);
+            Assert.True(schedule.MaxIntervalSeconds >= schedule.MinIntervalSeconds);
+        }
+
+        [Fact]
+        public void Schedule_MaxIntervalSeconds_DegenerateInputs_NaN()
+        {
+            // A degenerate anchor period yields no launches and no measurable interval -> NaN, matching
+            // MinIntervalSeconds.
+            var schedule = new MissionRelaunchSchedule(
+                0.0, 0.0, new double[] { 31.0 }, new double[] { 2.0 }, 0.0, 100);
+            Assert.True(double.IsNaN(schedule.MaxIntervalSeconds));
+        }
+
+        [Fact]
         public void Schedule_FutureDatedUT0_FirstLaunchAtOrAfterFloor()
         {
             // Guards future-dated recordings (UT0 > live, e.g. after a career rewind): L_0 is the
