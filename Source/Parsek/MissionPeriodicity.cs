@@ -2350,6 +2350,15 @@ namespace Parsek
         /// years.</summary>
         internal double AverageIntervalSeconds { get; }
 
+        /// <summary>The MAXIMUM relaunch interval over the same eager prefix that
+        /// <see cref="MinIntervalSeconds"/> / <see cref="AverageIntervalSeconds"/> sample. Paired with
+        /// the min, this gives the UI a min-max RANGE for the "varies" period cell ("~13d-1mo") so the
+        /// player sees the loop's general cadence band, not a single mean. Like Min/Average it is the
+        /// PREFIX max (bounded by <see cref="MinIntervalProbeLaunches"/>), an approximation of the
+        /// early cadence, not a global guarantee. Falls back to the anchor period when only one launch
+        /// resolved (no gap to measure). Transient; never serialized.</summary>
+        internal double MaxIntervalSeconds { get; }
+
         /// <summary>The player throttle (the requested relaunch period). 0 = every faithful window
         /// (the maximum attainable cadence).</summary>
         internal double MinSpacingSeconds => minSpacing;
@@ -2391,6 +2400,7 @@ namespace Parsek
             this.knob = knobConfig;
             FirstLaunchUT = double.NaN;
             MinIntervalSeconds = double.NaN;
+            MaxIntervalSeconds = double.NaN;
 
             if (double.IsNaN(ut0) || double.IsNaN(floorUT)
                 || double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod) || anchorPeriod <= 0.0)
@@ -2414,6 +2424,7 @@ namespace Parsek
             // modes when consecutive faithful k's hit the same small gap, so it is NOT representative;
             // mean over the prefix is.
             double minInterval = double.PositiveInfinity;
+            double maxInterval = double.NegativeInfinity;
             for (int i = 0; i < MinIntervalProbeLaunches; i++)
             {
                 if (!ExtendOnce())
@@ -2421,8 +2432,13 @@ namespace Parsek
                 double interval = launches[launches.Count - 1] - launches[launches.Count - 2];
                 if (interval < minInterval)
                     minInterval = interval;
+                if (interval > maxInterval)
+                    maxInterval = interval;
             }
             MinIntervalSeconds = double.IsPositiveInfinity(minInterval) ? anchorPeriod : minInterval;
+            // Max over the same prefix; falls back to the anchor period when no gap was measured
+            // (a single resolved launch), matching MinIntervalSeconds / AverageIntervalSeconds.
+            MaxIntervalSeconds = double.IsNegativeInfinity(maxInterval) ? anchorPeriod : maxInterval;
             // Mean = (L_last - L_0) / (N - 1) over the cached prefix. Falls back to the anchor period
             // when only one launch (no gap to average).
             AverageIntervalSeconds = launches.Count >= 2

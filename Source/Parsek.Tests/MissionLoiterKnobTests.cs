@@ -17,8 +17,11 @@ namespace Parsek.Tests
     public class MissionLoiterKnobTests : IDisposable
     {
         private const double MuKerbin = 3.5316e12;
+        private const double MuMun = 6.5138398e10;
         private const double LkoA = 700000.0;
+        private const double LmoA = 50000.0; // a low-Mun parking orbit semi-major axis
         private static readonly double LkoT = ReaimLoiterCompressor.OrbitalPeriod(LkoA, MuKerbin);
+        private static readonly double LmoT = ReaimLoiterCompressor.OrbitalPeriod(LmoA, MuMun);
 
         private static Func<string, double> Mu => b => b == "Kerbin" ? MuKerbin : double.NaN;
 
@@ -51,6 +54,35 @@ namespace Parsek.Tests
             public double SoiRadius(string bodyName) => 8.4e7;
             public double OrbitalVelocity(string bodyName) => 9285.0;
             public double GravParameter(string bodyName) => bodyName == "Kerbin" ? MuKerbin : double.NaN;
+            public bool TryGetVesselOrbit(
+                uint vesselPid, string recordedVesselGuid,
+                out double periodSeconds, out string orbitBodyName)
+            {
+                periodSeconds = double.NaN;
+                orbitBodyName = null;
+                return false;
+            }
+        }
+
+        // Knows Kerbin, Mun, AND Minmus grav parameters so a parking loiter AROUND a destination body
+        // (the Mun station dock) or a third-body SOI fly-by (Minmus) is detectable by DetectRuns.
+        private sealed class MultiBodyFakeBodyInfo : IBodyInfo
+        {
+            public double RotationPeriod(string bodyName) => bodyName == "Kerbin" ? 21600.0 : double.NaN;
+            public double OrbitPeriod(string bodyName) => double.NaN;
+            public string ReferenceBodyName(string bodyName) => null;
+            public double SoiRadius(string bodyName) => 8.4e7;
+            public double OrbitalVelocity(string bodyName) => 9285.0;
+            public double GravParameter(string bodyName)
+            {
+                switch (bodyName)
+                {
+                    case "Kerbin": return MuKerbin;
+                    case "Mun": return MuMun;
+                    case "Minmus": return MuMun; // a valid mu so a Minmus loiter is detectable too
+                    default: return double.NaN;
+                }
+            }
             public bool TryGetVesselOrbit(
                 uint vesselPid, string recordedVesselGuid,
                 out double periodSeconds, out string orbitBodyName)
@@ -477,6 +509,28 @@ namespace Parsek.Tests
             };
         }
 
+        // A mission whose station rendezvous is around a NON-launch (destination) body, e.g. a
+        // Mun-station dock. BodyName = the orbited body the classifier writes (Mun).
+        private static ConstraintExtraction MakeDestinationBodyExtraction(
+            string rendezvousBody, double ut0 = 0.0, double stationOffset = 6000.0)
+        {
+            return new ConstraintExtraction
+            {
+                Constraints = new List<PhaseConstraint>
+                {
+                    new PhaseConstraint
+                    {
+                        Kind = ConstraintKind.VesselOrbital, BodyName = rendezvousBody,
+                        PeriodSeconds = LmoT, PhaseOffsetSeconds = stationOffset,
+                        AnchorVesselPid = 42,
+                    },
+                },
+                Support = Support.Supported,
+                LaunchBodyName = "Kerbin",
+                UT0 = ut0,
+            };
+        }
+
         private static Recording OwnerWithLoiter(out double runStart, out double runEnd, out long revs)
         {
             runStart = 100.0;
@@ -672,6 +726,94 @@ namespace Parsek.Tests
                 0.0, 10000.0, new KnobFakeBodyInfo(), "test");
 
             Assert.Null(input);
+        }
+
+        [Fact]
+        public void KnobInput_DestinationBodyLoiter_EngagesOnTheMunParkingOrbit()
+        {
+            // The Mun-station dock bug: the phasing parking loiter is AROUND the Mun (a rendezvous
+            // body), AFTER the Kerbin->Mun SOI entry. The SOI entry into the rendezvous body must NOT
+            // clamp the guard, and the Mun run must be accepted as the phasing run.
+            var rec = new Recording();
+            rec.OrbitSegments.Add(Seg("Kerbin", 0.0, 100.0, LkoA * 0.5)); // sub-period launch arc
+            double munRunStart = 6000.0;                                   // after the SOI entry
+            long revs = 6;
+            double munRunEnd = munRunStart + revs * LmoT + 10.0;
+            rec.OrbitSegments.Add(Seg("Mun", munRunStart, munRunEnd, LmoA)); // Mun parking loiter
+
+            double rendezvousUT = munRunEnd + 500.0;
+            PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
+                new List<Recording> { rec }, new[] { 0 }, 0,
+                MakeDestinationBodyExtraction("Mun", stationOffset: rendezvousUT),
+                0.0, rendezvousUT + 2000.0, new MultiBodyFakeBodyInfo(), "test");
+
+            Assert.NotNull(input);
+            Assert.Equal(munRunStart, input.RunStartUT, 3);
+            Assert.Equal(munRunEnd, input.RunEndUT, 3);
+            Assert.Equal(revs, input.RecordedRevs);
+            Assert.Equal(LmoT, input.PeriodSeconds, 3);
+            Assert.Empty(input.StaticCuts);
+        }
+
+        [Fact]
+        public void KnobInput_LaunchBodyLoiter_StillEngages_Regression()
+        {
+            // Regression: the launch-body (Kerbin) parking loiter case must still engage exactly as
+            // before, even with the rendezvous-body relaxation in place (the station orbits Kerbin).
+            Recording owner = OwnerWithLoiter(out double runStart, out double runEnd, out long revs);
+            double spanEnd = runEnd + 2000.0;
+
+            PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
+                new List<Recording> { owner }, new[] { 0 }, 0,
+                MakeExtraction(stationOffset: runEnd + 500.0),
+                0.0, spanEnd, new KnobFakeBodyInfo(), "test");
+
+            Assert.NotNull(input);
+            Assert.Equal(runStart, input.RunStartUT, 3);
+            Assert.Equal(runEnd, input.RunEndUT, 3);
+            Assert.Equal(revs, input.RecordedRevs);
+            Assert.Empty(input.StaticCuts);
+        }
+
+        [Fact]
+        public void KnobInput_ThirdBodySoiEntry_ClampsGuard_ExcludesLoiter()
+        {
+            // A genuine third body: Kerbin->Mun->Minmus. The station orbits the Mun (rendezvous body),
+            // but the only loiter run sits on MINMUS (neither launch nor rendezvous body), after the
+            // Minmus SOI entry. The SOI entry into Minmus must clamp the guard and exclude the run, so
+            // the knob disengages.
+            var rec = new Recording();
+            rec.OrbitSegments.Add(Seg("Kerbin", 0.0, 100.0, LkoA * 0.5));      // launch arc
+            rec.OrbitSegments.Add(Seg("Mun", 2000.0, 2050.0, LmoA * 0.5));     // brief Mun pass (sub-period: 50s < ~97s)
+            double minmusRunStart = 6000.0;
+            double minmusRunEnd = minmusRunStart + 5.0 * LmoT + 10.0;
+            rec.OrbitSegments.Add(Seg("Minmus", minmusRunStart, minmusRunEnd, LmoA)); // Minmus loiter
+
+            double rendezvousUT = minmusRunEnd + 5000.0;
+            PhasingKnobInput input = MissionLoopUnitBuilder.BuildPhasingKnobInput(
+                new List<Recording> { rec }, new[] { 0 }, 0,
+                MakeDestinationBodyExtraction("Mun", stationOffset: rendezvousUT),
+                0.0, rendezvousUT + 2000.0, new MultiBodyFakeBodyInfo(), "test");
+
+            Assert.Null(input);
+        }
+
+        [Fact]
+        public void IsPhasingRunBodyAccepted_LaunchOrRendezvousOnly()
+        {
+            var rendezvous = new HashSet<string>(StringComparer.Ordinal) { "Mun" };
+
+            // Launch body accepted.
+            Assert.True(MissionLoopUnitBuilder.IsPhasingRunBodyAccepted("Kerbin", "Kerbin", rendezvous));
+            // Rendezvous body accepted.
+            Assert.True(MissionLoopUnitBuilder.IsPhasingRunBodyAccepted("Mun", "Kerbin", rendezvous));
+            // A third body rejected.
+            Assert.False(MissionLoopUnitBuilder.IsPhasingRunBodyAccepted("Minmus", "Kerbin", rendezvous));
+            // Empty launch body: every run accepted (degenerate fallback).
+            Assert.True(MissionLoopUnitBuilder.IsPhasingRunBodyAccepted("Minmus", "", rendezvous));
+            // Null rendezvous set: only the launch body is accepted.
+            Assert.True(MissionLoopUnitBuilder.IsPhasingRunBodyAccepted("Kerbin", "Kerbin", null));
+            Assert.False(MissionLoopUnitBuilder.IsPhasingRunBodyAccepted("Mun", "Kerbin", null));
         }
 
         // ─── Body-fixed derotation (the 46-degree teleport fix) ─────────────────
