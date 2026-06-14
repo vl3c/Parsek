@@ -378,12 +378,18 @@ namespace Parsek.Patches
                 v.SetPosition(refBody.position + pos - off);
 
                 // Bug A director-path CoMD re-snap: GetWorldPos3D - and the map icon - read the cached
-                // Vessel.CoMD, which VesselPrecalculate.Update computes (CalculatePhysicsStats) BEFORE
-                // re-propagating the orbit (UpdateOrbit -> this Prefix) for a packed ghost, so CoMD
-                // trails orbitDriver.pos by one Update every frame; at high warp that one-Update arc
-                // puts the icon up to ~158 deg off its own line (the surviving director-drive
-                // icon-off-orbit / icon-teleport in the 2026-06-14_1642 capture, the facet the
-                // state-vector-path seam fix does NOT cover). SetPosition just placed the CoM at exactly
+                // Vessel.CoMD, which VesselPrecalculate refreshes (CalculatePhysicsStats) on a different
+                // schedule than this per-frame orbit re-propagation (UpdateOrbit -> this Prefix). On the
+                // VesselPrecalculate.Update packed path CalculatePhysicsStats runs BEFORE UpdateOrbit, so
+                // on the frames where it does NOT re-run after the drive the cached CoMD trails
+                // orbitDriver.pos; at high warp that lag puts the icon up to ~158 deg off its own line
+                // (the surviving director-drive icon-off-orbit / icon-teleport in the 2026-06-14_1642
+                // capture, the facet the state-vector-path seam fix does NOT cover). The exact per-frame
+                // ordering varies by VesselPrecalculate path (Update vs MainPhysics), so treat this write
+                // as the empirically load-bearing fix (playtest: refreshed=5683, icon-off-orbit 26->8
+                // with the two persistent offenders gone), not a claim that every frame lags - on a path
+                // where CalculatePhysicsStats already re-runs after the drive it writes the same value
+                // and this is a harmless no-op. SetPosition just placed the CoM at exactly
                 // refBody.position + pos (the -off term is the CoM offset the root is shifted by, which
                 // cancels), so write CoMD to that same point - identical to what CalculatePhysicsStats
                 // writes for a packed orbiting ghost (CoMD = mainBody.position + orbitDriver.pos) - and
