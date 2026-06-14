@@ -1627,19 +1627,22 @@ Earlier than the old tier order implied, because the colony gameplay lives in mo
 
 The generalized transfer-direction model, paid for by pickup:
 
+**Status: IN PROGRESS (plan `docs/dev/plan-logistics-m3-direction-generality.md`, reviewed 2026-06-14, 0 blockers).** M3 = the pickup DIRECTION on a single bidirectional connection window (M3a); multi-origin + escrow (the former final bullet) are RESEQUENCED to M4 (plan OQ1). Key as-planned facts: connection-window capture is ALREADY symmetric so pickup needs no recorder change; `HasResourcePickup` / `HasInventoryPickup` flip from reject to classify; a new `RouteCargoPickedUp` ledger row + a re-keyed replay backstop close the pickup-only reload-idempotency hole.
+
 - Source-side connection capture (mirror of delivery capture: cargo left the ENDPOINT part set and arrived on the TRANSPORT part set across the window — the same `RouteConnectionWindow` scoped-manifest mechanics, opposite sign).
 - Source availability probe (mirror of `LiveDeliveryCapacityProbe`).
 - Reverse-direction writers (debit endpoint, credit transport — at window phase per 19.2.5; note the loop path already fires effects at the dock-phase crossing via `EmitLoopCycle`).
 - `RouteAnalysisEngine.HasResourcePickup` stops rejecting reverse flow (`MixedPickupDelivery`) and classifies it; flow accounting (19.2.4) replaces the assume-start-loaded analysis.
 - Exact stock-slot / `InventoryPayloadItem` identity tests extended to the pickup direction.
 - Then mixed pickup/delivery windows: per-window bidirectional manifest in `RouteConnectionWindow`, two-direction applier in `RouteOrchestrator` at one dock crossing.
-- Multi-origin semantics (19.2.5) land here: all-or-nothing source gating in `RouteDispatchEvaluator` + the `RouteStore` cargo-escrow reservation map.
+- Multi-origin semantics (19.2.5) — **RESEQUENCED to M4** (2026-06-14, `docs/dev/plan-logistics-m3-direction-generality.md` OQ1): true multi-origin (load at depot A + load at depot B then deliver at the station) is N loaded windows, which needs M4's multi-window acceptance (lifting the `MultipleConnectionWindows` reject), so the all-or-nothing source gate + the `RouteStore` cargo-escrow reservation map land in M4 where they are first exercisable. M3 ships the pickup DIRECTION on a SINGLE bidirectional window only.
 
 #### M4 — Shape generality: multi-stop, then round-trip
 
 The multi-window model, paid for by multi-stop:
 
 - `RouteAnalysisEngine` accepts and orders N windows (today both analysis entry points return `MultipleConnectionWindows` on a second completed window); `RouteLoopClock`-driven delivery fires at EACH window's recorded phase; `RouteEndpointResolver` resolves one endpoint per stop. `Stops` / `SegmentIndexBefore` / `DeliveryOffsetSeconds` are already reserved in the save shape, so codec cost is small.
+- Multi-origin (19.2.5), resequenced from M3 (2026-06-14): with N windows accepted, all-or-nothing SOURCE gating in `RouteDispatchEvaluator.CheckEligibility` (every loaded source covers its recorded outflow, first-short names the source) + the lightweight `RouteStore`-owned cargo-escrow reservation map (route id -> vessel pid -> held amounts; reserve at dispatch, debit at window phase, release on debit/abort, revert on tombstone). Only multi-window runs open a dispatch-to-debit gap, so escrow first becomes real here.
 - Round-trip immediately after, per the resequencing note in 17.1: with direction (M3) and multi-window (M4) built, round-trip is a thin `LinkedRouteId` chain-constraint scheduler (A completes, then B dispatches), not a system.
 - Missions-boundary verification result: in always-tree mode a dock ALWAYS splits recordings (the dock-merged child is a separate recording), so multi-stop END-trims — render `[launch..dockB]`, skipping docked stretches at A — are expressible with today's interval boundaries; `RouteBackingMission.ComputeExcludedIntervalKeys` already generalizes (exclude everything at/after the LAST delivery dock). What remains out: shapes that START mid-recording ("undock → undock" shuttle runs whose run begins inside a pre-dock recording) hit the locked Missions layer's gap 1 (dock is not an interval boundary INSIDE a recording; `design-mission-abstractions.md` "Docking & undocking (v1)"). That is a documented limitation surfaced in the rejection reason, NOT a Missions edit.
 - Regression pin from 19.2.3: assert route-driven loop units never produce a real-vessel spawn decision, now that the rendered window widens past the first dock.
