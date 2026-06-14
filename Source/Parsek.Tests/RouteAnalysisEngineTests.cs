@@ -137,8 +137,13 @@ namespace Parsek.Tests
             Assert.Equal(RouteAnalysisStatus.NoDeliveryManifest, result.Status);
         }
 
+        // M3: a window with BOTH a delivery (LiquidFuel transport->endpoint) AND
+        // a resource pickup (Ore endpoint->transport) is now a MIXED window that
+        // ADMITS both directions (plan D2: classify, not reject). Pre-M3 this
+        // rejected MixedPickupDelivery. The delivery manifest carries the
+        // LiquidFuel, the load manifest carries the Ore.
         [Fact]
-        public void AnalyzeRecording_MixedPickupDelivery_RejectsV0Route()
+        public void AnalyzeRecording_MixedResourceWindow_AdmitsBothDirections()
         {
             RouteConnectionWindow window = BuildDeliveryWindow();
             window.DockEndpointResources["Ore"] =
@@ -159,8 +164,13 @@ namespace Parsek.Tests
 
             RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
 
-            Assert.False(result.IsEligible);
-            Assert.Equal(RouteAnalysisStatus.MixedPickupDelivery, result.Status);
+            Assert.True(result.IsEligible,
+                $"a mixed resource window must admit both directions, got {result.Status}");
+            Assert.Equal(50.0, result.ResourceDeliveryManifest["LiquidFuel"]);
+            Assert.NotNull(result.ResourceLoadManifest);
+            Assert.Equal(10.0, result.ResourceLoadManifest["Ore"]);
+            // The delivery manifest must NOT carry the picked-up resource.
+            Assert.False(result.ResourceDeliveryManifest.ContainsKey("Ore"));
         }
 
         [Fact]
@@ -594,18 +604,43 @@ namespace Parsek.Tests
             Assert.Equal(RouteAnalysisStatus.NoDeliveryManifest, result.Status);
         }
 
+        // M3 (plan D2): a clean resource pickup (the endpoint LOSES Ore AND the
+        // transport GAINS it across the window) now CLASSIFIES and admits via
+        // the load manifest instead of rejecting MixedPickupDelivery. A
+        // pure-pickup window (no delivery) is Eligible with only the load
+        // manifest set. Pre-M3 this rejected.
         [Fact]
-        public void AnalyzeRecording_NonIgnoredResourcePickup_DiagnosticNamesResource()
+        public void AnalyzeRecording_ResourcePickup_ClassifiesAndAdmits()
         {
-            // A genuine (non-ignored) pickup still rejects, and the rejection
-            // diagnostic names the culprit resource so a confusing "mixed
-            // pickup/delivery" rejection is debuggable from the log. logLines is
-            // captured by the constructor sink.
-            RouteConnectionWindow window = BuildDeliveryWindow();
-            window.DockEndpointResources["Ore"] =
-                new ResourceAmount { amount = 10.0, maxAmount = 50.0 };
-            window.UndockEndpointResources["Ore"] =
-                new ResourceAmount { amount = 0.0, maxAmount = 50.0 };
+            // Clean pickup: Ore flows endpoint (10 -> 0) onto transport (0 -> 10),
+            // and there is NO delivery (no transport->endpoint flow), so this is a
+            // PURE-pickup window.
+            var window = new RouteConnectionWindow
+            {
+                WindowId = "pure-pickup",
+                DockUT = 100.0,
+                UndockUT = 160.0,
+                TransferTargetVesselPid = 9001,
+                TransferKind = RouteConnectionKind.DockingPort,
+                DockEndpointResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["Ore"] = new ResourceAmount { amount = 10.0, maxAmount = 50.0 }
+                },
+                UndockEndpointResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["Ore"] = new ResourceAmount { amount = 0.0, maxAmount = 50.0 }
+                },
+                DockTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["Ore"] = new ResourceAmount { amount = 0.0, maxAmount = 50.0 }
+                },
+                UndockTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["Ore"] = new ResourceAmount { amount = 10.0, maxAmount = 50.0 }
+                },
+                EndpointAtDock = Endpoint(),
+                TransferEndpointSituation = 4
+            };
             Recording rec = new Recording
             {
                 RecordingId = "ore-pickup",
@@ -616,19 +651,26 @@ namespace Parsek.Tests
 
             RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
 
-            Assert.Equal(RouteAnalysisStatus.MixedPickupDelivery, result.Status);
+            Assert.True(result.IsEligible,
+                $"a clean resource pickup must classify and admit, got {result.Status}");
+            Assert.NotNull(result.ResourceLoadManifest);
+            Assert.Equal(10.0, result.ResourceLoadManifest["Ore"]);
+            // No delivery occurred.
+            Assert.True(result.ResourceDeliveryManifest == null ||
+                !result.ResourceDeliveryManifest.ContainsKey("Ore"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Route]") &&
-                l.Contains("mixed pickup/delivery") &&
-                l.Contains("resource=Ore"));
+                l.Contains("RouteAnalysis eligible") &&
+                l.Contains("load=1"));
         }
 
+        // M3 Phase 1 (resources only): an INVENTORY pickup still rejects
+        // MixedPickupDelivery (inventory pickup is Phase 5; resource pickup now
+        // admits). The diagnostic names the culprit payload identity. logLines
+        // is captured by the constructor sink.
         [Fact]
         public void AnalyzeRecording_InventoryPickup_DiagnosticNamesIdentity()
         {
-            // The inventory branch of the pickup gate also names its culprit (the
-            // payload identity) in the rejection diagnostic. logLines is captured
-            // by the constructor sink.
             RouteConnectionWindow window = BuildDeliveryWindow();
             InventoryPayloadItem pickup =
                 Payload("ore-container", "smallCargoContainer", 1, slotsTaken: 1);
@@ -647,7 +689,7 @@ namespace Parsek.Tests
             Assert.Equal(RouteAnalysisStatus.MixedPickupDelivery, result.Status);
             Assert.Contains(logLines, l =>
                 l.Contains("[Route]") &&
-                l.Contains("mixed pickup/delivery") &&
+                l.Contains("inventory pickup unsupported") &&
                 l.Contains("inventory=ore-container"));
         }
 
@@ -1361,6 +1403,691 @@ namespace Parsek.Tests
                 $"Expected route eligible, got {result.Status} — daaeb89c carries the window and must be reachable when ActiveRecordingId is null");
             Assert.Equal(RouteAnalysisStatus.Eligible, result.Status);
             Assert.Equal("daaeb89c", result.SourceRecording?.RecordingId);
+        }
+
+        // ===============================================================
+        // M3 Phase 1 - direction generality: pickup classification, load
+        // manifest, flow closure (resources). Plan
+        // docs/dev/plan-logistics-m3-direction-generality.md Phase 1.
+        // ===============================================================
+
+        // ---- BuildResourceLoadManifest: the sign-flip mirror (D2) ----
+
+        // catches: the load manifest computing the WRONG sign or failing to
+        // mirror the delivery builder. A clean pickup (endpoint LOSES, transport
+        // GAINS) yields loaded = min(endpointLoss, transportGain).
+        [Fact]
+        public void BuildResourceLoadManifest_CleanPickup_MirrorsDeliveryWithSignFlip()
+        {
+            RouteConnectionWindow window = BuildResourcePickupWindow("Ore", 50.0);
+
+            Dictionary<string, double> load =
+                RouteAnalysisEngine.BuildResourceLoadManifest(
+                    window, "pickup-run", RouteAnalysisLogMode.Diagnostic);
+
+            Assert.NotNull(load);
+            Assert.Equal(50.0, load["Ore"]);
+        }
+
+        // catches: the load builder admitting a one-sided "pickup" where only
+        // the endpoint lost the resource but the transport never gained it (or
+        // vice versa). Both > epsilon is required, exactly like the delivery
+        // builder needs both endpointGain AND transportLoss.
+        [Fact]
+        public void BuildResourceLoadManifest_OneSidedFlow_NotAdmitted()
+        {
+            // Endpoint loses Ore but the transport does NOT gain it (leaked /
+            // vented). transportGain = 0, so no load term.
+            var window = new RouteConnectionWindow
+            {
+                WindowId = "one-sided",
+                DockUT = 10.0,
+                UndockUT = 20.0,
+                DockEndpointResources = OreAmount(10.0),
+                UndockEndpointResources = OreAmount(0.0),
+                DockTransportResources = OreAmount(0.0),
+                UndockTransportResources = OreAmount(0.0)
+            };
+
+            Dictionary<string, double> load =
+                RouteAnalysisEngine.BuildResourceLoadManifest(
+                    window, "one-sided", RouteAnalysisLogMode.Diagnostic);
+
+            Assert.Null(load);
+        }
+
+        // catches (D2 direction pin): an UNDEFINED resource name leaking into
+        // the ADMISSION-direction load manifest. It must be EXCLUDED and logged,
+        // exactly as the delivery manifest excludes it; the rejection-direction
+        // HasResourcePickup keeps seeing it (the separate
+        // HasResourcePickup_UndefinedResourcePickup_StillDetected pins that).
+        [Fact]
+        public void BuildResourceLoadManifest_UndefinedResource_ExcludedAndLogged()
+        {
+            ResourceTransferability.DefinitionLookupOverrideForTesting =
+                CrpFixtures.DefinedLookup;
+            // Karbonite (defined) AND UninstalledModResource (undefined) both
+            // flow endpoint -> transport.
+            RouteConnectionWindow window = BuildResourcePickupWindow(
+                CrpFixtures.Karbonite, 50.0);
+            window.DockEndpointResources[CrpFixtures.UninstalledModResource] =
+                new ResourceAmount { amount = 30.0, maxAmount = 50.0 };
+            window.UndockEndpointResources[CrpFixtures.UninstalledModResource] =
+                new ResourceAmount { amount = 0.0, maxAmount = 50.0 };
+            window.DockTransportResources[CrpFixtures.UninstalledModResource] =
+                new ResourceAmount { amount = 0.0, maxAmount = 50.0 };
+            window.UndockTransportResources[CrpFixtures.UninstalledModResource] =
+                new ResourceAmount { amount = 30.0, maxAmount = 50.0 };
+
+            Dictionary<string, double> load =
+                RouteAnalysisEngine.BuildResourceLoadManifest(
+                    window, "load-modless", RouteAnalysisLogMode.Diagnostic);
+
+            Assert.NotNull(load);
+            Assert.Equal(50.0, load[CrpFixtures.Karbonite]);
+            Assert.False(load.ContainsKey(CrpFixtures.UninstalledModResource),
+                "undefined resource must be excluded from the admission-direction load manifest");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains($"Resource excluded: name={CrpFixtures.UninstalledModResource}") &&
+                l.Contains("reason=undefined") &&
+                l.Contains("recording=load-modless"));
+        }
+
+        // catches: EC/IntakeAir noise being admitted as a load term (the
+        // transport recharging its batteries from the depot reads as an EC
+        // "pickup"). They are environmental noise on BOTH directions.
+        [Fact]
+        public void BuildResourceLoadManifest_ElectricCharge_Excluded()
+        {
+            RouteConnectionWindow window = BuildResourcePickupWindow("Ore", 50.0);
+            // EC flows endpoint -> transport too, but must not be a load term.
+            window.DockEndpointResources["ElectricCharge"] =
+                new ResourceAmount { amount = 400.0, maxAmount = 1000.0 };
+            window.UndockEndpointResources["ElectricCharge"] =
+                new ResourceAmount { amount = 0.0, maxAmount = 1000.0 };
+            window.DockTransportResources["ElectricCharge"] =
+                new ResourceAmount { amount = 100.0, maxAmount = 1000.0 };
+            window.UndockTransportResources["ElectricCharge"] =
+                new ResourceAmount { amount = 500.0, maxAmount = 1000.0 };
+
+            Dictionary<string, double> load =
+                RouteAnalysisEngine.BuildResourceLoadManifest(
+                    window, "ec-load", RouteAnalysisLogMode.Diagnostic);
+
+            Assert.NotNull(load);
+            Assert.Equal(50.0, load["Ore"]);
+            Assert.False(load.ContainsKey("ElectricCharge"));
+        }
+
+        // ---- AnalyzeRecording: pure-pickup admits, not NoDeliveryManifest ----
+
+        // catches (gate fix a, D4): a PURE-pickup window (no delivery manifest)
+        // rejecting at NoDeliveryManifest before reaching Eligible. The widened
+        // gate ("no delivery AND no load") must let it through.
+        [Fact]
+        public void AnalyzeRecording_PurePickup_NotRejectedAtNoDeliveryManifest()
+        {
+            RouteConnectionWindow window = BuildResourcePickupWindow("Ore", 50.0);
+            window.EndpointAtDock = Endpoint();
+            window.TransferEndpointSituation = 4;
+            Recording rec = new Recording
+            {
+                RecordingId = "pure-pickup-admit",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                RouteConnectionWindows = new List<RouteConnectionWindow> { window }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.True(result.IsEligible,
+                $"a pure-pickup window must not reject at NoDeliveryManifest, got {result.Status}");
+            Assert.NotEqual(RouteAnalysisStatus.NoDeliveryManifest, result.Status);
+            Assert.NotNull(result.ResourceLoadManifest);
+            Assert.Equal(50.0, result.ResourceLoadManifest["Ore"]);
+        }
+
+        // catches: a window with NO flow in either direction failing to reject
+        // NoDeliveryManifest (the widened gate must still reject when there is
+        // genuinely no cargo).
+        [Fact]
+        public void AnalyzeRecording_NoFlowEitherDirection_RejectsNoDeliveryManifest()
+        {
+            var window = new RouteConnectionWindow
+            {
+                WindowId = "no-flow",
+                DockUT = 10.0,
+                UndockUT = 20.0,
+                TransferTargetVesselPid = 9001,
+                TransferKind = RouteConnectionKind.DockingPort,
+                DockTransportResources = OreAmount(100.0),
+                UndockTransportResources = OreAmount(100.0),
+                DockEndpointResources = OreAmount(0.0),
+                UndockEndpointResources = OreAmount(0.0),
+                EndpointAtDock = Endpoint(),
+                TransferEndpointSituation = 4
+            };
+            Recording rec = new Recording
+            {
+                RecordingId = "no-flow",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                RouteConnectionWindows = new List<RouteConnectionWindow> { window }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.False(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.NoDeliveryManifest, result.Status);
+        }
+
+        // catches (D2/D4 fail-closed pin): a MIXED window carrying a DEFINED-name
+        // delivery PLUS an UNDEFINED-name pickup. Pre-M3 this rejected
+        // MixedPickupDelivery. Now the undefined name is excluded from the load
+        // manifest (hasLoad=false from that name), the defined delivery sets
+        // hasDelivery=true, and the window reaches Eligible carrying ONLY the
+        // delivery: the undefined pickup is silently dropped, NO phantom resource
+        // routed in either direction (a mod uninstall can never conjure cargo).
+        [Fact]
+        public void AnalyzeRecording_MixedDefinedDeliveryUndefinedPickup_AdmitsDeliveryOnly()
+        {
+            ResourceTransferability.DefinitionLookupOverrideForTesting =
+                CrpFixtures.DefinedLookup;
+            // Defined Karbonite delivery: transport (80 -> 30) onto endpoint
+            // (0 -> 50), so delivered = min(50, 50) = 50.
+            RouteConnectionWindow window =
+                BuildNamedResourceDeliveryWindow(CrpFixtures.Karbonite);
+            // Undefined-name pickup: endpoint (10 -> 0) onto transport (0 -> 10).
+            window.DockEndpointResources[CrpFixtures.UninstalledModResource] =
+                new ResourceAmount { amount = 10.0, maxAmount = 50.0 };
+            window.UndockEndpointResources[CrpFixtures.UninstalledModResource] =
+                new ResourceAmount { amount = 0.0, maxAmount = 50.0 };
+            window.DockTransportResources[CrpFixtures.UninstalledModResource] =
+                new ResourceAmount { amount = 0.0, maxAmount = 50.0 };
+            window.UndockTransportResources[CrpFixtures.UninstalledModResource] =
+                new ResourceAmount { amount = 10.0, maxAmount = 50.0 };
+            Recording rec = new Recording
+            {
+                RecordingId = "mixed-defined-undefined",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                RouteConnectionWindows = new List<RouteConnectionWindow> { window }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.True(result.IsEligible,
+                $"a defined delivery + undefined pickup must admit as pure delivery, got {result.Status}");
+            // The defined delivery is carried.
+            Assert.NotNull(result.ResourceDeliveryManifest);
+            Assert.Equal(50.0, result.ResourceDeliveryManifest[CrpFixtures.Karbonite]);
+            // The undefined name is NOT routed in EITHER direction (no phantom).
+            Assert.False(
+                result.ResourceDeliveryManifest.ContainsKey(CrpFixtures.UninstalledModResource));
+            Assert.True(result.ResourceLoadManifest == null ||
+                !result.ResourceLoadManifest.ContainsKey(CrpFixtures.UninstalledModResource),
+                "the undefined pickup must NOT appear in the load manifest");
+        }
+
+        // catches (gate fix b, D3 item 7): a loaded (pickup) tree, with the M2
+        // gain check ENGAGED (complete run manifests), false-rejecting
+        // UntrackedCargoGain or failing to admit. A physically-consistent pure
+        // pickup (the transport launches empty, picks up 50 at the window, ends
+        // with 50) must analyze Eligible with the load manifest set. The
+        // loaded-term composition keeps the gain check from tripping on the
+        // pickup; the gate order (manifest build -> gain check -> closure) holds.
+        [Fact]
+        public void AnalyzeTree_PurePickup_GainCheckEngaged_AdmitsLoad()
+        {
+            // KSC origin, transport launches empty (rootStart 0 = dockTransport
+            // 0, no in-transit gain so the gain check passes trivially). At the
+            // window it picks up 50 Ore (endpoint 50 -> 0, transport 0 -> 50).
+            // Run-end residual 50 closes the flow.
+            RecordingTree tree = BuildLoadedPickupTree(
+                rootStartOre: 0.0, dockTransportOre: 0.0, undockTransportOre: 50.0,
+                pickupOre: 50.0, residualOre: 50.0, kscOrigin: true);
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.NotEqual(RouteAnalysisStatus.UntrackedCargoGain, result.Status);
+            Assert.True(result.IsEligible,
+                $"a pure-pickup tree must admit the load, got {result.Status}");
+            Assert.NotNull(result.ResourceLoadManifest);
+            Assert.Equal(50.0, result.ResourceLoadManifest["Ore"], 6);
+        }
+
+        // catches: an unwitnessed dock-time gain (no harvest, no prior load)
+        // still rejecting UntrackedCargoGain after the M3 changes - the load-term
+        // composition must NOT become a blanket gain-check disable. A KSC drill
+        // run with a 120 Ore dock gain and no harvest must still reject.
+        [Fact]
+        public void AnalyzeTree_UnwitnessedDockGain_RejectsUntrackedCargoGain()
+        {
+            RecordingTree tree = BuildDrillRunTree(
+                out _, out _,
+                rootStartOre: 0.0, dockOre: 120.0, undockOre: 20.0,
+                kscOrigin: true);
+            // No harvest windows, no pickup in the window: the gain is unwitnessed.
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.False(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.UntrackedCargoGain, result.Status);
+        }
+
+        // ---- ComputeFlowClosure (D3) ----
+
+        // byte-identity regression guard for plain KSC delivery: a delivery-only
+        // run with a complete run manifest, no harvest, and no pickup must
+        // CLOSE (no FlowDoesNotClose reject). Launched 100, loaded 0, harvested
+        // 0, delivered 60, residual 40 -> slack = 0, exactly balanced. Closure
+        // must never regress the pre-M3 plain-delivery path into a rejection.
+        [Fact]
+        public void ComputeFlowClosure_PlainDeliveryOnly_Closes()
+        {
+            FlowClosureResult closure = RouteAnalysisEngine.ComputeFlowClosure(
+                OreAmountD(100.0),
+                new List<Dictionary<string, double>> { null },
+                null,
+                new List<Dictionary<string, double>> { OreAmountD(60.0) },
+                OreAmountD(40.0));
+
+            Assert.True(closure.Closes,
+                $"plain delivery-only must close, offending={closure.OffendingResource}");
+            Assert.Null(closure.OffendingResource);
+        }
+
+        // catches: the closure REJECTING a legitimate fuel-burning run. A
+        // POSITIVE balancing slack (consumed = launched + loaded + harvested -
+        // delivered - residual > 0) is consumption, never a rejection.
+        [Fact]
+        public void ComputeFlowClosure_PositiveConsumptionSlack_Closes()
+        {
+            // launched 0, loaded 0, harvested 120, delivered 100, residual 5
+            // -> slack = +15 (15 units consumed / burned). Must close.
+            FlowClosureResult closure = RouteAnalysisEngine.ComputeFlowClosure(
+                OreAmountD(0.0),
+                new List<Dictionary<string, double>> { null },
+                OreAmountD(120.0),
+                new List<Dictionary<string, double>> { OreAmountD(100.0) },
+                OreAmountD(5.0));
+
+            Assert.True(closure.Closes,
+                $"positive consumption slack must close, offending={closure.OffendingResource}");
+        }
+
+        // catches (D3 risk): over-delivery NOT rejecting. The transport ended
+        // with more of a resource than ever arrived (delivered + residual >
+        // launched + loaded + harvested) - phantom cargo. Must reject and name
+        // the unaccounted quantity.
+        [Fact]
+        public void ComputeFlowClosure_OverDelivery_RejectsAndNamesQuantity()
+        {
+            // launched 0, loaded 0, harvested 120, delivered 100, residual 50
+            // -> slack = -30: delivered + residual (150) exceeds arrived (120).
+            FlowClosureResult closure = RouteAnalysisEngine.ComputeFlowClosure(
+                OreAmountD(0.0),
+                new List<Dictionary<string, double>> { null },
+                OreAmountD(120.0),
+                new List<Dictionary<string, double>> { OreAmountD(100.0) },
+                OreAmountD(50.0));
+
+            Assert.False(closure.Closes);
+            Assert.Equal("Ore", closure.OffendingResource);
+            Assert.Equal(30.0, closure.UnaccountedQuantity, 6);
+            Assert.Equal("Ore: 30.0 over-delivered", closure.RejectDetail);
+        }
+
+        // catches: the loaded term not counting toward the arrived side. A
+        // pickup that exactly accounts for the residual must close.
+        [Fact]
+        public void ComputeFlowClosure_LoadedTermCovers_Closes()
+        {
+            // launched 0, loaded 50, harvested 0, delivered 0, residual 50
+            // -> slack = 0. The loaded cargo accounts for the residual.
+            FlowClosureResult closure = RouteAnalysisEngine.ComputeFlowClosure(
+                OreAmountD(0.0),
+                new List<Dictionary<string, double>> { OreAmountD(50.0) },
+                null,
+                new List<Dictionary<string, double>> { null },
+                OreAmountD(50.0));
+
+            Assert.True(closure.Closes);
+        }
+
+        // catches: the per-window list NOT summing. Two delivery windows summing
+        // to over-delivery must reject (the length-1 list shape generalizes to
+        // M4 multi-window by SUM, not rewrite).
+        [Fact]
+        public void ComputeFlowClosure_MultiWindowSum_OverDeliveryAcrossWindows()
+        {
+            // launched 100, harvested 0, loaded 0, residual 50, but two delivery
+            // windows of 60 each = 120 delivered. delivered + residual = 170 >
+            // arrived 100 -> over-delivered 70.
+            FlowClosureResult closure = RouteAnalysisEngine.ComputeFlowClosure(
+                OreAmountD(100.0),
+                new List<Dictionary<string, double>> { null, null },
+                null,
+                new List<Dictionary<string, double>> { OreAmountD(60.0), OreAmountD(60.0) },
+                OreAmountD(50.0));
+
+            Assert.False(closure.Closes);
+            Assert.Equal(70.0, closure.UnaccountedQuantity, 6);
+        }
+
+        // catches: EC/IntakeAir participating in the balance. They are
+        // environmental noise on every term and must be skipped even if a
+        // spurious delta would otherwise read as over-delivery.
+        [Fact]
+        public void ComputeFlowClosure_ElectricChargeNoise_Ignored()
+        {
+            var residual = new Dictionary<string, double> { ["ElectricCharge"] = 999.0 };
+            FlowClosureResult closure = RouteAnalysisEngine.ComputeFlowClosure(
+                null,
+                new List<Dictionary<string, double>> { null },
+                null,
+                new List<Dictionary<string, double>> { null },
+                residual);
+
+            Assert.True(closure.Closes,
+                "ElectricCharge must not participate in the flow balance");
+        }
+
+        // catches: IntakeAir participating in the balance. Sibling of the
+        // ElectricCharge case - both are IsAlwaysIgnored environmental noise and
+        // must be skipped on every term even when a spurious delta would read as
+        // over-delivery. A residual-only IntakeAir spike must still close.
+        [Fact]
+        public void ComputeFlowClosure_IntakeAirNoise_Ignored()
+        {
+            var residual = new Dictionary<string, double> { ["IntakeAir"] = 999.0 };
+            FlowClosureResult closure = RouteAnalysisEngine.ComputeFlowClosure(
+                null,
+                new List<Dictionary<string, double>> { null },
+                null,
+                new List<Dictionary<string, double>> { null },
+                residual);
+
+            Assert.True(closure.Closes,
+                "IntakeAir must not participate in the flow balance");
+        }
+
+        // ---- AnalyzeTree closure end-to-end (presence-gated) ----
+
+        // catches: an over-delivering run analyzing Eligible instead of
+        // FlowDoesNotClose, and the reject not threading the RejectDetail + log.
+        // End to end through AnalyzeTree: the window delivers LiquidFuel cleanly
+        // (so it clears the NoDeliveryManifest gate and the M2 gain check), but
+        // the transport's post-window ORE residual (150) exceeds what ever
+        // arrived (120 harvested) - a phantom 30 the dock-time gain check misses
+        // and the full-run closure catches.
+        [Fact]
+        public void AnalyzeTree_OverDelivery_RejectsFlowDoesNotClose()
+        {
+            // Anchor (root) launched 50 LiquidFuel + 0 Ore. Drills 120 Ore
+            // (harvest-covered). The colony window: deliver 50 LiquidFuel
+            // (transport 50 -> 0, endpoint 0 -> 50) AND end with 150 Ore aboard
+            // (dock-transport 120, undock-transport 150) with NO Ore pickup
+            // (endpoint Ore flat) -> 30 Ore phantom over-delivery.
+            var root = new Recording
+            {
+                RecordingId = "od-root",
+                TreeId = "tree-od",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 500.0,
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { TransportPid },
+                    StartTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        ["LiquidFuel"] = RA(50.0),
+                        ["Ore"] = RA(0.0)
+                    },
+                    EndTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        ["LiquidFuel"] = RA(0.0),
+                        ["Ore"] = RA(150.0)
+                    },
+                    EndCaptured = true
+                },
+                RouteHarvestWindows = new List<RouteHarvestWindow>
+                {
+                    OreHarvestWindow(150.0, 400.0, 0.0, 120.0)
+                }
+            };
+            var merge = new Recording
+            {
+                RecordingId = "od-merge",
+                TreeId = "tree-od",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 600.0,
+                ParentBranchPointId = "bp-dock",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { TransportPid, ColonyPid },
+                    StartTransportResources = OreAmount(120.0),
+                    EndTransportResources = OreAmount(150.0),
+                    EndCaptured = true
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "od-window",
+                        DockUT = 500.0,
+                        UndockUT = 600.0,
+                        TransferTargetVesselPid = 9001,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        TransportPartPersistentIds = new List<uint> { TransportPid },
+                        EndpointPartPersistentIds = new List<uint> { ColonyPid },
+                        DockTransportResources = new Dictionary<string, ResourceAmount>
+                        {
+                            ["LiquidFuel"] = RA(50.0),
+                            ["Ore"] = RA(120.0)
+                        },
+                        UndockTransportResources = new Dictionary<string, ResourceAmount>
+                        {
+                            ["LiquidFuel"] = RA(0.0),
+                            ["Ore"] = RA(150.0)
+                        },
+                        DockEndpointResources = new Dictionary<string, ResourceAmount>
+                        {
+                            ["LiquidFuel"] = RA(0.0),
+                            ["Ore"] = RA(0.0)
+                        },
+                        UndockEndpointResources = new Dictionary<string, ResourceAmount>
+                        {
+                            ["LiquidFuel"] = RA(50.0),
+                            ["Ore"] = RA(0.0)
+                        },
+                        EndpointAtDock = Endpoint(),
+                        TransferEndpointSituation = 1
+                    }
+                }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-od",
+                RootRecordingId = root.RecordingId,
+                ActiveRecordingId = merge.RecordingId
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(merge);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock",
+                UT = 500.0,
+                Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { root.RecordingId },
+                ChildRecordingIds = new List<string> { merge.RecordingId }
+            });
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.False(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.FlowDoesNotClose, result.Status);
+            Assert.Equal("Ore: 30.0 over-delivered", result.RejectDetail);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("flow does not close") &&
+                l.Contains("resource=Ore") &&
+                l.Contains("unaccounted=30"));
+        }
+
+        // catches: the presence gate not skipping closure on a DEGRADED lineage.
+        // A pickup run with NO complete run manifests must still classify the
+        // pickup window-locally (admit the load) and NOT run closure (which
+        // would need the launched/residual terms it lacks) - never drop the
+        // pickup by falling back to delivery-only.
+        [Fact]
+        public void AnalyzeTree_DegradedLineage_ClassifiesPickupWindowLocally()
+        {
+            // A pickup run with no RouteRunManifest anywhere (pre-M2 / degraded):
+            // the harvest gain check returns LegacyFallback, so closure is
+            // skipped, but the window-direction classification still admits the
+            // pickup window-locally. Pure pickup: dock-transport 0, undock 50,
+            // endpoint 50 -> 0.
+            RecordingTree tree = BuildLoadedPickupTree(
+                rootStartOre: 0.0, dockTransportOre: 0.0, undockTransportOre: 50.0,
+                pickupOre: 50.0, residualOre: 50.0, kscOrigin: true);
+            foreach (Recording r in tree.Recordings.Values)
+                r.RouteRunManifest = null; // degrade the whole lineage
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.True(result.IsEligible,
+                $"a degraded-lineage pickup must classify window-locally, got {result.Status}");
+            Assert.NotNull(result.ResourceLoadManifest);
+            Assert.Equal(50.0, result.ResourceLoadManifest["Ore"], 6);
+            // Closure did not engage (no run manifests), so no harvest data.
+            Assert.Null(result.HarvestedManifest);
+        }
+
+        // A pickup window: Ore flows endpoint (amount -> 0) onto transport
+        // (0 -> amount). Pure pickup, no delivery.
+        private static RouteConnectionWindow BuildResourcePickupWindow(
+            string resourceName, double amount)
+        {
+            return new RouteConnectionWindow
+            {
+                WindowId = "pickup-window",
+                DockUT = 100.0,
+                UndockUT = 160.0,
+                TransferTargetVesselPid = 9001,
+                TransferKind = RouteConnectionKind.DockingPort,
+                DockEndpointResources = new Dictionary<string, ResourceAmount>
+                {
+                    [resourceName] = new ResourceAmount { amount = amount, maxAmount = amount * 2.0 }
+                },
+                UndockEndpointResources = new Dictionary<string, ResourceAmount>
+                {
+                    [resourceName] = new ResourceAmount { amount = 0.0, maxAmount = amount * 2.0 }
+                },
+                DockTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    [resourceName] = new ResourceAmount { amount = 0.0, maxAmount = amount * 2.0 }
+                },
+                UndockTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    [resourceName] = new ResourceAmount { amount = amount, maxAmount = amount * 2.0 }
+                },
+                EndpointAtDock = Endpoint(),
+                TransferEndpointSituation = 4
+            };
+        }
+
+        private static Dictionary<string, double> OreAmountD(double amount)
+        {
+            return new Dictionary<string, double> { ["Ore"] = amount };
+        }
+
+        // A pickup-flavored drill-run tree: root (transport) -> Dock BP -> merge
+        // child carrying a pickup window (Ore flows endpoint -> transport).
+        // Both legs carry complete run manifests so the M2/M3 closure engages.
+        // The root anchor manifest Start=rootStartOre, End=residualOre. The
+        // window's transport corners (dockTransportOre / undockTransportOre) and
+        // the endpoint pickup (pickupOre -> 0) are set independently so a test
+        // can model an elevated dock-transport with or without a witnessed
+        // pickup.
+        private static RecordingTree BuildLoadedPickupTree(
+            double rootStartOre, double dockTransportOre, double undockTransportOre,
+            double pickupOre, double residualOre, bool kscOrigin)
+        {
+            var root = new Recording
+            {
+                RecordingId = "pickup-root",
+                TreeId = "tree-pickup",
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 500.0,
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { TransportPid },
+                    StartTransportResources = OreAmount(rootStartOre),
+                    EndTransportResources = OreAmount(residualOre),
+                    EndCaptured = true
+                }
+            };
+            if (kscOrigin)
+            {
+                root.StartBodyName = "Kerbin";
+                root.LaunchSiteName = "LaunchPad";
+            }
+            var merge = new Recording
+            {
+                RecordingId = "pickup-merge",
+                TreeId = "tree-pickup",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 600.0,
+                ParentBranchPointId = "bp-dock",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { TransportPid, ColonyPid },
+                    StartTransportResources = OreAmount(dockTransportOre),
+                    EndTransportResources = OreAmount(dockTransportOre),
+                    EndCaptured = true
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "pickup-window",
+                        DockUT = 500.0,
+                        UndockUT = 600.0,
+                        TransferTargetVesselPid = 9001,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        TransportPartPersistentIds = new List<uint> { TransportPid },
+                        EndpointPartPersistentIds = new List<uint> { ColonyPid },
+                        // Pickup: endpoint (pickupOre -> 0), transport
+                        // (dockTransportOre -> undockTransportOre).
+                        DockEndpointResources = OreAmount(pickupOre),
+                        UndockEndpointResources = OreAmount(0.0),
+                        DockTransportResources = OreAmount(dockTransportOre),
+                        UndockTransportResources = OreAmount(undockTransportOre),
+                        EndpointAtDock = Endpoint(),
+                        TransferEndpointSituation = 1
+                    }
+                }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-pickup",
+                RootRecordingId = root.RecordingId,
+                ActiveRecordingId = merge.RecordingId
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(merge);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock",
+                UT = 500.0,
+                Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { root.RecordingId },
+                ChildRecordingIds = new List<string> { merge.RecordingId }
+            });
+            return tree;
         }
     }
 }

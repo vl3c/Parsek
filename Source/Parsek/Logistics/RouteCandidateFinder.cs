@@ -129,7 +129,8 @@ namespace Parsek.Logistics
             // so it emits no per-tree INFO; the detailed per-tree reason is still
             // logged at INFO on the one-shot Create Route path (Diagnostic mode).
             int missingProof = 0, multiWindow = 0, missingEndpoint = 0,
-                mixedPickup = 0, noManifest = 0, undockedStart = 0, untrackedGain = 0;
+                mixedPickup = 0, noManifest = 0, undockedStart = 0, untrackedGain = 0,
+                flowNotClosed = 0;
             for (int i = 0; i < committedTrees.Count; i++)
             {
                 RecordingTree tree = committedTrees[i];
@@ -156,6 +157,7 @@ namespace Parsek.Logistics
                         case RouteAnalysisStatus.NoDeliveryManifest: noManifest++; break;
                         case RouteAnalysisStatus.UndockedStartOrigin: undockedStart++; break;
                         case RouteAnalysisStatus.UntrackedCargoGain: untrackedGain++; break;
+                        case RouteAnalysisStatus.FlowDoesNotClose: flowNotClosed++; break;
                     }
                     continue;
                 }
@@ -176,7 +178,7 @@ namespace Parsek.Logistics
                 $"[missingProof={missingProof} multiWindow={multiWindow} " +
                 $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} " +
                 $"noManifest={noManifest} undockedStart={undockedStart} " +
-                $"untrackedGain={untrackedGain}]");
+                $"untrackedGain={untrackedGain} flowNotClosed={flowNotClosed}]");
             return result;
         }
 
@@ -216,7 +218,8 @@ namespace Parsek.Logistics
             // Per-reason breakdown of the ineligible count, mirroring DeriveCandidates'
             // batch-summary convention (one Verbose line after the loop, never per item).
             int missingProof = 0, multiWindow = 0, missingEndpoint = 0,
-                mixedPickup = 0, noManifest = 0, undockedStart = 0, untrackedGain = 0;
+                mixedPickup = 0, noManifest = 0, undockedStart = 0, untrackedGain = 0,
+                flowNotClosed = 0;
             for (int i = 0; i < committedTrees.Count; i++)
             {
                 RecordingTree tree = committedTrees[i];
@@ -254,6 +257,7 @@ namespace Parsek.Logistics
                         case RouteAnalysisStatus.NoDeliveryManifest: noManifest++; break;
                         case RouteAnalysisStatus.UndockedStartOrigin: undockedStart++; break;
                         case RouteAnalysisStatus.UntrackedCargoGain: untrackedGain++; break;
+                        case RouteAnalysisStatus.FlowDoesNotClose: flowNotClosed++; break;
                     }
                     result.Add(new RouteNearMiss
                     {
@@ -276,7 +280,7 @@ namespace Parsek.Logistics
                 $"[missingProof={missingProof} multiWindow={multiWindow} " +
                 $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} " +
                 $"noManifest={noManifest} undockedStart={undockedStart} " +
-                $"untrackedGain={untrackedGain}]");
+                $"untrackedGain={untrackedGain} flowNotClosed={flowNotClosed}]");
             return result;
         }
 

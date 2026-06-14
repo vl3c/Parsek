@@ -145,12 +145,36 @@ namespace Parsek.Logistics
         /// Pure except for logging. <paramref name="tree"/> may be null
         /// (legacy single-recording analysis) - the lineage is then the source
         /// recording alone, and any parent link forces the legacy fallback.
+        ///
+        /// <para>M3 composition (plan D3 / item 7): <paramref name="loadedManifest"/>
+        /// is the window's pickup LOAD manifest
+        /// (<see cref="RouteAnalysisEngine.BuildResourceLoadManifest"/>). A pickup
+        /// window LEGITIMATELY raises the dock transport above the anchor start, so
+        /// without this term the gain check would false-reject a pickup window as
+        /// <see cref="HarvestGainOutcome.UntrackedGain"/> BEFORE the M3 flow
+        /// closure ever runs. The loaded term is folded into the COVERED totals
+        /// (a third witnessed source alongside harvest windows + boundary
+        /// bridges); it does NOT inflate the harvested-only manifest the D8 debit
+        /// reduction / refined undocked-start gate read
+        /// (<see cref="HarvestGainCheckResult.HarvestedManifest"/> stays
+        /// harvest-only). Pass null (or the legacy two-arg overload) for a
+        /// delivery-only window.</para>
         /// </summary>
         internal static HarvestGainCheckResult CheckTransportGains(
             RecordingTree tree,
             Recording source,
             RouteConnectionWindow window,
             RouteAnalysisLogMode logMode)
+        {
+            return CheckTransportGains(tree, source, window, logMode, null);
+        }
+
+        internal static HarvestGainCheckResult CheckTransportGains(
+            RecordingTree tree,
+            Recording source,
+            RouteConnectionWindow window,
+            RouteAnalysisLogMode logMode,
+            Dictionary<string, double> loadedManifest)
         {
             if (source == null || window == null)
                 return LegacyWithLog(logMode, "null-source-or-window", source);
@@ -217,10 +241,29 @@ namespace Parsek.Logistics
             Dictionary<string, double> gains =
                 ComputeFullRunGains(anchorLeg.RouteRunManifest, window);
 
+            // M3 composition (plan D3 / item 7): the covered totals are the
+            // witnessed HARVEST plus the window's pickup LOAD term. A pickup
+            // window legitimately raises dock transport above the anchor start;
+            // crediting the loaded term here stops it from false-rejecting as an
+            // untracked gain. covered is a verdict-only working dict; the
+            // returned HarvestedManifest stays harvest-only (the D8 debit
+            // reduction / refined undocked-start gate must not see the loaded
+            // term as harvest).
+            Dictionary<string, double> covered =
+                new Dictionary<string, double>(harvested, StringComparer.Ordinal);
+            if (loadedManifest != null)
+            {
+                foreach (KeyValuePair<string, double> kvp in loadedManifest)
+                {
+                    if (kvp.Value > 0.0)
+                        AddTo(covered, kvp.Key, kvp.Value);
+                }
+            }
+
             // Deterministic verdict: scan resource names in ordinal order and
             // reject on the FIRST uncovered positive gain. Undefined names are
-            // checked like any other (their harvested total is 0 because the
-            // window/bridge sums are admission-direction outputs - D2 fail
+            // checked like any other (their covered total is 0 because the
+            // window/bridge/load sums are admission-direction outputs - D2 fail
             // closed).
             var names = new List<string>(gains.Keys);
             names.Sort(StringComparer.Ordinal);
@@ -231,9 +274,10 @@ namespace Parsek.Logistics
                 if (gained <= GainEpsilon)
                     continue;
 
-                harvested.TryGetValue(name, out double harvestedAmount);
-                if (gained - harvestedAmount > GainEpsilon)
+                covered.TryGetValue(name, out double coveredAmount);
+                if (gained - coveredAmount > GainEpsilon)
                 {
+                    harvested.TryGetValue(name, out double harvestedAmount);
                     return new HarvestGainCheckResult
                     {
                         Outcome = HarvestGainOutcome.UntrackedGain,
