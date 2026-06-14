@@ -127,18 +127,7 @@ namespace Parsek
                 return false;
 
             ConfigNode[] partNodes = fileRoot.GetNodes("PART");
-            ConfigNode match = null;
-            for (int i = 0; i < partNodes.Length; i++)
-            {
-                string diskName = partNodes[i].GetValue("name");
-                if (string.IsNullOrEmpty(diskName))
-                    continue;
-                if (string.Equals(diskName.Replace('_', '.'), runtimePartName, System.StringComparison.Ordinal))
-                {
-                    match = partNodes[i];
-                    break;
-                }
-            }
+            ConfigNode match = FindPartNodeInFile(partNodes, runtimePartName);
 
             if (match == null)
             {
@@ -151,6 +140,46 @@ namespace Parsek
             data.Found = true;
             data.EffectsNode = match.GetNode("EFFECTS");
 
+            ExtractModuleEffectNames(match, data);
+
+            data.LegacyFxPrefabNames = ParseLegacyFxKeys(match, runtimePartName);
+
+            ParsekLog.Verbose("WaterfallCompat",
+                $"pristine FX data extracted for '{runtimePartName}' from '{sourcePath}': " +
+                $"effectsGroups={(data.EffectsNode != null ? data.EffectsNode.CountNodes : 0)} " +
+                $"engineModules={data.EngineModuleEffectNames.Count} " +
+                $"rcsModules={data.RcsRunningEffectNames.Count} " +
+                $"legacyFx={data.LegacyFxPrefabNames.Count}");
+            return true;
+        }
+
+        /// <summary>
+        /// Pure extraction of the PART-node search loop: returns the PART node whose
+        /// disk name (underscores converted to dots) matches the runtime part name,
+        /// or null when none matches.
+        /// </summary>
+        private static ConfigNode FindPartNodeInFile(ConfigNode[] partNodes, string runtimePartName)
+        {
+            for (int i = 0; i < partNodes.Length; i++)
+            {
+                string diskName = partNodes[i].GetValue("name");
+                if (string.IsNullOrEmpty(diskName))
+                    continue;
+                if (string.Equals(diskName.Replace('_', '.'), runtimePartName, System.StringComparison.Ordinal))
+                {
+                    return partNodes[i];
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Pure extraction of the MODULE-iteration loop: walks the matched PART node's
+        /// MODULE children and appends ModuleEngines* / ModuleRCS* effect names to data.
+        /// </summary>
+        private static void ExtractModuleEffectNames(ConfigNode match, PristinePartFxData data)
+        {
             ConfigNode[] moduleNodes = match.GetNodes("MODULE");
             for (int m = 0; m < moduleNodes.Length; m++)
             {
@@ -167,16 +196,6 @@ namespace Parsek
                     data.RcsRunningEffectNames.Add(string.IsNullOrEmpty(running) ? "running" : running);
                 }
             }
-
-            data.LegacyFxPrefabNames = ParseLegacyFxKeys(match, runtimePartName);
-
-            ParsekLog.Verbose("WaterfallCompat",
-                $"pristine FX data extracted for '{runtimePartName}' from '{sourcePath}': " +
-                $"effectsGroups={(data.EffectsNode != null ? data.EffectsNode.CountNodes : 0)} " +
-                $"engineModules={data.EngineModuleEffectNames.Count} " +
-                $"rcsModules={data.RcsRunningEffectNames.Count} " +
-                $"legacyFx={data.LegacyFxPrefabNames.Count}");
-            return true;
         }
 
         /// <summary>
