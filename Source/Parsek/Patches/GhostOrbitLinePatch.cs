@@ -122,6 +122,17 @@ namespace Parsek.Patches
             }
         }
 
+        // Bug A director-path CoMD re-snap counter: cumulative count of per-frame icon-drive CoMD
+        // refreshes (the v.CoMD = refBody.position + pos write in the SetPosition block below). A warp
+        // playtest must show refreshed>0 (the no-op trap guard, PR-#885 lesson) alongside a collapse in
+        // director-drive icon-off-orbit / icon-teleport anomalies. Cumulative; reset only for testing.
+        internal static long directorIconCoMDRefreshCount;
+
+        internal static void ResetDirectorIconCoMDRefreshCountForTesting()
+        {
+            directorIconCoMDRefreshCount = 0L;
+        }
+
         static bool Prefix(OrbitDriver __instance, bool setPosition, ref double ___updateUT)
         {
             if (__instance == null || __instance.vessel == null) return true;
@@ -365,7 +376,37 @@ namespace Parsek.Patches
             {
                 Vector3d off = (QuaternionD)__instance.driverTransform.rotation * (Vector3d)v.localCoM;
                 v.SetPosition(refBody.position + pos - off);
+
+                // Bug A director-path CoMD re-snap: GetWorldPos3D - and the map icon - read the cached
+                // Vessel.CoMD, which VesselPrecalculate.Update computes (CalculatePhysicsStats) BEFORE
+                // re-propagating the orbit (UpdateOrbit -> this Prefix) for a packed ghost, so CoMD
+                // trails orbitDriver.pos by one Update every frame; at high warp that one-Update arc
+                // puts the icon up to ~158 deg off its own line (the surviving director-drive
+                // icon-off-orbit / icon-teleport in the 2026-06-14_1642 capture, the facet the
+                // state-vector-path seam fix does NOT cover). SetPosition just placed the CoM at exactly
+                // refBody.position + pos (the -off term is the CoM offset the root is shifted by, which
+                // cancels), so write CoMD to that same point - identical to what CalculatePhysicsStats
+                // writes for a packed orbiting ghost (CoMD = mainBody.position + orbitDriver.pos) - and
+                // the icon rides its line THIS frame instead of next Update. One assignment, hot-path
+                // cheap. Ghost-only (IsGhostMapVessel-guarded at the top), so it never touches a live
+                // vessel's physics CoM.
+                v.CoMD = refBody.position + pos;
+                v.CoM = v.CoMD;
+                directorIconCoMDRefreshCount++;
             }
+
+            // Shared-key proof-of-fire (no-op trap guard): a warp playtest must show refreshed>0 (the
+            // per-frame CoMD re-snap engaged) and a collapse in director-drive icon-off-orbit anomalies.
+            // Guarded by IsVerboseEnabled so the Format never runs on this hot path in normal
+            // (verbose-off) play - the long++ above is then the only steady-state cost.
+            if (ParsekLog.IsVerboseEnabled)
+                ParsekLog.VerboseRateLimited("GhostOrbitIcon", "director-comd-refresh-summary",
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Director icon CoMD re-snap summary: refreshed={0} (cached CoMD set to "
+                        + "refBody.position + orbitDriver.pos after the per-frame drive so GetWorldPos3D "
+                        + "rides its line)",
+                        directorIconCoMDRefreshCount),
+                    5.0);
 
             // The per-frame icon-truth / icon-vs-line divergence / icon-jump diagnostics that used
             // to live here (PR #1003 follow-ups) were always-on, per-ghost, per-frame reads. They

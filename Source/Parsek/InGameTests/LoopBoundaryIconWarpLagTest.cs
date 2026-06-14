@@ -232,6 +232,130 @@ namespace Parsek.InGameTests
             }
         }
 
+        // Bug A director-path facet (validated 2026-06-14_1642): the surviving high-warp
+        // icon-off-orbit / icon-teleport anomalies sit on DIRECTOR-DRIVE (and legacy-bounded) ghosts,
+        // not the state-vector gap-glide the test above covers. Same root mechanism: GetWorldPos3D
+        // reads the cached Vessel.CoMD, which VesselPrecalculate.Update computes (CalculatePhysicsStats)
+        // BEFORE re-propagating the orbit (UpdateOrbit -> the icon-drive Prefix) for a packed ghost, so
+        // CoMD trails orbitDriver.pos by one Update every frame. The fix re-snaps CoMD onto
+        // refBody.position + orbitDriver.pos inside the Prefix (after SetPosition). This test stages a
+        // deliberately-wrong (stale) CoMD on a real bounded ghost, drives it through the production
+        // Prefix (updateFromParameters), and asserts the Prefix corrected the cached CoMD onto the
+        // driver's pos - the no-op refutation (SetPosition alone would leave the stale value).
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "Bug A director-path: the per-frame icon-drive Prefix re-snaps the cached Vessel.CoMD (GetWorldPos3D) onto refBody.position + orbitDriver.pos, so a packed driven ghost icon rides its line the same frame instead of trailing CoMD by one Update (the surviving high-warp icon-off-orbit)")]
+        public void IconDrivePrefix_ResnapsCoMDOntoDriverPos()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == KerbinBodyName);
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies (non-stock pack)");
+                return;
+            }
+
+            double liveUT = Planetarium.GetUniversalTime();
+            double effUT = liveUT - LoopShiftSeconds;
+            OrbitSegment seg = BuildSegment(effUT);
+
+            System.Func<double> prevUTNow = GhostMapPresence.CurrentUTNow;
+            List<Recording> prevRecordings = RecordingStore.CommittedRecordings != null
+                ? new List<Recording>(RecordingStore.CommittedRecordings)
+                : new List<Recording>();
+            List<RecordingTree> prevTrees = RecordingStore.CommittedTrees != null
+                ? new List<RecordingTree>(RecordingStore.CommittedTrees)
+                : new List<RecordingTree>();
+
+            Recording rec = BuildLoopShiftedRecording(effUT, seg);
+            RecordingStore.ClearCommittedInternal();
+            RecordingStore.ClearCommittedTreesInternal();
+            RecordingStore.AddCommittedInternal(rec);
+            int recordingIndex = RecordingStore.CommittedRecordings.Count - 1;
+            GhostMapPresence.CurrentUTNow = () => liveUT;
+            GhostMapPresence.RemoveAllGhostVessels("director-comd-test-start");
+
+            uint pid = 0u;
+            try
+            {
+                Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
+                    recordingIndex, rec, GhostMapPresence.TrackingStationGhostSource.Segment,
+                    seg, default(TrajectoryPoint), effUT, loopEpochShiftSeconds: LoopShiftSeconds);
+                if (ghost == null || ghost.orbitDriver == null
+                    || ghost.orbitDriver.orbit == null || ghost.precalc == null)
+                {
+                    InGameAssert.Skip("Ghost / precalc did not resolve in this context (no proto)");
+                    return;
+                }
+                pid = ghost.persistentId;
+
+                // Settle the CoMD cache (firstStatsRunComplete=true) so GetWorldPos3D returns the
+                // CACHED value, the real steady-state contract that lets the director CoMD lag exist.
+                ghost.precalc.CalculatePhysicsStats();
+
+                // Stage a deliberately-wrong (stale) CoMD 5000 km off in +x.
+                Vector3d corruption = new Vector3d(5.0e6, 0.0, 0.0);
+                ghost.CoMD = kerbin.position + corruption;
+                ghost.CoM = ghost.CoMD;
+                Vector3d staleRel = ghost.GetWorldPos3D() - kerbin.position;
+                if ((staleRel - corruption).magnitude > 1.0)
+                {
+                    InGameAssert.Skip("CoMD cache self-refreshed (firstStatsRunComplete not set); "
+                        + "cannot stage the stale frame");
+                    return;
+                }
+
+                // Drive the icon the way VesselPrecalculate.Update does (UpdateOrbit ->
+                // updateFromParameters): the Prefix's bounded branch propagates orbitDriver.pos +
+                // SetPositions the transform, then - with the fix - re-snaps CoMD onto
+                // refBody.position + orbitDriver.pos.
+                Parsek.Patches.GhostOrbitIconDrivePatch.ResetDirectorIconCoMDRefreshCountForTesting();
+                ghost.orbitDriver.updateFromParameters();
+
+                if (Parsek.Patches.GhostOrbitIconDrivePatch.directorIconCoMDRefreshCount == 0L)
+                {
+                    InGameAssert.Skip("Ghost did not take the bounded icon-drive path (no orbit bounds / "
+                        + "deferred to stock); cannot exercise the director CoMD re-snap");
+                    return;
+                }
+
+                Vector3d driverPos = ghost.orbitDriver.pos;          // the Yup pos the Prefix just wrote
+                Vector3d fixedRel = ghost.GetWorldPos3D() - kerbin.position;
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "IconDrivePrefix_ResnapsCoMDOntoDriverPos: pid={0} refreshed={1} staleRel|{2:F0}| "
+                        + "fixedRel|{3:F0}| driverPos|{4:F0}| offFromDriver|{5:F2}| offFromStale|{6:F0}|",
+                        pid, Parsek.Patches.GhostOrbitIconDrivePatch.directorIconCoMDRefreshCount,
+                        staleRel.magnitude, fixedRel.magnitude, driverPos.magnitude,
+                        (fixedRel - driverPos).magnitude, (fixedRel - corruption).magnitude));
+
+                // After the drive, GetWorldPos3D (CoMD - refBody.position) must equal the driver's pos -
+                // the icon is exactly on the conic it was just propagated to.
+                InGameAssert.IsLessThan((fixedRel - driverPos).magnitude, 1.0,
+                    "After the icon-drive Prefix, the cached CoMD must equal refBody.position + "
+                    + "orbitDriver.pos (GetWorldPos3D on the conic). A large gap means the Prefix did NOT "
+                    + "re-snap CoMD - SetPosition alone leaves the cached CoMD stale (the no-op the "
+                    + "director re-snap fixes; a second updateFromParameters() would not help).");
+
+                // ... and it must have moved OFF the staged stale value (proves the drive corrected it,
+                // not a coincidental match).
+                InGameAssert.IsGreaterThan((fixedRel - corruption).magnitude, 1000.0,
+                    "The drive must have corrected the staged stale CoMD (5000 km off); the icon must no "
+                    + "longer sit at the corrupted position.");
+            }
+            finally
+            {
+                if (pid != 0u)
+                    GhostMapPresence.RemoveAllGhostVessels("director-comd-test-cleanup");
+                RecordingStore.ClearCommittedInternal();
+                RecordingStore.ClearCommittedTreesInternal();
+                for (int i = 0; i < prevRecordings.Count; i++)
+                    RecordingStore.AddCommittedInternal(prevRecordings[i]);
+                for (int i = 0; i < prevTrees.Count; i++)
+                    RecordingStore.AddCommittedTreeInternal(prevTrees[i]);
+                GhostMapPresence.CurrentUTNow = prevUTNow;
+            }
+        }
+
         private static OrbitSegment BuildSegment(double effUT)
         {
             return new OrbitSegment
