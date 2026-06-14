@@ -13,6 +13,14 @@ namespace Parsek.InGameTests
     // departure, then drive the live ReaimPlaybackResolver.TryResolveWindowSegments for several
     // consecutive synodic windows.
     //
+    // PARAMETRIZATION (M-MIS-3 stage B prep): the geometry/scan/member-plan/assertion machinery is
+    // generic over a (launchBodyName, targetBodyName) pair and target-appropriate synthetic leg
+    // elements (ReaimFixture). The Kerbin->Duna tests below are the regression fence: they call the
+    // parametrized helpers with KerbinToDuna() and assert exactly what they asserted when they were
+    // hardcoded. The eccentric-target (Moho, Eeloo) fixtures that exercise stage B's tof centering
+    // reuse the SAME helpers with a different ReaimFixture (added in a later step); nothing in the
+    // pinned-scan / mid-band / band-edge / sweep / determinism machinery is Kerbin/Duna specific.
+    //
     // DETERMINISM (the M-MIS-1 fix): the old test seeded its departure scan off the live
     // Planetarium.GetUniversalTime() and took the FIRST departure that synthesized. That made
     // every run a different geometry (irreproducible failures) and parked the chosen departure
@@ -89,14 +97,137 @@ namespace Parsek.InGameTests
         // in-game Periodicity batch confirms all-R.
         private const double ObservedEdgeDepartureUT = 409290.81937705079;
 
+        // A target fixture: the two stock bodies of an interplanetary re-aim transfer plus the
+        // synthetic member-segment leg elements (parking / heliocentric / arrival sma+ecc) that
+        // stand in for a recorded mission's on-rails SOI chain. Kerbin/Duna values are the legacy
+        // hardcoded constants; an eccentric-target fixture (Moho, Eeloo) supplies its own arrival
+        // elements so the same helpers exercise stage B's tof centering. The leg elements are
+        // placement stand-ins only - the resolver re-solves the heliocentric leg's conic per window
+        // from the real stock ephemerides (BuildGeometryOrSkip's Hohmann tof), so they do not need
+        // to be the body's true orbit; they only need to be sane OrbitSegments the assembler can
+        // place across the recorded span.
+        private sealed class ReaimFixture
+        {
+            public string LaunchBodyName;
+            public string TargetBodyName;
+
+            public double ParkingSma;          // S0 launch-body parking orbit sma (metres)
+            public double ParkingEcc;
+            public double HeliocentricSma;     // S2 recorded heliocentric leg sma (metres)
+            public double HeliocentricEcc;
+            public double ArrivalSma;          // S3 target-body arrival orbit sma (metres)
+            public double ArrivalEcc;
+
+            // The OFFSET-RECORDED-TOF construction (plan section 4.2.2, the silent-no-op trap). The harness
+            // uses ctx.TofSeconds as the STAND-IN recorded tof (fed to ReaimWindowPlanner.Plan as
+            // recordedTof => schedule.TofSeconds, AND to the scan). Stage B (ReaimPlaybackResolver) centers
+            // its tof search on schedule.TofSeconds and EXTENDS it toward the GEOMETRIC Hohmann time
+            // (geomTof), gated by target eccentricity. If a fixture leaves the recorded tof EQUAL to geomTof
+            // (the legacy Kerbin->Duna pattern: RecordedTofOffsetFraction = 0), the band is already centered
+            // on geomTof, so stage B changes nothing and an eccentric fixture proves NOTHING.
+            //
+            // To actually exercise limitation B, an eccentric fixture sets RecordedTofOffsetFraction != 0:
+            // ctx.TofSeconds = geomTof * (1 + RecordedTofOffsetFraction), i.e. a recorded tof DELIBERATELY
+            // displaced from the geometric center. This stands in for a recording captured when the target
+            // sat at one specific true anomaly (a longer-than-Hohmann recorded tof => the target was farther
+            // out, toward apoapsis). The offset must be CHOSEN so geomTof falls OUTSIDE the recorded +-6%
+            // base band (|offset| > ReaimTofSearch.BaseHalfWidthFraction) but INSIDE the eccentricity-scaled
+            // band (|offset| < ReaimTofSearch.HalfWidthFraction(eTarget)): then the pre-stage-B +-6% search
+            // cannot reach geomTof for the drifted windows (they decline), while stage B's ecc-gated
+            // expansion can (they resolve). That delta IS the in-game measurement the user gates on.
+            // 0 = legacy Duna behaviour (recorded tof == geomTof, no offset).
+            public double RecordedTofOffsetFraction;
+        }
+
+        // The legacy Kerbin->Duna fixture: the exact synthetic leg elements the four tests used
+        // when launch/target were hardcoded, so routing them through the parametrized helpers is a
+        // pure refactor (byte-identical geometry + assertions).
+        private static ReaimFixture KerbinToDuna()
+        {
+            return new ReaimFixture
+            {
+                LaunchBodyName = "Kerbin",
+                TargetBodyName = "Duna",
+                ParkingSma = 700000.0,
+                ParkingEcc = 0.0,
+                HeliocentricSma = 1.5e10,
+                HeliocentricEcc = 0.2,
+                ArrivalSma = 500000.0,
+                ArrivalEcc = 0.1,
+                // Regression fence: recorded tof == geometric Hohmann time (no offset), so stage B's band is
+                // centered exactly where it always was and the Duna windows resolve byte-identically. Duna's
+                // ecc (~0.051) is below the offset, so even with a nonzero offset stage B would barely widen;
+                // keeping 0 makes the no-regression contract explicit.
+                RecordedTofOffsetFraction = 0.0,
+            };
+        }
+
+        // The eccentric-target fixtures (plan section 4.2.3 Moho, 4.2.4 Eeloo). Both use the same
+        // OFFSET-RECORDED-TOF construction (see ReaimFixture.RecordedTofOffsetFraction): the stand-in
+        // recorded tof is displaced from the geometric Hohmann center so the geometric tof lands OUTSIDE the
+        // recorded +-6% base band but INSIDE the eccentricity-scaled band - the pre-stage-B search cannot
+        // reach it, stage B's ecc-gated expansion can. The offset is a POSITIVE fraction (a longer recorded
+        // tof than the Hohmann time, standing in for a recording captured with the target toward apoapsis);
+        // it is sized between ReaimTofSearch.BaseHalfWidthFraction (0.06) and the per-target scaled
+        // HalfWidthFraction so the construction is correct against the stage-B band law, NOT a magic number.
+        //
+        // The leg sma/ecc are placement stand-ins only (the resolver re-solves the heliocentric conic per
+        // window from the real stock ephemerides); the arrival leg uses a higher ecc to flag visually that
+        // these are eccentric targets, but no assertion reads it (requirement 3: sma/ecc are EXPECTED to vary
+        // per window, never asserted congruent).
+
+        // Moho: high inclination (~7 deg) + near-180 Hohmann transfer + moderate eccentricity (~0.2). The
+        // COMBINED case - validates stage A's un-projection inclination lift (the transfer must aim at Moho's
+        // actual out-of-plane position and the proximity check must find the SOI) AND stage B's ecc tof
+        // centering. Offset +0.10: above the 0.06 base band, below Moho's scaled band
+        // (clamp(0.06 + 0.5*0.20, .., 0.20) = 0.16).
+        private static ReaimFixture KerbinToMoho()
+        {
+            return new ReaimFixture
+            {
+                LaunchBodyName = "Kerbin",
+                TargetBodyName = "Moho",
+                ParkingSma = 700000.0,
+                ParkingEcc = 0.0,
+                HeliocentricSma = 1.0e10,
+                HeliocentricEcc = 0.3,
+                ArrivalSma = 200000.0,
+                ArrivalEcc = 0.2,
+                RecordedTofOffsetFraction = 0.10,
+            };
+        }
+
+        // Eeloo: high eccentricity (~0.26), the clean stage-B isolate. Offset +0.12: above the 0.06 base
+        // band, below Eeloo's scaled band (clamp(0.06 + 0.5*0.26, .., 0.20) = 0.19).
+        private static ReaimFixture KerbinToEeloo()
+        {
+            return new ReaimFixture
+            {
+                LaunchBodyName = "Kerbin",
+                TargetBodyName = "Eeloo",
+                ParkingSma = 700000.0,
+                ParkingEcc = 0.0,
+                HeliocentricSma = 4.0e10,
+                HeliocentricEcc = 0.4,
+                ArrivalSma = 400000.0,
+                ArrivalEcc = 0.26,
+                RecordedTofOffsetFraction = 0.12,
+            };
+        }
+
         private sealed class ScanContext
         {
-            public CelestialBody Kerbin;
-            public CelestialBody Duna;
-            public double TofSeconds;          // Hohmann tof (stands in for the recorded tof)
+            public ReaimFixture Fixture;
+            public CelestialBody LaunchBody;
+            public CelestialBody TargetBody;
+            public double TofSeconds;          // the STAND-IN recorded tof (geomTof for Duna; geomTof*(1+offset) for eccentric fixtures)
+            public double GeomTofSeconds;      // the GEOMETRIC Hohmann tof (== stage B's center; == TofSeconds when no offset)
             public double SynodicSeconds;
             public bool[] Scan;                // per scan step: window-0 transfer synthesizes?
             public double[] ScanDepartureUTs;  // per scan step: candidate departure UT
+
+            public string LaunchBodyName => Fixture.LaunchBodyName;
+            public string TargetBodyName => Fixture.TargetBodyName;
         }
 
         [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
@@ -104,14 +235,14 @@ namespace Parsek.InGameTests
         public void Reaim_KerbinToDuna_EveryWindowResolvesSaneTransfer()
         {
             var ic = CultureInfo.InvariantCulture;
-            ScanContext ctx = BuildPinnedScanOrSkip();
+            ScanContext ctx = BuildPinnedScanOrSkip(KerbinToDuna());
             if (ctx == null)
                 return;
 
             int midIdx = ReaimFeasibilityScan.CenterOfLongestRunIndex(ctx.Scan, cyclic: true);
             if (midIdx < 0)
             {
-                InGameAssert.Skip("no good Kerbin->Duna departure found in the pinned synodic scan (unexpected on stock)");
+                InGameAssert.Skip($"no good {ctx.LaunchBodyName}->{ctx.TargetBodyName} departure found in the pinned synodic scan (unexpected on stock)");
                 return;
             }
             double goodDep = ctx.ScanDepartureUTs[midIdx];
@@ -120,7 +251,7 @@ namespace Parsek.InGameTests
                 out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
                 out double spanStart, out double spanEnd);
             ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
-                ctx.Kerbin.orbit.period, ctx.Duna.orbit.period, goodDep, ctx.TofSeconds,
+                ctx.LaunchBody.orbit.period, ctx.TargetBody.orbit.period, goodDep, ctx.TofSeconds,
                 spanStart, spanEnd, referenceUT: goodDep - 1.0);
             InGameAssert.IsTrue(sched.Valid, "window schedule must be valid: " + (sched.Reason ?? ""));
             InGameAssert.IsTrue(System.Math.Abs(sched.FirstDepartureUT - goodDep) < 1.0,
@@ -148,7 +279,7 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsTrue(ok, $"window k={k} must resolve a re-aimed transfer (congruent-window model, mid-band departure)");
                 InGameAssert.AreEqual(k, windowIndex, $"resolved window index must equal k={k}");
-                AssertSaneWindowSegments(segs, plan, goodDep, spanEnd, k);
+                AssertSaneWindowSegments(ctx, segs, plan, goodDep, spanEnd, k);
 
                 OrbitSegment transfer = segs[1];
                 if (k == 0)
@@ -168,7 +299,7 @@ namespace Parsek.InGameTests
             double firstLpe = TransferWindowMath.LongitudeOfPeriapsisDegrees(firstLan, firstAop);
             double lastLpe = TransferWindowMath.LongitudeOfPeriapsisDegrees(lastLan, lastAop);
             ParsekLog.Info("ReaimE2E",
-                $"Kerbin->Duna congruent windows (pinned mid-band): checked={WindowsToCheck} resolved={resolved} " +
+                $"{ctx.LaunchBodyName}->{ctx.TargetBodyName} congruent windows (pinned mid-band): checked={WindowsToCheck} resolved={resolved} " +
                 $"scanIdx={midIdx} goodDep={goodDep.ToString("F1", ic)} tof={ctx.TofSeconds.ToString("F0", ic)} synodic={ctx.SynodicSeconds.ToString("F0", ic)} " +
                 $"ecc0={firstEcc.ToString("R", ic)} sma0={firstSma.ToString("R", ic)} " +
                 $"w0 inc={firstInc.ToString("F4", ic)} lan={firstLan.ToString("F2", ic)} aop={firstAop.ToString("F2", ic)} lpe={firstLpe.ToString("F2", ic)} | " +
@@ -193,14 +324,14 @@ namespace Parsek.InGameTests
         public void Reaim_KerbinToDuna_BandEdgeWindows_ResolveOrDeclineCleanly()
         {
             var ic = CultureInfo.InvariantCulture;
-            ScanContext ctx = BuildPinnedScanOrSkip();
+            ScanContext ctx = BuildPinnedScanOrSkip(KerbinToDuna());
             if (ctx == null)
                 return;
 
             int edgeIdx = ReaimFeasibilityScan.FirstSuccessIndex(ctx.Scan);
             if (edgeIdx < 0)
             {
-                InGameAssert.Skip("no good Kerbin->Duna departure found in the pinned synodic scan (unexpected on stock)");
+                InGameAssert.Skip($"no good {ctx.LaunchBodyName}->{ctx.TargetBodyName} departure found in the pinned synodic scan (unexpected on stock)");
                 return;
             }
             double edgeDep = ctx.ScanDepartureUTs[edgeIdx];
@@ -217,7 +348,7 @@ namespace Parsek.InGameTests
                 out string map, out int resolvedCount, out int declinedCount);
 
             ParsekLog.Info("ReaimE2E",
-                $"Kerbin->Duna band-edge windows (pinned): scanIdx={edgeIdx} edgeDep={edgeDep.ToString("F1", ic)} " +
+                $"{ctx.LaunchBodyName}->{ctx.TargetBodyName} band-edge windows (pinned): scanIdx={edgeIdx} edgeDep={edgeDep.ToString("F1", ic)} " +
                 $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} " +
                 $"(decline = clean faithful fall-back; all-decline is a valid fail-closed outcome)");
         }
@@ -227,7 +358,7 @@ namespace Parsek.InGameTests
         public void Reaim_KerbinToDuna_ObservedEdgeDeparture_ResolvesOrDeclinesCleanly()
         {
             var ic = CultureInfo.InvariantCulture;
-            ScanContext ctx = BuildGeometryOrSkip();
+            ScanContext ctx = BuildGeometryOrSkip(KerbinToDuna());
             if (ctx == null)
                 return;
 
@@ -254,10 +385,226 @@ namespace Parsek.InGameTests
                 out string map, out int resolvedCount, out int declinedCount);
 
             ParsekLog.Info("ReaimE2E",
-                $"Kerbin->Duna observed-failure departure (pinned 2026-06-11): depUT={ObservedEdgeDepartureUT.ToString("R", ic)} " +
+                $"{ctx.LaunchBodyName}->{ctx.TargetBodyName} observed-failure departure (pinned 2026-06-11): depUT={ObservedEdgeDepartureUT.ToString("R", ic)} " +
                 $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} " +
                 $"(near-180 handedness fix: the nominal-departure inc=180 retrograde-branch decline is now resolved prograde; " +
                 $"map expected all-R, a later 'd' is the separate M-MIS-3 eccentric-drift mode falling back cleanly, not a handedness regression)");
+        }
+
+        // ----- Eccentric-target fixtures (M-MIS-3 stage B): Moho + Eeloo. -----
+        //
+        // CONTRACT (measure-first; plan section 4.2 + this step's requirements 2-4):
+        //  - HARD (asserted every run): the STRUCTURAL contract via DriveWindowsResolveOrDeclineCleanly with
+        //    requireWindow0Resolve:true - window 0 (the recorded departure, where the offset recorded tof
+        //    synthesizes by construction of the scan) MUST resolve; every window resolves a sane elliptic
+        //    PROGRADE conic OR declines cleanly to faithful (null segments, correct window index); the
+        //    render-span placement holds (transfer starts at the recorded departure, arrival keeps the span
+        //    end); and the outcome is deterministic on a cache-cleared re-solve. requireAllWindowsResolve is
+        //    FALSE - an eccentric window that still declines is a clean fail-closed fall-back, NOT a test
+        //    failure (the eccentric-window pass/fail is the USER's in-game gate, below).
+        //  - SOFT / OBSERVATIONAL (the measurement artifact, NOT an assertion): the per-window R/d map +
+        //    the resolved/declined counts logged via ParsekLog.Info. This is the in-game gate the USER reads
+        //    to confirm stage B actually pulled the drifted windows from 'd' to 'R'. A pre-stage-B build (or
+        //    stage B disabled) is EXPECTED to decline the windows whose geometric tof drifted outside the
+        //    recorded +-6% base band; stage B is EXPECTED to resolve them. That delta is the proof, and it is
+        //    left to the live run exactly as stage A left requireAllWindowsResolve soft.
+        //  - Requirement 3 (NO shape-congruence assertion): like the Duna strict test, these assert per-window
+        //    SANE conic + prograde + render-span only. They DO NOT assert sma/ecc recur across windows -
+        //    varying sma/ecc per window is CORRECT for an eccentric target (the congruent-window premise is
+        //    shape-congruent only for circular targets). The per-window sma/ecc are LOGGED, never asserted.
+
+        [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
+            Description = "Re-aim end-to-end (Moho, eccentric + inclined + near-180): structural contract holds + window 0 resolves; the per-window R/d map is the measure-first stage-B + stage-A-inclination artifact (eccentric-window pass/fail is the user's in-game gate)")]
+        public void Reaim_KerbinToMoho_StructuralContractAndWindow0_MeasureRdMap()
+        {
+            RunEccentricTargetWindows(KerbinToMoho(), "reaim-e2e-moho",
+                combinedInclinationCase: true);
+        }
+
+        [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
+            Description = "Re-aim end-to-end (Eeloo, high eccentricity): structural contract holds + window 0 resolves; the per-window R/d map is the measure-first stage-B isolate artifact (eccentric-window pass/fail is the user's in-game gate)")]
+        public void Reaim_KerbinToEeloo_StructuralContractAndWindow0_MeasureRdMap()
+        {
+            RunEccentricTargetWindows(KerbinToEeloo(), "reaim-e2e-eeloo",
+                combinedInclinationCase: false);
+        }
+
+        // The shared eccentric-target driver. Picks the band CENTER departure (the stable mid-band pick, like
+        // the strict Duna test) from the pinned scan run with the OFFSET recorded tof, then drives the windows
+        // under the structural-hard / all-resolve-soft contract and emits the per-window R/d measurement map.
+        // combinedInclinationCase only flavours the log line (Moho also exercises stage A's un-projection
+        // inclination lift); the assertions are identical for both targets.
+        private static void RunEccentricTargetWindows(
+            ReaimFixture fixture, string memberIdPrefix, bool combinedInclinationCase)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            ScanContext ctx = BuildPinnedScanOrSkip(fixture);
+            if (ctx == null)
+                return;
+
+            // Sanity-check the offset construction against the live stage-B band law so a fixture that has
+            // been mis-tuned (offset inside the base band => stage B is a no-op, or outside the scaled band
+            // => geomTof is unreachable even after stage B) is caught here instead of silently proving
+            // nothing. This is a STRUCTURAL assertion on the fixture's own numbers, not on a magic constant:
+            // it reads ReaimTofSearch's BaseHalfWidthFraction / HalfWidthFraction, so re-pinning those
+            // measure-first placeholders cannot break it as long as the fixture offset is chosen sanely.
+            double eTarget = ctx.TargetBody.orbit.eccentricity;
+            double absOffset = System.Math.Abs(fixture.RecordedTofOffsetFraction);
+            double scaledHalfWidth = ReaimTofSearch.HalfWidthFraction(eTarget);
+            // Lower bound: a HARD assert. It compares two FIXED constants (the fixture's authored offset vs the
+            // fixed base band), independent of stock numbers, so a failure here is always a fixture-authoring
+            // bug (offset placed inside the base band => stage B is a no-op and the fixture proves nothing).
+            InGameAssert.IsTrue(absOffset > ReaimTofSearch.BaseHalfWidthFraction,
+                $"{ctx.TargetBodyName} recorded-tof offset ({absOffset.ToString("F4", ic)}) must exceed the base band " +
+                $"({ReaimTofSearch.BaseHalfWidthFraction.ToString("F4", ic)}) so geomTof lands OUTSIDE the pre-stage-B +-6% search (else stage B proves nothing)");
+            // Upper bound: a clean SKIP, not a hard assert. This guard reads the LIVE stock eccentricity
+            // (ctx.TargetBody.orbit.eccentricity), so a future stock rebalance that drops the target's ecc far
+            // enough would shrink the scaled band below the fixture's fixed offset and make geomTof unreachable
+            // even after stage B. That is a fixture-tuning issue for the new stock numbers, NOT a regression in
+            // the production code under test, so it must skip (re-pin the fixture offset or PinnedScanBaseUT),
+            // not fail. The measure-first canary stays honest either way.
+            if (absOffset >= scaledHalfWidth)
+            {
+                InGameAssert.Skip(
+                    $"{ctx.TargetBodyName} recorded-tof offset ({absOffset.ToString("F4", ic)}) is no longer INSIDE the eccentricity-scaled band " +
+                    $"({scaledHalfWidth.ToString("F4", ic)} for live eTarget={eTarget.ToString("F4", ic)}) - stage B cannot reach geomTof for this fixture; " +
+                    "re-pin the fixture offset (stock ecc may have drifted)");
+                return;
+            }
+
+            int midIdx = ReaimFeasibilityScan.CenterOfLongestRunIndex(ctx.Scan, cyclic: true);
+            if (midIdx < 0)
+            {
+                // No feasible window-0 departure for the OFFSET recorded tof on stock. Skip (not a failure):
+                // the scan tests window-0 synthesis at the offset tof, and a target/offset pairing that finds
+                // none in this pinned synodic period cannot drive the contract. The user re-pins the offset
+                // or PinnedScanBaseUT (open question 3) if this skips in the live batch.
+                InGameAssert.Skip($"no feasible {ctx.LaunchBodyName}->{ctx.TargetBodyName} window-0 departure for the offset recorded tof in the pinned scan");
+                return;
+            }
+            double midDep = ctx.ScanDepartureUTs[midIdx];
+
+            // HARD: structural contract + window 0 resolves. SOFT: all-windows (requireAllWindowsResolve:false).
+            DriveWindowsResolveOrDeclineCleanly(ctx, midDep, memberIdPrefix + "-mid-" + midIdx.ToString(ic),
+                requireWindow0Resolve: true, requireAllWindowsResolve: false,
+                out string map, out int resolvedCount, out int declinedCount);
+
+            // The measurement artifact (SOFT/observational): the R/d map + the recorded/geom tof centers + the
+            // offset, so the live-run reader can see whether stage B's ecc band pulled the drifted windows from
+            // 'd' to 'R'. The eccentric-window pass/fail is the USER's in-game gate, NOT an assertion here.
+            double offsetSeconds = ctx.TofSeconds - ctx.GeomTofSeconds;
+            ParsekLog.Info("ReaimE2E",
+                $"{ctx.LaunchBodyName}->{ctx.TargetBodyName} eccentric windows (pinned mid-band, stage-B measure-first): " +
+                $"scanIdx={midIdx} midDep={midDep.ToString("F1", ic)} eTarget={eTarget.ToString("F4", ic)} " +
+                $"recordedTof={ctx.TofSeconds.ToString("F0", ic)} geomTof={ctx.GeomTofSeconds.ToString("F0", ic)} " +
+                $"offset={fixture.RecordedTofOffsetFraction.ToString("F4", ic)}({offsetSeconds.ToString("F0", ic)}s) " +
+                $"scaledHalfWidth={scaledHalfWidth.ToString("F4", ic)} synodic={ctx.SynodicSeconds.ToString("F0", ic)} | " +
+                $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} | " +
+                (combinedInclinationCase
+                    ? "COMBINED case: also validates stage A's un-projection inclination lift (transfer aims at the target's actual out-of-plane position, prograde inc carried). "
+                    : "clean high-ecc isolate. ") +
+                "OBSERVATIONAL: a 'd' on a drifted window pre-stage-B should flip to 'R' under stage B - that delta is the user's in-game gate, not asserted; " +
+                "per-window sma/ecc EXPECTED to vary (requirement 3, never asserted congruent)");
+        }
+
+        // Manual-only per-target measurement sweep (the M-MIS-1 "measure before knob math" artifact, applied
+        // to the eccentric fixtures): maps the WHOLE pinned departure scan x WindowsToCheck into KSP.log for
+        // the offset recorded tof, so the regression boundary (which windows decline pre-stage-B vs resolve
+        // post-stage-B) is visible across the whole band, not just the mid-band pick. AllowBatchExecution=false
+        // (tens of seconds of Lambert/CalculatePatch work). Reuses the Duna sweep machinery verbatim via
+        // RunEccentricFeasibilitySweep.
+        [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
+            AllowBatchExecution = false,
+            BatchSkipReason = "diagnostic measurement sweep (M-MIS-3 stage B); run manually from the test runner",
+            Description = "Re-aim feasibility sweep (Moho, eccentric): per-departure x per-window resolve/decline map for the offset recorded tof (measure-first artifact, manual-only)")]
+        public IEnumerator Reaim_KerbinToMoho_FeasibilitySweep_Diagnostic()
+        {
+            return RunEccentricFeasibilitySweep(KerbinToMoho(), "reaim-e2e-moho-sweep");
+        }
+
+        [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
+            AllowBatchExecution = false,
+            BatchSkipReason = "diagnostic measurement sweep (M-MIS-3 stage B); run manually from the test runner",
+            Description = "Re-aim feasibility sweep (Eeloo, high eccentricity): per-departure x per-window resolve/decline map for the offset recorded tof (measure-first artifact, manual-only)")]
+        public IEnumerator Reaim_KerbinToEeloo_FeasibilitySweep_Diagnostic()
+        {
+            return RunEccentricFeasibilitySweep(KerbinToEeloo(), "reaim-e2e-eeloo-sweep");
+        }
+
+        // Drives the whole-band x per-window sweep for an eccentric fixture (offset recorded tof). Mirrors the
+        // Duna FeasibilitySweep_Diagnostic body; kept as a shared coroutine so the two eccentric sweeps differ
+        // only in their fixture. Purely a KSP.log measurement product - NO assertions (it is the measure-first
+        // input, not a contract).
+        private static IEnumerator RunEccentricFeasibilitySweep(ReaimFixture fixture, string memberIdPrefix)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            ScanContext ctx = BuildPinnedScanOrSkip(fixture);
+            if (ctx == null)
+                yield break;
+
+            int feasible = 0;
+            var bandMap = new StringBuilder(ScanSteps);
+            for (int i = 0; i < ScanSteps; i++)
+            {
+                bandMap.Append(ctx.Scan[i] ? 'X' : '.');
+                if (ctx.Scan[i])
+                    feasible++;
+            }
+            int firstIdx = ReaimFeasibilityScan.FirstSuccessIndex(ctx.Scan);
+            int centerIdx = ReaimFeasibilityScan.CenterOfLongestRunIndex(ctx.Scan, cyclic: true);
+            var perWindowResolved = new int[WindowsToCheck];
+
+            for (int i = 0; i < ScanSteps; i++)
+            {
+                if (!ctx.Scan[i])
+                    continue;
+                double dep = ctx.ScanDepartureUTs[i];
+                BuildMemberAndPlan(ctx, dep,
+                    out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
+                    out double spanStart, out double spanEnd);
+                ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
+                    ctx.LaunchBody.orbit.period, ctx.TargetBody.orbit.period, dep, ctx.TofSeconds,
+                    spanStart, spanEnd, referenceUT: dep - 1.0);
+                if (!sched.Valid)
+                {
+                    ParsekLog.Warn("ReaimE2E", $"{ctx.TargetBodyName} sweep dep={i}/{ScanSteps} schedule invalid ({sched.Reason}) - skipped");
+                    continue;
+                }
+
+                var resolver = new ReaimPlaybackResolver();
+                string memberId = memberIdPrefix + "-" + i.ToString(ic);
+                double span = spanEnd - spanStart;
+                var map = new StringBuilder(WindowsToCheck);
+                int resolvedCount = 0;
+                for (long k = 0; k < WindowsToCheck; k++)
+                {
+                    double currentUT = sched.PhaseAnchorUT + k * sched.CadenceSeconds + 0.5 * span;
+                    bool ok = resolver.TryResolveWindowSegments(
+                        memberId, memberSegments, plan, sched,
+                        sched.PhaseAnchorUT, spanStart, spanEnd, sched.CadenceSeconds, currentUT,
+                        out List<OrbitSegment> _, out long _);
+                    if (ok)
+                    {
+                        resolvedCount++;
+                        perWindowResolved[k]++;
+                    }
+                    map.Append(ok ? 'R' : 'd');
+                }
+                ParsekLog.Info("ReaimE2E",
+                    $"{ctx.TargetBodyName} sweep dep={i}/{ScanSteps} depUT={dep.ToString("F1", ic)} windows={map} resolved={resolvedCount}/{WindowsToCheck}");
+                yield return null;
+            }
+
+            double offsetSeconds = ctx.TofSeconds - ctx.GeomTofSeconds;
+            var perWindow = new StringBuilder();
+            for (int k = 0; k < WindowsToCheck; k++)
+                perWindow.Append(k == 0 ? "k0=" : $" k{k.ToString(ic)}=").Append(perWindowResolved[k].ToString(ic));
+            ParsekLog.Info("ReaimE2E",
+                $"{ctx.LaunchBodyName}->{ctx.TargetBodyName} sweep summary (offset recorded tof): feasible={feasible}/{ScanSteps} band={bandMap} " +
+                $"first={firstIdx} center={centerIdx} recordedTof={ctx.TofSeconds.ToString("F0", ic)} geomTof={ctx.GeomTofSeconds.ToString("F0", ic)} " +
+                $"offset={fixture.RecordedTofOffsetFraction.ToString("F4", ic)}({offsetSeconds.ToString("F0", ic)}s) " +
+                $"perWindowResolved {perWindow} (stage-B measure-first: declines = the windows whose geometric tof drifted outside the recorded +-6% band; " +
+                $"compare a pre-stage-B build to see the resolve delta - the user's in-game gate)");
         }
 
         // Drives WindowsToCheck consecutive windows for one departure. The base contract (shared by the
@@ -279,7 +626,7 @@ namespace Parsek.InGameTests
                 out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
                 out double spanStart, out double spanEnd);
             ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
-                ctx.Kerbin.orbit.period, ctx.Duna.orbit.period, departureUT, ctx.TofSeconds,
+                ctx.LaunchBody.orbit.period, ctx.TargetBody.orbit.period, departureUT, ctx.TofSeconds,
                 spanStart, spanEnd, referenceUT: departureUT - 1.0);
             InGameAssert.IsTrue(sched.Valid, "window schedule must be valid: " + (sched.Reason ?? ""));
 
@@ -298,7 +645,7 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(k, windowIndex, $"window index must equal k={k} on resolve AND on decline");
                 if (ok)
                 {
-                    AssertSaneWindowSegments(segs, plan, departureUT, spanEnd, k);
+                    AssertSaneWindowSegments(ctx, segs, plan, departureUT, spanEnd, k);
                     resolvedCount++;
                     map.Append('R');
                 }
@@ -353,7 +700,7 @@ namespace Parsek.InGameTests
         public IEnumerator Reaim_KerbinToDuna_FeasibilitySweep_Diagnostic()
         {
             var ic = CultureInfo.InvariantCulture;
-            ScanContext ctx = BuildPinnedScanOrSkip();
+            ScanContext ctx = BuildPinnedScanOrSkip(KerbinToDuna());
             if (ctx == null)
                 yield break;
 
@@ -378,7 +725,7 @@ namespace Parsek.InGameTests
                     out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
                     out double spanStart, out double spanEnd);
                 ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
-                    ctx.Kerbin.orbit.period, ctx.Duna.orbit.period, dep, ctx.TofSeconds,
+                    ctx.LaunchBody.orbit.period, ctx.TargetBody.orbit.period, dep, ctx.TofSeconds,
                     spanStart, spanEnd, referenceUT: dep - 1.0);
                 if (!sched.Valid)
                 {
@@ -419,46 +766,55 @@ namespace Parsek.InGameTests
                 $"this map is the M-MIS-1 measurement input for the widen-vs-classify decision)");
         }
 
-        // Resolves the stock Kerbin/Duna geometry (bodies, Hohmann tof, synodic period) shared by
-        // all four tests, or returns null after InGameAssert.Skip on a non-stock body graph /
-        // degenerate geometry. Scan fields stay null; the scan-driven tests fill them via
-        // BuildPinnedScanOrSkip.
-        private static ScanContext BuildGeometryOrSkip()
+        // Resolves the stock launch/target geometry (bodies, Hohmann tof, synodic period) shared by
+        // all four tests for the given fixture, or returns null after InGameAssert.Skip on a
+        // non-stock body graph / degenerate geometry. Scan fields stay null; the scan-driven tests
+        // fill them via BuildPinnedScanOrSkip.
+        private static ScanContext BuildGeometryOrSkip(ReaimFixture fixture)
         {
-            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
-            CelestialBody duna = FlightGlobals.Bodies?.Find(b => b.bodyName == "Duna");
-            if (kerbin == null || duna == null)
+            CelestialBody launchBody = FlightGlobals.Bodies?.Find(b => b.bodyName == fixture.LaunchBodyName);
+            CelestialBody targetBody = FlightGlobals.Bodies?.Find(b => b.bodyName == fixture.TargetBodyName);
+            if (launchBody == null || targetBody == null)
             {
-                InGameAssert.Skip("Kerbin/Duna not in FlightGlobals.Bodies (non-stock pack)");
+                InGameAssert.Skip($"{fixture.LaunchBodyName}/{fixture.TargetBodyName} not in FlightGlobals.Bodies (non-stock pack)");
                 return null;
             }
-            if (kerbin.referenceBody == null || kerbin.referenceBody != duna.referenceBody)
+            if (launchBody.referenceBody == null || launchBody.referenceBody != targetBody.referenceBody)
             {
-                InGameAssert.Skip("Kerbin and Duna do not share a parent in this pack");
+                InGameAssert.Skip($"{fixture.LaunchBodyName} and {fixture.TargetBodyName} do not share a parent in this pack");
                 return null;
             }
 
-            double muSun = kerbin.referenceBody.gravParameter;
-            double tof = TransferWindowMath.HohmannTransferTimeSeconds(
-                kerbin.orbit.semiMajorAxis, duna.orbit.semiMajorAxis, muSun);
-            double synodic = TransferWindowMath.SynodicPeriodSeconds(kerbin.orbit.period, duna.orbit.period);
-            InGameAssert.IsTrue(tof > 0.0 && !double.IsInfinity(synodic) && synodic > 0.0,
+            double muParent = launchBody.referenceBody.gravParameter;
+            double geomTof = TransferWindowMath.HohmannTransferTimeSeconds(
+                launchBody.orbit.semiMajorAxis, targetBody.orbit.semiMajorAxis, muParent);
+            double synodic = TransferWindowMath.SynodicPeriodSeconds(launchBody.orbit.period, targetBody.orbit.period);
+            InGameAssert.IsTrue(geomTof > 0.0 && !double.IsInfinity(synodic) && synodic > 0.0,
                 "Hohmann tof + synodic period must be finite/positive");
+
+            // The stand-in recorded tof. For Duna (offset 0) it IS the geometric Hohmann time, byte-identical
+            // to before. For an eccentric fixture (offset != 0) it is DISPLACED from the geometric center
+            // (plan section 4.2.2) so geomTof lands outside the recorded +-6% base band and stage B has real
+            // work to do - the resolver re-centers on THIS recorded tof and extends toward geomTof.
+            double recordedTof = geomTof * (1.0 + fixture.RecordedTofOffsetFraction);
+            InGameAssert.IsTrue(recordedTof > 0.0, "stand-in recorded tof must be positive");
 
             return new ScanContext
             {
-                Kerbin = kerbin,
-                Duna = duna,
-                TofSeconds = tof,
+                Fixture = fixture,
+                LaunchBody = launchBody,
+                TargetBody = targetBody,
+                TofSeconds = recordedTof,
+                GeomTofSeconds = geomTof,
                 SynodicSeconds = synodic
             };
         }
 
-        // Builds the pinned deterministic scan on top of the shared geometry, or returns null
-        // after InGameAssert.Skip.
-        private static ScanContext BuildPinnedScanOrSkip()
+        // Builds the pinned deterministic scan on top of the shared geometry for the given fixture,
+        // or returns null after InGameAssert.Skip.
+        private static ScanContext BuildPinnedScanOrSkip(ReaimFixture fixture)
         {
-            ScanContext ctx = BuildGeometryOrSkip();
+            ScanContext ctx = BuildGeometryOrSkip(fixture);
             if (ctx == null)
                 return null;
 
@@ -473,46 +829,50 @@ namespace Parsek.InGameTests
                 double tDep = PinnedScanBaseUT + (ctx.SynodicSeconds * i) / ScanSteps;
                 depUTs[i] = tDep;
                 scan[i] = ReaimTransferSynthesizer.TrySynthesizeTransfer(
-                    ctx.Kerbin, ctx.Duna, tDep, ctx.TofSeconds, prograde: true,
+                    ctx.LaunchBody, ctx.TargetBody, tDep, ctx.TofSeconds, prograde: true,
                     out _, out _, out _, out _);
                 if (scan[i])
                     hits++;
             }
             ParsekLog.Verbose("ReaimE2E",
-                $"pinned scan base={PinnedScanBaseUT.ToString("F0", CultureInfo.InvariantCulture)} steps={ScanSteps} feasible={hits}");
+                $"pinned scan {ctx.LaunchBodyName}->{ctx.TargetBodyName} base={PinnedScanBaseUT.ToString("F0", CultureInfo.InvariantCulture)} steps={ScanSteps} feasible={hits}");
 
             ctx.Scan = scan;
             ctx.ScanDepartureUTs = depUTs;
             return ctx;
         }
 
-        // Builds the synthetic member segments + re-aim plan for one departure: Kerbin parking
-        // just before, Sun heliocentric leg = [dep, dep+tof], Duna arrival just after. Stands in
-        // for a recorded mission's segment list; the congruent-window model relaunches this
-        // geometry every synodic period.
+        // Builds the synthetic member segments + re-aim plan for one departure: launch-body parking
+        // just before, common-ancestor heliocentric leg = [dep, dep+tof], target-body arrival just
+        // after. Stands in for a recorded mission's segment list; the congruent-window model
+        // relaunches this geometry every synodic period. The leg sma/ecc come from the fixture so an
+        // eccentric target supplies target-appropriate arrival elements.
         private static void BuildMemberAndPlan(
             ScanContext ctx, double departureUT,
             out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
             out double spanStart, out double spanEnd)
         {
-            string parent = ctx.Kerbin.referenceBody.bodyName;
+            ReaimFixture fx = ctx.Fixture;
+            string launchName = fx.LaunchBodyName;
+            string targetName = fx.TargetBodyName;
+            string parent = ctx.LaunchBody.referenceBody.bodyName;
             spanStart = departureUT - 600.0;
             double recordedArrivalUT = departureUT + ctx.TofSeconds;
             spanEnd = recordedArrivalUT + 600.0;
             memberSegments = new List<OrbitSegment>
             {
-                new OrbitSegment { bodyName = "Kerbin", startUT = spanStart, endUT = departureUT,
-                    semiMajorAxis = 700000.0, eccentricity = 0.0, epoch = spanStart },
+                new OrbitSegment { bodyName = launchName, startUT = spanStart, endUT = departureUT,
+                    semiMajorAxis = fx.ParkingSma, eccentricity = fx.ParkingEcc, epoch = spanStart },
                 new OrbitSegment { bodyName = parent, startUT = departureUT, endUT = recordedArrivalUT,
-                    semiMajorAxis = 1.5e10, eccentricity = 0.2, epoch = departureUT }, // recorded heliocentric leg
-                new OrbitSegment { bodyName = "Duna", startUT = recordedArrivalUT, endUT = spanEnd,
-                    semiMajorAxis = 500000.0, eccentricity = 0.1, epoch = recordedArrivalUT },
+                    semiMajorAxis = fx.HeliocentricSma, eccentricity = fx.HeliocentricEcc, epoch = departureUT }, // recorded heliocentric leg
+                new OrbitSegment { bodyName = targetName, startUT = recordedArrivalUT, endUT = spanEnd,
+                    semiMajorAxis = fx.ArrivalSma, eccentricity = fx.ArrivalEcc, epoch = recordedArrivalUT },
             };
             plan = new ReaimMissionPlan
             {
                 Supported = true,
-                LaunchBody = "Kerbin",
-                TargetBody = "Duna",
+                LaunchBody = launchName,
+                TargetBody = targetName,
                 CommonAncestor = parent,
                 ParkingOrbit = memberSegments[0],
                 HeliocentricLeg = memberSegments[1],
@@ -523,24 +883,36 @@ namespace Parsek.InGameTests
             };
         }
 
-        // The shared per-window sanity assertions: 3 segments (Kerbin parking / re-aimed Sun
-        // transfer / Duna arrival), sane elliptic transfer conic, recorded-span placement.
+        // The shared per-window sanity assertions: 3 segments (launch parking / re-aimed
+        // common-ancestor transfer / target arrival), sane elliptic transfer conic, recorded-span
+        // placement. Reads the launch/target body names from the fixture so it is target-agnostic.
         private static void AssertSaneWindowSegments(
-            List<OrbitSegment> segs, ReaimMissionPlan plan, double departureUT, double spanEnd, long k)
+            ScanContext ctx, List<OrbitSegment> segs, ReaimMissionPlan plan, double departureUT, double spanEnd, long k)
         {
             var ic = CultureInfo.InvariantCulture;
+            string launchName = ctx.LaunchBodyName;
+            string targetName = ctx.TargetBodyName;
             InGameAssert.IsTrue(segs != null && segs.Count == 3,
-                $"window k={k} must keep 3 segments (Kerbin parking / re-aimed Sun transfer / Duna arrival)");
+                $"window k={k} must keep 3 segments ({launchName} parking / re-aimed transfer / {targetName} arrival)");
             OrbitSegment transfer = segs[1];
             InGameAssert.AreEqual(plan.CommonAncestor, transfer.bodyName,
-                $"window k={k} transfer must be Sun-bodied");
+                $"window k={k} transfer must be common-ancestor-bodied");
             InGameAssert.IsTrue(
                 ReaimTransferSynthesizer.IsSaneTransferConic(transfer.eccentricity, transfer.semiMajorAxis),
                 $"window k={k} transfer must be a sane elliptic conic (ecc={transfer.eccentricity.ToString("R", ic)} sma={transfer.semiMajorAxis.ToString("R", ic)})");
-            // Per-member: only the Sun leg is re-aimed (placed at [departure, recordedArrival]);
-            // the Kerbin parking + Duna arrival legs keep their recorded UTs + bodies.
-            InGameAssert.AreEqual("Kerbin", segs[0].bodyName, $"window k={k} must keep the Kerbin parking leg");
-            InGameAssert.AreEqual("Duna", segs[2].bodyName, $"window k={k} must keep the Duna arrival leg");
+            // PROGRADE: a resolved transfer must travel the right way (inc < 90). The synthesizer's
+            // IsRetrogradeTransfer direction guard already declines a retrograde solution to faithful (it never
+            // returns segments), so a resolved window is prograde BY CONSTRUCTION - this asserts it explicitly
+            // as the regression backstop, sharing the production predicate so test + code agree on "prograde".
+            // For Moho the inc is a few degrees (stage A carries the target's real out-of-plane offset), NOT
+            // ~0 - this is < 90 prograde, not the projection era's near-zero. Same predicate at both targets.
+            InGameAssert.IsTrue(
+                !ReaimTransferSynthesizer.IsRetrogradeTransfer(transfer.inclination),
+                $"window k={k} transfer must be prograde (inc={transfer.inclination.ToString("F2", ic)} deg < 90; a retrograde result declines to faithful, never resolves)");
+            // Per-member: only the heliocentric leg is re-aimed (placed at [departure, recordedArrival]);
+            // the launch parking + target arrival legs keep their recorded UTs + bodies.
+            InGameAssert.AreEqual(launchName, segs[0].bodyName, $"window k={k} must keep the {launchName} parking leg");
+            InGameAssert.AreEqual(targetName, segs[2].bodyName, $"window k={k} must keep the {targetName} arrival leg");
             InGameAssert.IsTrue(System.Math.Abs(segs[1].startUT - departureUT) < 1.0,
                 $"window k={k} transfer must start at the recorded departure (recorded-span)");
             InGameAssert.IsTrue(System.Math.Abs(segs[2].endUT - spanEnd) < 1.0,
