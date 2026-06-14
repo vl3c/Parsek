@@ -381,13 +381,54 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResumeTail_TerminalDestroyed_IsKept()
+        public void ResumeTail_TerminalDestroyedInWindow_IsKept()
         {
-            var rec = new Recording { TerminalStateValue = TerminalState.Destroyed };
+            // Destruction WITHIN the resume window (recording ends >= anchor) is a
+            // real change — keep.
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitEndUT = 200,
+            };
             rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic, startUT: 100, endUT: 200));
 
             Assert.False(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, 100, out string reason));
             Assert.Equal("terminal-destroyed", reason);
+        }
+
+        [Fact]
+        public void ResumeTail_TerminalDestroyedBeforeAnchor_IsNoOp()
+        {
+            // REGRESSION (scene-exit auto-discard stopped firing): the no-session
+            // tail check runs over EVERY recording in the restored clone, including
+            // old committed debris destroyed in its ORIGINAL flight (a spent
+            // booster). That destruction ends far before the resume anchor, so it
+            // must NOT block a do-nothing resume's auto-discard.
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitStartUT = 0,
+                ExplicitEndUT = 90, // committed history, before the anchor (100)
+            };
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic, startUT: 0, endUT: 90));
+
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, 100, out _));
+        }
+
+        [Fact]
+        public void ResumeTail_VesselDestroyedBoolBeforeAnchor_IsNoOp()
+        {
+            // Same regression via the VesselDestroyed bool (the other destruction
+            // surface) on pre-window committed debris.
+            var rec = new Recording
+            {
+                VesselDestroyed = true,
+                ExplicitStartUT = 0,
+                ExplicitEndUT = 90,
+            };
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic, startUT: 0, endUT: 90));
+
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, 100, out _));
         }
 
         [Fact]
