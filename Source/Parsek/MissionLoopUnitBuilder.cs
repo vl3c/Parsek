@@ -449,6 +449,21 @@ namespace Parsek
                             // cuts (no compressible loiter) leave the clock byte-identical to faithful.
                             List<GhostPlaybackLogic.LoopCut> cuts =
                                 ReaimLoiterCompressor.ComputeCuts(transferSegments, bodyInfo.GravParameter);
+                            // M-MIS-2 P4 (destination-loiter pre-landing trim): partition the transfer
+                            // member's loiter runs so a recorded DESTINATION parking loiter can be
+                            // re-timed jointly with the arrival hold (DestinationLoiterTrim) instead of
+                            // disabling alignment (the shipped ArrivalHoldPlanner refusal). The
+                            // launch-side cuts (runs ending at/before the SOI entry) are built at
+                            // keepRevs=1 - byte-identical to today's launch-parking compression - and
+                            // `cuts` (the full keepRevs=1 set) remains the byte-identical fallback when
+                            // P4 does not apply. Scoped to a destination loiter in the classified
+                            // transfer member; a same-launch chain continuation that records the parking
+                            // in a SEPARATE member is the documented follow-up (plan B1: gather across
+                            // VesselLaunchIdentity.RecordingsShareLaunch members, the M4b pattern).
+                            List<ReaimLoiterCompressor.LoiterRun> loiterRuns =
+                                ReaimLoiterCompressor.DetectRuns(transferSegments, bodyInfo.GravParameter);
+                            List<GhostPlaybackLogic.LoopCut> launchSideCuts =
+                                BuildLaunchSideKeepOneCuts(loiterRuns, plan.RecordedArrivalUT);
                             // Apply only when the cuts leave a POSITIVE compressed span. keepRevs >= 1
                             // already guarantees each cutLength < its run duration (so totalCut < span),
                             // but gate on it explicitly to match TryComputeSpanLoopUT's effectiveSpan
@@ -537,23 +552,73 @@ namespace Parsek
                             // the amber reason) / an orbit-only no-station arrival, leaving the span clock
                             // byte-identical. extraction is in scope; phaseAnchorUT + loiterCuts are final
                             // (post pad-align).
-                            arrivalHold = ArrivalHoldPlanner.ComputeArrivalHold(
-                                extraction.Constraints, plan.TargetBody, plan.RecordedArrivalUT,
-                                transitedBodyRotationMode, phaseAnchorUT, spanStartUT, loiterCuts, bodyInfo);
-                            if (arrivalHold.Applied && !SuppressLogging)
+                            // M-MIS-2 P4: a Supported landing whose destination parking loiter would
+                            // otherwise trip the ArrivalHoldPlanner refusal takes the joint trim+hold
+                            // path - re-time the destination loiter (keepRevs) so the deorbit aligns,
+                            // and assemble the final cuts = launch-side cuts + the re-timed destination
+                            // cut. EVERY other shape (no destination loiter, station, orbit-only, Drop,
+                            // unsupported, degenerate) returns None and falls through to the shipped
+                            // ComputeArrivalHold with `loiterCuts == cuts`, byte-identical to today.
+                            DestinationLoiterTrim.DestinationLoiterTrimResult destTrim =
+                                TrySolveDestinationLoiterTrim(
+                                    extraction, plan, loiterRuns, launchSideCuts, phaseAnchorUT,
+                                    spanStartUT, span, transitedBodyRotationMode, bodyInfo);
+                            if (destTrim.Applied)
                             {
-                                var aic = CultureInfo.InvariantCulture;
-                                ParsekLog.Info("Reaim",
-                                    $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
-                                    $"kind={(arrivalHold.IsStationHold ? "station" : "rotation")} " +
-                                    (arrivalHold.IsStationHold
-                                        ? $"pid={arrivalHold.AlignAnchorPid.ToString(aic)} "
-                                        : "") +
-                                    $"Talign={arrivalHold.AlignPeriodSeconds.ToString("R", aic)}s " +
-                                    $"hold={arrivalHold.HoldSeconds.ToString("R", aic)}s at " +
-                                    $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
-                                    $"(aligns the {(arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
-                                    $"phase, mode={transitedBodyRotationMode})");
+                                // Reassigning loiterCuts here is consistent with the cutBeforeDeparture
+                                // phase-anchor shift already computed from the full `cuts`: every cut that
+                                // differs between `cuts` and `p4Cuts` (the dropped post-arrival keepRevs=1
+                                // dest cut, the re-timed dest cut) starts at/after the SOI entry, hence
+                                // after the departure, so it contributes 0 to CompressSpanUT(departureUT)
+                                // and the shift is identical either way.
+                                var p4Cuts = new List<GhostPlaybackLogic.LoopCut>(launchSideCuts);
+                                if (destTrim.HasDestinationCut)
+                                    p4Cuts.Add(destTrim.DestinationCut);
+                                loiterCuts = p4Cuts;
+                                arrivalHold = new ArrivalHoldPlanner.ArrivalHoldResult
+                                {
+                                    HoldSeconds = destTrim.HoldSeconds,
+                                    HoldAtUT = destTrim.HoldAtUT,
+                                    AlignPeriodSeconds = destTrim.AlignPeriodSeconds,
+                                    Applied = true,
+                                    IsStationHold = false,
+                                    AlignAnchorPid = 0,
+                                    AmberReason = null,
+                                };
+                                if (!SuppressLogging)
+                                {
+                                    var aic = CultureInfo.InvariantCulture;
+                                    ParsekLog.Info("Reaim",
+                                        $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
+                                        $"kind=rotation keepRevs={destTrim.DestinationKeepRevs.ToString(aic)}/" +
+                                        $"{destTrim.DestinationWholeRevs.ToString(aic)} " +
+                                        $"cutLen={(destTrim.HasDestinationCut ? destTrim.DestinationCut.LengthSeconds.ToString("F0", aic) : "0")}s " +
+                                        $"Talign={destTrim.AlignPeriodSeconds.ToString("R", aic)}s " +
+                                        $"hold={destTrim.HoldSeconds.ToString("R", aic)}s at " +
+                                        $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
+                                        $"(re-timed destination loiter, mode={transitedBodyRotationMode})");
+                                }
+                            }
+                            else
+                            {
+                                arrivalHold = ArrivalHoldPlanner.ComputeArrivalHold(
+                                    extraction.Constraints, plan.TargetBody, plan.RecordedArrivalUT,
+                                    transitedBodyRotationMode, phaseAnchorUT, spanStartUT, loiterCuts, bodyInfo);
+                                if (arrivalHold.Applied && !SuppressLogging)
+                                {
+                                    var aic = CultureInfo.InvariantCulture;
+                                    ParsekLog.Info("Reaim",
+                                        $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
+                                        $"kind={(arrivalHold.IsStationHold ? "station" : "rotation")} " +
+                                        (arrivalHold.IsStationHold
+                                            ? $"pid={arrivalHold.AlignAnchorPid.ToString(aic)} "
+                                            : "") +
+                                        $"Talign={arrivalHold.AlignPeriodSeconds.ToString("R", aic)}s " +
+                                        $"hold={arrivalHold.HoldSeconds.ToString("R", aic)}s at " +
+                                        $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
+                                        $"(aligns the {(arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
+                                        $"phase, mode={transitedBodyRotationMode})");
+                                }
                             }
                         }
                         else if (!SuppressLogging)
@@ -1025,6 +1090,89 @@ namespace Parsek
         internal static void ResetArrivalAmberLogForTesting()
         {
             lastArrivalAmberReasonByTree.Clear();
+        }
+
+        // === M-MIS-2 P4 helpers (destination-loiter pre-landing trim) =========================
+
+        // Launch-side loiter cuts at keepRevs=1 (runs ending at/before the SOI entry), matching
+        // ReaimLoiterCompressor.ComputeCuts for those runs so the launch-parking compression stays
+        // byte-identical to today. Destination-side runs (EndUT > the SOI entry) are excluded here;
+        // their re-timing is decided jointly with the arrival hold in DestinationLoiterTrim.
+        private static List<GhostPlaybackLogic.LoopCut> BuildLaunchSideKeepOneCuts(
+            IReadOnlyList<ReaimLoiterCompressor.LoiterRun> runs, double recordedArrivalUT)
+        {
+            var cuts = new List<GhostPlaybackLogic.LoopCut>();
+            if (runs == null)
+                return cuts;
+            for (int i = 0; i < runs.Count; i++)
+            {
+                ReaimLoiterCompressor.LoiterRun run = runs[i];
+                if (run.EndUT <= recordedArrivalUT
+                    && run.WholeRevs > ReaimLoiterCompressor.DefaultKeepRevs
+                    && !double.IsNaN(run.PeriodSeconds) && run.PeriodSeconds > 0.0)
+                {
+                    cuts.Add(new GhostPlaybackLogic.LoopCut
+                    {
+                        StartUT = run.StartUT,
+                        LengthSeconds =
+                            (run.WholeRevs - ReaimLoiterCompressor.DefaultKeepRevs) * run.PeriodSeconds,
+                    });
+                }
+            }
+            return cuts;
+        }
+
+        // Try the M-MIS-2 P4 joint destination-loiter trim + arrival hold for a re-aim landing.
+        // Resolves the destination rotation constraint (its phase offset carries the recorded deorbit
+        // anchor) and the destination constraint set, then defers to the pure DestinationLoiterTrim
+        // solver. Returns None (the caller falls through to the shipped ComputeArrivalHold) when the
+        // target has no landing rotation constraint or the solver declines.
+        private static DestinationLoiterTrim.DestinationLoiterTrimResult TrySolveDestinationLoiterTrim(
+            ConstraintExtraction extraction, ReaimMissionPlan plan,
+            IReadOnlyList<ReaimLoiterCompressor.LoiterRun> loiterRuns,
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> launchSideCuts,
+            double phaseAnchorUT, double spanStartUT, double spanSeconds,
+            TransitedBodyRotationMode mode, IBodyInfo bodyInfo)
+        {
+            if (bodyInfo == null || string.IsNullOrEmpty(plan.TargetBody))
+                return DestinationLoiterTrim.DestinationLoiterTrimResult.None;
+            if (!TryFindTargetRotationConstraint(
+                    extraction.Constraints, plan.TargetBody, out PhaseConstraint destRotation))
+                return DestinationLoiterTrim.DestinationLoiterTrimResult.None;
+            DestinationConstraintExtractor.DestinationConstraintSet destSet =
+                DestinationConstraintExtractor.ExtractDestinationConstraints(
+                    extraction.Constraints, plan.TargetBody, bodyInfo);
+            // The deorbit anchor: the destination rotation constraint's phase offset is the earliest
+            // target-body surface-section start relative to UT0. INVARIANT: UT0 == spanStartUT - both
+            // derive from the same ComputeTrimmedMemberWindows span (extraction.UT0 is hard-asserted
+            // within 1s of spanStartUT in BuildPhasingKnobInput rule 5), so adding spanStartUT recovers
+            // the recorded surface UT.
+            double recordedDestSurfaceUT = spanStartUT + destRotation.PhaseOffsetSeconds;
+            return DestinationLoiterTrim.SolveTrimAndHold(
+                loiterRuns, launchSideCuts, destSet, destRotation, extraction.LaunchBodyName,
+                plan.TargetBody, plan.RecordedArrivalUT, recordedDestSurfaceUT,
+                bodyInfo.RotationPeriod(plan.TargetBody), phaseAnchorUT, spanStartUT, spanSeconds,
+                mode, DestinationLoiterTrim.DefaultMaxKeepRevs, bodyInfo);
+        }
+
+        // The Rotation constraint on the target body (the landing rotation), or false. Mirrors the
+        // DestRotation selection DestinationConstraintExtractor performs.
+        private static bool TryFindTargetRotationConstraint(
+            IReadOnlyList<PhaseConstraint> constraints, string targetBody, out PhaseConstraint found)
+        {
+            found = default(PhaseConstraint);
+            if (constraints == null || string.IsNullOrEmpty(targetBody))
+                return false;
+            for (int i = 0; i < constraints.Count; i++)
+            {
+                if (constraints[i].Kind == ConstraintKind.Rotation
+                    && constraints[i].BodyName == targetBody)
+                {
+                    found = constraints[i];
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static void LogArrivalAmberTransition(string treeId, string missionName, string reason)
