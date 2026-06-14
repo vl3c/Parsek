@@ -106,6 +106,27 @@ namespace Parsek.Logistics
             if (els == null || els.Count == 0 || treeRecordingIds == null || treeRecordingIds.Count == 0)
                 return 0.0;
 
+            return SumRecoveredCreditsCore(
+                els, treeRecordingIds, $"route={ShortId(route)}", out recoveryEventCount);
+        }
+
+        /// <summary>
+        /// Shared recovery-credit sum for the Route-keyed and Route-less callers:
+        /// sums <c>FundsAwarded</c> over <paramref name="els"/> for every
+        /// FundsEarning + Recovery row whose <c>RecordingId</c> is in
+        /// <paramref name="treeRecordingIds"/>. The predicate is identical across
+        /// the two callers; only the logged context fragment differs
+        /// (<paramref name="logContext"/> — <c>route=&lt;id&gt;</c> vs
+        /// <c>candidate</c>).
+        /// </summary>
+        private static double SumRecoveredCreditsCore(
+            IReadOnlyList<GameAction> els,
+            HashSet<string> treeRecordingIds,
+            string logContext,
+            out int recoveryEventCount)
+        {
+            recoveryEventCount = 0;
+
             double total = 0.0;
             int scanned = 0;
             int matched = 0;
@@ -127,7 +148,7 @@ namespace Parsek.Logistics
 
             recoveryEventCount = matched;
             ParsekLog.Verbose(Tag,
-                $"SumRecoveredCredits route={ShortId(route)} recoveryRows={scanned} " +
+                $"SumRecoveredCredits {logContext} recoveryRows={scanned} " +
                 $"matched={matched} treeMembers={treeRecordingIds.Count} sum=" +
                 total.ToString("R", CultureInfo.InvariantCulture));
             return total;
@@ -177,11 +198,10 @@ namespace Parsek.Logistics
                 return ids;
             }
 
-            foreach (var kv in tree.Recordings)
-            {
-                if (!string.IsNullOrEmpty(kv.Key))
-                    ids.Add(kv.Key);
-            }
+            // The tree is resolved with non-null Recordings here, so the tree
+            // overload's null-guard never fires and emits no extra log: it only
+            // runs the shared foreach-into-HashSet tail.
+            ids = ResolveTreeRecordingIds(tree);
 
             // (M-MIS-9-R1) Creation-time freeze: intersect with the snapshot
             // captured at route creation so post-creation branches never enter
@@ -343,31 +363,8 @@ namespace Parsek.Logistics
             if (els == null || els.Count == 0 || treeRecordingIds == null || treeRecordingIds.Count == 0)
                 return 0.0;
 
-            double total = 0.0;
-            int scanned = 0;
-            int matched = 0;
-            for (int i = 0; i < els.Count; i++)
-            {
-                GameAction a = els[i];
-                if (a == null)
-                    continue;
-                if (a.Type != GameActionType.FundsEarning)
-                    continue;
-                if (a.FundsSource != FundsEarningSource.Recovery)
-                    continue;
-                scanned++;
-                if (string.IsNullOrEmpty(a.RecordingId) || !treeRecordingIds.Contains(a.RecordingId))
-                    continue;
-                matched++;
-                total += a.FundsAwarded;
-            }
-
-            recoveryEventCount = matched;
-            ParsekLog.Verbose(Tag,
-                $"SumRecoveredCredits candidate recoveryRows={scanned} " +
-                $"matched={matched} treeMembers={treeRecordingIds.Count} sum=" +
-                total.ToString("R", CultureInfo.InvariantCulture));
-            return total;
+            return SumRecoveredCreditsCore(
+                els, treeRecordingIds, "candidate", out recoveryEventCount);
         }
 
         /// <summary>
