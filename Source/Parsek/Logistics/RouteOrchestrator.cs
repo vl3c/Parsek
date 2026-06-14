@@ -1206,6 +1206,162 @@ namespace Parsek.Logistics
             };
         }
 
+        /// <summary>
+        /// Test seam for the M3 per-window pickup debit
+        /// (<see cref="ApplyPickupDebit"/>). Production leaves it null so the
+        /// applier resolves a live endpoint vessel and drives the production
+        /// probe + writer; xUnit assigns a fake that returns a hand-built
+        /// <see cref="OriginDebitOutcome"/> so the Phase 4 two-direction applier
+        /// can be exercised without Vessel statics. Mirror of
+        /// <see cref="OriginDebitApplierForTesting"/>. The fake receives the
+        /// resolved stop <see cref="RouteEndpoint"/> and the per-window pickup
+        /// manifest so it can assert on the inputs the production path would
+        /// resolve / plan from.
+        /// </summary>
+        internal static System.Func<RouteEndpoint, Dictionary<string, double>, IRouteRuntimeEnvironment, OriginDebitOutcome> PickupDebitApplierForTesting;
+
+        /// <summary>
+        /// Production M3 per-window pickup debit (design D5, plan Phase 3): the
+        /// REVERSE-direction reuse of the M1 origin-debit machinery, re-aimed at
+        /// the per-window pickup ENDPOINT vessel. Given a resolved stop endpoint
+        /// and a pickup resource manifest (the witnessed loaded term), resolves
+        /// the endpoint vessel via the env, captures the loaded gate ONCE for
+        /// THAT vessel, builds a <see cref="LiveOriginCargoProbe"/>, plans via
+        /// the manifest-agnostic <see cref="RouteOriginDebitPlanner.PrepareDebit(Dictionary{string,double},IOriginCargoProbe)"/>,
+        /// applies via <see cref="LiveOriginDebitWriters"/>, and returns the
+        /// actuals / requested-on-shortfall / endpoint pid / short / unresolved
+        /// outcome - the SAME <see cref="OriginDebitOutcome"/> shape the M1
+        /// origin path returns (here <c>OriginVesselPid</c> carries the ENDPOINT
+        /// pid). This is the helper the Phase 4 <c>EmitLoopCycle</c>
+        /// two-direction applier calls per pickup window; it is NOT wired into
+        /// the loop path yet (Phase 4) and emits NO ledger row (the
+        /// <c>RouteCargoPickedUp</c> row + replay re-key are Phase 4).
+        ///
+        /// <para><b>Unresolved rule (mirrors <see cref="ApplyOriginDebit"/>):</b>
+        /// a resolution that returns <c>false</c> OR returns <c>true</c> with a
+        /// null vessel counts as UNRESOLVED: Warn, zero actuals, FULL requested
+        /// manifest. Loop-path-only in spirit (M1 D11 parity); reversible via
+        /// the rewind quicksave + ELS replay keys when Phase 4 wires it in.</para>
+        /// </summary>
+        internal static OriginDebitOutcome ApplyPickupDebit(
+            RouteEndpoint endpoint,
+            Dictionary<string, double> pickupManifest,
+            IRouteRuntimeEnvironment env,
+            string routeIdForLog)
+        {
+            // Test seam: short-circuit to a hand-built outcome so Phase 4 can
+            // verify the two-direction applier without a live endpoint Vessel.
+            var seam = PickupDebitApplierForTesting;
+            if (seam != null)
+                return seam(endpoint, pickupManifest, env);
+
+            // Nothing to pick up - empty/null manifest is a structural no-op
+            // (zero actuals, resolved, not short). Distinct from the unresolved
+            // path: the endpoint may be perfectly resolvable, there is simply
+            // no witnessed load term for this window.
+            if (pickupManifest == null || pickupManifest.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PickupDebit: route {routeIdForLog ?? "<none>"} empty pickup manifest - nothing to debit");
+                return new OriginDebitOutcome
+                {
+                    ActualDebited = null,
+                    RequestedOnShortfall = null,
+                    OriginVesselPid = 0u,
+                    Short = false,
+                    Unresolved = false,
+                };
+            }
+
+            Vessel endpointVessel = null;
+            string resolveReason = null;
+            bool resolved = false;
+            try
+            {
+                resolved = env.TryResolveEndpointVessel(endpoint, out endpointVessel, out resolveReason);
+            }
+            catch (Exception ex)
+            {
+                resolveReason = $"resolver-threw-{ex.GetType().Name}";
+                resolved = false;
+            }
+
+            if (!resolved || endpointVessel == null)
+            {
+                string reason = resolved ? "resolved-null-vessel" : (resolveReason ?? "unknown");
+                ParsekLog.Warn(Tag,
+                    $"PickupDebit: route {routeIdForLog ?? "<none>"} pickup endpoint unresolved at debit " +
+                    $"(reason={reason}) - emitting requested manifest with zero actuals");
+                return new OriginDebitOutcome
+                {
+                    ActualDebited = null,
+                    // Positive entries only, matching the planner's <=0 skip -
+                    // the short and unresolved paths must agree on row content.
+                    RequestedOnShortfall = ClonePositiveManifest(pickupManifest),
+                    OriginVesselPid = 0u,
+                    Short = true,
+                    Unresolved = true,
+                };
+            }
+
+            // Capture the loaded gate ONCE for THIS endpoint vessel and thread
+            // it into both the probe and the writer so the plan and the
+            // mutation read from the SAME loaded/unloaded branch. A
+            // two-direction applier touching multiple endpoint vessels captures
+            // this PER VESSEL - never hoist one flag across vessels (design D5).
+            bool endpointIsLoaded = endpointVessel.loaded && !endpointVessel.packed;
+            var probe = new LiveOriginCargoProbe(endpointVessel, endpointIsLoaded);
+            OriginDebitPlan plan = RouteOriginDebitPlanner.PrepareDebit(pickupManifest, probe);
+
+            ParsekLog.Info(Tag,
+                $"PickupDebit plan: route={routeIdForLog ?? "<none>"} " +
+                $"resources={(plan.Resources?.Count ?? 0).ToString(IC)} " +
+                $"short={(plan.IsShort ? "1" : "0")} " +
+                $"path={(endpointIsLoaded ? "loaded" : "unloaded")} " +
+                $"endpoint={endpointVessel.vesselName ?? "<none>"} " +
+                $"pid={endpointVessel.persistentId.ToString(IC)}");
+
+            var writers = new LiveOriginDebitWriters(routeIdForLog, endpointVessel, plan, endpointIsLoaded);
+            Dictionary<string, double> actualManifest = null;
+            Dictionary<string, double> requestedManifest = null;
+            bool anyShort = false;
+            if (plan.Resources != null)
+            {
+                for (int i = 0; i < plan.Resources.Count; i++)
+                {
+                    OriginDebitLine line = plan.Resources[i];
+                    if (line.Available > 0.0)
+                        writers.WriteResourceDebit(line.Name, line.Available);
+                    double actual = writers.ReadActualDebited(line.Name);
+                    if (actual > 0.0)
+                    {
+                        if (actualManifest == null)
+                            actualManifest = new Dictionary<string, double>(plan.Resources.Count, StringComparer.Ordinal);
+                        actualManifest[line.Name] = actual;
+                    }
+                    // Same shortfall epsilon as the origin path (multi-tank
+                    // drains sum per-tank rounding; an exact compare flags a
+                    // phantom shortfall).
+                    if (actual < line.Required - OriginDebitShortfallEpsilon)
+                    {
+                        anyShort = true;
+                        if (requestedManifest == null)
+                            requestedManifest = new Dictionary<string, double>(plan.Resources.Count, StringComparer.Ordinal);
+                        requestedManifest[line.Name] = line.Required;
+                    }
+                }
+            }
+
+            return new OriginDebitOutcome
+            {
+                ActualDebited = actualManifest,
+                RequestedOnShortfall = requestedManifest,
+                OriginVesselPid = endpointVessel.persistentId,
+                Short = anyShort,
+                Unresolved = false,
+            };
+        }
+
         // ==================================================================
         // Outcome appliers
         // ==================================================================
