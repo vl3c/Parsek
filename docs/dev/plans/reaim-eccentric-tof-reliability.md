@@ -3,9 +3,9 @@
 Status: PLAN (planning only; no production solver code in this PR).
 Branch: `reaim-eccentric-tof-reliability` (from `origin/main`).
 Predecessor research: `docs/dev/plans/reaim-near-180-lambert-reliability.md` (the A+B analysis; on branch `reaim-lambert-reliability`).
-Hard dependency: the near-180 handedness fix (limitation A), COMMITTED at `0dd6bd3a6` on branch `reaim-near180-handedness-fix` (pushed; not yet merged to main). This plan builds ON TOP of what that commit ships. See section 2.
+Hard dependency: the near-180 handedness fix (limitation A), MERGED to main via PR #1140 (commit `0dd6bd3a6`). This plan builds ON TOP of what that fix ships. See section 2.
 
-Note on source line numbers: all `file:line` cites below are relative to `origin/main` as of 2026-06-13 (this worktree's base). Stage A's harness edit shifts `ReaimEndToEndInGameTest.cs` cites by ~25-30 lines on the stage-A base; re-resolve against the stage-A branch when implementing on top of it.
+Note on source line numbers: stage A is now on main, and this plan branch was brought up to date with it (2026-06-14). Cites to the stage-B target files (`ReaimPlaybackResolver`, `TransferWindowMath`, `ReaimWindowPlanner`, `ReaimFeasibilityScan`) are unaffected by stage A (those files did not change). The `ReaimEndToEndInGameTest.cs` harness cites in section 4.2 are given against CURRENT main (post-stage-A).
 
 ## 0. One-paragraph summary
 
@@ -19,7 +19,7 @@ The research plan (`reaim-near-180-lambert-reliability.md`) split M-MIS-3 into (
 
 - (B) Eccentricity: window spacing is pure synodic (`ReaimWindowPlanner.cs`), and the per-window Lambert reuses the RECORDED tof with a fixed +-6% search (`ReaimPlaybackResolver.cs`, `TofSearchStepFraction = 0.005` x `SearchMaxSteps = 12`). An eccentric target (Eeloo ecc ~0.26, Moho ~0.2) sits at a different radius each window (the phase angle recurs each synodic period but the true anomaly / radius does not - synodic recurrence is exact only for circular orbits), so the geometrically-required tof routinely leaves the +-6% band and the window declines to faithful. Acknowledged in `docs/dev/design-mission-periodicity.md:969-973` (Residual risks): "the recorded tof at one window may not reproduce the recording-time relative geometry, pushing the required tof outside the +-6 percent band and declining the window. Not modeled this phase; flag and likely fail closed."
 
-### 1.2 What stage A actually ships (commit `0dd6bd3a6` on branch `reaim-near180-handedness-fix`, read via `git show 0dd6bd3a6`, 2026-06-13)
+### 1.2 What stage A actually ships (merged to main via PR #1140, commit `0dd6bd3a6`; read via `git show 0dd6bd3a6`)
 
 IMPORTANT: stage A did NOT take the research plan's recommended "conditional projection" lever. It took the plane-normal hint that the research plan had explicitly dropped (section 4 "Note on the seam-widening plane-normal hint"). The implementer chose it together with un-projecting r2, which is the pairing the research plan said the hint needs to work. The concrete diff:
 
@@ -40,7 +40,7 @@ IMPORTANT: stage A did NOT take the research plan's recommended "conditional pro
 
 ## 2. Relationship to stage A and to M-MIS-1 (read before designing)
 
-- This plan ASSUMES stage A (plane-normal hint + un-projected r2) has landed. If stage A's approach changes before merge (e.g. it reverts to conditional projection), re-read its final diff and re-validate sections 4.2 and 5 - the Moho fixture in particular depends on the un-projection having lifted the inclination cap.
+- Stage A (plane-normal hint + un-projected r2) is MERGED to main (PR #1140, commit `0dd6bd3a6`); its approach is now fixed, so the Moho fixture's dependency on the un-projection having lifted the inclination cap is settled, not a moving target. (Were a future change to revert the un-projection, re-validate sections 4.2 and 5.)
 - M-MIS-1 (PR #1116, COMPLETE) shipped the deterministic pinned-UT harness (`Source/Parsek/InGameTests/ReaimEndToEndInGameTest.cs`), the pure `ReaimFeasibilityScan` helpers, and `TransferWindowMath.LongitudeOfPeriapsisDegrees`. M-MIS-1 made an EXPLICIT decision: NO tof-search WIDENING (`todo:101`, `reaim-resolver-reliability.md` section 9): "The +-6% recorded-tof search resolves every window across the entire contiguous feasibility band ... Knife-edge window declines are hereby classified UNRESOLVABLE-BY-DESIGN ... Geometry-aware tof centering remains M-MIS-3 scope (eccentric/inclined targets), unchanged by this decision."
 - The tension to respect: stage B is RE-CENTERING + bounded eccentricity-scaled banding, which M-MIS-1 explicitly deferred TO M-MIS-3, NOT the blanket tof WIDENING M-MIS-1 refused. The design must not regress the Duna in-band windows that resolve today at step 0, and must keep the eccentricity-scaled term bounded so it cannot reintroduce knife-edge widening for a low-eccentricity target. Section 4.1 makes "zero regression for low-ecc" a structural property, not a tuning hope.
 - Stage A interacts with M-MIS-1: stage A reclassifies the M-MIS-1 ObservedEdgeDeparture window-2 (inc=180) decline as a handedness flip and hard-asserts window 0 now resolves prograde (the all-windows hard contract is still wired-but-FALSE pending live confirmation, section 1.2), and likely turns the M-MIS-1 sweep's `dep=43/44` retrograde-branch declines into resolves too. So after stage A, the DUNA sweep should decline LESS, and Duna (ecc 0.051) may no longer demonstrate limitation B at all. This is why B's validation needs genuinely eccentric targets (Eeloo, Moho), not Duna.
@@ -124,16 +124,16 @@ Extend the existing Verbose lines (resolver lines 207-209 on decline, 244-248 on
 
 The harness runs at SPACECENTER, uses REAL stock bodies via `FlightGlobals.Bodies.Find(b => b.bodyName == "...")`, and drives `ReaimPlaybackResolver.TryResolveWindowSegments` for `WindowsToCheck = 5` consecutive synodic windows from a `PinnedScanBaseUT = 5_000_000.0`. Moho and Eeloo are stock bodies, so a fixture is a pinned departure + a synthetic member/plan for that target - not a new recording file. Four tests exist: strict mid-band (`CenterOfLongestRunIndex`), band-edge weak contract (`FirstSuccessIndex`), the observed-failure pin, and a manual-only feasibility sweep.
 
-What must be parametrized (currently hardcoded to Kerbin/Duna):
-- `BuildGeometryOrSkip` (lines 399-428): hardcodes "Kerbin"/"Duna" lookups and the Hohmann tof.
-- `BuildMemberAndPlan` (lines 466-497): hardcodes "Kerbin"/"Duna" body names and the parking/heliocentric/arrival segment SMAs+eccs.
-- `AssertSaneWindowSegments` (lines 501-521): hardcodes "Kerbin" parking + "Duna" arrival leg names.
+What must be parametrized (currently hardcoded to Kerbin/Duna; line numbers are current main, post-stage-A):
+- `BuildGeometryOrSkip` (line 426): hardcodes "Kerbin"/"Duna" lookups and the Hohmann tof.
+- `BuildMemberAndPlan` (line 493): hardcodes "Kerbin"/"Duna" body names and the parking/heliocentric/arrival segment SMAs+eccs.
+- `AssertSaneWindowSegments` (line 528): hardcodes "Kerbin" parking + "Duna" arrival leg names.
 
 Generalize these to take `(launchBodyName, targetBodyName)` and target-appropriate arrival-leg elements. The pinned-scan / mid-band / band-edge / sweep machinery and `ReaimFeasibilityScan` are target-agnostic and reused as-is.
 
 #### 4.2.2 The critical trap: a naive eccentric fixture is a silent no-op
 
-The harness uses the GEOMETRIC Hohmann tof as the stand-in for the recorded tof (`ScanContext.TofSeconds = HohmannTransferTimeSeconds(...)`, lines 87, 415-416, and it is fed as `recordedTof` into `ReaimWindowPlanner.Plan` and as the search center). If an Eeloo fixture keeps that pattern, the synthetic recorded tof EQUALS stage B's geometric center, so stage B changes nothing and the fixture proves nothing. This is the non-trivial part the prompt flags: authoring these fixtures is real work, not free.
+The harness uses the GEOMETRIC Hohmann tof as the stand-in for the recorded tof (the `ScanContext.TofSeconds` field, line 96, computed via `HohmannTransferTimeSeconds(...)` inside `BuildGeometryOrSkip`, and it is fed as `recordedTof` into `ReaimWindowPlanner.Plan` and as the search center). If an Eeloo fixture keeps that pattern, the synthetic recorded tof EQUALS stage B's geometric center, so stage B changes nothing and the fixture proves nothing. This is the non-trivial part the prompt flags: authoring these fixtures is real work, not free.
 
 A fixture that actually exercises limitation B must:
 1. Use a recorded tof that is a realistic recorded SAMPLE offset from the geometric center - i.e. the tof for the target at ONE specific true anomaly (the recording-time geometry), NOT the SMA-average Hohmann time. Concretely: pick the recorded departure UT, compute the actual `r2` at `departure + (SMA Hohmann tof)`, and either (a) derive the recorded tof from that single-window radius geometry, or (b) deliberately choose a departure where the target is near periapsis (short recorded tof) and drive windows where it has drifted to apoapsis (needs a longer tof), so the recorded +-6% band cannot reach the needed tof.
@@ -214,7 +214,7 @@ Rationale: stage A resolves the reported Duna near-180 decline (and, per its har
 
 Symptom-driven, each stage independently testable and revertible (the project "revert on regression" rule):
 
-1. Land stage A (the reported bug; separate PR, this plan's dependency). Run the live in-game Periodicity SPACECENTER batch and confirm the Duna `ObservedEdgeDeparture` R/d map reads all-R, then promote stage A's `requireAllWindowsResolve` from FALSE to true (it is wired but soft today; stage A hard-asserts only window 0). That promotion is stage-A follow-up, not a precondition this plan owns - but stage B should not start until the Duna near-180 windows are confirmed resolving, so a residual stage-B eccentric decline is not masked by a still-flipping handedness window.
+1. Stage A is LANDED (merged to main, PR #1140) - the reported bug is fixed. Before starting stage B, run the live in-game Periodicity SPACECENTER batch and confirm the Duna `ObservedEdgeDeparture` R/d map reads all-R, then promote stage A's `requireAllWindowsResolve` from FALSE to true (it is wired but soft on main; stage A hard-asserts only window 0). That promotion is stage-A follow-up, not a precondition this plan owns - but stage B should not start until the Duna near-180 windows are confirmed resolving, so a residual stage-B eccentric decline is not masked by a still-flipping handedness window.
 2. Stage B-minimal (SMA geometric center + ecc-gated bounded band, recorded-tof step 0). Author the Eeloo failing fixture FIRST (measure the pre-stage-B decline), then add the knob. Gate: every Duna in-game test still green (no regression); the Eeloo feasible windows now resolve.
 3. Moho fixture: validates stage A's inclination lift AND stage B's ecc centering on the combined case.
 4. Only if a fixture window provably still declines: escalate to B-radius-aware (per-window radii), then - only if THAT still declines - the Gooding contingency (section 4.3 / 5.2).
@@ -225,7 +225,7 @@ A regression at any gate halts before the next stage.
 
 - `CHANGELOG.md`: one user-facing line per shipped item (e.g. "Re-aim now re-plans transfers to eccentric targets (Moho, Eeloo) per synodic window."). No technical detail (house rule).
 - `docs/dev/todo-and-known-bugs.md`: stage A ALREADY reconciled the M-MIS-3 inclination half + requirement (1) and the M-MIS-1 handedness reclassification (commit `0dd6bd3a6`); do NOT re-do those. This plan's STAGE-B PR updates the (renamed) M-MIS-3 entry for the eccentricity half only: mark (2) eccentricity tof centering done when stage B lands, mark (5) fixtures done, record the (3) shape-congruence relaxation, and the (4) Gooding contingency decision (deferred, gated). If the live all-R confirmation lands first, the `requireAllWindowsResolve` promotion + its M-MIS-1 note is a stage-A follow-up touch, not this PR's.
-- This plan: keep the stage-A "what shipped" section (1.2) in sync if stage A's diff changes before merge.
+- This plan: stage A is merged (PR #1140); keep the stage-A "what shipped" section (1.2) in sync only if a future change alters the shipped contract.
 
 ## 11. Open questions (settle measure-first, before coding the relevant stage)
 
