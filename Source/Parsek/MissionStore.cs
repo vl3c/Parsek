@@ -66,14 +66,31 @@ namespace Parsek
             return created;
         }
 
-        /// <summary>Removes Missions whose tree no longer exists. Returns count removed.</summary>
-        internal static int PruneOrphans(IEnumerable<RecordingTree> trees)
+        /// <summary>
+        /// Removes Missions whose tree no longer exists. Returns count removed.
+        /// <para>
+        /// <paramref name="additionalLiveTreeIds"/> protects trees that exist but are NOT in
+        /// the committed list at call time - chiefly a quickload-resume tree parked in the
+        /// pending-Limbo slot or still serialized as an isActive / isPending RECORDING_TREE
+        /// node that <c>TryRestoreActiveTreeNode</c> restores LATER in the same OnLoad (mission
+        /// reconcile runs before that restore). Without it, a mission whose tree is merely
+        /// parked would be pruned and the player's mission name + loop settings lost even
+        /// though the tree itself survives - the second half of the Limbo-tree data-loss bug.
+        /// </para>
+        /// </summary>
+        internal static int PruneOrphans(
+            IEnumerable<RecordingTree> trees,
+            IEnumerable<string> additionalLiveTreeIds = null)
         {
             var live = new HashSet<string>(StringComparer.Ordinal);
             if (trees != null)
                 foreach (var tree in trees)
                     if (tree != null && !string.IsNullOrEmpty(tree.Id))
                         live.Add(tree.Id);
+            if (additionalLiveTreeIds != null)
+                foreach (var id in additionalLiveTreeIds)
+                    if (!string.IsNullOrEmpty(id))
+                        live.Add(id);
 
             int removed = missions.RemoveAll(
                 m => m == null || string.IsNullOrEmpty(m.TreeId) || !live.Contains(m.TreeId));

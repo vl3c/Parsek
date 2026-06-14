@@ -156,6 +156,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PruneOrphans_ProtectsMissionForParkedTreeId()
+        {
+            // Limbo-tree data-loss fix (second half): a tree parked as a quickload-resume
+            // isActive node (restored into the pending slot LATER in OnLoad) is not in the
+            // committed list when the mission reconcile runs. Its mission name + loop settings
+            // must survive — additionalLiveTreeIds protects it from being pruned as an orphan.
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "X"), Tree("t2", "Duna Supply 1") });
+            Mission parked = new List<Mission>(MissionStore.Missions).Find(m => m.TreeId == "t2");
+            parked.LoopPlayback = true;
+            parked.LoopIntervalSeconds = 123.0;
+
+            // t2 is NOT committed, but it is parked (its isActive node restores later).
+            int removed = MissionStore.PruneOrphans(
+                new List<RecordingTree> { Tree("t1", "X") },
+                additionalLiveTreeIds: new List<string> { "t2" });
+
+            Assert.Equal(0, removed);
+            Assert.Equal(2, MissionStore.Missions.Count);
+            Mission survived = new List<Mission>(MissionStore.Missions).Find(m => m.TreeId == "t2");
+            Assert.NotNull(survived);
+            Assert.Equal("Duna Supply 1", survived.Name);    // custom name preserved
+            Assert.True(survived.LoopPlayback);              // loop settings preserved
+            Assert.Equal(123.0, survived.LoopIntervalSeconds);
+        }
+
+        [Fact]
+        public void PruneOrphans_StillRemovesTrueOrphan_WhenParkedIdsGivenButDontMatch()
+        {
+            // The protection is scoped: a mission whose tree is in NEITHER the committed list
+            // NOR the parked-id set is still a genuine orphan and is removed.
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "X"), Tree("t3", "Gone") });
+
+            int removed = MissionStore.PruneOrphans(
+                new List<RecordingTree> { Tree("t1", "X") },
+                additionalLiveTreeIds: new List<string> { "t2" }); // protects t2, not t3
+
+            Assert.Equal(1, removed);
+            Assert.Equal(0, MissionStore.CountForTree("t3"));
+        }
+
+        [Fact]
         public void SaveLoad_RoundTripsNameTreeAndSelection()
         {
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });

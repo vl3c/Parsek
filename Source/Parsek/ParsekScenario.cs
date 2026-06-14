@@ -1214,11 +1214,45 @@ namespace Parsek
                             pendingTree,
                             preservedDuringActiveRestore: false);
                     }
+                    else if (pendingState == PendingTreeState.Limbo
+                        || pendingState == PendingTreeState.LimboVesselSwitch)
+                    {
+                        // Data-loss fix (Limbo-tree drop): a Limbo / LimboVesselSwitch tree is
+                        // the quickload-resume stash — TryRestoreActiveTreeNode removed it from
+                        // committedTrees and parked it here, deferring the re-commit to a later
+                        // OnFlightReady. Previously ONLY Finalized pending trees were serialized,
+                        // so any OnSave that ran in the resume window (autosave / scene-exit /
+                        // exiting KSP before OnFlightReady fired) wrote a persistent.sfs with the
+                        // tree missing. Its mission then dangled and the tree + immutable sidecars
+                        // were purged as orphans on the next load. Serialize it with the SAME
+                        // isActive marker SaveActiveTreeIfAny uses so it round-trips through
+                        // TryRestoreActiveTreeNode straight back into the Limbo resume flow (the
+                        // stash state is re-derived from ActiveRecordingId: non-null => Limbo,
+                        // null => LimboVesselSwitch). If an active node was already written this
+                        // save (unexpected — the live active tree and the Limbo stash are normally
+                        // mutually exclusive), fall back to a plain committed node so the tree is
+                        // still durable and loads as a committed mission rather than a lost one.
+                        bool activeNodeAlreadyWritten = HasActiveTreeNode(node);
+                        string markerKey = activeNodeAlreadyWritten ? null : "isActive";
+                        string resumeRewindSave = activeNodeAlreadyWritten
+                            ? null
+                            : ResolveLimboResumeRewindSave(pendingTree);
+                        ParsekLog.Info("Scenario",
+                            $"SavePendingTreeIfAny: serializing Limbo pending tree '{pendingTree.TreeName}' " +
+                            $"state={pendingState} as {(activeNodeAlreadyWritten ? "committed-node (active node already present)" : "isActive resume node")} " +
+                            "to keep the quickload-resume window crash/exit-safe");
+                        SavePendingTreeNode(
+                            node,
+                            pendingTree,
+                            preservedDuringActiveRestore: false,
+                            markerKey: markerKey,
+                            resumeRewindSave: resumeRewindSave);
+                    }
                     else
                     {
                         ParsekLog.Verbose("Scenario",
                             $"SavePendingTreeIfAny: skipped pending tree '{pendingTree.TreeName}' " +
-                            $"state={pendingState} (only Finalized pending trees are serialized)");
+                            $"state={pendingState} (only Finalized / Limbo pending trees are serialized)");
                     }
                 }
             }
@@ -1237,7 +1271,9 @@ namespace Parsek
         private static void SavePendingTreeNode(
             ConfigNode node,
             RecordingTree pendingTree,
-            bool preservedDuringActiveRestore)
+            bool preservedDuringActiveRestore,
+            string markerKey = "isPending",
+            string resumeRewindSave = null)
         {
             if (pendingTree == null)
                 return;
@@ -1301,18 +1337,95 @@ namespace Parsek
 
             ConfigNode treeNode = node.AddNode("RECORDING_TREE");
             pendingTree.Save(treeNode);
-            treeNode.AddValue("isPending", "True");
+            // markerKey selects how the node round-trips on load: "isPending" (Finalized
+            // pending tree -> TryRestorePendingTreeNode), "isActive" (Limbo resume tree ->
+            // TryRestoreActiveTreeNode -> re-stash Limbo), or null/empty (plain committed
+            // node -> LoadRecordingTrees). resumeRewindSave mirrors the live recorder rewind
+            // hint onto the isActive node so the resume coroutine keeps its rewind affordance.
+            if (!string.IsNullOrEmpty(markerKey))
+                treeNode.AddValue(markerKey, "True");
+            if (!string.IsNullOrEmpty(resumeRewindSave))
+                treeNode.AddValue("resumeRewindSave", resumeRewindSave);
             if (preservedDuringActiveRestore)
                 RecordingStore.MarkSavedPendingTreeDuringActiveRestoreSerializedForSave("SavePendingTreeIfAny");
             else
                 RecordingStore.MarkPendingTreeSerializedForSave("SavePendingTreeIfAny");
 
             ParsekLog.Info("Scenario",
-                $"OnSave: wrote PENDING tree '{pendingTree.TreeName}' " +
+                $"OnSave: wrote {(string.IsNullOrEmpty(markerKey) ? "COMMITTED" : (markerKey == "isActive" ? "ACTIVE-RESUME" : "PENDING"))} tree '{pendingTree.TreeName}' " +
                 (preservedDuringActiveRestore ? "preserved during active-tree restore " : "") +
                 $"({pendingRecCount} recording(s), dirty={pendingDirtyCount}, saved={pendingSavedCount}, " +
                 $"failed={pendingSaveFailedCount}, committedOverlap={pendingCommittedOverlapCount}, " +
                 $"skippedCommittedDirty={pendingSkippedCommittedDirtyCount})");
+        }
+
+        /// <summary>
+        /// True if any RECORDING_TREE node already written to <paramref name="node"/> carries
+        /// the <c>isActive</c> marker. Used by <see cref="SavePendingTreeIfAny"/> to avoid
+        /// writing a second active node when serializing a Limbo resume tree (only one active
+        /// node round-trips through <see cref="TryRestoreActiveTreeNode"/>).
+        /// </summary>
+        internal static bool HasActiveTreeNode(ConfigNode node)
+        {
+            if (node == null)
+                return false;
+            var treeNodes = node.GetNodes("RECORDING_TREE");
+            for (int t = 0; t < treeNodes.Length; t++)
+                if (IsActiveTreeNode(treeNodes[t]))
+                    return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Resolves the rewind-save filename to mirror onto a serialized Limbo resume tree's
+        /// isActive node (read back by <see cref="TryRestoreActiveTreeNode"/> as the resume
+        /// hint). The live recorder is gone during the resume window, so the value comes from
+        /// the tree root recording's <see cref="Recording.RewindSaveFileName"/> (copied there
+        /// at stash time). Returns null when unavailable — a missing hint is benign.
+        /// </summary>
+        private static string ResolveLimboResumeRewindSave(RecordingTree tree)
+        {
+            if (tree == null || string.IsNullOrEmpty(tree.RootRecordingId) || tree.Recordings == null)
+                return null;
+            if (tree.Recordings.TryGetValue(tree.RootRecordingId, out var root) && root != null)
+                return root.RewindSaveFileName;
+            return null;
+        }
+
+        /// <summary>
+        /// Tree ids that exist but are not yet committed at mission-reconcile time, so
+        /// <see cref="MissionStore.PruneOrphans"/> must not treat their missions as orphans:
+        /// the ids of any isActive / isPending RECORDING_TREE node in <paramref name="node"/>
+        /// (restored into the pending slot LATER this OnLoad by <see cref="TryRestoreActiveTreeNode"/>
+        /// / <see cref="TryRestorePendingTreeNode"/>), plus any already-stashed pending /
+        /// saved-pending tree. Limbo-tree data-loss fix (second half).
+        /// <para>
+        /// If that later restore fails the schema gate (all recordings rejected), the protected
+        /// mission dangles for one cycle, then the next save writes no node and the next load
+        /// prunes it normally — self-healing, and still strictly better than deleting data.
+        /// </para>
+        /// </summary>
+        internal static List<string> CollectParkedTreeIdsForMissionPrune(ConfigNode node)
+        {
+            var ids = new List<string>();
+            if (node != null)
+            {
+                var treeNodes = node.GetNodes("RECORDING_TREE");
+                for (int t = 0; t < treeNodes.Length; t++)
+                {
+                    if (!IsActiveTreeNode(treeNodes[t]) && !IsPendingTreeNode(treeNodes[t]))
+                        continue;
+                    string id = treeNodes[t].GetValue("id");
+                    if (!string.IsNullOrEmpty(id))
+                        ids.Add(id);
+                }
+            }
+            if (RecordingStore.HasPendingTree && !string.IsNullOrEmpty(RecordingStore.PendingTree?.Id))
+                ids.Add(RecordingStore.PendingTree.Id);
+            var savedPending = RecordingStore.SavedPendingTreeDuringActiveRestore;
+            if (savedPending != null && !string.IsNullOrEmpty(savedPending.Id))
+                ids.Add(savedPending.Id);
+            return ids;
         }
 
         /// <summary>
@@ -3167,7 +3280,13 @@ namespace Parsek
                 RecordingStore.SanitizeDebrisLoopPlayback();
                 loadPhase = "missions";
                 MissionStore.Load(node);
-                MissionStore.PruneOrphans(RecordingStore.CommittedTrees);
+                // Protect missions whose tree is parked (a quickload-resume isActive / isPending
+                // node restored LATER in this OnLoad by TryRestoreActiveTreeNode, or an already
+                // stashed pending tree) so PruneOrphans does not strip the mission name + loop
+                // settings of a tree that survives but is not yet committed. Limbo-tree data-loss fix.
+                MissionStore.PruneOrphans(
+                    RecordingStore.CommittedTrees,
+                    CollectParkedTreeIdsForMissionPrune(node));
                 MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
                 MissionStore.ReconcileSelections(RecordingStore.CommittedTrees);
                 MissionStore.NormalizeOneLoopPerTree();
