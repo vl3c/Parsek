@@ -427,6 +427,56 @@ namespace Parsek.Tests.Logistics
             }
         }
 
+        // catches (M3, plan D8/D9): a pre-M3 / delivery-only route (or any route
+        // whose stop carries a PickupManifest) flipping to SourceChanged after the
+        // M3 route-shape change. The recording proof hash is computed ONLY from the
+        // Recording (RouteProofHasher), and the per-stop PickupManifest is route-side
+        // data RevalidateSources never reads, so adding the pickup direction must NOT
+        // perturb fingerprinting. The route must stay Active across a revalidate pass
+        // exactly like Revalidate_AllMatch_LeavesActiveUntouched.
+        [Fact]
+        public void Revalidate_StopWithPickupManifest_LeavesActiveUntouched()
+        {
+            var rec = BuildRouteSourceRecording("rec-pickup-stable");
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            var sourceRef = BuildMatchingSourceRef(rec);
+
+            // A route whose single stop carries BOTH a delivery and a pickup manifest
+            // (the M3 mixed shape) plus a sparse INVENTORY_PICKUP_MANIFEST absence.
+            Route route = BuildRoute("route-pickup-stable", RouteStatus.Active, sourceRef);
+            route.Stops[0].PickupManifest = new Dictionary<string, double> { { "Ore", 75.0 } };
+
+            // Sanity: the source ref's proof hash equals the recording's hash, and
+            // it does NOT depend on the route-side pickup manifest.
+            Assert.Equal(
+                RouteProofHasher.ComputeRouteProofHashFromRecording(rec),
+                sourceRef.RouteProofHash);
+
+            RouteStore.AddRoute(route);
+            InstallScenario();
+            logLines.Clear();
+
+            int transitioned = RouteStore.RevalidateSources("test");
+
+            Assert.Equal(0, transitioned);
+            Assert.True(RouteStore.TryGetRoute("route-pickup-stable", out Route resolved));
+            Assert.Equal(RouteStatus.Active, resolved.Status);
+            // The pickup manifest survives untouched (the route was not rebuilt).
+            Assert.Equal(75.0, resolved.Stops[0].PickupManifest["Ore"]);
+
+            // No "->" / "→" transition log line for this route.
+            foreach (string line in logLines)
+            {
+                if (line.Contains("[INFO]")
+                    && line.Contains("[Route]")
+                    && line.Contains("Route route-pic")
+                    && (line.Contains("->") || line.Contains("→")))
+                {
+                    Assert.True(false, "Unexpected transition log: " + line);
+                }
+            }
+        }
+
         // catches: stuck-disabled routes after save-with-recording-restored.
         [Fact]
         public void Revalidate_MissingRecovers_TransitionsBackToActive()

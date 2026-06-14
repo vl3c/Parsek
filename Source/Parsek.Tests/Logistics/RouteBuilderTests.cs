@@ -363,6 +363,144 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("endpoint-missing", outcome.RejectReason);
         }
 
+        // catches (M3, plan D8): an originless PURE-PICKUP run (no KSC launch, no
+        // docked-origin proof, no harvest origin) being rejected endpoint-missing
+        // instead of admitted. The endpoint IS the source (debited later), so the
+        // load manifest with no delivery must build a route whose stop carries the
+        // PickupManifest and whose origin is the dock endpoint, pid-resolvable, with
+        // EMPTY cost manifests (pickup debits its physical source, never funds).
+        [Fact]
+        public void BuildRoute_OriginlessPurePickup_AdmitsWithPickupManifest()
+        {
+            // No-origin source: empty LaunchSite, non-Kerbin body, null origin proof.
+            Recording source = MakeNoOriginSource();
+            RouteAnalysisResult analysis = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = source,
+                ConnectionWindow = source.RouteConnectionWindows[0],
+                // Pure pickup: nothing delivered, cargo loaded FROM the endpoint.
+                ResourceDeliveryManifest = null,
+                InventoryDeliveryManifest = null,
+                ResourceLoadManifest = new Dictionary<string, double>
+                {
+                    { "Ore", 120.0 },
+                    { "LiquidFuel", 33.5 }
+                }
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Null(outcome.RejectReason);
+            Assert.False(outcome.Route.IsKscOrigin);
+            Assert.False(outcome.Route.IsHarvestOrigin);
+            // Origin is the dock endpoint (the pickup SOURCE), pid-resolvable.
+            // MakeMunEndpoint() (the window's EndpointAtDock) carries pid 9001.
+            Assert.Equal(9001u, outcome.Route.Origin.VesselPersistentId);
+            Assert.Equal("Mun", outcome.Route.Origin.BodyName);
+            // Pickup debits its physical source, never funds: cost manifests EMPTY.
+            Assert.Empty(outcome.Route.CostManifest);
+            Assert.Empty(outcome.Route.InventoryCostManifest);
+            // The witnessed pickup amounts ride the stop's PickupManifest.
+            RouteStop stop = outcome.Route.Stops[0];
+            Assert.NotNull(stop.PickupManifest);
+            Assert.Equal(120.0, stop.PickupManifest["Ore"]);
+            Assert.Equal(33.5, stop.PickupManifest["LiquidFuel"]);
+            // Pure pickup carries no delivery (the stop delivery manifest is empty).
+            Assert.Empty(stop.DeliveryManifest);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("Built route") &&
+                l.Contains("origin=pickup:pid=9001") &&
+                l.Contains("stop-pickup=2"));
+        }
+
+        // catches (M3, plan D8): the originless-pickup admission defensively
+        // copying the analysis load manifest so a later store mutation cannot
+        // reach back into the analysis result (matches the delivery-manifest
+        // defensive-copy contract).
+        [Fact]
+        public void BuildRoute_OriginlessPurePickup_PickupManifestIsDefensiveCopy()
+        {
+            Recording source = MakeNoOriginSource();
+            var loadManifest = new Dictionary<string, double> { { "Ore", 120.0 } };
+            RouteAnalysisResult analysis = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = source,
+                ConnectionWindow = source.RouteConnectionWindows[0],
+                ResourceDeliveryManifest = null,
+                InventoryDeliveryManifest = null,
+                ResourceLoadManifest = loadManifest
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            // Mutating the route's pickup manifest must not touch the analysis source.
+            outcome.Route.Stops[0].PickupManifest["Ore"] = 999.0;
+            Assert.Equal(120.0, loadManifest["Ore"]);
+        }
+
+        // catches (M3, plan D8): an originless run that ALSO delivers (mixed-direction
+        // but with no resolvable conventional origin) being silently admitted through
+        // the pickup branch. The pickup branch is for PURE pickup only (hasDelivery
+        // guard); a mixed window with no KSC / docked / harvest origin still rejects
+        // endpoint-missing - mixed-with-real-origin is the supported M3 mixed case.
+        [Fact]
+        public void BuildRoute_OriginlessMixed_StillRejectsEndpointMissing()
+        {
+            Recording source = MakeNoOriginSource();
+            RouteAnalysisResult analysis = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = source,
+                ConnectionWindow = source.RouteConnectionWindows[0],
+                // Both directions present, but no conventional origin to debit the
+                // delivery against -> the pure-pickup admission must NOT fire.
+                ResourceDeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 50.0 } },
+                ResourceLoadManifest = new Dictionary<string, double> { { "Ore", 120.0 } }
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.Null(outcome.Route);
+            Assert.Equal("endpoint-missing", outcome.RejectReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("endpoint-missing") &&
+                l.Contains("resourceLoad=yes") &&
+                l.Contains("delivery=yes"));
+        }
+
+        // catches (M3, plan D8 regression guard): a pre-M3 / delivery-only KSC route
+        // accidentally getting a PickupManifest because the analysis result has no
+        // load manifest. A delivery-only build must leave the stop's PickupManifest
+        // null (the codec then omits the PICKUP_MANIFEST node - byte-stable saves).
+        [Fact]
+        public void BuildRoute_DeliveryOnly_LeavesPickupManifestNull()
+        {
+            Recording source = MakeKscSource();
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+            // EligibleAnalysisFromSource sets NO load manifest.
+            Assert.Null(analysis.ResourceLoadManifest);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.True(outcome.Route.IsKscOrigin);
+            // Delivery side untouched.
+            Assert.Equal(50.0, outcome.Route.Stops[0].DeliveryManifest["LiquidFuel"]);
+            // No pickup manifest leaked onto the delivery-only stop.
+            Assert.Null(outcome.Route.Stops[0].PickupManifest);
+            Assert.Null(outcome.Route.Stops[0].InventoryPickupManifest);
+        }
+
         // catches (M2, plan D8): a docked-origin run with witnessed harvest
         // keeping the full delivery as its depot debit. The CostManifest must
         // be reduced per resource by the harvested amount (max(0, ...)), with
