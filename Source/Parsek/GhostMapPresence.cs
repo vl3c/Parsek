@@ -9788,6 +9788,10 @@ namespace Parsek
             startUT = 0;
             endUT = 0;
 
+            // Resolved once up front so both single-segment short-circuit branches below can pass it to
+            // ExpandStoredBoundsAcrossEquivalentSegments. O(1) dictionary lookup, no side effects.
+            int recordingIndex = FindRecordingIndexByVesselPid(vesselPid);
+
             // Loop-shifted ghost: the stored bounds are already in the live frame and match the
             // shifted orbit epoch, so use them directly. Re-deriving from the raw recorded
             // OrbitSegments at the live UT (below) would return raw recorded UTs that desync from
@@ -9801,10 +9805,16 @@ namespace Parsek
                     out startUT,
                     out endUT))
             {
+                // The stored bounds are a SINGLE applied OrbitSegment, so the arc clip would draw only
+                // that fragment of a multi-fragment same-orbit coast (the loop SOI-approach hyperbola
+                // splits into adjacent equivalent fragments). Expand the arc-clip window across those
+                // element-equivalent fragments (read-only; ghostOrbitBounds is untouched) so the line
+                // draws the whole approach in one frame instead of one piece then the rest seconds later.
+                ExpandStoredBoundsAcrossEquivalentSegments(
+                    vesselPid, recordingIndex, ref startUT, ref endUT, "loop-shifted");
                 return true;
             }
 
-            int recordingIndex = FindRecordingIndexByVesselPid(vesselPid);
             if (IsEndpointTailRecordingGhost(vesselPid, recordingIndex)
                 && TryGetStoredOrbitBoundsForGhostVessel(
                     vesselPid,
@@ -9813,6 +9823,12 @@ namespace Parsek
                     out startUT,
                     out endUT))
             {
+                // Same single-segment clip structure as the loop-shifted branch. An EndpointTail
+                // synthetic segment's startUT may not exist verbatim in the recorded OrbitSegments;
+                // when no seed matches the expansion is a no-op (keeps stored bounds, behaviour-identical
+                // to today). Otherwise it widens across the equivalent recorded fragments.
+                ExpandStoredBoundsAcrossEquivalentSegments(
+                    vesselPid, recordingIndex, ref startUT, ref endUT, "endpoint-tail");
                 return true;
             }
 
@@ -9978,6 +9994,75 @@ namespace Parsek
                     "Map-visible orbit window pid={0} source={1} ut={2:F2} windowUT={3:F2}-{4:F2}",
                     vesselPid, source, currentUT, startUT, endUT));
             return true;
+        }
+
+        /// <summary>
+        /// Expand a stored SINGLE-segment arc-clip window (loop-shifted / endpoint-tail branches) across
+        /// element-equivalent adjacent recorded OrbitSegments so the orbit line draws one continuous
+        /// same-orbit arc instead of a single fragment. Mirrors the non-loop merge
+        /// (<see cref="TrajectoryMath.TryGetOrbitWindowForMapDisplay"/>) the loop path short-circuits past.
+        ///
+        /// <para>The stored bounds (<paramref name="startUT"/>/<paramref name="endUT"/>) are in the LIVE
+        /// frame (the orbit epoch + bounds were shifted by <c>loopEpochShiftSeconds</c> when applied); the
+        /// recorded OrbitSegments are RAW. To compare/merge in ONE consistent frame this un-shifts the
+        /// stored bounds to raw via <see cref="MapLiveUTToEffUT"/>, expands on the RAW segments, then
+        /// re-applies +shift to the merged result. Writes back to the ref params ONLY when more than one
+        /// fragment coalesced; a no-seed-match or single-fragment result leaves them at the stored values
+        /// (behaviour-identical to before). Reads <c>RecordingStore.CommittedRecordings</c> only (the same
+        /// raw committed read the adjacent non-loop branch makes); NEVER mutates <c>ghostOrbitBounds</c>,
+        /// so the icon-drive / SetOrbit epoch stay on the single applied segment and only the drawn arc
+        /// sweep widens.</para>
+        /// </summary>
+        private static void ExpandStoredBoundsAcrossEquivalentSegments(
+            uint vesselPid, int recordingIndex, ref double startUT, ref double endUT, string reason)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (recordingIndex < 0
+                || committed == null
+                || recordingIndex >= committed.Count
+                || committed[recordingIndex] == null
+                || !committed[recordingIndex].HasOrbitSegments)
+            {
+                return;
+            }
+
+            double shift = GetGhostOrbitEpochShift(vesselPid);
+            double rawStart = MapLiveUTToEffUT(startUT, shift);
+            double rawEnd = MapLiveUTToEffUT(endUT, shift);
+
+            if (!TrajectoryMath.TryExpandStoredSingleSegmentWindow(
+                    committed[recordingIndex].OrbitSegments,
+                    rawStart,
+                    rawEnd,
+                    out double rawExpandedStart,
+                    out double rawExpandedEnd,
+                    out int firstVisibleIndex,
+                    out int lastVisibleIndex,
+                    out int fragmentCount))
+            {
+                return;
+            }
+
+            if (fragmentCount <= 1)
+                return;
+
+            startUT = rawExpandedStart + shift;
+            endUT = rawExpandedEnd + shift;
+
+            // This resolves every render frame while a loop ghost approaches an SOI; emit only when the
+            // coalesced window changes (VerboseOnChange) so the merge decision is captured without
+            // per-frame spam, mirroring the stored-bounds VerboseOnChange site just above.
+            ParsekLog.VerboseOnChange(Tag,
+                string.Format(ic, "loop-arc-coalesce|{0}|{1}", vesselPid, reason),
+                string.Format(ic, "coalesce|{0}|{1}-{2}|{3:F3}-{4:F3}",
+                    fragmentCount, firstVisibleIndex, lastVisibleIndex, startUT, endUT),
+                string.Format(ic,
+                    "Loop arc-window coalesced pid={0} recIndex={1} reason={2} fragments={3} " +
+                    "segIndices={4}-{5} rawWindowUT={6:F2}-{7:F2} shiftedWindowUT={8:F2}-{9:F2} loopShift={10:F2}",
+                    vesselPid, recordingIndex, reason, fragmentCount,
+                    firstVisibleIndex, lastVisibleIndex,
+                    rawExpandedStart, rawExpandedEnd,
+                    startUT, endUT, shift));
         }
 
         /// <summary>
