@@ -182,14 +182,102 @@ namespace Parsek.Tests
         [Fact]
         public void Defer_TransientButNotElliptical_Hides()
         {
-            // A hyperbolic / degenerate orbit has no ellipse to bridge across the
-            // boundary chatter, so the transient hide is not deferred even inside
-            // the window.
+            // A degenerate orbit (no ellipse, no hyperbola) has nothing to bridge
+            // across the boundary chatter, so the transient hide is not deferred even
+            // inside the window. (Default orbitFiniteHyperbolic = false.)
             Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
                 GhostOrbitLinePatch.OffReasonStaleSegment,
                 currentFrame: 100,
                 graceUntilFrame: 120,
                 orbitFiniteElliptical: false));
+        }
+
+        // --- LEVER B: stale-segment grace covers a finite open hyperbola ---
+
+        [Fact]
+        public void Defer_StaleSegment_HyperbolicInsideGrace_KeepsVisible()
+        {
+            // The SOI-seam case: the head rides the incoming Mun-transfer hyperbola
+            // (ecc >= 1, so orbitFiniteElliptical = false) while the applied-segment
+            // reseed lags inside the body frame. GhostOrbitArcPatch draws a valid open
+            // arc, so the stale-segment grace MUST keep the line visible rather than
+            // blanking it (the progressive-reveal bug). orbitFiniteHyperbolic = true
+            // is what flips it on for the stale-segment reason.
+            Assert.True(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                GhostOrbitLinePatch.OffReasonStaleSegment,
+                currentFrame: 100,
+                graceUntilFrame: 120,
+                orbitFiniteElliptical: false,
+                orbitFiniteHyperbolic: true));
+        }
+
+        [Fact]
+        public void Defer_StaleSegment_HyperbolicAfterGraceExpired_Hides()
+        {
+            // Bounded: the hyperbolic hold uses the SAME frame-count window. Past the
+            // deadline (a sustained hyperbolic hide, e.g. the genuine
+            // hyperbola->ellipse capture change has elapsed beyond the grace) the line
+            // hides so a genuinely stale arc is never held long.
+            Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                GhostOrbitLinePatch.OffReasonStaleSegment,
+                currentFrame: 200,
+                graceUntilFrame: 120,
+                orbitFiniteElliptical: false,
+                orbitFiniteHyperbolic: true));
+        }
+
+        [Fact]
+        public void Defer_PolylineOwns_HyperbolicInsideGrace_StillHides()
+        {
+            // Lever B is SCOPED to the stale-segment reason. The polyline-owns grace
+            // stays ellipse-only: a hyperbolic dip there is not the SOI seam, and
+            // deferring it could double-draw the orbit line over the polyline. So even
+            // inside the window with a finite hyperbola, polyline-owns does NOT defer.
+            Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                GhostOrbitLinePatch.OffReasonPolylineOwns,
+                currentFrame: 100,
+                graceUntilFrame: 120,
+                orbitFiniteElliptical: false,
+                orbitFiniteHyperbolic: true));
+        }
+
+        [Fact]
+        public void Defer_StaleSegment_NeitherEllipseNorHyperbola_Hides()
+        {
+            // Degenerate / NaN / parabolic-edge orbit (both arc-shape flags false):
+            // nothing renderable to bridge, so even the stale-segment reason hides.
+            Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                GhostOrbitLinePatch.OffReasonStaleSegment,
+                currentFrame: 100,
+                graceUntilFrame: 120,
+                orbitFiniteElliptical: false,
+                orbitFiniteHyperbolic: false));
+        }
+
+        [Fact]
+        public void Defer_StaleSegment_EllipticalStillDefers_WithHyperbolicFalse()
+        {
+            // Regression guard: the ordinary elliptical reseed-lag defer is unchanged
+            // by Lever B (ellipse true, hyperbola false still defers).
+            Assert.True(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                GhostOrbitLinePatch.OffReasonStaleSegment,
+                currentFrame: 100,
+                graceUntilFrame: 120,
+                orbitFiniteElliptical: true,
+                orbitFiniteHyperbolic: false));
+        }
+
+        [Fact]
+        public void Defer_DurableReason_HyperbolicNeverDeferred()
+        {
+            // A durable reason (out-of-body-frame) is never graced regardless of arc
+            // shape, even with a finite hyperbola.
+            Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                "past-body-frame-end",
+                currentFrame: 100,
+                graceUntilFrame: 120,
+                orbitFiniteElliptical: false,
+                orbitFiniteHyperbolic: true));
         }
 
         // --- Per-pid grace map (GhostMapPresence) ---

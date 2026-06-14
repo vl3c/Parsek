@@ -48,6 +48,7 @@ All notable changes to Parsek are documented here.
 - The Merge or Discard prompt shown when you switch away from a vessel you just briefly flew now reports that short new flight's length instead of the whole multi-year span of the resumed recording.
 - A mission no longer disappears (its Missions entry, recording tree, and saved recordings all gone, while the flown vessels stay in the game) if you quickload while recording it and then save or exit before the flight finishes resuming. The in-progress recording now survives the save, and orphan cleanup moves stray recording files to a quarantine folder instead of deleting them, so this kind of loss stays recoverable.
 - Looped missions that dock with a station orbiting another body (such as a Mun depot) no longer relaunch only once every year or two: the per-loop loiter re-timer now engages on the parking orbit around the destination body, collapsing the cadence back to roughly weeks, and the Missions window's loop period now shows the cadence as a range instead of a single mean.
+- A ghost's incoming map trajectory at a sphere-of-influence crossing (such as a Kerbin-to-Mun transfer entering Mun's SOI) now appears all at once instead of filling in progressively as the ghost travels: the inbound curve toward the moon is no longer blanked while the orbit reseed catches up.
 
 ---
 

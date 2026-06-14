@@ -507,10 +507,36 @@ namespace Parsek.Patches
         ///   graced and hide instantly;
         /// - the grace window is still open (<paramref name="currentFrame"/> &lt;=
         ///   <paramref name="graceUntilFrame"/>); and
-        /// - the orbit elements are still finite and elliptical
-        ///   (<paramref name="orbitFiniteElliptical"/>), so a real arc exists to
-        ///   keep showing (a hyperbolic / degenerate orbit has no meaningful
-        ///   ellipse to bridge with).
+        /// - the orbit has a renderable arc to keep showing across the boundary
+        ///   chatter (<paramref name="orbitFiniteElliptical"/> for both reasons, OR
+        ///   <paramref name="orbitFiniteHyperbolic"/> for the stale-segment reason
+        ///   only); a NaN / Infinity / parabolic-edge / degenerate orbit has nothing
+        ///   to bridge with.
+        ///
+        /// LEVER B (SOI-seam hyperbola coverage): the renderable-arc test differs by
+        /// reason. For <see cref="OffReasonPolylineOwns"/> only a finite ELLIPSE
+        /// counts: the polyline-owns branch must not double-draw, and a hyperbolic
+        /// dip there is not the seam this lever targets. For
+        /// <see cref="OffReasonStaleSegment"/> a finite hyperbola ALSO counts:
+        /// <see cref="GhostOrbitArcPatch"/> draws a valid OPEN hyperbolic arc, and a
+        /// stale-segment hide only fires while the head is inside the body frame but
+        /// the applied-segment reseed has not caught up (an ACTIVE RESEED LAG), so the
+        /// hyperbola the head currently rides genuinely belongs on this frame. Without
+        /// this, a Kerbin->Mun transfer ghost's incoming hyperbola was blanked at the
+        /// SOI seam (ecc &gt;= 1 failed the old ellipse-only gate) and the conic filled
+        /// in only progressively as the reseed walked one segment per tick. The
+        /// caller passes both arc-shape flags; the predicate selects per reason.
+        ///
+        /// Boundedness / not-stale: the hold is the SAME frame-count grace window as
+        /// the elliptical case. The deadline is last stamped on a genuinely-shown
+        /// frame (visible-body-frame) and is NEVER restamped while hidden, so a
+        /// hyperbolic hold expires within <see cref="OrbitLineGraceFrames"/> render
+        /// frames (~0.33s @ 60Hz) of the last genuine show. Consecutive same-sma
+        /// hyperbola segments share the SAME conic, so holding the prior one during
+        /// the lag is visually identical; the only stale risk is the
+        /// hyperbola-&gt;ellipse capture change, and the frame bound caps that to the
+        /// grace window (once the reseed applies the ellipse the applied-segment
+        /// bounds cover the head and this guard stops firing entirely).
         ///
         /// A SUSTAINED transient phase (e.g. the polyline owning a whole
         /// below-atmosphere descent) keeps hiding because the grace deadline was
@@ -523,12 +549,23 @@ namespace Parsek.Patches
             string offReason,
             int currentFrame,
             int graceUntilFrame,
-            bool orbitFiniteElliptical)
+            bool orbitFiniteElliptical,
+            bool orbitFiniteHyperbolic = false)
         {
-            if (!orbitFiniteElliptical) return false;
             bool transient =
                 offReason == OffReasonStaleSegment || offReason == OffReasonPolylineOwns;
             if (!transient) return false;
+
+            // Per-reason renderable-arc gate (Lever B). polyline-owns requires a
+            // finite ellipse (no double-draw, no hyperbola seam here); stale-segment
+            // also accepts a finite hyperbola (the open arc the head currently rides
+            // during the reseed lag). Everything else (NaN / Inf / parabolic-edge /
+            // degenerate) has no arc to bridge and hides instantly.
+            bool arcRenderable = offReason == OffReasonStaleSegment
+                ? (orbitFiniteElliptical || orbitFiniteHyperbolic)
+                : orbitFiniteElliptical;
+            if (!arcRenderable) return false;
+
             return currentFrame <= graceUntilFrame;
         }
 
@@ -546,6 +583,24 @@ namespace Parsek.Patches
                 && !double.IsNaN(orbit.period)
                 && !double.IsInfinity(orbit.period)
                 && orbit.period > 0.0;
+        }
+
+        /// <summary>
+        /// Pure: is the orbit a finite OPEN hyperbola (eccentricity &gt; 1, finite)?
+        /// <see cref="GhostOrbitArcPatch"/> draws a valid open hyperbolic arc, so a
+        /// finite hyperbola has a renderable shape to keep showing across a
+        /// stale-segment reseed lag at an SOI seam (Lever B). Exactly-parabolic
+        /// (ecc == 1) is EXCLUDED: the stock anomaly helpers are unstable at the
+        /// parabolic edge (matches the &gt; 1.0 hyperbolic gate the arc clip uses at
+        /// <c>GhostOrbitArcPatch</c>), so a parabolic-edge orbit hides instead of
+        /// holding a degenerate arc.
+        /// </summary>
+        internal static bool IsOrbitFiniteHyperbolic(Orbit orbit)
+        {
+            return orbit != null
+                && !double.IsNaN(orbit.eccentricity)
+                && !double.IsInfinity(orbit.eccentricity)
+                && orbit.eccentricity > 1.0;
         }
 
         internal static string BuildGhostOrbitLineDecisionStateKey(
@@ -700,6 +755,12 @@ namespace Parsek.Patches
             int graceCurrentFrame = Time.frameCount;
             int graceUntilFrame = GhostMapPresence.GetOrbitLineGraceUntilFrame(pid);
             bool orbitFiniteElliptical = IsOrbitFiniteElliptical(__instance.vessel?.orbit);
+            // Lever B (SOI-seam hyperbola coverage): the stale-segment grace also
+            // accepts a finite open hyperbola so the incoming Mun-transfer arc is not
+            // blanked at the SOI seam during the applied-segment reseed lag. The
+            // polyline-owns grace ignores this flag (ellipse-only) to avoid a
+            // double-draw; only ShouldDeferOrbitLineHide's stale-segment path reads it.
+            bool orbitFiniteHyperbolic = IsOrbitFiniteHyperbolic(__instance.vessel?.orbit);
 
             // Polyline ownership (PR #970): while the map-view trajectory polyline
             // draws this recording's CURRENT non-orbital leg, hide the orbit LINE so
@@ -861,7 +922,8 @@ namespace Parsek.Patches
                     // hide takes effect, so a genuinely stale arc is never shown
                     // for long.
                     if (ShouldDeferOrbitLineHide(
-                            OffReasonStaleSegment, graceCurrentFrame, graceUntilFrame, orbitFiniteElliptical))
+                            OffReasonStaleSegment, graceCurrentFrame, graceUntilFrame,
+                            orbitFiniteElliptical, orbitFiniteHyperbolic))
                     {
                         // Re-show the proto ICON here (unlike the polyline-owns
                         // grace-defer above): the polyline does NOT own this
@@ -874,11 +936,15 @@ namespace Parsek.Patches
                         line.active = true;
                         __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
                         GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+                        // arcShape records WHICH renderable conic the grace is bridging
+                        // so the SOI-seam hyperbola hold (Lever B) is greppable apart
+                        // from the ordinary elliptical reseed-lag defer.
+                        string arcShape = orbitFiniteHyperbolic ? "hyperbola" : "ellipse";
                         ParsekLog.VerboseRateLimited(Tag,
                             "grace-defer-" + pid.ToString(CultureInfo.InvariantCulture),
                             string.Format(CultureInfo.InvariantCulture,
-                                "hide deferred by grace pid={0} reason={1} currentFrame={2} graceUntilFrame={3}",
-                                pid, OffReasonStaleSegment, graceCurrentFrame, graceUntilFrame),
+                                "hide deferred by grace pid={0} reason={1} arc={2} currentFrame={3} graceUntilFrame={4}",
+                                pid, OffReasonStaleSegment, arcShape, graceCurrentFrame, graceUntilFrame),
                             1.0);
                         return;
                     }
