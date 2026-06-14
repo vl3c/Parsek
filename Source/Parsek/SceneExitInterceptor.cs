@@ -66,6 +66,14 @@ namespace Parsek
         internal static Action<string> AutoDiscardIdleForTesting;
 
         /// <summary>
+        /// Test seam: when non-null, the no-op switch-segment fast path invokes
+        /// this instead of
+        /// <see cref="ParsekFlight.AutoDiscardNoOpStandaloneSwitchSegment"/>.
+        /// Receives the destination scene and the live flight controller.
+        /// </summary>
+        internal static Action<GameScenes, ParsekFlight> AutoDiscardNoOpSwitchSegmentForTesting;
+
+        /// <summary>
         /// Test seam: when non-null, the prefix calls this instead of
         /// <see cref="GamePersistence.SaveGame"/>. Receives the destination
         /// scene; returns true on success, false to simulate save failure.
@@ -98,6 +106,7 @@ namespace Parsek
             s_AllowNextLoadSceneDestination = GameScenes.LOADING;
             ShowDialogForTesting = null;
             AutoDiscardIdleForTesting = null;
+            AutoDiscardNoOpSwitchSegmentForTesting = null;
             SafeWritePersistentForTesting = null;
         }
 
@@ -358,6 +367,115 @@ namespace Parsek
         }
 
         /// <summary>
+        /// No-op resumed-segment fast path. When the armed
+        /// <see cref="SwitchSegmentSession"/>'s segment (Tracking-Station Fly /
+        /// KSC marker Fly / map Switch-To) changed nothing meaningful, drops it
+        /// here so a boring segment that just prolongs the ghost state is not
+        /// committed. Mirrors <see cref="TryAutoDiscardIdleActiveTree"/>: on
+        /// return-true the caller re-saves persistent.sfs and lets the transition
+        /// proceed with no active tree.
+        ///
+        /// <para>Disposition handling: <see cref="SwitchSegmentDisposition.Standalone"/>
+        /// tears down the whole throwaway tree
+        /// (<see cref="ParsekFlight.AutoDiscardNoOpStandaloneSwitchSegment"/>).
+        /// <see cref="SwitchSegmentDisposition.CommittedRestoreClone"/> tears down
+        /// the live clone and reverts to the committed original
+        /// (<see cref="ParsekFlight.DiscardActiveSwitchSegmentAttemptRevertingLiveClone"/>)
+        /// — the committed mission is preserved, the boring resume dropped, no
+        /// dialog. <see cref="SwitchSegmentDisposition.BgMemberOrMixed"/> is
+        /// DEFERRED (return false → normal commit path) because the rest of the
+        /// live tree must still commit.</para>
+        /// </summary>
+        internal static bool TryAutoDiscardNoOpSwitchSegment(
+            GameScenes destination, ParsekFlight flight)
+        {
+            if (flight == null) return false;
+            if (!flight.TryEvaluateActiveSwitchSegmentNoOp(
+                    out string reason, out SwitchSegmentDisposition disposition))
+            {
+                return false;
+            }
+
+            if (disposition != SwitchSegmentDisposition.Standalone
+                && disposition != SwitchSegmentDisposition.CommittedRestoreClone)
+            {
+                ParsekLog.Info("SceneExit",
+                    $"TryAutoDiscardNoOpSwitchSegment: no-op detected but disposition=" +
+                    $"{disposition} is deferred at scene exit dest={destination} - " +
+                    "falling through to normal commit");
+                return false;
+            }
+
+            string discardReason =
+                $"scene-exit no-op switch-segment auto-discard dest={destination}";
+            ParsekLog.Info("SceneExit",
+                $"TryAutoDiscardNoOpSwitchSegment: no-op switch segment ({disposition}) " +
+                $"detected dest={destination} - discarding without commit");
+
+            if (AutoDiscardNoOpSwitchSegmentForTesting != null)
+            {
+                AutoDiscardNoOpSwitchSegmentForTesting(destination, flight);
+            }
+            else if (disposition == SwitchSegmentDisposition.CommittedRestoreClone)
+            {
+                // Revert to the committed original (which stays in committedTrees,
+                // copy-on-write); the boring resume segment + the clone are dropped.
+                flight.DiscardActiveSwitchSegmentAttemptRevertingLiveClone(
+                    reason: discardReason,
+                    screenMessage: "Recording discarded - vessel unchanged after switch",
+                    ledgerRecalcReason: "noop-switch-segment-discard-revert-clone",
+                    out _);
+            }
+            else
+            {
+                flight.AutoDiscardNoOpStandaloneSwitchSegment(discardReason);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// No-op fast path for the NO-SESSION committed-restore resume (you Fly /
+        /// Switch-To a vessel from a committed mission via a scene reload; OnLoad
+        /// resumes the committed tree in-place without arming a
+        /// <see cref="SwitchSegmentSession"/>). If the resume tail changed
+        /// nothing, reverts the clone to the committed original (which survives in
+        /// committedTrees) so a do-nothing revisit of a tracked mission is dropped
+        /// silently at scene exit instead of prompting / committing. Runs after
+        /// the session-based <see cref="TryAutoDiscardNoOpSwitchSegment"/>.
+        /// </summary>
+        internal static bool TryAutoDiscardNoOpNoSessionCommittedResume(
+            GameScenes destination, ParsekFlight flight)
+        {
+            if (flight == null) return false;
+            if (!flight.TryEvaluateNoSessionCommittedResumeNoOp(out string reason))
+                return false;
+
+            string discardReason =
+                $"scene-exit no-op no-session committed-resume revert dest={destination}";
+            ParsekLog.Info("SceneExit",
+                $"TryAutoDiscardNoOpNoSessionCommittedResume: no-op committed-restore resume " +
+                $"detected dest={destination} - reverting to committed original");
+
+            // Wrap the teardown: this runs in the HighLogic.LoadScene Harmony
+            // prefix, so a throw must not escape and abort the transition.
+            try
+            {
+                if (AutoDiscardNoOpSwitchSegmentForTesting != null)
+                    AutoDiscardNoOpSwitchSegmentForTesting(destination, flight);
+                else
+                    flight.AutoDiscardNoOpNoSessionCommittedResume(discardReason);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("SceneExit",
+                    $"TryAutoDiscardNoOpNoSessionCommittedResume teardown threw " +
+                    $"{ex.GetType().Name}: {ex.Message} - falling through to normal commit");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Pre-LoadScene save: persist Parsek's mutations. For paths where
         /// stock <c>saveAndExit</c> already saved (PauseMenu paths), our
         /// re-save runs after our mutations on top of stock's earlier save.
@@ -571,6 +689,37 @@ namespace Parsek
             }
 
             var flight = ParsekFlight.Instance;
+
+            // (3.5) no-op resumed-segment fast path. If the armed switch-segment
+            //     session's segment (Fly / Switch-To) changed nothing meaningful,
+            //     drop it here (mirrors the idle-on-pad fast path) so a boring
+            //     segment that only prolongs the ghost state is not committed.
+            //     Standalone tears down the throwaway tree; CommittedRestoreClone
+            //     reverts to the committed original (which survives in
+            //     committedTrees); only BgMemberOrMixed defers. Runs BEFORE the
+            //     HasActiveTree routing check so that check is taken on
+            //     post-discard state (the teardown nulls activeTree).
+            if (flight != null
+                && SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment(scene, flight))
+            {
+                if (!SceneExitInterceptor.SafeWritePersistent(scene))
+                    return false;   // MAINMENU save failed: hard-block
+                return true;
+            }
+
+            // (3.6) no-op NO-SESSION committed-restore resume: revisiting a
+            //     tracked mission (resumed via ResumeCommittedActiveRecording, no
+            //     session) and leaving without changing anything reverts the clone
+            //     to the committed original. Closes the MAINMENU / scene-exit gap
+            //     where the session-based check above sees no session.
+            if (flight != null
+                && SceneExitInterceptor.TryAutoDiscardNoOpNoSessionCommittedResume(scene, flight))
+            {
+                if (!SceneExitInterceptor.SafeWritePersistent(scene))
+                    return false;   // MAINMENU save failed: hard-block
+                return true;
+            }
+
             if (flight == null || !flight.HasActiveTree)
             {
                 // Bug C (post-#876 playtest 2026-05-17): an armed
