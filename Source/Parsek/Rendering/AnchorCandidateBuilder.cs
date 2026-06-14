@@ -94,17 +94,24 @@ namespace Parsek.Rendering
             // (recordingId, sectionIndex) inside the established lock.
             var perSection = Compute(rec, tree);
 
-            int totalCandidates = 0;
-            int dockCount = 0, splitCount = 0, relCount = 0, orbitCount = 0,
-                soiCount = 0, surfaceCount = 0, loopCount = 0,
-                bubbleEntryCount = 0, bubbleExitCount = 0, otherCount = 0;
-
             // Reviewer P2-1: BranchPointType differentiation for the
             // DockOrMerge byte-aliased split sources (Undock / EVA /
             // JointBreak). Build an optional UT -> bpType lookup so the
             // per-candidate log can carry the originating bp type even
             // though the AnchorSource byte is shared. Bounded by the
             // BranchPoint count (small handfuls per recording).
+            Dictionary<double, BranchPointType> bpTypeByUT = BuildBranchPointTypeLookup(tree);
+
+            LogAndCountCandidates(rec, recordingId, perSection, bpTypeByUT);
+        }
+
+        /// <summary>
+        /// Pure extraction: builds the optional UT -> BranchPointType lookup used by
+        /// the per-candidate log/count to differentiate DockOrMerge byte-aliased
+        /// split sources. Returns null when the tree has no branch points.
+        /// </summary>
+        private static Dictionary<double, BranchPointType> BuildBranchPointTypeLookup(RecordingTree tree)
+        {
             Dictionary<double, BranchPointType> bpTypeByUT = null;
             if (tree != null && tree.BranchPoints != null)
             {
@@ -116,6 +123,25 @@ namespace Parsek.Rendering
                     bpTypeByUT[bp.UT] = bp.Type;
                 }
             }
+
+            return bpTypeByUT;
+        }
+
+        /// <summary>
+        /// Stores each section's candidates, emits the bounded per-candidate Verbose
+        /// line, tallies per-source counters, and emits the batch summary. Extracted
+        /// verbatim from BuildAndStorePerSection (no logic change).
+        /// </summary>
+        private static void LogAndCountCandidates(
+            Recording rec,
+            string recordingId,
+            List<KeyValuePair<int, AnchorCandidate[]>> perSection,
+            Dictionary<double, BranchPointType> bpTypeByUT)
+        {
+            int totalCandidates = 0;
+            int dockCount = 0, splitCount = 0, relCount = 0, orbitCount = 0,
+                soiCount = 0, surfaceCount = 0, loopCount = 0,
+                bubbleEntryCount = 0, bubbleExitCount = 0, otherCount = 0;
 
             for (int i = 0; i < perSection.Count; i++)
             {
