@@ -176,37 +176,48 @@ namespace Parsek.Reaim
             // tof converges for almost every window (step 0), so the tof search only nudges the rare exactly-
             // 180-degree window; the sub-pixel target-end drift it introduces is acceptable, the departure
             // staying glued to the launch body is what matters. Cached per window (runs once per advance).
-            const double TofSearchStepFraction = 0.005; // of the recorded tof (~0.4 day for Kerbin->Duna)
-            const int SearchMaxSteps = 12;              // +-6% of the recorded tof
-            double tofStep = schedule.TofSeconds * TofSearchStepFraction;
             double departureUT = nominalDepartureUT;
+
+            // Stage B (docs/dev/plans/reaim-eccentric-tof-reliability.md section 4.1): the candidate tof list
+            // is built by the pure ReaimTofSearch helper. Step 0 is ALWAYS the RECORDED tof (schedule.TofSeconds),
+            // probed first and unchanged - zero regression for every window that resolves today. After the
+            // recorded-centered +-6% base band, an eccentricity-gated, bounded expansion extends the search
+            // toward the GEOMETRIC Hohmann time (geomTof) so an eccentric target (Eeloo/Moho), whose
+            // geometrically-required tof drifts out of the recorded +-6% band each synodic window, can still
+            // resolve. The bodies + parent are in hand past the null-guard above, so the geometric inputs need
+            // no new plumbing. B-minimal (per-mission constant): geomTof from the launch/target SMAs + parent mu.
+            double geomTofSeconds = TransferWindowMath.HohmannTransferTimeSeconds(
+                launchBody.orbit.semiMajorAxis, targetBody.orbit.semiMajorAxis,
+                launchBody.referenceBody != null ? launchBody.referenceBody.gravParameter : double.NaN);
+            double eTarget = targetBody.orbit.eccentricity;
+            double halfWidthFraction = ReaimTofSearch.HalfWidthFraction(eTarget);
+            IReadOnlyList<double> candidateTofs = ReaimTofSearch.BuildCandidateTofs(
+                schedule.TofSeconds, geomTofSeconds, eTarget);
 
             Orbit transferOrbit = null;
             double soiEntryUT = double.NaN;
             CelestialBody encounterBody = null;
             double usedTofSeconds = double.NaN;
             string failReason = null;
-            for (int s = 0; s <= SearchMaxSteps && transferOrbit == null; s++)
+            for (int c = 0; c < candidateTofs.Count; c++)
             {
-                double[] tofs = s == 0
-                    ? new[] { schedule.TofSeconds }
-                    : new[] { schedule.TofSeconds + s * tofStep, schedule.TofSeconds - s * tofStep };
-                for (int t = 0; t < tofs.Length; t++)
+                double tof = candidateTofs[c];
+                // ReaimTofSearch drops non-positive tofs already; keep the positivity guard as a backstop.
+                if (tof > 0.0 && ReaimTransferSynthesizer.TrySynthesizeTransfer(
+                        launchBody, targetBody, departureUT, tof, progradeWanted,
+                        out transferOrbit, out soiEntryUT, out encounterBody, out failReason))
                 {
-                    if (tofs[t] > 0.0 && ReaimTransferSynthesizer.TrySynthesizeTransfer(
-                            launchBody, targetBody, departureUT, tofs[t], progradeWanted,
-                            out transferOrbit, out soiEntryUT, out encounterBody, out failReason))
-                    {
-                        usedTofSeconds = tofs[t];
-                        break;
-                    }
+                    usedTofSeconds = tof;
+                    break;
                 }
             }
             if (transferOrbit == null)
             {
                 ParsekLog.Verbose("ReaimPlayback",
                     $"member={memberId} window={windowIndex} departUT={nominalDepartureUT.ToString("R", ic)} " +
-                    $"synth failed across tof +-{(SearchMaxSteps * tofStep).ToString("F0", ic)}s search ({failReason}) - faithful this window");
+                    $"synth failed across {candidateTofs.Count} tof candidates (recordedTof={schedule.TofSeconds.ToString("R", ic)} " +
+                    $"geomTof={geomTofSeconds.ToString("R", ic)} eTarget={eTarget.ToString("F4", ic)} halfWidthFraction={halfWidthFraction.ToString("F4", ic)}) " +
+                    $"({failReason}) - faithful this window");
                 return null;
             }
 
@@ -241,9 +252,18 @@ namespace Parsek.Reaim
                 return null;
             }
 
+            // usedTof deviation from BOTH centers (recorded tof = the band center / step 0; geomTof = the
+            // geometric Hohmann time the ecc band reaches toward) so an "Eeloo declined / drifted" report can
+            // be diagnosed straight from KSP.log: which center the resolved tof landed near tells whether the
+            // ecc band did the work. NaN-safe (geomTof can be NaN if the parent mu/SMAs are degenerate).
+            double devFromRecorded = usedTofSeconds - schedule.TofSeconds;
+            double devFromGeom = usedTofSeconds - geomTofSeconds;
             ParsekLog.Verbose("ReaimPlayback",
                 $"member={memberId} window={windowIndex} re-aimed transfer ready: departUT={departureUT.ToString("R", ic)} (nominal D_k) " +
-                $"tof={usedTofSeconds.ToString("R", ic)} (recorded={schedule.TofSeconds.ToString("R", ic)}) soiEntryUT={soiEntryUT.ToString("R", ic)} " +
+                $"tof={usedTofSeconds.ToString("R", ic)} (recorded={schedule.TofSeconds.ToString("R", ic)} geom={geomTofSeconds.ToString("R", ic)} " +
+                $"eTarget={eTarget.ToString("F4", ic)} halfWidthFraction={halfWidthFraction.ToString("F4", ic)} " +
+                $"devFromRecorded={devFromRecorded.ToString("R", ic)}s devFromGeom={devFromGeom.ToString("R", ic)}s) " +
+                $"soiEntryUT={soiEntryUT.ToString("R", ic)} " +
                 $"encounter={(encounterBody != null ? encounterBody.bodyName : "<none>")} segs={assembled.Count} " +
                 $"renderSpan=full-recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}]");
             return assembled;
