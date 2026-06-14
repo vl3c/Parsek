@@ -1049,12 +1049,29 @@ namespace Parsek
             return VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, rec.VesselPersistentId, liveGuid);
         }
 
-        // Step-2 double-suppression (Logistics route live-anchor bind) keys directly on
-        // RealVesselExistsForRecording above: a loop member's OWN ghost is suppressed for
-        // the WHOLE loop whenever its guid-gated launch-matched live vessel is loaded,
-        // not just during the ~2-frame docking bind window. The whole-loop existence
-        // check subsumes any per-bind signal (a live-bind can only happen while the live
-        // vessel is loaded), so no separate bind tracker is needed.
+        // Step-2 double-suppression (Logistics route live-anchor bind): a loop member's
+        // OWN in-bubble/map ghost is hidden as a live-anchor duplicate ONLY while its
+        // launch-matched live vessel is loaded AND it was the LIVE docking anchor of an
+        // in-window relative member during this-or-the-previous frame (the Step-1
+        // live-bind event), NOT for the whole loop. The earlier whole-loop existence
+        // check over-suppressed: RealVesselExistsForRecording is true for EVERY parked
+        // route craft loaded in the scene, so a fresh new-mission launch watching the
+        // looped route hid ALL its delivery meshes (the inbound member is the resolver
+        // FOCUS, never the resolved anchor, so it is never in the bind set and must
+        // never be suppressed). The static anchorRecordingId graph cross-cuts vessel
+        // role (Depot recordings can be relative members, Kerbal X recordings can be
+        // pure anchors), so it does not discriminate "is the station the player is
+        // docking against"; the per-frame live-bind event does, scoped to the actual
+        // docking overlap. The bind set lives on RelativeAnchorResolver, captured at the
+        // resolver (not re-derived via a UT mapping, the documented drift dead-end).
+        internal static bool IsLiveAnchorDoubleSuppressed(Recording rec, bool loopingLike)
+        {
+            return loopingLike
+                && rec != null
+                && RealVesselExistsForRecording(rec)
+                && !string.IsNullOrEmpty(rec.RecordingId)
+                && RelativeAnchorResolver.WasLiveBoundThisOrLastFrame(rec.RecordingId);
+        }
 
         // Resolves the launch Guid of the live vessel with the given pid (null = none / unknown).
         private static string ResolveLiveVesselGuid(uint vesselPersistentId)

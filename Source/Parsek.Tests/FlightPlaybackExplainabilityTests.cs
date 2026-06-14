@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -23,6 +24,11 @@ namespace Parsek.Tests
             PlaybackScopeTracker.ResetForTesting();
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
+            // Pin the resolver live-bind ledger to a fixed frame so the Step-2 gate's
+            // WasLiveBoundThisOrLastFrame reads a deterministic frame; tests stamp at the
+            // same frame via StampLiveAnchorBind.
+            RelativeAnchorResolver.ResetForTesting();
+            RelativeAnchorResolver.FrameProviderForTesting = () => HarnessBindFrame;
         }
 
         public void Dispose()
@@ -31,9 +37,40 @@ namespace Parsek.Tests
             PlaybackScopeTracker.ResetForTesting();
             GhostPlaybackLogic.ResetVesselExistsOverride();
             GhostPlaybackLogic.ResetVesselCacheForTesting();
+            RelativeAnchorResolver.ResetForTesting();
             FlightRecorder.FrameCountProviderForTesting = null;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+        }
+
+        private const int HarnessBindFrame = 7;
+
+        // Stamps the resolver live-bind ledger for an anchor id at the harness frame by
+        // driving a real resolve through the public TryResolveAnchorPose path with a
+        // live-anchor delegate (the exact stamp site). Step-1 fires source=live, which is
+        // what ComputePlaybackFlags' Step-2 gate consumes one frame later.
+        private static void StampLiveAnchorBind(string anchorRecordingId)
+        {
+            var anchorRec = new Recording
+            {
+                RecordingId = anchorRecordingId,
+                VesselName = "Live Depot",
+                VesselPersistentId = AnchorDepotPid,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+            };
+            var tree = new RecordingTree { Id = "tree-explainability" };
+            tree.Recordings[anchorRecordingId] = anchorRec;
+
+            var context = new RelativeAnchorResolverContext(
+                focusTree: tree,
+                focusRecordingId: "focus-member",
+                focusTreeId: tree.Id,
+                tryResolveLiveLaunchMatchedAnchorPose: (rec, ut) =>
+                    (new Vector3d(1.0, 2.0, 3.0), Quaternion.identity));
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context, anchorRecordingId, 200.0, null, out _, out _);
+            Assert.True(resolved);
         }
 
         private static Recording MakeRecording(
@@ -326,14 +363,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputePlaybackFlags_WholeLoopSuppression_HidesAnchorGhostWhenLaunchMatchedLiveVesselLoaded()
+        public void ComputePlaybackFlags_LiveBindSuppression_HidesAnchorGhostWhenLaunchMatchedLiveVesselLoadedAndLiveBound()
         {
-            // Step-2 (generalized whole-loop double-suppression): whenever the anchor's
-            // launch-matched live vessel is loaded in the scene, its OWN loop ghost is a
-            // duplicate of the live station and must be hidden for the WHOLE loop, not
-            // just during the docking bind window. The in-bubble mesh suppression is the
-            // externalVesselSuppressed skip (skipReason = external-vessel-suppressed); the
-            // anchor still stays spawnable (needsSpawn unaffected). The spawn-suppressed
+            // Step-2 (live-bind-event double-suppression): when the anchor's launch-matched
+            // live vessel is loaded AND a delivery member is docking it (live-bound this/
+            // last frame), its OWN loop ghost is a duplicate of the live station and is
+            // hidden. The in-bubble mesh suppression is the externalVesselSuppressed skip;
+            // the anchor still stays spawnable (needsSpawn unaffected). The spawn-suppressed
             // head total counts ONLY the genuinely spawn-suppressed recording, since the
             // Step-2 firing is a skip-path suppression, not a spawn suppression.
             RecordingStore.ResetForTesting();
@@ -352,31 +388,37 @@ namespace Parsek.Tests
                 var committed = new List<Recording> { anchor, spawnSuppressed };
 
                 // The anchor's launch-matched live vessel is loaded (same pid + same
-                // launch guid) => RealVesselExistsForRecording(anchor) is true.
+                // launch guid) => RealVesselExistsForRecording(anchor) is true, AND a
+                // delivery member is docking it this frame (live-bound).
                 GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == AnchorDepotPid);
                 GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => AnchorDepotLaunchGuid);
+                StampLiveAnchorBind("rec-anchor");
 
                 TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
 
-                // Whole-loop suppression fired on the anchor: suppressed via the skip path,
+                // Live-bind suppression fired on the anchor: suppressed via the skip path,
                 // but stays spawnable (not in the spawn total).
                 Assert.True(flags[0].skipGhost);
                 Assert.Equal(GhostPlaybackSkipReason.ExternalVesselSuppressed, flags[0].skipReason);
                 Assert.True(flags[0].needsSpawn);
 
-                // A dedicated per-anchor line is emitted at the decision site.
+                // A dedicated per-anchor line is emitted at the decision site, plus the
+                // batched live-anchor-double summary.
                 Assert.Contains(
                     logLines,
                     l => l.Contains("[Anchor]")
-                        && l.Contains("Step-2 suppressed live-anchor double (whole loop)"));
+                        && l.Contains("Step-2 suppressed live-anchor double (live-bind event)"));
+                Assert.Contains(
+                    logLines,
+                    l => l.Contains("[Anchor]")
+                        && l.Contains("Step-2 live-anchor-double: suppressed=1 this frame (gate=live-bind-event)"));
 
                 var summaryLines = logLines
                     .Where(l => l.Contains("[Spawner]") && l.Contains("Spawn suppressed:"))
                     .ToList();
                 Assert.Single(summaryLines);
                 // The head total counts ONLY the genuinely spawn-suppressed recording; the
-                // Step-2 skip-path firing on the anchor did not inflate it, and there is no
-                // longer a live-anchor-double histogram key.
+                // Step-2 skip-path firing on the anchor did not inflate it.
                 Assert.Contains("Spawn suppressed: 1 recording(s)", summaryLines[0]);
                 Assert.DoesNotContain("live-anchor-double-suppressed", summaryLines[0]);
             }
@@ -388,12 +430,87 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputePlaybackFlags_WholeLoopSuppression_DifferentLaunch_DoesNotSuppressAnchorGhost()
+        public void ComputePlaybackFlags_LiveBindSuppression_AnchorWithLiveVesselButNoLiveBind_NotSuppressed()
+        {
+            // THE scene fix: a loop member whose launch-matched live vessel is loaded but
+            // which is NOT being docked this/last frame (no live bind) must NOT be Step-2
+            // suppressed - its mesh draws. The earlier whole-loop gate hid it (and every
+            // other parked route craft). No [Anchor] Step-2 line, no skip.
+            RecordingStore.ResetForTesting();
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+
+                var anchor = MakeLiveAnchorRecording("rec-anchor");
+                ArmReplayScope(anchor);
+                var committed = new List<Recording> { anchor };
+
+                GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == AnchorDepotPid);
+                GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => AnchorDepotLaunchGuid);
+                // No StampLiveAnchorBind: the live vessel is loaded + looping, but nobody
+                // is docking it this frame.
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
+
+                Assert.False(flags[0].skipGhost);
+                Assert.NotEqual(GhostPlaybackSkipReason.ExternalVesselSuppressed, flags[0].skipReason);
+                Assert.DoesNotContain(
+                    logLines,
+                    l => l.Contains("[Anchor]") && l.Contains("Step-2 suppressed live-anchor double"));
+            }
+            finally
+            {
+                GhostPlaybackLogic.ResetVesselExistsOverride();
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void ComputePlaybackFlags_LiveBindSuppression_RelativeMemberWithLiveAnchorLoaded_NotSuppressed()
+        {
+            // THE user-visible regression: the inbound delivery member's anchor TARGET is
+            // live-bound, but the member's OWN id never enters the bind set. With the
+            // member's live vessel loaded + looping it still must NOT be suppressed - its
+            // delivery mesh draws docking the live station.
+            RecordingStore.ResetForTesting();
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+
+                // The member shares the same craft-baked pid/guid fixtures (the delivery
+                // mesh is a loop member whose live vessel is loaded). Its id is "rec-member".
+                var member = MakeLiveAnchorRecording("rec-member");
+                ArmReplayScope(member);
+                var committed = new List<Recording> { member };
+
+                GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == AnchorDepotPid);
+                GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => AnchorDepotLaunchGuid);
+                // The ANCHOR (a different id) is live-bound, never the member.
+                StampLiveAnchorBind("rec-anchor");
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
+
+                Assert.False(flags[0].skipGhost);
+                Assert.NotEqual(GhostPlaybackSkipReason.ExternalVesselSuppressed, flags[0].skipReason);
+                Assert.DoesNotContain(
+                    logLines,
+                    l => l.Contains("[Anchor]") && l.Contains("Step-2 suppressed live-anchor double"));
+            }
+            finally
+            {
+                GhostPlaybackLogic.ResetVesselExistsOverride();
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void ComputePlaybackFlags_LiveBindSuppression_DifferentLaunch_DoesNotSuppressAnchorGhost()
         {
             // Guid gate (criterion B): a same-craft DIFFERENT-launch live vessel (same
             // craft-baked pid, conclusively different launch guid) must NOT trigger
-            // suppression. RealVesselExistsForRecording returns false, so the anchor ghost
-            // is not skipped via the Step-2 path.
+            // suppression even when live-bound. RealVesselExistsForRecording returns false,
+            // so the anchor ghost is not skipped via the Step-2 path. Stamping the bind set
+            // isolates the guid term: it is the ONLY reason this case is not suppressed.
             RecordingStore.ResetForTesting();
             try
             {
@@ -405,6 +522,7 @@ namespace Parsek.Tests
 
                 GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == AnchorDepotPid);
                 GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => AnchorDepotRelaunchGuid);
+                StampLiveAnchorBind("rec-anchor");
 
                 TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
 
@@ -422,11 +540,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputePlaybackFlags_WholeLoopSuppression_NoLiveVessel_DoesNotSuppressAnchorGhost()
+        public void ComputePlaybackFlags_LiveBindSuppression_NoLiveVessel_DoesNotSuppressAnchorGhost()
         {
             // Watch-from-afar (criterion D): the anchor's launch-matched live vessel is NOT
-            // loaded, so the Step-2 whole-loop gate does not fire and the anchor ghost
-            // still draws normally.
+            // loaded, so the Step-2 gate does not fire even when live-bound. Stamping the
+            // bind set isolates the existence term as the only blocker here.
             RecordingStore.ResetForTesting();
             try
             {
@@ -438,6 +556,7 @@ namespace Parsek.Tests
 
                 GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => false);
                 GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => AnchorDepotLaunchGuid);
+                StampLiveAnchorBind("rec-anchor");
 
                 TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
 
@@ -455,25 +574,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputePlaybackFlags_WholeLoopSuppression_NonLoopRecording_NotSuppressedEvenWithLaunchMatchedLiveVessel()
+        public void ComputePlaybackFlags_LiveBindSuppression_NonLoopRecording_NotSuppressedEvenWithLaunchMatchedLiveVessel()
         {
-            // Scope tightening (must-fix): the Step-2 whole-loop suppression is gated on
-            // loop membership (loopingLike), MIRRORING the map-side loopMemberInWindow
-            // carve-out. A NON-loop recording whose launch-matched live vessel is loaded
-            // and which is in active replay scope (e.g. an active re-fly history ghost, or
-            // a rewound non-loop recording) must NOT be whole-loop suppressed: only its
-            // own engine path decides its visibility. This is the one renderable non-loop
-            // case the previous unscoped gate over-reached; it pins that the gate no
-            // longer fires for non-loop recordings.
+            // Scope gate (must-fix): the Step-2 suppression is gated on loop membership
+            // (loopingLike), MIRRORING the map-side loopMemberInWindow carve-out. A NON-loop
+            // recording whose launch-matched live vessel is loaded AND which is live-bound
+            // and in active replay scope (e.g. an active re-fly history ghost, or a rewound
+            // non-loop recording) must NOT be suppressed: only its own engine path decides
+            // its visibility. Stamping the bind set isolates the loopingLike term as the
+            // only blocker.
             RecordingStore.ResetForTesting();
             try
             {
                 ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
 
                 // Same as the route anchor, but NOT a loop member (LoopPlayback stays
-                // false). Its launch-matched live vessel is loaded (same pid + guid), so
-                // RealVesselExistsForRecording is true, yet the loop-membership gate keeps
-                // the Step-2 suppression from firing.
+                // false). Its launch-matched live vessel is loaded (same pid + guid) and it
+                // is live-bound, so RealVesselExistsForRecording and the live-bind term are
+                // both true, yet the loop-membership gate keeps the Step-2 suppression from
+                // firing.
                 var anchor = MakeLiveAnchorRecording("rec-anchor");
                 anchor.LoopPlayback = false;
                 ArmReplayScope(anchor);
@@ -481,6 +600,7 @@ namespace Parsek.Tests
 
                 GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == AnchorDepotPid);
                 GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => AnchorDepotLaunchGuid);
+                StampLiveAnchorBind("rec-anchor");
 
                 TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
 
