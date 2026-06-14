@@ -28,6 +28,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- A looped delivery ghost that docks with a station you are flying now docks against the live station, not a ghost copy parked at the station's recorded position about 20 km away; while you control the real station its own looping ghost stays hidden (in flight and on the map) for the whole loop, not just during the docking moment.
 - Looped-mission map and tracking-station trajectory lines no longer vanish when the map is zoomed far out. Past the zoom-out threshold they now switch to the same flat 2D drawing mode stock orbit lines use, instead of staying in a 3D mode that drops them at distance.
 - At high time warp, a looped ghost's map icon is now placed on its orbit line as soon as it appears. These ghosts are rebuilt every frame and the icon used to start at its spawn point and snap onto the orbit a frame later; the map now positions the freshly-built icon on its recorded orbit at creation.
 - A stand-in kerbal can no longer end up aboard two vessels at once: launching a new mission (or spawning a recorded vessel) while the stand-in was already flying used to duplicate them onto the new vessel. The seat is now left empty when the stand-in is busy, so another crew member can be picked.

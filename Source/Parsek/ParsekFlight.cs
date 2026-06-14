@@ -19545,6 +19545,44 @@ namespace Parsek
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
+                // Loop-membership term, mirroring the map side's loopMemberInWindow gate.
+                // Computed here (the later BUG-B dormancy block reuses it) so the Step-2
+                // suppression below can scope itself to loop members only.
+                bool loopingLike = rec.LoopPlayback
+                    || chainLooping
+                    || (cachedLoopUnits != null && cachedLoopUnits.IsMember(i));
+                // Step 2 (Logistics route live-anchor bind): suppress a LOOP MEMBER's OWN
+                // loop ghost for the WHOLE loop whenever its launch-matched live vessel
+                // is loaded in the scene (the Deliverer ghost docks against the live
+                // Depot, so the recorded Depot loop ghost ~20 km away is a pure
+                // duplicate that the player must never see while they control the real
+                // Depot). Keyed on the guid-gated RealVesselExistsForRecording, not the
+                // docking bind window: the bind only fires while the dependent is
+                // actively docking (~2 frames), but the duplicate is wrong for the entire
+                // loop, dependent present or not. Guid gate (VesselLaunchIdentity) means a
+                // same-craft DIFFERENT-launch live vessel never suppresses (persistentId
+                // is craft-baked, three same-craft distinct-launch Depot launches exist
+                // on disk). Scoped to loopingLike to MATCH the map-side loopMemberInWindow
+                // carve-out (GhostMapPresence.ResolveMapPresenceGhostSource): the gate must
+                // never reach the active recording's own ghost, an active re-fly session,
+                // or a tree-history ghost shown via ShouldSkipExternalVesselGhost's
+                // carve-outs — only a looping member whose live vessel is loaded. A Depot
+                // watched looping from afar with no live vessel loaded fails the existence
+                // check, so its ghost still draws.
+                bool liveAnchorDoubleSuppressed = loopingLike
+                    && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
+                if (liveAnchorDoubleSuppressed)
+                {
+                    externalVesselSuppressed = true;
+                    ParsekLog.VerboseRateLimited(
+                        "Anchor",
+                        "step2-whole-loop-suppress|" + (rec.RecordingId ?? "(none)"),
+                        "Step-2 suppressed live-anchor double (whole loop): rec="
+                            + (rec.RecordingId ?? "(none)")
+                            + " vessel=\"" + (rec.VesselName ?? "(none)") + "\""
+                            + " (own loop ghost hidden while its launch-matched live vessel is loaded)",
+                        5.0);
+                }
                 TimelineInactiveReason inactiveReason = TimelineInactiveReason.None;
                 if (!string.IsNullOrEmpty(rec.RecordingId))
                     timelineInactiveIds.TryGetValue(rec.RecordingId, out inactiveReason);
@@ -19561,9 +19599,6 @@ namespace Parsek
                 // recording is noted each frame so a later rewind re-arms its scope.
                 double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
                 PlaybackScopeTracker.NotePlayhead(rec.RecordingId, currentUT, activationStartUT);
-                bool loopingLike = rec.LoopPlayback
-                    || chainLooping
-                    || (cachedLoopUnits != null && cachedLoopUnits.IsMember(i));
                 bool historicalNeverReplayed = !loopingLike
                     && activeReFlyMarker == null
                     && PlaybackScopeTracker.IsHistoricalNeverReplayed(
@@ -19656,7 +19691,10 @@ namespace Parsek
             // One batched, rate-limited summary instead of one line per suppressed
             // recording. Shared key + VerboseRateLimited hard-caps the rate so the
             // per-frame summary cannot spam even when the committed list is large or a
-            // reason oscillates frame-to-frame.
+            // reason oscillates frame-to-frame. The Step-2 whole-loop double-suppression
+            // is an externalVesselSuppressed skip already covered by the generic
+            // skip-reason logging (LogGhostSkipReasonChangeIfNeeded) plus its own
+            // dedicated "Anchor" Verbose line at the decision site above.
             if (spawnSuppressedCount > 0)
             {
                 ParsekLog.VerboseRateLimited(
@@ -20127,7 +20165,62 @@ namespace Parsek
                 absoluteWorldPositionResolver: ResolveAnchorResolverPointWorldPosition,
                 bodyWorldRotationResolver: ResolveAnchorResolverBodyWorldRotation,
                 orbitalCheckpointPoseResolver: TryResolveFlightOrbitalAnchorPose,
-                tryResolveLiveAnchorTransform: TryGetLiveAnchorTransformDelegate());
+                tryResolveLiveAnchorTransform: TryGetLiveAnchorTransformDelegate(),
+                tryResolveLiveLaunchMatchedAnchorPose: TryResolveLiveLaunchMatchedAnchorPoseForResolver);
+        }
+
+        // Logistics route live-anchor bind (Step 1): resolves the LIVE pose of an
+        // anchor recording's own launch-matched live vessel for the relative
+        // resolver. Returns null (recorded-anchor fallback) when: the recording is
+        // null / has no pid; the launch-matched live vessel is not loaded (guid-gated
+        // RealVesselExistsForRecording, so a same-craft DIFFERENT-launch live vessel
+        // never binds); or the live transform is unavailable. Reuses
+        // TryResolveLoopLiveAnchorPose so the anchor frame is the recorder's
+        // vesselTransform.position / rotation (NOT GetWorldPos3D/CoMD), keeping the
+        // docking attitude correct. Headless-safe: RealVesselExistsForRecording and
+        // FindVesselByPid both return false/null without FlightGlobals.
+        //
+        // The bind is guid-GATED (RealVesselExistsForRecording) but the transform is
+        // then resolved by pid (FindVesselByPid inside TryResolveLoopLiveAnchorPose).
+        // KSP regenerates a craft-baked pid on collision with a currently-live vessel,
+        // so two same-craft launches cannot be simultaneously loaded sharing the pid;
+        // the pid-only transform resolve therefore cannot pick the wrong live vessel
+        // after the guid gate passes.
+        //
+        // UT-ALIGNMENT: `ut` is intentionally unused here — the bind returns the live
+        // anchor's CURRENT transform, not its pose at `ut`. Correct for the steady
+        // route-station case; for the broadening risk on non-looped relative ghosts
+        // whose live anchor has moved on, see the "Known limitation / playtest-verify"
+        // note in docs/dev/todo-and-known-bugs.md (2026-06-13 entry).
+        internal static (Vector3d pos, Quaternion rot)? TryResolveLiveLaunchMatchedAnchorPoseForResolver(
+            Recording anchorRec,
+            double ut)
+        {
+            if (anchorRec == null || anchorRec.VesselPersistentId == 0u)
+                return null;
+
+            ParsekFlight instance = Instance;
+            if (instance == null)
+                return null;
+
+            if (!GhostPlaybackLogic.RealVesselExistsForRecording(anchorRec))
+                return null;
+
+            if (!instance.TryResolveLoopLiveAnchorPose(
+                    anchorRec.VesselPersistentId,
+                    anchorRec.RecordingId,
+                    ut,
+                    out RelativeAnchorPose pose))
+            {
+                return null;
+            }
+
+            // Step 1 (the live-bind pose) is all that happens here now. The Step-2
+            // double-suppression no longer keys off a per-bind stamp: it suppresses the
+            // anchor's own loop ghost for the WHOLE loop whenever its guid-gated
+            // launch-matched live vessel is loaded (GhostPlaybackLogic
+            // .RealVesselExistsForRecording), which subsumes the bind window.
+            return (pose.worldPos, pose.worldRotation);
         }
 
         private static readonly Func<uint, string, double, (Vector3d pos, Quaternion rot)?> LiveAnchorTransformDelegate =
