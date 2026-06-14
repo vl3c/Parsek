@@ -2642,25 +2642,15 @@ namespace Parsek
                 reason = "no-resume-anchor";
                 return false;
             }
-
-            // BgMemberOrMixed analog (data-loss guard): a revert tears the WHOLE
-            // clone down (AutoDiscardActiveTreeCore -> backgroundRecorder
-            // .DiscardWithoutPersist), so if any background member is being tracked
-            // with accrued state, that newly-recorded trajectory would be lost.
-            // Defer to the dialog/commit (today's behavior) — never auto-revert a
-            // clone with live background content. Mirrors the session path's
-            // BgMemberOrMixed deferral.
-            if (backgroundRecorder != null && backgroundRecorder.HasAccruedBackgroundContent)
+            if (activeTree.Recordings == null)
             {
-                reason = "background-content-present";
+                reason = "no-recordings";
                 return false;
             }
-
-            string recId = activeTree.ActiveRecordingId;
-            if (string.IsNullOrEmpty(recId)
-                || activeTree.Recordings == null
-                || !activeTree.Recordings.TryGetValue(recId, out Recording rec)
-                || rec == null)
+            // The resume must be the live active recording (the in-place resume),
+            // else we cannot reason about what the resume did.
+            if (string.IsNullOrEmpty(activeTree.ActiveRecordingId)
+                || !activeTree.Recordings.ContainsKey(activeTree.ActiveRecordingId))
             {
                 reason = "no-active-recording";
                 return false;
@@ -2668,16 +2658,53 @@ namespace Parsek
 
             try
             {
+                // Flush the foreground recorder, then checkpoint the background
+                // recorder so any open on-rails orbit segments are closed into the
+                // tree recordings — so the tail check below sees a background
+                // member's real trajectory change (e.g. an SOI crossing flushes a
+                // body-changed segment) instead of missing it.
                 FlushRecorderIntoActiveTreeForSerialization();
-                bool noOp = SwitchSegmentNoOpClassifier.IsNoOpResumeTail(
-                    rec, liveResumeSessionStartUT, out string keepReason);
-                reason = noOp ? "no-op" : keepReason;
+                if (backgroundRecorder != null)
+                {
+                    // LOADED (physics-bubble) background members accrue per-frame
+                    // data that CheckpointAllVessels does NOT flush, so they can't
+                    // be cleanly tail-checked — defer (the BgMemberOrMixed analog,
+                    // data-loss guard). On-rails members ARE flushed and evaluated.
+                    if (backgroundRecorder.HasLoadedBackgroundMembers)
+                    {
+                        reason = "loaded-background-member";
+                        return false;
+                    }
+                    backgroundRecorder.CheckpointAllVessels(Planetarium.GetUniversalTime());
+                }
+
+                // Tree-wide tail check: the resume is a no-op only if NO recording
+                // in the clone (the foreground resumed recording AND every
+                // on-rails background member) changed anything since the resume
+                // anchor. Committed history (all before the anchor) passes
+                // trivially. If any member's tail is meaningful, defer so a revert
+                // cannot drop it.
+                foreach (var kvp in activeTree.Recordings)
+                {
+                    Recording rec = kvp.Value;
+                    if (rec == null) continue;
+                    if (!SwitchSegmentNoOpClassifier.IsNoOpResumeTail(
+                            rec, liveResumeSessionStartUT, out string keepReason))
+                    {
+                        reason = "member:" + (kvp.Key ?? "<null>") + ":" + (keepReason ?? "<none>");
+                        ParsekLog.Verbose("SwitchSegment",
+                            $"TryEvaluateNoSessionCommittedResumeNoOp: treeId={activeTree.Id} " +
+                            $"keep reason={reason}");
+                        return false;
+                    }
+                }
+
+                reason = "no-op";
                 ParsekLog.Verbose("SwitchSegment",
                     $"TryEvaluateNoSessionCommittedResumeNoOp: treeId={activeTree.Id} " +
-                    $"recId={recId} " +
                     $"sinceUT={liveResumeSessionStartUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"noOp={noOp} reason={reason ?? "<none>"}");
-                return noOp;
+                    $"recordings={activeTree.Recordings.Count} noOp=True");
+                return true;
             }
             catch (System.Exception ex)
             {
