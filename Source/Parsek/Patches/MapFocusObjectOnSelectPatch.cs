@@ -308,6 +308,81 @@ namespace Parsek.Patches
             {
                 case PreSwitchDialogDecision.OpenDialog:
                     {
+                        // No-op auto-discard (Case A only): if the prior
+                        // switch-segment session's segment changed nothing
+                        // meaningful, silently drop it and switch with no prompt —
+                        // there is no point prompting the player to merge / discard
+                        // a resumed segment that did nothing, and the boring
+                        // segment only prolongs the ghost state.
+                        //
+                        // Disposition gate: Standalone (a fresh throwaway tree) and
+                        // CommittedRestoreClone (revisiting a tracked mission) are
+                        // both safe — DiscardPriorAndSwitchTo routes through
+                        // ParsekFlight.DiscardActiveSwitchSegmentAttemptRevertingLiveClone,
+                        // which tears down the live clone so it reverts to the
+                        // committed original instead of stranding (the data-loss
+                        // fix). Only BgMemberOrMixed defers to the dialog (the rest
+                        // of a live tree must still commit). Case B / Case C have no
+                        // session and operate on the live activeTree (the original
+                        // flight, not a resumed segment) — out of scope.
+                        if (existingSession != null)
+                        {
+                            var noOpFlight = ParsekFlight.Instance;
+                            string noOpReason = null;
+                            SwitchSegmentDisposition noOpDisp = SwitchSegmentDisposition.None;
+                            bool priorIsNoOp = noOpFlight != null
+                                && noOpFlight.TryEvaluateActiveSwitchSegmentNoOp(
+                                    out noOpReason, out noOpDisp);
+                            bool safeToAutoDiscard =
+                                noOpDisp == SwitchSegmentDisposition.Standalone
+                                || noOpDisp == SwitchSegmentDisposition.CommittedRestoreClone;
+                            if (priorIsNoOp && safeToAutoDiscard)
+                            {
+                                ParsekLog.Info("SwitchIntentPatch",
+                                    $"pre-switch no-op auto-discard: prior segment ({noOpDisp}) " +
+                                    $"changed nothing priorSessionId=" +
+                                    $"{existingSession.SessionId.ToString("D", CultureInfo.InvariantCulture)} " +
+                                    $"targetPid={vessel.persistentId} reason={noOpReason ?? "<none>"} " +
+                                    "- discarding without dialog");
+                                DiscardPriorAndSwitchTo(vessel, existingSession);
+                                return false;
+                            }
+                            if (priorIsNoOp)
+                            {
+                                // No-op but BgMemberOrMixed: the live tree has other
+                                // content beyond the segment that must still commit,
+                                // so fall through to the existing dialog.
+                                ParsekLog.Info("SwitchIntentPatch",
+                                    $"pre-switch no-op detected but disposition={noOpDisp} " +
+                                    "defers to dialog (rest of tree must commit) " +
+                                    $"priorSessionId=" +
+                                    $"{existingSession.SessionId.ToString("D", CultureInfo.InvariantCulture)} " +
+                                    $"targetPid={vessel.persistentId}");
+                            }
+                        }
+
+                        // No-op auto-discard for the NO-SESSION committed-restore
+                        // resume (Case B / Case C): if the PRIOR active tree is a
+                        // committed-mission clone resumed without a session
+                        // (ResumeCommittedActiveRecording) and the resume tail
+                        // changed nothing, revert it to the committed original and
+                        // switch with no prompt — reuses the existing no-session
+                        // Discard handler (DiscardActiveRecordingAndSwitchTo →
+                        // AutoDiscardActiveTreeWithMessage, which tears the clone
+                        // down so the committed original in committedTrees
+                        // survives). This closes the in-flight map Switch-To gap.
+                        if (existingSession == null
+                            && (ParsekFlight.Instance?.TryEvaluateNoSessionCommittedResumeNoOp(
+                                    out string noSessionNoOpReason) ?? false))
+                        {
+                            ParsekLog.Info("SwitchIntentPatch",
+                                $"pre-switch no-op auto-discard: prior no-session committed-restore " +
+                                $"resume changed nothing targetPid={vessel.persistentId} " +
+                                $"reason={noSessionNoOpReason ?? "<none>"} - reverting without dialog");
+                            DiscardActiveRecordingAndSwitchTo(vessel);
+                            return false;
+                        }
+
                         // Distinguish the three OpenDialog routes in KSP.log so
                         // a reader can tell Case A (session) from the two
                         // no-session sub-cases: Case B (unloaded target, scene
@@ -625,8 +700,11 @@ namespace Parsek.Patches
         }
 
         /// <summary>
-        /// Discard handler: scoped-discards the prior session via
-        /// <see cref="RecordingStore.TryDiscardActiveSwitchSegmentAttempt"/>,
+        /// Discard handler: scoped-discards the prior session and, for an
+        /// IN-FLIGHT committed-restore clone, tears the live clone down so it
+        /// reverts to the committed original instead of stranding (the data-loss
+        /// fix — see
+        /// <see cref="ParsekFlight.DiscardActiveSwitchSegmentAttemptRevertingLiveClone"/>),
         /// then arms a fresh Map Switch-To intent and calls
         /// <c>FlightGlobals.SetActiveVessel(target)</c>.
         /// </summary>
@@ -637,19 +715,53 @@ namespace Parsek.Patches
                 ? priorSession.SessionId.ToString("D", CultureInfo.InvariantCulture)
                 : "<none>";
 
+            // Mirror MergePriorAndSwitchTo's guard: the revert-clone teardown runs
+            // a ledger recalc (AutoDiscardActiveTreeCore) that must not race a
+            // Re-Fly merge journal finisher. Player retries after it completes.
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario) && scenario.ActiveMergeJournal != null)
+            {
+                ParsekLog.Warn("SwitchIntentPatch",
+                    $"discard-refused-active-merge-journal " +
+                    $"priorSessionId={priorSessionIdStr} " +
+                    $"journal={scenario.ActiveMergeJournal.JournalId ?? "<no-id>"}");
+                ParsekLog.ScreenMessage(
+                    "Switch-to discard: re-fly merge in progress - retry in a moment", 3f);
+                return;
+            }
+
             try
             {
-                string reason;
-                var disposition = RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
-                ParsekLog.Info("SwitchIntentPatch",
-                    $"pre-switch-dialog scoped-discard-success " +
-                    $"priorSessionId={priorSessionIdStr} " +
-                    $"disposition={disposition} reason={reason ?? "<none>"}");
+                var flight = ParsekFlight.Instance;
+                if (flight != null)
+                {
+                    string reason;
+                    var disposition = flight.DiscardActiveSwitchSegmentAttemptRevertingLiveClone(
+                        reason: "pre-switch-dialog discard",
+                        screenMessage: "Recording discarded - vessel unchanged after switch",
+                        ledgerRecalcReason: "pre-switch-dialog-discard-revert-clone",
+                        out reason);
+                    ParsekLog.Info("SwitchIntentPatch",
+                        $"pre-switch-dialog scoped-discard-success " +
+                        $"priorSessionId={priorSessionIdStr} " +
+                        $"disposition={disposition} reason={reason ?? "<none>"}");
+                }
+                else
+                {
+                    // Degenerate (no flight controller): fall back to the bare
+                    // scoped discard so the session is still cleared.
+                    string reason;
+                    var disposition = RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                    ParsekLog.Warn("SwitchIntentPatch",
+                        $"pre-switch-dialog scoped-discard (no flight controller) " +
+                        $"priorSessionId={priorSessionIdStr} " +
+                        $"disposition={disposition} reason={reason ?? "<none>"}");
+                }
             }
             catch (Exception ex)
             {
                 ParsekLog.Error("SwitchIntentPatch",
-                    $"pre-switch-dialog discard: TryDiscardActiveSwitchSegmentAttempt threw " +
+                    $"pre-switch-dialog discard: revert-clone discard threw " +
                     $"{ex.GetType().Name}: {ex.Message} - continuing with switch anyway");
             }
 
@@ -804,6 +916,14 @@ namespace Parsek.Patches
             {
                 try
                 {
+                    // If the prior tree is a committed-restore clone (no-session
+                    // resume), clear its restore attempt before the teardown so a
+                    // stale attempt id does not linger past the switch (the
+                    // AutoDiscardActiveTreeCore body clears the session but not the
+                    // committed-tree restore attempt). Mirrors the Hook-1 revert
+                    // (AutoDiscardNoOpNoSessionCommittedResume). No-op when none armed.
+                    RecordingStore.ClearCommittedTreeRestoreAttempt(
+                        "pre-switch-dialog discard (no-session)");
                     flight.AutoDiscardActiveTreeWithMessage(
                         reason: "pre-switch-dialog discard (no-session)",
                         screenMessage: "Recording discarded - switching vessels",
