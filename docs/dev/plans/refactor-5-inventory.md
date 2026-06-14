@@ -464,6 +464,12 @@ opportunities are narrower and fall into four shapes:
 
 ## Recommended Next Proposal
 
+> **Execution roadmap + per-slice proposal docs:** `refactor-5-slices.md` (index +
+> shared zero-logic-change rules + the universal validation/review gate), with
+> `refactor-5-slice1-proposal.md` … `refactor-5-slice6-proposal.md` covering every
+> actionable item below. Implement from a checkout that can build + run the xUnit
+> gate (the audit container has no .NET SDK).
+
 Sequence by value/risk, each as its own focused proposal + clean-context review
 (`docs/dev/refactor-guidelines.md`). Start with the **pure, headless-testable,
 single-file** wins before any cross-file owner or runtime extraction:
