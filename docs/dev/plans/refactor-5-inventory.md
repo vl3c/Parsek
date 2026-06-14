@@ -151,10 +151,9 @@ landing), or **Skip** (already well-factored / too order-sensitive). Risk is
 **pure** (headless xUnit-testable) or **runtime** (Unity/IMGUI/Harmony/save-load
 coupled — needs in-game validation).
 
-> Audit status: 7 subsystem batches dispatched; Missions and Logistics-codec/UI
-> reported first. Remaining batches (Logistics backend, Rendering/Display,
-> Anchor/Reaim, Re-Fly/Switch/Patches, Tracers/Orbit/Storage) are folded in as
-> they complete.
+> Audit status: complete. All 7 subsystem batches (Missions, Logistics codec/UI,
+> Logistics backend, Rendering/Display, Anchor/Reaim, Re-Fly/Switch/Patches,
+> Tracers/Orbit/Storage) reported and are folded in below.
 
 ### Missions (`Mission*`, `UI/MissionsWindowUI`, `UI/StructureListWindowUI`)
 
@@ -394,23 +393,134 @@ orchestrators where splitting would fragment a single-decision flow).
 
 ### Observability tracers + orbit / storage / career / FX
 
-_Pending — audit agent running._
+The three tracers are **deliberately not targets**, and most orbit/storage/career
+files are already pure and well-factored. The real surface is concentrated dedup
+in the settings-persistence file and a couple of guard-cascade / probe methods.
+
+- **Pass1 — `ParsekSettingsPersistence.cs` (`pure`)** — highest dedup density in
+  the whole audit: 4 repeated patterns each ×6 — `LoadIfNeeded@87 ~117` bool-parse
+  block → `TryLoadBool`; `ApplyTo` override-apply block → `ApplyBoolOverride`; the
+  3 byte-identical `Record*Tracing` methods → one `RecordTracingFlag`; `Save`'s 10
+  `if .HasValue) AddValue` lines. Headless via existing `*ForTesting` seams.
+- **Pass1 — `TerminalOrbitSpawnSafety.Evaluate` (@49, ~107, `pure`)** — clean
+  altitude/periapsis guard cascade → one `CheckXxx` per gate; high clarity +
+  test-isolation gain, zero Unity coupling.
+- **Pass1 — `MapRenderProbe.Sample` (@254, ~355, `runtime`)** — splits along its
+  already-commented Tier blocks (`SampleIconJumpAnomaly` / `SampleIconOffOrbit` /
+  `SampleLineBlink` / `SampleDecisionReconcile`); biggest single-method reduction
+  in the batch, but the phases share many locals → needs a small context struct +
+  call-order preservation, and validation is in-game (the pure
+  `MapRenderTrace.Is*` predicates are already unit-covered).
+- **Pass1 (lower value):** `PristinePartFxResolver` (PART-node / MODULE
+  extraction), `PatchedConicSnapshot` (patch-capture loop, `runtime`/reflection),
+  `OrbitSeedResolver` (build-orbit phase, `runtime`), `PannotationsSidecarBinary.TryRead`
+  (block-parse extraction, `pure`), `UI/SettingsWindowUI` (Defaults-block →
+  `ApplyDefaults`), `UI/GroupPickerUI.ApplyGroupPopupChanges` (add/remove loop
+  dedup), `UI/TestRunnerUI` (IMGUI section extraction).
+- **DOC-DEFERRED (do not touch) — tracer formatters.** The byte-identical
+  `FormatVector3d`/`FormatVector3`/`FormatQuaternion`/`FormatDouble`/`Token`/`Bool`/
+  `ShortId` set is duplicated across `GhostRenderTrace`, `MapRenderTrace`, and
+  `LedgerTrace` **by design**; CLAUDE.md explicitly defers the shared
+  `RenderTraceFormat` owner and forbids touching `GhostRenderTrace.cs`. Record it
+  as a known future Pass2, not actionable now.
+- **Optional micro-Pass2:** `IsFinite(double)`/`IsFinite(Vector3d)` is triplicated
+  across `OrbitReseed`, `OrbitSeedResolver`, `OrbitalCheckpointDensifier` → a tiny
+  `OrbitMathUtil.IsFinite` owner (very low value).
+- **Skip:** `OrbitSegmentCheckpointBridge`, `OrbitalCheckpointDensifier`,
+  `LedgerGroundTruthDiff`, `CareerSaveParser`, `LedgerGroundTruth`,
+  `PostLoadStripper`, `RecoveryPayoutContext`, `RewindPointReaper`,
+  `RewindPointDiskUsage`, `Timeline/TimelineEntryDisplay`, `GhostAudioPresets`,
+  `ReStockPatchFxIndex`, `DebrisRelative*`, `TraceSeparation` — pure, focused,
+  reset hooks present where stateful.
+
+## Cross-Batch Synthesis
+
+**Headline:** the code added since refactor-4 is, on the whole, **markedly
+healthier than the legacy giants the prior passes fought.** Pure decision logic is
+already extracted into `internal static` xUnit-tested helpers, tuning values are
+already named `const`s with rationale, and stateful files generally already carry
+`Reset*ForTesting` hooks. There is **no large generic-extraction backlog** in the
+new files comparable to the `ParsekFlight`/`GhostMapPresence` situation. The
+opportunities are narrower and fall into four shapes:
+
+1. **A few genuinely large single methods** that are pure and lift cleanly:
+   `RouteBuilder.BuildRoute` (~534), `MissionLoopUnitBuilder.TryBuildMissionUnit`
+   (~537), `RenderSessionState.RebuildFromMarker` (~370),
+   `MapRenderProbe.Sample` (~355, runtime).
+2. **Repeated-block dedups** within a file: `ParsekSettingsPersistence` (×6
+   patterns), `SwitchSegmentBuilder.Refuse`, `GhostOrbitLinePatch.Postfix`
+   branch shape, `StockUiOverlayController` disabled-gate, `RouteCodec` null/list
+   loaders.
+3. **Cross-file dedups requiring an owner proposal** (Pass2): the byte-order
+   `RouteNodeCodec` (RouteCodec ↔ RouteProofCodec), the live
+   `RouteResourceTankIterator` (3 logistics writers/probe), the anchor
+   world-frame/context factory (Production ↔ Recorded resolvers), the trivial
+   `RouteIds.Short` helper, and the **doc-deferred** `RenderTraceFormat`.
+4. **Things to deliberately leave alone:** the per-frame render orchestration in
+   `GhostTrajectoryPolylineRenderer` + the Harmony patch bodies (runtime-only,
+   visual-contract-bound), `RecordingTreeSplitter` (ordered crash-recovery), the
+   Reaim numerical kernel and `OutlierThresholds` (math-/hash-sensitive), and the
+   ledger-walk order in `RouteOrchestrator`/`RouteModule`.
 
 ## Recommended Next Proposal
 
-_Pending — finalized once all subsystem batches report. Early shape: the lowest-
-overlap, highest-value first slices are the pure same-file extractions in the
-Mission builders/periodicity solver and the IMGUI cell-extraction in
-`LogisticsWindowUI.DrawRouteRow`, with the byte-order-critical `RouteNodeCodec`
-shared-owner as a separate, carefully-reviewed Pass2._
+Sequence by value/risk, each as its own focused proposal + clean-context review
+(`docs/dev/refactor-guidelines.md`). Start with the **pure, headless-testable,
+single-file** wins before any cross-file owner or runtime extraction:
+
+**Slice 1 — Pure same-file method extractions (lowest risk, immediate win).**
+Bundle the three highest-value pure extractions, one commit each:
+- `Logistics/RouteBuilder.BuildRoute` → `Reject` factory + geometry +
+  assembly phases. Validate: `--filter ~RouteBuilderTests`.
+- `MissionLoopUnitBuilder.TryBuildMissionUnit` → `TryApplyReaim` + the two
+  `ReaimDiag` dumps + summary log. Validate:
+  `--filter "~MissionLoopUnitBuilderTests|~MissionZeroDriftScheduleTests|~MissionLoiterKnobTests"`.
+  (Order-sensitive — review must enforce checklist items 2 & 5.)
+- `Rendering/RenderSessionState.RebuildFromMarker` guard cascade. Validate:
+  `--filter "~RenderSessionStateTests|~RenderSessionStateLoggingTests"`.
+
+**Slice 2 — Pure repeated-block dedups.** `ParsekSettingsPersistence` (×6),
+`SwitchSegmentBuilder.Refuse`, `RouteCodec` `NullIfEmpty`/`LoadStringList`,
+`RouteRunCostCalculator` `SumRecoveredCredits*`. All headless; each its own
+commit with the matching `~Route*` / `~SettingsPersistence` / `~SwitchSegment`
+filter green.
+
+**Slice 3 — The trivial cross-cutting `RouteIds.Short` owner** (one tiny helper,
+touches ~8 files, byte-identical bodies) — do as a standalone commit with the
+full `~Logistics`/`~Route` suites green.
+
+**Slice 4+ — Cross-file owner proposals (Pass2, discuss before landing).** In
+risk order: `RouteNodeCodec` (byte/field-order-critical, two frozen on-disk
+surfaces — the riskiest; gate on the round-trip serialization suites), the
+anchor world-frame/context factory (prove the `ResolveBody` / delegate
+divergences first), and the live `RouteResourceTankIterator` (runtime — needs
+in-game delivery/debit validation).
+
+**Defer:** every runtime/IMGUI/Harmony extraction (`DrawRouteRow`,
+`GhostOrbitLinePatch.Postfix`, `MapRenderProbe.Sample`, `StockUiOverlayController`)
+until a slice explicitly budgets in-game validation; the per-frame
+`GhostTrajectoryPolylineRenderer` orchestration and `RecordingTreeSplitter`
+indefinitely (value < risk).
 
 ## Cross-Cutting Follow-Ups
 
-- Confirm whether a shared IMGUI `LogSuppressionScope` / detail-stepper helper is
-  worth a small owner type used across the new UI surfaces.
-- Magic-literal audit is largely **not** needed for the new files — tuning values
-  are already named `const`s; the gaps are inline ConfigNode value-key strings in
-  the route-proof codec and a couple of IMGUI indent literals.
-- Static mutable state in the new files generally already has `Reset*ForTesting`
-  hooks; verify the same for the pending rendering/anchor/tracer batches.
+- **Magic-literal audit is largely NOT warranted** for the new files — tuning
+  values are already named `const`s. The only real gaps: inline ConfigNode
+  value-key strings in `RouteProofCodec` and a couple of IMGUI indent literals.
+  Explicitly **do not** move `Rendering/OutlierClassifier.OutlierThresholds` or
+  the Reaim solver epsilons to ParsekConfig (config-hash / algorithm-intrinsic).
+- **Static-state reset hooks** are mostly already present. Two small gaps worth a
+  one-line observational fix when an adjacent slice lands:
+  `Reaim/ReaimPlaybackResolver.Shared` (has `Clear()`, no `ResetForTesting`) and
+  the mutable `Reaim/ReaimTransferSynthesizer.TransferSolver` static. The
+  `RouteOrchestrator` `*ForTesting` injection statics are test-only (null in
+  prod) — note, not action.
+- **Shared IMGUI helpers** (a `LogSuppressionScope` IDisposable for the 3×
+  Missions suppression try/finally; a `DrawDetailStepper` for the two logistics
+  detail steppers) are plausible small Pass2 owner types — propose only if a UI
+  slice is already open.
+- This report covers **new files only**. The legacy giants that kept growing
+  (`ParsekFlight` 14.5k→28.7k, `GhostMapPresence` 3.4k→13.0k, `FlightRecorder`
+  6.7k→11.2k) remain tracked by `refactor-remaining-opportunities.md` and are a
+  separate, higher-risk effort.
 
