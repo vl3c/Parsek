@@ -1463,14 +1463,18 @@ namespace Parsek
                 sb.Append(" missed=").Append(dominantMissed);
             ParsekLog.Verbose("MissionPeriodicity", sb.ToString());
 
-            // Over-constrained signal (design Diagnostic Logging): Warn when the Tier-1 residual
-            // exceeds tolerance so a config that cannot loop accurately is never a silent branch.
+            // Over-constrained signal (design Diagnostic Logging): Warn when the FIXED-CADENCE
+            // residual exceeds tolerance so a config that cannot loop accurately under the static
+            // fallback is never a silent branch. This is the fallback verdict only: Solve() does not
+            // know whether the caller will build a zero-drift per-window reschedule, which (when it
+            // builds) supersedes this and restores within-tolerance windows - see the PhaseLock
+            // APPLIED line's scheduleWithinTol / scheduleWorstResidual for the windows actually flown.
             if (sol.ShouldPhaseLock && !sol.WithinTolerance && sol.ResidualSeconds > 0.0)
             {
                 ParsekLog.Warn("MissionPeriodicity",
-                    $"Solve: Tier-1 residual {sol.ResidualSeconds.ToString("R", ic)}s exceeds tolerance " +
-                    $"(dropped constraint {dominantMissed ?? "?"}); window is best-effort until the " +
-                    "Phase-2 joint best-fit lands");
+                    $"Solve: fixed-cadence residual {sol.ResidualSeconds.ToString("R", ic)}s exceeds tolerance " +
+                    $"(dropped constraint {dominantMissed ?? "?"}); the zero-drift per-window reschedule " +
+                    "supersedes this when it builds (see PhaseLock APPLIED scheduleWithinTol)");
             }
         }
 
