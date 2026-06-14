@@ -157,6 +157,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TerminalDestroyed_WithoutBool_IsKept()
+        {
+            // A destruction path may set TerminalStateValue=Destroyed without the
+            // VesselDestroyed bool (ApplyDestroyedFallback); a Destroyed terminal
+            // is still an unambiguous world-state change -> keep.
+            var rec = new Recording
+            {
+                VesselDestroyed = false,
+                TerminalStateValue = TerminalState.Destroyed,
+            };
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.Equal("terminal-destroyed", reason);
+        }
+
+        [Fact]
         public void HasDescendants_IsKept()
         {
             var rec = new Recording();
@@ -361,6 +378,16 @@ namespace Parsek.Tests
             rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic, startUT: 100, endUT: 200));
 
             Assert.True(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, 100, out _));
+        }
+
+        [Fact]
+        public void ResumeTail_TerminalDestroyed_IsKept()
+        {
+            var rec = new Recording { TerminalStateValue = TerminalState.Destroyed };
+            rec.TrackSections.Add(Section(SegmentEnvironment.ExoBallistic, startUT: 100, endUT: 200));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, 100, out string reason));
+            Assert.Equal("terminal-destroyed", reason);
         }
 
         [Fact]

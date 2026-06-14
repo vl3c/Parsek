@@ -7726,6 +7726,17 @@ namespace Parsek
         {
             if (rec == null) return false;
             if (!wasDestroyed) return false;
+
+            // Propagate the recorder's destruction knowledge to the VesselDestroyed
+            // bool, which is the field the no-op auto-discard classifier reads
+            // (SwitchSegmentNoOpClassifier gates on VesselDestroyed, not the
+            // terminal). Without this, a destruction that does NOT also emit an
+            // onPartDie Destroyed PartEvent (e.g. NaN/Kraken Vessel.Die cleanup)
+            // would leave a destroyed resume looking like a boring no-op coast and
+            // get auto-discarded. Set unconditionally (even when the terminal is
+            // already Destroyed) so the bool can never drift from the terminal.
+            rec.VesselDestroyed = true;
+
             if (rec.TerminalStateValue == TerminalState.Destroyed) return false;
 
             var prev = rec.TerminalStateValue;

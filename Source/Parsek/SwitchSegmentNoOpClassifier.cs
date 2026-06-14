@@ -102,9 +102,17 @@ namespace Parsek
             // A sealed destruction terminal means the vessel was destroyed during
             // the segment — a world-state change worth keeping. (Also caught by the
             // Destroyed part event below, but the sealed flag is the cheapest gate.)
+            // Check BOTH the bool and the terminal: some destruction paths set only
+            // TerminalStateValue=Destroyed (ApplyDestroyedFallback) and some set
+            // only the bool; either is an unambiguous destruction.
             if (segment.VesselDestroyed)
             {
                 keepReason = "vessel-destroyed";
+                return false;
+            }
+            if (segment.TerminalStateValue == TerminalState.Destroyed)
+            {
+                keepReason = "terminal-destroyed";
                 return false;
             }
 
@@ -266,6 +274,11 @@ namespace Parsek
             if (segment.VesselDestroyed)
             {
                 keepReason = "vessel-destroyed";
+                return false;
+            }
+            if (segment.TerminalStateValue == TerminalState.Destroyed)
+            {
+                keepReason = "terminal-destroyed";
                 return false;
             }
 
