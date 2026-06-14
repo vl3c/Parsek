@@ -5171,13 +5171,14 @@ namespace Parsek
             // case (both icons may show). Re-fly / active-session duplicates stay blocked
             // because isSuppressed is evaluated above this gate.
             // Step 2 (Logistics route live-anchor bind): when this recording's
-            // guid-gated launch-matched live vessel is loaded, its own loop ghost is a
-            // pure duplicate of the live station for the WHOLE loop (the dependent member
-            // docks against the live vessel, not this recorded position ~20 km away).
-            // Suppress it like a non-loop already-spawned vessel even though
-            // loopMemberInWindow is true (the caller feeds the whole-loop term here, not
-            // a docking bind window). Every other loopMemberInWindow case still draws
-            // alongside the real vessel.
+            // guid-gated launch-matched live vessel is loaded AND it is the LIVE docking
+            // anchor a relative member is binding to this-or-last frame (the Step-1
+            // live-bind event), its own loop ghost is a pure duplicate of the live
+            // station at that moment (the dependent member docks against the live vessel,
+            // not this recorded position ~20 km away). Suppress it like a non-loop
+            // already-spawned vessel even though loopMemberInWindow is true (the caller
+            // feeds the live-bind-event term here, not a whole-loop existence check).
+            // Every other loopMemberInWindow case still draws alongside the real vessel.
             if (alreadyMaterialized && (!loopMemberInWindow || liveLaunchMatchedAnchorOfActiveMember))
             {
                 skipReason = liveLaunchMatchedAnchorOfActiveMember
@@ -5188,8 +5189,8 @@ namespace Parsek
                     ParsekLog.VerboseRateLimited(Tag,
                         string.Format(ic, "anchor-double-suppressed-{0}", recId),
                         string.Format(ic,
-                            "anchor-double-suppressed (whole loop): rec={0} anchorPid={1} "
-                            + "reason=launch-matched-live-vessel-loaded",
+                            "anchor-double-suppressed (live-bind event): rec={0} anchorPid={1} "
+                            + "reason=launch-matched-live-vessel-loaded-and-live-bound",
                             recId,
                             (traj as Recording)?.VesselPersistentId ?? 0u),
                         5.0);
@@ -6466,12 +6467,19 @@ namespace Parsek
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
-                // Step 2: suppress this rec's OWN loop-ghost double for the WHOLE loop
-                // whenever its guid-gated launch-matched live vessel is loaded (not just
-                // during the docking bind). realVesselExists is the same guid-gated
+                // Step 2: suppress this rec's OWN loop-ghost double ONLY while its
+                // guid-gated launch-matched live vessel is loaded AND it was the LIVE
+                // docking anchor of an in-window relative member this-or-last frame (the
+                // Step-1 live-bind event), NOT for the whole loop (which over-suppressed
+                // every parked route craft). realVesselExists is the same guid-gated
                 // RealVesselExistsForRecording, so a same-craft different-launch vessel
                 // never suppresses; a member watched from afar with no live vessel draws.
-                bool liveLaunchMatchedAnchorOfActiveMember = realVesselExists;
+                // Best-effort on this map/TS path: the live-bind is stamped at member
+                // resolution (ghost (re)creation), not per on-rails frame, so the
+                // duplicate can briefly show until the next resolve (see
+                // WasLiveBoundThisOrLastFrame).
+                bool liveLaunchMatchedAnchorOfActiveMember = realVesselExists
+                    && RelativeAnchorResolver.WasLiveBoundThisOrLastFrame(rec.RecordingId);
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(i, out int cached)
                     ? cached
                     : -1;
@@ -9257,11 +9265,17 @@ namespace Parsek
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
-                // Step 2: suppress this rec's OWN loop-ghost double for the WHOLE loop
-                // whenever its guid-gated launch-matched live vessel is loaded (not just
-                // during the docking bind). Mirrors the lifecycle pass; realVesselExists
-                // is guid-gated so a same-craft different-launch vessel never suppresses.
-                bool liveLaunchMatchedAnchorOfActiveMember = realVesselExists;
+                // Step 2: suppress this rec's OWN loop-ghost double ONLY while its
+                // guid-gated launch-matched live vessel is loaded AND it was the LIVE
+                // docking anchor of an in-window relative member this-or-last frame (the
+                // Step-1 live-bind event), NOT for the whole loop. Mirrors the lifecycle
+                // pass; realVesselExists is guid-gated so a same-craft different-launch
+                // vessel never suppresses. Best-effort on this map/TS path: the
+                // live-bind is stamped at member resolution (ghost (re)creation), not
+                // per on-rails frame, so the duplicate can briefly show until the next
+                // resolve (see WasLiveBoundThisOrLastFrame).
+                bool liveLaunchMatchedAnchorOfActiveMember = realVesselExists
+                    && RelativeAnchorResolver.WasLiveBoundThisOrLastFrame(rec.RecordingId);
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(i, out int cached)
                     ? cached
                     : -1;
@@ -9288,7 +9302,7 @@ namespace Parsek
                     if (skipReason == "debris") skippedDebris++;
                     else if (skipReason == TrackingStationGhostSkipSuppressed) skippedSuppressed++;
                     else if (skipReason == TrackingStationGhostSkipAlreadySpawned) skippedSpawned++;
-                    // Step-2 whole-loop live-anchor double is an already-materialized
+                    // Step-2 live-anchor double (live-bind event) is an already-materialized
                     // duplicate; bucket it with skippedSpawned so it is not mis-attributed
                     // to skippedNoOrbit in the startup summary.
                     else if (skipReason == TrackingStationGhostSkipLiveAnchorDouble) skippedSpawned++;
@@ -11240,16 +11254,22 @@ namespace Parsek
                 return 0;
             }
 
-            // Step 2: suppress this overlap recording's OWN instance ghosts for the
-            // WHOLE loop whenever its guid-gated launch-matched live vessel is loaded
-            // (the hard-coded loopMemberInWindow:true overlap path would otherwise
-            // re-create the double the lifecycle pass suppresses). Keyed on the
-            // guid-gated RealVesselExistsForRecording, NOT the pid-only
+            // Step 2: suppress this overlap recording's OWN instance ghosts ONLY while
+            // its guid-gated launch-matched live vessel is loaded AND it was the LIVE
+            // docking anchor of an in-window relative member this-or-last frame (the
+            // Step-1 live-bind event), NOT for the whole loop (the hard-coded
+            // loopMemberInWindow:true overlap path would otherwise re-create the double
+            // the lifecycle pass suppresses only during the actual docking overlap).
+            // Keyed on the guid-gated RealVesselExistsForRecording, NOT the pid-only
             // IsMaterializedForMapPresence, so a same-craft different-launch vessel
-            // never suppresses.
+            // never suppresses. Best-effort on this map path: the live-bind is stamped
+            // at member resolution (ghost (re)creation), not per on-rails frame, so the
+            // duplicate can briefly show until the next resolve (see
+            // WasLiveBoundThisOrLastFrame).
             bool liveLaunchMatchedAnchorOfActiveMember =
                 rec != null
-                && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
+                && GhostPlaybackLogic.RealVesselExistsForRecording(rec)
+                && RelativeAnchorResolver.WasLiveBoundThisOrLastFrame(rec.RecordingId);
 
             long firstCycle, lastCycle;
             GhostPlaybackLogic.GetActiveCycles(
@@ -12028,18 +12048,24 @@ namespace Parsek
                         ? cached
                         : -1;
                     // Step 2 (flight map presence): suppress this rec's OWN loop-ghost
-                    // double for the WHOLE loop whenever its guid-gated launch-matched
-                    // live vessel is loaded (mirrors the TS lifecycle pass). Keyed on the
-                    // guid-gated RealVesselExistsForRecording, NOT the pid-only
+                    // double ONLY while its guid-gated launch-matched live vessel is
+                    // loaded AND it was the LIVE docking anchor of an in-window relative
+                    // member this-or-last frame (the Step-1 live-bind event), NOT for the
+                    // whole loop (mirrors the TS lifecycle pass). Keyed on the guid-gated
+                    // RealVesselExistsForRecording, NOT the pid-only
                     // IsMaterializedForMapPresence that feeds alreadyMaterialized here, so
-                    // a same-craft different-launch vessel never suppresses.
+                    // a same-craft different-launch vessel never suppresses. Best-effort
+                    // on this map path: the live-bind is stamped at member resolution
+                    // (ghost (re)creation), not per on-rails frame, so the duplicate can
+                    // briefly show until the next resolve (see WasLiveBoundThisOrLastFrame).
                     Recording pendingAnchorRec = (committedForOverlapSkip != null
                         && idx >= 0 && idx < committedForOverlapSkip.Count)
                         ? committedForOverlapSkip[idx]
                         : null;
                     bool liveLaunchMatchedAnchorOfActiveMember =
                         pendingAnchorRec != null
-                        && GhostPlaybackLogic.RealVesselExistsForRecording(pendingAnchorRec);
+                        && GhostPlaybackLogic.RealVesselExistsForRecording(pendingAnchorRec)
+                        && RelativeAnchorResolver.WasLiveBoundThisOrLastFrame(pendingAnchorRec.RecordingId);
                     TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
                         traj,
                         false,

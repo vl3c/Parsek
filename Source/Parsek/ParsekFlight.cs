@@ -19572,6 +19572,7 @@ namespace Parsek
             var spawnSuppressedByReason = spawnSuppressedReasonScratch;
             spawnSuppressedByReason.Clear();
             int spawnSuppressedCount = 0;
+            int liveAnchorSuppressedCount = 0;
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -19590,35 +19591,42 @@ namespace Parsek
                     || chainLooping
                     || (cachedLoopUnits != null && cachedLoopUnits.IsMember(i));
                 // Step 2 (Logistics route live-anchor bind): suppress a LOOP MEMBER's OWN
-                // loop ghost for the WHOLE loop whenever its launch-matched live vessel
-                // is loaded in the scene (the Deliverer ghost docks against the live
-                // Depot, so the recorded Depot loop ghost ~20 km away is a pure
-                // duplicate that the player must never see while they control the real
-                // Depot). Keyed on the guid-gated RealVesselExistsForRecording, not the
-                // docking bind window: the bind only fires while the dependent is
-                // actively docking (~2 frames), but the duplicate is wrong for the entire
-                // loop, dependent present or not. Guid gate (VesselLaunchIdentity) means a
-                // same-craft DIFFERENT-launch live vessel never suppresses (persistentId
-                // is craft-baked, three same-craft distinct-launch Depot launches exist
-                // on disk). Scoped to loopingLike to MATCH the map-side loopMemberInWindow
-                // carve-out (GhostMapPresence.ResolveMapPresenceGhostSource): the gate must
-                // never reach the active recording's own ghost, an active re-fly session,
-                // or a tree-history ghost shown via ShouldSkipExternalVesselGhost's
-                // carve-outs — only a looping member whose live vessel is loaded. A Depot
-                // watched looping from afar with no live vessel loaded fails the existence
-                // check, so its ghost still draws.
-                bool liveAnchorDoubleSuppressed = loopingLike
-                    && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
+                // loop ghost as a live-anchor duplicate ONLY while its launch-matched live
+                // vessel is loaded AND it was resolved as the LIVE docking anchor of an
+                // in-window relative member during this-or-the-previous frame (the Step-1
+                // live-bind event, captured at RelativeAnchorResolver). NOT for the whole
+                // loop: RealVesselExistsForRecording is true for EVERY parked route craft
+                // loaded in the scene, so the earlier whole-loop gate hid every delivery
+                // mesh when a fresh new-mission launch watched the looped route (18 parked
+                // craft loaded => all 11 route meshes suppressed). The inbound delivery
+                // member is the resolver FOCUS, never the resolved anchor, so it is never
+                // in the bind set and is never suppressed - its mesh draws docking the live
+                // station; only the station BEING docked right now is hidden as a duplicate.
+                //
+                // One-frame lag is correct and safe: ComputePlaybackFlags runs BEFORE
+                // engine.UpdatePlayback (where positioning fires the Step-1 binds), so this
+                // predicate reads the PREVIOUS frame's live-bind set. A continuously-docking
+                // anchor re-stamps every frame, so WasLiveBoundThisOrLastFrame's <=1
+                // tolerance keeps it suppressed every frame; a docking that just started or
+                // ended flashes the duplicate at most ~1 frame (sub-perceptual at the
+                // ~20 km standoff). Guid gate (VesselLaunchIdentity) means a same-craft
+                // DIFFERENT-launch live vessel never suppresses; loopingLike MATCHES the
+                // map-side loopMemberInWindow carve-out so the gate never reaches the active
+                // recording, an active re-fly session, or a tree-history ghost.
+                bool liveAnchorDoubleSuppressed =
+                    GhostPlaybackLogic.IsLiveAnchorDoubleSuppressed(rec, loopingLike);
                 if (liveAnchorDoubleSuppressed)
                 {
                     externalVesselSuppressed = true;
+                    liveAnchorSuppressedCount++;
                     ParsekLog.VerboseRateLimited(
                         "Anchor",
-                        "step2-whole-loop-suppress|" + (rec.RecordingId ?? "(none)"),
-                        "Step-2 suppressed live-anchor double (whole loop): rec="
+                        "step2-live-bind-suppress|" + (rec.RecordingId ?? "(none)"),
+                        "Step-2 suppressed live-anchor double (live-bind event): rec="
                             + (rec.RecordingId ?? "(none)")
                             + " vessel=\"" + (rec.VesselName ?? "(none)") + "\""
-                            + " (own loop ghost hidden while its launch-matched live vessel is loaded)",
+                            + " liveBoundThisOrLastFrame=true"
+                            + " (own ghost hidden while a delivery member is docking its launch-matched live vessel)",
                         5.0);
                 }
                 TimelineInactiveReason inactiveReason = TimelineInactiveReason.None;
@@ -19729,7 +19737,7 @@ namespace Parsek
             // One batched, rate-limited summary instead of one line per suppressed
             // recording. Shared key + VerboseRateLimited hard-caps the rate so the
             // per-frame summary cannot spam even when the committed list is large or a
-            // reason oscillates frame-to-frame. The Step-2 whole-loop double-suppression
+            // reason oscillates frame-to-frame. The Step-2 live-anchor double-suppression
             // is an externalVesselSuppressed skip already covered by the generic
             // skip-reason logging (LogGhostSkipReasonChangeIfNeeded) plus its own
             // dedicated "Anchor" Verbose line at the decision site above.
@@ -19739,6 +19747,21 @@ namespace Parsek
                     "Spawner",
                     "spawn-suppressed-summary",
                     () => BuildSpawnSuppressedSummary(spawnSuppressedCount, spawnSuppressedByReason),
+                    2.0);
+            }
+            // One batched, rate-limited summary (shared key) for the Step-2 live-anchor
+            // double-suppression count this frame, so the per-recording decision lines
+            // above (themselves rate-limited) are backed by a single aggregate even when
+            // the per-recording lines are throttled.
+            if (liveAnchorSuppressedCount > 0)
+            {
+                int suppressedThisFrame = liveAnchorSuppressedCount;
+                ParsekLog.VerboseRateLimited(
+                    "Anchor",
+                    "step2-live-anchor-double-summary",
+                    () => "Step-2 live-anchor-double: suppressed="
+                        + suppressedThisFrame.ToString(CultureInfo.InvariantCulture)
+                        + " this frame (gate=live-bind-event)",
                     2.0);
             }
             LogReFlyAnchorHoldTransitions(frame);
@@ -20253,11 +20276,13 @@ namespace Parsek
                 return null;
             }
 
-            // Step 1 (the live-bind pose) is all that happens here now. The Step-2
-            // double-suppression no longer keys off a per-bind stamp: it suppresses the
-            // anchor's own loop ghost for the WHOLE loop whenever its guid-gated
-            // launch-matched live vessel is loaded (GhostPlaybackLogic
-            // .RealVesselExistsForRecording), which subsumes the bind window.
+            // Step 1 (the live-bind pose) is all that happens here. The resolver stamps
+            // the live-bind ledger (RelativeAnchorResolver.RecordLiveBoundAnchor) on the
+            // source=live bind event, which the Step-2 double-suppression consumes one
+            // frame later via RelativeAnchorResolver.WasLiveBoundThisOrLastFrame: the
+            // anchor's own loop ghost is hidden ONLY while a relative member is actually
+            // docking its live vessel (scoped to the live-bind event), NOT for the whole
+            // loop merely because its guid-matched live vessel is loaded.
             return (pose.worldPos, pose.worldRotation);
         }
 
