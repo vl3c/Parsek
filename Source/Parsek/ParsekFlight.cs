@@ -2427,6 +2427,315 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Evaluates whether the armed <see cref="SwitchSegmentSession"/>'s
+        /// resumed segment (Tracking-Station Fly / KSC marker Fly / map Switch-To)
+        /// changed nothing meaningful and can be auto-discarded so we do not
+        /// prolong the ghost state for a segment that did nothing. Same spirit as
+        /// <see cref="RecordingOptimizer.TrimBoringTail"/> ("so the ghost finishes
+        /// quickly and the real vessel spawns promptly") and the idle-on-pad
+        /// auto-discard.
+        ///
+        /// <para>This method MUTATES like <see cref="IsActiveTreeIdleOnPad"/>: it
+        /// flushes the live recorder into the active tree
+        /// (<see cref="FlushRecorderIntoActiveTreeForSerialization"/>) so the
+        /// segment recording carries its in-flight payload before the pure
+        /// classifier reads it. Guards out the restore-coroutine,
+        /// Re-Fly-session, and active-merge-journal states (never auto-discard
+        /// across those), then delegates resolution + the no-op decision to
+        /// <see cref="RecordingStore.TryClassifyActiveSwitchSegmentNoOp"/>.</para>
+        /// </summary>
+        internal bool TryEvaluateActiveSwitchSegmentNoOp(
+            out string reason, out SwitchSegmentDisposition disposition)
+        {
+            reason = null;
+            disposition = SwitchSegmentDisposition.None;
+
+            if (restoringActiveTree)
+            {
+                reason = "restoring-active-tree";
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario)
+                || scenario.ActiveSwitchSegmentSession == null)
+            {
+                reason = "no-session";
+                return false;
+            }
+            if (scenario.ActiveReFlySessionMarker != null)
+            {
+                reason = "refly-active";
+                return false;
+            }
+            if (scenario.ActiveMergeJournal != null)
+            {
+                reason = "merge-journal-active";
+                return false;
+            }
+
+            // B1: populate the segment recording from the live recorder buffers
+            // before the classifier reads it (mirrors IsActiveTreeIdleOnPad). The
+            // flush only populates activeTree.ActiveRecordingId; the classifier
+            // verifies the segment IS that recording.
+            //
+            // Both callers run inside a Harmony prefix (the HighLogic.LoadScene
+            // scene-exit prefix and the map OnSelect prefix). An exception here
+            // would propagate out and abort the scene transition / the menu
+            // click, so fail closed: log and return keep (no auto-discard).
+            try
+            {
+                FlushRecorderIntoActiveTreeForSerialization();
+                return RecordingStore.TryClassifyActiveSwitchSegmentNoOp(out reason, out disposition);
+            }
+            catch (System.Exception ex)
+            {
+                reason = "exception:" + ex.GetType().Name;
+                disposition = SwitchSegmentDisposition.None;
+                ParsekLog.Warn("SwitchSegment",
+                    $"TryEvaluateActiveSwitchSegmentNoOp threw {ex.GetType().Name}: {ex.Message} " +
+                    "- treating as keep (no auto-discard)");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Tears down a no-op STANDALONE resumed switch segment (the whole live
+        /// active tree IS the no-op segment — a fresh tree with no committed
+        /// history). Reuses the proven <see cref="AutoDiscardActiveTreeCore"/>
+        /// body — identical to the idle-on-pad whole-tree teardown — which also
+        /// clears any armed <see cref="SwitchSegmentSession"/>. CommittedRestoreClone
+        /// is handled separately by
+        /// <see cref="DiscardActiveSwitchSegmentAttemptRevertingLiveClone"/>
+        /// (revert to the committed original); BgMemberOrMixed defers.
+        /// </summary>
+        internal void AutoDiscardNoOpStandaloneSwitchSegment(string reason)
+        {
+            AutoDiscardActiveTreeCore(
+                reason: reason,
+                screenMessage: "Recording discarded - vessel unchanged after switch",
+                ledgerRecalcReason: "noop-switch-segment-discard",
+                chainStopReason: reason);
+        }
+
+        /// <summary>
+        /// Scoped-discards the active switch segment and, when the segment lives
+        /// in a still-live in-flight COMMITTED-RESTORE CLONE, tears the clone down
+        /// so it is never serialized as the active tree — reverting cleanly to the
+        /// committed original (which stays in <c>committedTrees</c> the whole
+        /// in-flight session, copy-on-write). This is the fix for the data-loss
+        /// path where an in-flight committed-clone discard left the clone live,
+        /// it stranded into the Limbo pending slot on the next switch, and a later
+        /// whole-tree discard wiped the committed mission.
+        ///
+        /// <para>Used by every PRE-STASH discard path (the in-flight pre-switch
+        /// Discard handler and scene-exit Hook 1's committed-clone branch). The
+        /// scene-exit MANUAL merge-dialog Discard is POST-stash and stays on its
+        /// own (already-safe) path.</para>
+        ///
+        /// <para>The clone tree id is captured BEFORE the scoped discard, because
+        /// <see cref="RecordingStore.TryDiscardActiveSwitchSegmentAttempt"/>
+        /// clears the restore attempt; the teardown then fires only when the
+        /// captured clone is still the live <c>activeTree</c> afterward, so an
+        /// unrelated active tree is never nulled. Standalone segments have a null
+        /// clone id and keep their existing (untorn-down) behavior here — the
+        /// caller routes Standalone to
+        /// <see cref="AutoDiscardNoOpStandaloneSwitchSegment"/> when a full
+        /// teardown is wanted.</para>
+        /// </summary>
+        internal RecordingStore.SwitchSegmentDiscardDisposition
+            DiscardActiveSwitchSegmentAttemptRevertingLiveClone(
+                string reason, string screenMessage, string ledgerRecalcReason,
+                out string discardReason)
+        {
+            string cloneTreeId =
+                activeTree != null
+                && RecordingStore.IsCommittedTreeRestoreAttemptTree(activeTree.Id)
+                    ? activeTree.Id
+                    : null;
+
+            var disposition = RecordingStore.TryDiscardActiveSwitchSegmentAttempt(
+                out discardReason);
+
+            // In-flight (pre-stash) the committed clone is the live activeTree, not
+            // the pending slot, so the scoped discard leaves it intact
+            // (droppedPendingClone=False). Tear it down so it is never serialized
+            // isActive; the committed original survives in committedTrees.
+            if (cloneTreeId != null
+                && activeTree != null
+                && string.Equals(activeTree.Id, cloneTreeId, StringComparison.Ordinal))
+            {
+                ParsekLog.Info("SwitchSegment",
+                    $"DiscardActiveSwitchSegmentAttemptRevertingLiveClone: tearing down live " +
+                    $"committed-restore clone treeId={cloneTreeId} to revert to the committed " +
+                    $"original (reason={reason})");
+                AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason);
+            }
+
+            return disposition;
+        }
+
+        /// <summary>
+        /// Evaluates the NO-SESSION committed-restore resume path: when you Fly /
+        /// Switch-To a vessel that belongs to a committed Parsek mission via a
+        /// scene reload, OnLoad resumes the committed tree in-place
+        /// (<c>ResumeCommittedActiveRecording</c>) as a copy-on-write clone
+        /// WITHOUT arming a <see cref="SwitchSegmentSession"/> (it sets
+        /// <see cref="liveResumeSessionStartUT"/> instead). The session-based
+        /// no-op auto-discard never sees this, so a do-nothing revisit of a
+        /// tracked mission used to fall through to the merge dialog. This returns
+        /// true when the resume TAIL (since the live-resume anchor) changed
+        /// nothing meaningful, so the caller can revert the clone to the committed
+        /// original via <see cref="AutoDiscardNoOpNoSessionCommittedResume"/>.
+        ///
+        /// <para>Guards out: an armed <see cref="SwitchSegmentSession"/> (the
+        /// session path owns that), restore-coroutine, Re-Fly, and merge-journal.
+        /// Requires the active tree to be the armed committed-restore clone, a
+        /// finite resume anchor, and a resolvable active recording. MUTATES like
+        /// <see cref="IsActiveTreeIdleOnPad"/>: flushes the recorder so the tail
+        /// is readable. Fails closed (keep) on exception.</para>
+        /// </summary>
+        internal bool TryEvaluateNoSessionCommittedResumeNoOp(out string reason)
+        {
+            reason = null;
+
+            if (restoringActiveTree)
+            {
+                reason = "restoring-active-tree";
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario))
+            {
+                reason = "no-scenario";
+                return false;
+            }
+            if (scenario.ActiveSwitchSegmentSession != null)
+            {
+                reason = "has-session"; // the session path owns this
+                return false;
+            }
+            if (scenario.ActiveReFlySessionMarker != null)
+            {
+                reason = "refly-active";
+                return false;
+            }
+            if (scenario.ActiveMergeJournal != null)
+            {
+                reason = "merge-journal-active";
+                return false;
+            }
+
+            if (activeTree == null)
+            {
+                reason = "no-active-tree";
+                return false;
+            }
+            if (!RecordingStore.IsCommittedTreeRestoreAttemptTree(activeTree.Id))
+            {
+                reason = "not-committed-restore-clone";
+                return false;
+            }
+            if (double.IsNaN(liveResumeSessionStartUT))
+            {
+                reason = "no-resume-anchor";
+                return false;
+            }
+            if (activeTree.Recordings == null)
+            {
+                reason = "no-recordings";
+                return false;
+            }
+            // The resume must be the live active recording (the in-place resume),
+            // else we cannot reason about what the resume did.
+            if (string.IsNullOrEmpty(activeTree.ActiveRecordingId)
+                || !activeTree.Recordings.ContainsKey(activeTree.ActiveRecordingId))
+            {
+                reason = "no-active-recording";
+                return false;
+            }
+
+            try
+            {
+                // Flush the foreground recorder, then checkpoint the background
+                // recorder so any open on-rails orbit segments are closed into the
+                // tree recordings — so the tail check below sees a background
+                // member's real trajectory change (e.g. an SOI crossing flushes a
+                // body-changed segment) instead of missing it.
+                FlushRecorderIntoActiveTreeForSerialization();
+                if (backgroundRecorder != null)
+                {
+                    // LOADED (physics-bubble) background members accrue per-frame
+                    // data that CheckpointAllVessels does NOT flush, so they can't
+                    // be cleanly tail-checked — defer (the BgMemberOrMixed analog,
+                    // data-loss guard). On-rails members ARE flushed and evaluated.
+                    if (backgroundRecorder.HasLoadedBackgroundMembers)
+                    {
+                        reason = "loaded-background-member";
+                        return false;
+                    }
+                    backgroundRecorder.CheckpointAllVessels(Planetarium.GetUniversalTime());
+                }
+
+                // Tree-wide tail check: the resume is a no-op only if NO recording
+                // in the clone (the foreground resumed recording AND every
+                // on-rails background member) changed anything since the resume
+                // anchor. Committed history (all before the anchor) passes
+                // trivially. If any member's tail is meaningful, defer so a revert
+                // cannot drop it.
+                foreach (var kvp in activeTree.Recordings)
+                {
+                    Recording rec = kvp.Value;
+                    if (rec == null) continue;
+                    if (!SwitchSegmentNoOpClassifier.IsNoOpResumeTail(
+                            rec, liveResumeSessionStartUT, out string keepReason))
+                    {
+                        reason = "member:" + (kvp.Key ?? "<null>") + ":" + (keepReason ?? "<none>");
+                        ParsekLog.Verbose("SwitchSegment",
+                            $"TryEvaluateNoSessionCommittedResumeNoOp: treeId={activeTree.Id} " +
+                            $"keep reason={reason}");
+                        return false;
+                    }
+                }
+
+                reason = "no-op";
+                ParsekLog.Verbose("SwitchSegment",
+                    $"TryEvaluateNoSessionCommittedResumeNoOp: treeId={activeTree.Id} " +
+                    $"sinceUT={liveResumeSessionStartUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"recordings={activeTree.Recordings.Count} noOp=True");
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                reason = "exception:" + ex.GetType().Name;
+                ParsekLog.Warn("SwitchSegment",
+                    $"TryEvaluateNoSessionCommittedResumeNoOp threw {ex.GetType().Name}: " +
+                    $"{ex.Message} - treating as keep");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Reverts a no-op no-session committed-restore resume: clears the
+        /// committed-tree restore attempt and tears the live clone down via
+        /// <see cref="AutoDiscardActiveTreeCore"/> (in-memory only — deletes no
+        /// files, never touches <c>committedTrees</c>), so the committed original
+        /// survives and the clone is never serialized active. The session path's
+        /// restore-attempt clear is done by the scoped discard; here there is no
+        /// session/segment to scoped-discard, so the clear is explicit.
+        /// </summary>
+        internal void AutoDiscardNoOpNoSessionCommittedResume(string reason)
+        {
+            RecordingStore.ClearCommittedTreeRestoreAttempt(
+                "noop-no-session-committed-resume-revert");
+            AutoDiscardActiveTreeWithMessage(
+                reason: reason,
+                screenMessage: "Recording discarded - vessel unchanged after switch",
+                ledgerRecalcReason: "noop-no-session-committed-resume-discard");
+        }
+
+        /// <summary>
         /// Shared teardown body for <see cref="AutoDiscardIdleActiveTree"/>
         /// and <see cref="AutoDiscardActiveTreeWithMessage"/>. The screen
         /// message and ledger-recalc reason are parameterized so the
@@ -7417,6 +7726,17 @@ namespace Parsek
         {
             if (rec == null) return false;
             if (!wasDestroyed) return false;
+
+            // Propagate the recorder's destruction knowledge to the VesselDestroyed
+            // bool, which is the field the no-op auto-discard classifier reads
+            // (SwitchSegmentNoOpClassifier gates on VesselDestroyed, not the
+            // terminal). Without this, a destruction that does NOT also emit an
+            // onPartDie Destroyed PartEvent (e.g. NaN/Kraken Vessel.Die cleanup)
+            // would leave a destroyed resume looking like a boring no-op coast and
+            // get auto-discarded. Set unconditionally (even when the terminal is
+            // already Destroyed) so the bool can never drift from the terminal.
+            rec.VesselDestroyed = true;
+
             if (rec.TerminalStateValue == TerminalState.Destroyed) return false;
 
             var prev = rec.TerminalStateValue;

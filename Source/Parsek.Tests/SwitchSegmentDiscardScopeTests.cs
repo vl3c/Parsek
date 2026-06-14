@@ -631,6 +631,29 @@ namespace Parsek.Tests
             Assert.Null(scenario.ActiveSwitchSegmentSession);
         }
 
+        // Fails if: IsCommittedTreeRestoreAttemptTree (the guard the in-flight
+        // revert-clone teardown uses to detect a live committed clone before the
+        // scoped discard clears the attempt) does not track the armed tree id, or
+        // reports a stale/other id.
+        [Fact]
+        public void IsCommittedTreeRestoreAttemptTree_TracksArmedTree()
+        {
+            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree("tree_x"));
+            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree(null));
+
+            var committedTree = MakeTree("tree_x",
+                activeRecordingId: "rec_x",
+                MakeRecording("rec_x", "tree_x", vesselName: "X"));
+            RecordingStore.ArmCommittedTreeRestoreAttempt(committedTree, "test-arm");
+
+            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree("tree_x"));
+            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree("tree_other"));
+            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree(null));
+
+            RecordingStore.ClearCommittedTreeRestoreAttempt("test-clear");
+            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree("tree_x"));
+        }
+
         // -----------------------------------------------------------------
         // Committed history preserved across the scoped discard
         // -----------------------------------------------------------------
