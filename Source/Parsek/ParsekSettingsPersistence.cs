@@ -116,71 +116,12 @@ namespace Parsek
                         $"{DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm.ToString("F0", CultureInfo.InvariantCulture)}km");
                 }
 
-                string mirrorsStr = root.GetValue(ReadableSidecarMirrorsKey);
-                if (!string.IsNullOrEmpty(mirrorsStr)
-                    && bool.TryParse(mirrorsStr, out bool writeMirrors))
-                {
-                    storedReadableSidecarMirrors = writeMirrors;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ReadableSidecarMirrorsKey} — using default");
-                }
-
-                string showOverlaysStr = root.GetValue(ShowCommittedFutureOverlaysKey);
-                if (!string.IsNullOrEmpty(showOverlaysStr)
-                    && bool.TryParse(showOverlaysStr, out bool showOverlays))
-                {
-                    storedShowCommittedFutureOverlays = showOverlays;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ShowCommittedFutureOverlaysKey} — using default");
-                }
-
-                string blockActionsStr = root.GetValue(BlockCommittedActionsKey);
-                if (!string.IsNullOrEmpty(blockActionsStr)
-                    && bool.TryParse(blockActionsStr, out bool blockActions))
-                {
-                    storedBlockCommittedActions = blockActions;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {BlockCommittedActionsKey} — using default");
-                }
-
-                string ghostRenderTracingStr = root.GetValue(GhostRenderTracingKey);
-                if (!string.IsNullOrEmpty(ghostRenderTracingStr)
-                    && bool.TryParse(ghostRenderTracingStr, out bool ghostRenderTracing))
-                {
-                    storedGhostRenderTracing = ghostRenderTracing;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {GhostRenderTracingKey} — using default");
-                }
-
-                string mapRenderTracingStr = root.GetValue(MapRenderTracingKey);
-                if (!string.IsNullOrEmpty(mapRenderTracingStr)
-                    && bool.TryParse(mapRenderTracingStr, out bool mapRenderTracing))
-                {
-                    storedMapRenderTracing = mapRenderTracing;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {MapRenderTracingKey} — using default");
-                }
-
-                string ledgerTracingStr = root.GetValue(LedgerTracingKey);
-                if (!string.IsNullOrEmpty(ledgerTracingStr)
-                    && bool.TryParse(ledgerTracingStr, out bool ledgerTracing))
-                {
-                    storedLedgerTracing = ledgerTracing;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {LedgerTracingKey} — using default");
-                }
+                TryLoadBool(root, path, ReadableSidecarMirrorsKey, ref storedReadableSidecarMirrors);
+                TryLoadBool(root, path, ShowCommittedFutureOverlaysKey, ref storedShowCommittedFutureOverlays);
+                TryLoadBool(root, path, BlockCommittedActionsKey, ref storedBlockCommittedActions);
+                TryLoadBool(root, path, GhostRenderTracingKey, ref storedGhostRenderTracing);
+                TryLoadBool(root, path, MapRenderTracingKey, ref storedMapRenderTracing);
+                TryLoadBool(root, path, LedgerTracingKey, ref storedLedgerTracing);
 
                 storedWarpYear = ParseStoredInt(root, WarpYearKey);
                 storedWarpDay = ParseStoredInt(root, WarpDayKey);
@@ -199,6 +140,25 @@ namespace Parsek
             catch (Exception ex)
             {
                 ParsekLog.Warn(Tag, $"Failed to load settings file '{path}': {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Reads <paramref name="key"/> from <paramref name="root"/> as a bool override:
+        /// stores it when present and parseable, otherwise verbose-logs the using-default
+        /// case. Folds the six byte-identical per-key read blocks in <see cref="LoadIfNeeded"/>.
+        /// </summary>
+        private static void TryLoadBool(ConfigNode root, string path, string key, ref bool? stored)
+        {
+            string raw = root.GetValue(key);
+            if (!string.IsNullOrEmpty(raw)
+                && bool.TryParse(raw, out bool parsed))
+            {
+                stored = parsed;
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {key} — using default");
             }
         }
 
@@ -329,61 +289,37 @@ namespace Parsek
         }
 
         internal static void RecordGhostRenderTracing(bool value)
-        {
-            try { LoadIfNeeded(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordGhostRenderTracing: LoadIfNeeded threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
-            }
-            if (storedGhostRenderTracing.HasValue && storedGhostRenderTracing.Value == value) return;
-            storedGhostRenderTracing = value;
-            try { Save(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordGhostRenderTracing: Save threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
-            }
-        }
+            => RecordTracingFlag(ref storedGhostRenderTracing, value, "RecordGhostRenderTracing");
 
         internal static void RecordMapRenderTracing(bool value)
-        {
-            try { LoadIfNeeded(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordMapRenderTracing: LoadIfNeeded threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
-            }
-            if (storedMapRenderTracing.HasValue && storedMapRenderTracing.Value == value) return;
-            storedMapRenderTracing = value;
-            try { Save(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordMapRenderTracing: Save threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
-            }
-        }
+            => RecordTracingFlag(ref storedMapRenderTracing, value, "RecordMapRenderTracing");
 
         internal static void RecordLedgerTracing(bool value)
+            => RecordTracingFlag(ref storedLedgerTracing, value, "RecordLedgerTracing");
+
+        /// <summary>
+        /// Records a tracing-flag override and writes it to disk, guarding the xUnit /
+        /// non-Unity context where <see cref="KSPUtil.ApplicationRootPath"/> throws.
+        /// Folds the three byte-identical RecordGhost/Map/LedgerTracing methods, which
+        /// differed only by the backing field (<paramref name="stored"/>) and the
+        /// method-name prefix in the SecurityException verbose logs (<paramref name="name"/>).
+        /// </summary>
+        private static void RecordTracingFlag(ref bool? stored, bool value, string name)
         {
             try { LoadIfNeeded(); }
             catch (SecurityException ex)
             {
                 ParsekLog.Verbose(Tag,
-                    $"RecordLedgerTracing: LoadIfNeeded threw SecurityException " +
+                    $"{name}: LoadIfNeeded threw SecurityException " +
                     $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
             }
-            if (storedLedgerTracing.HasValue && storedLedgerTracing.Value == value) return;
-            storedLedgerTracing = value;
+            if (stored.HasValue && stored.Value == value) return;
+            stored = value;
             try { Save(); }
             catch (SecurityException ex)
             {
                 ParsekLog.Verbose(Tag,
-                    $"RecordLedgerTracing: Save threw SecurityException " +
+                    $"{name}: Save threw SecurityException " +
                     $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
             }
         }

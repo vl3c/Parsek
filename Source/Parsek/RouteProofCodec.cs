@@ -13,6 +13,18 @@ namespace Parsek
         private const string StoredPartSnapshotNode = "STOREDPART_SNAPSHOT";
         private const string StockStoredPartNode = "STOREDPART";
 
+        // Repeated node/value keys hoisted here so a codec rename touches one place
+        // (matches RouteCodec's documented convention). Literal-hoist only — every
+        // value is identical to the inline string it replaces.
+        private const string WindowNode = "WINDOW";
+        private const string InventoryItemNode = "ITEM";
+        private const string ResourceChildNode = "RESOURCE";
+        private const string StoredResourcesNode = "STORED_RESOURCES";
+        private const string PidValueKey = "pid";
+        private const string ResourceNameValueKey = "name";
+        private const string ResourceAmountValueKey = "amount";
+        private const string ResourceMaxAmountValueKey = "maxAmount";
+
         internal static void SerializeRouteProofMetadata(ConfigNode parent, Recording rec)
         {
             if (parent == null || rec == null)
@@ -71,7 +83,7 @@ namespace Parsek
 
                     if (harvestNode == null)
                         harvestNode = parent.AddNode(RouteHarvestWindowsNode);
-                    SerializeHarvestWindow(harvestNode.AddNode("WINDOW"), window);
+                    SerializeHarvestWindow(harvestNode.AddNode(WindowNode), window);
                     writtenHarvestWindows++;
                 }
             }
@@ -87,7 +99,7 @@ namespace Parsek
 
                     if (windowsNode == null)
                         windowsNode = parent.AddNode(RouteConnectionWindowsNode);
-                    SerializeConnectionWindow(windowsNode.AddNode("WINDOW"), window);
+                    SerializeConnectionWindow(windowsNode.AddNode(WindowNode), window);
                     writtenWindows++;
                 }
             }
@@ -139,7 +151,7 @@ namespace Parsek
             ConfigNode harvestWindowsNode = parent.GetNode(RouteHarvestWindowsNode);
             if (harvestWindowsNode != null)
             {
-                ConfigNode[] harvestNodes = harvestWindowsNode.GetNodes("WINDOW");
+                ConfigNode[] harvestNodes = harvestWindowsNode.GetNodes(WindowNode);
                 if (harvestNodes.Length > 0)
                 {
                     rec.RouteHarvestWindows = new List<RouteHarvestWindow>(harvestNodes.Length);
@@ -158,7 +170,7 @@ namespace Parsek
             if (windowsNode == null)
                 return;
 
-            ConfigNode[] windowNodes = windowsNode.GetNodes("WINDOW");
+            ConfigNode[] windowNodes = windowsNode.GetNodes(WindowNode);
             if (windowNodes.Length == 0)
                 return;
 
@@ -519,7 +531,7 @@ namespace Parsek
             ConfigNode node = parent.AddNode(nodeName);
             var ic = CultureInfo.InvariantCulture;
             for (int i = 0; i < pids.Count; i++)
-                node.AddValue("pid", pids[i].ToString(ic));
+                node.AddValue(PidValueKey, pids[i].ToString(ic));
         }
 
         private static List<uint> DeserializePartPidList(ConfigNode parent, string nodeName)
@@ -528,7 +540,7 @@ namespace Parsek
             if (node == null)
                 return null;
 
-            string[] values = node.GetValues("pid");
+            string[] values = node.GetValues(PidValueKey);
             if (values == null || values.Length == 0)
                 return null;
 
@@ -557,10 +569,10 @@ namespace Parsek
                 if (string.IsNullOrEmpty(kvp.Key))
                     continue;
 
-                ConfigNode resourceNode = node.AddNode("RESOURCE");
-                resourceNode.AddValue("name", kvp.Key);
-                resourceNode.AddValue("amount", kvp.Value.amount.ToString("R", ic));
-                resourceNode.AddValue("maxAmount", kvp.Value.maxAmount.ToString("R", ic));
+                ConfigNode resourceNode = node.AddNode(ResourceChildNode);
+                resourceNode.AddValue(ResourceNameValueKey, kvp.Key);
+                resourceNode.AddValue(ResourceAmountValueKey, kvp.Value.amount.ToString("R", ic));
+                resourceNode.AddValue(ResourceMaxAmountValueKey, kvp.Value.maxAmount.ToString("R", ic));
             }
         }
 
@@ -572,7 +584,7 @@ namespace Parsek
             if (node == null)
                 return null;
 
-            ConfigNode[] resourceNodes = node.GetNodes("RESOURCE");
+            ConfigNode[] resourceNodes = node.GetNodes(ResourceChildNode);
             if (resourceNodes.Length == 0)
                 return null;
 
@@ -581,14 +593,14 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
             for (int i = 0; i < resourceNodes.Length; i++)
             {
-                string name = resourceNodes[i].GetValue("name");
+                string name = resourceNodes[i].GetValue(ResourceNameValueKey);
                 if (string.IsNullOrEmpty(name))
                     continue;
 
                 double amount = 0.0;
                 double maxAmount = 0.0;
-                double.TryParse(resourceNodes[i].GetValue("amount"), inv, ic, out amount);
-                double.TryParse(resourceNodes[i].GetValue("maxAmount"), inv, ic, out maxAmount);
+                double.TryParse(resourceNodes[i].GetValue(ResourceAmountValueKey), inv, ic, out amount);
+                double.TryParse(resourceNodes[i].GetValue(ResourceMaxAmountValueKey), inv, ic, out maxAmount);
                 manifest[name] = new ResourceAmount { amount = amount, maxAmount = maxAmount };
             }
 
@@ -611,7 +623,7 @@ namespace Parsek
                 if (item == null)
                     continue;
 
-                ConfigNode itemNode = node.AddNode("ITEM");
+                ConfigNode itemNode = node.AddNode(InventoryItemNode);
                 if (!string.IsNullOrEmpty(item.IdentityHash))
                     itemNode.AddValue("identityHash", item.IdentityHash);
                 if (!string.IsNullOrEmpty(item.PartName))
@@ -623,7 +635,7 @@ namespace Parsek
                 if (item.SlotsTaken != 0)
                     itemNode.AddValue("slotsTaken", item.SlotsTaken.ToString(ic));
 
-                SerializeResourceManifest(itemNode, "STORED_RESOURCES", item.StoredResources);
+                SerializeResourceManifest(itemNode, StoredResourcesNode, item.StoredResources);
                 if (item.StoredPartSnapshot != null)
                 {
                     ConfigNode snapshotWrapper = itemNode.AddNode(StoredPartSnapshotNode);
@@ -642,7 +654,7 @@ namespace Parsek
             if (node == null)
                 return null;
 
-            ConfigNode[] itemNodes = node.GetNodes("ITEM");
+            ConfigNode[] itemNodes = node.GetNodes(InventoryItemNode);
             if (itemNodes.Length == 0)
                 return null;
 
@@ -655,7 +667,7 @@ namespace Parsek
                     IdentityHash = itemNodes[i].GetValue("identityHash"),
                     PartName = itemNodes[i].GetValue("partName"),
                     VariantName = itemNodes[i].GetValue("variantName"),
-                    StoredResources = DeserializeResourceManifest(itemNodes[i], "STORED_RESOURCES")
+                    StoredResources = DeserializeResourceManifest(itemNodes[i], StoredResourcesNode)
                 };
 
                 string quantityStr = itemNodes[i].GetValue("quantity");
