@@ -580,6 +580,7 @@ namespace Parsek
 
         internal const string TrackingStationGhostSkipSuppressed = "suppressed";
         internal const string TrackingStationGhostSkipAlreadySpawned = "already-spawned";
+        internal const string TrackingStationGhostSkipLiveAnchorDouble = "live-anchor-double";
         internal const string TrackingStationGhostSkipEndpointConflict = "endpoint-conflict";
         internal const string TrackingStationGhostSkipUnseedableTerminalOrbit = "terminal-orbit-unseedable";
         internal const string TrackingStationGhostSkipStateVectorThreshold = "state-vector-threshold";
@@ -1087,6 +1088,84 @@ namespace Parsek
         internal static bool IsIconSuppressed(uint persistentId)
         {
             return ghostsWithSuppressedIcon.Contains(persistentId);
+        }
+
+        /// <summary>
+        /// Bug 3 burn-seam observability: the LAST render frame each ghost pid had its proto icon
+        /// SUPPRESSED by the icon-drive Prefix in <see cref="Parsek.Patches.GhostOrbitIconDrivePatch"/>.
+        /// This covers BOTH suppress paths: the Director-traced early-return (the path the headline
+        /// burn-seam teleport actually traverses, confirmed in the captured KSP.log) and the no-bounds
+        /// branch. The headline "followed icon teleported for one frame at a burn" symptom is the
+        /// segment -> state-vector (burn) seam: at a loiter/transfer -> burn transition the state-vector
+        /// reseed clears this ghost's segment-drive bounds (<see cref="ghostOrbitBounds"/> etc.) and the
+        /// polyline owns the leg, so for the frame(s) between "suppression opens" and "the next
+        /// StockConic (hyperbolic) segment re-establishes a drive" the proto icon is suppressed and its
+        /// <c>worldPos</c> sits STALE; when the drive re-establishes, the icon un-suppresses and snaps
+        /// by the warp-advanced amount. This dict lets the Prefix detect the ENTER (first suppressed
+        /// frame) and EXIT (first driven frame after a suppressed run) transitions so the next playtest
+        /// log captures the exact stale-window length + the snap magnitude from one grep, BEFORE any
+        /// behavioral continuity fix is chosen (the fix is gated on this read; see
+        /// docs/dev/todo-and-known-bugs.md). Pure observability: it never feeds a decision.
+        /// Cleared per-pid on every ghost teardown (the three <c>RemoveGhostVessel*</c> sites, alongside
+        /// <see cref="ghostsWithSuppressedIcon"/>) and in bulk on scene change / test reset; a stale
+        /// stamp that survives an earlier Prefix early-return self-corrects to a clean ENTER on reuse
+        /// (the strict <c>currentFrame-1</c> adjacency in
+        /// <see cref="ClassifyNoBoundsSuppressionTransition"/> never reads it as a continuing run).
+        /// </summary>
+        internal static readonly Dictionary<uint, int> ghostNoBoundsSuppressLastFrame =
+            new Dictionary<uint, int>();
+
+        /// <summary>
+        /// The no-bounds suppression transition for a ghost pid this frame, for Bug-3 burn-seam
+        /// instrumentation. See <see cref="ClassifyNoBoundsSuppressionTransition"/>.
+        /// </summary>
+        internal enum NoBoundsSuppressTransition
+        {
+            /// <summary>The Prefix found bounds this frame and the pid had no recent no-bounds
+            /// suppression run, so there is no burn-seam transition to log.</summary>
+            None,
+            /// <summary>First no-bounds-suppressed frame of a run (the icon was being driven last
+            /// frame and is now suppressed because the segment bounds were just cleared). Log the
+            /// stale worldPos carried into the suppressed window.</summary>
+            Enter,
+            /// <summary>A continuing no-bounds-suppressed frame within an open run. Not logged
+            /// individually (the per-frame snapshot of the stale position is rate-limited).</summary>
+            Sustain,
+            /// <summary>First driven frame AFTER a no-bounds-suppressed run: the icon un-suppresses
+            /// and snaps. Log the resolved worldPos so the snap magnitude is greppable.</summary>
+            Exit
+        }
+
+        /// <summary>
+        /// PURE: classify this frame's no-bounds suppression transition for a ghost pid, given whether
+        /// the Prefix took the no-bounds suppress path this frame and the frame the pid was last
+        /// no-bounds-suppressed on. <paramref name="suppressedThisFrame"/> is the no-bounds suppress
+        /// decision (Director tracking AND no segment bounds). <paramref name="lastSuppressedFrame"/>
+        /// is <see cref="int.MinValue"/> when the pid has never been no-bounds-suppressed.
+        ///
+        /// Enter   = suppressed this frame, NOT suppressed on the immediately-preceding frame.
+        /// Sustain = suppressed this frame AND suppressed on the immediately-preceding frame.
+        /// Exit    = NOT suppressed this frame, but suppressed on the immediately-preceding frame
+        ///           (the un-suppress snap boundary).
+        /// None    = NOT suppressed this frame and no immediately-preceding suppressed frame.
+        ///
+        /// "Immediately-preceding" is a strict <c>currentFrame - 1</c> match: a non-suppressed frame
+        /// gap between two suppressed frames is its own Exit then Enter, which is exactly the burn-seam
+        /// chatter we want to see frame-accurately in the log.
+        /// </summary>
+        internal static NoBoundsSuppressTransition ClassifyNoBoundsSuppressionTransition(
+            bool suppressedThisFrame,
+            int currentFrame,
+            int lastSuppressedFrame)
+        {
+            bool suppressedLastFrame = lastSuppressedFrame == currentFrame - 1;
+            if (suppressedThisFrame)
+                return suppressedLastFrame
+                    ? NoBoundsSuppressTransition.Sustain
+                    : NoBoundsSuppressTransition.Enter;
+            return suppressedLastFrame
+                ? NoBoundsSuppressTransition.Exit
+                : NoBoundsSuppressTransition.None;
         }
 
         /// <summary>
@@ -2496,6 +2575,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
+            ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
             ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
@@ -3566,6 +3646,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitLineGraceUntilFrame.Clear();
+            ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
@@ -3587,6 +3668,171 @@ namespace Parsek
                     "Removed all {0} ghost vessel(s) reason={1} (chain={2} index={3} overlapInstances={4})",
                     chainCount + indexCount + overlapInstanceCount, reason,
                     chainCount, indexCount, overlapInstanceCount));
+        }
+
+        // ------------------------------------------------------------------
+        // Tracking Station "Fly" ghost-index-drift fix (BUG #1)
+        // ------------------------------------------------------------------
+
+        // Reason string handed to RemoveAllGhostVessels on the pre-stock TS Fly
+        // strip so the GhostMap summary line ties the removal to this code path.
+        internal const string TsFlyBeforeStockIndexofReason = "ts-fly-before-stock-indexof";
+
+        // ComputeFlyIndexDrift sentinel: the Fly target pid was not present in the
+        // live FlightGlobals.Vessels list when the strip ran (defensive, e.g. another
+        // mod removed it). Logged distinctly via a Warn; removal still proceeds.
+        internal const int FlyIndexDriftTargetNotInLiveList = -1;
+
+        /// <summary>
+        /// PURE, Unity-free, unit-testable. Returns the index drift the player would
+        /// have suffered on a Tracking Station "Fly" if the ghost map vessels were
+        /// stripped from the saved persistent.sfs (current StripFromSave behaviour)
+        /// but NOT from the live FlightGlobals.Vessels list — i.e. the off-by amount
+        /// stock FlightDriver.StartAndFocusVessel(file, IndexOf(v)) would land wrong by.
+        ///
+        /// Stock SpaceTracking.FlyVessel identifies the target purely by its index in
+        /// the live FlightGlobals.Vessels list, then focuses the vessel at that same
+        /// index in the (ghost-free) loaded file. The drift is exactly the number of
+        /// ghost pids that occupy a live index strictly LESS than the target's live
+        /// index, because each such ghost shifts the target one slot earlier in the
+        /// ghost-free file.
+        ///
+        /// Contract:
+        ///   - target not present in liveVesselPids -> FlyIndexDriftTargetNotInLiveList (-1).
+        ///   - target present at live index t -> count of i in [0, t) where
+        ///     liveVesselPids[i] is in ghostPids.
+        ///   - drift == 0: the Fly would have landed correctly even without the fix.
+        ///   - drift > 0: the bug magnitude the strip prevents.
+        /// </summary>
+        internal static int ComputeFlyIndexDrift(
+            IReadOnlyList<uint> liveVesselPids,
+            ISet<uint> ghostPids,
+            uint targetPid)
+        {
+            if (liveVesselPids == null)
+                return FlyIndexDriftTargetNotInLiveList;
+
+            int targetIndex = -1;
+            for (int i = 0; i < liveVesselPids.Count; i++)
+            {
+                if (liveVesselPids[i] == targetPid)
+                {
+                    targetIndex = i;
+                    break;
+                }
+            }
+
+            if (targetIndex < 0)
+                return FlyIndexDriftTargetNotInLiveList;
+
+            if (ghostPids == null || ghostPids.Count == 0)
+                return 0;
+
+            int drift = 0;
+            for (int i = 0; i < targetIndex; i++)
+            {
+                if (ghostPids.Contains(liveVesselPids[i]))
+                    drift++;
+            }
+
+            return drift;
+        }
+
+        /// <summary>
+        /// PURE log-line formatter for the pre-stock TS Fly ghost strip diagnostic.
+        /// Returned string is the message body (subsystem tag added by the caller via
+        /// ParsekLog.Info). Kept separate from the Unity-touching removal so the
+        /// diagnostic numbers can be asserted in xUnit without a live FlightGlobals.
+        /// </summary>
+        internal static string FormatFlyStripDiagnostic(
+            uint targetPid,
+            int ghostCount,
+            int liveVesselsBefore,
+            int flyIndexDriftAvoided)
+        {
+            return string.Format(ic,
+                "TS Fly pre-stock ghost strip: targetPid={0} ghostCount={1} " +
+                "liveVesselsBefore={2} flyIndexDriftAvoided={3} - removed all ghost map " +
+                "vessels before stock IndexOf/SaveGame so the live list and persistent.sfs " +
+                "are ghost-consistent",
+                targetPid,
+                ghostCount,
+                liveVesselsBefore,
+                flyIndexDriftAvoided);
+        }
+
+        /// <summary>
+        /// Tracking Station "Fly" root-cause fix (BUG #1). Removes all ghost map
+        /// vessels from the live FlightGlobals.Vessels list BEFORE stock
+        /// SpaceTracking.FlyVessel computes IndexOf(v) + SaveGame, so the live list and
+        /// the persistent.sfs StripFromSave produces are both ghost-free and stock
+        /// StartAndFocusVessel lands on the intended vessel the first time.
+        ///
+        /// Called only for a real (non-ghost) Fly target by
+        /// SwitchIntentTrackingStationFlyPatch (the ghost-block path keeps ghosts
+        /// alive — the player stays in the Tracking Station). Removal itself is always
+        /// safe: it is what ParsekTrackingStation.OnDestroy -> RemoveAllGhostVessels
+        /// does a moment later; on a real Fly the scene is transitioning out, so the
+        /// icons vanishing a few frames early is invisible.
+        ///
+        /// Captures the live pid list and the would-be index drift via the pure
+        /// ComputeFlyIndexDrift BEFORE removal so the logged number reflects the bug
+        /// the strip just prevented.
+        /// </summary>
+        internal static void RemoveAllGhostVesselsBeforeStockFly(uint targetPid)
+        {
+            int ghostCount = ghostMapVesselPids.Count;
+
+            // Build the live pid list + target drift from the still-polluted list
+            // captured BEFORE RemoveAllGhostVessels, so the logged drift is the
+            // off-by amount the strip avoided (post-strip the list is ghost-free).
+            var livePids = new List<uint>();
+            var liveVessels = FlightGlobals.Vessels;
+            if (liveVessels != null)
+            {
+                for (int i = 0; i < liveVessels.Count; i++)
+                {
+                    Vessel vessel = liveVessels[i];
+                    if (vessel != null)
+                        livePids.Add(vessel.persistentId);
+                }
+            }
+
+            if (ghostCount == 0)
+            {
+                // Common no-ghost Fly: nothing to strip, no index drift possible.
+                // Single Verbose line so the case is observable without spam.
+                ParsekLog.Verbose("SwitchIntentPatch",
+                    string.Format(ic,
+                        "TS Fly pre-stock ghost strip: no ghost map vessels to strip " +
+                        "targetPid={0} liveVessels={1} - stock IndexOf/SaveGame already ghost-consistent",
+                        targetPid,
+                        livePids.Count));
+                return;
+            }
+
+            int drift = ComputeFlyIndexDrift(livePids, ghostMapVesselPids, targetPid);
+            if (drift == FlyIndexDriftTargetNotInLiveList)
+            {
+                // Defensive: another mod removed the target from the live list before
+                // the strip ran. Removal is still safe and is what TS-cleanup does,
+                // so proceed; the warn flags that the drift could not be measured.
+                ParsekLog.Warn("SwitchIntentPatch",
+                    string.Format(ic,
+                        "TS Fly pre-stock ghost strip: targetPid={0} not found in live " +
+                        "FlightGlobals.Vessels (ghostCount={1} liveVessels={2}) - drift " +
+                        "unmeasurable; proceeding with ghost removal anyway (always safe)",
+                        targetPid,
+                        ghostCount,
+                        livePids.Count));
+            }
+            else
+            {
+                ParsekLog.Info("SwitchIntentPatch",
+                    FormatFlyStripDiagnostic(targetPid, ghostCount, livePids.Count, drift));
+            }
+
+            RemoveAllGhostVessels(TsFlyBeforeStockIndexofReason);
         }
 
         // ------------------------------------------------------------------
@@ -3678,20 +3924,23 @@ namespace Parsek
         /// the ghost enters its first orbital segment.
         /// </summary>
         internal static Vessel CreateGhostVesselFromSegment(
-            int recordingIndex, IPlaybackTrajectory traj, OrbitSegment segment)
+            int recordingIndex, IPlaybackTrajectory traj, OrbitSegment segment,
+            double loopEpochShiftSeconds = 0.0)
         {
             return CreateGhostVesselFromSegment(
                 recordingIndex,
                 traj,
                 segment,
-                TrackingStationGhostSource.Segment);
+                TrackingStationGhostSource.Segment,
+                loopEpochShiftSeconds);
         }
 
         private static Vessel CreateGhostVesselFromSegment(
             int recordingIndex,
             IPlaybackTrajectory traj,
             OrbitSegment segment,
-            TrackingStationGhostSource source)
+            TrackingStationGhostSource source,
+            double loopEpochShiftSeconds = 0.0)
         {
             if (traj == null) return null;
             string sourceLabel = source == TrackingStationGhostSource.EndpointTail
@@ -3728,7 +3977,8 @@ namespace Parsek
                 "recording index={0} (from {1})",
                 recordingIndex,
                 protoSource);
-            Vessel vessel = BuildAndLoadGhostProtoVessel(traj, segment, logContext, protoSource);
+            Vessel vessel = BuildAndLoadGhostProtoVessel(
+                traj, segment, logContext, protoSource, loopEpochShiftSeconds);
             if (vessel != null)
             {
                 TrackRecordingGhostVessel(recordingIndex, traj, vessel);
@@ -3825,6 +4075,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
+            ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
             ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
@@ -4811,7 +5062,8 @@ namespace Parsek
             bool allowSoiGapStateVectorFallback = false,
             string expectedSoiGapBody = null,
             bool acceptTerminalOrbitForLoopSynthesis = false,
-            bool loopMemberInWindow = false)
+            bool loopMemberInWindow = false,
+            bool liveLaunchMatchedAnchorOfActiveMember = false)
         {
             segment = default(OrbitSegment);
             stateVectorPoint = default(TrajectoryPoint);
@@ -4918,9 +5170,35 @@ namespace Parsek
             // decision we draw the animated loop ghost ALONGSIDE the real vessel in that
             // case (both icons may show). Re-fly / active-session duplicates stay blocked
             // because isSuppressed is evaluated above this gate.
-            if (alreadyMaterialized && !loopMemberInWindow)
+            // Step 2 (Logistics route live-anchor bind): when this recording's
+            // guid-gated launch-matched live vessel is loaded AND it is the LIVE docking
+            // anchor a relative member is binding to this-or-last frame (the Step-1
+            // live-bind event), its own loop ghost is a pure duplicate of the live
+            // station at that moment (the dependent member docks against the live vessel,
+            // not this recorded position ~20 km away). Suppress it like a non-loop
+            // already-spawned vessel even though loopMemberInWindow is true (the caller
+            // feeds the live-bind-event term here, not a whole-loop existence check).
+            // Every other loopMemberInWindow case still draws alongside the real vessel.
+            if (alreadyMaterialized && (!loopMemberInWindow || liveLaunchMatchedAnchorOfActiveMember))
             {
-                skipReason = TrackingStationGhostSkipAlreadySpawned;
+                skipReason = liveLaunchMatchedAnchorOfActiveMember
+                    ? TrackingStationGhostSkipLiveAnchorDouble
+                    : TrackingStationGhostSkipAlreadySpawned;
+                if (liveLaunchMatchedAnchorOfActiveMember)
+                {
+                    ParsekLog.VerboseRateLimited(Tag,
+                        string.Format(ic, "anchor-double-suppressed-{0}", recId),
+                        string.Format(ic,
+                            "anchor-double-suppressed (live-bind event): rec={0} anchorPid={1} "
+                            + "reason=launch-matched-live-vessel-loaded-and-live-bound",
+                            recId,
+                            (traj as Recording)?.VesselPersistentId ?? 0u),
+                        5.0);
+                    return ReturnDecision(
+                        TrackingStationGhostSource.None,
+                        skipReason,
+                        "live-anchor double suppressed");
+                }
                 return ReturnDecision(TrackingStationGhostSource.None, skipReason, "already spawned");
             }
             if (alreadyMaterialized)
@@ -6026,7 +6304,8 @@ namespace Parsek
                     return CreateGhostVesselForRecording(recordingIndex, traj);
 
                 case TrackingStationGhostSource.Segment:
-                    Vessel segmentGhost = CreateGhostVesselFromSegment(recordingIndex, traj, segment);
+                    Vessel segmentGhost = CreateGhostVesselFromSegment(
+                        recordingIndex, traj, segment, loopEpochShiftSeconds);
                     if (segmentGhost != null)
                     {
                         UpdateGhostOrbitForRecording(
@@ -6042,7 +6321,8 @@ namespace Parsek
                         recordingIndex,
                         traj,
                         segment,
-                        TrackingStationGhostSource.EndpointTail);
+                        TrackingStationGhostSource.EndpointTail,
+                        loopEpochShiftSeconds);
                     if (endpointTailGhost != null)
                     {
                         UpdateGhostOrbitForRecording(
@@ -6187,6 +6467,19 @@ namespace Parsek
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
+                // Step 2: suppress this rec's OWN loop-ghost double ONLY while its
+                // guid-gated launch-matched live vessel is loaded AND it was the LIVE
+                // docking anchor of an in-window relative member this-or-last frame (the
+                // Step-1 live-bind event), NOT for the whole loop (which over-suppressed
+                // every parked route craft). realVesselExists is the same guid-gated
+                // RealVesselExistsForRecording, so a same-craft different-launch vessel
+                // never suppresses; a member watched from afar with no live vessel draws.
+                // Best-effort on this map/TS path: the live-bind is stamped at member
+                // resolution (ghost (re)creation), not per on-rails frame, so the
+                // duplicate can briefly show until the next resolve (see
+                // WasLiveBoundThisOrLastFrame).
+                bool liveLaunchMatchedAnchorOfActiveMember = realVesselExists
+                    && RelativeAnchorResolver.WasLiveBoundThisOrLastFrame(rec.RecordingId);
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(i, out int cached)
                     ? cached
                     : -1;
@@ -6204,7 +6497,8 @@ namespace Parsek
                     "tracking-station-lifecycle",
                     // Loop member replaying in its window (effUT != live currentUT): allow the
                     // map ghost to be created alongside any persisted real terminal vessel.
-                    loopMemberInWindow: (currentUT - effUT) != 0.0);
+                    loopMemberInWindow: (currentUT - effUT) != 0.0,
+                    liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
                 trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None) continue;
 
@@ -8724,7 +9018,8 @@ namespace Parsek
             TrackingStationGhostSourceBatch batch,
             int recordingIndex,
             string context,
-            bool loopMemberInWindow = false)
+            bool loopMemberInWindow = false,
+            bool liveLaunchMatchedAnchorOfActiveMember = false)
         {
             // Both create callers (the per-frame lifecycle pass AND the one-shot startup create)
             // now sample at the loop-mapped effUT and pass loopMemberInWindow, so for an in-window
@@ -8750,7 +9045,8 @@ namespace Parsek
                 out skipReason,
                 recordingIndex: recordingIndex,
                 acceptTerminalOrbitForLoopSynthesis: false,
-                loopMemberInWindow: loopMemberInWindow);
+                loopMemberInWindow: loopMemberInWindow,
+                liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
 
             // BUG-B: in the live tracking-station create paths (batch != null), a committed recording
             // that WOULD seed a map icon (source != None) but is purely historical (the player only ever
@@ -8969,6 +9265,17 @@ namespace Parsek
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
+                // Step 2: suppress this rec's OWN loop-ghost double ONLY while its
+                // guid-gated launch-matched live vessel is loaded AND it was the LIVE
+                // docking anchor of an in-window relative member this-or-last frame (the
+                // Step-1 live-bind event), NOT for the whole loop. Mirrors the lifecycle
+                // pass; realVesselExists is guid-gated so a same-craft different-launch
+                // vessel never suppresses. Best-effort on this map/TS path: the
+                // live-bind is stamped at member resolution (ghost (re)creation), not
+                // per on-rails frame, so the duplicate can briefly show until the next
+                // resolve (see WasLiveBoundThisOrLastFrame).
+                bool liveLaunchMatchedAnchorOfActiveMember = realVesselExists
+                    && RelativeAnchorResolver.WasLiveBoundThisOrLastFrame(rec.RecordingId);
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(i, out int cached)
                     ? cached
                     : -1;
@@ -8987,13 +9294,18 @@ namespace Parsek
                     "tracking-station-startup",
                     // Loop member replaying in its window (effUT != live currentUT): allow the map ghost
                     // to be created alongside any persisted real terminal vessel, matching the lifecycle pass.
-                    loopMemberInWindow: (currentUT - effUT) != 0.0);
+                    loopMemberInWindow: (currentUT - effUT) != 0.0,
+                    liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
                 trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None)
                 {
                     if (skipReason == "debris") skippedDebris++;
                     else if (skipReason == TrackingStationGhostSkipSuppressed) skippedSuppressed++;
                     else if (skipReason == TrackingStationGhostSkipAlreadySpawned) skippedSpawned++;
+                    // Step-2 live-anchor double (live-bind event) is an already-materialized
+                    // duplicate; bucket it with skippedSpawned so it is not mis-attributed
+                    // to skippedNoOrbit in the startup summary.
+                    else if (skipReason == TrackingStationGhostSkipLiveAnchorDouble) skippedSpawned++;
                     else if (skipReason == TrackingStationGhostSkipEndpointConflict) skippedEndpointConflict++;
                     else if (skipReason == TrackingStationGhostSkipUnseedableTerminalOrbit) skippedUnseedableTerminalOrbit++;
                     else if (skipReason != null && skipReason.StartsWith("terminal")) skippedTerminal++;
@@ -9679,6 +9991,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitLineGraceUntilFrame.Clear();
+            ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
@@ -9732,10 +10045,11 @@ namespace Parsek
             int reverseIdCount = vesselPidToRecordingId.Count;
             int tsStateVectorCount = trackingStationStateVectorOrbitTrajectories.Count;
             int tsStateVectorCacheCount = trackingStationStateVectorCachedIndices.Count;
+            int noBoundsSuppressStampCount = ghostNoBoundsSuppressLastFrame.Count;
 
             int totalTracked = pidCount + suppressedIconCount + orbitBoundsCount
                 + chainCount + indexCount + overlapInstanceCount + reverseCount + reverseIdCount
-                + tsStateVectorCount + tsStateVectorCacheCount;
+                + tsStateVectorCount + tsStateVectorCacheCount + noBoundsSuppressStampCount;
 
             if (totalTracked == 0)
             {
@@ -9749,6 +10063,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitLineGraceUntilFrame.Clear();
+            ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
@@ -9868,7 +10183,8 @@ namespace Parsek
             IPlaybackTrajectory traj,
             OrbitSegment segment,
             string logContext,
-            string protoSource = "visible-segment")
+            string protoSource = "visible-segment",
+            double loopEpochShiftSeconds = 0.0)
         {
             CelestialBody body = FindBodyByName(segment.bodyName);
             if (body == null)
@@ -9880,6 +10196,17 @@ namespace Parsek
                 return null;
             }
 
+            // Bug 3 (creation-frame icon-off-orbit): BAKE the loop epoch shift into the orbit the proto is
+            // LOADED with. ProtoVessel.Load propagates the packed icon at the LIVE Planetarium clock against
+            // the node's epoch; with the raw recorded epoch (loopEpochShiftSeconds=0) that lands the icon
+            // shift-worth-of-mean-anomaly off the recorded phase at creation, snapping onto the line only on
+            // the next physics tick (off EVERY frame at warp, where the proto is recreated each frame).
+            // epoch = segment.epoch + shift makes pv.Load's live-clock propagation land on the recorded
+            // phase at creation, with no settle pass. The per-frame steady-state drive
+            // (StockConicTreatment.SeedAndDriveLive) re-seeds the whole orbit from the RAW segment.epoch +
+            // shift every FixedUpdate, so the baked node epoch governs ONLY the single creation frame and
+            // never compounds. Non-loop / terminal / state-vector ghosts pass shift 0 -> byte-identical to
+            // before. The recorded OrbitSegment is NOT mutated; only this live Orbit instance carries the bake.
             Orbit orbit = new Orbit(
                 segment.inclination,
                 segment.eccentricity,
@@ -9887,7 +10214,7 @@ namespace Parsek
                 segment.longitudeOfAscendingNode,
                 segment.argumentOfPeriapsis,
                 segment.meanAnomalyAtEpoch,
-                segment.epoch,
+                segment.epoch + loopEpochShiftSeconds,
                 body);
 
             return BuildAndLoadGhostProtoVesselCore(
@@ -10927,6 +11254,23 @@ namespace Parsek
                 return 0;
             }
 
+            // Step 2: suppress this overlap recording's OWN instance ghosts ONLY while
+            // its guid-gated launch-matched live vessel is loaded AND it was the LIVE
+            // docking anchor of an in-window relative member this-or-last frame (the
+            // Step-1 live-bind event), NOT for the whole loop (the hard-coded
+            // loopMemberInWindow:true overlap path would otherwise re-create the double
+            // the lifecycle pass suppresses only during the actual docking overlap).
+            // Keyed on the guid-gated RealVesselExistsForRecording, NOT the pid-only
+            // IsMaterializedForMapPresence, so a same-craft different-launch vessel
+            // never suppresses. Best-effort on this map path: the live-bind is stamped
+            // at member resolution (ghost (re)creation), not per on-rails frame, so the
+            // duplicate can briefly show until the next resolve (see
+            // WasLiveBoundThisOrLastFrame).
+            bool liveLaunchMatchedAnchorOfActiveMember =
+                rec != null
+                && GhostPlaybackLogic.RealVesselExistsForRecording(rec)
+                && RelativeAnchorResolver.WasLiveBoundThisOrLastFrame(rec.RecordingId);
+
             long firstCycle, lastCycle;
             GhostPlaybackLogic.GetActiveCycles(
                 currentUT,
@@ -10987,7 +11331,8 @@ namespace Parsek
                 double loopEpochShiftSeconds = currentUT - effUT;
 
                 Vessel inst = CreateOverlapInstanceVessel(
-                    recIdx, rec, cycle, effUT, loopEpochShiftSeconds);
+                    recIdx, rec, cycle, effUT, loopEpochShiftSeconds,
+                    liveLaunchMatchedAnchorOfActiveMember);
                 if (inst != null)
                 {
                     created++;
@@ -11186,7 +11531,8 @@ namespace Parsek
         /// orbit source is resolved at <paramref name="effUT"/> exactly like the per-index create.
         /// </summary>
         private static Vessel CreateOverlapInstanceVessel(
-            int recIdx, Recording rec, long cycle, double effUT, double loopEpochShiftSeconds)
+            int recIdx, Recording rec, long cycle, double effUT, double loopEpochShiftSeconds,
+            bool liveLaunchMatchedAnchorOfActiveMember = false)
         {
             if (overlapInstanceVessels.ContainsKey((recIdx, cycle)))
                 return overlapInstanceVessels[(recIdx, cycle)];
@@ -11207,7 +11553,8 @@ namespace Parsek
                 out string skipReason,
                 recordingIndex: recIdx,
                 // A live overlap instance always has a non-zero epoch shift, so it is "in window".
-                loopMemberInWindow: true);
+                loopMemberInWindow: true,
+                liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
 
             if (!IsMapCreateAcceptedSource(source))
             {
@@ -11335,6 +11682,7 @@ namespace Parsek
             {
                 ghostMapVesselPids.Remove(ghostPid);
                 ghostsWithSuppressedIcon.Remove(ghostPid);
+                ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
                 ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
                 ghostOrbitBounds.Remove(ghostPid);
                 ghostBodyFrameOrbitBounds.Remove(ghostPid);
@@ -11699,6 +12047,25 @@ namespace Parsek
                     int cachedStateVectorIndex = flightStateVectorCachedIndices.TryGetValue(idx, out int cached)
                         ? cached
                         : -1;
+                    // Step 2 (flight map presence): suppress this rec's OWN loop-ghost
+                    // double ONLY while its guid-gated launch-matched live vessel is
+                    // loaded AND it was the LIVE docking anchor of an in-window relative
+                    // member this-or-last frame (the Step-1 live-bind event), NOT for the
+                    // whole loop (mirrors the TS lifecycle pass). Keyed on the guid-gated
+                    // RealVesselExistsForRecording, NOT the pid-only
+                    // IsMaterializedForMapPresence that feeds alreadyMaterialized here, so
+                    // a same-craft different-launch vessel never suppresses. Best-effort
+                    // on this map path: the live-bind is stamped at member resolution
+                    // (ghost (re)creation), not per on-rails frame, so the duplicate can
+                    // briefly show until the next resolve (see WasLiveBoundThisOrLastFrame).
+                    Recording pendingAnchorRec = (committedForOverlapSkip != null
+                        && idx >= 0 && idx < committedForOverlapSkip.Count)
+                        ? committedForOverlapSkip[idx]
+                        : null;
+                    bool liveLaunchMatchedAnchorOfActiveMember =
+                        pendingAnchorRec != null
+                        && GhostPlaybackLogic.RealVesselExistsForRecording(pendingAnchorRec)
+                        && RelativeAnchorResolver.WasLiveBoundThisOrLastFrame(pendingAnchorRec.RecordingId);
                     TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
                         traj,
                         false,
@@ -11714,7 +12081,8 @@ namespace Parsek
                         allowSoiGapStateVectorFallback: pending.AllowSoiGapStateVectorFallback,
                         expectedSoiGapBody: pending.ExpectedSoiGapBody,
                         acceptTerminalOrbitForLoopSynthesis: acceptTerminalOrbitForLoopSynthesis,
-                        loopMemberInWindow: isLoopMemberInWindow);
+                        loopMemberInWindow: isLoopMemberInWindow,
+                        liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
                     flightStateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
                     // Re-aim: swap the recorded covering segment for the re-aimed one at create time so

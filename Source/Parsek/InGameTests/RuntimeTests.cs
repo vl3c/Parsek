@@ -5810,6 +5810,91 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "BUG#1: RemoveAllGhostVesselsBeforeStockFly leaves FlightGlobals.Vessels ghost-free so stock FlyVessel IndexOf matches the ghost-free saved file")]
+        public IEnumerator TrackingStationFlyStrip_RemovesGhostsFromLiveList()
+        {
+            using (var scope = new SyntheticTrackingStationRecordingScope("fly-strip"))
+            using (var capture = new TrackingStationLogCapture())
+            {
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+
+                // Let KSP process the ProtoVessel load so the ghost is registered
+                // in FlightGlobals.Vessels before the strip runs.
+                yield return null;
+                yield return null;
+
+                uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
+                InGameAssert.IsTrue(ghostPid != 0,
+                    "Synthetic TS recording should have a ghost PID after lifecycle update");
+                InGameAssert.IsNotNull(FindVesselByPersistentId(ghostPid),
+                    "Synthetic TS ghost PID should resolve to a live Vessel before the strip");
+                InGameAssert.IsTrue(GhostMapPresence.IsGhostMapVessel(ghostPid),
+                    "Ghost PID should be tagged as a ghost before the strip");
+
+                // Pick a real (non-ghost) live vessel as the would-be Fly target.
+                // The synthetic scope's recording has no real vessel, so a host
+                // body / any non-ghost is fine: the strip only reads its pid for
+                // the drift diagnostic. Use the ghost's own pid as a defensive
+                // target if no real vessel is present — the strip still removes
+                // the ghost; the drift just logs the sentinel.
+                uint targetPid = ghostPid;
+                var vessels = FlightGlobals.Vessels;
+                if (vessels != null)
+                {
+                    for (int i = 0; i < vessels.Count; i++)
+                    {
+                        Vessel candidate = vessels[i];
+                        if (candidate == null)
+                            continue;
+                        if (!GhostMapPresence.IsGhostMapVessel(candidate.persistentId))
+                        {
+                            targetPid = candidate.persistentId;
+                            break;
+                        }
+                    }
+                }
+
+                // This is exactly what SwitchIntentTrackingStationFlyPatch.Prefix
+                // calls on a real-vessel Fly, BEFORE stock FlyVessel computes
+                // IndexOf(v) + SaveGame.
+                GhostMapPresence.RemoveAllGhostVesselsBeforeStockFly(targetPid);
+
+                // Post-strip: the ghost must no longer be tagged, and the live
+                // FlightGlobals.Vessels list must contain zero ghost map vessels,
+                // so stock IndexOf(v) matches the ghost-free saved file.
+                InGameAssert.IsFalse(GhostMapPresence.IsGhostMapVessel(ghostPid),
+                    "Ghost PID should be untagged after RemoveAllGhostVesselsBeforeStockFly");
+
+                int remainingGhosts = 0;
+                vessels = FlightGlobals.Vessels;
+                if (vessels != null)
+                {
+                    for (int i = 0; i < vessels.Count; i++)
+                    {
+                        Vessel candidate = vessels[i];
+                        if (candidate == null)
+                            continue;
+                        if (GhostMapPresence.IsGhostMapVessel(candidate.persistentId))
+                            remainingGhosts++;
+                    }
+                }
+
+                InGameAssert.AreEqual(0, remainingGhosts,
+                    "FlightGlobals.Vessels must be ghost-free after the pre-stock TS Fly strip");
+
+                AssertNoCapturedTrackingStationErrors(capture,
+                    "TS Fly pre-stock ghost strip");
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TrackingStationFlyStrip_RemovesGhostsFromLiveList: ghostPid={0} targetPid={1} remainingGhosts={2}",
+                        ghostPid,
+                        targetPid,
+                        remainingGhosts));
+            }
+        }
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
             Description = "#1005: MapRenderProbe reads a real orbit-line active truth (True/False) via OrbitRendererBase.OrbitLine, not a broken reflection sentinel")]
         public IEnumerator MapRenderProbe_ReadsRealLineActiveTruth()
         {
@@ -10114,6 +10199,130 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(leg.vectorLine.points3 != null
                     && leg.vectorLine.points3.Count == leg.PointCount,
                     "the inflated VectorLine must hold exactly the leg's points");
+            }
+            finally
+            {
+                var line = leg.vectorLine;
+                if (line != null)
+                    Vectrosity.VectorLine.Destroy(ref line);
+            }
+        }
+
+        /// <summary>
+        /// Bug 1 (looped-mission map trajectory lines vanish when zoomed out) coverage. The fix routes
+        /// every leg / arc / bridge draw through
+        /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.DrawMapLine"/>, which mirrors stock
+        /// <c>OrbitRendererBase.DrawSpline</c>: <c>VectorLine.Draw3D()</c> while <c>MapView.Draw3DLines</c>
+        /// is true, else the 2D <c>VectorLine.Draw()</c> path. Stock flips Draw3DLines to false once the map
+        /// camera zooms out past <c>max3DlineDrawDist</c> (1500) - exactly where the always-Draw3D code used
+        /// to vanish. This is Vectrosity / Unity-coupled (a live VectorLine + the runtime MapView state) so
+        /// xUnit cannot reach it; the pure <c>ShouldDraw3DMapLine</c> decision is covered headless by
+        /// GhostTrajectoryPolylineMapModeTests.
+        ///
+        /// <para>Asserts (a) after a TryDrawLeg the drawn line's component path matches the LIVE MapView
+        /// mode (3D mode => a MeshFilter mesh via Vectrosity's VectorObject3D; 2D mode => a CanvasRenderer
+        /// and no MeshFilter via VectorObject2D); (b) BOTH Vectrosity paths build geometry for a Parsek
+        /// orbit-styled line - forcing <c>Draw()</c> swaps the GameObject onto the 2D canvas (CanvasRenderer
+        /// present, MeshFilter destroyed) and forcing <c>Draw3D()</c> swaps it back (MeshFilter restored);
+        /// and (c) <c>RebuildLineForMode</c> (the Bug 1 fix invoked on every 3D&lt;-&gt;2D flip, because the
+        /// in-place swap in (b) leaves the 2D canvas Graphic non-rendering) returns a FRESH, distinct line
+        /// object that preserves the name + point count, mirroring stock's MakeLine-on-flip. Component-presence
+        /// checks are robust even if the offscreen draw paints nothing, because Vectrosity does the component
+        /// swap in SetupCanvasState BEFORE the draw loop runs.</para>
+        /// </summary>
+        [InGameTest(Category = "MapView", Scene = GameScenes.TRACKSTATION,
+            Description = "Map trajectory lines follow the stock Draw3D/2D mode so they survive far zoom-out (Bug 1)")]
+        public void GhostTrajectoryPolyline_DrawModeFollowsMapView_AndBothPathsRender()
+        {
+            var rec = new Recording { RecordingId = "ingame-bug1-drawmode-1" };
+            var frames = new System.Collections.Generic.List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0, latitude = -0.1, longitude = -74.5, altitude = 70.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 200.0, latitude = -0.05, longitude = -74.5, altitude = 20000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 600.0, latitude = 0.0, longitude = -74.5, altitude = 100000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 600.0,
+                frames = frames,
+                checkpoints = new System.Collections.Generic.List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 10f,
+            });
+
+            var legs = Parsek.Display.GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+            InGameAssert.AreEqual(1, legs.Count, "expected one leg from one Absolute section");
+
+            CelestialBody kerbin = FlightGlobals.Bodies.Find(b => b.name == "Kerbin");
+            InGameAssert.IsTrue(kerbin != null, "Kerbin body must resolve");
+
+            var leg = legs[0];
+            int drawFrame = Time.frameCount;
+            bool drawn = Parsek.Display.GhostTrajectoryPolylineRenderer.TryDrawLeg(
+                ref leg, rec, kerbin, /*targetLayer*/ 31, drawFrame, rec.RecordingId, /*legIndex*/ 0);
+
+            try
+            {
+                InGameAssert.IsTrue(drawn, "TryDrawLeg must report the leg drawn for a 3-point leg");
+                InGameAssert.IsTrue(leg.vectorLine != null, "TryDrawLeg must lazily inflate the leg's VectorLine");
+
+                // The pure decision must agree with the live MapView state DrawMapLine reads. Short-circuit
+                // the MapView.Draw3DLines read behind the fetch null check (mirrors DrawMapLine).
+                bool present = MapView.fetch != null;
+                bool expect3D = present ? MapView.Draw3DLines : true;
+                InGameAssert.AreEqual(expect3D,
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.ShouldDraw3DMapLine(present, present && MapView.Draw3DLines),
+                    "ShouldDraw3DMapLine must match the live MapView mode");
+
+                // (a) The drawn leg's component path must match the live mode (TryDrawLeg -> DrawMapLine).
+                var go = leg.vectorLine.rectTransform.gameObject;
+                if (expect3D)
+                {
+                    var mf = go.GetComponent<MeshFilter>();
+                    InGameAssert.IsTrue(mf != null && mf.mesh != null,
+                        "3D map-line mode must leave the drawn leg on the Vectrosity VectorObject3D path (a MeshFilter mesh)");
+                }
+                else
+                {
+                    InGameAssert.IsTrue(go.GetComponent<MeshFilter>() == null,
+                        "2D map-line mode must not carry a MeshFilter");
+                    InGameAssert.IsTrue(go.GetComponent<UnityEngine.CanvasRenderer>() != null,
+                        "2D map-line mode must render through the Vectrosity VectorObject2D canvas path (a CanvasRenderer)");
+                }
+
+                // (b) Both Vectrosity paths must build renderable geometry for this Parsek orbit-styled
+                // line. Force the 2D path (the new Bug 1 fix path): the GameObject swaps onto the canvas
+                // (CanvasRenderer present, MeshFilter destroyed).
+                leg.vectorLine.Draw();
+                InGameAssert.IsTrue(go.GetComponent<UnityEngine.CanvasRenderer>() != null,
+                    "Draw() must place the line on the 2D canvas (CanvasRenderer present) - the far-zoom render path");
+                InGameAssert.IsTrue(go.GetComponent<MeshFilter>() == null,
+                    "Draw() must destroy the 3D MeshFilter when moving the line onto the 2D canvas");
+
+                // Force back to the 3D path: the MeshFilter is restored.
+                leg.vectorLine.Draw3D();
+                var mf3d = go.GetComponent<MeshFilter>();
+                InGameAssert.IsTrue(mf3d != null && mf3d.mesh != null,
+                    "Draw3D() must restore the 3D MeshFilter mesh (the below-threshold render path)");
+
+                // (c) Bug 1 fix: RebuildLineForMode (run on every map-line mode flip, because the in-place
+                // swap above leaves the 2D canvas Graphic non-rendering) must return a FRESH, distinct line
+                // that preserves the name + point count - stock's MakeLine-on-flip behavior.
+                var before = leg.vectorLine;
+                int pc = leg.PointCount;
+                string nm = before.name;
+                var rebuilt = Parsek.Display.GhostTrajectoryPolylineRenderer.RebuildLineForMode(before, pc);
+                leg.vectorLine = rebuilt; // RebuildLineForMode destroys `before`; retarget finally at the live line
+                InGameAssert.IsTrue(rebuilt != null, "RebuildLineForMode must return a fresh line");
+                InGameAssert.IsTrue(!ReferenceEquals(rebuilt, before),
+                    "RebuildLineForMode must return a NEW line object (stock rebuilds on every mode flip)");
+                InGameAssert.AreEqual(nm, rebuilt.name, "the rebuilt line must preserve the line name");
+                InGameAssert.IsTrue(rebuilt.points3 != null && rebuilt.points3.Count == pc,
+                    "the rebuilt line must preserve the point count");
             }
             finally
             {
@@ -23750,6 +23959,163 @@ namespace Parsek.InGameTests
                 + "Remove this skip and flip ClassifyBatchIsolationMode SPACECENTER -> InMemoryAndDisk "
                 + "only after this passes in a manual playtest.");
             yield break;
+        }
+
+        /// <summary>
+        /// Logistics route live-anchor bind (Step 1/2): when the player is flying the
+        /// launch-matched anchor vessel (e.g. the Depot station) and a looped Relative
+        /// member (e.g. the Deliverer delivery) is playing, the member ghost must dock
+        /// against the LIVE anchor, not the anchor's recorded absolute position ~20 km
+        /// away. Asserts the resolver binds the anchor pose to the live vessel's
+        /// transform (position AND rotation), so a looped delivery ghost tracks the live
+        /// station. Skips when no committed Relative member resolves to a launch-matched
+        /// loaded live anchor (the common case without an active supply route).
+        /// </summary>
+        [InGameTest(Category = "RouteLiveAnchor", Scene = GameScenes.FLIGHT,
+            Description = "A looped Relative member's anchor pose binds to the live launch-matched anchor vessel (position + attitude), not its recorded position ~20 km away; no anchor ghost double at the recorded coords")]
+        public IEnumerator LoopedRelativeMemberDocksWithLiveAnchor()
+        {
+            // Let one frame pass so the playback engine has positioned ghosts.
+            yield return null;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("PRECONDITION: no committed recordings");
+
+            double ut = Planetarium.GetUniversalTime();
+
+            // Find a committed Relative member whose anchorRecordingId resolves to a
+            // recording whose launch-matched live vessel is currently loaded.
+            Recording boundMember = null;
+            Recording anchorRec = null;
+            Vessel liveAnchor = null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording member = committed[i];
+                if (member == null || member.TrackSections == null) continue;
+                for (int s = 0; s < member.TrackSections.Count; s++)
+                {
+                    TrackSection sec = member.TrackSections[s];
+                    if (sec.referenceFrame != ReferenceFrame.Relative) continue;
+                    if (string.IsNullOrEmpty(sec.anchorRecordingId)) continue;
+
+                    string anchorId = sec.anchorRecordingId.Trim();
+                    Recording candidateAnchor = null;
+                    for (int a = 0; a < committed.Count; a++)
+                    {
+                        if (committed[a] != null
+                            && string.Equals(committed[a].RecordingId, anchorId, System.StringComparison.Ordinal))
+                        {
+                            candidateAnchor = committed[a];
+                            break;
+                        }
+                    }
+                    if (candidateAnchor == null) continue;
+                    if (!GhostPlaybackLogic.RealVesselExistsForRecording(candidateAnchor)) continue;
+
+                    Vessel v = FlightRecorder.FindVesselByPid(candidateAnchor.VesselPersistentId);
+                    if (v == null || v.transform == null) continue;
+
+                    boundMember = member;
+                    anchorRec = candidateAnchor;
+                    liveAnchor = v;
+                    break;
+                }
+                if (boundMember != null) break;
+            }
+
+            if (boundMember == null)
+                InGameAssert.Skip("PRECONDITION: no Relative member resolves to a launch-matched loaded live anchor (no active supply route at a live station)");
+
+            Vector3d liveAnchorWorld = (Vector3d)liveAnchor.transform.position;
+            Quaternion liveAnchorRot = liveAnchor.transform.rotation;
+
+            // Resolve the anchor pose through the SAME resolver the map / KSC playback
+            // uses. With the live-anchor bind it must return the live vessel pose, not
+            // the recorded absolute Mun position ~20 km away.
+            TrackSection relSection = default(TrackSection);
+            for (int s = 0; s < boundMember.TrackSections.Count; s++)
+            {
+                if (boundMember.TrackSections[s].referenceFrame == ReferenceFrame.Relative
+                    && !string.IsNullOrEmpty(boundMember.TrackSections[s].anchorRecordingId)
+                    && string.Equals(
+                        boundMember.TrackSections[s].anchorRecordingId.Trim(),
+                        anchorRec.RecordingId,
+                        System.StringComparison.Ordinal))
+                {
+                    relSection = boundMember.TrackSections[s];
+                    break;
+                }
+            }
+
+            double resolveUT = ut;
+            if (ut < relSection.startUT) resolveUT = relSection.startUT;
+            else if (ut > relSection.endUT) resolveUT = relSection.endUT;
+
+            bool resolved = RecordedRelativeAnchorPoseResolver.TryResolveSectionAnchorPose(
+                boundMember, relSection, resolveUT, out AnchorPose anchorPose);
+            InGameAssert.IsTrue(resolved,
+                $"anchor pose should resolve for member '{boundMember.VesselName}' "
+                + $"anchor '{anchorRec.VesselName}' at ut={resolveUT.ToString("F1", CultureInfo.InvariantCulture)}");
+
+            // (1) Anchor pose is within a few metres of the LIVE anchor transform, NOT
+            // ~20 km at the recorded position.
+            double posDelta = (anchorPose.WorldPos - liveAnchorWorld).magnitude;
+            InGameAssert.IsTrue(posDelta < 50.0,
+                $"anchor pose bound to live vessel: |pose - liveAnchor|={posDelta.ToString("F1", CultureInfo.InvariantCulture)} m "
+                + "(expected < 50 m; a recorded-absolute fallback would be ~20000 m)");
+
+            // (2) Anchor pose attitude matches the live anchor rotation (docking
+            // attitude resolves against the live frame, not the recorded frame).
+            float angleDeg = Quaternion.Angle(anchorPose.WorldRotation, liveAnchorRot);
+            InGameAssert.IsTrue(angleDeg < 5.0f,
+                $"anchor pose attitude matches live vessel: angle={angleDeg.ToString("F2", CultureInfo.InvariantCulture)} deg (expected < 5 deg)");
+
+            // (3) No anchor ghost double parked at the recorded absolute coords ~20 km
+            // from the live anchor (the duplicate the suppression removes).
+            int doublesFound = 0;
+            foreach (uint pid in GhostMapPresence.ghostMapVesselPids)
+            {
+                if (!FlightGlobals.FindVessel(pid, out Vessel ghost) || ghost == null) continue;
+                if (ghost.persistentId != anchorRec.VesselPersistentId) continue;
+                double ghostDelta = ((Vector3d)ghost.GetWorldPos3D() - liveAnchorWorld).magnitude;
+                if (ghostDelta > 5000.0)
+                    doublesFound++;
+            }
+            InGameAssert.IsTrue(doublesFound == 0,
+                $"no anchor ghost double > 5 km from the live anchor (found {doublesFound})");
+
+            // (4) Step-2 live-bind-event suppression scope. The TryResolveSectionAnchorPose
+            // resolve above drove the live-bind ledger: the anchor recording is now stamped
+            // as live-bound (it IS being docked this frame), the inbound MEMBER is not (the
+            // member is the resolver focus, never the resolved anchor). So:
+            //  - the inbound member's OWN ghost is NEVER Step-2 suppressed (its delivery
+            //    mesh must draw - this is the over-suppression regression the fix removes);
+            //  - the anchor's OWN duplicate IS Step-2 suppressed only while it is the live
+            //    docking anchor (its launch-matched live vessel is loaded + it was just
+            //    live-bound). Both are evaluated as loop members (loopingLike:true).
+            InGameAssert.IsTrue(
+                !GhostPlaybackLogic.IsLiveAnchorDoubleSuppressed(boundMember, true),
+                $"inbound member '{boundMember.VesselName}' must NOT be live-anchor "
+                + "suppressed (its delivery mesh draws docking the live station)");
+
+            bool anchorLiveBound =
+                RelativeAnchorResolver.WasLiveBoundThisOrLastFrame(anchorRec.RecordingId);
+            InGameAssert.IsTrue(anchorLiveBound,
+                $"anchor '{anchorRec.VesselName}' should be live-bound after the resolve "
+                + "(the delivery member just docked it through the resolver)");
+            // The anchor's own live vessel is loaded (checked above) and it is now
+            // live-bound, so while it is being docked its duplicate ghost is suppressed.
+            InGameAssert.IsTrue(
+                GhostPlaybackLogic.IsLiveAnchorDoubleSuppressed(anchorRec, true),
+                $"anchor '{anchorRec.VesselName}' duplicate ghost should be suppressed while "
+                + "a delivery member is live-binding its loaded launch-matched vessel");
+
+            ParsekLog.Info("TestRunner",
+                $"LoopedRelativeMemberDocksWithLiveAnchor PASS: member='{boundMember.VesselName}' "
+                + $"anchor='{anchorRec.VesselName}' posDelta={posDelta.ToString("F1", CultureInfo.InvariantCulture)}m "
+                + $"angle={angleDeg.ToString("F2", CultureInfo.InvariantCulture)}deg doubles={doublesFound} "
+                + $"anchorLiveBound={anchorLiveBound} memberSuppressed=false");
         }
 
         #endregion

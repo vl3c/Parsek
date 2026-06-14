@@ -217,6 +217,54 @@ namespace Parsek
             => Instance?.activeTree?.ActiveRecordingId ?? "";
 
         /// <summary>
+        /// BUG #2: pure id-selection guard for
+        /// <see cref="GetLiveResumedRecordingIdForDialog"/>. Returns the active
+        /// recording id only when a recorder is actively recording AND there is an
+        /// active tree id; null otherwise. Extracted so the guard is unit-testable
+        /// without a Unity <see cref="Instance"/>.
+        /// </summary>
+        internal static string ResolveLiveResumedRecordingId(
+            bool recorderIsRecording, string activeRecordingId)
+            => recorderIsRecording && !string.IsNullOrEmpty(activeRecordingId)
+                ? activeRecordingId
+                : null;
+
+        /// <summary>
+        /// BUG #2: the currently-live resumed recording id the pre-switch Merge/Discard
+        /// dialog ties its live-segment duration to. Returns the active tree's leaf id
+        /// only while a recorder is actively recording; null off-Unity (Instance null),
+        /// when not recording, or when there is no active tree. The dialog's
+        /// <c>tree.Recordings.ContainsKey</c> guard then confirms the id belongs to the
+        /// tree being rendered (cross-tree safety).
+        /// </summary>
+        internal static string GetLiveResumedRecordingIdForDialog()
+            => Instance != null && Instance.recorder != null
+               && Instance.activeTree != null
+                ? ResolveLiveResumedRecordingId(
+                    Instance.recorder.IsRecording, Instance.activeTree.ActiveRecordingId)
+                : null;
+
+        /// <summary>
+        /// BUG #2: UT at which the current recorder session began appending (the
+        /// live-resume anchor). <c>double.NaN</c> off-Unity (Instance null) or when no
+        /// resume/promote session armed it; the dialog falls back to the tree-wide
+        /// duration on NaN.
+        /// </summary>
+        internal static double GetLiveResumeSessionStartUT()
+            => Instance != null ? Instance.liveResumeSessionStartUT : double.NaN;
+
+        /// <summary>
+        /// BUG #2: reads the current Planetarium UT for the live-resume anchor, returning
+        /// <c>double.NaN</c> when no Planetarium singleton exists (headless / pre-scene).
+        /// A NaN anchor falls the dialog back to the safe tree-wide duration.
+        /// </summary>
+        private static double SafeCurrentUtForResumeAnchor()
+        {
+            try { return Planetarium.GetUniversalTime(); }
+            catch { return double.NaN; }
+        }
+
+        /// <summary>
         /// #431: true when the flight scene has a live tree with a recorder attached.
         /// Used by <see cref="GameStateRecorder.Emit"/> to decide whether an in-flight
         /// untagged event is a drift signal worth a warn log.
@@ -262,6 +310,21 @@ namespace Parsek
 
         // Recording (delegated to FlightRecorder)
         private FlightRecorder recorder;
+
+        /// <summary>
+        /// BUG #2: UT at which the CURRENT recorder session began appending.
+        /// Captured per-session-start in <see cref="PrepareSessionStateForRecorderStart"/>
+        /// (reset to NaN there) and re-armed only on the no-session resume / promote
+        /// paths (<see cref="ResumeCommittedActiveRecording"/>,
+        /// <see cref="PromoteRecordingFromBackground"/>). The pre-switch Merge/Discard
+        /// dialog reads it (via <see cref="GetLiveResumeSessionStartUT"/>) to show the
+        /// short live segment the player just flew instead of the resumed committed
+        /// recording's whole multi-year span — that recording's Points are appended in
+        /// place, so its <c>StartUT</c> is the original launch UT and is the wrong
+        /// anchor. Session-transient (NOT serialized); NaN falls the dialog back to the
+        /// safe tree-wide duration.
+        /// </summary>
+        private double liveResumeSessionStartUT = double.NaN;
         internal List<TrajectoryPoint> recording => recorder?.Recording ?? noRecording;
         private List<OrbitSegment> orbitSegments => recorder?.OrbitSegments ?? noOrbitSegments;
         private static readonly List<TrajectoryPoint> noRecording = new List<TrajectoryPoint>();
@@ -2364,6 +2427,315 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Evaluates whether the armed <see cref="SwitchSegmentSession"/>'s
+        /// resumed segment (Tracking-Station Fly / KSC marker Fly / map Switch-To)
+        /// changed nothing meaningful and can be auto-discarded so we do not
+        /// prolong the ghost state for a segment that did nothing. Same spirit as
+        /// <see cref="RecordingOptimizer.TrimBoringTail"/> ("so the ghost finishes
+        /// quickly and the real vessel spawns promptly") and the idle-on-pad
+        /// auto-discard.
+        ///
+        /// <para>This method MUTATES like <see cref="IsActiveTreeIdleOnPad"/>: it
+        /// flushes the live recorder into the active tree
+        /// (<see cref="FlushRecorderIntoActiveTreeForSerialization"/>) so the
+        /// segment recording carries its in-flight payload before the pure
+        /// classifier reads it. Guards out the restore-coroutine,
+        /// Re-Fly-session, and active-merge-journal states (never auto-discard
+        /// across those), then delegates resolution + the no-op decision to
+        /// <see cref="RecordingStore.TryClassifyActiveSwitchSegmentNoOp"/>.</para>
+        /// </summary>
+        internal bool TryEvaluateActiveSwitchSegmentNoOp(
+            out string reason, out SwitchSegmentDisposition disposition)
+        {
+            reason = null;
+            disposition = SwitchSegmentDisposition.None;
+
+            if (restoringActiveTree)
+            {
+                reason = "restoring-active-tree";
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario)
+                || scenario.ActiveSwitchSegmentSession == null)
+            {
+                reason = "no-session";
+                return false;
+            }
+            if (scenario.ActiveReFlySessionMarker != null)
+            {
+                reason = "refly-active";
+                return false;
+            }
+            if (scenario.ActiveMergeJournal != null)
+            {
+                reason = "merge-journal-active";
+                return false;
+            }
+
+            // B1: populate the segment recording from the live recorder buffers
+            // before the classifier reads it (mirrors IsActiveTreeIdleOnPad). The
+            // flush only populates activeTree.ActiveRecordingId; the classifier
+            // verifies the segment IS that recording.
+            //
+            // Both callers run inside a Harmony prefix (the HighLogic.LoadScene
+            // scene-exit prefix and the map OnSelect prefix). An exception here
+            // would propagate out and abort the scene transition / the menu
+            // click, so fail closed: log and return keep (no auto-discard).
+            try
+            {
+                FlushRecorderIntoActiveTreeForSerialization();
+                return RecordingStore.TryClassifyActiveSwitchSegmentNoOp(out reason, out disposition);
+            }
+            catch (System.Exception ex)
+            {
+                reason = "exception:" + ex.GetType().Name;
+                disposition = SwitchSegmentDisposition.None;
+                ParsekLog.Warn("SwitchSegment",
+                    $"TryEvaluateActiveSwitchSegmentNoOp threw {ex.GetType().Name}: {ex.Message} " +
+                    "- treating as keep (no auto-discard)");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Tears down a no-op STANDALONE resumed switch segment (the whole live
+        /// active tree IS the no-op segment — a fresh tree with no committed
+        /// history). Reuses the proven <see cref="AutoDiscardActiveTreeCore"/>
+        /// body — identical to the idle-on-pad whole-tree teardown — which also
+        /// clears any armed <see cref="SwitchSegmentSession"/>. CommittedRestoreClone
+        /// is handled separately by
+        /// <see cref="DiscardActiveSwitchSegmentAttemptRevertingLiveClone"/>
+        /// (revert to the committed original); BgMemberOrMixed defers.
+        /// </summary>
+        internal void AutoDiscardNoOpStandaloneSwitchSegment(string reason)
+        {
+            AutoDiscardActiveTreeCore(
+                reason: reason,
+                screenMessage: "Recording discarded - vessel unchanged after switch",
+                ledgerRecalcReason: "noop-switch-segment-discard",
+                chainStopReason: reason);
+        }
+
+        /// <summary>
+        /// Scoped-discards the active switch segment and, when the segment lives
+        /// in a still-live in-flight COMMITTED-RESTORE CLONE, tears the clone down
+        /// so it is never serialized as the active tree — reverting cleanly to the
+        /// committed original (which stays in <c>committedTrees</c> the whole
+        /// in-flight session, copy-on-write). This is the fix for the data-loss
+        /// path where an in-flight committed-clone discard left the clone live,
+        /// it stranded into the Limbo pending slot on the next switch, and a later
+        /// whole-tree discard wiped the committed mission.
+        ///
+        /// <para>Used by every PRE-STASH discard path (the in-flight pre-switch
+        /// Discard handler and scene-exit Hook 1's committed-clone branch). The
+        /// scene-exit MANUAL merge-dialog Discard is POST-stash and stays on its
+        /// own (already-safe) path.</para>
+        ///
+        /// <para>The clone tree id is captured BEFORE the scoped discard, because
+        /// <see cref="RecordingStore.TryDiscardActiveSwitchSegmentAttempt"/>
+        /// clears the restore attempt; the teardown then fires only when the
+        /// captured clone is still the live <c>activeTree</c> afterward, so an
+        /// unrelated active tree is never nulled. Standalone segments have a null
+        /// clone id and keep their existing (untorn-down) behavior here — the
+        /// caller routes Standalone to
+        /// <see cref="AutoDiscardNoOpStandaloneSwitchSegment"/> when a full
+        /// teardown is wanted.</para>
+        /// </summary>
+        internal RecordingStore.SwitchSegmentDiscardDisposition
+            DiscardActiveSwitchSegmentAttemptRevertingLiveClone(
+                string reason, string screenMessage, string ledgerRecalcReason,
+                out string discardReason)
+        {
+            string cloneTreeId =
+                activeTree != null
+                && RecordingStore.IsCommittedTreeRestoreAttemptTree(activeTree.Id)
+                    ? activeTree.Id
+                    : null;
+
+            var disposition = RecordingStore.TryDiscardActiveSwitchSegmentAttempt(
+                out discardReason);
+
+            // In-flight (pre-stash) the committed clone is the live activeTree, not
+            // the pending slot, so the scoped discard leaves it intact
+            // (droppedPendingClone=False). Tear it down so it is never serialized
+            // isActive; the committed original survives in committedTrees.
+            if (cloneTreeId != null
+                && activeTree != null
+                && string.Equals(activeTree.Id, cloneTreeId, StringComparison.Ordinal))
+            {
+                ParsekLog.Info("SwitchSegment",
+                    $"DiscardActiveSwitchSegmentAttemptRevertingLiveClone: tearing down live " +
+                    $"committed-restore clone treeId={cloneTreeId} to revert to the committed " +
+                    $"original (reason={reason})");
+                AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason);
+            }
+
+            return disposition;
+        }
+
+        /// <summary>
+        /// Evaluates the NO-SESSION committed-restore resume path: when you Fly /
+        /// Switch-To a vessel that belongs to a committed Parsek mission via a
+        /// scene reload, OnLoad resumes the committed tree in-place
+        /// (<c>ResumeCommittedActiveRecording</c>) as a copy-on-write clone
+        /// WITHOUT arming a <see cref="SwitchSegmentSession"/> (it sets
+        /// <see cref="liveResumeSessionStartUT"/> instead). The session-based
+        /// no-op auto-discard never sees this, so a do-nothing revisit of a
+        /// tracked mission used to fall through to the merge dialog. This returns
+        /// true when the resume TAIL (since the live-resume anchor) changed
+        /// nothing meaningful, so the caller can revert the clone to the committed
+        /// original via <see cref="AutoDiscardNoOpNoSessionCommittedResume"/>.
+        ///
+        /// <para>Guards out: an armed <see cref="SwitchSegmentSession"/> (the
+        /// session path owns that), restore-coroutine, Re-Fly, and merge-journal.
+        /// Requires the active tree to be the armed committed-restore clone, a
+        /// finite resume anchor, and a resolvable active recording. MUTATES like
+        /// <see cref="IsActiveTreeIdleOnPad"/>: flushes the recorder so the tail
+        /// is readable. Fails closed (keep) on exception.</para>
+        /// </summary>
+        internal bool TryEvaluateNoSessionCommittedResumeNoOp(out string reason)
+        {
+            reason = null;
+
+            if (restoringActiveTree)
+            {
+                reason = "restoring-active-tree";
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario))
+            {
+                reason = "no-scenario";
+                return false;
+            }
+            if (scenario.ActiveSwitchSegmentSession != null)
+            {
+                reason = "has-session"; // the session path owns this
+                return false;
+            }
+            if (scenario.ActiveReFlySessionMarker != null)
+            {
+                reason = "refly-active";
+                return false;
+            }
+            if (scenario.ActiveMergeJournal != null)
+            {
+                reason = "merge-journal-active";
+                return false;
+            }
+
+            if (activeTree == null)
+            {
+                reason = "no-active-tree";
+                return false;
+            }
+            if (!RecordingStore.IsCommittedTreeRestoreAttemptTree(activeTree.Id))
+            {
+                reason = "not-committed-restore-clone";
+                return false;
+            }
+            if (double.IsNaN(liveResumeSessionStartUT))
+            {
+                reason = "no-resume-anchor";
+                return false;
+            }
+            if (activeTree.Recordings == null)
+            {
+                reason = "no-recordings";
+                return false;
+            }
+            // The resume must be the live active recording (the in-place resume),
+            // else we cannot reason about what the resume did.
+            if (string.IsNullOrEmpty(activeTree.ActiveRecordingId)
+                || !activeTree.Recordings.ContainsKey(activeTree.ActiveRecordingId))
+            {
+                reason = "no-active-recording";
+                return false;
+            }
+
+            try
+            {
+                // Flush the foreground recorder, then checkpoint the background
+                // recorder so any open on-rails orbit segments are closed into the
+                // tree recordings — so the tail check below sees a background
+                // member's real trajectory change (e.g. an SOI crossing flushes a
+                // body-changed segment) instead of missing it.
+                FlushRecorderIntoActiveTreeForSerialization();
+                if (backgroundRecorder != null)
+                {
+                    // LOADED (physics-bubble) background members accrue per-frame
+                    // data that CheckpointAllVessels does NOT flush, so they can't
+                    // be cleanly tail-checked — defer (the BgMemberOrMixed analog,
+                    // data-loss guard). On-rails members ARE flushed and evaluated.
+                    if (backgroundRecorder.HasLoadedBackgroundMembers)
+                    {
+                        reason = "loaded-background-member";
+                        return false;
+                    }
+                    backgroundRecorder.CheckpointAllVessels(Planetarium.GetUniversalTime());
+                }
+
+                // Tree-wide tail check: the resume is a no-op only if NO recording
+                // in the clone (the foreground resumed recording AND every
+                // on-rails background member) changed anything since the resume
+                // anchor. Committed history (all before the anchor) passes
+                // trivially. If any member's tail is meaningful, defer so a revert
+                // cannot drop it.
+                foreach (var kvp in activeTree.Recordings)
+                {
+                    Recording rec = kvp.Value;
+                    if (rec == null) continue;
+                    if (!SwitchSegmentNoOpClassifier.IsNoOpResumeTail(
+                            rec, liveResumeSessionStartUT, out string keepReason))
+                    {
+                        reason = "member:" + (kvp.Key ?? "<null>") + ":" + (keepReason ?? "<none>");
+                        ParsekLog.Verbose("SwitchSegment",
+                            $"TryEvaluateNoSessionCommittedResumeNoOp: treeId={activeTree.Id} " +
+                            $"keep reason={reason}");
+                        return false;
+                    }
+                }
+
+                reason = "no-op";
+                ParsekLog.Verbose("SwitchSegment",
+                    $"TryEvaluateNoSessionCommittedResumeNoOp: treeId={activeTree.Id} " +
+                    $"sinceUT={liveResumeSessionStartUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"recordings={activeTree.Recordings.Count} noOp=True");
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                reason = "exception:" + ex.GetType().Name;
+                ParsekLog.Warn("SwitchSegment",
+                    $"TryEvaluateNoSessionCommittedResumeNoOp threw {ex.GetType().Name}: " +
+                    $"{ex.Message} - treating as keep");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Reverts a no-op no-session committed-restore resume: clears the
+        /// committed-tree restore attempt and tears the live clone down via
+        /// <see cref="AutoDiscardActiveTreeCore"/> (in-memory only — deletes no
+        /// files, never touches <c>committedTrees</c>), so the committed original
+        /// survives and the clone is never serialized active. The session path's
+        /// restore-attempt clear is done by the scoped discard; here there is no
+        /// session/segment to scoped-discard, so the clear is explicit.
+        /// </summary>
+        internal void AutoDiscardNoOpNoSessionCommittedResume(string reason)
+        {
+            RecordingStore.ClearCommittedTreeRestoreAttempt(
+                "noop-no-session-committed-resume-revert");
+            AutoDiscardActiveTreeWithMessage(
+                reason: reason,
+                screenMessage: "Recording discarded - vessel unchanged after switch",
+                ledgerRecalcReason: "noop-no-session-committed-resume-discard");
+        }
+
+        /// <summary>
         /// Shared teardown body for <see cref="AutoDiscardIdleActiveTree"/>
         /// and <see cref="AutoDiscardActiveTreeWithMessage"/>. The screen
         /// message and ledger-recalc reason are parameterized so the
@@ -3553,6 +3925,15 @@ namespace Parsek
 
             PrepareSessionStateForRecorderStart("PromoteRecordingFromBackground");
 
+            // BUG #2: same live-resume anchor capture as ResumeCommittedActiveRecording —
+            // a promoted background recording can also carry an old StartUT, so anchor on
+            // the UT at which this recorder session began appending.
+            liveResumeSessionStartUT = SafeCurrentUtForResumeAnchor();
+            ParsekLog.Verbose("Flight",
+                $"liveResumeSessionStartUT set reason=PromoteRecordingFromBackground " +
+                $"recId={backgroundRecordingId} " +
+                $"ut={liveResumeSessionStartUT.ToString("R", CultureInfo.InvariantCulture)}");
+
             ParsekLog.Info("Flight", $"Promoted recording '{backgroundRecordingId}' from background " +
                 $"(pid={newVessel.persistentId})");
             ParsekLog.RecState("PromoteFromBackground:exit", CaptureRecorderState());
@@ -3667,6 +4048,19 @@ namespace Parsek
             }
 
             PrepareSessionStateForRecorderStart("ResumeCommittedActiveRecording");
+
+            // BUG #2: anchor the live-segment duration the pre-switch dialog will show.
+            // The resumed committed recording's Points are appended in place, so its
+            // StartUT is the original (multi-year-ago) launch UT — currentUT - StartUT
+            // would still render the whole span. Capture the UT at which THIS recorder
+            // session began appending so currentUT - liveResumeSessionStartUT yields the
+            // short segment the player just flew.
+            liveResumeSessionStartUT = SafeCurrentUtForResumeAnchor();
+            ParsekLog.Verbose("Flight",
+                $"liveResumeSessionStartUT set reason=ResumeCommittedActiveRecording " +
+                $"recId={recordingId} " +
+                $"ut={liveResumeSessionStartUT.ToString("R", CultureInfo.InvariantCulture)}");
+
             ParsekLog.Info("Flight",
                 $"ResumeCommittedActiveRecording: resumed committed recording '{recordingId}' " +
                 $"on vessel '{activeVessel.vesselName}' pid={activeVessel.persistentId}");
@@ -7390,6 +7784,17 @@ namespace Parsek
         {
             if (rec == null) return false;
             if (!wasDestroyed) return false;
+
+            // Propagate the recorder's destruction knowledge to the VesselDestroyed
+            // bool, which is the field the no-op auto-discard classifier reads
+            // (SwitchSegmentNoOpClassifier gates on VesselDestroyed, not the
+            // terminal). Without this, a destruction that does NOT also emit an
+            // onPartDie Destroyed PartEvent (e.g. NaN/Kraken Vessel.Die cleanup)
+            // would leave a destroyed resume looking like a boring no-op coast and
+            // get auto-discarded. Set unconditionally (even when the terminal is
+            // already Destroyed) so the bool can never drift from the terminal.
+            rec.VesselDestroyed = true;
+
             if (rec.TerminalStateValue == TerminalState.Destroyed) return false;
 
             var prev = rec.TerminalStateValue;
@@ -13018,6 +13423,21 @@ namespace Parsek
         private void PrepareSessionStateForRecorderStart(string reason)
         {
             DisarmPostSwitchAutoRecord(reason);
+
+            // BUG #2: every recorder start resets the live-resume anchor to NaN; only
+            // the no-session resume / promote paths re-arm it (after this call returns)
+            // with the current UT. A fresh launch / split / switch-segment start leaves
+            // it NaN, so the pre-switch dialog falls back to tree-wide (fresh launch) or
+            // the SwitchSegmentSession-armed path (Case A) takes precedence. Resetting
+            // here — rather than at every recorder/activeTree teardown site — guarantees
+            // a prior craft's resume UT cannot leak into a later unrelated tree's dialog.
+            if (!double.IsNaN(liveResumeSessionStartUT))
+            {
+                ParsekLog.Verbose("Flight",
+                    $"liveResumeSessionStartUT cleared reason={reason} " +
+                    $"prevUt={liveResumeSessionStartUT.ToString("R", CultureInfo.InvariantCulture)}");
+            }
+            liveResumeSessionStartUT = double.NaN;
 
             // Reset crash coalescer on every recorder start so a fresh recorder cannot
             // inherit a stale coalescing window from the previous segment or scene.
@@ -19210,6 +19630,7 @@ namespace Parsek
             var spawnSuppressedByReason = spawnSuppressedReasonScratch;
             spawnSuppressedByReason.Clear();
             int spawnSuppressedCount = 0;
+            int liveAnchorSuppressedCount = 0;
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -19221,6 +19642,51 @@ namespace Parsek
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
+                // Loop-membership term, mirroring the map side's loopMemberInWindow gate.
+                // Computed here (the later BUG-B dormancy block reuses it) so the Step-2
+                // suppression below can scope itself to loop members only.
+                bool loopingLike = rec.LoopPlayback
+                    || chainLooping
+                    || (cachedLoopUnits != null && cachedLoopUnits.IsMember(i));
+                // Step 2 (Logistics route live-anchor bind): suppress a LOOP MEMBER's OWN
+                // loop ghost as a live-anchor duplicate ONLY while its launch-matched live
+                // vessel is loaded AND it was resolved as the LIVE docking anchor of an
+                // in-window relative member during this-or-the-previous frame (the Step-1
+                // live-bind event, captured at RelativeAnchorResolver). NOT for the whole
+                // loop: RealVesselExistsForRecording is true for EVERY parked route craft
+                // loaded in the scene, so the earlier whole-loop gate hid every delivery
+                // mesh when a fresh new-mission launch watched the looped route (18 parked
+                // craft loaded => all 11 route meshes suppressed). The inbound delivery
+                // member is the resolver FOCUS, never the resolved anchor, so it is never
+                // in the bind set and is never suppressed - its mesh draws docking the live
+                // station; only the station BEING docked right now is hidden as a duplicate.
+                //
+                // One-frame lag is correct and safe: ComputePlaybackFlags runs BEFORE
+                // engine.UpdatePlayback (where positioning fires the Step-1 binds), so this
+                // predicate reads the PREVIOUS frame's live-bind set. A continuously-docking
+                // anchor re-stamps every frame, so WasLiveBoundThisOrLastFrame's <=1
+                // tolerance keeps it suppressed every frame; a docking that just started or
+                // ended flashes the duplicate at most ~1 frame (sub-perceptual at the
+                // ~20 km standoff). Guid gate (VesselLaunchIdentity) means a same-craft
+                // DIFFERENT-launch live vessel never suppresses; loopingLike MATCHES the
+                // map-side loopMemberInWindow carve-out so the gate never reaches the active
+                // recording, an active re-fly session, or a tree-history ghost.
+                bool liveAnchorDoubleSuppressed =
+                    GhostPlaybackLogic.IsLiveAnchorDoubleSuppressed(rec, loopingLike);
+                if (liveAnchorDoubleSuppressed)
+                {
+                    externalVesselSuppressed = true;
+                    liveAnchorSuppressedCount++;
+                    ParsekLog.VerboseRateLimited(
+                        "Anchor",
+                        "step2-live-bind-suppress|" + (rec.RecordingId ?? "(none)"),
+                        "Step-2 suppressed live-anchor double (live-bind event): rec="
+                            + (rec.RecordingId ?? "(none)")
+                            + " vessel=\"" + (rec.VesselName ?? "(none)") + "\""
+                            + " liveBoundThisOrLastFrame=true"
+                            + " (own ghost hidden while a delivery member is docking its launch-matched live vessel)",
+                        5.0);
+                }
                 TimelineInactiveReason inactiveReason = TimelineInactiveReason.None;
                 if (!string.IsNullOrEmpty(rec.RecordingId))
                     timelineInactiveIds.TryGetValue(rec.RecordingId, out inactiveReason);
@@ -19237,9 +19703,6 @@ namespace Parsek
                 // recording is noted each frame so a later rewind re-arms its scope.
                 double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
                 PlaybackScopeTracker.NotePlayhead(rec.RecordingId, currentUT, activationStartUT);
-                bool loopingLike = rec.LoopPlayback
-                    || chainLooping
-                    || (cachedLoopUnits != null && cachedLoopUnits.IsMember(i));
                 bool historicalNeverReplayed = !loopingLike
                     && activeReFlyMarker == null
                     && PlaybackScopeTracker.IsHistoricalNeverReplayed(
@@ -19332,13 +19795,31 @@ namespace Parsek
             // One batched, rate-limited summary instead of one line per suppressed
             // recording. Shared key + VerboseRateLimited hard-caps the rate so the
             // per-frame summary cannot spam even when the committed list is large or a
-            // reason oscillates frame-to-frame.
+            // reason oscillates frame-to-frame. The Step-2 live-anchor double-suppression
+            // is an externalVesselSuppressed skip already covered by the generic
+            // skip-reason logging (LogGhostSkipReasonChangeIfNeeded) plus its own
+            // dedicated "Anchor" Verbose line at the decision site above.
             if (spawnSuppressedCount > 0)
             {
                 ParsekLog.VerboseRateLimited(
                     "Spawner",
                     "spawn-suppressed-summary",
                     () => BuildSpawnSuppressedSummary(spawnSuppressedCount, spawnSuppressedByReason),
+                    2.0);
+            }
+            // One batched, rate-limited summary (shared key) for the Step-2 live-anchor
+            // double-suppression count this frame, so the per-recording decision lines
+            // above (themselves rate-limited) are backed by a single aggregate even when
+            // the per-recording lines are throttled.
+            if (liveAnchorSuppressedCount > 0)
+            {
+                int suppressedThisFrame = liveAnchorSuppressedCount;
+                ParsekLog.VerboseRateLimited(
+                    "Anchor",
+                    "step2-live-anchor-double-summary",
+                    () => "Step-2 live-anchor-double: suppressed="
+                        + suppressedThisFrame.ToString(CultureInfo.InvariantCulture)
+                        + " this frame (gate=live-bind-event)",
                     2.0);
             }
             LogReFlyAnchorHoldTransitions(frame);
@@ -19803,7 +20284,64 @@ namespace Parsek
                 absoluteWorldPositionResolver: ResolveAnchorResolverPointWorldPosition,
                 bodyWorldRotationResolver: ResolveAnchorResolverBodyWorldRotation,
                 orbitalCheckpointPoseResolver: TryResolveFlightOrbitalAnchorPose,
-                tryResolveLiveAnchorTransform: TryGetLiveAnchorTransformDelegate());
+                tryResolveLiveAnchorTransform: TryGetLiveAnchorTransformDelegate(),
+                tryResolveLiveLaunchMatchedAnchorPose: TryResolveLiveLaunchMatchedAnchorPoseForResolver);
+        }
+
+        // Logistics route live-anchor bind (Step 1): resolves the LIVE pose of an
+        // anchor recording's own launch-matched live vessel for the relative
+        // resolver. Returns null (recorded-anchor fallback) when: the recording is
+        // null / has no pid; the launch-matched live vessel is not loaded (guid-gated
+        // RealVesselExistsForRecording, so a same-craft DIFFERENT-launch live vessel
+        // never binds); or the live transform is unavailable. Reuses
+        // TryResolveLoopLiveAnchorPose so the anchor frame is the recorder's
+        // vesselTransform.position / rotation (NOT GetWorldPos3D/CoMD), keeping the
+        // docking attitude correct. Headless-safe: RealVesselExistsForRecording and
+        // FindVesselByPid both return false/null without FlightGlobals.
+        //
+        // The bind is guid-GATED (RealVesselExistsForRecording) but the transform is
+        // then resolved by pid (FindVesselByPid inside TryResolveLoopLiveAnchorPose).
+        // KSP regenerates a craft-baked pid on collision with a currently-live vessel,
+        // so two same-craft launches cannot be simultaneously loaded sharing the pid;
+        // the pid-only transform resolve therefore cannot pick the wrong live vessel
+        // after the guid gate passes.
+        //
+        // UT-ALIGNMENT: `ut` is intentionally unused here — the bind returns the live
+        // anchor's CURRENT transform, not its pose at `ut`. Correct for the steady
+        // route-station case; for the broadening risk on non-looped relative ghosts
+        // whose live anchor has moved on, see the "Known limitation / playtest-verify"
+        // note in docs/dev/todo-and-known-bugs.md (2026-06-13 entry).
+        internal static (Vector3d pos, Quaternion rot)? TryResolveLiveLaunchMatchedAnchorPoseForResolver(
+            Recording anchorRec,
+            double ut)
+        {
+            if (anchorRec == null || anchorRec.VesselPersistentId == 0u)
+                return null;
+
+            ParsekFlight instance = Instance;
+            if (instance == null)
+                return null;
+
+            if (!GhostPlaybackLogic.RealVesselExistsForRecording(anchorRec))
+                return null;
+
+            if (!instance.TryResolveLoopLiveAnchorPose(
+                    anchorRec.VesselPersistentId,
+                    anchorRec.RecordingId,
+                    ut,
+                    out RelativeAnchorPose pose))
+            {
+                return null;
+            }
+
+            // Step 1 (the live-bind pose) is all that happens here. The resolver stamps
+            // the live-bind ledger (RelativeAnchorResolver.RecordLiveBoundAnchor) on the
+            // source=live bind event, which the Step-2 double-suppression consumes one
+            // frame later via RelativeAnchorResolver.WasLiveBoundThisOrLastFrame: the
+            // anchor's own loop ghost is hidden ONLY while a relative member is actually
+            // docking its live vessel (scoped to the live-bind event), NOT for the whole
+            // loop merely because its guid-matched live vessel is loaded.
+            return (pose.worldPos, pose.worldRotation);
         }
 
         private static readonly Func<uint, string, double, (Vector3d pos, Quaternion rot)?> LiveAnchorTransformDelegate =

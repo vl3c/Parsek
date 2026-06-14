@@ -308,10 +308,16 @@ namespace Parsek.Tests
             Assert.False(File.Exists(transientBak));
             Assert.False(File.Exists(transientTmp));
             Assert.False(File.Exists(transientReadableTmp));
+            // Orphan recording sidecar is moved out of the active set but preserved in
+            // quarantine (data-loss fix), not deleted. Transient/legacy artifacts above are
+            // still hard-deleted.
             Assert.False(File.Exists(orphanReadable));
+            Assert.True(File.Exists(Path.Combine(
+                recordingsDir, RecordingStore.OrphanQuarantineDirName, "orphan-readable.prec.txt")));
             Assert.True(File.Exists(readme));
             Assert.Contains(logLines, l =>
-                l.Contains("Cleaned 1 orphaned recording file(s), 4 transient sidecar artifact(s)"));
+                l.Contains("quarantined 1 orphaned recording file(s)")
+                && l.Contains("deleted 4 transient sidecar artifact(s)"));
         }
 
         private string CreateRecordingsDir(string label)

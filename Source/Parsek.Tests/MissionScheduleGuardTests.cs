@@ -242,6 +242,54 @@ namespace Parsek.Tests
                 driftAmberReason: null));
         }
 
+        [Fact]
+        public void ShouldTintTMinusAmber_ArrivalAmber_TintsEvenWhenNotPhaseLocked()
+        {
+            // M4c (plan test 16a): the D8 arrival amber rides a BUILT RE-AIM unit, and re-aim
+            // missions are never phase-locked - so a non-null arrival reason bypasses the
+            // phase-lock gate entirely. Null keeps the existing gate byte-identical (the
+            // not-phase-locked-never-tints contract holds for all pre-M4c inputs).
+            Assert.True(MissionsWindowUI.ShouldTintTMinusAmber(
+                isPhaseLockedConstrained: false, isScheduled: false,
+                scheduleAllLaunchesWithinTolerance: true, fixedFitWithinTolerance: true,
+                arrivalAmberReason: "landing rotation + station rendezvous at 'Duna': " +
+                    "no single arrival hold aligns both periods (deferred)"));
+            Assert.False(MissionsWindowUI.ShouldTintTMinusAmber(
+                isPhaseLockedConstrained: false, isScheduled: false,
+                scheduleAllLaunchesWithinTolerance: true, fixedFitWithinTolerance: true,
+                arrivalAmberReason: null));
+        }
+
+        [Fact]
+        public void ShouldTintTMinusAmber_DriftOnReaimUnit_Tints()
+        {
+            // M4c (plan test 16b): M4c makes DriftAmberReason reachable on re-aim missions for
+            // the first time (a drifted cross-parent depot emits, then drift-compares).
+            // isReaimUnit lets the drift reason tint there; without it (neither phase-locked nor
+            // re-aim) the drift reason still never tints - the pre-M4c behavior.
+            Assert.True(MissionsWindowUI.ShouldTintTMinusAmber(
+                isPhaseLockedConstrained: false, isScheduled: false,
+                scheduleAllLaunchesWithinTolerance: true, fixedFitWithinTolerance: true,
+                driftAmberReason: "station orbit drifted ~5.6% since recording",
+                isReaimUnit: true));
+            Assert.False(MissionsWindowUI.ShouldTintTMinusAmber(
+                isPhaseLockedConstrained: false, isScheduled: false,
+                scheduleAllLaunchesWithinTolerance: true, fixedFitWithinTolerance: true,
+                driftAmberReason: "station orbit drifted ~5.6% since recording",
+                isReaimUnit: false));
+        }
+
+        [Fact]
+        public void JoinAmberReasons_AllCombinations()
+        {
+            // The T- tooltip composer: both -> joined with "; ", one -> alone, neither -> null.
+            Assert.Equal("drift; arrival", MissionsWindowUI.JoinAmberReasons("drift", "arrival"));
+            Assert.Equal("drift", MissionsWindowUI.JoinAmberReasons("drift", null));
+            Assert.Equal("arrival", MissionsWindowUI.JoinAmberReasons(null, "arrival"));
+            Assert.Null(MissionsWindowUI.JoinAmberReasons(null, null));
+            Assert.Null(MissionsWindowUI.JoinAmberReasons("", ""));
+        }
+
         // ===================== (c) R2 branch (ii): bounded-best same-parent fixture =====================
 
         [Fact]

@@ -102,11 +102,25 @@ exactly as today - fail closed):
 
 1. A schedule exists (the knob is a per-WINDOW solve; uniform-cadence units have no
    per-window seam). Non-scheduled units are out of scope for per-cycle k_N.
-2. A phasing run exists: the LAST compressible run (WholeRevs >= 1, closed, same launch
-   body) whose EndUT <= guardUT, where guardUT = min(earliest vessel-anchor first
-   rendezvous UT, first body-change segment start, spanEnd). This is the 4.3
-   cut-placement rule: never cut between two same-vessel rendezvous events, never cut
-   across an SOI boundary.
+2. A phasing run exists: the LAST compressible run (WholeRevs >= 1, closed) on the LAUNCH
+   body OR on a RENDEZVOUS body (the body a VesselOrbital station orbits, taken from each
+   VesselOrbital constraint's BodyName), whose EndUT <= guardUT, where guardUT =
+   min(earliest vessel-anchor first rendezvous UT, first GENUINE-third-body segment start,
+   spanEnd). This is the 4.3 cut-placement rule: never cut between two same-vessel
+   rendezvous events, never cut across a third-body SOI boundary.
+
+   Destination-body docks (2026-06-13 fix): a same-parent station dock parks AROUND the
+   destination body (a Mun-station resupply parks in low-Mun orbit AFTER the Kerbin->Mun
+   SOI entry). That parking orbit is the designed phase absorber, so the SOI entry into a
+   rendezvous body must NOT clamp guardUT and the rendezvous-body run must be an eligible
+   phasing run. Only a segment whose body is NEITHER the launch body NOR a rendezvous body
+   (a genuine third-body SOI entry the schedule cannot phase against, e.g. Minmus on a
+   Kerbin->Mun->Minmus hop) clamps guardUT. The body acceptance for both the phasing run
+   and the earlier static cuts is `MissionLoopUnitBuilder.IsPhasingRunBodyAccepted`
+   (launch body OR a rendezvous body; an empty launch body accepts every run). This is a
+   guard GAP fix, not a scope change: the same-parent destination dock is NOT in M4c's
+   out-of-scope set (only cross-parent stations are), and the residual formula above
+   already names a same-parent Orbital encounter as shiftable.
 3. The ANCHOR constraint's reference event is BEFORE the phasing run start. The anchor
    is pinned exactly at k * T_anchor; if its event were after the loiter, the shift
    d * T_park would break that exactness. (The pad anchor always satisfies this.)
@@ -319,7 +333,8 @@ In the same-parent phase-locked block (after `TryBuildRelaunchSchedule` succeeds
    parked orbit IS a loiter but never OUR phasing instrument, and debris/probes differ in
    pid). If the self line yields no compressible run, the knob disengages (rule 2 in 3.2).
 2. Compute guardUT (3.2 rule 2) from the extraction's VesselOrbital first-rendezvous UT
-   (ut0 + PhaseOffsetSeconds), the first body-change segment, and spanEnd.
+   (ut0 + PhaseOffsetSeconds), the first GENUINE third-body segment (a body that is
+   neither the launch body nor a rendezvous body), and spanEnd.
 3. Partition constraints (3.2), check engagement rules, and rebuild the schedule WITH
    the `PhasingKnobConfig` (`TryBuildRelaunchSchedule` gains the optional config path;
    the no-knob call stays as-is). The schedule, not the LoopUnit, owns per-launch
@@ -371,7 +386,8 @@ xUnit (all pure):
   seam values at insertPos, insertPos + extLen exact); knob-less schedule byte-identical;
   INV-3 static-cuts-plus-schedule still warns.
 - Builder: engagement rules 1-4 each individually disengage (log-asserted reasons);
-  partner-member loiter never drives cuts; guardUT from rendezvous / body-change.
+  partner-member loiter never drives cuts; guardUT from rendezvous / genuine third-body
+  change (launch + rendezvous bodies skipped, so a destination-body parking loiter is in scope).
 - RouteLoopClock: sawtooth does not double-fire or miss the dock crossing.
 
 In-game (`InGameTests`, new "MissionPhasing" category):

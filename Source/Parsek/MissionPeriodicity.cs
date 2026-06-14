@@ -495,16 +495,20 @@ namespace Parsek
                 }
             }
 
-            // 5. Vessel rendezvous (M4a): the supported shape (exactly ONE same-parent
-            //    closed-orbit anchor) emits a VesselOrbital constraint and keeps whatever Support
-            //    the body rules computed; every other shape rejects fail-closed. A REJECTED
-            //    rendezvous outranks cross-parent for the report (it is never solvable, even in
-            //    Phase 4), so it is set last, preserving the pre-M4a ordering.
+            // 5. Vessel rendezvous (M4a + M4c): the supported shape (exactly ONE foreign
+            //    closed-orbit anchor orbiting the launch body or a transited body) emits a
+            //    VesselOrbital constraint and keeps whatever Support the body rules computed
+            //    (same-parent destinations schedule; cross-parent destinations stay
+            //    UnsupportedCrossParent and the re-aim arrival hold consumes the constraint);
+            //    every other shape rejects fail-closed. A REJECTED rendezvous outranks
+            //    cross-parent for the report (it is never solvable, even in Phase 4), so it is
+            //    set last, preserving the pre-M4a ordering.
             string missionTag = BuildMissionTag(view);
             if (vesselAnchors.Count > 0)
             {
                 VesselOrbitalClassification cls = ClassifyVesselOrbitalConstraint(
                     vesselAnchors, launchBody, ut0, selfPid, selfGuid, bodyInfo, committed,
+                    result.Constraints,
                     out PhaseConstraint stationConstraint, out string rejectReason,
                     out string driftAmber);
                 if (cls == VesselOrbitalClassification.Emitted)
@@ -1854,8 +1858,15 @@ namespace Parsek
         ///    members, or 2+ DISTINCT foreign identities -&gt; Rejected; all-self -&gt;
         ///    NoForeignAnchor (not a reject);
         /// 2. the target does not resolve to a live closed orbit of the SAME launch -&gt; Rejected;
-        /// 3. the target orbits a body other than the launch body -&gt; Rejected (Tier 2 / M4c);
+        /// 3. the target must orbit a body the mission's included window actually transits: the
+        ///    launch body (the M4a LKO-resupply shape) or any body carrying an emitted Orbital
+        ///    constraint in <paramref name="bodyConstraints"/> (M4c Tier 2: a depot around the
+        ///    destination). A station around a body with no Orbital constraint has no alignment
+        ///    basis -&gt; Rejected;
         /// 4. else Emitted (period = LIVE target period, offset = earliest rendezvous UT - ut0).
+        ///    Emission NEVER touches Support, so a same-parent destination (Mun depot) stays
+        ///    Supported and feeds the zero-drift schedule, while a cross-parent destination
+        ///    (Duna depot) stays UnsupportedCrossParent and feeds the re-aim arrival hold.
         /// <paramref name="driftAmberReason"/> is the display-only D3 surface (set only on emit);
         /// never affects Support. Pure.
         /// </summary>
@@ -1867,6 +1878,7 @@ namespace Parsek
             string selfGuid,
             IBodyInfo bodyInfo,
             IReadOnlyList<Recording> committed,
+            IReadOnlyList<PhaseConstraint> bodyConstraints,
             out PhaseConstraint constraint,
             out string rejectReason,
             out string driftAmberReason)
@@ -2012,14 +2024,23 @@ namespace Parsek
                 return VesselOrbitalClassification.Rejected;
             }
 
-            // Rule 3: same-parent only - the station must orbit the launch body (the LKO-resupply
-            // shape). A station around the destination body is Tier 2 / M4c.
-            if (orbitBodyName != launchBody)
+            // Rule 3 (M4c split): the station must orbit a body the mission's included window
+            // actually TRANSITS - the launch body (M4a: the LKO-resupply shape) or any body with
+            // an emitted Orbital constraint (M4c Tier 2: a depot around the destination). The
+            // emit below never touches Support, so a same-parent destination (Mun depot) stays
+            // Supported and the zero-drift schedule + M4b knob align the station, while a
+            // cross-parent destination (Duna depot) stays UnsupportedCrossParent and the re-aim
+            // arrival hold aligns it (T_station for T_rot). A station around a body with no
+            // Orbital constraint (never transited, or transited with degenerate orbit data, e.g.
+            // a Sun-orbiting depot - OrbitPeriod(Sun) is degenerate) has no alignment basis:
+            // fail closed.
+            if (orbitBodyName != launchBody
+                && !HasOrbitalConstraintForBody(bodyConstraints, orbitBodyName))
             {
                 rejectReason =
                     $"rendezvous anchor pid={pid.ToString(CultureInfo.InvariantCulture)} orbits " +
-                    $"'{orbitBodyName ?? "?"}', not launch body '{launchBody}' " +
-                    "(cross-parent station; Tier 2 / M4c)";
+                    $"'{orbitBodyName ?? "?"}', for which the mission emitted no Orbital " +
+                    "constraint (not transited, or degenerate orbit data)";
                 return VesselOrbitalClassification.Rejected;
             }
 
@@ -2036,6 +2057,24 @@ namespace Parsek
             driftAmberReason = ComputeDriftAmberReason(
                 compareRecordingId, earliestUT, livePeriod, bodyInfo, committed);
             return VesselOrbitalClassification.Emitted;
+        }
+
+        /// <summary>True when the constraint list carries an Orbital constraint for
+        /// <paramref name="bodyName"/> - the classifier's rule-3 "transited body" test (the
+        /// Orbital list is complete before the rendezvous classification runs; the launch body
+        /// is checked separately because its own orbit segments are never an SOI entry). Pure.</summary>
+        internal static bool HasOrbitalConstraintForBody(
+            IReadOnlyList<PhaseConstraint> constraints, string bodyName)
+        {
+            if (constraints == null || string.IsNullOrEmpty(bodyName))
+                return false;
+            for (int i = 0; i < constraints.Count; i++)
+            {
+                PhaseConstraint c = constraints[i];
+                if (c.Kind == ConstraintKind.Orbital && c.BodyName == bodyName)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>The committed recording with the given RecordingId, or null. The anchor
@@ -2311,6 +2350,15 @@ namespace Parsek
         /// years.</summary>
         internal double AverageIntervalSeconds { get; }
 
+        /// <summary>The MAXIMUM relaunch interval over the same eager prefix that
+        /// <see cref="MinIntervalSeconds"/> / <see cref="AverageIntervalSeconds"/> sample. Paired with
+        /// the min, this gives the UI a min-max RANGE for the "varies" period cell ("~13d-1mo") so the
+        /// player sees the loop's general cadence band, not a single mean. Like Min/Average it is the
+        /// PREFIX max (bounded by <see cref="MinIntervalProbeLaunches"/>), an approximation of the
+        /// early cadence, not a global guarantee. Falls back to the anchor period when only one launch
+        /// resolved (no gap to measure). Transient; never serialized.</summary>
+        internal double MaxIntervalSeconds { get; }
+
         /// <summary>The player throttle (the requested relaunch period). 0 = every faithful window
         /// (the maximum attainable cadence).</summary>
         internal double MinSpacingSeconds => minSpacing;
@@ -2352,6 +2400,7 @@ namespace Parsek
             this.knob = knobConfig;
             FirstLaunchUT = double.NaN;
             MinIntervalSeconds = double.NaN;
+            MaxIntervalSeconds = double.NaN;
 
             if (double.IsNaN(ut0) || double.IsNaN(floorUT)
                 || double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod) || anchorPeriod <= 0.0)
@@ -2375,6 +2424,7 @@ namespace Parsek
             // modes when consecutive faithful k's hit the same small gap, so it is NOT representative;
             // mean over the prefix is.
             double minInterval = double.PositiveInfinity;
+            double maxInterval = double.NegativeInfinity;
             for (int i = 0; i < MinIntervalProbeLaunches; i++)
             {
                 if (!ExtendOnce())
@@ -2382,8 +2432,13 @@ namespace Parsek
                 double interval = launches[launches.Count - 1] - launches[launches.Count - 2];
                 if (interval < minInterval)
                     minInterval = interval;
+                if (interval > maxInterval)
+                    maxInterval = interval;
             }
             MinIntervalSeconds = double.IsPositiveInfinity(minInterval) ? anchorPeriod : minInterval;
+            // Max over the same prefix; falls back to the anchor period when no gap was measured
+            // (a single resolved launch), matching MinIntervalSeconds / AverageIntervalSeconds.
+            MaxIntervalSeconds = double.IsNegativeInfinity(maxInterval) ? anchorPeriod : maxInterval;
             // Mean = (L_last - L_0) / (N - 1) over the cached prefix. Falls back to the anchor period
             // when only one launch (no gap to average).
             AverageIntervalSeconds = launches.Count >= 2

@@ -75,6 +75,18 @@ namespace Parsek
         private Dictionary<uint, BackgroundOnRailsState> onRailsStates
             = new Dictionary<uint, BackgroundOnRailsState>();
 
+        /// <summary>
+        /// True when this recorder is tracking any LOADED (physics-bubble)
+        /// background member. Loaded members accrue per-frame trajectory + part
+        /// events that <see cref="CheckpointAllVessels"/> does NOT flush into the
+        /// tree recordings (it only closes on-rails orbit segments), so they
+        /// cannot be cleanly tail-checked. The no-session committed-resume no-op
+        /// revert DEFERS when this is true (a loaded member may have recorded real
+        /// trajectory during the resume). On-rails members, by contrast, ARE
+        /// flushable via CheckpointAllVessels and are evaluated per-recording.
+        /// </summary>
+        internal bool HasLoadedBackgroundMembers => loadedStates.Count > 0;
+
         // Per-vessel last-known finalization tails. Consumers land in later phases;
         // this phase only owns refresh and transfer.
         private Dictionary<uint, RecordingFinalizationCache> finalizationCaches

@@ -46,6 +46,16 @@ namespace Parsek
         public readonly TryResolveOrbitalAnchorPose OrbitalCheckpointPoseResolver;
         public readonly Func<uint, string, double, (Vector3d pos, Quaternion rot)?> TryResolveLiveAnchorTransform;
 
+        // Host-injected seam (Logistics route live-anchor bind): given a resolved
+        // anchor Recording + target UT, returns the LIVE pose of that recording's
+        // launch-matched live vessel when one is loaded (guid-gated), or null to
+        // keep the recorded-anchor fallback. Lets a non-loop Relative member (route
+        // delivery dock) bind against the live station the player is flying instead
+        // of the station's recorded absolute position ~20 km away. Null keeps the
+        // pure resolver free of FlightGlobals / RecordingStore; legacy callers that
+        // do not wire it resolve exactly as before.
+        public readonly Func<Recording, double, (Vector3d pos, Quaternion rot)?> TryResolveLiveLaunchMatchedAnchorPose;
+
         public RelativeAnchorResolverContext(
             RecordingTree focusTree,
             string focusRecordingId = null,
@@ -57,7 +67,8 @@ namespace Parsek
             Func<TrajectoryPoint, Vector3d> absoluteWorldPositionResolver = null,
             Func<TrajectoryPoint, Quaternion> bodyWorldRotationResolver = null,
             TryResolveOrbitalAnchorPose orbitalCheckpointPoseResolver = null,
-            Func<uint, string, double, (Vector3d pos, Quaternion rot)?> tryResolveLiveAnchorTransform = null)
+            Func<uint, string, double, (Vector3d pos, Quaternion rot)?> tryResolveLiveAnchorTransform = null,
+            Func<Recording, double, (Vector3d pos, Quaternion rot)?> tryResolveLiveLaunchMatchedAnchorPose = null)
         {
             FocusTree = focusTree;
             FocusRecordingId = focusRecordingId;
@@ -72,6 +83,7 @@ namespace Parsek
             BodyWorldRotationResolver = bodyWorldRotationResolver;
             OrbitalCheckpointPoseResolver = orbitalCheckpointPoseResolver;
             TryResolveLiveAnchorTransform = tryResolveLiveAnchorTransform;
+            TryResolveLiveLaunchMatchedAnchorPose = tryResolveLiveLaunchMatchedAnchorPose;
         }
     }
 
@@ -159,12 +171,205 @@ namespace Parsek
                     return false;
                 }
 
+                // Logistics route live-anchor bind: when the resolved anchor
+                // recording's own launch-matched live vessel is currently loaded
+                // (e.g. the Depot station the player is flying), bind the anchor
+                // pose to the LIVE vessel transform instead of the recorded
+                // absolute position. Without this a looped delivery ghost docks
+                // against the station's recorded Mun position ~20 km away. The
+                // caller applies the recorded anchor-local offset against this
+                // pose exactly as for the recorded pose, so the standoff follows
+                // the live station's current attitude. Guid-gated inside the host
+                // delegate; a same-craft different-launch live vessel never binds.
+                if (TryBindLiveLaunchMatchedAnchorPose(
+                        context,
+                        recording,
+                        ut,
+                        out pose))
+                {
+                    return true;
+                }
+
                 return TryResolveRecordingPose(context, recording, ut, activeVisited, out pose, out failure);
             }
             finally
             {
                 activeVisited.Remove(anchorRecordingId);
             }
+        }
+
+        /// <summary>
+        /// Logistics route live-anchor bind (Step 1). When the host delegate
+        /// resolves a LIVE launch-matched pose for the anchor <paramref name="recording"/>
+        /// (its own recorded craft is currently loaded and guid-matches), returns
+        /// that pose so a non-loop Relative member docks against the live station
+        /// rather than its recorded absolute position. Returns false (and leaves
+        /// <paramref name="pose"/> default) when the delegate is unwired or yields
+        /// no live vessel, so the caller falls through to the recorded-anchor pose
+        /// unchanged. Logs one Verbose decision line per (focus, anchor) pair.
+        /// </summary>
+        private static bool TryBindLiveLaunchMatchedAnchorPose(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double ut,
+            out AnchorPose pose)
+        {
+            pose = default;
+            if (context.TryResolveLiveLaunchMatchedAnchorPose == null || recording == null)
+                return false;
+
+            (Vector3d pos, Quaternion rot)? livePose =
+                context.TryResolveLiveLaunchMatchedAnchorPose(recording, ut);
+            if (!livePose.HasValue
+                || !IsFinite(livePose.Value.pos)
+                || !IsFinite(livePose.Value.rot))
+            {
+                LogLiveAnchorBindDecision(context, recording, ut, bound: false);
+                return false;
+            }
+
+            pose = new AnchorPose(
+                livePose.Value.pos,
+                livePose.Value.rot,
+                resolvedSectionIndex: -1,
+                resolvedRecordingId: recording.RecordingId);
+            RecordLiveBoundAnchor(recording.RecordingId);
+            LogLiveAnchorBindDecision(context, recording, ut, bound: true);
+            return true;
+        }
+
+        // === Per-frame live-anchor-bind ledger (Step-2 suppression gate) =========
+        // A recording's OWN in-bubble/map ghost must be hidden as a live-anchor
+        // duplicate ONLY while its launch-matched live vessel is CURRENTLY serving
+        // as the LIVE docking anchor that some in-window relative member binds to
+        // this frame, NOT merely because some live vessel carrying its pid is
+        // loaded (the whole-loop existence check over-suppressed every parked route
+        // craft). The authoritative "rec is a live docking anchor right now" signal
+        // is the Step-1 live-bind event above: TryBindLiveLaunchMatchedAnchorPose
+        // resolves a LIVE anchor pose (source=live) exactly when an in-window
+        // relative member is docking the live station this frame. We stamp the
+        // bound anchor's RecordingId into a process-static, frame-scoped set; the
+        // flight/map Step-2 gate consumes it one frame later (ComputePlaybackFlags
+        // runs before engine.UpdatePlayback, where positioning fires the binds).
+        // A continuously-docking anchor re-stamps every frame, so the
+        // this-or-last-frame tolerance keeps it suppressed every frame; a docking
+        // that just started/ended flashes the duplicate at most ~1 frame
+        // (sub-perceptual at the ~20 km standoff). Allocation-free in steady state:
+        // the set is Cleared once per frame on the first bind and only holds the
+        // bounded set of in-window docking anchors.
+        private static readonly HashSet<string> liveBoundAnchorRecIds =
+            new HashSet<string>(StringComparer.Ordinal);
+        private static int liveBoundAnchorFrame = int.MinValue;
+
+        // Injectable frame source so the ledger is headless-testable. Defaults to
+        // Time.frameCount (isolated through a NoInlining accessor + try/catch so the
+        // xUnit runner never JITs the Unity ECall).
+        internal static Func<int> FrameProviderForTesting;
+
+        private static int ResolveLiveBindFrame()
+        {
+            if (FrameProviderForTesting != null)
+                return FrameProviderForTesting();
+
+            try
+            {
+                return ResolveUnityFrameCount();
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int ResolveUnityFrameCount()
+        {
+            return Time.frameCount;
+        }
+
+        private static void RecordLiveBoundAnchor(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return;
+
+            int frame = ResolveLiveBindFrame();
+            if (frame != liveBoundAnchorFrame)
+            {
+                liveBoundAnchorRecIds.Clear();
+                liveBoundAnchorFrame = frame;
+            }
+
+            liveBoundAnchorRecIds.Add(recordingId);
+        }
+
+        /// <summary>
+        /// True when <paramref name="recordingId"/> was resolved as a LIVE docking
+        /// anchor (Step-1 source=live bind) during the current or immediately
+        /// previous frame. The Step-2 double-suppression gate consumes this: the
+        /// flight predicate runs before the per-frame positioning that fires the
+        /// binds, so it reads the previous frame's set; on the flight path a
+        /// still-docking anchor re-stamps every frame, so the one-frame tolerance
+        /// keeps it suppressed continuously. The map / tracking-station consumers
+        /// differ: they stamp this when a relative member resolves against the live
+        /// anchor, which on those paths happens at ghost (re)creation, not on every
+        /// on-rails propagation frame - so suppression there is best-effort and a
+        /// duplicate can briefly show until the next resolve. O(1): a HashSet.Contains
+        /// plus a frame-delta compare.
+        /// </summary>
+        internal static bool WasLiveBoundThisOrLastFrame(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+            if (!liveBoundAnchorRecIds.Contains(recordingId))
+                return false;
+
+            long delta = (long)ResolveLiveBindFrame() - liveBoundAnchorFrame;
+            return delta >= 0 && delta <= 1;
+        }
+
+        /// <summary>
+        /// Snapshot of the recordings live-bound during the most recent bind frame
+        /// (diagnostics / tests). Allocates; not for the per-frame path.
+        /// </summary>
+        internal static IReadOnlyCollection<string> SnapshotLiveBoundAnchors()
+        {
+            return new List<string>(liveBoundAnchorRecIds);
+        }
+
+        /// <summary>
+        /// Clears the live-bind ledger and the injectable frame source. Call from
+        /// test setup/teardown ([Collection("Sequential")]) to avoid cross-test
+        /// bleed of stamped anchor ids.
+        /// </summary>
+        internal static void ResetForTesting()
+        {
+            liveBoundAnchorRecIds.Clear();
+            liveBoundAnchorFrame = int.MinValue;
+            FrameProviderForTesting = null;
+        }
+
+        private static void LogLiveAnchorBindDecision(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double ut,
+            bool bound)
+        {
+            string anchorRecordingId = recording.RecordingId ?? "(none)";
+            string focus = context.FocusRecordingId ?? "(none)";
+            ParsekLog.VerboseRateLimited(
+                "Anchor",
+                "relative-anchor-live-bind|" + focus + "|" + anchorRecordingId,
+                bound
+                    ? "relative-anchor-live-bind: focusRecordingId=" + focus
+                        + " anchorRecordingId=" + anchorRecordingId
+                        + " anchorPid=" + recording.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                        + " source=live ut=" + FormatDoubleR(ut)
+                    : "relative-anchor-live-bind: focusRecordingId=" + focus
+                        + " anchorRecordingId=" + anchorRecordingId
+                        + " anchorPid=" + recording.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                        + " source=recorded reason=no-launch-matched-live ut=" + FormatDoubleR(ut),
+                5.0);
         }
 
         // Post-controlled-child-extension: this predicate is semantically "does the

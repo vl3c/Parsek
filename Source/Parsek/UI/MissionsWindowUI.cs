@@ -1165,14 +1165,17 @@ namespace Parsek
 
             // True when the resolved unit carries a zero-drift relaunch schedule (a drifting
             // multi-constraint config). The cadence is then NON-UNIFORM, so the period cell shows a
-            // "varies" label off ScheduledTypicalIntervalSeconds instead of the fixed Solution.P.
+            // "varies" RANGE off ScheduledMinIntervalSeconds / ScheduledMaxIntervalSeconds instead of
+            // the fixed Solution.P.
             public bool IsScheduled;
 
-            // The scheduled unit's TYPICAL (mean) relaunch interval - the representative cadence for
-            // the "varies" period-cell label. Read off the schedule's AverageIntervalSeconds (NOT its
-            // MinIntervalSeconds, which often coincides across modes because consecutive faithful k's
-            // hit the same short anchor-step gap). NaN when not scheduled.
-            public double ScheduledTypicalIntervalSeconds;
+            // The scheduled unit's MIN and MAX relaunch interval over the schedule's eager prefix -
+            // the two ends of the "varies" period-cell RANGE ("~13d-1mo"). Read off the schedule's
+            // MinIntervalSeconds / MaxIntervalSeconds. NaN when not scheduled. The range collapses to
+            // a single value when the two ends are within ~5% (a tight cadence after the loiter knob
+            // engages).
+            public double ScheduledMinIntervalSeconds;
+            public double ScheduledMaxIntervalSeconds;
 
             // R3: the SCHEDULE's own worst-launch tolerance flag - true iff every resolved scheduled
             // launch found a within-tolerance window, false once any fell to bounded-best (a genuinely
@@ -1193,6 +1196,14 @@ namespace Parsek
             // period has drifted past tolerance from the recorded rendezvous-time orbit. Display
             // only - tints the T- cell amber with the reason as tooltip; never affects Support.
             public string DriftAmberReason;
+
+            // M4c arrival amber (design D8): set when the resolved re-aim unit's destination-side
+            // alignment failed closed with a station involved (landing + station, station +
+            // constrained moon, moon-orbiting station, station-bearing Jool-class). Read off the
+            // REAL unit (not extraction) so it appears exactly when a built re-aim unit refused
+            // the hold - a mission whose re-aim declines entirely shows no misleading amber.
+            // Display only - tints the T- cell with the reason as tooltip.
+            public string ArrivalAmberReason;
 
             // True when the resolved unit is a re-aim interplanetary loop (cross-parent single-hop). The
             // faithful periodicity Solve reports cross-parent UnsupportedCrossParent (ShouldPhaseLock
@@ -1274,13 +1285,15 @@ namespace Parsek
                 ? ComputeNextRelaunchUT(unit, nowUT)
                 : double.NaN;
             // Zero-drift: a scheduled (drifting) unit's cadence is non-uniform -> the period cell
-            // shows a "varies" label off the schedule's AVERAGE (typical) interval, not the fixed
-            // Solution.P. We do NOT use MinIntervalSeconds here: it often coincides across modes
-            // (consecutive faithful k's hit the same short anchor-step gap), so the cell would not
-            // visibly differ when the user flips the A/B mode even when the actual cadence does.
+            // shows a "varies" RANGE off the schedule's min / max gap, not the fixed Solution.P.
             result.IsScheduled = result.UnitBuilt && unit.RelaunchSchedule != null;
-            result.ScheduledTypicalIntervalSeconds = result.IsScheduled
-                ? unit.RelaunchSchedule.AverageIntervalSeconds
+            // Range ends for the "varies" period cell: the schedule's min / max gap over its eager
+            // prefix. Shown as "~min-max (basis, varies)" (collapsing to a single value when tight).
+            result.ScheduledMinIntervalSeconds = result.IsScheduled
+                ? unit.RelaunchSchedule.MinIntervalSeconds
+                : double.NaN;
+            result.ScheduledMaxIntervalSeconds = result.IsScheduled
+                ? unit.RelaunchSchedule.MaxIntervalSeconds
                 : double.NaN;
             // R3: surface the schedule's OWN worst-launch tolerance for the amber tint. Benign default
             // true when not scheduled (the non-scheduled amber path then reads Solution.WithinTolerance,
@@ -1296,6 +1309,9 @@ namespace Parsek
                 ? unit.ReaimSchedule.Value.SynodicPeriodSeconds
                 : double.NaN;
             result.ReaimTargetBody = result.IsReaim ? unit.ReaimPlan.Value.TargetBody : null;
+            // M4c arrival amber: carried by the unit the builder produced (same inputs as the
+            // scene drivers, so the UI deterministically sees the same verdict).
+            result.ArrivalAmberReason = result.UnitBuilt ? unit.ArrivalAmberReason : null;
 
             ParsekLog.VerboseRateLimited("MissionPeriodicity", "missions-ui-solve",
                 $"Missions UI: mission='{mission.Name}' tree={tree.Id} " +
@@ -1367,14 +1383,19 @@ namespace Parsek
                 periodicity.IsScheduled,
                 periodicity.ScheduleAllLaunchesWithinTolerance,
                 periodicity.Solution.WithinTolerance,
-                periodicity.DriftAmberReason);
+                periodicity.DriftAmberReason,
+                periodicity.ArrivalAmberReason,
+                periodicity.IsReaim);
             Color prev = GUI.contentColor;
             if (amber)
                 GUI.contentColor = LoopPeriodClampColor;
-            // D3 drift amber carries its reason as the tooltip, so the player can read WHY the
-            // countdown is amber (station orbit drifted since recording).
-            GUIContent cellContent = periodicity.DriftAmberReason != null
-                ? new GUIContent(text, periodicity.DriftAmberReason)
+            // The amber reasons ride as the tooltip, so the player can read WHY the countdown is
+            // amber (D3 drift: station orbit drifted since recording; M4c arrival: D8 dual
+            // constraint refused the hold). Both can coexist (an emitted-then-dual config).
+            string tooltip = JoinAmberReasons(
+                periodicity.DriftAmberReason, periodicity.ArrivalAmberReason);
+            GUIContent cellContent = tooltip != null
+                ? new GUIContent(text, tooltip)
                 : new GUIContent(text);
             GUILayout.Label(cellContent, compositionCellLabel, GUILayout.Width(ColW_TMinus));
             GUI.contentColor = prev;
@@ -1397,32 +1418,57 @@ namespace Parsek
         ///   the in-tolerance stock Mun.
         /// - A NON-scheduled (fixed-cadence) unit has no schedule; its tolerance IS the fixed m*P fit, so it
         ///   tints off <paramref name="fixedFitWithinTolerance"/> exactly as before (no behavior change).
-        /// In BOTH cases the unit must be phase-locked + constrained
+        /// For the TOLERANCE ambers the unit must be phase-locked + constrained
         /// (<paramref name="isPhaseLockedConstrained"/>) to tint at all; continuous / not-aligned / blank
         /// states read plain. NOT tinted unconditionally off <paramref name="isScheduled"/> - that would
         /// hide a real over-tolerance schedule. A non-null <paramref name="driftAmberReason"/> (the M4a
         /// D3 station-drift surface) also tints a phase-locked cell, independent of the tolerance flags
         /// (alignment is still to the LIVE orbit; the amber says the recorded approach may seam).
-        /// Pure (no Unity); unit-tested.
+        /// Two M4c additions bypass the phase-lock gate, which is false for every re-aim mission:
+        /// a non-null <paramref name="arrivalAmberReason"/> (the D8 dual-constraint refusal, carried by
+        /// the built re-aim unit) always tints, and <paramref name="driftAmberReason"/> also tints when
+        /// <paramref name="isReaimUnit"/> (a drifted cross-parent depot - M4c makes drift amber reachable
+        /// on re-aim missions for the first time; tooltip-without-tint there would repeat the exact
+        /// inconsistency the arrival amber fixes). Pure (no Unity); unit-tested.
         /// </summary>
         internal static bool ShouldTintTMinusAmber(
             bool isPhaseLockedConstrained,
             bool isScheduled,
             bool scheduleAllLaunchesWithinTolerance,
             bool fixedFitWithinTolerance,
-            string driftAmberReason = null)
+            string driftAmberReason = null,
+            string arrivalAmberReason = null,
+            bool isReaimUnit = false)
         {
+            // M4c arrival amber (D8): the destination-side alignment failed closed on a built
+            // re-aim unit - tints regardless of phase-lock (re-aim is never phase-locked).
+            if (!string.IsNullOrEmpty(arrivalAmberReason))
+                return true;
+            // D3 drift amber: display-only, set when the live station orbit drifted past tolerance
+            // from the recorded rendezvous-time orbit. Phase-locked cells (M4a) and re-aim units
+            // (M4c cross-parent depots) both tint.
+            if (driftAmberReason != null && (isPhaseLockedConstrained || isReaimUnit))
+                return true;
             if (!isPhaseLockedConstrained)
                 return false;
-            // D3 drift amber: display-only, set when the live station orbit drifted past tolerance
-            // from the recorded rendezvous-time orbit.
-            if (driftAmberReason != null)
-                return true;
             // Scheduled: amber iff some scheduled launch was over tolerance (bounded-best).
             // Non-scheduled: amber iff the fixed m*P fit missed tolerance (unchanged behavior).
             return isScheduled
                 ? !scheduleAllLaunchesWithinTolerance
                 : !fixedFitWithinTolerance;
+        }
+
+        /// <summary>The T- cell tooltip: the D3 drift and M4c arrival amber reasons joined with
+        /// "; " when both are set, the lone one otherwise, null when neither. Pure.</summary>
+        internal static string JoinAmberReasons(string driftAmberReason, string arrivalAmberReason)
+        {
+            bool hasDrift = !string.IsNullOrEmpty(driftAmberReason);
+            bool hasArrival = !string.IsNullOrEmpty(arrivalAmberReason);
+            if (hasDrift && hasArrival)
+                return driftAmberReason + "; " + arrivalAmberReason;
+            if (hasDrift)
+                return driftAmberReason;
+            return hasArrival ? arrivalAmberReason : null;
         }
 
         /// <summary>
@@ -1622,25 +1668,63 @@ namespace Parsek
 
         /// <summary>
         /// The period-cell display for a ZERO-DRIFT scheduled unit: the cadence is non-uniform, so we
-        /// show the representative (minimum) interval plus a "varies" marker, e.g.
-        /// "~4d (Mun window, varies)". Pure. A null/empty body shows "~P (varies)".
+        /// show the RANGE of relaunch intervals (min-max over the schedule's eager prefix) plus a
+        /// "varies" marker, e.g. "~13d-1mo (Mun window, varies)". Pure. A null/empty body shows
+        /// "~min-max (varies)". When the two ends are within ~5% (a tight cadence, e.g. after the
+        /// loiter knob engages on the destination-body parking orbit) the range collapses to a single
+        /// value with no dash: "~13d (Mun window, varies)".
         ///
-        /// Note the two parts describe DIFFERENT things, intentionally (review N2): the interval is the
-        /// actual relaunch cadence (which is anchored on the tightest constraint - the launch pad - and
-        /// throttled by the player), while the basis label (<paramref name="kind"/>/<paramref name="bodyName"/>)
-        /// names the DOMINANT celestial event each window targets (the Mun intercept). So
-        /// "~4d (Mun window, varies)" reads as "a varying ~4-day cadence, each launch hitting a Mun
-        /// window" - the cadence is set by the pad alignment, the label tells the player what the
-        /// window is FOR.
+        /// Note the period and the basis describe DIFFERENT things, intentionally (review N2): the
+        /// interval is the actual relaunch cadence (anchored on the tightest constraint - the launch
+        /// pad - and throttled by the player), while the basis label
+        /// (<paramref name="kind"/>/<paramref name="bodyName"/>) names the DOMINANT celestial event
+        /// each window targets (the Mun intercept). So "~13d-1mo (Mun window, varies)" reads as "a
+        /// varying ~13-day-to-1-month cadence, each launch hitting a Mun window".
         /// </summary>
         internal static string BuildScheduledPeriodCellDisplay(
-            double minIntervalSeconds, ConstraintKind kind, string bodyName)
+            double minIntervalSeconds, double maxIntervalSeconds,
+            ConstraintKind kind, string bodyName)
         {
-            string period = FormatPeriodCompact(minIntervalSeconds);
+            string period = FormatScheduledIntervalRange(minIntervalSeconds, maxIntervalSeconds);
             string basis = BuildPeriodBasisLabel(kind, bodyName);
             return string.IsNullOrEmpty(basis)
                 ? period + " (varies)"
                 : period + " " + basis.Substring(0, basis.Length - 1) + ", varies)";
+        }
+
+        /// <summary>
+        /// Formats a relaunch-interval RANGE for the scheduled period cell. Each end goes through
+        /// <see cref="FormatPeriodCompact"/> ("~13d", "~1mo"-style). When the two ends are within ~5%
+        /// (relative to the min) OR render to the same string, the range collapses to a single value
+        /// (no dash). Otherwise they join as "min-max" with the leading "~" dropped from the max so the
+        /// cell reads "~13d-30d", not "~13d-~30d". Pure; a non-positive / NaN min uses the max (and
+        /// vice-versa).
+        /// </summary>
+        internal static string FormatScheduledIntervalRange(double minSeconds, double maxSeconds)
+        {
+            bool minOk = !double.IsNaN(minSeconds) && !double.IsInfinity(minSeconds) && minSeconds > 0.0;
+            bool maxOk = !double.IsNaN(maxSeconds) && !double.IsInfinity(maxSeconds) && maxSeconds > 0.0;
+            if (!minOk && !maxOk)
+                return FormatPeriodCompact(double.NaN); // "~0s"
+            if (!minOk)
+                return FormatPeriodCompact(maxSeconds);
+            if (!maxOk)
+                return FormatPeriodCompact(minSeconds);
+
+            double lo = System.Math.Min(minSeconds, maxSeconds);
+            double hi = System.Math.Max(minSeconds, maxSeconds);
+            string loStr = FormatPeriodCompact(lo);
+            string hiStr = FormatPeriodCompact(hi);
+
+            // Collapse: within ~5% of the low end, or the two ends format identically.
+            if (hi <= lo * 1.05 + 1e-9 || string.Equals(loStr, hiStr, System.StringComparison.Ordinal))
+                return loStr;
+
+            // "min-max": strip the leading "~" from the high end so only one tilde shows.
+            string hiTail = hiStr.StartsWith("~", System.StringComparison.Ordinal)
+                ? hiStr.Substring(1)
+                : hiStr;
+            return loStr + "-" + hiTail;
         }
 
         // The mission span in seconds = (max trimmed end - min trimmed start) over the COMMITTED
@@ -1906,7 +1990,8 @@ namespace Parsek
                     ? BuildReaimPeriodCellDisplay(periodicity.ReaimSynodicSeconds, periodicity.ReaimTargetBody)
                     : periodicity.IsScheduled
                         ? BuildScheduledPeriodCellDisplay(
-                            periodicity.ScheduledTypicalIntervalSeconds, periodicity.DominantKind,
+                            periodicity.ScheduledMinIntervalSeconds,
+                            periodicity.ScheduledMaxIntervalSeconds, periodicity.DominantKind,
                             periodicity.DominantBodyName)
                         : BuildPeriodCellDisplay(
                             periodicity.Solution.P, periodicity.DominantKind, periodicity.DominantBodyName);

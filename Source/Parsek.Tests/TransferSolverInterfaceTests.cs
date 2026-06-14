@@ -25,7 +25,9 @@ namespace Parsek.Tests
 
             bool okDirect = UvLambert.Solve(MuEarthKm, r1, r2, 3600.0, true,
                 out Vector3d dv1, out Vector3d dv2);
-            bool okSeam = UvLambertTransferSolver.Default.Solve(MuEarthKm, r1, r2, 3600.0, true,
+            // The seam now carries the plane-normal handedness axis; Vector3d.zero => legacy cross.z path,
+            // so it must still be byte-identical to the 7-arg direct call.
+            bool okSeam = UvLambertTransferSolver.Default.Solve(MuEarthKm, r1, r2, 3600.0, true, Vector3d.zero,
                 out Vector3d sv1, out Vector3d sv2);
 
             Assert.Equal(okDirect, okSeam);
@@ -49,7 +51,7 @@ namespace Parsek.Tests
 
             bool okDirect = UvLambert.Solve(MuEarthKm, r1, r2, 1800.0, true,
                 out Vector3d dv1, out Vector3d dv2);
-            bool okSeam = UvLambertTransferSolver.Default.Solve(MuEarthKm, r1, r2, 1800.0, true,
+            bool okSeam = UvLambertTransferSolver.Default.Solve(MuEarthKm, r1, r2, 1800.0, true, Vector3d.zero,
                 out Vector3d sv1, out Vector3d sv2);
 
             Assert.Equal(okDirect, okSeam);
