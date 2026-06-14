@@ -19737,7 +19737,7 @@ namespace Parsek
             // One batched, rate-limited summary instead of one line per suppressed
             // recording. Shared key + VerboseRateLimited hard-caps the rate so the
             // per-frame summary cannot spam even when the committed list is large or a
-            // reason oscillates frame-to-frame. The Step-2 whole-loop double-suppression
+            // reason oscillates frame-to-frame. The Step-2 live-anchor double-suppression
             // is an externalVesselSuppressed skip already covered by the generic
             // skip-reason logging (LogGhostSkipReasonChangeIfNeeded) plus its own
             // dedicated "Anchor" Verbose line at the decision site above.

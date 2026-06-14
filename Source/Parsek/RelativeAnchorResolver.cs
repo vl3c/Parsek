@@ -308,9 +308,14 @@ namespace Parsek
         /// anchor (Step-1 source=live bind) during the current or immediately
         /// previous frame. The Step-2 double-suppression gate consumes this: the
         /// flight predicate runs before the per-frame positioning that fires the
-        /// binds, so it reads the previous frame's set; a still-docking anchor
-        /// re-stamps every frame, so the one-frame tolerance keeps it suppressed
-        /// continuously. O(1): a HashSet.Contains plus a frame-delta compare.
+        /// binds, so it reads the previous frame's set; on the flight path a
+        /// still-docking anchor re-stamps every frame, so the one-frame tolerance
+        /// keeps it suppressed continuously. The map / tracking-station consumers
+        /// differ: they stamp this when a relative member resolves against the live
+        /// anchor, which on those paths happens at ghost (re)creation, not on every
+        /// on-rails propagation frame - so suppression there is best-effort and a
+        /// duplicate can briefly show until the next resolve. O(1): a HashSet.Contains
+        /// plus a frame-delta compare.
         /// </summary>
         internal static bool WasLiveBoundThisOrLastFrame(string recordingId)
         {
