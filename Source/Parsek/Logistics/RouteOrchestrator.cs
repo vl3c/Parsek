@@ -1318,7 +1318,18 @@ namespace Parsek.Logistics
             OriginDebitOutcome originDebit = default(OriginDebitOutcome);
             if (!route.IsKscOrigin)
             {
-                if (applyPhysicalOriginDebit)
+                if (route.IsHarvestOrigin)
+                {
+                    // M2 harvest origin (plan D7): no physical origin vessel
+                    // exists and the CostManifest is empty by construction, so
+                    // there is NOTHING to debit - but the row pair below still
+                    // emits for row-shape stability (the empty manifest makes
+                    // it a structural no-op: zero funds, no physical write).
+                    ParsekLog.Verbose(Tag,
+                        $"DispatchDebit: route {ShortIdForLog(route)} cycle={cycleId} " +
+                        "harvest origin: physical origin debit skipped (harvested cargo debits nothing)");
+                }
+                else if (applyPhysicalOriginDebit)
                 {
                     var originDebitApplier = OriginDebitApplierForTesting;
                     originDebit = originDebitApplier != null
@@ -2281,6 +2292,19 @@ namespace Parsek.Logistics
         /// <see cref="RouteFundsCalculator.ComputeDispatchFundsCost"/>. Returns
         /// 0 when ERS cannot be queried (e.g. during early load) or the
         /// recording / snapshot is missing.
+        ///
+        /// <para>M2 funds basis (plan D9 / OQ1): when the source recording -
+        /// <c>SourceRefs[0]</c>, the tree ROOT, whose snapshot is taken at the
+        /// FIRST chain/branch boundary - carries a COMPLETE
+        /// <see cref="RouteRunCargoManifest"/> (start half present AND
+        /// <see cref="RouteRunCargoManifest.EndCaptured"/>, the SAME completeness
+        /// gate the harvest analysis uses, plan risk 7: gate and charge must not
+        /// diverge), the resource term is priced from the run's START transport
+        /// manifest (the launch load). Recordings without a complete manifest -
+        /// every pre-M2 recording and every degraded leg - keep the legacy
+        /// stop-snapshot walk byte-identical, so existing routes keep their
+        /// exact cost. Both the eligibility gate and the emit recompute call
+        /// this one method, so they always pick the same basis.</para>
         /// </summary>
         internal static double ComputeDispatchFundsCostForRoute(Route route)
         {
@@ -2315,10 +2339,26 @@ namespace Parsek.Logistics
                 return 0.0;
             }
 
-            return RouteFundsCalculator.ComputeDispatchFundsCost(
+            // D9 basis selection: launch manifest only from a COMPLETE run
+            // manifest (same gate as the analysis presence gate); anything
+            // else stays on the legacy stop-snapshot walk.
+            RouteRunCargoManifest runManifest = source.RouteRunManifest;
+            Dictionary<string, ResourceAmount> startResources =
+                runManifest != null && runManifest.IsComplete
+                    ? runManifest.StartTransportResources
+                    : null;
+
+            double cost = RouteFundsCalculator.ComputeDispatchFundsCost(
                 source.VesselSnapshot,
+                startResources,
                 LiveRouteRuntimeEnvironment.LookupPartCost,
                 LiveRouteRuntimeEnvironment.LookupResourceUnitCost);
+
+            ParsekLog.Verbose(Tag,
+                $"FundsCost basis={(startResources != null ? "launch-manifest" : "stop-snapshot")} " +
+                $"route={ShortIdForLog(route)} source={sourceId} " +
+                $"cost={cost.ToString("R", CultureInfo.InvariantCulture)}");
+            return cost;
         }
 
         /// <summary>

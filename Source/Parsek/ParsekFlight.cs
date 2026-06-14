@@ -4381,11 +4381,67 @@ namespace Parsek
                 changed = true;
             }
 
+            // M2 run manifest (plan D14): adopt-once semantics for the START
+            // half, unconditional adopt for the END half. The START half is
+            // write-once (captured at the recording's birth and usually already
+            // written onto the tree recording by the recorder); the END half is
+            // overwrite-per-active-stop - a chain-boundary stop abandoned by
+            // ResumeAfterFalseAlarm leaves a stale END that the eventual real
+            // stop's capture must replace.
+            if (source.RouteRunManifest != null && !target.RunManifestVoided)
+            {
+                if (target.RouteRunManifest == null || !target.RouteRunManifest.HasStartHalf)
+                {
+                    target.RouteRunManifest = source.RouteRunManifest.DeepClone();
+                }
+                else
+                {
+                    target.RouteRunManifest.EndTransportResources =
+                        RouteProofMetadata.CloneResourceManifest(
+                            source.RouteRunManifest.EndTransportResources);
+                    target.RouteRunManifest.EndCaptured = source.RouteRunManifest.EndCaptured;
+                }
+                changed = true;
+            }
+            else if (source.RouteRunManifest != null)
+            {
+                // Sticky void tombstone wins (M2 review follow-up): a voided
+                // leg never re-adopts a manifest - the void is the fail-closed
+                // verdict for the whole leg.
+                ParsekLog.Verbose("Flight",
+                    $"Logistics metadata: run manifest NOT adopted (target voided) " +
+                    $"target={target.RecordingId ?? "<none>"} source={source.RecordingId ?? "<none>"}");
+            }
+
+            // Propagate the void tombstone itself (sticky, one-way).
+            if (source.RunManifestVoided && !target.RunManifestVoided)
+            {
+                target.RunManifestVoided = true;
+                changed = true;
+            }
+
+            // M2 harvest windows (plan D4/D14): the capture carries the leg's
+            // FULL window list (recorder-side until stop forwarding), so adopt
+            // it wholesale per active stop - same overwrite-per-active-stop
+            // semantics as the run-manifest END half.
+            if (source.RouteHarvestWindows != null && source.RouteHarvestWindows.Count > 0)
+            {
+                target.RouteHarvestWindows =
+                    RouteProofMetadata.CloneHarvestWindows(source.RouteHarvestWindows);
+                changed = true;
+            }
+
             // Route-window/origin-proof/transfer fields are NOT forwarded here.
-            // FlightRecorder.BuildCaptureRecording does not populate them, and dock
-            // route windows are written directly onto the merged child in
-            // CreateMergeBranch. A future capture-side producer would extend this
-            // helper, not callers.
+            // FlightRecorder.BuildCaptureRecording DOES populate
+            // capture.RouteOriginProof (RouteProofCapture.
+            // AttachEndManifestsAndForwardToCapture), but that proof reaches
+            // committed recordings via Recording.ApplyPersistenceArtifactsFrom
+            // at chain-commit time; dock route windows are written directly onto
+            // the merged child in CreateMergeBranch. Forwarding them here too
+            // would double up those paths. The M2 run manifest above is the
+            // capture-side producer that DOES route through this helper (the
+            // tree-mode stop flush in FlushRecorderToTreeRecording and
+            // AppendCapturedDataToRecording).
 
             if (changed)
             {
@@ -4394,7 +4450,9 @@ namespace Parsek
                     $"target={target.RecordingId ?? "<none>"} source={source.RecordingId ?? "<none>"} " +
                     $"startRes={(target.StartResources?.Count ?? 0)} endRes={(target.EndResources?.Count ?? 0)} " +
                     $"startInv={(target.StartInventory?.Count ?? 0)} endInv={(target.EndInventory?.Count ?? 0)} " +
-                    $"dockTargetPid={target.DockTargetVesselPid}");
+                    $"dockTargetPid={target.DockTargetVesselPid} " +
+                    $"runManifest={(target.RouteRunManifest != null ? (target.RouteRunManifest.IsComplete ? "complete" : "start-only") : "none")} " +
+                    $"harvestWindows={(target.RouteHarvestWindows?.Count ?? 0)}");
             }
 
             return changed;

@@ -108,6 +108,17 @@ namespace Parsek.Logistics
                 return true;
             }
 
+            if (route.IsHarvestOrigin)
+            {
+                // Harvest origin (M2, plan D7): the cargo was harvested en
+                // route, so there is no physical source vessel to gate
+                // against (the CostManifest is empty by construction).
+                ParsekLog.VerboseRateLimited(Tag, "origin-harvest-" + route.Id,
+                    $"OriginHasCargo: route {ShortIdForRoute(route)} harvest origin - " +
+                    "no physical source to gate");
+                return true;
+            }
+
             // M1 inventory deferral (design D6): exact STOREDPART removal by
             // identity is the M3 stock-slot-identity work, and delivering
             // items without debiting them would duplicate matter. Hold the

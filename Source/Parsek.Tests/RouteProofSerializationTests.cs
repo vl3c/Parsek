@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Parsek.Tests.Generators;
 using Xunit;
 
 namespace Parsek.Tests
@@ -175,6 +176,82 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RouteProof_CrpResourceNames_RoundTrip()
+        {
+            // FAILS IF: the proof codec carries any stock-name assumption, or
+            // an UNDEFINED name is dropped/altered on the round trip. Capture
+            // is permissive (M2 D2): recordings are immutable witnesses, so a
+            // resource name with no current PartResourceDefinition must
+            // serialize and read back verbatim - the exclusion happens at
+            // analysis, never in storage.
+            var rec = new Recording
+            {
+                RecordingId = "route-proof-crp",
+                RouteOriginProof = new RouteOriginProof
+                {
+                    StartDockedOriginVesselPid = 7007,
+                    StartTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        [CrpFixtures.Karbonite] =
+                            new ResourceAmount { amount = 320.5, maxAmount = 400.0 }
+                    }
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "crp-window",
+                        DockUT = 100.0,
+                        UndockUT = 180.0,
+                        TransferTargetVesselPid = 9001,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        DockTransportResources = new Dictionary<string, ResourceAmount>
+                        {
+                            [CrpFixtures.Karbonite] =
+                                new ResourceAmount { amount = 320.5, maxAmount = 400.0 },
+                            [CrpFixtures.UninstalledModResource] =
+                                new ResourceAmount { amount = 12.25, maxAmount = 50.0 }
+                        },
+                        UndockTransportResources = new Dictionary<string, ResourceAmount>
+                        {
+                            [CrpFixtures.Karbonite] =
+                                new ResourceAmount { amount = 20.5, maxAmount = 400.0 },
+                            [CrpFixtures.UninstalledModResource] =
+                                new ResourceAmount { amount = 12.25, maxAmount = 50.0 }
+                        },
+                        DockEndpointResources = new Dictionary<string, ResourceAmount>
+                        {
+                            [CrpFixtures.MetallicOre] =
+                                new ResourceAmount { amount = 0.0, maxAmount = 1000.0 }
+                        },
+                        UndockEndpointResources = new Dictionary<string, ResourceAmount>
+                        {
+                            [CrpFixtures.MetallicOre] =
+                                new ResourceAmount { amount = 300.0, maxAmount = 1000.0 }
+                        }
+                    }
+                }
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
+
+            var loaded = new Recording { RecordingId = "route-proof-crp" };
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
+
+            Assert.Equal(320.5,
+                loaded.RouteOriginProof.StartTransportResources[CrpFixtures.Karbonite].amount);
+            RouteConnectionWindow window = loaded.RouteConnectionWindows[0];
+            Assert.Equal(320.5, window.DockTransportResources[CrpFixtures.Karbonite].amount);
+            Assert.Equal(20.5, window.UndockTransportResources[CrpFixtures.Karbonite].amount);
+            Assert.Equal(12.25,
+                window.DockTransportResources[CrpFixtures.UninstalledModResource].amount);
+            Assert.Equal(12.25,
+                window.UndockTransportResources[CrpFixtures.UninstalledModResource].amount);
+            Assert.Equal(300.0, window.UndockEndpointResources[CrpFixtures.MetallicOre].amount);
+        }
+
+        [Fact]
         public void RouteProof_MissingMetadataDefaultsToNoProof()
         {
             var node = new ConfigNode("RECORDING");
@@ -186,6 +263,268 @@ namespace Parsek.Tests
             Assert.Equal(RouteConnectionKind.None, loaded.TransferKind);
             Assert.Null(loaded.RouteOriginProof);
             Assert.Null(loaded.RouteConnectionWindows);
+            // M2 (D10 null-preservation pin): an old-shape node must read back
+            // a NULL run manifest - a codec that lazily allocates an empty one
+            // flips every existing route to SourceChanged on revalidate.
+            Assert.Null(loaded.RouteRunManifest);
+            // Absent sticky-void key keeps the default (false).
+            Assert.False(loaded.RunManifestVoided);
+        }
+
+        [Fact]
+        public void RunManifestVoided_RoundTripsViaBothPaths()
+        {
+            // FAILS IF: the sticky BG-void tombstone (review follow-up) is
+            // lost on either persistence path - a reload would let the leg
+            // re-capture a mid-life START baseline.
+            var rec = new Recording
+            {
+                RecordingId = "voided-leg",
+                RunManifestVoided = true
+            };
+
+            var treeNode = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingResourceAndState(treeNode, rec);
+            var loadedTree = new Recording { RecordingId = "voided-leg" };
+            RecordingTree.LoadRecordingResourceAndState(treeNode, loadedTree);
+            Assert.True(loadedTree.RunManifestVoided);
+            Assert.Null(loadedTree.RouteRunManifest);
+
+            var scenarioNode = new ConfigNode("RECORDING");
+            ParsekScenario.SaveRecordingMetadata(scenarioNode, rec);
+            var loadedScenario = new Recording();
+            ParsekScenario.LoadRecordingMetadataForTests(scenarioNode, loadedScenario);
+            Assert.True(loadedScenario.RunManifestVoided);
+        }
+
+        [Fact]
+        public void RouteRunManifest_RoundTripsViaTreeMetadata()
+        {
+            // FAILS IF: the M2 run-manifest node loses the pid scope, either
+            // resource half, or the explicit endCaptured completion marker on
+            // the tree persistence path.
+            var rec = new Recording
+            {
+                RecordingId = "run-manifest-tree",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { 100u, 200u },
+                    StartTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        ["Ore"] = new ResourceAmount { amount = 0.0, maxAmount = 1500.0 },
+                        [CrpFixtures.Karbonite] = new ResourceAmount { amount = 12.5, maxAmount = 50.0 }
+                    },
+                    EndTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        ["Ore"] = new ResourceAmount { amount = 1200.0, maxAmount = 1500.0 }
+                    },
+                    EndCaptured = true
+                }
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
+
+            var loaded = new Recording { RecordingId = "run-manifest-tree" };
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
+
+            Assert.NotNull(loaded.RouteRunManifest);
+            Assert.Equal(new List<uint> { 100u, 200u },
+                loaded.RouteRunManifest.TransportPartPersistentIds);
+            Assert.Equal(0.0, loaded.RouteRunManifest.StartTransportResources["Ore"].amount);
+            Assert.Equal(1500.0, loaded.RouteRunManifest.StartTransportResources["Ore"].maxAmount);
+            Assert.Equal(12.5,
+                loaded.RouteRunManifest.StartTransportResources[CrpFixtures.Karbonite].amount);
+            Assert.Equal(1200.0, loaded.RouteRunManifest.EndTransportResources["Ore"].amount);
+            Assert.True(loaded.RouteRunManifest.EndCaptured);
+            Assert.True(loaded.RouteRunManifest.IsComplete);
+        }
+
+        [Fact]
+        public void RouteRunManifest_RoundTripsViaScenarioMetadata()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "run-manifest-scenario",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { 11u },
+                    StartTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        ["MonoPropellant"] = new ResourceAmount { amount = 40.0, maxAmount = 40.0 }
+                    },
+                    EndCaptured = false
+                }
+            };
+
+            var node = new ConfigNode("RECORDING");
+            ParsekScenario.SaveRecordingMetadata(node, rec);
+
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+
+            Assert.NotNull(loaded.RouteRunManifest);
+            Assert.Equal(new List<uint> { 11u }, loaded.RouteRunManifest.TransportPartPersistentIds);
+            Assert.Equal(40.0, loaded.RouteRunManifest.StartTransportResources["MonoPropellant"].amount);
+            // A ForceStop-shaped start-only manifest must read back start-only:
+            // the analysis presence gate requires BOTH halves (round-2
+            // correction 5), so endCaptured may never invent itself on load.
+            Assert.False(loaded.RouteRunManifest.EndCaptured);
+            Assert.Null(loaded.RouteRunManifest.EndTransportResources);
+            Assert.False(loaded.RouteRunManifest.IsComplete);
+        }
+
+        [Fact]
+        public void RouteHarvestWindows_RoundTripViaTreeMetadata()
+        {
+            // FAILS IF: any harvest-window field (span, flags, manifests,
+            // converter ids, open-time location) is lost or reformatted on the
+            // tree persistence path - or an OPEN window's NaN EndUT does not
+            // read back as open.
+            var rec = new Recording
+            {
+                RecordingId = "harvest-windows-tree",
+                RouteHarvestWindows = new List<RouteHarvestWindow>
+                {
+                    new RouteHarvestWindow
+                    {
+                        WindowId = "harvest-1000",
+                        StartUT = 1000.0,
+                        EndUT = 1600.5,
+                        OpenedAtRecordingStart = true,
+                        ClosedAtRecordingStop = false,
+                        StartTransportResources = new Dictionary<string, ResourceAmount>
+                        {
+                            ["Ore"] = new ResourceAmount { amount = 0.0, maxAmount = 1500.0 }
+                        },
+                        EndTransportResources = new Dictionary<string, ResourceAmount>
+                        {
+                            ["Ore"] = new ResourceAmount { amount = 850.25, maxAmount = 1500.0 }
+                        },
+                        ActiveConverters = new List<string>
+                        {
+                            "100:ModuleResourceHarvester:Drill-O-Matic"
+                        },
+                        BodyName = "Minmus",
+                        Latitude = -0.55,
+                        Longitude = 78.25,
+                        Altitude = 2412.5,
+                        SituationAtOpen = (int)Vessel.Situations.LANDED
+                    },
+                    new RouteHarvestWindow
+                    {
+                        WindowId = "harvest-2000",
+                        StartUT = 2000.0,
+                        // EndUT NaN: still open at save time
+                        ClosedAtRecordingStop = true
+                    }
+                }
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
+
+            var loaded = new Recording { RecordingId = "harvest-windows-tree" };
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
+
+            Assert.NotNull(loaded.RouteHarvestWindows);
+            Assert.Equal(2, loaded.RouteHarvestWindows.Count);
+
+            RouteHarvestWindow first = loaded.RouteHarvestWindows[0];
+            Assert.Equal("harvest-1000", first.WindowId);
+            Assert.Equal(1000.0, first.StartUT);
+            Assert.Equal(1600.5, first.EndUT);
+            Assert.False(first.IsOpen);
+            Assert.True(first.OpenedAtRecordingStart);
+            Assert.False(first.ClosedAtRecordingStop);
+            Assert.Equal(0.0, first.StartTransportResources["Ore"].amount);
+            Assert.Equal(850.25, first.EndTransportResources["Ore"].amount);
+            Assert.Equal("100:ModuleResourceHarvester:Drill-O-Matic", first.ActiveConverters[0]);
+            Assert.Equal("Minmus", first.BodyName);
+            Assert.Equal(-0.55, first.Latitude);
+            Assert.Equal(78.25, first.Longitude);
+            Assert.Equal(2412.5, first.Altitude);
+            Assert.Equal((int)Vessel.Situations.LANDED, first.SituationAtOpen);
+
+            RouteHarvestWindow second = loaded.RouteHarvestWindows[1];
+            Assert.True(second.IsOpen);
+            Assert.True(double.IsNaN(second.EndUT));
+            Assert.True(second.ClosedAtRecordingStop);
+            Assert.Null(second.StartTransportResources);
+            Assert.Null(second.EndTransportResources);
+            Assert.Null(second.ActiveConverters);
+            Assert.True(string.IsNullOrEmpty(second.BodyName));
+            Assert.Equal(-1, second.SituationAtOpen);
+        }
+
+        [Fact]
+        public void RouteHarvestWindows_AbsentNode_ReadsBackNull()
+        {
+            var node = new ConfigNode("RECORDING");
+            var loaded = new Recording();
+
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
+
+            // Same null-preservation contract as the run manifest: a codec
+            // that lazily allocates a window list would widen the hasher gate
+            // for every old recording.
+            Assert.Null(loaded.RouteHarvestWindows);
+        }
+
+        [Fact]
+        public void RouteHarvestWindows_BuilderFixture_RoundTrips()
+        {
+            ConfigNode node = new Generators.RecordingBuilder("Drill Transport")
+                .WithHarvestWindow(
+                    1000.0, 1600.0,
+                    new Dictionary<string, ResourceAmount>
+                    {
+                        ["Ore"] = new ResourceAmount { amount = 0.0, maxAmount = 1500.0 }
+                    },
+                    new Dictionary<string, ResourceAmount>
+                    {
+                        ["Ore"] = new ResourceAmount { amount = 500.0, maxAmount = 1500.0 }
+                    },
+                    openedAtRecordingStart: true,
+                    bodyName: "Minmus",
+                    situationAtOpen: (int)Vessel.Situations.LANDED)
+                .BuildV3Metadata();
+
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+
+            Assert.NotNull(loaded.RouteHarvestWindows);
+            Assert.Single(loaded.RouteHarvestWindows);
+            Assert.Equal(500.0, loaded.RouteHarvestWindows[0].EndTransportResources["Ore"].amount);
+            Assert.True(loaded.RouteHarvestWindows[0].OpenedAtRecordingStart);
+        }
+
+        [Fact]
+        public void RouteRunManifest_BuilderFixture_RoundTrips()
+        {
+            // Pins the generator support (Post-Change Checklist): a
+            // RecordingBuilder fixture carrying a run manifest produces the
+            // production node shape.
+            ConfigNode node = new Generators.RecordingBuilder("Drill Transport")
+                .WithRouteRunManifest(
+                    new List<uint> { 100u, 200u },
+                    new Dictionary<string, ResourceAmount>
+                    {
+                        ["Ore"] = new ResourceAmount { amount = 0.0, maxAmount = 1500.0 }
+                    },
+                    new Dictionary<string, ResourceAmount>
+                    {
+                        ["Ore"] = new ResourceAmount { amount = 900.0, maxAmount = 1500.0 }
+                    },
+                    endCaptured: true)
+                .BuildV3Metadata();
+
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
+
+            Assert.NotNull(loaded.RouteRunManifest);
+            Assert.True(loaded.RouteRunManifest.IsComplete);
+            Assert.Equal(900.0, loaded.RouteRunManifest.EndTransportResources["Ore"].amount);
         }
 
         [Fact]

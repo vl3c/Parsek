@@ -187,7 +187,12 @@ namespace Parsek.Logistics
                     }
                 }
             }
-            if (!route.IsKscOrigin
+            // Harvest origins (M2, plan D7) have NO origin vessel: the Origin
+            // endpoint is a display-only harvest-site descriptor (pid 0), so
+            // there is nothing to resolve - skipping keeps the route from
+            // holding EndpointLost forever. The origin-cargo gate below still
+            // runs; the env answers true for harvest origins (nothing to gate).
+            if (!route.IsKscOrigin && !route.IsHarvestOrigin
                 && !env.TryResolveEndpoint(route.Origin, out string originReason))
             {
                 return new EligibilityResult(

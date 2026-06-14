@@ -244,6 +244,85 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, route.CompletedCycles);
         }
 
+        // catches (M2, plan D7): the live env's OriginHasCargo gating a
+        // harvest-origin route against a non-existent origin vessel. The
+        // harvest branch runs BEFORE any KSP-static touch (route flag check +
+        // log only), so it is directly assertable here: early-true with the
+        // rate-limited breadcrumb.
+        [Fact]
+        public void OriginHasCargo_HarvestOrigin_EarlyTrueWithBreadcrumb()
+        {
+            ParsekLog.VerboseOverrideForTesting = true;
+            var route = BuildLoopRoute(isKscOrigin: false);
+            route.IsHarvestOrigin = true;
+            route.CostManifest = new Dictionary<string, double>();
+            route.InventoryCostManifest = null;
+            var env = new LiveRouteRuntimeEnvironment();
+
+            bool hasCargo = env.OriginHasCargo(route, out string lacking);
+
+            Assert.True(hasCargo);
+            Assert.Equal(string.Empty, lacking);
+            Assert.Contains(logLines, l =>
+                l.Contains("OriginHasCargo") &&
+                l.Contains("harvest origin - no physical source to gate"));
+        }
+
+        // catches (M2, plan D7 / risk 8): a harvest-origin crossing either
+        // attempting a physical origin debit (there is no origin vessel -
+        // the seam must never be consulted) or dropping the
+        // RouteDispatched/RouteCargoDebited row pair (row-shape stability:
+        // the pair still emits as a structural no-op - empty manifest, zero
+        // funds, pid 0).
+        [Fact]
+        public void Crossing_HarvestOrigin_NoPhysicalDebit_RowsStillEmitted()
+        {
+            ParsekLog.VerboseOverrideForTesting = true;
+            var route = BuildLoopRoute(isKscOrigin: false);
+            route.IsHarvestOrigin = true;
+            route.CostManifest = new Dictionary<string, double>(); // empty by construction (D7)
+            route.Origin = new RouteEndpoint
+            {
+                VesselPersistentId = 0,
+                BodyName = "Minmus",
+                IsSurface = true
+            };
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit()); // span [1000,1300], cadence 300
+            InstallFakeDeliveryApplier();
+            bool originDebitSeamCalled = false;
+            RouteOrchestrator.OriginDebitApplierForTesting = (r, ut, e) =>
+            {
+                originDebitSeamCalled = true;
+                return default(RouteOrchestrator.OriginDebitOutcome);
+            };
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            // The full three-row cycle still emitted under one cycleId.
+            var dispatched = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteDispatched);
+            var debited = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDebited);
+            var delivered = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDelivered);
+            Assert.NotNull(dispatched);
+            Assert.NotNull(debited);
+            Assert.NotNull(delivered);
+            Assert.Equal("cycle-0", dispatched.RouteCycleId);
+            Assert.Equal("cycle-0", debited.RouteCycleId);
+            Assert.Equal("cycle-0", delivered.RouteCycleId);
+
+            // Structural no-op debit: empty manifest, zero funds, pid 0, no
+            // requested-on-shortfall - and NO physical write attempted.
+            Assert.False(originDebitSeamCalled,
+                "harvest origin must never attempt a physical origin debit");
+            Assert.Equal(0, debited.RouteResourceManifest?.Count ?? 0);
+            Assert.Null(debited.RouteRequestedResourceManifest);
+            Assert.Equal(0u, debited.RouteOriginVesselPid);
+            Assert.Equal(0f, debited.RouteKscFundsCost);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("harvest origin: physical origin debit skipped"));
+        }
+
         // catches: a loop-route reaching the legacy InTransit state machine (it
         // must NEVER set InTransit / PendingDeliveryUT / CurrentCycleStartUT).
         [Fact]

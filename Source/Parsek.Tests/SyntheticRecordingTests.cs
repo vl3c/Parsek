@@ -6246,6 +6246,11 @@ namespace Parsek.Tests
             writer.AddTree(SurfaceBaseR0Tree(baseUT));
             writer.AddTree(SurfaceGhostChainTree(baseUT));
 
+            // M2 synthetic drill-run tree (run manifests + two harvest windows
+            // + delivery window) so the harvest analysis / near-miss / route
+            // create path can be eyeballed in-game.
+            writer.AddTree(DrillHarvestRouteTree(baseUT));
+
             // Add real recordings from the default career (if available)
             var realRecordingNodes = AddRealCareerRecordings(writer, kspRoot);
 
@@ -6489,6 +6494,15 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Undock Upper Stage", content);
                     Assert.Contains("vesselName = Surviving Capsule", content);
                     Assert.Contains("vesselName = Destroyed Booster", content);
+                    // M2 synthetic drill-run tree (harvest provenance):
+                    // run manifests + harvest windows + delivery window must
+                    // serialize through the RouteProofCodec chokepoint.
+                    Assert.Contains("treeName = Minmus Drill Run", content);
+                    Assert.Contains("vesselName = Minmus Drill Run", content);
+                    Assert.Contains("vesselName = Minmus Drill Run Docked", content);
+                    Assert.Contains("ROUTE_RUN_MANIFEST", content);
+                    Assert.Contains("ROUTE_HARVEST_WINDOWS", content);
+                    Assert.Contains("ROUTE_CONNECTION_WINDOWS", content);
 
                     // The frozen real-career fixture is injected only after it has
                     // been rebaked to the current reset schema. Until then, the
@@ -7669,6 +7683,177 @@ namespace Parsek.Tests
                 UT = tDock,
                 Type = BranchPointType.Dock,
                 TargetVesselPersistentId = 8006,
+                MergeCause = "DOCK",
+                ParentRecordingIds = new List<string> { rootId },
+                ChildRecordingIds = new List<string> { mergedId }
+            });
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            return node;
+        }
+
+        /// <summary>
+        /// M2 synthetic drill-run tree (plan Phase 6 step 3): an undocked-start
+        /// Minmus mining run whose 120 harvested Ore is fully witnessed by TWO
+        /// harvest windows on the root leg, delivering 100 Ore through one
+        /// completed dock window. Both legs carry COMPLETE run cargo manifests,
+        /// so the M2 gain check engages and the tree analyzes Eligible as a
+        /// harvest-origin route - the analysis / near-miss / route-create path
+        /// can be eyeballed in the Logistics window, and
+        /// <c>LogisticsHarvestRuntimeTests.HarvestRoute_AnalyzesEligible_FromSyntheticRecording</c>
+        /// pins the verdict in-game with no live converters. Values mirror the
+        /// xUnit fixture (`RouteAnalysisEngineTests.BuildDrillRunTree`); the
+        /// tree id is hard-coded in the in-game test (assemblies cannot share
+        /// the constant) - keep them in sync.
+        /// </summary>
+        internal static ConfigNode DrillHarvestRouteTree(double baseUT = 0)
+        {
+            double t0 = baseUT + 500;
+            double tDock = t0 + 500;
+            double tEnd = tDock + 100;
+            string treeId = "tree-drill-harvest-m2";
+            string rootId = "m2-drill-root";
+            string mergedId = "m2-drill-dock";
+            const uint transportPartPid = 93001;
+            const uint colonyPartPid = 93002;
+            const uint colonyVesselPid = 9400;
+            const double minmusLat = 0.7;
+            const double minmusLon = 30.0;
+            const double minmusAlt = 5.0;
+
+            Dictionary<string, ResourceAmount> Ore(double amount) =>
+                new Dictionary<string, ResourceAmount>
+                {
+                    ["Ore"] = new ResourceAmount { amount = amount, maxAmount = 1000.0 }
+                };
+
+            RouteHarvestWindow HarvestWindow(double startUT, double endUT, double startOre, double endOre) =>
+                new RouteHarvestWindow
+                {
+                    WindowId = "m2-drill-hw-" + startUT.ToString("R", CultureInfo.InvariantCulture),
+                    StartUT = startUT,
+                    EndUT = endUT,
+                    StartTransportResources = Ore(startOre),
+                    EndTransportResources = Ore(endOre),
+                    ActiveConverters = new List<string>
+                    {
+                        transportPartPid.ToString(CultureInfo.InvariantCulture)
+                            + ":ModuleResourceHarvester:Surface Harvester"
+                    },
+                    BodyName = "Minmus",
+                    Latitude = minmusLat,
+                    Longitude = minmusLon,
+                    Altitude = minmusAlt,
+                    SituationAtOpen = 1 // Vessel.Situations.LANDED
+                };
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Minmus Drill Run",
+                RootRecordingId = rootId
+            };
+
+            // Root: the transport drills 120 Ore across two witnessed windows
+            // (0 -> 80, 80 -> 120) before docking at the colony. Undocked
+            // start (no KSC launch-site fields, no start-docked proof) - the
+            // full harvest coverage is what admits it as a harvest origin.
+            tree.Recordings[rootId] = new Recording
+            {
+                RecordingId = rootId,
+                TreeId = treeId,
+                VesselName = "Minmus Drill Run",
+                VesselPersistentId = 9301,
+                ChildBranchPointId = "m2-drill-bp",
+                ExplicitStartUT = t0,
+                ExplicitEndUT = tDock,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid },
+                    StartTransportResources = Ore(0.0),
+                    EndTransportResources = Ore(120.0),
+                    EndCaptured = true
+                },
+                RouteHarvestWindows = new List<RouteHarvestWindow>
+                {
+                    HarvestWindow(t0 + 50, t0 + 200, 0.0, 80.0),
+                    HarvestWindow(t0 + 250, t0 + 400, 80.0, 120.0)
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Minmus Drill Run", pid: 9301)
+                    .AsLanded(minmusLat, minmusLon, minmusAlt)
+                    .Build()
+            };
+
+            // Dock-merged child: carries the completed delivery window (dock
+            // with 120 Ore aboard, undock with 20 -> 100 delivered to the
+            // colony). The merged-stack run manifest spans both pid scopes;
+            // deliveries are internal to the stack so start == end.
+            tree.Recordings[mergedId] = new Recording
+            {
+                RecordingId = mergedId,
+                TreeId = treeId,
+                VesselName = "Minmus Drill Run Docked",
+                VesselPersistentId = 9302,
+                ParentBranchPointId = "m2-drill-bp",
+                ExplicitStartUT = tDock,
+                ExplicitEndUT = tEnd,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid, colonyPartPid },
+                    StartTransportResources = Ore(120.0),
+                    EndTransportResources = Ore(120.0),
+                    EndCaptured = true
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "m2-drill-delivery",
+                        DockUT = tDock,
+                        UndockUT = tEnd,
+                        TransferTargetVesselPid = colonyVesselPid,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        TransportPartPersistentIds = new List<uint> { transportPartPid },
+                        EndpointPartPersistentIds = new List<uint> { colonyPartPid },
+                        DockTransportResources = Ore(120.0),
+                        UndockTransportResources = Ore(20.0),
+                        DockEndpointResources = Ore(0.0),
+                        UndockEndpointResources = Ore(100.0),
+                        EndpointAtDock = new RouteEndpoint
+                        {
+                            VesselPersistentId = colonyVesselPid,
+                            BodyName = "Minmus",
+                            Latitude = minmusLat,
+                            Longitude = minmusLon + 0.05,
+                            Altitude = minmusAlt,
+                            IsSurface = true
+                        },
+                        TransferEndpointSituation = 1 // Vessel.Situations.LANDED
+                    }
+                },
+                TerminalStateValue = TerminalState.Landed,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Minmus",
+                    latitude = minmusLat,
+                    longitude = minmusLon + 0.05,
+                    altitude = minmusAlt,
+                    situation = SurfaceSituation.Landed
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Minmus Drill Run Docked", pid: 9302)
+                    .AsLanded(minmusLat, minmusLon + 0.05, minmusAlt)
+                    .Build()
+            };
+
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "m2-drill-bp",
+                UT = tDock,
+                Type = BranchPointType.Dock,
+                TargetVesselPersistentId = colonyVesselPid,
                 MergeCause = "DOCK",
                 ParentRecordingIds = new List<string> { rootId },
                 ChildRecordingIds = new List<string> { mergedId }

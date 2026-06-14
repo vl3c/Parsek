@@ -69,6 +69,40 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("starts undocked", text);
         }
 
+        // catches (M2, finding 12): the near-miss row dropping the
+        // untracked-gain quantity. The detail must hop RouteAnalysisResult ->
+        // RouteNearMiss.RejectDetail -> DescribeNearMiss ->
+        // FormatRejectMessage(status, detail), else the player sees only the
+        // generic text with no amount named.
+        [Fact]
+        public void DescribeNearMiss_UntrackedCargoGain_PassesDetailThrough()
+        {
+            string detail = "Ore: 120.0 gained, 100.0 harvested";
+
+            string text = LogisticsRejectPresentation.DescribeNearMiss(
+                RouteAnalysisStatus.UntrackedCargoGain,
+                notSealed: false, reflyableCount: 0, rejectDetail: detail);
+
+            Assert.Equal(
+                RouteCreationFormatters.FormatRejectMessage(
+                    RouteAnalysisStatus.UntrackedCargoGain, detail),
+                text);
+            Assert.Contains("(Ore: 120.0 gained, 100.0 harvested)", text);
+        }
+
+        // catches: the 3-arg overload (legacy call sites) drifting from the
+        // 4-arg null-detail rendering.
+        [Fact]
+        public void DescribeNearMiss_NullDetail_MatchesLegacyOverload()
+        {
+            Assert.Equal(
+                LogisticsRejectPresentation.DescribeNearMiss(
+                    RouteAnalysisStatus.UntrackedCargoGain, notSealed: false, reflyableCount: 0),
+                LogisticsRejectPresentation.DescribeNearMiss(
+                    RouteAnalysisStatus.UntrackedCargoGain,
+                    notSealed: false, reflyableCount: 0, rejectDetail: null));
+        }
+
         // ---- DescribeNearMiss: not-fully-sealed (the one new string) ----
 
         // catches: the singular noun for a single re-flyable recording.

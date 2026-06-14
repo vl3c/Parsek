@@ -38,6 +38,13 @@ namespace Parsek.Logistics
         internal RouteAnalysisStatus Status;
         internal bool NotSealed;
         internal int ReflyableCount;
+        /// <summary>
+        /// Optional reject quantifier copied from
+        /// <see cref="RouteAnalysisResult.RejectDetail"/> (M2, plan finding
+        /// 12) - e.g. the unaccounted <c>UntrackedCargoGain</c> amount. Null
+        /// for statuses without one and for the not-sealed family.
+        /// </summary>
+        internal string RejectDetail;
     }
 
     /// <summary>
@@ -122,7 +129,7 @@ namespace Parsek.Logistics
             // so it emits no per-tree INFO; the detailed per-tree reason is still
             // logged at INFO on the one-shot Create Route path (Diagnostic mode).
             int missingProof = 0, multiWindow = 0, missingEndpoint = 0,
-                mixedPickup = 0, noManifest = 0, undockedStart = 0;
+                mixedPickup = 0, noManifest = 0, undockedStart = 0, untrackedGain = 0;
             for (int i = 0; i < committedTrees.Count; i++)
             {
                 RecordingTree tree = committedTrees[i];
@@ -148,6 +155,7 @@ namespace Parsek.Logistics
                         case RouteAnalysisStatus.MixedPickupDelivery: mixedPickup++; break;
                         case RouteAnalysisStatus.NoDeliveryManifest: noManifest++; break;
                         case RouteAnalysisStatus.UndockedStartOrigin: undockedStart++; break;
+                        case RouteAnalysisStatus.UntrackedCargoGain: untrackedGain++; break;
                     }
                     continue;
                 }
@@ -167,7 +175,8 @@ namespace Parsek.Logistics
                 $"notSealed={notSealed} ineligible={ineligible} alreadyPromoted={alreadyPromoted} " +
                 $"[missingProof={missingProof} multiWindow={multiWindow} " +
                 $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} " +
-                $"noManifest={noManifest} undockedStart={undockedStart}]");
+                $"noManifest={noManifest} undockedStart={undockedStart} " +
+                $"untrackedGain={untrackedGain}]");
             return result;
         }
 
@@ -207,7 +216,7 @@ namespace Parsek.Logistics
             // Per-reason breakdown of the ineligible count, mirroring DeriveCandidates'
             // batch-summary convention (one Verbose line after the loop, never per item).
             int missingProof = 0, multiWindow = 0, missingEndpoint = 0,
-                mixedPickup = 0, noManifest = 0, undockedStart = 0;
+                mixedPickup = 0, noManifest = 0, undockedStart = 0, untrackedGain = 0;
             for (int i = 0; i < committedTrees.Count; i++)
             {
                 RecordingTree tree = committedTrees[i];
@@ -244,12 +253,16 @@ namespace Parsek.Logistics
                         case RouteAnalysisStatus.MixedPickupDelivery: mixedPickup++; break;
                         case RouteAnalysisStatus.NoDeliveryManifest: noManifest++; break;
                         case RouteAnalysisStatus.UndockedStartOrigin: undockedStart++; break;
+                        case RouteAnalysisStatus.UntrackedCargoGain: untrackedGain++; break;
                     }
                     result.Add(new RouteNearMiss
                     {
                         Tree = tree,
                         Status = status,
-                        NotSealed = false
+                        NotSealed = false,
+                        // M2 (plan finding 12): carry the reject quantifier so
+                        // the near-miss row can name the unaccounted amount.
+                        RejectDetail = analysis?.RejectDetail
                     });
                     continue;
                 }
@@ -262,7 +275,8 @@ namespace Parsek.Logistics
                 $"notSealed={notSealed} ineligible={ineligible} " +
                 $"[missingProof={missingProof} multiWindow={multiWindow} " +
                 $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} " +
-                $"noManifest={noManifest} undockedStart={undockedStart}]");
+                $"noManifest={noManifest} undockedStart={undockedStart} " +
+                $"untrackedGain={untrackedGain}]");
             return result;
         }
 

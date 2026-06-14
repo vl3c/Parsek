@@ -57,7 +57,25 @@ namespace Parsek.Logistics
             // flip every existing route to SourceChanged on the first revalidate pass —
             // keep the null-preservation contract.
             bool hasOrigin = rec.RouteOriginProof != null;
-            if (!hasWindows && !hasOrigin)
+            // M2 (plan D10 / review BLOCKER 3): the sentinel gate is widened so a
+            // recording carrying ONLY a run manifest (most lineage legs of a
+            // mining run) is hashable - without this, a rewrite dropping that
+            // data could never flip SourceChanged. Pre-M2 recordings lack all
+            // new-data forms, so their hashes stay byte-identical (pinned by
+            // Hash_PreM2Recording_ByteStable). Same null-vs-empty contract as
+            // the origin proof: the codec preserves null across save/load.
+            bool hasRunManifest = rec.RouteRunManifest != null;
+            bool hasHarvestWindows = rec.RouteHarvestWindows != null
+                && rec.RouteHarvestWindows.Count > 0;
+            // INTENTIONAL EXCLUSION (M2 review follow-up): the sticky
+            // Recording.RunManifestVoided tombstone is deliberately NOT hashed
+            // and NOT part of this gate - it is capture-lifecycle bookkeeping
+            // (prevents a BG-voided leg from re-capturing a START baseline),
+            // not part of the witnessed transfer. Including it would flip a
+            // route to SourceChanged the moment its source leg backgrounds,
+            // even though the witnessed proof data is unchanged. Pinned by
+            // Hash_UnchangedByRunManifestVoidedFlag.
+            if (!hasWindows && !hasOrigin && !hasRunManifest && !hasHarvestWindows)
                 return NoRouteProofSentinel;
 
             var sb = new StringBuilder();
@@ -129,6 +147,49 @@ namespace Parsek.Logistics
             else
             {
                 sb.Append("origin=null\n");
+            }
+
+            // M2 run manifest (plan D10): SPARSE-append - absent data emits
+            // NOTHING (no "=null" line), or every pre-M2 recording's hash would
+            // flip and RouteStore.RevalidateSources would mark all routes
+            // SourceChanged on the first revalidate pass.
+            if (hasRunManifest)
+            {
+                var rm = rec.RouteRunManifest;
+                AppendUintList(sb, "runManifest.transportPartPids", rm.TransportPartPersistentIds);
+                AppendResourceManifest(sb, "runManifest.startTransportRes", rm.StartTransportResources);
+                AppendResourceManifest(sb, "runManifest.endTransportRes", rm.EndTransportResources);
+                sb.Append("runManifest.endCaptured=").Append(rm.EndCaptured ? "1" : "0").Append('\n');
+            }
+
+            // M2 harvest windows (plan D10): SPARSE-append the witnessed
+            // quantities and span markers only.
+            // INTENTIONAL EXCLUSION (the M1 / D5 precedent above): the
+            // open-time location fields (BodyName/Latitude/Longitude/Altitude/
+            // SituationAtOpen) and the ActiveConverters strings are
+            // diagnostic / endpoint-resolution metadata, deliberately NOT
+            // hashed - the hash pins the witnessed transfer. Including them
+            // would make harmless resolution-metadata edits flip routes to
+            // SourceChanged. Pinned by Hash_IgnoresHarvestLocationAndConverterIds.
+            if (hasHarvestWindows)
+            {
+                sb.Append("harvestWindows.count=").Append(rec.RouteHarvestWindows.Count.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                for (int hi = 0; hi < rec.RouteHarvestWindows.Count; hi++)
+                {
+                    var hw = rec.RouteHarvestWindows[hi];
+                    string prefix = "harvestWindows[" + hi.ToString(CultureInfo.InvariantCulture) + "].";
+                    if (hw == null)
+                    {
+                        sb.Append(prefix).Append("null=1\n");
+                        continue;
+                    }
+                    sb.Append(prefix).Append("startUT=").Append(hw.StartUT.ToString("R", CultureInfo.InvariantCulture)).Append('\n');
+                    sb.Append(prefix).Append("endUT=").Append(hw.EndUT.ToString("R", CultureInfo.InvariantCulture)).Append('\n');
+                    sb.Append(prefix).Append("openedAtStart=").Append(hw.OpenedAtRecordingStart ? "1" : "0").Append('\n');
+                    sb.Append(prefix).Append("closedAtStop=").Append(hw.ClosedAtRecordingStop ? "1" : "0").Append('\n');
+                    AppendResourceManifest(sb, prefix + "startRes", hw.StartTransportResources);
+                    AppendResourceManifest(sb, prefix + "endRes", hw.EndTransportResources);
+                }
             }
 
             // SHA-256, hex-truncated to 16 chars. SHA-256 is overkill for

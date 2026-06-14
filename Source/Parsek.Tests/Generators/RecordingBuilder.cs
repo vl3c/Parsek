@@ -40,6 +40,8 @@ namespace Parsek.Tests.Generators
         private double terrainHeightAtEnd = double.NaN;
         private Dictionary<string, ResourceAmount> startResources;
         private Dictionary<string, ResourceAmount> endResources;
+        private RouteRunCargoManifest routeRunManifest;
+        private List<RouteHarvestWindow> routeHarvestWindows;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
@@ -377,6 +379,73 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        /// <summary>
+        /// M2 full-run cargo manifest (plan D3). Pass <c>endCaptured: false</c>
+        /// with a null <paramref name="endTransportResources"/> for a start-only
+        /// (ForceStop-shaped) manifest. Serialized via the
+        /// <c>RouteProofCodec</c> chokepoint in <see cref="BuildV3Metadata"/>.
+        /// </summary>
+        internal RecordingBuilder WithRouteRunManifest(
+            List<uint> transportPartPersistentIds,
+            Dictionary<string, ResourceAmount> startTransportResources,
+            Dictionary<string, ResourceAmount> endTransportResources,
+            bool endCaptured)
+        {
+            routeRunManifest = new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = transportPartPersistentIds,
+                StartTransportResources = startTransportResources,
+                EndTransportResources = endTransportResources,
+                EndCaptured = endCaptured
+            };
+            return this;
+        }
+
+        /// <summary>Returns the run cargo manifest (may be null).</summary>
+        internal RouteRunCargoManifest GetRouteRunManifest() => routeRunManifest;
+
+        /// <summary>
+        /// M2 harvest window (plan D4). Call once per window; an open window
+        /// uses <c>endUT: double.NaN</c> with a null end manifest.
+        /// </summary>
+        internal RecordingBuilder WithHarvestWindow(
+            double startUT,
+            double endUT,
+            Dictionary<string, ResourceAmount> startTransportResources,
+            Dictionary<string, ResourceAmount> endTransportResources,
+            bool openedAtRecordingStart = false,
+            bool closedAtRecordingStop = false,
+            string bodyName = null,
+            double latitude = 0.0,
+            double longitude = 0.0,
+            double altitude = 0.0,
+            int situationAtOpen = -1,
+            List<string> activeConverters = null)
+        {
+            if (routeHarvestWindows == null)
+                routeHarvestWindows = new List<RouteHarvestWindow>();
+            routeHarvestWindows.Add(new RouteHarvestWindow
+            {
+                WindowId = "harvest-" + startUT.ToString("R", CultureInfo.InvariantCulture),
+                StartUT = startUT,
+                EndUT = endUT,
+                OpenedAtRecordingStart = openedAtRecordingStart,
+                ClosedAtRecordingStop = closedAtRecordingStop,
+                StartTransportResources = startTransportResources,
+                EndTransportResources = endTransportResources,
+                BodyName = bodyName,
+                Latitude = latitude,
+                Longitude = longitude,
+                Altitude = altitude,
+                SituationAtOpen = situationAtOpen,
+                ActiveConverters = activeConverters
+            });
+            return this;
+        }
+
+        /// <summary>Returns the harvest window list (may be null).</summary>
+        internal List<RouteHarvestWindow> GetRouteHarvestWindows() => routeHarvestWindows;
+
         // --- v6 TrackSection builder methods ---
 
         /// <summary>
@@ -675,6 +744,11 @@ namespace Parsek.Tests.Generators
             // Resource manifests (Phase 11)
             SerializeResourceManifestInto(node);
 
+            // M2 route-proof metadata (sparse): routes through the same
+            // RouteProofCodec chokepoint both persistence paths use, so test
+            // fixtures exercise the production node shape.
+            SerializeRouteProofMetadataInto(node);
+
             return node;
         }
 
@@ -837,7 +911,28 @@ namespace Parsek.Tests.Generators
             // Resource manifests (Phase 11)
             SerializeResourceManifestInto(node);
 
+            // M2 route-proof metadata (sparse, same chokepoint as BuildV3Metadata)
+            SerializeRouteProofMetadataInto(node);
+
             return node;
+        }
+
+        /// <summary>
+        /// Serializes the M2 route-proof fields (run cargo manifest) through the
+        /// production <c>RouteProofCodec</c> chokepoint. No-op when unset, so
+        /// pre-M2 fixture nodes stay byte-identical.
+        /// </summary>
+        private void SerializeRouteProofMetadataInto(ConfigNode node)
+        {
+            if (routeRunManifest == null && routeHarvestWindows == null)
+                return;
+
+            var proofCarrier = new Recording
+            {
+                RouteRunManifest = routeRunManifest,
+                RouteHarvestWindows = routeHarvestWindows
+            };
+            RecordingStore.SerializeRouteProofMetadata(node, proofCarrier);
         }
 
         /// <summary>Returns the rewind save file name (may be null).</summary>

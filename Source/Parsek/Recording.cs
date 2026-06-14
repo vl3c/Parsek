@@ -269,6 +269,29 @@ namespace Parsek
         internal List<RouteConnectionWindow> RouteConnectionWindows;
         internal RouteOriginProof RouteOriginProof;
 
+        // Full-run transport-scoped cargo manifest (M2 / plan D3). null = no
+        // data (pre-M2 recording, BG-voided leg, or optimizer-split half) -
+        // the analysis presence gate degrades such trees to legacy behavior.
+        // See RouteRunCargoManifest for the START/END lifecycle contract.
+        internal RouteRunCargoManifest RouteRunManifest;
+
+        // Sticky background-void tombstone (M2 review follow-up): set when this
+        // leg transited background and its run manifest was voided. Without
+        // it, a null manifest is indistinguishable from never-captured, so a
+        // leg that voided before its first sample landed (still "at birth" by
+        // the payload check) could re-capture a mid-life START baseline on
+        // promotion. Checked by ShouldCaptureRunManifestStartHalf (voided ->
+        // never re-capture, fail-closed to legacy analysis). Bookkeeping only:
+        // deliberately EXCLUDED from RouteProofHasher - it is not part of the
+        // witnessed transfer.
+        public bool RunManifestVoided;
+
+        // Witnessed harvest windows (M2 / plan D4): converter-activity spans
+        // with start/end transport manifests. null = none witnessed (or pre-M2
+        // recording / optimizer-split half). Windows live on the recorder side
+        // during an active leg and land here via the active-stop capture.
+        internal List<RouteHarvestWindow> RouteHarvestWindows;
+
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
 
@@ -827,6 +850,13 @@ namespace Parsek
             TransferKind = source.TransferKind;
             RouteConnectionWindows = RouteProofMetadata.CloneConnectionWindows(source.RouteConnectionWindows);
             RouteOriginProof = source.RouteOriginProof != null ? source.RouteOriginProof.DeepClone() : null;
+            // M2 run-manifest + harvest-window forwarding (plan D14): rides the
+            // chain-commit / persistence-artifact path like the other
+            // route-proof fields. Null stays null - the codec/hasher
+            // null-preservation contract.
+            RouteRunManifest = source.RouteRunManifest != null ? source.RouteRunManifest.DeepClone() : null;
+            RunManifestVoided = source.RunManifestVoided;
+            RouteHarvestWindows = RouteProofMetadata.CloneHarvestWindows(source.RouteHarvestWindows);
             CrewEndStatesResolved = source.CrewEndStatesResolved;
             TerminalSpawnSupersededByRecordingId = source.TerminalSpawnSupersededByRecordingId;
 
@@ -927,6 +957,11 @@ namespace Parsek
             clone.RouteOriginProof = source.RouteOriginProof != null
                 ? source.RouteOriginProof.DeepClone()
                 : null;
+            clone.RouteRunManifest = source.RouteRunManifest != null
+                ? source.RouteRunManifest.DeepClone()
+                : null;
+            clone.RunManifestVoided = source.RunManifestVoided;
+            clone.RouteHarvestWindows = RouteProofMetadata.CloneHarvestWindows(source.RouteHarvestWindows);
             clone.FilesDirty = source.FilesDirty;
             clone.SidecarEpoch = source.SidecarEpoch;
             clone.SidecarLoadFailed = source.SidecarLoadFailed;

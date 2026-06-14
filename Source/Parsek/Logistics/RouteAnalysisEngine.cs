@@ -19,7 +19,17 @@ namespace Parsek.Logistics
         /// undocked with cargo already aboard and the cargo's source was never
         /// witnessed. Append-only value.
         /// </summary>
-        UndockedStartOrigin = 6
+        UndockedStartOrigin = 6,
+        /// <summary>
+        /// M2 gain-side flow closure (plan D6): the transport GAINED a
+        /// resource between the run start and the dock with no witnessed
+        /// source (no harvest window covers it). Only emitted when the
+        /// transport lineage carries complete run manifests (the presence
+        /// gate); legacy recordings can never produce it. The reject detail
+        /// names the resource and the gained/harvested quantities
+        /// (<see cref="RouteAnalysisResult.RejectDetail"/>). Append-only value.
+        /// </summary>
+        UntrackedCargoGain = 7
     }
 
     /// <summary>
@@ -43,6 +53,43 @@ namespace Parsek.Logistics
         public RouteConnectionWindow ConnectionWindow;
         public Dictionary<string, double> ResourceDeliveryManifest;
         public List<InventoryPayloadItem> InventoryDeliveryManifest;
+
+        /// <summary>
+        /// Optional reject quantifier (M2, plan finding 12), e.g.
+        /// <c>"Ore: 120.0 gained, 100.0 harvested"</c> for
+        /// <see cref="RouteAnalysisStatus.UntrackedCargoGain"/>. Threaded
+        /// through <see cref="RouteNearMiss.RejectDetail"/> and
+        /// <c>RouteCreationFormatters.FormatRejectMessage(status, detail)</c>
+        /// so the near-miss list shows the unaccounted amount. Null for every
+        /// status that carries no quantity.
+        /// </summary>
+        public string RejectDetail;
+
+        /// <summary>
+        /// Witnessed harvested totals per resource over the checked span
+        /// (windows + bridged boundary deltas), populated only when the M2
+        /// gain check ENGAGED (complete run manifests on the whole transport
+        /// lineage). Null on the legacy path. Feeds the D8 CostManifest
+        /// reduction in <c>RouteBuilder</c>.
+        /// </summary>
+        public Dictionary<string, double> HarvestedManifest;
+
+        /// <summary>
+        /// True when the run started undocked (no KSC launch, no start-docked
+        /// proof) but EVERY delivered resource is fully covered by witnessed
+        /// harvest (plan D6 refined gate): the run is Eligible as a
+        /// HARVEST-ORIGIN route (D7) - the environment, not a depot, supplied
+        /// the cargo.
+        /// </summary>
+        public bool IsHarvestOrigin;
+
+        /// <summary>
+        /// Earliest in-span harvest window (by StartUT) on the transport
+        /// lineage; its open-time location is the D7 harvest-origin display
+        /// endpoint. Null when the gain check did not engage or no window
+        /// fell inside the checked span.
+        /// </summary>
+        public RouteHarvestWindow FirstHarvestWindow;
 
         public bool IsEligible => Status == RouteAnalysisStatus.Eligible;
     }
@@ -120,7 +167,7 @@ namespace Parsek.Logistics
                 originRec = rootRec;
             }
 
-            return AnalyzeWindow(source, window, originRec, logMode);
+            return AnalyzeWindow(source, window, originRec, tree, logMode);
         }
 
         internal static RouteAnalysisResult AnalyzeRecording(
@@ -151,13 +198,17 @@ namespace Parsek.Logistics
                 return MissingProof(logMode);
 
             // Single-recording analysis: the recording IS the origin recording.
-            return AnalyzeWindow(recording, window, recording, logMode);
+            // No tree: the M2 gain check engages only when the recording is its
+            // own complete lineage (no parent links), else it degrades to the
+            // legacy path.
+            return AnalyzeWindow(recording, window, recording, null, logMode);
         }
 
         private static RouteAnalysisResult AnalyzeWindow(
             Recording source,
             RouteConnectionWindow window,
             Recording originRec,
+            RecordingTree tree,
             RouteAnalysisLogMode logMode)
         {
             if (!HasEndpointProof(window))
@@ -175,13 +226,25 @@ namespace Parsek.Logistics
                 };
             }
 
+            // M2 gain-side flow closure (plan D6): resolve the transport
+            // lineage and run the gain check. ENGAGED only when every lineage
+            // leg carries a COMPLETE run manifest; otherwise the result is
+            // LegacyFallback (logged once per analysis inside) and the
+            // pre-M2 path below runs byte-identically.
+            HarvestGainCheckResult gainCheck =
+                RouteHarvestAnalysis.CheckTransportGains(tree, source, window, logMode);
+            bool harvestEngaged = gainCheck.Outcome != HarvestGainOutcome.LegacyFallback;
+
             // M1 workflow gate (design D7): an undocked-start run carries cargo
             // whose source was never witnessed, so it can never dispatch.
-            // Ordering: after the endpoint-proof check, before the
-            // manifest-level complaints (the workflow error outranks them).
-            // RouteBuilder's endpoint-missing reject stays as the defensive
-            // backstop at create time.
-            if (IsUndockedStartOrigin(originRec))
+            // Ordering (legacy path): after the endpoint-proof check, before
+            // the manifest-level complaints (the workflow error outranks them).
+            // On the harvest-data path the verdict is DEFERRED (plan finding
+            // 11, two-phase gate): the refined gate below needs harvested
+            // totals AND the delivery manifest, so it runs after the gain
+            // check. RouteBuilder's endpoint-missing reject stays as the
+            // defensive backstop at create time.
+            if (!harvestEngaged && IsUndockedStartOrigin(originRec))
             {
                 Diag(logMode,
                     $"RouteAnalysis rejected: undocked-start origin originRec={originRec?.RecordingId ?? "<none>"} " +
@@ -209,7 +272,8 @@ namespace Parsek.Logistics
                 };
             }
 
-            Dictionary<string, double> resources = BuildResourceDeliveryManifest(window);
+            Dictionary<string, double> resources =
+                BuildResourceDeliveryManifest(window, source?.RecordingId, logMode);
             List<InventoryPayloadItem> inventory = BuildInventoryDeliveryManifest(window);
 
             if ((resources == null || resources.Count == 0) &&
@@ -224,6 +288,82 @@ namespace Parsek.Logistics
                     SourceRecording = source,
                     ConnectionWindow = window
                 };
+            }
+
+            // M2 gain verdict (plan D6): a positive transport gain with no
+            // witnessed harvest rejects with the exact unaccounted quantity
+            // named. Runs after the manifest build (the gain check needs the
+            // same window data) and only on the harvest-data path.
+            if (harvestEngaged && gainCheck.Outcome == HarvestGainOutcome.UntrackedGain)
+            {
+                Diag(logMode,
+                    $"RouteAnalysis rejected: untracked cargo gain resource={gainCheck.RejectResource} " +
+                    $"gained={gainCheck.RejectGained.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"harvested={gainCheck.RejectHarvested.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"source={source?.RecordingId ?? "<none>"}");
+                return new RouteAnalysisResult
+                {
+                    Status = RouteAnalysisStatus.UntrackedCargoGain,
+                    SourceRecording = source,
+                    ConnectionWindow = window,
+                    RejectDetail = gainCheck.RejectDetail,
+                    HarvestedManifest = gainCheck.HarvestedManifest,
+                    FirstHarvestWindow = gainCheck.FirstHarvestWindow
+                };
+            }
+
+            // M2 refined undocked-start gate (plan D6, two-phase): on the
+            // harvest-data path the deferred verdict lands here. Undocked
+            // start stays rejected when the run delivers INVENTORY (no
+            // harvest provenance exists for inventory in M2) or when any
+            // delivered resource exceeds its witnessed harvested total; a
+            // fully-harvest-covered delivery becomes Eligible as a
+            // HARVEST-ORIGIN run (D7).
+            bool isHarvestOrigin = false;
+            if (harvestEngaged && IsUndockedStartOrigin(originRec))
+            {
+                string undockedRejectReason = null;
+                if (inventory != null && inventory.Count > 0)
+                {
+                    undockedRejectReason = "inventory-delivery-not-harvestable";
+                }
+                else if (resources != null)
+                {
+                    foreach (KeyValuePair<string, double> kvp in resources)
+                    {
+                        double harvestedAmount = 0.0;
+                        gainCheck.HarvestedManifest?.TryGetValue(kvp.Key, out harvestedAmount);
+                        if (kvp.Value > harvestedAmount + RouteHarvestAnalysis.GainEpsilon)
+                        {
+                            undockedRejectReason =
+                                $"delivered-exceeds-harvested resource={kvp.Key} " +
+                                $"delivered={kvp.Value.ToString("R", CultureInfo.InvariantCulture)} " +
+                                $"harvested={harvestedAmount.ToString("R", CultureInfo.InvariantCulture)}";
+                            break;
+                        }
+                    }
+                }
+
+                if (undockedRejectReason != null)
+                {
+                    Diag(logMode,
+                        $"RouteAnalysis rejected: undocked-start origin (harvest-refined) " +
+                        $"originRec={originRec?.RecordingId ?? "<none>"} reason={undockedRejectReason}");
+                    return new RouteAnalysisResult
+                    {
+                        Status = RouteAnalysisStatus.UndockedStartOrigin,
+                        SourceRecording = source,
+                        ConnectionWindow = window,
+                        HarvestedManifest = gainCheck.HarvestedManifest,
+                        FirstHarvestWindow = gainCheck.FirstHarvestWindow
+                    };
+                }
+
+                isHarvestOrigin = true;
+                Diag(logMode,
+                    $"RouteAnalysis: undocked start fully harvest-covered -> harvest origin " +
+                    $"originRec={originRec?.RecordingId ?? "<none>"} " +
+                    $"resources={resources?.Count ?? 0}");
             }
 
             // Backing-mission render geometry (RouteBackingMission) keys its
@@ -244,7 +384,9 @@ namespace Parsek.Logistics
             Diag(logMode,
                 $"RouteAnalysis eligible: source={source?.RecordingId ?? "<none>"} " +
                 $"window={window.WindowId ?? "<none>"} resources={resources?.Count ?? 0} " +
-                $"inventory={inventory?.Count ?? 0}");
+                $"inventory={inventory?.Count ?? 0} " +
+                $"harvestData={(harvestEngaged ? "1" : "0")} " +
+                $"harvestOrigin={(isHarvestOrigin ? "1" : "0")}");
 
             return new RouteAnalysisResult
             {
@@ -252,7 +394,10 @@ namespace Parsek.Logistics
                 SourceRecording = source,
                 ConnectionWindow = window,
                 ResourceDeliveryManifest = resources,
-                InventoryDeliveryManifest = inventory
+                InventoryDeliveryManifest = inventory,
+                HarvestedManifest = harvestEngaged ? gainCheck.HarvestedManifest : null,
+                IsHarvestOrigin = isHarvestOrigin,
+                FirstHarvestWindow = harvestEngaged ? gainCheck.FirstHarvestWindow : null
             };
         }
 
@@ -328,21 +473,22 @@ namespace Parsek.Logistics
                 || HasInventoryPickup(window, out reason);
         }
 
-        // ElectricCharge and IntakeAir are environmental noise, never meaningful
-        // supply cargo: a docked transport recharges its batteries from the depot
-        // and its IntakeAir reading drifts between the dock and undock snapshots,
-        // so either can show a spurious per-resource delta on an otherwise clean
-        // delivery-only run. Design section 5.3 rule 7 ("after EC/IntakeAir
-        // filtering") and section 6 ("EC-only delivery ... remains excluded")
-        // filter them out of BOTH the pickup gate and the delivery manifest,
-        // matching VesselSpawner.ExtractResourceManifest. These two are the only
-        // always-ignored resources the design names.
+        // EC/IntakeAir are the always-ignored environmental-noise resources.
+        // The rule text lives on ResourceTransferability.IsAlwaysIgnored (M2
+        // D1: the transferability rule has one authority).
         private static bool IsIgnoredResource(string name)
         {
-            return name == "ElectricCharge" || name == "IntakeAir";
+            return ResourceTransferability.IsAlwaysIgnored(name);
         }
 
-        private static bool HasResourcePickup(RouteConnectionWindow window, out string reason)
+        // D2 direction-sensitivity (M2): this is a REJECTION-direction check,
+        // so UNDEFINED resource names deliberately stay visible here - an
+        // undefined-name pickup must keep rejecting MixedPickupDelivery.
+        // Skipping undefined names here would let a resource-mod uninstall
+        // flip a recorded pickup rejection into Eligible (fail-open). The
+        // undefined-name exclusion applies only to ADMISSION-direction
+        // outputs (BuildResourceDeliveryManifest).
+        internal static bool HasResourcePickup(RouteConnectionWindow window, out string reason)
         {
             reason = null;
 
@@ -409,8 +555,10 @@ namespace Parsek.Logistics
             return false;
         }
 
-        private static Dictionary<string, double> BuildResourceDeliveryManifest(
-            RouteConnectionWindow window)
+        internal static Dictionary<string, double> BuildResourceDeliveryManifest(
+            RouteConnectionWindow window,
+            string recordingId,
+            RouteAnalysisLogMode logMode)
         {
             var delivery = new Dictionary<string, double>();
             AddResourceDeliveryKeys(delivery, window.DockEndpointResources);
@@ -425,13 +573,25 @@ namespace Parsek.Logistics
             {
                 string name = names[i];
 
-                // EC/IntakeAir are environmental noise (see IsIgnoredResource):
-                // never list them as delivered cargo, so an EC-only "delivery"
-                // (transport charges the depot's batteries) yields an empty
-                // manifest and the candidate is rejected as no-delivery rather
-                // than treated as an EC supply run (design section 6).
-                if (IsIgnoredResource(name))
+                // M2 transferability rule (ResourceTransferability, D1/D2):
+                // this is the ADMISSION direction, so two exclusions apply.
+                // EC/IntakeAir are environmental noise: never list them as
+                // delivered cargo, so an EC-only "delivery" (transport charges
+                // the depot's batteries) yields an empty manifest and the
+                // candidate is rejected as no-delivery rather than treated as
+                // an EC supply run (design section 6); silent, pre-M2
+                // behavior. An UNDEFINED name (its defining mod was
+                // uninstalled) is excluded AND logged - the recording degrades
+                // to NoDeliveryManifest instead of routing a phantom resource,
+                // and reinstalling the mod restores it. HasResourcePickup
+                // (rejection direction) deliberately keeps seeing undefined
+                // names - see the comment there.
+                if (!ResourceTransferability.IsRoutableResource(name, out string excludeReason))
+                {
+                    if (excludeReason == ResourceTransferability.ReasonUndefined)
+                        LogUndefinedResourceExclusion(logMode, name, recordingId);
                     continue;
+                }
 
                 double endpointGain =
                     GetResourceAmount(window.UndockEndpointResources, name) -
@@ -447,6 +607,29 @@ namespace Parsek.Logistics
             }
 
             return delivery.Count > 0 ? delivery : null;
+        }
+
+        // M2 logging plan row 1: the undefined-name admission skip. One-shot
+        // callers (Diagnostic: commit-time / the Create Route dialog) log per
+        // name at Info; the ~1/second candidate sweep (Quiet) folds into one
+        // shared rate-limited key so the poll cannot spam. Per-name logging is
+        // fine in Diagnostic mode: distinct resource names per window are
+        // bounded well under the ~20-item batch-counter threshold.
+        private static void LogUndefinedResourceExclusion(
+            RouteAnalysisLogMode logMode,
+            string name,
+            string recordingId)
+        {
+            string message =
+                $"Resource excluded: name={name} " +
+                $"reason={ResourceTransferability.ReasonUndefined} " +
+                $"recording={recordingId ?? "<none>"}";
+
+            if (logMode == RouteAnalysisLogMode.Diagnostic)
+                ParsekLog.Info(RouteOrchestrator.Tag, message);
+            else
+                ParsekLog.VerboseRateLimited(
+                    RouteOrchestrator.Tag, "resource-excluded-undefined", message);
         }
 
         private static void AddResourceDeliveryKeys(

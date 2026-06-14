@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Parsek;
 using Parsek.Logistics;
+using Parsek.Tests.Generators;
 using Xunit;
 
 namespace Parsek.Tests.Logistics
@@ -20,10 +21,12 @@ namespace Parsek.Tests.Logistics
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ResourceTransferability.ResetForTesting();
         }
 
         public void Dispose()
         {
+            ResourceTransferability.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -212,6 +215,300 @@ namespace Parsek.Tests.Logistics
             string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
 
             Assert.NotEqual(hashA, hashB);
+        }
+
+        // catches (M2 resource generality): a stock-name assumption in the
+        // canonical hash lines - CRP-named manifests must hash exactly as
+        // deterministically as stock names, and the NAME must participate
+        // (renaming a witnessed resource is a different witnessed transfer).
+        [Fact]
+        public void Hash_CrpNames_DeterministicAndNameSensitive()
+        {
+            Recording crpA = RecordingWithCrpProof();
+            Recording crpB = RecordingWithCrpProof();
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(crpA);
+            string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(crpB);
+
+            Assert.Equal(hashA, hashB);
+            Assert.NotEqual(RouteProofHasher.NoRouteProofSentinel, hashA);
+
+            // Same amounts under a different resource name set: stock-name
+            // baseline must hash differently.
+            Assert.NotEqual(
+                RouteProofHasher.ComputeRouteProofHashFromRecording(RecordingWithProof()),
+                hashA);
+        }
+
+        // catches (M2 D2 boundary pin): the transferability rule leaking into
+        // the hash. The hash pins the witnessed transfer, name-agnostically;
+        // whether a name currently has a PartResourceDefinition (mod installed
+        // or not) must not change the fingerprint, or uninstalling a resource
+        // mod would flip every affected route to SourceChanged on load.
+        [Fact]
+        public void Hash_IndependentOfResourceDefinitionLookup()
+        {
+            Recording rec = RecordingWithCrpProof();
+
+            ResourceTransferability.DefinitionLookupOverrideForTesting = _ => true;
+            string hashAllDefined = RouteProofHasher.ComputeRouteProofHashFromRecording(rec);
+
+            ResourceTransferability.DefinitionLookupOverrideForTesting = _ => false;
+            string hashNoneDefined = RouteProofHasher.ComputeRouteProofHashFromRecording(rec);
+
+            Assert.Equal(hashAllDefined, hashNoneDefined);
+        }
+
+        // RecordingWithProof with the resource names swapped to the shared
+        // CRP fixture set (amounts/pids unchanged), including the deliberately
+        // UNDEFINED name: capture and hashing are name-agnostic, so even an
+        // uninstalled mod's resource stays part of the fingerprint.
+        private static Recording RecordingWithCrpProof()
+        {
+            Recording rec = RecordingWithProof();
+            RouteConnectionWindow window = rec.RouteConnectionWindows[0];
+            window.DockTransportResources = new Dictionary<string, ResourceAmount>
+            {
+                { CrpFixtures.Karbonite, new ResourceAmount { amount = 1000.0, maxAmount = 1000.0 } }
+            };
+            window.UndockTransportResources = new Dictionary<string, ResourceAmount>
+            {
+                { CrpFixtures.Karbonite, new ResourceAmount { amount = 250.0, maxAmount = 1000.0 } }
+            };
+            window.DockEndpointResources = new Dictionary<string, ResourceAmount>
+            {
+                { CrpFixtures.MetallicOre, new ResourceAmount { amount = 500.0, maxAmount = 500.0 } }
+            };
+            window.UndockEndpointResources = new Dictionary<string, ResourceAmount>
+            {
+                { CrpFixtures.MetallicOre, new ResourceAmount { amount = 1250.0, maxAmount = 1500.0 } },
+                { CrpFixtures.UninstalledModResource, new ResourceAmount { amount = 12.25, maxAmount = 50.0 } }
+            };
+            rec.RouteOriginProof.StartTransportResources = new Dictionary<string, ResourceAmount>
+            {
+                { CrpFixtures.Supplies, new ResourceAmount { amount = 200.0, maxAmount = 200.0 } }
+            };
+            return rec;
+        }
+
+        // catches (M2 D10 gate pin / review BLOCKER 3): the sentinel gate not
+        // widened - a recording carrying ONLY a run manifest (most lineage legs
+        // of a mining run) must be hashable, or a rewrite dropping the manifest
+        // could never flip SourceChanged.
+        [Fact]
+        public void Hash_RunManifestOnlyRecording_NotSentinel()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-run-manifest-only",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { 100u, 200u },
+                    StartTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        { "Ore", new ResourceAmount { amount = 0.0, maxAmount = 1500.0 } }
+                    },
+                    EndTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        { "Ore", new ResourceAmount { amount = 1200.0, maxAmount = 1500.0 } }
+                    },
+                    EndCaptured = true
+                }
+            };
+
+            string hash = RouteProofHasher.ComputeRouteProofHashFromRecording(rec);
+
+            Assert.NotEqual(RouteProofHasher.NoRouteProofSentinel, hash);
+            Assert.Equal(hash, RouteProofHasher.ComputeRouteProofHashFromRecording(rec));
+        }
+
+        // catches: the run-manifest quantities not participating in the
+        // fingerprint - a rewrite that changes the witnessed start/end amounts
+        // must flip the hash.
+        [Fact]
+        public void Hash_ChangesWhenRunManifestPresent()
+        {
+            Recording recA = RecordingWithProof();
+            string hashWithout = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
+
+            Recording recB = RecordingWithProof();
+            recB.RouteRunManifest = new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = new List<uint> { 11u, 22u },
+                StartTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    { "Ore", new ResourceAmount { amount = 0.0, maxAmount = 100.0 } }
+                },
+                EndCaptured = false
+            };
+            string hashWith = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
+
+            Assert.NotEqual(hashWithout, hashWith);
+
+            // ...and the quantity itself is load-bearing.
+            recB.RouteRunManifest.StartTransportResources["Ore"] =
+                new ResourceAmount { amount = 50.0, maxAmount = 100.0 };
+            Assert.NotEqual(hashWith, RouteProofHasher.ComputeRouteProofHashFromRecording(recB));
+        }
+
+        // catches: the explicit completion marker not participating - a
+        // start-only manifest and a complete-with-no-resources manifest are
+        // different witnessed states (round-2 correction 5).
+        [Fact]
+        public void Hash_ChangesOnRunManifestEndCaptured()
+        {
+            var recA = new Recording
+            {
+                RecordingId = "rec-end-captured",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { 11u },
+                    EndCaptured = false
+                }
+            };
+            string startOnly = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
+
+            recA.RouteRunManifest.EndCaptured = true;
+            string complete = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
+
+            Assert.NotEqual(startOnly, complete);
+        }
+
+        private static RouteHarvestWindow HarvestWindowFixture()
+        {
+            return new RouteHarvestWindow
+            {
+                WindowId = "harvest-1000",
+                StartUT = 1000.0,
+                EndUT = 1600.5,
+                OpenedAtRecordingStart = true,
+                ClosedAtRecordingStop = false,
+                StartTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    { "Ore", new ResourceAmount { amount = 0.0, maxAmount = 1500.0 } }
+                },
+                EndTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    { "Ore", new ResourceAmount { amount = 850.25, maxAmount = 1500.0 } }
+                }
+            };
+        }
+
+        // catches (M2 D10 gate pin / review BLOCKER 3): a recording carrying
+        // ONLY harvest windows must be hashable - the sentinel gate covers all
+        // four data forms.
+        [Fact]
+        public void Hash_HarvestOnlyRecording_NotSentinel()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-harvest-only",
+                RouteHarvestWindows = new List<RouteHarvestWindow> { HarvestWindowFixture() }
+            };
+
+            string hash = RouteProofHasher.ComputeRouteProofHashFromRecording(rec);
+
+            Assert.NotEqual(RouteProofHasher.NoRouteProofSentinel, hash);
+            Assert.Equal(hash, RouteProofHasher.ComputeRouteProofHashFromRecording(rec));
+        }
+
+        // catches: harvest-window quantities or span markers not participating
+        // in the fingerprint.
+        [Fact]
+        public void Hash_ChangesOnHarvestWindowQuantitiesAndSpan()
+        {
+            Recording recA = RecordingWithProof();
+            string baseline = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
+
+            Recording recB = RecordingWithProof();
+            recB.RouteHarvestWindows = new List<RouteHarvestWindow> { HarvestWindowFixture() };
+            string withWindow = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
+            Assert.NotEqual(baseline, withWindow);
+
+            recB.RouteHarvestWindows[0].EndTransportResources["Ore"] =
+                new ResourceAmount { amount = 1.0, maxAmount = 1500.0 };
+            string changedQuantity = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
+            Assert.NotEqual(withWindow, changedQuantity);
+
+            recB.RouteHarvestWindows[0].EndTransportResources["Ore"] =
+                new ResourceAmount { amount = 850.25, maxAmount = 1500.0 };
+            recB.RouteHarvestWindows[0].StartUT = 999.0;
+            Assert.NotEqual(withWindow, RouteProofHasher.ComputeRouteProofHashFromRecording(recB));
+        }
+
+        // catches (M2 D10 exclusion pin, the M1 D5 precedent): the open-time
+        // location fields and ActiveConverters strings leaking into the hash.
+        // They are resolution/diagnostic metadata, not the witnessed transfer -
+        // including them would flip routes to SourceChanged on harmless
+        // metadata edits.
+        [Fact]
+        public void Hash_IgnoresHarvestLocationAndConverterIds()
+        {
+            var recA = new Recording
+            {
+                RecordingId = "rec-harvest-loc",
+                RouteHarvestWindows = new List<RouteHarvestWindow> { HarvestWindowFixture() }
+            };
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
+
+            var recB = new Recording
+            {
+                RecordingId = "rec-harvest-loc",
+                RouteHarvestWindows = new List<RouteHarvestWindow> { HarvestWindowFixture() }
+            };
+            recB.RouteHarvestWindows[0].BodyName = "Minmus";
+            recB.RouteHarvestWindows[0].Latitude = -0.55;
+            recB.RouteHarvestWindows[0].Longitude = 78.25;
+            recB.RouteHarvestWindows[0].Altitude = 2412.5;
+            recB.RouteHarvestWindows[0].SituationAtOpen = 1;
+            recB.RouteHarvestWindows[0].ActiveConverters = new List<string>
+            {
+                "100:ModuleResourceHarvester:Drill-O-Matic"
+            };
+            string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
+
+            Assert.Equal(hashA, hashB);
+        }
+
+        // catches (M2 review follow-up MINOR 3): the sticky RunManifestVoided
+        // tombstone leaking into the hash or its gate. It is capture-lifecycle
+        // bookkeeping, not the witnessed transfer - hashing it would flip a
+        // route to SourceChanged the moment its source leg backgrounds.
+        [Fact]
+        public void Hash_UnchangedByRunManifestVoidedFlag()
+        {
+            Recording recA = RecordingWithProof();
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
+
+            Recording recB = RecordingWithProof();
+            recB.RunManifestVoided = true;
+            Assert.Equal(hashA, RouteProofHasher.ComputeRouteProofHashFromRecording(recB));
+
+            // The flag alone does not make a proof-less recording hashable
+            // either - it stays at the sentinel like any pre-M2 recording.
+            var voidedOnly = new Recording
+            {
+                RecordingId = "voided-only",
+                RunManifestVoided = true
+            };
+            Assert.Equal(RouteProofHasher.NoRouteProofSentinel,
+                RouteProofHasher.ComputeRouteProofHashFromRecording(voidedOnly));
+        }
+
+        // catches (M2 D10 byte-stability pin): ANY drift in the canonical bytes
+        // emitted for a recording WITHOUT the M2 run-manifest / harvest-window
+        // fields. The constant below was computed against the pre-M2 hasher
+        // (gate = windows||origin only, no sparse-append blocks); the widened
+        // gate and the appended blocks must emit NOTHING for absent data, so
+        // every pre-M2 recording keeps this exact fingerprint and
+        // RouteStore.RevalidateSources never flips existing routes to
+        // SourceChanged on load.
+        [Fact]
+        public void Hash_PreM2Recording_ByteStable()
+        {
+            Recording rec = RecordingWithProof();
+            Assert.Equal(
+                "538f2b91a99a6139",
+                RouteProofHasher.ComputeRouteProofHashFromRecording(rec));
         }
 
         // catches: the origin endpoint descriptor fields (M1 / D5) leaking into

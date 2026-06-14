@@ -8,6 +8,8 @@ namespace Parsek
     {
         private const string RouteOriginProofNode = "ROUTE_ORIGIN_PROOF";
         private const string RouteConnectionWindowsNode = "ROUTE_CONNECTION_WINDOWS";
+        private const string RouteRunManifestNode = "ROUTE_RUN_MANIFEST";
+        private const string RouteHarvestWindowsNode = "ROUTE_HARVEST_WINDOWS";
         private const string StoredPartSnapshotNode = "STOREDPART_SNAPSHOT";
         private const string StockStoredPartNode = "STOREDPART";
 
@@ -39,6 +41,41 @@ namespace Parsek
                 wroteOriginProof = true;
             }
 
+            // M2 run manifest (plan D3): additive sparse node - written only
+            // when the manifest carries data, so pre-M2 saves are byte-stable
+            // and absent nodes read back as null (never lazily allocated; the
+            // RouteProofHasher null-vs-empty contract depends on this).
+            bool wroteRunManifest = false;
+            if (HasRunManifestData(rec.RouteRunManifest))
+            {
+                SerializeRunManifest(parent.AddNode(RouteRunManifestNode), rec.RouteRunManifest);
+                wroteRunManifest = true;
+            }
+
+            // Sticky BG-void tombstone (M2 review follow-up): sparse, written
+            // only when set, so pre-void saves stay byte-identical.
+            if (rec.RunManifestVoided)
+                parent.AddValue("runManifestVoided", rec.RunManifestVoided.ToString());
+
+            // M2 harvest windows (plan D4): additive sparse node, same
+            // null-preservation contract as the run manifest.
+            int writtenHarvestWindows = 0;
+            if (rec.RouteHarvestWindows != null && rec.RouteHarvestWindows.Count > 0)
+            {
+                ConfigNode harvestNode = null;
+                for (int i = 0; i < rec.RouteHarvestWindows.Count; i++)
+                {
+                    RouteHarvestWindow window = rec.RouteHarvestWindows[i];
+                    if (window == null)
+                        continue;
+
+                    if (harvestNode == null)
+                        harvestNode = parent.AddNode(RouteHarvestWindowsNode);
+                    SerializeHarvestWindow(harvestNode.AddNode("WINDOW"), window);
+                    writtenHarvestWindows++;
+                }
+            }
+
             if (rec.RouteConnectionWindows != null && rec.RouteConnectionWindows.Count > 0)
             {
                 ConfigNode windowsNode = null;
@@ -55,12 +92,14 @@ namespace Parsek
                 }
             }
 
-            if (wroteTargetPid || wroteTransferKind || wroteOriginProof || writtenWindows > 0)
+            if (wroteTargetPid || wroteTransferKind || wroteOriginProof || wroteRunManifest
+                || writtenWindows > 0 || writtenHarvestWindows > 0)
                 ParsekLog.Verbose("RecordingStore",
                     $"SerializeRouteProofMetadata: recording={rec.RecordingId} " +
                     $"targetPid={(wroteTargetPid ? rec.TransferTargetVesselPid.ToString(ic) : "none")} " +
                     $"kind={(wroteTransferKind ? rec.TransferKind.ToString() : "none")} " +
-                    $"originProof={wroteOriginProof} windows={writtenWindows}");
+                    $"originProof={wroteOriginProof} runManifest={wroteRunManifest} " +
+                    $"windows={writtenWindows} harvestWindows={writtenHarvestWindows}");
         }
 
         internal static void DeserializeRouteProofMetadata(ConfigNode parent, Recording rec)
@@ -82,6 +121,38 @@ namespace Parsek
             ConfigNode originNode = parent.GetNode(RouteOriginProofNode);
             if (originNode != null)
                 rec.RouteOriginProof = DeserializeOriginProof(originNode);
+
+            // Absent node -> RouteRunManifest stays null (old-shape recordings
+            // and BG-voided legs); the codec must never lazily allocate or the
+            // hasher's null-vs-empty contract flips every route to SourceChanged.
+            ConfigNode runManifestNode = parent.GetNode(RouteRunManifestNode);
+            if (runManifestNode != null)
+                rec.RouteRunManifest = DeserializeRunManifest(runManifestNode);
+
+            // Sticky BG-void tombstone: absent value keeps the field default
+            // (false) so pre-void recordings read back unchanged.
+            string voidedStr = parent.GetValue("runManifestVoided");
+            if (voidedStr != null && bool.TryParse(voidedStr, out bool voided))
+                rec.RunManifestVoided = voided;
+
+            // Absent node -> RouteHarvestWindows stays null (same contract).
+            ConfigNode harvestWindowsNode = parent.GetNode(RouteHarvestWindowsNode);
+            if (harvestWindowsNode != null)
+            {
+                ConfigNode[] harvestNodes = harvestWindowsNode.GetNodes("WINDOW");
+                if (harvestNodes.Length > 0)
+                {
+                    rec.RouteHarvestWindows = new List<RouteHarvestWindow>(harvestNodes.Length);
+                    for (int i = 0; i < harvestNodes.Length; i++)
+                    {
+                        RouteHarvestWindow window = DeserializeHarvestWindow(harvestNodes[i]);
+                        if (window != null)
+                            rec.RouteHarvestWindows.Add(window);
+                    }
+                    if (rec.RouteHarvestWindows.Count == 0)
+                        rec.RouteHarvestWindows = null;
+                }
+            }
 
             ConfigNode windowsNode = parent.GetNode(RouteConnectionWindowsNode);
             if (windowsNode == null)
@@ -105,6 +176,140 @@ namespace Parsek
 
             ParsekLog.Verbose("RecordingStore",
                 $"DeserializeRouteProofMetadata: loaded {loaded} connection window(s) for recording={rec.RecordingId}");
+        }
+
+        private static bool HasRunManifestData(RouteRunCargoManifest manifest)
+        {
+            return manifest != null
+                && (HasEntries(manifest.TransportPartPersistentIds)
+                    || HasEntries(manifest.StartTransportResources)
+                    || HasEntries(manifest.EndTransportResources)
+                    || manifest.EndCaptured);
+        }
+
+        private static void SerializeRunManifest(ConfigNode node, RouteRunCargoManifest manifest)
+        {
+            SerializePartPidList(node, "TRANSPORT_PART_PIDS", manifest.TransportPartPersistentIds);
+            SerializeResourceManifest(node, "START_TRANSPORT_RESOURCES", manifest.StartTransportResources);
+            SerializeResourceManifest(node, "END_TRANSPORT_RESOURCES", manifest.EndTransportResources);
+            // Sparse: written only when true (mirrors the lastHoldKind exemplar
+            // style). EndCaptured=true with an absent END_TRANSPORT_RESOURCES
+            // node is a COMPLETE manifest for a resource-less vessel.
+            if (manifest.EndCaptured)
+                node.AddValue("endCaptured", manifest.EndCaptured.ToString());
+            // NO inventory fields in M2 - deferred to M3 (plan finding 13); the
+            // sparse node shape makes adding them later free.
+        }
+
+        private static RouteRunCargoManifest DeserializeRunManifest(ConfigNode node)
+        {
+            var manifest = new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = DeserializePartPidList(node, "TRANSPORT_PART_PIDS"),
+                StartTransportResources = DeserializeResourceManifest(node, "START_TRANSPORT_RESOURCES"),
+                EndTransportResources = DeserializeResourceManifest(node, "END_TRANSPORT_RESOURCES"),
+            };
+
+            string endCapturedStr = node.GetValue("endCaptured");
+            if (endCapturedStr != null && bool.TryParse(endCapturedStr, out bool endCaptured))
+                manifest.EndCaptured = endCaptured;
+
+            return manifest;
+        }
+
+        private static void SerializeHarvestWindow(ConfigNode node, RouteHarvestWindow window)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            if (!string.IsNullOrEmpty(window.WindowId))
+                node.AddValue("windowId", window.WindowId);
+            if (!double.IsNaN(window.StartUT))
+                node.AddValue("startUT", window.StartUT.ToString("R", ic));
+            if (!double.IsNaN(window.EndUT))
+                node.AddValue("endUT", window.EndUT.ToString("R", ic));
+            if (window.OpenedAtRecordingStart)
+                node.AddValue("openedAtRecordingStart", window.OpenedAtRecordingStart.ToString());
+            if (window.ClosedAtRecordingStop)
+                node.AddValue("closedAtRecordingStop", window.ClosedAtRecordingStop.ToString());
+
+            SerializeResourceManifest(node, "START_TRANSPORT_RESOURCES", window.StartTransportResources);
+            SerializeResourceManifest(node, "END_TRANSPORT_RESOURCES", window.EndTransportResources);
+
+            if (window.ActiveConverters != null && window.ActiveConverters.Count > 0)
+            {
+                ConfigNode convertersNode = node.AddNode("ACTIVE_CONVERTERS");
+                for (int i = 0; i < window.ActiveConverters.Count; i++)
+                {
+                    if (!string.IsNullOrEmpty(window.ActiveConverters[i]))
+                        convertersNode.AddValue("converter", window.ActiveConverters[i]);
+                }
+            }
+
+            // Open-time location (harvest-origin endpoint resolution metadata).
+            if (!string.IsNullOrEmpty(window.BodyName))
+            {
+                node.AddValue("bodyName", window.BodyName);
+                node.AddValue("latitude", window.Latitude.ToString("R", ic));
+                node.AddValue("longitude", window.Longitude.ToString("R", ic));
+                node.AddValue("altitude", window.Altitude.ToString("R", ic));
+            }
+            if (window.SituationAtOpen >= 0)
+                node.AddValue("situationAtOpen", window.SituationAtOpen.ToString(ic));
+        }
+
+        private static RouteHarvestWindow DeserializeHarvestWindow(ConfigNode node)
+        {
+            if (node == null)
+                return null;
+
+            var window = new RouteHarvestWindow();
+            var inv = NumberStyles.Float;
+            var ic = CultureInfo.InvariantCulture;
+
+            window.WindowId = node.GetValue("windowId");
+
+            string startUTStr = node.GetValue("startUT");
+            if (startUTStr != null && double.TryParse(startUTStr, inv, ic, out double startUT))
+                window.StartUT = startUT;
+
+            string endUTStr = node.GetValue("endUT");
+            if (endUTStr != null && double.TryParse(endUTStr, inv, ic, out double endUT))
+                window.EndUT = endUT;
+
+            string openedAtStartStr = node.GetValue("openedAtRecordingStart");
+            if (openedAtStartStr != null && bool.TryParse(openedAtStartStr, out bool openedAtStart))
+                window.OpenedAtRecordingStart = openedAtStart;
+
+            string closedAtStopStr = node.GetValue("closedAtRecordingStop");
+            if (closedAtStopStr != null && bool.TryParse(closedAtStopStr, out bool closedAtStop))
+                window.ClosedAtRecordingStop = closedAtStop;
+
+            window.StartTransportResources = DeserializeResourceManifest(node, "START_TRANSPORT_RESOURCES");
+            window.EndTransportResources = DeserializeResourceManifest(node, "END_TRANSPORT_RESOURCES");
+
+            ConfigNode convertersNode = node.GetNode("ACTIVE_CONVERTERS");
+            if (convertersNode != null)
+            {
+                string[] converterValues = convertersNode.GetValues("converter");
+                if (converterValues != null && converterValues.Length > 0)
+                    window.ActiveConverters = new List<string>(converterValues);
+            }
+
+            window.BodyName = node.GetValue("bodyName");
+            if (double.TryParse(node.GetValue("latitude"), inv, ic, out double latitude))
+                window.Latitude = latitude;
+            if (double.TryParse(node.GetValue("longitude"), inv, ic, out double longitude))
+                window.Longitude = longitude;
+            if (double.TryParse(node.GetValue("altitude"), inv, ic, out double altitude))
+                window.Altitude = altitude;
+
+            string situationStr = node.GetValue("situationAtOpen");
+            if (situationStr != null
+                && int.TryParse(situationStr, NumberStyles.Integer, ic, out int situation))
+            {
+                window.SituationAtOpen = situation;
+            }
+
+            return window;
         }
 
         private static bool HasOriginProofData(RouteOriginProof proof)

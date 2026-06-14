@@ -595,6 +595,48 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("origin-lacks-LiquidFuel", decision.Reason);
         }
 
+        // catches (M2, plan D7): a harvest-origin route held EndpointLost
+        // forever because the evaluator tried to resolve its display-only
+        // origin endpoint (pid 0 - no origin vessel exists). Origin endpoint
+        // resolution must be SKIPPED for harvest origins, exactly like KSC;
+        // stop endpoints still resolve, and the cargo gate still runs (the
+        // env answers true - nothing to gate).
+        [Fact]
+        public void CheckEligibility_HarvestOrigin_SkipsOriginResolutionAndCargo()
+        {
+            var route = MakeDueRoute();
+            route.IsKscOrigin = false;
+            route.IsHarvestOrigin = true;
+            route.Origin = new RouteEndpoint
+            {
+                VesselPersistentId = 0,
+                BodyName = "Minmus",
+                IsSurface = true
+            };
+            route.CostManifest = new Dictionary<string, double>(); // empty by construction
+            var env = new FakeRouteRuntimeEnvironment
+            {
+                // Resolve only the stop pid; the origin (pid 0) would FAIL -
+                // proving the evaluator never asks for it.
+                EndpointResolver = ep => ep.VesselPersistentId == 42u
+                    ? (true, string.Empty)
+                    : (false, "origin-should-not-be-resolved")
+            };
+
+            var elig = RouteDispatchEvaluator.CheckEligibility(route, 200.0, env);
+
+            Assert.True(elig.Eligible,
+                $"harvest origin must skip origin resolution, got {elig.Kind} ({elig.Reason})");
+
+            // Control: the SAME shape without the harvest flag fails at the
+            // origin endpoint, proving the skip is what admitted it.
+            route.IsHarvestOrigin = false;
+            var control = RouteDispatchEvaluator.CheckEligibility(route, 200.0, env);
+            Assert.Equal(
+                RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost, control.Kind);
+            Assert.StartsWith("origin-", control.Reason);
+        }
+
         // catches: a fully-covered origin being held at the cargo gate. The
         // route proceeds past gate 6 to the later gates (for a non-KSC origin
         // the Career funds gate is skipped by design, so "passes" lands on

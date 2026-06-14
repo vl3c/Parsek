@@ -275,6 +275,372 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(4242u, outcome.Route.Origin.VesselPersistentId);
         }
 
+        // catches (M2, plan D7): a harvest-origin analysis (undocked start,
+        // fully harvest-covered) not building a route, or building one whose
+        // origin endpoint / cost manifests are wrong. The origin must be the
+        // FIRST harvest window's open location with pid 0, IsSurface from
+        // SituationAtOpen, and the CostManifest must be EMPTY (harvested
+        // cargo debits nothing - 19.2.2 item 3).
+        [Fact]
+        public void BuildRoute_HarvestOrigin_BuildsLocationEndpoint_EmptyCostManifest()
+        {
+            Recording source = MakeNoOriginSource();
+            RouteAnalysisResult analysis = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = source,
+                ConnectionWindow = source.RouteConnectionWindows[0],
+                ResourceDeliveryManifest = new Dictionary<string, double>
+                {
+                    { "Ore", 100.0 }
+                },
+                // Harvest origins never deliver inventory (the refined gate
+                // rejects inventory deliveries as UndockedStartOrigin).
+                InventoryDeliveryManifest = null,
+                IsHarvestOrigin = true,
+                HarvestedManifest = new Dictionary<string, double> { { "Ore", 120.0 } },
+                FirstHarvestWindow = new RouteHarvestWindow
+                {
+                    WindowId = "hw",
+                    StartUT = 5050.0,
+                    EndUT = 5090.0,
+                    BodyName = "Minmus",
+                    Latitude = -0.55,
+                    Longitude = 78.25,
+                    Altitude = 2412.5,
+                    SituationAtOpen = 1 // LANDED
+                }
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Null(outcome.RejectReason);
+            Assert.True(outcome.Route.IsHarvestOrigin);
+            Assert.False(outcome.Route.IsKscOrigin);
+            // Display-only endpoint from the first window's open location.
+            Assert.Equal(0u, outcome.Route.Origin.VesselPersistentId);
+            Assert.Equal("Minmus", outcome.Route.Origin.BodyName);
+            Assert.Equal(-0.55, outcome.Route.Origin.Latitude);
+            Assert.Equal(78.25, outcome.Route.Origin.Longitude);
+            Assert.Equal(2412.5, outcome.Route.Origin.Altitude);
+            Assert.True(outcome.Route.Origin.IsSurface);
+            // Harvested cargo debits NOTHING; delivery stays untouched.
+            Assert.Empty(outcome.Route.CostManifest);
+            Assert.Empty(outcome.Route.InventoryCostManifest);
+            Assert.Equal(100.0, outcome.Route.Stops[0].DeliveryManifest["Ore"]);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("Built route") &&
+                l.Contains("origin=harvest"));
+        }
+
+        // catches (M2, plan D7 backstop): an IsHarvestOrigin analysis WITHOUT
+        // a first harvest window cannot resolve a display endpoint and must
+        // fall to the defensive endpoint-missing reject, never NRE.
+        [Fact]
+        public void BuildRoute_HarvestOriginWithoutWindow_RejectsEndpointMissing()
+        {
+            Recording source = MakeNoOriginSource();
+            RouteAnalysisResult analysis = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = source,
+                ConnectionWindow = source.RouteConnectionWindows[0],
+                ResourceDeliveryManifest = new Dictionary<string, double>
+                {
+                    { "Ore", 100.0 }
+                },
+                IsHarvestOrigin = true,
+                FirstHarvestWindow = null
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.Null(outcome.Route);
+            Assert.Equal("endpoint-missing", outcome.RejectReason);
+        }
+
+        // catches (M2, plan D8): a docked-origin run with witnessed harvest
+        // keeping the full delivery as its depot debit. The CostManifest must
+        // be reduced per resource by the harvested amount (max(0, ...)), with
+        // zero entries REMOVED, while the delivery manifest stays untouched.
+        [Fact]
+        public void BuildRoute_DockedOriginWithHarvest_CostManifestReducedByHarvested()
+        {
+            Recording source = MakeNonKscSource(originPid: 4242);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+            // Delivery is 50 LiquidFuel (EligibleAnalysisFromSource); 20 of it
+            // was witnessed harvested en route -> debit basis 30.
+            analysis.HarvestedManifest = new Dictionary<string, double>
+            {
+                { "LiquidFuel", 20.0 }
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.False(outcome.Route.IsHarvestOrigin);
+            Assert.Equal(30.0, outcome.Route.CostManifest["LiquidFuel"], 6);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("costManifestReducedByHarvest=[LiquidFuel:50->30]"));
+        }
+
+        // catches (M2, plan D8 / finding 16): a resource fully covered by
+        // harvest leaving a zero ENTRY in the CostManifest (it must be
+        // REMOVED), and the reduction leaking into the stop's delivery
+        // manifest (delivery stays what the recording witnessed).
+        [Fact]
+        public void BuildRoute_DockedOriginWithHarvest_DeliveryManifestUnchanged()
+        {
+            Recording source = MakeNonKscSource(originPid: 4242);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+            // Harvested >= delivered: the LiquidFuel debit entry is removed.
+            analysis.HarvestedManifest = new Dictionary<string, double>
+            {
+                { "LiquidFuel", 60.0 }
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.False(outcome.Route.CostManifest.ContainsKey("LiquidFuel"));
+            // Delivery manifests untouched (D8: delivery is what the recording
+            // witnessed; only the DEBIT basis shrinks).
+            Assert.Equal(50.0, outcome.Route.Stops[0].DeliveryManifest["LiquidFuel"], 6);
+            Assert.Single(outcome.Route.InventoryCostManifest);
+            Assert.Contains(logLines, l =>
+                l.Contains("costManifestReducedByHarvest=[LiquidFuel:50->removed]"));
+        }
+
+        // catches (M2 review follow-up NIT 6): a fully-harvested delivery
+        // whose subtraction leaves double-rounding residue keeping a
+        // float-residue debit entry. "Zero" is RouteHarvestAnalysis.GainEpsilon,
+        // not exact 0.0 - residue at or below it removes the entry; a real
+        // remainder above it stays.
+        [Fact]
+        public void ReduceCostManifestByHarvested_FloatResidue_RemovedAtGainEpsilon()
+        {
+            var costManifest = new Dictionary<string, double>
+            {
+                { "Ore", 50.0 },
+                { "LiquidFuel", 50.0 }
+            };
+            var harvested = new Dictionary<string, double>
+            {
+                // Residue 1e-9 (positive, below GainEpsilon): must remove.
+                { "Ore", 50.0 - 1e-9 },
+                // Real remainder above epsilon: must keep.
+                { "LiquidFuel", 50.0 - 1e-3 }
+            };
+
+            RouteBuilder.ReduceCostManifestByHarvested(
+                costManifest, harvested, CultureInfo.InvariantCulture);
+
+            Assert.False(costManifest.ContainsKey("Ore"));
+            Assert.True(costManifest.ContainsKey("LiquidFuel"));
+            Assert.Equal(1e-3, costManifest["LiquidFuel"], 9);
+            Assert.Contains(logLines, l => l.Contains("costManifestReducedByHarvest=")
+                && l.Contains("Ore:50->removed"));
+        }
+
+        // catches: KSC routes' CostManifest semantics changing (the funds
+        // basis is OQ1 / Phase 6 work, NOT D8) - harvested data on a KSC run
+        // must leave the cost manifest as the full delivery clone.
+        [Fact]
+        public void BuildRoute_KscOriginWithHarvest_CostManifestUnchanged()
+        {
+            Recording source = MakeKscSource();
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+            analysis.HarvestedManifest = new Dictionary<string, double>
+            {
+                { "LiquidFuel", 60.0 }
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.True(outcome.Route.IsKscOrigin);
+            Assert.Equal(50.0, outcome.Route.CostManifest["LiquidFuel"], 6);
+        }
+
+        // End-to-end pin for the CANONICAL DEPOT DRILL RUN (M2 scenario
+        // family 4, depot variant): start DOCKED at the depot (combined
+        // root, RouteOriginProof), undock (split child = the transport),
+        // drill 120 Ore witnessed by a harvest window, dock at the colony
+        // (merge child carries the delivery window). The engine must analyze
+        // Eligible as a DOCKED origin (not harvest origin) with the
+        // harvested manifest populated, and the built route's CostManifest
+        // must drop the fully-harvested Ore entry (D8) while delivery stays
+        // 100 Ore.
+        [Fact]
+        public void BuildRoute_DepotDrillRun_EndToEnd_AnalysisThroughDebitReduction()
+        {
+            RecordingTree tree = BuildDepotDrillRunTree(
+                out Recording root, out Recording solo, out Recording merge);
+
+            RouteAnalysisResult analysis = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.True(analysis.IsEligible,
+                $"depot drill run must analyze Eligible, got {analysis.Status}");
+            Assert.False(analysis.IsHarvestOrigin,
+                "a start-docked depot run is a DOCKED origin, not a harvest origin");
+            Assert.NotNull(analysis.HarvestedManifest);
+            Assert.Equal(120.0, analysis.HarvestedManifest["Ore"], 6);
+            Assert.Equal(100.0, analysis.ResourceDeliveryManifest["Ore"], 6);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 600.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.False(outcome.Route.IsKscOrigin);
+            Assert.False(outcome.Route.IsHarvestOrigin);
+            Assert.Equal(7777u, outcome.Route.Origin.VesselPersistentId);
+            // D8: delivery 100 Ore fully covered by 120 harvested -> the
+            // depot is debited NOTHING for it (entry removed).
+            Assert.False(outcome.Route.CostManifest.ContainsKey("Ore"));
+            Assert.Equal(100.0, outcome.Route.Stops[0].DeliveryManifest["Ore"], 6);
+        }
+
+        // Canonical depot-run tree (mirrors the RouteHarvestAnalysisTests
+        // fixture): root = combined depot+transport (scope {100, 200}, docked
+        // origin proof), Undock BP -> solo transport (scope {100}, drills 120
+        // Ore in a witnessed window), Dock BP -> merge child (scope
+        // {100, 300}) carrying the colony delivery window. All legs carry
+        // COMPLETE run manifests so the M2 gain check engages.
+        private static RecordingTree BuildDepotDrillRunTree(
+            out Recording root, out Recording solo, out Recording merge)
+        {
+            Dictionary<string, ResourceAmount> OreAt(double amount)
+            {
+                return new Dictionary<string, ResourceAmount>
+                {
+                    ["Ore"] = new ResourceAmount { amount = amount, maxAmount = 1000.0 }
+                };
+            }
+            RouteRunCargoManifest Manifest(uint[] pids, double startOre, double endOre)
+            {
+                return new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint>(pids),
+                    StartTransportResources = OreAt(startOre),
+                    EndTransportResources = OreAt(endOre),
+                    EndCaptured = true
+                };
+            }
+
+            root = new Recording
+            {
+                RecordingId = "depot-root",
+                TreeId = "tree-depot-e2e",
+                TreeOrder = 0,
+                StartBodyName = "Minmus",
+                RouteOriginProof = new RouteOriginProof { StartDockedOriginVesselPid = 7777 },
+                RouteRunManifest = Manifest(new uint[] { 100, 200 }, 0.0, 0.0)
+            }.WithUtSpan(0.0, 100.0);
+            solo = new Recording
+            {
+                RecordingId = "depot-solo",
+                TreeId = "tree-depot-e2e",
+                TreeOrder = 1,
+                ParentBranchPointId = "bp-undock",
+                RouteRunManifest = Manifest(new uint[] { 100 }, 0.0, 120.0),
+                RouteHarvestWindows = new List<RouteHarvestWindow>
+                {
+                    new RouteHarvestWindow
+                    {
+                        WindowId = "hw-drill",
+                        StartUT = 150.0,
+                        EndUT = 400.0,
+                        StartTransportResources = OreAt(0.0),
+                        EndTransportResources = OreAt(120.0),
+                        BodyName = "Minmus",
+                        Latitude = 5.0,
+                        Longitude = 6.0,
+                        Altitude = 7.0,
+                        SituationAtOpen = 1
+                    }
+                }
+            }.WithUtSpan(100.0, 500.0);
+            merge = new Recording
+            {
+                RecordingId = "depot-merge",
+                TreeId = "tree-depot-e2e",
+                TreeOrder = 2,
+                ParentBranchPointId = "bp-dock",
+                RouteRunManifest = Manifest(new uint[] { 100, 300 }, 120.0, 120.0),
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "w-colony",
+                        DockUT = 500.0,
+                        UndockUT = 600.0,
+                        TransferTargetVesselPid = 9001,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        TransportPartPersistentIds = new List<uint> { 100 },
+                        EndpointPartPersistentIds = new List<uint> { 300 },
+                        DockTransportResources = OreAt(120.0),
+                        UndockTransportResources = OreAt(20.0),
+                        DockEndpointResources = OreAt(0.0),
+                        UndockEndpointResources = OreAt(100.0),
+                        EndpointAtDock = MakeMunEndpoint(),
+                        TransferEndpointSituation = 1
+                    }
+                }
+            }.WithUtSpan(500.0, 600.0);
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-depot-e2e",
+                RootRecordingId = root.RecordingId,
+                ActiveRecordingId = merge.RecordingId
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(solo);
+            tree.AddOrReplaceRecording(merge);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-undock",
+                UT = 100.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { root.RecordingId },
+                ChildRecordingIds = new List<string> { solo.RecordingId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock",
+                UT = 500.0,
+                Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { solo.RecordingId },
+                ChildRecordingIds = new List<string> { merge.RecordingId }
+            });
+            return tree;
+        }
+
+        // IsSurfaceSituation: surface situations (LANDED=1, SPLASHED=2,
+        // PRELAUNCH=4) classify true; flight/orbit and unknown classify false.
+        [Theory]
+        [InlineData(1, true)]   // LANDED
+        [InlineData(2, true)]   // SPLASHED
+        [InlineData(4, true)]   // PRELAUNCH
+        [InlineData(8, false)]  // FLYING
+        [InlineData(16, false)] // SUB_ORBITAL
+        [InlineData(32, false)] // ORBITING
+        [InlineData(64, false)] // ESCAPING
+        [InlineData(-1, false)] // unknown
+        [InlineData(0, false)]  // unset
+        public void IsSurfaceSituation_ClassifiesSurfaceSituations(int situation, bool expected)
+        {
+            Assert.Equal(expected, RouteBuilder.IsSurfaceSituation(situation));
+        }
+
         [Fact]
         public void BuildRoute_DockedOrigin_WithDescriptor_BuildsSurfaceEndpoint()
         {

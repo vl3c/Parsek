@@ -346,6 +346,60 @@ namespace Parsek.Tests.Logistics
             Assert.True(roundTripped.IsLoopRoute);
         }
 
+        // catches (M2, plan D7): the sparse isHarvestOrigin key - false (every
+        // pre-M2 route) must write NOTHING (byte-stable saves), true must
+        // round-trip, absent must read back false.
+        [Fact]
+        public void RoundTrip_IsHarvestOrigin_SparseKey()
+        {
+            var leanStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "Ore", 100.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+
+            // Default (false): the key is omitted and reads back false.
+            var plainRoute = new RouteFixtureBuilder()
+                .WithId("plain-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .Build();
+            var plainNode = new ConfigNode("ROUTE");
+            plainRoute.SerializeInto(plainNode);
+            Assert.False(plainNode.HasValue("isHarvestOrigin"),
+                "isHarvestOrigin must be omitted when false (sparse key)");
+            Route plainBack = Route.DeserializeFrom(plainNode);
+            Assert.NotNull(plainBack);
+            Assert.False(plainBack.IsHarvestOrigin);
+
+            // Harvest origin: the key is written and round-trips true.
+            var harvestRoute = new RouteFixtureBuilder()
+                .WithId("harvest-route")
+                .WithHarvestOrigin()
+                .WithOrigin(new RouteEndpoint
+                {
+                    VesselPersistentId = 0,
+                    BodyName = "Minmus",
+                    Latitude = 10.0,
+                    Longitude = 20.0,
+                    Altitude = 30.0,
+                    IsSurface = true
+                })
+                .WithStop(leanStop)
+                .Build();
+            var harvestNode = new ConfigNode("ROUTE");
+            harvestRoute.SerializeInto(harvestNode);
+            Assert.True(harvestNode.HasValue("isHarvestOrigin"));
+            Route harvestBack = Route.DeserializeFrom(harvestNode);
+            Assert.NotNull(harvestBack);
+            Assert.True(harvestBack.IsHarvestOrigin);
+            Assert.Equal("Minmus", harvestBack.Origin.BodyName);
+            Assert.Equal(0u, harvestBack.Origin.VesselPersistentId);
+        }
+
         // T-CODEC (logistics-recovery-credit section 5.6): the recovery-credit
         // pending marker (cycle id + dispatch UT) round-trips when set.
         [Fact]

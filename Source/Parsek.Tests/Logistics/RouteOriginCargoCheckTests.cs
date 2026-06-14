@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Parsek;
 using Parsek.Logistics;
+using Parsek.Tests.Generators;
 using Xunit;
 
 namespace Parsek.Tests.Logistics
@@ -117,6 +118,39 @@ namespace Parsek.Tests.Logistics
 
             Assert.False(ok);
             Assert.Equal("null-stored-reader", lacking);
+        }
+
+        // catches (M2 resource generality): the origin-cargo gate is
+        // name-agnostic - CRP-style mod resources gate exactly like stock
+        // names, covered passes and the first short CRP resource is named
+        // ordinally with its shortfall.
+        [Fact]
+        public void HasRequired_CrpNames_CoveredAndShort()
+        {
+            var manifest = new Dictionary<string, double>
+            {
+                { CrpFixtures.Supplies, 200.0 },
+                { CrpFixtures.Karbonite, 80.0 },
+            };
+            var covered = new Dictionary<string, double>
+            {
+                { CrpFixtures.Supplies, 200.0 },
+                { CrpFixtures.Karbonite, 100.0 },
+            };
+            Assert.True(RouteOriginCargoCheck.HasRequired(
+                manifest, Reader(covered), out string lackingCovered, out _));
+            Assert.Equal(string.Empty, lackingCovered);
+
+            var shortStored = new Dictionary<string, double>
+            {
+                { CrpFixtures.Supplies, 50.0 },
+                { CrpFixtures.Karbonite, 10.0 },
+            };
+            Assert.False(RouteOriginCargoCheck.HasRequired(
+                manifest, Reader(shortStored), out string lacking, out double shortfall));
+            // "Karbonite" sorts before "Supplies" ordinally.
+            Assert.Equal(CrpFixtures.Karbonite, lacking);
+            Assert.Equal(70.0, shortfall); // 80 required - 10 stored
         }
 
         // catches (D6): a non-KSC route with inventory payload NOT holding

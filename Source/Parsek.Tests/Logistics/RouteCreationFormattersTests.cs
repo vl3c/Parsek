@@ -172,6 +172,50 @@ namespace Parsek.Tests.Logistics
                     "Reject copy must be plain ASCII (found non-ASCII char)");
         }
 
+        [Fact]
+        public void FormatRejectMessage_UntrackedCargoGain_NamesQuantity()
+        {
+            // catches (M2, D6 / finding 12): the untracked-gain rejection not
+            // surfacing the exact unaccounted quantity. The detail-carrying
+            // overload must embed the detail verbatim; the detail-less call
+            // must still render the full guidance without an empty "()".
+            string detail = "Ore: 120.0 gained, 100.0 harvested";
+            string msg = RouteCreationFormatters.FormatRejectMessage(
+                RouteAnalysisStatus.UntrackedCargoGain, detail);
+
+            Assert.Contains("gained cargo during this run with no recorded source", msg);
+            Assert.Contains("(Ore: 120.0 gained, 100.0 harvested)", msg);
+            Assert.Contains("record the mining with the drill or converter running", msg);
+            Assert.Contains("re-record without the unexplained gain", msg);
+
+            string withoutDetail = RouteCreationFormatters.FormatRejectMessage(
+                RouteAnalysisStatus.UntrackedCargoGain);
+            Assert.DoesNotContain("()", withoutDetail);
+            Assert.Contains("gained cargo during this run with no recorded source", withoutDetail);
+
+            // copy guardrail: plain ASCII only (project hard rule).
+            foreach (char c in msg)
+                Assert.True(c < 128,
+                    "Reject copy must be plain ASCII (found non-ASCII char)");
+        }
+
+        [Fact]
+        public void FormatRejectMessage_DetailOverload_OtherStatusesUnchanged()
+        {
+            // catches: the detail overload accidentally injecting the detail
+            // into statuses that carry no quantity - every other status must
+            // render byte-identically with and without a detail argument.
+            foreach (RouteAnalysisStatus status in Enum.GetValues(typeof(RouteAnalysisStatus)))
+            {
+                if (status == RouteAnalysisStatus.UntrackedCargoGain)
+                    continue;
+                Assert.Equal(
+                    RouteCreationFormatters.FormatRejectMessage(status),
+                    RouteCreationFormatters.FormatRejectMessage(
+                        status, "Ore: 1.0 gained, 0.0 harvested"));
+            }
+        }
+
         // -----------------------------------------------------------------
         // Summary block (Career vs. Sandbox conditional)
         // -----------------------------------------------------------------
@@ -211,6 +255,58 @@ namespace Parsek.Tests.Logistics
                 },
                 InventoryDeliveryManifest = new List<InventoryPayloadItem>()
             };
+        }
+
+        // catches (M2, plan D7): a harvest-origin analysis not classifying as
+        // RouteOriginKind.Harvest across the shared origin-identity resolver
+        // (all three display surfaces read it), or the harvest body not
+        // coming from the first window's open location.
+        [Fact]
+        public void ResolveOriginIdentity_HarvestOrigin_ClassifiesHarvest()
+        {
+            RouteAnalysisResult analysis = EligibleAnalysis();
+            // Undocked start: no launch site, no proof on the source.
+            analysis.SourceRecording.StartBodyName = null;
+            analysis.SourceRecording.LaunchSiteName = null;
+            analysis.IsHarvestOrigin = true;
+            analysis.FirstHarvestWindow = new RouteHarvestWindow
+            {
+                WindowId = "hw",
+                StartUT = 10.0,
+                BodyName = "Minmus"
+            };
+
+            RouteCreationFormatters.RouteOriginIdentity id =
+                RouteCreationFormatters.ResolveOriginIdentity(analysis, null);
+
+            Assert.Equal(RouteCreationFormatters.RouteOriginKind.Harvest, id.Kind);
+            Assert.Equal("Minmus", id.BodyName);
+
+            // The candidate-table cell shares the classification.
+            Assert.Equal("harvested en route",
+                LogisticsWindowUI.FormatCandidateOrigin(analysis, null));
+        }
+
+        // catches (M2, plan D7): the dialog summary's Origin line for a
+        // harvest-origin route not reading "harvested en route".
+        [Fact]
+        public void BuildSummaryBlock_HarvestOrigin_LabelsHarvestedEnRoute()
+        {
+            RouteAnalysisResult analysis = EligibleAnalysis();
+            analysis.SourceRecording.StartBodyName = null;
+            analysis.SourceRecording.LaunchSiteName = null;
+            analysis.IsHarvestOrigin = true;
+            analysis.FirstHarvestWindow = new RouteHarvestWindow
+            {
+                WindowId = "hw",
+                StartUT = 10.0,
+                BodyName = "Minmus"
+            };
+
+            string block = RouteCreationFormatters.BuildSummaryBlock(
+                analysis, Game.Modes.SANDBOX);
+
+            Assert.Contains("Origin: harvested en route", block);
         }
 
         private static RouteRunCostCalculator.RouteRunCost ApplicableRunCost(
