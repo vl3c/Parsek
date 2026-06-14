@@ -152,17 +152,64 @@ namespace Parsek.Logistics
             RouteConnectionWindow window,
             RouteAnalysisLogMode logMode)
         {
+            if (!TryResolveHarvestLineage(tree, source, window, logMode,
+                    out HarvestLineageResolution resolution, out HarvestGainCheckResult fallback))
+                return fallback;
+
+            List<LineageLeg> lineage = resolution.Lineage;
+            int anchorIdx = resolution.AnchorIdx;
+            int arrivalIdx = resolution.ArrivalIdx;
+            Recording anchorLeg = resolution.AnchorLeg;
+            double dockUT = resolution.DockUT;
+
+            Dictionary<string, double> harvested = ComputeHarvestedTotals(
+                lineage, anchorIdx, arrivalIdx, anchorLeg.StartUT, dockUT,
+                out RouteHarvestWindow firstWindow);
+
+            Dictionary<string, double> gains =
+                ComputeFullRunGains(anchorLeg.RouteRunManifest, window);
+
+            return EvaluateGainVerdict(
+                source, logMode, lineage, anchorLeg, harvested, gains, firstWindow);
+        }
+
+        /// <summary>
+        /// Resolves the harvest lineage: validation, lineage walk, presence gate,
+        /// dock UT, arrival leg, arrival scope, and gain anchor. On a fall-back
+        /// outcome returns false with the legacy result in <paramref name="fallback"/>;
+        /// on success returns true with the resolved lineage state. Extracted verbatim
+        /// from CheckTransportGains (no logic change).
+        /// </summary>
+        private static bool TryResolveHarvestLineage(
+            RecordingTree tree,
+            Recording source,
+            RouteConnectionWindow window,
+            RouteAnalysisLogMode logMode,
+            out HarvestLineageResolution resolution,
+            out HarvestGainCheckResult fallback)
+        {
+            resolution = default;
+
             if (source == null || window == null)
-                return LegacyWithLog(logMode, "null-source-or-window", source);
+            {
+                fallback = LegacyWithLog(logMode, "null-source-or-window", source);
+                return false;
+            }
 
             HashSet<uint> windowScope = ToScopeSet(window.TransportPartPersistentIds);
             if (windowScope == null || windowScope.Count == 0)
-                return LegacyWithLog(logMode, "window-scope-missing", source);
+            {
+                fallback = LegacyWithLog(logMode, "window-scope-missing", source);
+                return false;
+            }
 
             List<LineageLeg> lineage = CollectTransportLineage(
                 tree, source, windowScope, out string lineageFallback);
             if (lineage == null)
-                return LegacyWithLog(logMode, lineageFallback, source);
+            {
+                fallback = LegacyWithLog(logMode, lineageFallback, source);
+                return false;
+            }
 
             // Presence gate (plan D6 + round-2 correction 5): EVERY lineage leg
             // must carry a COMPLETE manifest - start half non-null AND
@@ -172,16 +219,25 @@ namespace Parsek.Logistics
             {
                 RouteRunCargoManifest m = lineage[i].Rec?.RouteRunManifest;
                 if (m == null)
-                    return LegacyWithLog(logMode,
+                {
+                    fallback = LegacyWithLog(logMode,
                         $"manifest-missing leg={lineage[i].Rec?.RecordingId ?? "<none>"}", source);
+                    return false;
+                }
                 if (!m.IsComplete)
-                    return LegacyWithLog(logMode,
+                {
+                    fallback = LegacyWithLog(logMode,
                         $"manifest-incomplete leg={lineage[i].Rec.RecordingId ?? "<none>"}", source);
+                    return false;
+                }
             }
 
             double dockUT = window.DockUT;
             if (double.IsNaN(dockUT) || double.IsInfinity(dockUT))
-                return LegacyWithLog(logMode, "dock-ut-invalid", source);
+            {
+                fallback = LegacyWithLog(logMode, "dock-ut-invalid", source);
+                return false;
+            }
 
             // Arrival leg: the latest lineage leg that starts STRICTLY before
             // the dock. The dock-merge child starts AT the dock (its
@@ -198,25 +254,50 @@ namespace Parsek.Logistics
                 }
             }
             if (arrivalIdx < 0)
-                return LegacyWithLog(logMode, "no-pre-dock-leg", source);
+            {
+                fallback = LegacyWithLog(logMode, "no-pre-dock-leg", source);
+                return false;
+            }
 
             HashSet<uint> arrivalScope =
                 ToScopeSet(lineage[arrivalIdx].Rec.RouteRunManifest.TransportPartPersistentIds);
             if (!ScopeCovers(arrivalScope, windowScope))
-                return LegacyWithLog(logMode,
+            {
+                fallback = LegacyWithLog(logMode,
                     $"arrival-scope-mismatch leg={lineage[arrivalIdx].Rec.RecordingId ?? "<none>"}",
                     source);
+                return false;
+            }
 
             int anchorIdx = FindGainAnchorIndex(lineage, arrivalIdx, windowScope);
             Recording anchorLeg = lineage[anchorIdx].Rec;
 
-            Dictionary<string, double> harvested = ComputeHarvestedTotals(
-                lineage, anchorIdx, arrivalIdx, anchorLeg.StartUT, dockUT,
-                out RouteHarvestWindow firstWindow);
+            resolution = new HarvestLineageResolution
+            {
+                Lineage = lineage,
+                AnchorIdx = anchorIdx,
+                ArrivalIdx = arrivalIdx,
+                AnchorLeg = anchorLeg,
+                DockUT = dockUT,
+            };
+            fallback = default;
+            return true;
+        }
 
-            Dictionary<string, double> gains =
-                ComputeFullRunGains(anchorLeg.RouteRunManifest, window);
-
+        /// <summary>
+        /// Deterministic verdict: scan resource names in ordinal order and reject on
+        /// the FIRST uncovered positive gain, else emit the covered diag and return
+        /// Covered. Extracted verbatim from CheckTransportGains (no logic change).
+        /// </summary>
+        private static HarvestGainCheckResult EvaluateGainVerdict(
+            Recording source,
+            RouteAnalysisLogMode logMode,
+            List<LineageLeg> lineage,
+            Recording anchorLeg,
+            Dictionary<string, double> harvested,
+            Dictionary<string, double> gains,
+            RouteHarvestWindow firstWindow)
+        {
             // Deterministic verdict: scan resource names in ordinal order and
             // reject on the FIRST uncovered positive gain. Undefined names are
             // checked like any other (their harvested total is 0 because the
@@ -264,6 +345,19 @@ namespace Parsek.Logistics
                 AnchorLeg = anchorLeg,
                 FirstHarvestWindow = firstWindow
             };
+        }
+
+        /// <summary>
+        /// Resolved lineage state handed from <see cref="TryResolveHarvestLineage"/>
+        /// to the gain-compute and verdict phases of <see cref="CheckTransportGains"/>.
+        /// </summary>
+        private struct HarvestLineageResolution
+        {
+            public List<LineageLeg> Lineage;
+            public int AnchorIdx;
+            public int ArrivalIdx;
+            public Recording AnchorLeg;
+            public double DockUT;
         }
 
         /// <summary>
