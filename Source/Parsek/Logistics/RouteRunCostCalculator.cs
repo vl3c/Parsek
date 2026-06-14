@@ -496,13 +496,12 @@ namespace Parsek.Logistics
 
         private static string ShortId(Route route)
         {
-            return ShortId(route != null ? route.Id : null);
+            return RouteIds.Short(route);
         }
 
         private static string ShortId(string id)
         {
-            if (string.IsNullOrEmpty(id)) return "<no-id>";
-            return id.Length > 8 ? id.Substring(0, 8) : id;
+            return RouteIds.Short(id);
         }
     }
 }
