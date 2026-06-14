@@ -223,70 +223,8 @@ namespace Parsek.Logistics
             // interval is always >= span: it never undercuts the rendered span.
             dispatchInterval = cadenceMultiplier * transitDuration;
 
-            // (must-fix #3) Widen the source set to EVERY [root..dock] member
-            // recording so RevalidateSources tracks the whole rendered path, not
-            // just the leaf. The member set is the KEPT-intervals' recording ids
-            // from the same composition walk RouteBackingMission uses. The leaf
-            // (dock child) always stays in the set (it carries the delivery
-            // binding) even though it is NOT rendered; fall back to the leaf alone
-            // when the walk yields nothing.
-            HashSet<string> memberRecordingIds = committedTree != null
-                ? RouteBackingMission.ComputeMemberRecordingIds(committedTree, recordedDockUT, rootLaunchUT)
-                : new HashSet<string>();
-            // The leaf (dock child) is ALWAYS a member: it carries the delivery
-            // binding even when the composition walk surfaced the transport via its
-            // root through-line head instead of the leaf id.
-            if (!string.IsNullOrEmpty(source.RecordingId))
-                memberRecordingIds.Add(source.RecordingId);
-
-            // One RouteSourceRef per member recording. Resolve each id to its
-            // recording (the leaf falls back to the analysis source), order
-            // deterministically by TreeOrder then recording id so save round-trips
-            // are stable, and compute each member's proof hash from its own
-            // recording.
-            var sourceRefs = new List<RouteSourceRef>();
-            var recordingIds = new List<string>();
-            var memberRecs = new List<Recording>();
-            var seenMembers = new HashSet<string>(StringComparer.Ordinal);
-            foreach (string mid in memberRecordingIds)
-            {
-                Recording memberRec = null;
-                if (committedTree?.Recordings != null)
-                    committedTree.Recordings.TryGetValue(mid, out memberRec);
-                if (memberRec == null && string.Equals(mid, source.RecordingId, StringComparison.Ordinal))
-                    memberRec = source;
-                if (memberRec != null && !string.IsNullOrEmpty(memberRec.RecordingId)
-                    && seenMembers.Add(memberRec.RecordingId))
-                    memberRecs.Add(memberRec);
-            }
-            // Safety net: the leaf source must always carry a ref even if it was
-            // absent from both the member set and the tree (e.g. null tree path).
-            if (!string.IsNullOrEmpty(source.RecordingId) && seenMembers.Add(source.RecordingId))
-                memberRecs.Add(source);
-            memberRecs.Sort((a, b) =>
-            {
-                int byOrder = a.TreeOrder.CompareTo(b.TreeOrder);
-                return byOrder != 0
-                    ? byOrder
-                    : string.Compare(a.RecordingId, b.RecordingId, StringComparison.Ordinal);
-            });
-            for (int i = 0; i < memberRecs.Count; i++)
-            {
-                Recording memberRec = memberRecs[i];
-                sourceRefs.Add(new RouteSourceRef
-                {
-                    RecordingId = memberRec.RecordingId,
-                    TreeId = memberRec.TreeId,
-                    TreeOrder = memberRec.TreeOrder,
-                    RecordingFormatVersion = memberRec.RecordingFormatVersion,
-                    RecordingSchemaGeneration = memberRec.RecordingSchemaGeneration,
-                    SidecarEpoch = memberRec.SidecarEpoch,
-                    StartUT = memberRec.StartUT,
-                    EndUT = memberRec.EndUT,
-                    RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(memberRec)
-                });
-                recordingIds.Add(memberRec.RecordingId);
-            }
+            BuildRouteSourceRefs(committedTree, source, recordedDockUT, rootLaunchUT,
+                out List<RouteSourceRef> sourceRefs, out List<string> recordingIds);
 
             // Excluded interval keys for the backing-mission render trim. End at the
             // DOCK so the docked-together combined vessel (the merged child, which
@@ -295,105 +233,11 @@ namespace Parsek.Logistics
                 ? RouteBackingMission.ComputeExcludedIntervalKeys(committedTree, recordedDockUT, rootLaunchUT)
                 : new HashSet<string>();
 
-            // Origin discovery. KSC-origin if recording carries a launch site
-            // name AND was launched from Kerbin. Otherwise non-KSC origin
-            // requires RouteOriginProof.StartDockedOriginVesselPid != 0.
-            // Endpoint coords default to zero for the launch-site path — the
-            // scheduler resolves real coords from the launch-site name. The
-            // non-KSC path uses the proof's origin endpoint descriptor (M1)
-            // when present; pre-descriptor proofs keep the PID-only shape.
-            bool isKscOrigin =
-                !string.IsNullOrEmpty(originRec.LaunchSiteName)
-                && string.Equals(originRec.StartBodyName, "Kerbin", StringComparison.Ordinal);
-
-            RouteEndpoint origin;
-            string originLabel;
-            bool isHarvestOrigin = false;
-            if (isKscOrigin)
+            if (TryResolveRouteOrigin(analysis, source, originRec,
+                    out RouteEndpoint origin, out string originLabel,
+                    out bool isKscOrigin, out bool isHarvestOrigin) is { } originReject)
             {
-                origin = new RouteEndpoint
-                {
-                    VesselPersistentId = 0,
-                    BodyName = "Kerbin",
-                    // v0: launch-site coordinates resolved at dispatch time by name.
-                    // TODO: item 5 scheduler must resolve KSC coords via source ref → recording →
-                    // LaunchSiteName, going through EffectiveState.ComputeERS(). The Route does NOT
-                    // persist LaunchSiteName — only Origin.BodyName == "Kerbin" and IsKscOrigin == true.
-                    Latitude = 0.0,
-                    Longitude = 0.0,
-                    Altitude = 0.0,
-                    IsSurface = true
-                };
-                originLabel = "ksc";
-            }
-            else if (originRec.RouteOriginProof != null
-                && originRec.RouteOriginProof.StartDockedOriginVesselPid != 0)
-            {
-                RouteOriginProof originProof = originRec.RouteOriginProof;
-                if (!string.IsNullOrEmpty(originProof.StartDockedOriginBodyName))
-                {
-                    // M1: the proof carries the origin endpoint descriptor captured at
-                    // recording start, so build a real-coordinate endpoint. Surface-base
-                    // origins thereby reach RouteEndpointResolver's proximity fallback
-                    // when the depot's pid no longer resolves.
-                    origin = new RouteEndpoint
-                    {
-                        VesselPersistentId = originProof.StartDockedOriginVesselPid,
-                        BodyName = originProof.StartDockedOriginBodyName,
-                        Latitude = originProof.StartDockedOriginLatitude,
-                        Longitude = originProof.StartDockedOriginLongitude,
-                        Altitude = originProof.StartDockedOriginAltitude,
-                        IsSurface = originProof.StartDockedOriginIsSurface
-                    };
-                }
-                else
-                {
-                    // Pre-descriptor proof (recorded before M1): depot vessel coords
-                    // were not captured, so keep the PID-only endpoint shape; the
-                    // scheduler resolves the live vessel by pid at dispatch time.
-                    origin = new RouteEndpoint
-                    {
-                        VesselPersistentId = originProof.StartDockedOriginVesselPid,
-                        BodyName = originRec.StartBodyName ?? string.Empty,
-                        Latitude = 0.0,
-                        Longitude = 0.0,
-                        Altitude = 0.0,
-                        IsSurface = false
-                    };
-                }
-                originLabel =
-                    "non-ksc:pid=" + origin.VesselPersistentId.ToString(CultureInfo.InvariantCulture);
-            }
-            else if (analysis.IsHarvestOrigin && analysis.FirstHarvestWindow != null)
-            {
-                // M2 harvest origin (plan D7): the run started undocked but
-                // every delivered resource was covered by witnessed harvest,
-                // so the "origin" is the environment. Build a DISPLAY-ONLY
-                // endpoint from the FIRST harvest window's open location
-                // (pid 0 - there is no origin vessel to resolve; dispatch
-                // eligibility skips origin resolution and the cargo gate).
-                RouteHarvestWindow firstWindow = analysis.FirstHarvestWindow;
-                origin = new RouteEndpoint
-                {
-                    VesselPersistentId = 0,
-                    BodyName = firstWindow.BodyName ?? string.Empty,
-                    Latitude = firstWindow.Latitude,
-                    Longitude = firstWindow.Longitude,
-                    Altitude = firstWindow.Altitude,
-                    IsSurface = IsSurfaceSituation(firstWindow.SituationAtOpen)
-                };
-                isHarvestOrigin = true;
-                originLabel = "harvest";
-            }
-            else
-            {
-                ParsekLog.Info(Tag,
-                    $"BuildRoute rejected: endpoint-missing (origin unresolvable) source={source.RecordingId ?? "<none>"} " +
-                    $"originRec={originRec.RecordingId ?? "<none>"} " +
-                    $"launchSite={(string.IsNullOrEmpty(originRec.LaunchSiteName) ? "<none>" : originRec.LaunchSiteName)} " +
-                    $"startBody={originRec.StartBodyName ?? "<none>"} originProof={(originRec.RouteOriginProof != null ? "yes" : "no")} " +
-                    $"harvestOrigin={(analysis.IsHarvestOrigin ? "yes-but-no-window" : "no")}");
-                return new RouteBuildOutcome { RejectReason = "endpoint-missing" };
+                return originReject;
             }
 
             // Single stop (v0). Defensively copy manifests so later store
@@ -417,46 +261,9 @@ namespace Parsek.Logistics
                 ? inputs.Name
                 : RouteCreationFormatters.GenerateDefaultRouteName(analysis, committedTree);
 
-            // CostManifest / InventoryCostManifest mirror what each cycle
-            // delivers — items debit what they deliver in v0. Future cost
-            // shaping can diverge from delivery. M2 adjustments (delivery
-            // manifests stay untouched in both):
-            // - HARVEST origin (plan D7): the cost manifests are EMPTY -
-            //   harvested cargo debits nothing (19.2.2 item 3); the empty
-            //   manifest makes the dispatch-debit row pair a structural no-op.
-            // - DOCKED origin with harvest data (plan D8): each delivered
-            //   resource's debit basis is reduced by its witnessed harvested
-            //   amount, max(0, delivery - harvested); entries that reduce to
-            //   zero are REMOVED, not kept (finding 16), so the depot is not
-            //   debited for ore the environment provided. The harvested term
-            //   uses the SAME scoped D5/D6 rules as the gain check - the
-            //   BLOCKER-1 scope fix is what keeps this reduction from zeroing
-            //   a depot debit it should not.
-            Dictionary<string, double> costManifest;
-            List<InventoryPayloadItem> inventoryCostManifest;
-            if (isHarvestOrigin)
-            {
-                costManifest = new Dictionary<string, double>();
-                inventoryCostManifest = new List<InventoryPayloadItem>();
-            }
-            else
-            {
-                costManifest = analysis.ResourceDeliveryManifest != null
-                    ? new Dictionary<string, double>(analysis.ResourceDeliveryManifest)
-                    : new Dictionary<string, double>();
-                inventoryCostManifest = analysis.InventoryDeliveryManifest != null
-                    ? new List<InventoryPayloadItem>(analysis.InventoryDeliveryManifest)
-                    : new List<InventoryPayloadItem>();
-
-                // D8: non-KSC docked origin only - KSC CostManifest semantics
-                // stay unchanged (the funds basis is OQ1's job, Phase 6).
-                if (!isKscOrigin && analysis.HarvestedManifest != null
-                    && analysis.HarvestedManifest.Count > 0)
-                {
-                    ReduceCostManifestByHarvested(
-                        costManifest, analysis.HarvestedManifest, ic);
-                }
-            }
+            BuildRouteCostManifests(analysis, isHarvestOrigin, isKscOrigin, ic,
+                out Dictionary<string, double> costManifest,
+                out List<InventoryPayloadItem> inventoryCostManifest);
 
             // Loop-clock dock binding: recordedDockUT (computed above as the route
             // segment END) is the UT the loop clock crosses each cycle to fire
@@ -540,6 +347,279 @@ namespace Parsek.Logistics
                 LastObservedLoopCycleIndex = -1
             };
 
+            LogBuiltRoute(routeId, originLabel, origin, source, rootLaunchUT, undockUT,
+                recordedDockUT, transitDuration, dispatchInterval, cadenceMultiplier,
+                recordingIds, excludedIntervalKeys, creationTreeRecordingIds, stop, mode, ic);
+
+            return new RouteBuildOutcome { Route = route };
+        }
+
+        /// <summary>
+        /// Origin discovery (phase extract of <see cref="BuildRoute"/>). KSC-origin
+        /// if recording carries a launch site name AND was launched from Kerbin.
+        /// Otherwise non-KSC origin requires
+        /// <c>RouteOriginProof.StartDockedOriginVesselPid != 0</c>. Endpoint coords
+        /// default to zero for the launch-site path — the scheduler resolves real
+        /// coords from the launch-site name. The non-KSC path uses the proof's origin
+        /// endpoint descriptor (M1) when present; pre-descriptor proofs keep the
+        /// PID-only shape. Returns the <c>endpoint-missing</c>
+        /// <see cref="RouteBuildOutcome"/> when no origin resolves, otherwise
+        /// <c>null</c> with the origin written through the <c>out</c> params.
+        /// </summary>
+        private static RouteBuildOutcome TryResolveRouteOrigin(
+            RouteAnalysisResult analysis,
+            Recording source,
+            Recording originRec,
+            out RouteEndpoint origin,
+            out string originLabel,
+            out bool isKscOrigin,
+            out bool isHarvestOrigin)
+        {
+            isKscOrigin =
+                !string.IsNullOrEmpty(originRec.LaunchSiteName)
+                && string.Equals(originRec.StartBodyName, "Kerbin", StringComparison.Ordinal);
+
+            isHarvestOrigin = false;
+            if (isKscOrigin)
+            {
+                origin = new RouteEndpoint
+                {
+                    VesselPersistentId = 0,
+                    BodyName = "Kerbin",
+                    // v0: launch-site coordinates resolved at dispatch time by name.
+                    // TODO: item 5 scheduler must resolve KSC coords via source ref → recording →
+                    // LaunchSiteName, going through EffectiveState.ComputeERS(). The Route does NOT
+                    // persist LaunchSiteName — only Origin.BodyName == "Kerbin" and IsKscOrigin == true.
+                    Latitude = 0.0,
+                    Longitude = 0.0,
+                    Altitude = 0.0,
+                    IsSurface = true
+                };
+                originLabel = "ksc";
+            }
+            else if (originRec.RouteOriginProof != null
+                && originRec.RouteOriginProof.StartDockedOriginVesselPid != 0)
+            {
+                RouteOriginProof originProof = originRec.RouteOriginProof;
+                if (!string.IsNullOrEmpty(originProof.StartDockedOriginBodyName))
+                {
+                    // M1: the proof carries the origin endpoint descriptor captured at
+                    // recording start, so build a real-coordinate endpoint. Surface-base
+                    // origins thereby reach RouteEndpointResolver's proximity fallback
+                    // when the depot's pid no longer resolves.
+                    origin = new RouteEndpoint
+                    {
+                        VesselPersistentId = originProof.StartDockedOriginVesselPid,
+                        BodyName = originProof.StartDockedOriginBodyName,
+                        Latitude = originProof.StartDockedOriginLatitude,
+                        Longitude = originProof.StartDockedOriginLongitude,
+                        Altitude = originProof.StartDockedOriginAltitude,
+                        IsSurface = originProof.StartDockedOriginIsSurface
+                    };
+                }
+                else
+                {
+                    // Pre-descriptor proof (recorded before M1): depot vessel coords
+                    // were not captured, so keep the PID-only endpoint shape; the
+                    // scheduler resolves the live vessel by pid at dispatch time.
+                    origin = new RouteEndpoint
+                    {
+                        VesselPersistentId = originProof.StartDockedOriginVesselPid,
+                        BodyName = originRec.StartBodyName ?? string.Empty,
+                        Latitude = 0.0,
+                        Longitude = 0.0,
+                        Altitude = 0.0,
+                        IsSurface = false
+                    };
+                }
+                originLabel =
+                    "non-ksc:pid=" + origin.VesselPersistentId.ToString(CultureInfo.InvariantCulture);
+            }
+            else if (analysis.IsHarvestOrigin && analysis.FirstHarvestWindow != null)
+            {
+                // M2 harvest origin (plan D7): the run started undocked but
+                // every delivered resource was covered by witnessed harvest,
+                // so the "origin" is the environment. Build a DISPLAY-ONLY
+                // endpoint from the FIRST harvest window's open location
+                // (pid 0 - there is no origin vessel to resolve; dispatch
+                // eligibility skips origin resolution and the cargo gate).
+                RouteHarvestWindow firstWindow = analysis.FirstHarvestWindow;
+                origin = new RouteEndpoint
+                {
+                    VesselPersistentId = 0,
+                    BodyName = firstWindow.BodyName ?? string.Empty,
+                    Latitude = firstWindow.Latitude,
+                    Longitude = firstWindow.Longitude,
+                    Altitude = firstWindow.Altitude,
+                    IsSurface = IsSurfaceSituation(firstWindow.SituationAtOpen)
+                };
+                isHarvestOrigin = true;
+                originLabel = "harvest";
+            }
+            else
+            {
+                origin = default;
+                originLabel = null;
+                ParsekLog.Info(Tag,
+                    $"BuildRoute rejected: endpoint-missing (origin unresolvable) source={source.RecordingId ?? "<none>"} " +
+                    $"originRec={originRec.RecordingId ?? "<none>"} " +
+                    $"launchSite={(string.IsNullOrEmpty(originRec.LaunchSiteName) ? "<none>" : originRec.LaunchSiteName)} " +
+                    $"startBody={originRec.StartBodyName ?? "<none>"} originProof={(originRec.RouteOriginProof != null ? "yes" : "no")} " +
+                    $"harvestOrigin={(analysis.IsHarvestOrigin ? "yes-but-no-window" : "no")}");
+                return new RouteBuildOutcome { RejectReason = "endpoint-missing" };
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Source-ref derivation (phase extract of <see cref="BuildRoute"/>).
+        /// (must-fix #3) Widen the source set to EVERY [root..dock] member recording
+        /// so RevalidateSources tracks the whole rendered path, not just the leaf,
+        /// then build one <see cref="RouteSourceRef"/> per member ordered
+        /// deterministically by TreeOrder then recording id. Writes the parallel
+        /// <paramref name="sourceRefs"/> / <paramref name="recordingIds"/> lists.
+        /// </summary>
+        private static void BuildRouteSourceRefs(
+            RecordingTree committedTree,
+            Recording source,
+            double recordedDockUT,
+            double rootLaunchUT,
+            out List<RouteSourceRef> sourceRefs,
+            out List<string> recordingIds)
+        {
+            // (must-fix #3) Widen the source set to EVERY [root..dock] member
+            // recording so RevalidateSources tracks the whole rendered path, not
+            // just the leaf. The member set is the KEPT-intervals' recording ids
+            // from the same composition walk RouteBackingMission uses. The leaf
+            // (dock child) always stays in the set (it carries the delivery
+            // binding) even though it is NOT rendered; fall back to the leaf alone
+            // when the walk yields nothing.
+            HashSet<string> memberRecordingIds = committedTree != null
+                ? RouteBackingMission.ComputeMemberRecordingIds(committedTree, recordedDockUT, rootLaunchUT)
+                : new HashSet<string>();
+            // The leaf (dock child) is ALWAYS a member: it carries the delivery
+            // binding even when the composition walk surfaced the transport via its
+            // root through-line head instead of the leaf id.
+            if (!string.IsNullOrEmpty(source.RecordingId))
+                memberRecordingIds.Add(source.RecordingId);
+
+            // One RouteSourceRef per member recording. Resolve each id to its
+            // recording (the leaf falls back to the analysis source), order
+            // deterministically by TreeOrder then recording id so save round-trips
+            // are stable, and compute each member's proof hash from its own
+            // recording.
+            sourceRefs = new List<RouteSourceRef>();
+            recordingIds = new List<string>();
+            var memberRecs = new List<Recording>();
+            var seenMembers = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string mid in memberRecordingIds)
+            {
+                Recording memberRec = null;
+                if (committedTree?.Recordings != null)
+                    committedTree.Recordings.TryGetValue(mid, out memberRec);
+                if (memberRec == null && string.Equals(mid, source.RecordingId, StringComparison.Ordinal))
+                    memberRec = source;
+                if (memberRec != null && !string.IsNullOrEmpty(memberRec.RecordingId)
+                    && seenMembers.Add(memberRec.RecordingId))
+                    memberRecs.Add(memberRec);
+            }
+            // Safety net: the leaf source must always carry a ref even if it was
+            // absent from both the member set and the tree (e.g. null tree path).
+            if (!string.IsNullOrEmpty(source.RecordingId) && seenMembers.Add(source.RecordingId))
+                memberRecs.Add(source);
+            memberRecs.Sort((a, b) =>
+            {
+                int byOrder = a.TreeOrder.CompareTo(b.TreeOrder);
+                return byOrder != 0
+                    ? byOrder
+                    : string.Compare(a.RecordingId, b.RecordingId, StringComparison.Ordinal);
+            });
+            for (int i = 0; i < memberRecs.Count; i++)
+            {
+                Recording memberRec = memberRecs[i];
+                sourceRefs.Add(new RouteSourceRef
+                {
+                    RecordingId = memberRec.RecordingId,
+                    TreeId = memberRec.TreeId,
+                    TreeOrder = memberRec.TreeOrder,
+                    RecordingFormatVersion = memberRec.RecordingFormatVersion,
+                    RecordingSchemaGeneration = memberRec.RecordingSchemaGeneration,
+                    SidecarEpoch = memberRec.SidecarEpoch,
+                    StartUT = memberRec.StartUT,
+                    EndUT = memberRec.EndUT,
+                    RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(memberRec)
+                });
+                recordingIds.Add(memberRec.RecordingId);
+            }
+        }
+
+        /// <summary>
+        /// Cost-manifest derivation (phase extract of <see cref="BuildRoute"/>).
+        /// CostManifest / InventoryCostManifest mirror what each cycle delivers —
+        /// items debit what they deliver in v0. Future cost shaping can diverge from
+        /// delivery. M2 adjustments (delivery manifests stay untouched in both):
+        /// HARVEST origin (plan D7) -> empty cost manifests; DOCKED origin with
+        /// harvest data (plan D8) -> reduce each delivered resource's debit basis by
+        /// its witnessed harvested amount, removing entries that reduce to zero.
+        /// Writes the <paramref name="costManifest"/> /
+        /// <paramref name="inventoryCostManifest"/> out params.
+        /// </summary>
+        private static void BuildRouteCostManifests(
+            RouteAnalysisResult analysis,
+            bool isHarvestOrigin,
+            bool isKscOrigin,
+            CultureInfo ic,
+            out Dictionary<string, double> costManifest,
+            out List<InventoryPayloadItem> inventoryCostManifest)
+        {
+            if (isHarvestOrigin)
+            {
+                costManifest = new Dictionary<string, double>();
+                inventoryCostManifest = new List<InventoryPayloadItem>();
+            }
+            else
+            {
+                costManifest = analysis.ResourceDeliveryManifest != null
+                    ? new Dictionary<string, double>(analysis.ResourceDeliveryManifest)
+                    : new Dictionary<string, double>();
+                inventoryCostManifest = analysis.InventoryDeliveryManifest != null
+                    ? new List<InventoryPayloadItem>(analysis.InventoryDeliveryManifest)
+                    : new List<InventoryPayloadItem>();
+
+                // D8: non-KSC docked origin only - KSC CostManifest semantics
+                // stay unchanged (the funds basis is OQ1's job, Phase 6).
+                if (!isKscOrigin && analysis.HarvestedManifest != null
+                    && analysis.HarvestedManifest.Count > 0)
+                {
+                    ReduceCostManifestByHarvested(
+                        costManifest, analysis.HarvestedManifest, ic);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Built-route summary log (phase extract of <see cref="BuildRoute"/>); the
+        /// final summary <see cref="ParsekLog.Info"/> verbatim.
+        /// </summary>
+        private static void LogBuiltRoute(
+            string routeId,
+            string originLabel,
+            RouteEndpoint origin,
+            Recording source,
+            double rootLaunchUT,
+            double undockUT,
+            double recordedDockUT,
+            double transitDuration,
+            double dispatchInterval,
+            int cadenceMultiplier,
+            List<string> recordingIds,
+            HashSet<string> excludedIntervalKeys,
+            HashSet<string> creationTreeRecordingIds,
+            RouteStop stop,
+            Game.Modes mode,
+            CultureInfo ic)
+        {
             string shortId = !string.IsNullOrEmpty(routeId) && routeId.Length > 8
                 ? routeId.Substring(0, 8)
                 : routeId ?? "<no-id>";
@@ -566,8 +646,6 @@ namespace Parsek.Logistics
                 $"stop-resources={stopResources.ToString(ic)} " +
                 $"stop-inventory={stopInventory.ToString(ic)} " +
                 $"mode={mode}");
-
-            return new RouteBuildOutcome { Route = route };
         }
 
         /// <summary>
