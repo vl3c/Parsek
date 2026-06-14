@@ -224,17 +224,26 @@ shared clock). P6 = tooltip widening for the destination landing alignment mode.
 
 ## 7. BLOCKERS (must resolve before P4.2 coding)
 
-**B1 — Does `transferSegments` actually contain the destination parking loiter? (GATING.)**
-`transferSegments` is one classified member's `OrbitSegments` (`MissionLoopUnitBuilder.cs:372-378`).
-The classifier accepts on launch-parking + heliocentric leg + first-target-body arrival leg
-(`ReaimClassifier.cs:108-122`); it does **not** require the destination parking loiter to be in that
-member, and interplanetary missions are "usually a CHAIN (launch leg / transfer leg / arrival leg /
-debris as separate recordings)" (`:340-346`). If the destination parking is a different member's
-recording, `DetectRuns(transferSegments)` won't see it and P4 silently no-ops on exactly the mission
-it targets. **Resolution:** P4.0 probe on a real captured-then-park-then-deorbit recording. If in the
-transfer member, scope P4 to that case. If in a separate member, extend run-gathering across all
-member recordings — but do NOT build that until the probe proves it is needed. Fail-closed (`None`)
-keeps it safe until then.
+**B1 — Does `transferSegments` actually contain the destination parking loiter? RESOLVED STATICALLY
+(2026-06-14), no probe needed for P4.1.**
+`transferSegments` is one classified member's `OrbitSegments` (`MissionLoopUnitBuilder.cs:363-381`):
+the single member that classifies Supported, i.e. the one carrying launch-parking + the heliocentric
+leg + the first target-body arrival leg (`ReaimClassifier.cs:90-150`). The destination parking loiter
+= target-body orbit segments AFTER that arrival leg, and whether they sit in the same member depends
+on recording structure: a **single continuous recording** (a probe that captures, parks, deorbits
+with no structural split) keeps them in `transferSegments` (P4 works directly); a **chain mission**
+that jettisons a transfer stage at capture records the parking + descent in a same-launch
+CONTINUATION member, which the classified `transferSegments` does NOT include.
+**Resolution (settled, reuses shipped prior art):** P4.2 builds the destination-run input by gathering
+`OrbitSegments` across every member sharing the re-aim source member's launch identity
+(`VesselLaunchIdentity.RecordingsShareLaunch`) — the exact pattern M4b's
+`MissionLoopUnitBuilder.BuildPhasingKnobInput` (`:1111-1129`) already uses for the launch-side phasing
+knob. This covers both the single-recording and chain cases and degrades to `transferSegments` for the
+single-member case. The one residual a live probe would still confirm (does a *decoupled lander*
+retain the source member's launch guid so the gather catches it?) only affects coverage breadth, not
+correctness: if the gather misses the parking, P4 fails closed to faithful (`None`). **P4.1's pure
+helper takes `allRuns` as input and is therefore unaffected by this resolution** — the gather is a
+P4.2 wiring concern.
 
 **B2 — Does `destRotation.PhaseOffsetSeconds` resolve a non-degenerate D for a vacuum-body deorbit?**
 D depends on the target emitting a `DestRotation` constraint, which requires both a
