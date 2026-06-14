@@ -610,9 +610,19 @@ namespace Parsek
                 // fire on every rebuild - rate-limited so verbose-on debugging still sees it.
                 if (phaseLocked)
                 {
+                    // When a zero-drift schedule is attached it is AUTHORITATIVE: the headline
+                    // fixedCadence* values below are the FIXED-CADENCE fallback verdict (what Solve()
+                    // returns as the diagnostic), which the per-window reschedule supersedes. Surface
+                    // the schedule's OWN aggregate tolerance (worst residual + all-within flag folded
+                    // across the cached launches) so the log reflects the windows actually flown, not
+                    // the unused fallback. A drifting same-parent Mun config typically shows
+                    // fixedCadenceWithinTol=no but scheduleWithinTol=yes - the schedule, not the
+                    // fallback, runs.
                     string scheduleNote = relaunchSchedule != null
                         ? $" zeroDrift=yes firstLaunch={relaunchSchedule.FirstLaunchUT.ToString("R", ic)} " +
-                          $"minInterval={relaunchSchedule.MinIntervalSeconds.ToString("R", ic)}"
+                          $"minInterval={relaunchSchedule.MinIntervalSeconds.ToString("R", ic)} " +
+                          $"scheduleWithinTol={(relaunchSchedule.AllLaunchesWithinTolerance ? "yes" : "no")} " +
+                          $"scheduleWorstResidual={relaunchSchedule.WorstResidualSeconds.ToString("R", ic)}"
                         : (scheduleRejectedForOverlap
                             ? " zeroDrift=rejected-would-overlap-keeping-fixed-cadence"
                             : " zeroDrift=no");
@@ -621,8 +631,8 @@ namespace Parsek
                         $"anchor {baseAnchorUT.ToString("R", ic)}->{phaseAnchorUT.ToString("R", ic)} " +
                         $"P={solution.P.ToString("R", ic)} method={solution.Method} " +
                         $"cadence {cadence.ToString("R", ic)}->{effectiveCadence.ToString("R", ic)} " +
-                        $"residual={solution.ResidualSeconds.ToString("R", ic)} " +
-                        $"withinTol={(solution.WithinTolerance ? "yes" : "no")}" + scheduleNote);
+                        $"fixedCadenceResidual={solution.ResidualSeconds.ToString("R", ic)} " +
+                        $"fixedCadenceWithinTol={(solution.WithinTolerance ? "yes" : "no")}" + scheduleNote);
                 }
                 else if (bodyInfo != null)
                 {
