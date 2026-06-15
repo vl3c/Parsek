@@ -157,7 +157,7 @@ namespace Parsek
         [NonSerialized] private Recording cachedPreReFlyAnchorRecording;
 
         // Atmosphere segment metadata
-        public string SegmentPhase;      // "atmo", "exo", or "approach" (null = untagged/legacy)
+        public string SegmentPhase;      // "atmo", "exo", "approach", or "surface" (null = untagged/legacy)
         public string SegmentBodyName;   // body name at split point (e.g., "Kerbin", "Duna")
 
         // Location context (Phase 10) — body, biome, situation at recording start and end
@@ -1257,14 +1257,18 @@ namespace Parsek
             if (rec == null || rec.TrackSections == null)
                 return false;
 
+            // Recording-level loop anchor is invariant across sections, so any
+            // RELATIVE section is renderable when it is set; read it once.
+            bool hasLoopAnchor = rec.LoopAnchorVesselId != 0;
+
             for (int i = 0; i < rec.TrackSections.Count; i++)
             {
                 var s = rec.TrackSections[i];
                 if (s.referenceFrame != ReferenceFrame.Relative)
                     continue;
-                if (!string.IsNullOrEmpty(s.anchorRecordingId)
-                    || s.anchorVesselId != 0
-                    || rec.LoopAnchorVesselId != 0)
+                if (hasLoopAnchor
+                    || !string.IsNullOrEmpty(s.anchorRecordingId)
+                    || s.anchorVesselId != 0)
                     return true;
             }
             return false;

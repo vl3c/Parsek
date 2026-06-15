@@ -1879,6 +1879,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComputeLoopAggregate_NonLoopableOrbitalCoastExcludedFromCount()
+        {
+            // A group mixing a watchable recording with a pure orbital coast
+            // (exo phase, no launch / dock / relative track) counts only the
+            // watchable one, mirroring the per-row loop-UI suppression. Even a
+            // stale LoopPlayback=true on the coast must not count.
+            var main = MakeRec(0, 10, "Main"); main.LoopPlayback = false;
+            var coast = new Recording { VesselName = "Transfer", SegmentPhase = "exo", LoopPlayback = true };
+            var committed = new List<Recording> { main, coast };
+            var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1 });
+            Assert.Equal(1, agg.LoopableCount);
+            Assert.Equal(0, agg.LoopCount);
+            Assert.False(agg.AllLoop);
+            Assert.False(agg.SuppressToggle);
+        }
+
+        [Fact]
         public void ComputeLoopAggregate_AllDebris_SuppressesToggle()
         {
             // The auto-generated "X / Debris" subgroup: every member is debris,
@@ -2094,6 +2111,23 @@ namespace Parsek.Tests
             Assert.True(main.LoopPlayback);
             Assert.True(debTrue.LoopPlayback);
             Assert.False(debFalse.LoopPlayback);
+        }
+
+        [Fact]
+        public void BulkSetLoopPlayback_SkipsNonLoopableOrbitalCoast()
+        {
+            // A pure orbital coast has no per-row loop toggle, so the bulk write
+            // must skip it too. Its prior LoopPlayback is left untouched (the
+            // write value differs from its prior state, catching a skip-bug).
+            var main = new Recording { VesselName = "Main", SegmentPhase = "atmo", LoopPlayback = false };
+            var coast = new Recording { VesselName = "Transfer", SegmentPhase = "exo", LoopPlayback = false };
+            var committed = new List<Recording> { main, coast };
+
+            int written = RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0, 1 }, value: true, applyAutoRange: false);
+
+            Assert.Equal(1, written);
+            Assert.True(main.LoopPlayback);
+            Assert.False(coast.LoopPlayback);
         }
 
         [Fact]
