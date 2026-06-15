@@ -1041,6 +1041,64 @@ namespace Parsek
             return ghostOrbitEpochShift.TryGetValue(vesselPid, out double shift) ? shift : 0.0;
         }
 
+        /// <summary>The exact UT a ghost's OrbitDriver was propagated at by the icon-drive Prefix,
+        /// plus the frame it was recorded on. See <see cref="ghostIconDrivePropagation"/>.</summary>
+        internal struct IconDrivePropagation
+        {
+            public double PropagateUT;
+            public int Frame;
+        }
+
+        /// <summary>
+        /// The UT each ghost's OrbitDriver was last actually propagated at by
+        /// <see cref="Parsek.Patches.GhostOrbitIconDrivePatch"/> when it set the icon position
+        /// (the <c>propagateUT</c>: the legacy recorded-clock <c>effUT = liveUT - shift</c>, an
+        /// off-arc / window clamp, or the live-clock <c>liveDriveUT</c> under the director epoch-bake),
+        /// frame-stamped. <see cref="MapRenderProbe"/> reads THIS as the icon's resolved phase clock
+        /// for the <c>icon-off-orbit</c> check, instead of independently re-deriving it via
+        /// <see cref="Parsek.MapRender.ShadowRenderDriver.IsDirectorDriveActive"/>. The drive
+        /// (OrbitDriver LateUpdate, exec-order 0) and the probe (exec-order 10000) used to evaluate
+        /// that predicate separately; the shadow's StockConic seed can flip to "fresh" BETWEEN them
+        /// within one frame, so the drive placed the icon at the legacy shifted phase while the probe
+        /// assumed the director unshifted phase, producing a spurious icon-off-orbit angle (the
+        /// transient creation-frame / reseed residual). Reading the recorded propagateUT makes the
+        /// reference conic match where the icon was ACTUALLY placed, by construction, while still
+        /// flagging a REAL off-orbit (icon NOT at its driven phase). Frame-stamped + freshness-gated
+        /// on read so a stale record (a frame on which the icon-drive did not run, e.g. stock re-took
+        /// the drive at a stale-segment transition) falls back to the legacy derivation rather than
+        /// comparing against a phase the icon has since left. Cleared on ghost teardown / scene change
+        /// alongside <see cref="ghostOrbitEpochShift"/>.
+        /// </summary>
+        internal static readonly Dictionary<uint, IconDrivePropagation> ghostIconDrivePropagation =
+            new Dictionary<uint, IconDrivePropagation>();
+
+        /// <summary>Records the UT the icon-drive Prefix propagated <paramref name="vesselPid"/>'s
+        /// OrbitDriver at this frame (see <see cref="ghostIconDrivePropagation"/>).</summary>
+        internal static void RecordIconDrivePropagateUT(uint vesselPid, double propagateUT, int frame)
+        {
+            ghostIconDrivePropagation[vesselPid] =
+                new IconDrivePropagation { PropagateUT = propagateUT, Frame = frame };
+        }
+
+        /// <summary>
+        /// Returns the UT the icon-drive last propagated <paramref name="vesselPid"/> at, but only
+        /// when that record is within <paramref name="freshnessFrames"/> of
+        /// <paramref name="currentFrame"/>. A stale or absent record returns <c>false</c> so the
+        /// caller falls back to its own derivation.
+        /// </summary>
+        internal static bool TryGetFreshIconDrivePropagateUT(
+            uint vesselPid, int currentFrame, int freshnessFrames, out double propagateUT)
+        {
+            if (ghostIconDrivePropagation.TryGetValue(vesselPid, out IconDrivePropagation rec)
+                && System.Math.Abs(currentFrame - rec.Frame) <= freshnessFrames)
+            {
+                propagateUT = rec.PropagateUT;
+                return true;
+            }
+            propagateUT = 0.0;
+            return false;
+        }
+
         /// <summary>
         /// Pure: map the live Planetarium clock to the loop-mapped recorded-sample clock for a
         /// ghost map vessel. <c>effUT = liveUT - shift</c>. With the RAW-epoch seed this is the
@@ -2616,6 +2674,7 @@ namespace Parsek
             ghostLastAppliedOrbitElements.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
             ghostOrbitEpochShift.Remove(ghostPid);
+            ghostIconDrivePropagation.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
             lastKnownByChainPid.Remove(chainPid);
@@ -3687,6 +3746,7 @@ namespace Parsek
             ghostLastAppliedOrbitElements.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             ghostOrbitEpochShift.Clear();
+            ghostIconDrivePropagation.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             overlapInstanceVessels.Clear();
@@ -4118,6 +4178,7 @@ namespace Parsek
             ghostLastAppliedOrbitElements.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
             ghostOrbitEpochShift.Remove(ghostPid);
+            ghostIconDrivePropagation.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
@@ -8395,6 +8456,13 @@ namespace Parsek
                 | ghostBodyFrameOrbitBounds.Remove(vessel.persistentId)
                 | ghostOrbitLoopShiftedPids.Remove(vessel.persistentId)
                 | ghostOrbitEpochShift.Remove(vessel.persistentId);
+            // Drop the icon-drive propagateUT record at this segment->state-vector handoff too: the
+            // drive patch now returns true (stock re-propagates the orbit at live UT), so the icon-drive
+            // Prefix stops recording, and a record left from the pre-reseed segment frames would let the
+            // probe trust a stale phase for up to SeedFreshnessFrames after the icon has moved to live.
+            // Separate statement (NOT folded into the hadStaleSegmentDrive OR-chain) so it never flips
+            // that flag on a propagateUT-only entry.
+            ghostIconDrivePropagation.Remove(vessel.persistentId);
             if (hadStaleSegmentDrive)
             {
                 ParsekLog.Verbose(Tag,
@@ -9949,6 +10017,10 @@ namespace Parsek
             startUT = 0;
             endUT = 0;
 
+            // Resolved once up front so both single-segment short-circuit branches below can pass it to
+            // ExpandStoredBoundsAcrossEquivalentSegments. O(1) dictionary lookup, no side effects.
+            int recordingIndex = FindRecordingIndexByVesselPid(vesselPid);
+
             // Loop-shifted ghost: the stored bounds are already in the live frame and match the
             // shifted orbit epoch, so use them directly. Re-deriving from the raw recorded
             // OrbitSegments at the live UT (below) would return raw recorded UTs that desync from
@@ -9962,10 +10034,16 @@ namespace Parsek
                     out startUT,
                     out endUT))
             {
+                // The stored bounds are a SINGLE applied OrbitSegment, so the arc clip would draw only
+                // that fragment of a multi-fragment same-orbit coast (the loop SOI-approach hyperbola
+                // splits into adjacent equivalent fragments). Expand the arc-clip window across those
+                // element-equivalent fragments (read-only; ghostOrbitBounds is untouched) so the line
+                // draws the whole approach in one frame instead of one piece then the rest seconds later.
+                ExpandStoredBoundsAcrossEquivalentSegments(
+                    vesselPid, recordingIndex, ref startUT, ref endUT, "loop-shifted");
                 return true;
             }
 
-            int recordingIndex = FindRecordingIndexByVesselPid(vesselPid);
             if (IsEndpointTailRecordingGhost(vesselPid, recordingIndex)
                 && TryGetStoredOrbitBoundsForGhostVessel(
                     vesselPid,
@@ -9974,6 +10052,12 @@ namespace Parsek
                     out startUT,
                     out endUT))
             {
+                // Same single-segment clip structure as the loop-shifted branch. An EndpointTail
+                // synthetic segment's startUT may not exist verbatim in the recorded OrbitSegments;
+                // when no seed matches the expansion is a no-op (keeps stored bounds, behaviour-identical
+                // to today). Otherwise it widens across the equivalent recorded fragments.
+                ExpandStoredBoundsAcrossEquivalentSegments(
+                    vesselPid, recordingIndex, ref startUT, ref endUT, "endpoint-tail");
                 return true;
             }
 
@@ -10142,6 +10226,75 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Expand a stored SINGLE-segment arc-clip window (loop-shifted / endpoint-tail branches) across
+        /// element-equivalent adjacent recorded OrbitSegments so the orbit line draws one continuous
+        /// same-orbit arc instead of a single fragment. Mirrors the non-loop merge
+        /// (<see cref="TrajectoryMath.TryGetOrbitWindowForMapDisplay"/>) the loop path short-circuits past.
+        ///
+        /// <para>The stored bounds (<paramref name="startUT"/>/<paramref name="endUT"/>) are in the LIVE
+        /// frame (the orbit epoch + bounds were shifted by <c>loopEpochShiftSeconds</c> when applied); the
+        /// recorded OrbitSegments are RAW. To compare/merge in ONE consistent frame this un-shifts the
+        /// stored bounds to raw via <see cref="MapLiveUTToEffUT"/>, expands on the RAW segments, then
+        /// re-applies +shift to the merged result. Writes back to the ref params ONLY when more than one
+        /// fragment coalesced; a no-seed-match or single-fragment result leaves them at the stored values
+        /// (behaviour-identical to before). Reads <c>RecordingStore.CommittedRecordings</c> only (the same
+        /// raw committed read the adjacent non-loop branch makes); NEVER mutates <c>ghostOrbitBounds</c>,
+        /// so the icon-drive / SetOrbit epoch stay on the single applied segment and only the drawn arc
+        /// sweep widens.</para>
+        /// </summary>
+        private static void ExpandStoredBoundsAcrossEquivalentSegments(
+            uint vesselPid, int recordingIndex, ref double startUT, ref double endUT, string reason)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (recordingIndex < 0
+                || committed == null
+                || recordingIndex >= committed.Count
+                || committed[recordingIndex] == null
+                || !committed[recordingIndex].HasOrbitSegments)
+            {
+                return;
+            }
+
+            double shift = GetGhostOrbitEpochShift(vesselPid);
+            double rawStart = MapLiveUTToEffUT(startUT, shift);
+            double rawEnd = MapLiveUTToEffUT(endUT, shift);
+
+            if (!TrajectoryMath.TryExpandStoredSingleSegmentWindow(
+                    committed[recordingIndex].OrbitSegments,
+                    rawStart,
+                    rawEnd,
+                    out double rawExpandedStart,
+                    out double rawExpandedEnd,
+                    out int firstVisibleIndex,
+                    out int lastVisibleIndex,
+                    out int fragmentCount))
+            {
+                return;
+            }
+
+            if (fragmentCount <= 1)
+                return;
+
+            startUT = rawExpandedStart + shift;
+            endUT = rawExpandedEnd + shift;
+
+            // This resolves every render frame while a loop ghost approaches an SOI; emit only when the
+            // coalesced window changes (VerboseOnChange) so the merge decision is captured without
+            // per-frame spam, mirroring the stored-bounds VerboseOnChange site just above.
+            ParsekLog.VerboseOnChange(Tag,
+                string.Format(ic, "loop-arc-coalesce|{0}|{1}", vesselPid, reason),
+                string.Format(ic, "coalesce|{0}|{1}-{2}|{3:F3}-{4:F3}",
+                    fragmentCount, firstVisibleIndex, lastVisibleIndex, startUT, endUT),
+                string.Format(ic,
+                    "Loop arc-window coalesced pid={0} recIndex={1} reason={2} fragments={3} " +
+                    "segIndices={4}-{5} rawWindowUT={6:F2}-{7:F2} shiftedWindowUT={8:F2}-{9:F2} loopShift={10:F2}",
+                    vesselPid, recordingIndex, reason, fragmentCount,
+                    firstVisibleIndex, lastVisibleIndex,
+                    rawExpandedStart, rawExpandedEnd,
+                    startUT, endUT, shift));
+        }
+
+        /// <summary>
         /// Reset all state for testing (avoids Debug.Log crash outside Unity).
         /// </summary>
         internal static void ResetForTesting()
@@ -10159,6 +10312,7 @@ namespace Parsek
             ghostLastAppliedOrbitElements.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             ghostOrbitEpochShift.Clear();
+            ghostIconDrivePropagation.Clear();
             ClearPolylineOwningStampsForTesting();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
@@ -10232,6 +10386,7 @@ namespace Parsek
             ghostLastAppliedOrbitElements.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             ghostOrbitEpochShift.Clear();
+            ghostIconDrivePropagation.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             overlapInstanceVessels.Clear();
@@ -11853,6 +12008,7 @@ namespace Parsek
                 ghostLastAppliedOrbitElements.Remove(ghostPid);
                 ghostOrbitLoopShiftedPids.Remove(ghostPid);
                 ghostOrbitEpochShift.Remove(ghostPid);
+                ghostIconDrivePropagation.Remove(ghostPid);
                 vesselPidToRecordingIndex.Remove(ghostPid);
                 vesselPidToRecordingId.Remove(ghostPid);
             }
