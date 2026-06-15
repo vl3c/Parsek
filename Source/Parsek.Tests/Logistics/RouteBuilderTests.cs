@@ -445,6 +445,84 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(120.0, loadManifest["Ore"]);
         }
 
+        // catches (M3 Phase 5, plan D7/D8): an originless INVENTORY pickup (a
+        // stored part loaded FROM the endpoint, nothing delivered, no resource
+        // load) must admit through the pickup branch and the stop must carry the
+        // InventoryPickupManifest from analysis.InventoryLoadManifest (Phase 2
+        // left it null; Phase 5 fills it).
+        [Fact]
+        public void BuildRoute_OriginlessInventoryPickup_AdmitsWithInventoryPickupManifest()
+        {
+            Recording source = MakeNoOriginSource();
+            var inventoryLoad = new List<InventoryPayloadItem>
+            {
+                MakeInventoryItem("ore-container-hash", "smallCargoContainer", 1, 1, "white")
+            };
+            RouteAnalysisResult analysis = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = source,
+                ConnectionWindow = source.RouteConnectionWindows[0],
+                // Pure INVENTORY pickup: no delivery, no resource load.
+                ResourceDeliveryManifest = null,
+                InventoryDeliveryManifest = null,
+                ResourceLoadManifest = null,
+                InventoryLoadManifest = inventoryLoad
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Null(outcome.RejectReason);
+            Assert.False(outcome.Route.IsKscOrigin);
+            Assert.Equal(9001u, outcome.Route.Origin.VesselPersistentId);
+            // Pickup debits its physical source, never funds: cost manifests EMPTY.
+            Assert.Empty(outcome.Route.CostManifest);
+            Assert.Empty(outcome.Route.InventoryCostManifest);
+            RouteStop stop = outcome.Route.Stops[0];
+            Assert.NotNull(stop.InventoryPickupManifest);
+            Assert.Single(stop.InventoryPickupManifest);
+            Assert.Equal("ore-container-hash", stop.InventoryPickupManifest[0].IdentityHash);
+            Assert.Equal(1, stop.InventoryPickupManifest[0].Quantity);
+            // No resource pickup leaked.
+            Assert.True(stop.PickupManifest == null || stop.PickupManifest.Count == 0);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("Built route") &&
+                l.Contains("stop-inventory-pickup=1"));
+        }
+
+        // catches (M3 Phase 5): the InventoryPickupManifest being a SHALLOW copy
+        // of the analysis list (a store mutation reaching back into the analysis
+        // result). The items carry mutable StoredPartSnapshot ConfigNodes, so the
+        // builder must DEEP-clone.
+        [Fact]
+        public void BuildRoute_InventoryPickup_ManifestIsDeepCopy()
+        {
+            Recording source = MakeNoOriginSource();
+            var inventoryLoad = new List<InventoryPayloadItem>
+            {
+                MakeInventoryItem("ore-container-hash", "smallCargoContainer", 1, 1, "white")
+            };
+            RouteAnalysisResult analysis = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = source,
+                ConnectionWindow = source.RouteConnectionWindows[0],
+                InventoryLoadManifest = inventoryLoad
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            // Mutating the route's item must not touch the analysis source item.
+            outcome.Route.Stops[0].InventoryPickupManifest[0].Quantity = 999;
+            Assert.Equal(1, inventoryLoad[0].Quantity);
+            Assert.NotSame(inventoryLoad[0], outcome.Route.Stops[0].InventoryPickupManifest[0]);
+        }
+
         // catches (M3, plan D8): an originless run that ALSO delivers (mixed-direction
         // but with no resolvable conventional origin) being silently admitted through
         // the pickup branch. The pickup branch is for PURE pickup only (hasDelivery

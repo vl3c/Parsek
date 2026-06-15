@@ -1119,10 +1119,33 @@ namespace Parsek.Logistics
                     $"requestedResources={(pickup.RequestedOnShortfall?.Count ?? 0).ToString(IC)})");
             }
 
+            // M3 Phase 5 (D7): inventory pickup half. Physically remove the
+            // witnessed stored-part payloads from the SAME endpoint (the writer
+            // captures its OWN loaded-gate per vessel internally) and carry the
+            // ACTUAL removed inventory on the pickup row. A resource-only pickup
+            // stop has no inventory manifest -> a structural no-op (empty
+            // outcome). The endpoint pid resolves identically on both halves; the
+            // resource half's pid wins on the row (they are the same vessel), with
+            // the inventory pid as the fallback when the resource manifest was
+            // empty.
+            List<InventoryPayloadItem> inventoryPickupManifest = stop.InventoryPickupManifest;
+            InventoryPickupOutcome inventoryPickup =
+                ApplyInventoryPickupDebit(stop.Endpoint, inventoryPickupManifest, env, route.Id);
+
+            if (inventoryPickup.Short && !inventoryPickup.Unresolved)
+            {
+                ParsekLog.Warn(Tag,
+                    $"InventoryPickupDebit: route {ShortIdForLog(route)} cycle={cycleId} SHORT at apply - " +
+                    "source no longer held a witnessed item; requested inventory recorded on the pickup row " +
+                    $"(pickedUpInventory={(inventoryPickup.ActualPickedUp?.Count ?? 0).ToString(IC)} " +
+                    $"requestedInventory={(inventoryPickup.RequestedOnShortfall?.Count ?? 0).ToString(IC)})");
+            }
+
             // RouteCargoPickedUp row. Mirror of the debited row's payload shape
             // (actual manifest, requested-on-shortfall, endpoint pid) but ZERO funds
-            // and Sequence 2 (after dispatch Seq0 + debit Seq1). Zero actuals
-            // serialize as no manifest.
+            // and Sequence 2 (after dispatch Seq0 + debit Seq1). Carries BOTH the
+            // resource AND the inventory picked-up manifests (D7). Zero actuals in
+            // either dimension serialize as no manifest.
             var pickedUpAction = new GameAction
             {
                 Type = GameActionType.RouteCargoPickedUp,
@@ -1133,17 +1156,24 @@ namespace Parsek.Logistics
                 Sequence = 2,
                 RouteResourceManifest = pickup.ActualDebited,
                 RouteRequestedResourceManifest = pickup.RequestedOnShortfall,
-                RouteOriginVesselPid = pickup.OriginVesselPid,
+                RouteInventoryManifest = inventoryPickup.ActualPickedUp,
+                RouteRequestedInventoryManifest = inventoryPickup.RequestedOnShortfall,
+                RouteOriginVesselPid = pickup.OriginVesselPid != 0u
+                    ? pickup.OriginVesselPid
+                    : inventoryPickup.EndpointVesselPid,
             };
             Ledger.AddAction(pickedUpAction);
 
             ParsekLog.Info(Tag,
                 $"PickupHalf: route {ShortIdForLog(route)} cycle={cycleId} " +
                 $"ut={currentUT.ToString("R", IC)} " +
-                $"endpointPid={pickup.OriginVesselPid.ToString(IC)} " +
+                $"endpointPid={pickedUpAction.RouteOriginVesselPid.ToString(IC)} " +
                 $"pickedUpResources={(pickup.ActualDebited?.Count ?? 0).ToString(IC)} " +
                 $"requestedResources={(pickup.RequestedOnShortfall?.Count ?? 0).ToString(IC)} " +
-                $"short={(pickup.Short ? "1" : "0")} unresolved={(pickup.Unresolved ? "1" : "0")}");
+                $"pickedUpInventory={(inventoryPickup.ActualPickedUp?.Count ?? 0).ToString(IC)} " +
+                $"requestedInventory={(inventoryPickup.RequestedOnShortfall?.Count ?? 0).ToString(IC)} " +
+                $"short={((pickup.Short || inventoryPickup.Short) ? "1" : "0")} " +
+                $"unresolved={((pickup.Unresolved || inventoryPickup.Unresolved) ? "1" : "0")}");
         }
 
         /// <summary>
@@ -1172,9 +1202,19 @@ namespace Parsek.Logistics
             public Dictionary<string, double> ActualDebited;
             /// <summary>Requested amounts for resources whose actual fell short; null on a full debit (design D3).</summary>
             public Dictionary<string, double> RequestedOnShortfall;
+            /// <summary>
+            /// M3 Phase 5 (D7 carve-out lift): stored-part payloads ACTUALLY
+            /// removed from the origin's InventoryCostManifest (identity intact,
+            /// removed quantity); null when no inventory was removed. Carried on
+            /// the M1 origin-debit path now that the inventory remove writer is
+            /// wired in; null on the legacy / KSC / pickup paths.
+            /// </summary>
+            public List<InventoryPayloadItem> ActualInventoryDebited;
+            /// <summary>M3 Phase 5: witnessed inventory whose actual fell short; null on a full inventory debit.</summary>
+            public List<InventoryPayloadItem> RequestedInventoryOnShortfall;
             /// <summary>Persistent id of the debited origin vessel; 0 when unresolved.</summary>
             public uint OriginVesselPid;
-            /// <summary>True when at least one resource's actual fell short of the required amount.</summary>
+            /// <summary>True when at least one resource OR inventory item's actual fell short of the required amount.</summary>
             public bool Short;
             /// <summary>True when the origin vessel could not be resolved at apply time (zero actuals, full requested manifest).</summary>
             public bool Unresolved;
@@ -1247,6 +1287,10 @@ namespace Parsek.Logistics
                     // manifest entries - the short and unresolved paths
                     // must agree on row content.
                     RequestedOnShortfall = ClonePositiveManifest(route.CostManifest),
+                    // M3 Phase 5 (D7): the unresolved path records the full
+                    // requested inventory too (honest bookkeeping).
+                    ActualInventoryDebited = null,
+                    RequestedInventoryOnShortfall = ClonePositiveInventoryManifest(route.InventoryCostManifest),
                     OriginVesselPid = 0u,
                     Short = true,
                     Unresolved = true,
@@ -1307,10 +1351,68 @@ namespace Parsek.Logistics
                 }
             }
 
+            // M3 Phase 5 (D7 carve-out lift): the inventory origin-debit half.
+            // The route gate (OriginHasCargo) already verified the
+            // InventoryCostManifest is fully held this tick; remove each witnessed
+            // payload by identity from the SAME loaded/unloaded branch (the
+            // per-vessel gate captured above), clamping at what is stored. A null
+            // / empty InventoryCostManifest (the common case) is a no-op.
+            List<InventoryPayloadItem> actualInventory = null;
+            List<InventoryPayloadItem> requestedInventory = null;
+            if (route.InventoryCostManifest != null && route.InventoryCostManifest.Count > 0)
+            {
+                var inventoryWriter = new LiveInventoryPickupWriter(originVessel, originIsLoaded);
+                for (int i = 0; i < route.InventoryCostManifest.Count; i++)
+                {
+                    InventoryPayloadItem item = route.InventoryCostManifest[i];
+                    if (item == null || string.IsNullOrEmpty(item.IdentityHash))
+                        continue;
+                    int want = item.Quantity > 0 ? item.Quantity : 0;
+                    if (want <= 0)
+                        continue;
+
+                    int removed = 0;
+                    for (int u = 0; u < want; u++)
+                    {
+                        if (inventoryWriter.RemoveOne(item))
+                            removed++;
+                        else
+                            break;
+                    }
+
+                    if (removed > 0)
+                    {
+                        if (actualInventory == null)
+                            actualInventory = new List<InventoryPayloadItem>(route.InventoryCostManifest.Count);
+                        InventoryPayloadItem actualItem = item.DeepClone();
+                        actualItem.Quantity = removed;
+                        actualInventory.Add(actualItem);
+                    }
+                    if (removed < want)
+                    {
+                        anyShort = true;
+                        if (requestedInventory == null)
+                            requestedInventory = new List<InventoryPayloadItem>(route.InventoryCostManifest.Count);
+                        InventoryPayloadItem requestedItem = item.DeepClone();
+                        requestedItem.Quantity = want;
+                        requestedInventory.Add(requestedItem);
+                    }
+                }
+
+                ParsekLog.Info(Tag,
+                    $"OriginDebit inventory: route={ShortIdForLog(route)} " +
+                    $"requested={route.InventoryCostManifest.Count.ToString(IC)} " +
+                    $"removed={(actualInventory?.Count ?? 0).ToString(IC)} " +
+                    $"short={(requestedInventory != null ? "1" : "0")} " +
+                    $"path={(originIsLoaded ? "loaded" : "unloaded")}");
+            }
+
             return new OriginDebitOutcome
             {
                 ActualDebited = actualManifest,
                 RequestedOnShortfall = requestedManifest,
+                ActualInventoryDebited = actualInventory,
+                RequestedInventoryOnShortfall = requestedInventory,
                 OriginVesselPid = originVessel.persistentId,
                 Short = anyShort,
                 Unresolved = false,
@@ -1468,6 +1570,180 @@ namespace Parsek.Logistics
                 ActualDebited = actualManifest,
                 RequestedOnShortfall = requestedManifest,
                 OriginVesselPid = endpointVessel.persistentId,
+                Short = anyShort,
+                Unresolved = false,
+            };
+        }
+
+        /// <summary>
+        /// Result of the M3 per-window INVENTORY pickup debit (Phase 5, design
+        /// D7): the inventory analogue of <see cref="OriginDebitOutcome"/>. Carries
+        /// the ACTUAL removed stored-part payloads (the items the source actually
+        /// held, identity intact), the requested-on-shortfall payloads (witnessed
+        /// items the source no longer held at debit time), the endpoint pid, and
+        /// the short / unresolved flags. The actual / requested item lists carry
+        /// the per-identity quantity that was removed / fell short. Empty actual
+        /// list serializes as no inventory manifest on the row.
+        /// </summary>
+        internal struct InventoryPickupOutcome
+        {
+            /// <summary>Stored-part payloads ACTUALLY removed from the source (identity + removed quantity); null when nothing was removed.</summary>
+            public List<InventoryPayloadItem> ActualPickedUp;
+            /// <summary>Witnessed payloads whose actual fell short (the source no longer held them); null on a full pickup.</summary>
+            public List<InventoryPayloadItem> RequestedOnShortfall;
+            /// <summary>Persistent id of the debited endpoint vessel; 0 when unresolved.</summary>
+            public uint EndpointVesselPid;
+            /// <summary>True when at least one witnessed item's removed quantity fell short of the witnessed quantity.</summary>
+            public bool Short;
+            /// <summary>True when the endpoint vessel could not be resolved at apply time (zero actuals, full requested manifest).</summary>
+            public bool Unresolved;
+        }
+
+        /// <summary>
+        /// Test seam for the M3 per-window INVENTORY pickup debit
+        /// (<see cref="ApplyInventoryPickupDebit"/>). Production leaves it null so
+        /// the applier resolves a live endpoint vessel and drives the production
+        /// inventory probe + remove writer; xUnit assigns a fake that returns a
+        /// hand-built <see cref="InventoryPickupOutcome"/> so the Phase 5
+        /// two-direction applier + RouteCargoPickedUp inventory manifest can be
+        /// exercised without Vessel statics. Mirror of
+        /// <see cref="PickupDebitApplierForTesting"/>; receives the resolved stop
+        /// endpoint and the per-window inventory pickup manifest.
+        /// </summary>
+        internal static System.Func<RouteEndpoint, List<InventoryPayloadItem>, IRouteRuntimeEnvironment, InventoryPickupOutcome> InventoryPickupApplierForTesting;
+
+        /// <summary>
+        /// Production M3 per-window INVENTORY pickup debit (design D7, Phase 5):
+        /// the inventory analogue of <see cref="ApplyPickupDebit"/>. Given a
+        /// resolved stop endpoint and a witnessed inventory pickup manifest (the
+        /// loaded term), resolves the endpoint vessel via the env, captures the
+        /// loaded gate ONCE for THAT vessel, and removes each witnessed item from
+        /// the source via the <see cref="LiveInventoryPickupWriter"/> (loaded
+        /// <c>ClearPartAtSlot</c> / unloaded STOREDPART proto-node removal, matched
+        /// strictly by <see cref="InventoryPayloadItem.IdentityHash"/>, lowest-slot
+        /// partial-match). The transport CREDIT is bookkeeping only - the writer
+        /// removes from the SOURCE only; no physical store on the transport (the
+        /// transport never materializes, 19.2.3). Returns the actual-removed /
+        /// requested-on-shortfall payloads / endpoint pid / short / unresolved
+        /// outcome.
+        ///
+        /// <para><b>Unresolved rule (mirrors <see cref="ApplyPickupDebit"/>):</b> a
+        /// resolution that returns <c>false</c> OR returns <c>true</c> with a null
+        /// vessel counts as UNRESOLVED: Warn, zero actuals, FULL requested manifest
+        /// (honest bookkeeping). Loop-path-only in spirit (M1 D11 parity);
+        /// reversible via the rewind quicksave.</para>
+        /// </summary>
+        internal static InventoryPickupOutcome ApplyInventoryPickupDebit(
+            RouteEndpoint endpoint,
+            List<InventoryPayloadItem> pickupManifest,
+            IRouteRuntimeEnvironment env,
+            string routeIdForLog)
+        {
+            var seam = InventoryPickupApplierForTesting;
+            if (seam != null)
+                return seam(endpoint, pickupManifest, env);
+
+            // Nothing to pick up - empty/null manifest is a structural no-op.
+            if (pickupManifest == null || pickupManifest.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"InventoryPickupDebit: route {routeIdForLog ?? "<none>"} empty inventory pickup manifest - nothing to debit");
+                return new InventoryPickupOutcome
+                {
+                    ActualPickedUp = null,
+                    RequestedOnShortfall = null,
+                    EndpointVesselPid = 0u,
+                    Short = false,
+                    Unresolved = false,
+                };
+            }
+
+            Vessel endpointVessel = null;
+            string resolveReason = null;
+            bool resolved = false;
+            try
+            {
+                resolved = env.TryResolveEndpointVessel(endpoint, out endpointVessel, out resolveReason);
+            }
+            catch (Exception ex)
+            {
+                resolveReason = $"resolver-threw-{ex.GetType().Name}";
+                resolved = false;
+            }
+
+            if (!resolved || endpointVessel == null)
+            {
+                string reason = resolved ? "resolved-null-vessel" : (resolveReason ?? "unknown");
+                ParsekLog.Warn(Tag,
+                    $"InventoryPickupDebit: route {routeIdForLog ?? "<none>"} pickup endpoint unresolved at debit " +
+                    $"(reason={reason}) - emitting requested manifest with zero actuals");
+                return new InventoryPickupOutcome
+                {
+                    ActualPickedUp = null,
+                    RequestedOnShortfall = ClonePositiveInventoryManifest(pickupManifest),
+                    EndpointVesselPid = 0u,
+                    Short = true,
+                    Unresolved = true,
+                };
+            }
+
+            // Capture the loaded gate ONCE for THIS endpoint vessel (design D5
+            // per-vessel capture) and thread it into the writer.
+            bool endpointIsLoaded = endpointVessel.loaded && !endpointVessel.packed;
+            var writer = new LiveInventoryPickupWriter(endpointVessel, endpointIsLoaded);
+
+            ParsekLog.Info(Tag,
+                $"InventoryPickupDebit plan: route={routeIdForLog ?? "<none>"} " +
+                $"items={pickupManifest.Count.ToString(IC)} " +
+                $"path={(endpointIsLoaded ? "loaded" : "unloaded")} " +
+                $"endpoint={endpointVessel.vesselName ?? "<none>"} " +
+                $"pid={endpointVessel.persistentId.ToString(IC)}");
+
+            List<InventoryPayloadItem> actual = null;
+            List<InventoryPayloadItem> requested = null;
+            bool anyShort = false;
+            for (int i = 0; i < pickupManifest.Count; i++)
+            {
+                InventoryPayloadItem item = pickupManifest[i];
+                if (item == null || string.IsNullOrEmpty(item.IdentityHash))
+                    continue;
+                int want = item.Quantity > 0 ? item.Quantity : 0;
+                if (want <= 0)
+                    continue;
+
+                int removed = 0;
+                for (int u = 0; u < want; u++)
+                {
+                    if (writer.RemoveOne(item))
+                        removed++;
+                    else
+                        break; // source no longer holds this identity
+                }
+
+                if (removed > 0)
+                {
+                    if (actual == null)
+                        actual = new List<InventoryPayloadItem>(pickupManifest.Count);
+                    InventoryPayloadItem actualItem = item.DeepClone();
+                    actualItem.Quantity = removed;
+                    actual.Add(actualItem);
+                }
+                if (removed < want)
+                {
+                    anyShort = true;
+                    if (requested == null)
+                        requested = new List<InventoryPayloadItem>(pickupManifest.Count);
+                    InventoryPayloadItem requestedItem = item.DeepClone();
+                    requestedItem.Quantity = want;
+                    requested.Add(requestedItem);
+                }
+            }
+
+            return new InventoryPickupOutcome
+            {
+                ActualPickedUp = actual,
+                RequestedOnShortfall = requested,
+                EndpointVesselPid = endpointVessel.persistentId,
                 Short = anyShort,
                 Unresolved = false,
             };
@@ -1662,6 +1938,16 @@ namespace Parsek.Logistics
                     : CloneManifest(route.CostManifest),
                 RouteRequestedResourceManifest = physicalDebitApplied
                     ? originDebit.RequestedOnShortfall
+                    : null,
+                // M3 Phase 5 (D7 carve-out lift): the physical-debit path carries
+                // the ACTUAL removed origin inventory + requested-on-shortfall,
+                // sparse (null on the legacy / KSC paths so v0 rows stay
+                // byte-identical).
+                RouteInventoryManifest = physicalDebitApplied
+                    ? originDebit.ActualInventoryDebited
+                    : null,
+                RouteRequestedInventoryManifest = physicalDebitApplied
+                    ? originDebit.RequestedInventoryOnShortfall
                     : null,
                 RouteOriginVesselPid = physicalDebitApplied
                     ? originDebit.OriginVesselPid
@@ -2723,17 +3009,19 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// True when the route's resolved cycle stop carries a PICKUP manifest
-        /// (resource; M3 Phase 2). When true, the pickup half of
-        /// <see cref="EmitLoopCycle"/> resolves the endpoint and physically debits
-        /// the witnessed load term (D6). Inventory pickup is Phase 5; this Phase 4
-        /// wiring covers the RESOURCE pickup manifest only. Pure / internal for
-        /// direct testing.
+        /// True when the route's resolved cycle stop carries a PICKUP manifest -
+        /// resource (M3 Phase 2/4) OR inventory (M3 Phase 5). When true, the pickup
+        /// half of <see cref="EmitLoopCycle"/> resolves the endpoint and physically
+        /// debits the witnessed load term in BOTH dimensions (D6/D7). Pure /
+        /// internal for direct testing.
         /// </summary>
         internal static bool RouteHasPickupManifest(Route route)
         {
             RouteStop stop = ResolveCycleStop(route);
-            return stop != null && stop.PickupManifest != null && stop.PickupManifest.Count > 0;
+            if (stop == null) return false;
+            bool hasResource = stop.PickupManifest != null && stop.PickupManifest.Count > 0;
+            bool hasInventory = stop.InventoryPickupManifest != null && stop.InventoryPickupManifest.Count > 0;
+            return hasResource || hasInventory;
         }
 
         /// <summary>
@@ -2771,6 +3059,31 @@ namespace Parsek.Logistics
             {
                 if (kv.Value > 0.0)
                     clone[kv.Key] = kv.Value;
+            }
+            return clone;
+        }
+
+        /// <summary>
+        /// Deep-clone of a witnessed inventory pickup manifest keeping
+        /// positive-quantity items only (the unresolved path's
+        /// requested-on-shortfall manifest, mirror of
+        /// <see cref="ClonePositiveManifest"/>). Items carry mutable
+        /// StoredPartSnapshot ConfigNodes, so each is deep-cloned. Null in -> null
+        /// out.
+        /// </summary>
+        private static List<InventoryPayloadItem> ClonePositiveInventoryManifest(
+            List<InventoryPayloadItem> source)
+        {
+            if (source == null) return null;
+            List<InventoryPayloadItem> clone = null;
+            for (int i = 0; i < source.Count; i++)
+            {
+                InventoryPayloadItem item = source[i];
+                if (item == null || item.Quantity <= 0 || string.IsNullOrEmpty(item.IdentityHash))
+                    continue;
+                if (clone == null)
+                    clone = new List<InventoryPayloadItem>(source.Count);
+                clone.Add(item.DeepClone());
             }
             return clone;
         }

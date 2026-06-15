@@ -317,6 +317,9 @@ namespace Parsek.Logistics
             // reaches this branch.
             bool hasResourceLoad = analysis.ResourceLoadManifest != null
                 && analysis.ResourceLoadManifest.Count > 0;
+            bool hasInventoryLoad = analysis.InventoryLoadManifest != null
+                && analysis.InventoryLoadManifest.Count > 0;
+            bool hasLoad = hasResourceLoad || hasInventoryLoad;
             bool hasDelivery =
                 (analysis.ResourceDeliveryManifest != null
                     && analysis.ResourceDeliveryManifest.Count > 0)
@@ -403,19 +406,20 @@ namespace Parsek.Logistics
                 isHarvestOrigin = true;
                 originLabel = "harvest";
             }
-            else if (hasResourceLoad && !hasDelivery
+            else if (hasLoad && !hasDelivery
                 && analysis.ConnectionWindow.EndpointAtDock.HasValue)
             {
                 // M3 pickup origin (plan D8): the run loaded cargo FROM the dock
-                // endpoint with NOTHING delivered (pure pickup). The endpoint IS
-                // the source - debited at the per-window pickup applier (Phase
-                // 3/4), NOT at dispatch and NOT against funds - so the origin is
-                // a DISPLAY-ONLY descriptor built from the connection window's
-                // pickup endpoint (its pid resolves the live source vessel at
-                // debit time; cost manifests stay EMPTY below, mirroring the
-                // harvest-origin no-debit shape). A MIXED window (loads AND
-                // delivers) keeps its real KSC / docked origin and never lands
-                // here (the hasDelivery guard).
+                // endpoint with NOTHING delivered (pure pickup, resource AND/OR
+                // inventory). The endpoint IS the source - debited at the
+                // per-window pickup applier (Phase 3/4 resources, Phase 5
+                // inventory), NOT at dispatch and NOT against funds - so the
+                // origin is a DISPLAY-ONLY descriptor built from the connection
+                // window's pickup endpoint (its pid resolves the live source
+                // vessel at debit time; cost manifests stay EMPTY below,
+                // mirroring the harvest-origin no-debit shape). A MIXED window
+                // (loads AND delivers) keeps its real KSC / docked origin and
+                // never lands here (the hasDelivery guard).
                 RouteEndpoint pickupEndpoint = analysis.ConnectionWindow.EndpointAtDock.Value;
                 origin = new RouteEndpoint
                 {
@@ -438,7 +442,8 @@ namespace Parsek.Logistics
                     $"launchSite={(string.IsNullOrEmpty(originRec.LaunchSiteName) ? "<none>" : originRec.LaunchSiteName)} " +
                     $"startBody={originRec.StartBodyName ?? "<none>"} originProof={(originRec.RouteOriginProof != null ? "yes" : "no")} " +
                     $"harvestOrigin={(analysis.IsHarvestOrigin ? "yes-but-no-window" : "no")} " +
-                    $"resourceLoad={(hasResourceLoad ? "yes" : "no")} delivery={(hasDelivery ? "yes" : "no")} " +
+                    $"resourceLoad={(hasResourceLoad ? "yes" : "no")} " +
+                    $"inventoryLoad={(hasInventoryLoad ? "yes" : "no")} delivery={(hasDelivery ? "yes" : "no")} " +
                     $"pickupEndpoint={(analysis.ConnectionWindow.EndpointAtDock.HasValue ? "yes" : "no")}");
                 return new RouteBuildOutcome { RejectReason = "endpoint-missing" };
             }
@@ -464,11 +469,19 @@ namespace Parsek.Logistics
                 PickupManifest = analysis.ResourceLoadManifest != null
                     ? new Dictionary<string, double>(analysis.ResourceLoadManifest)
                     : null,
-                // M3 inventory pickup is the Phase-5 applier; the route-shape field
-                // lands here (D8) but the analysis term that fills it does not exist
-                // until Phase 5, so it stays null in Phase 2 and the codec omits the
-                // INVENTORY_PICKUP_MANIFEST node for every built route.
-                InventoryPickupManifest = null,
+                // M3 inventory pickup (plan D7/D8, Phase 5): the analysis inventory
+                // load manifest is the stored-part cargo that flowed FROM the
+                // endpoint ONTO the transport across the window (the sign-flip
+                // mirror of inventory delivery, identity carried intact).
+                // Defensively deep-copy so store mutations cannot reach back into
+                // the analysis result (the items carry mutable StoredPartSnapshot
+                // ConfigNodes). Null when the window carried no inventory pickup
+                // (resource-only / pure-delivery stop) -> the codec omits the
+                // INVENTORY_PICKUP_MANIFEST node and the route round-trips
+                // byte-identically.
+                InventoryPickupManifest = analysis.InventoryLoadManifest != null
+                    ? RouteProofMetadata.CloneInventoryPayloadItems(analysis.InventoryLoadManifest)
+                    : null,
                 SegmentIndexBefore = 0,
                 DeliveryOffsetSeconds = 0.0
             };
@@ -617,6 +630,9 @@ namespace Parsek.Logistics
                 : 0;
             // M3: per-stop pickup-direction count (resource load manifest size).
             int stopPickup = stop.PickupManifest != null ? stop.PickupManifest.Count : 0;
+            int stopInventoryPickup = stop.InventoryPickupManifest != null
+                ? stop.InventoryPickupManifest.Count
+                : 0;
             ParsekLog.Info(Tag,
                 $"Built route id={shortId} origin={originLabel} " +
                 $"originSurface={(origin.IsSurface ? "1" : "0")} " +
@@ -636,6 +652,7 @@ namespace Parsek.Logistics
                 $"stop-resources={stopResources.ToString(ic)} " +
                 $"stop-inventory={stopInventory.ToString(ic)} " +
                 $"stop-pickup={stopPickup.ToString(ic)} " +
+                $"stop-inventory-pickup={stopInventoryPickup.ToString(ic)} " +
                 $"mode={mode}");
 
             return new RouteBuildOutcome { Route = route };

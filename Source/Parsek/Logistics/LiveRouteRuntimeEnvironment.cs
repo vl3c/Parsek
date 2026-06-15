@@ -29,10 +29,14 @@ namespace Parsek.Logistics
     ///     <c>CostManifest</c> via <see cref="LiveOriginCargoProbe"/> +
     ///     <see cref="RouteOriginCargoCheck"/> (design D1/D3/D4); a short
     ///     origin holds the route in <c>WaitingForResources</c> naming the
-    ///     first short resource. Inventory payloads are deferred (design D6):
-    ///     a non-KSC route with a non-empty <c>InventoryCostManifest</c> holds
-    ///     with reason <c>inventory-origin-debit-unsupported</c> until M3
-    ///     ships the stock-slot-identity removal.</item>
+    ///     first short resource. Inventory payloads are ALSO gated as of M3
+    ///     Phase 5 (design D7 carve-out lift): a non-KSC route with a non-empty
+    ///     <c>InventoryCostManifest</c> gates all-or-nothing by exact
+    ///     <c>IdentityHash</c> via <see cref="RouteOriginCargoCheck.HasRequiredInventory"/>
+    ///     + <see cref="LiveInventoryPickupWriter.CountStored"/>, holding with an
+    ///     <c>inventory:&lt;hash&gt;</c> short token (the retired
+    ///     <c>inventory-origin-debit-unsupported</c> deferral is gone - the origin
+    ///     debit now physically removes the stored part).</item>
     ///   <item><c>DestinationHasCapacity</c>: returns <c>true</c> by design.
     ///     v0 enforces capacity at apply time via
     ///     <see cref="RouteDeliveryPlanner.PrepareDelivery"/> +
@@ -119,22 +123,6 @@ namespace Parsek.Logistics
                 return true;
             }
 
-            // M1 inventory deferral (design D6): exact STOREDPART removal by
-            // identity is the M3 stock-slot-identity work, and delivering
-            // items without debiting them would duplicate matter. Hold the
-            // route; the reason token is named in the log (the window shows
-            // the generic per-status text until M6).
-            if (RouteOriginCargoCheck.RequiresInventoryDebit(route))
-            {
-                lackingResource = "inventory-origin-debit-unsupported";
-                ParsekLog.VerboseRateLimited(Tag, "origin-inventory-hold-" + route.Id,
-                    $"OriginHasCargo: route {ShortIdForRoute(route)} " +
-                    "inventory-origin-debit-unsupported (non-KSC origin with a " +
-                    $"non-empty InventoryCostManifest, {route.InventoryCostManifest.Count.ToString(IC)} item(s)) " +
-                    "- inventory origin debit is deferred to M3; holding in WaitingForResources");
-                return false;
-            }
-
             // M1 un-stub: resolve the live origin vessel and gate
             // all-or-nothing against the recorded CostManifest (design
             // D1/D3). The evaluator's step-5 endpoint check normally catches
@@ -181,6 +169,38 @@ namespace Parsek.Logistics
                     $"need={need.ToString("R", IC)} " +
                     $"path={(originIsLoaded ? "loaded" : "unloaded")}");
                 return false;
+            }
+
+            // M3 Phase 5 (design D7 carve-out lift): the M1
+            // inventory-origin-debit-unsupported HOLD is REMOVED - the
+            // LiveInventoryPickupWriter now physically removes STOREDPART
+            // payloads by identity from the origin-dispatch path (ApplyOriginDebit
+            // inventory half), so an origin inventory cost is debitable, not
+            // deferred. Gate it all-or-nothing against the recorded
+            // InventoryCostManifest by exact IdentityHash, reusing the SAME
+            // per-vessel loaded-gate capture as the resource gate so the count and
+            // the eventual removal read the same loaded/unloaded branch. A
+            // null/empty InventoryCostManifest (the common case, including every
+            // pure-pickup run whose origin cost is empty by construction) passes
+            // trivially.
+            if (route.InventoryCostManifest != null && route.InventoryCostManifest.Count > 0)
+            {
+                var inventoryWriter = new LiveInventoryPickupWriter(originVessel, originIsLoaded);
+                bool inventoryCovered = RouteOriginCargoCheck.HasRequiredInventory(
+                    route.InventoryCostManifest, inventoryWriter.CountStored,
+                    out string shortIdentity, out int shortInventory);
+                if (!inventoryCovered)
+                {
+                    lackingResource = "inventory:" + shortIdentity;
+                    ParsekLog.VerboseRateLimited(Tag, "origin-inventory-short-" + route.Id,
+                        $"OriginHasCargo: route {ShortIdForRoute(route)} " +
+                        $"origin={originVessel.vesselName ?? "<none>"} " +
+                        $"pid={originVessel.persistentId.ToString(IC)} " +
+                        $"short inventory identity={shortIdentity} " +
+                        $"shortBy={shortInventory.ToString(IC)} " +
+                        $"path={(originIsLoaded ? "loaded" : "unloaded")}");
+                    return false;
+                }
             }
             return true;
         }

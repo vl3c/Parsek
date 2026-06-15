@@ -45,6 +45,7 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.DeliveryApplierForTesting = null;
             RouteOrchestrator.OriginDebitApplierForTesting = null;
             RouteOrchestrator.PickupDebitApplierForTesting = null;
+            RouteOrchestrator.InventoryPickupApplierForTesting = null;
             logLines.Clear();
         }
 
@@ -54,6 +55,7 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.DeliveryApplierForTesting = null;
             RouteOrchestrator.OriginDebitApplierForTesting = null;
             RouteOrchestrator.PickupDebitApplierForTesting = null;
+            RouteOrchestrator.InventoryPickupApplierForTesting = null;
             RouteStore.ResetForTesting();
             Ledger.ResetForTesting();
             ParsekLog.ResetTestOverrides();
@@ -141,6 +143,55 @@ namespace Parsek.Tests.Logistics
                     Short = isShort || unresolved,
                     Unresolved = unresolved,
                 };
+            };
+        }
+
+        // Fake INVENTORY pickup-debit applier (M3 Phase 5): returns a hand-built
+        // outcome (a full pickup of the manifest with a fixed endpoint pid) and
+        // records every invocation so the test can assert the endpoint + inventory
+        // the production path resolved.
+        private int inventoryPickupSeamCalls;
+        private RouteEndpoint lastInventoryEndpoint;
+        private List<InventoryPayloadItem> lastInventoryManifest;
+
+        private void InstallFakeInventoryPickupApplier(uint endpointPid = 555u, bool unresolved = false)
+        {
+            inventoryPickupSeamCalls = 0;
+            RouteOrchestrator.InventoryPickupApplierForTesting = (ep, manifest, env) =>
+            {
+                inventoryPickupSeamCalls++;
+                lastInventoryEndpoint = ep;
+                lastInventoryManifest = manifest;
+                List<InventoryPayloadItem> actual = null;
+                if (!unresolved && manifest != null && manifest.Count > 0)
+                {
+                    actual = new List<InventoryPayloadItem>();
+                    foreach (var it in manifest)
+                        actual.Add(it.DeepClone());
+                }
+                return new RouteOrchestrator.InventoryPickupOutcome
+                {
+                    ActualPickedUp = actual,
+                    RequestedOnShortfall = null,
+                    EndpointVesselPid = unresolved ? 0u : endpointPid,
+                    Short = unresolved,
+                    Unresolved = unresolved,
+                };
+            };
+        }
+
+        private static InventoryPayloadItem MakeInvItem(string hash, string partName, int quantity)
+        {
+            var storedPart = new ConfigNode("STOREDPART");
+            storedPart.AddValue("partName", partName);
+            storedPart.AddValue("quantity", quantity.ToString(IC));
+            return new InventoryPayloadItem
+            {
+                IdentityHash = hash,
+                PartName = partName,
+                Quantity = quantity,
+                SlotsTaken = 1,
+                StoredPartSnapshot = storedPart,
             };
         }
 
@@ -249,6 +300,45 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(50.0, pickedUp.RouteResourceManifest["Ore"]);
             Assert.Equal(777u, pickedUp.RouteOriginVesselPid);
             Assert.Equal(0f, pickedUp.RouteKscFundsCost);
+        }
+
+        // catches (M3 Phase 5, plan D7): a route whose cycle stop carries an
+        // INVENTORY pickup manifest NOT firing the inventory pickup half, or the
+        // RouteCargoPickedUp row not carrying the picked-up inventory. A
+        // pure-INVENTORY-pickup route (no resource pickup, no delivery) fires the
+        // pickup half via the inventory dimension alone.
+        [Fact]
+        public void InventoryPickup_FiresInventoryHalf_RowCarriesInventoryManifest()
+        {
+            var inventoryManifest = new List<InventoryPayloadItem>
+            {
+                MakeInvItem("ore-container-hash", "smallCargoContainer", 1),
+            };
+            var route = BuildLoopRoute(); // no resource pickup, no delivery
+            route.Stops[0].InventoryPickupManifest = inventoryManifest;
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeInventoryPickupApplier(endpointPid: 555u);
+            // No delivery applier, no resource pickup applier: pure inventory pickup.
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            var pickedUp = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoPickedUp);
+            Assert.NotNull(pickedUp);
+            Assert.Equal(1, inventoryPickupSeamCalls);
+            // The inventory seam saw the stop endpoint + the per-window inventory.
+            Assert.Equal(42u, lastInventoryEndpoint.VesselPersistentId);
+            Assert.NotNull(lastInventoryManifest);
+            Assert.Equal("ore-container-hash", lastInventoryManifest[0].IdentityHash);
+            // The pickup row carries the ACTUAL picked-up inventory manifest + the
+            // endpoint pid (from the inventory dimension, since the resource pickup
+            // returned pid 0). NO delivery row (pure inventory pickup).
+            Assert.NotNull(pickedUp.RouteInventoryManifest);
+            Assert.Single(pickedUp.RouteInventoryManifest);
+            Assert.Equal("ore-container-hash", pickedUp.RouteInventoryManifest[0].IdentityHash);
+            Assert.Equal(555u, pickedUp.RouteOriginVesselPid);
+            Assert.Equal(0f, pickedUp.RouteKscFundsCost);
+            Assert.Null(Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDelivered));
         }
 
         // catches (Sequence / RouteModule out-of-order guard): the pickup row

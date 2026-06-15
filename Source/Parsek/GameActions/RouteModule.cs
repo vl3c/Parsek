@@ -303,6 +303,9 @@ namespace Parsek
 
             int manifestSize = action.RouteResourceManifest?.Count ?? 0;
             int requestedSize = action.RouteRequestedResourceManifest?.Count ?? 0;
+            // M3 Phase 5: the picked-up INVENTORY rides the same row; observe-only
+            // (the stored-part removal happened live at emit, reverted by rewind).
+            int inventorySize = action.RouteInventoryManifest?.Count ?? 0;
             // Endpoint pid is set only by an actual physical pickup debit (M3
             // loop-path emit); an unresolved-at-emit pickup carries a full
             // requested manifest with pid 0 and must not count as physical.
@@ -314,6 +317,7 @@ namespace Parsek
                 $"cycleId={action.RouteCycleId ?? "(none)"}, " +
                 $"resources={manifestSize.ToString(IC)}, " +
                 $"requested={requestedSize.ToString(IC)}, " +
+                $"inventory={inventorySize.ToString(IC)}, " +
                 $"endpointPid={action.RouteOriginVesselPid.ToString(IC)}, " +
                 $"ut={action.UT.ToString("R", IC)} (observe-only, no cargo mutation)");
         }

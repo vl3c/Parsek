@@ -115,26 +115,25 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void FormatRejectMessage_MixedPickupDelivery_ExplainsInventoryPickupLimit()
+        public void FormatRejectMessage_MixedPickupDelivery_ExplainsUnwitnessedInventoryGain()
         {
-            // M3 Phase 1 (resources only): resource pickup now ROUTES, so the
-            // MixedPickupDelivery status is reached only for an INVENTORY
-            // (stored-part) pickup. The copy must (1) state plainly that a stored
-            // part moved from the destination onto the transport, (2) say resource
-            // pickup now routes but inventory pickup is not supported yet, and
-            // (3) give the actionable fix (re-record without taking a stored part,
-            // or use a resource-only transfer).
+            // M3 Phase 5 (plan D7 / OQ3): resource AND inventory pickup now ROUTE,
+            // so MixedPickupDelivery is reached only for an UNWITNESSED inventory
+            // gain (the transport gained a stored part the destination did not
+            // give it). The copy must (1) state the cause plainly (an unwitnessed
+            // inventory gain), (2) explain the non-fungible inventory constraint,
+            // and (3) give the actionable fix (re-record so the picked-up part is
+            // the one the destination held).
             string msg = RouteCreationFormatters.FormatRejectMessage(
                 RouteAnalysisStatus.MixedPickupDelivery);
 
             // (1) plain-language cause
-            Assert.Contains("stored part moved from the destination", msg);
-            // (2) resource vs inventory distinction
-            Assert.Contains("Resource pickup now routes", msg);
-            Assert.Contains("inventory pickup is not supported yet", msg);
+            Assert.Contains("Unwitnessed inventory gain", msg);
+            Assert.Contains("the destination did not give it", msg);
+            // (2) non-fungible constraint
+            Assert.Contains("non-fungible", msg);
             // (3) actionable fix
             Assert.Contains("Re-record", msg);
-            Assert.Contains("resource-only transfer", msg);
 
             // copy guardrail: plain ASCII only (project hard rule, no em dash or
             // other non-ASCII unicode in player-facing copy).

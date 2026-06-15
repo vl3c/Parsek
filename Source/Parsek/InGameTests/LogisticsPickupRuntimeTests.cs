@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using Parsek.Logistics;
@@ -249,8 +250,182 @@ namespace Parsek.InGameTests
         }
 
         // ==================================================================
+        // 4. Loaded-endpoint INVENTORY pickup removes the witnessed stored part
+        // ==================================================================
+
+        [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = IsolatedOnlyBatchSkipReason,
+            Description = "ApplyInventoryPickupDebit re-aimed at the LOADED active vessel removes a witnessed stored-part payload by IdentityHash via the production LiveInventoryPickupWriter (stock ClearPartAtSlot), returns an outcome carrying the actual-picked-up inventory + endpoint pid (not short), and restores the cargo in finally")]
+        public IEnumerator InventoryPickupDebit_LoadedEndpointVessel_RemovesStoredPart()
+        {
+            if (FlightGlobals.ActiveVessel == null)
+                InGameAssert.Skip("FlightGlobals.ActiveVessel is null; need a live endpoint vessel to debit");
+            Vessel endpointVessel = FlightGlobals.ActiveVessel;
+            if (!(endpointVessel.loaded && !endpointVessel.packed))
+                InGameAssert.Skip(
+                    $"Active vessel '{endpointVessel.vesselName}' is not loaded+unpacked; this test uses the loaded ClearPartAtSlot path");
+
+            // Find a stored cargo item on the active vessel (the pickup SOURCE).
+            if (!TryFindStoredCargoItem(endpointVessel, out InventoryPayloadItem witnessed,
+                    out ModuleInventoryPart sourceModule, out int sourceSlot, out ProtoPartSnapshot sourceSnapshot))
+                InGameAssert.Skip(
+                    "PRECONDITION: no stored cargo part on the active vessel. Store a cargo part in an " +
+                    "inventory container (EVA construction or VAB) to run this test");
+
+            int storedBefore = new LiveInventoryPickupWriter(endpointVessel, true).CountStored(witnessed.IdentityHash);
+            InGameAssert.IsTrue(storedBefore >= 1, "Source must hold at least one of the witnessed identity before pickup");
+
+            bool removed = false;
+            try
+            {
+                RouteEndpoint endpoint = EndpointForVessel(endpointVessel);
+                var manifest = new List<InventoryPayloadItem> { witnessed };
+
+                RouteOrchestrator.InventoryPickupOutcome outcome = RouteOrchestrator.ApplyInventoryPickupDebit(
+                    endpoint, manifest, new LiveRouteRuntimeEnvironment(), "ingame-inv-pickup-loaded");
+
+                InGameAssert.IsFalse(outcome.Unresolved, "Endpoint should resolve to the active vessel");
+                InGameAssert.IsFalse(outcome.Short, "A held witnessed item must not be short");
+                InGameAssert.AreEqual(endpointVessel.persistentId, outcome.EndpointVesselPid,
+                    "Outcome must carry the resolved endpoint pid");
+                InGameAssert.IsNotNull(outcome.ActualPickedUp, "Outcome must carry the actual-picked-up inventory");
+                InGameAssert.AreEqual(1, outcome.ActualPickedUp.Count, "Exactly one identity picked up");
+                InGameAssert.AreEqual(witnessed.IdentityHash, outcome.ActualPickedUp[0].IdentityHash,
+                    "Picked-up identity must match the witnessed one");
+                removed = true;
+
+                int storedAfter = new LiveInventoryPickupWriter(endpointVessel, true).CountStored(witnessed.IdentityHash);
+                InGameAssert.AreEqual(storedBefore - 1, storedAfter,
+                    $"Source stored count for the identity should drop by 1 (before={storedBefore} after={storedAfter})");
+
+                ParsekLog.Info("TestRunner",
+                    $"InventoryPickupDebit_Loaded: PASS endpoint={endpointVessel.vesselName} " +
+                    $"part={witnessed.PartName} storedBefore={storedBefore} storedAfter={storedAfter}");
+            }
+            finally
+            {
+                // Restore the removed cargo into its source slot (mirror the
+                // live-move test's restore).
+                if (removed && sourceModule != null && sourceSnapshot != null)
+                {
+                    try { sourceModule.StoreCargoPartAtSlot(sourceSnapshot, sourceSlot); }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"InventoryPickupDebit_Loaded: restore threw {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
+            }
+            yield break;
+        }
+
+        // ==================================================================
+        // 5. Endpoint with no matching inventory clamps short (honest book)
+        // ==================================================================
+
+        [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = IsolatedOnlyBatchSkipReason,
+            Description = "ApplyInventoryPickupDebit for an identity the resolved endpoint does NOT hold removes nothing, marks the outcome short, and records the full witnessed quantity on RequestedOnShortfall (clamp-and-warn, design D7) - no mutation, so no restore needed")]
+        public void InventoryPickupDebit_IdentityNotHeld_ClampsShortNoMutation()
+        {
+            if (FlightGlobals.ActiveVessel == null)
+                InGameAssert.Skip("FlightGlobals.ActiveVessel is null; need a live endpoint vessel");
+            Vessel endpointVessel = FlightGlobals.ActiveVessel;
+            if (!(endpointVessel.loaded && !endpointVessel.packed))
+                InGameAssert.Skip($"Active vessel '{endpointVessel.vesselName}' is not loaded+unpacked");
+
+            // A synthetic payload with a hash the vessel cannot possibly hold.
+            var phantom = new InventoryPayloadItem
+            {
+                IdentityHash = "phantom-identity-hash-that-no-stored-part-matches",
+                PartName = "smallCargoContainer",
+                Quantity = 1,
+                SlotsTaken = 1,
+            };
+
+            RouteEndpoint endpoint = EndpointForVessel(endpointVessel);
+            RouteOrchestrator.InventoryPickupOutcome outcome = RouteOrchestrator.ApplyInventoryPickupDebit(
+                endpoint, new List<InventoryPayloadItem> { phantom }, new LiveRouteRuntimeEnvironment(),
+                "ingame-inv-pickup-notheld");
+
+            InGameAssert.IsFalse(outcome.Unresolved, "The endpoint resolves; only the identity is absent");
+            InGameAssert.IsTrue(outcome.Short, "An identity the source does not hold must mark the outcome short");
+            InGameAssert.IsNull(outcome.ActualPickedUp, "Nothing removed -> no actual-picked-up manifest");
+            InGameAssert.IsNotNull(outcome.RequestedOnShortfall, "Short outcome records the requested manifest");
+            InGameAssert.AreEqual(1, outcome.RequestedOnShortfall.Count, "One witnessed identity requested");
+
+            ParsekLog.Info("TestRunner",
+                $"InventoryPickupDebit_NotHeld: PASS endpoint={endpointVessel.vesselName} (no mutation, clamp short)");
+        }
+
+        // ==================================================================
         // Helpers
         // ==================================================================
+
+        /// <summary>
+        /// Finds the FIRST quantity-1 stored cargo item on <paramref name="vessel"/>
+        /// and the witnessed payload (identity hash + canonical STOREDPART) the
+        /// production pickup writer would match against, plus the source module /
+        /// slot / proto snapshot so the test can restore it. Mirror of the
+        /// live-move test's CollectStoredParts walk, reading the public
+        /// <see cref="StoredPart"/> fields.
+        /// </summary>
+        private static bool TryFindStoredCargoItem(
+            Vessel vessel,
+            out InventoryPayloadItem witnessed,
+            out ModuleInventoryPart sourceModule,
+            out int sourceSlot,
+            out ProtoPartSnapshot sourceSnapshot)
+        {
+            witnessed = null;
+            sourceModule = null;
+            sourceSlot = -1;
+            sourceSnapshot = null;
+            if (vessel?.parts == null) return false;
+
+            for (int i = 0; i < vessel.parts.Count; i++)
+            {
+                Part p = vessel.parts[i];
+                if (p?.Modules == null) continue;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    if (!(p.Modules[m] is ModuleInventoryPart module) || module.storedParts == null)
+                        continue;
+                    for (int s = 0; s < module.InventorySlots; s++)
+                    {
+                        if (!module.storedParts.ContainsKey(s)) continue;
+                        StoredPart sp = module.storedParts[s];
+                        if (sp == null || sp.snapshot == null || sp.quantity != 1) continue;
+
+                        // Build the witnessed payload exactly as the recorder
+                        // would (StoredPart.Save -> canonical hash).
+                        var node = new ConfigNode("STOREDPART");
+                        sp.Save(node);
+                        string hash = VesselSpawner.ComputeInventoryPayloadIdentityHash(node);
+                        if (string.IsNullOrEmpty(hash)) continue;
+
+                        witnessed = new InventoryPayloadItem
+                        {
+                            IdentityHash = hash,
+                            PartName = sp.partName,
+                            VariantName = sp.variantName,
+                            Quantity = 1,
+                            SlotsTaken = 1,
+                            StoredPartSnapshot = node,
+                        };
+                        sourceModule = module;
+                        sourceSlot = s;
+                        sourceSnapshot = sp.snapshot;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
 
         private static RouteEndpoint EndpointForVessel(Vessel v)
         {

@@ -82,6 +82,23 @@ namespace Parsek.Logistics
         public Dictionary<string, double> ResourceLoadManifest;
 
         /// <summary>
+        /// M3 inventory pickup load manifest (plan D7/D8, Phase 5): per exact
+        /// <see cref="InventoryPayloadItem.IdentityHash"/>, the sign-flip mirror
+        /// of <see cref="InventoryDeliveryManifest"/> -
+        /// <c>loaded = min(endpointLoss, transportGain)</c> stored-part copies
+        /// that flowed FROM the endpoint ONTO the transport across the window,
+        /// identity carried intact. Inventory closure is WINDOW-LOCAL (OQ3): an
+        /// unwitnessed transport inventory gain (gained on the transport with no
+        /// matching endpoint loss) fails closed inside
+        /// <see cref="HasUnwitnessedInventoryGain"/> and the window rejects
+        /// <see cref="RouteAnalysisStatus.MixedPickupDelivery"/> rather than
+        /// admitting a phantom load term. Null when the window carries no
+        /// inventory pickup; parallel to the resource load manifest, set on an
+        /// Eligible window that loads inventory (pure-pickup or mixed).
+        /// </summary>
+        public List<InventoryPayloadItem> InventoryLoadManifest;
+
+        /// <summary>
         /// Optional reject quantifier (M2, plan finding 12), e.g.
         /// <c>"Ore: 120.0 gained, 100.0 harvested"</c> for
         /// <see cref="RouteAnalysisStatus.UntrackedCargoGain"/>. Threaded
@@ -292,6 +309,7 @@ namespace Parsek.Logistics
             List<InventoryPayloadItem> inventory = BuildInventoryDeliveryManifest(window);
             Dictionary<string, double> loadResources =
                 BuildResourceLoadManifest(window, source?.RecordingId, logMode);
+            List<InventoryPayloadItem> loadInventory = BuildInventoryLoadManifest(window);
 
             // M2 gain-side flow closure (plan D6): resolve the transport
             // lineage and run the gain check. ENGAGED only when every lineage
@@ -329,19 +347,22 @@ namespace Parsek.Logistics
                 };
             }
 
-            // M3 direction classification (plan D2): resource flow in EITHER
-            // direction is now admissible - a pure-delivery, pure-pickup, or
-            // mixed window all classify and admit. The former MixedPickupDelivery
-            // reject is REPLACED by classification for resource flow. It remains
-            // reachable ONLY for a window that is neither cleanly classifiable
-            // nor closeable: an INVENTORY pickup (Phase 5 lifts this; M3 Phase 1
-            // is resources only, so an endpoint->transport inventory move still
-            // fails closed here). HasInventoryPickup is the rejection-direction
-            // presence detector (it keeps seeing undefined names; fail-closed).
-            if (HasInventoryPickup(window, out string inventoryPickupReason))
+            // M3 direction classification (plan D2/D7): cargo flow in EITHER
+            // direction - resource AND inventory - is now admissible. A
+            // pure-delivery, pure-pickup, or mixed window classifies and admits.
+            // Inventory pickup (Phase 5) is the sign-flip mirror of the inventory
+            // delivery builder: loadInventory (above) carries the witnessed
+            // endpoint->transport stored-part moves per IdentityHash. Inventory
+            // closure is WINDOW-LOCAL (OQ3): inventory is non-fungible and has no
+            // harvested provenance, so a transport inventory GAIN with NO matching
+            // endpoint LOSS is unwitnessed and MUST fail closed. The former
+            // MixedPickupDelivery reject is now reachable ONLY for that
+            // unwitnessed-gain case - a clean inventory pickup (gain matched by an
+            // endpoint loss) classifies into loadInventory and admits.
+            if (HasUnwitnessedInventoryGain(window, out string inventoryPickupReason))
             {
                 Diag(logMode,
-                    $"RouteAnalysis rejected: inventory pickup unsupported (M3 resources-only) " +
+                    $"RouteAnalysis rejected: unwitnessed inventory gain " +
                     $"source={source?.RecordingId ?? "<none>"} " +
                     $"window={window.WindowId ?? "<none>"} {inventoryPickupReason}");
                 return new RouteAnalysisResult
@@ -360,7 +381,9 @@ namespace Parsek.Logistics
             bool hasDelivery =
                 (resources != null && resources.Count > 0) ||
                 (inventory != null && inventory.Count > 0);
-            bool hasLoad = loadResources != null && loadResources.Count > 0;
+            bool hasInventoryLoad = loadInventory != null && loadInventory.Count > 0;
+            bool hasLoad =
+                (loadResources != null && loadResources.Count > 0) || hasInventoryLoad;
             if (!hasDelivery && !hasLoad)
             {
                 Diag(logMode,
@@ -508,6 +531,7 @@ namespace Parsek.Logistics
                 $"window={window.WindowId ?? "<none>"} resources={resources?.Count ?? 0} " +
                 $"load={loadResources?.Count ?? 0} " +
                 $"inventory={inventory?.Count ?? 0} " +
+                $"inventoryLoad={loadInventory?.Count ?? 0} " +
                 $"harvestData={(harvestEngaged ? "1" : "0")} " +
                 $"harvestOrigin={(isHarvestOrigin ? "1" : "0")}");
 
@@ -518,7 +542,10 @@ namespace Parsek.Logistics
                 ConnectionWindow = window,
                 ResourceDeliveryManifest = resources,
                 InventoryDeliveryManifest = inventory,
-                ResourceLoadManifest = hasLoad ? loadResources : null,
+                ResourceLoadManifest = (loadResources != null && loadResources.Count > 0)
+                    ? loadResources
+                    : null,
+                InventoryLoadManifest = hasInventoryLoad ? loadInventory : null,
                 HarvestedManifest = harvestEngaged ? gainCheck.HarvestedManifest : null,
                 IsHarvestOrigin = isHarvestOrigin,
                 FirstHarvestWindow = harvestEngaged ? gainCheck.FirstHarvestWindow : null
@@ -646,7 +673,16 @@ namespace Parsek.Logistics
             return false;
         }
 
-        private static bool HasInventoryPickup(RouteConnectionWindow window, out string reason)
+        // Inventory pickup PRESENCE detector - "does this window carry ANY
+        // inventory move FROM the endpoint OR onto the transport?" As of M3
+        // Phase 5 it is DEAD in the eligibility flow: AnalyzeWindow no longer
+        // calls it (the former inventory-reject path was REPLACED by
+        // classification via BuildInventoryLoadManifest +
+        // HasUnwitnessedInventoryGain). It is retained as a directly-tested
+        // presence detector mirroring HasResourcePickup. The actual fail-closed
+        // protection for an unwitnessed transport inventory gain is
+        // HasUnwitnessedInventoryGain, the non-fungible window-local closure.
+        internal static bool HasInventoryPickup(RouteConnectionWindow window, out string reason)
         {
             reason = null;
 
@@ -1039,6 +1075,137 @@ namespace Parsek.Logistics
 
             delivery.Sort((a, b) => string.Compare(a.IdentityHash, b.IdentityHash, StringComparison.Ordinal));
             return delivery.Count > 0 ? delivery : null;
+        }
+
+        /// <summary>
+        /// M3 inventory pickup load manifest (plan D7, Phase 5): the EXACT
+        /// sign-flip mirror of <see cref="BuildInventoryDeliveryManifest"/>. Per
+        /// exact <see cref="InventoryPayloadItem.IdentityHash"/>,
+        /// <c>loaded = min(endpointLoss, transportGain)</c> where
+        /// <c>endpointLoss = DockEndpoint - UndockEndpoint</c> (stored parts that
+        /// left the endpoint across the window) and
+        /// <c>transportGain = UndockTransport - DockTransport</c> (stored parts
+        /// that arrived on the transport). Admit an identity ONLY when BOTH terms
+        /// are positive (both witness the same move). The identity is carried
+        /// intact: the returned <see cref="InventoryPayloadItem"/> deep-clones the
+        /// source payload (StoredPartSnapshot, StoredResources, PartName,
+        /// VariantName, IdentityHash) with the loaded quantity / endpoint-side
+        /// slots-lost set, mirroring the delivery builder's identity handling.
+        /// The transport side is the gain witness; the SOURCE-side payload
+        /// (DockEndpointInventory, the depot's own STOREDPART) is the canonical
+        /// copy carried so the Phase-5 source probe + remove writer match against
+        /// the depot's own stored geometry. Returns null when no inventory pickup
+        /// is witnessed. The non-fungible window-local closure (an unwitnessed
+        /// transport gain) is enforced separately by
+        /// <see cref="HasUnwitnessedInventoryGain"/> BEFORE this admits.
+        /// </summary>
+        internal static List<InventoryPayloadItem> BuildInventoryLoadManifest(
+            RouteConnectionWindow window)
+        {
+            // Source-side canonical copies: the DEPOT'S OWN stored part is the
+            // payload the Phase-5 source probe + remove writer match against, so
+            // seed the identity map from the endpoint inventories first (the
+            // delivery builder seeds from UndockEndpoint = the gain side; the
+            // pickup mirror seeds from the endpoint LOSS side = DockEndpoint).
+            Dictionary<string, InventoryPayloadItem> loadedByIdentity =
+                BuildInventoryMap(window.DockEndpointInventory);
+            AddInventoryKeys(loadedByIdentity, window.UndockEndpointInventory);
+            AddInventoryKeys(loadedByIdentity, window.DockTransportInventory);
+            AddInventoryKeys(loadedByIdentity, window.UndockTransportInventory);
+
+            if (loadedByIdentity.Count == 0)
+                return null;
+
+            var identities = new List<string>(loadedByIdentity.Keys);
+            var load = new List<InventoryPayloadItem>();
+            for (int i = 0; i < identities.Count; i++)
+            {
+                string identity = identities[i];
+                int endpointLoss =
+                    GetInventoryQuantity(window.DockEndpointInventory, identity) -
+                    GetInventoryQuantity(window.UndockEndpointInventory, identity);
+                int transportGain =
+                    GetInventoryQuantity(window.UndockTransportInventory, identity) -
+                    GetInventoryQuantity(window.DockTransportInventory, identity);
+
+                int loaded = Math.Min(endpointLoss, transportGain);
+                if (loaded <= 0)
+                    continue;
+
+                int endpointSlotsLost =
+                    GetInventorySlots(window.DockEndpointInventory, identity) -
+                    GetInventorySlots(window.UndockEndpointInventory, identity);
+
+                InventoryPayloadItem source = loadedByIdentity[identity];
+                InventoryPayloadItem item = source.DeepClone();
+                item.Quantity = loaded;
+                item.SlotsTaken = Math.Max(0, endpointSlotsLost);
+                SetStoredPartQuantity(item.StoredPartSnapshot, loaded);
+                load.Add(item);
+            }
+
+            load.Sort((a, b) => string.Compare(a.IdentityHash, b.IdentityHash, StringComparison.Ordinal));
+            return load.Count > 0 ? load : null;
+        }
+
+        /// <summary>
+        /// M3 window-local inventory closure (plan D7 / OQ3, Phase 5): inventory
+        /// is non-fungible and has NO harvested provenance, so a transport
+        /// inventory GAIN with NO matching endpoint LOSS is unwitnessed cargo and
+        /// MUST fail closed. Per identity, the WITNESSED load term is
+        /// <c>min(endpointLoss, transportGain)</c>; the UNWITNESSED gain is
+        /// <c>transportGain - loaded == transportGain - min(endpointLoss, transportGain)</c>
+        /// which is positive exactly when <c>transportGain > endpointLoss</c> (the
+        /// transport gained more than the endpoint gave). Returns true on the
+        /// FIRST identity (ordinal order, deterministic) with an unwitnessed gain,
+        /// naming it + the unwitnessed quantity in <paramref name="reason"/>. A
+        /// clean pickup (gain fully matched by an endpoint loss) returns false and
+        /// admits via <see cref="BuildInventoryLoadManifest"/>. This is the
+        /// inventory analogue of the resource <c>FlowDoesNotClose</c> over-supply
+        /// reject, scoped window-locally because inventory carries no full-run
+        /// closure (OQ3 defers Start/EndTransportInventory).
+        /// </summary>
+        internal static bool HasUnwitnessedInventoryGain(
+            RouteConnectionWindow window, out string reason)
+        {
+            reason = null;
+
+            Dictionary<string, InventoryPayloadItem> identities =
+                BuildInventoryMap(window.DockEndpointInventory);
+            AddInventoryKeys(identities, window.UndockEndpointInventory);
+            AddInventoryKeys(identities, window.DockTransportInventory);
+            AddInventoryKeys(identities, window.UndockTransportInventory);
+
+            var ordered = new List<string>(identities.Keys);
+            ordered.Sort(StringComparer.Ordinal);
+
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                string identity = ordered[i];
+                int endpointLoss =
+                    GetInventoryQuantity(window.DockEndpointInventory, identity) -
+                    GetInventoryQuantity(window.UndockEndpointInventory, identity);
+                int transportGain =
+                    GetInventoryQuantity(window.UndockTransportInventory, identity) -
+                    GetInventoryQuantity(window.DockTransportInventory, identity);
+
+                if (transportGain <= 0)
+                    continue;
+
+                int witnessed = Math.Min(Math.Max(0, endpointLoss), transportGain);
+                int unwitnessed = transportGain - witnessed;
+                if (unwitnessed > 0)
+                {
+                    reason =
+                        $"inventory={identity} " +
+                        $"transportGain={transportGain.ToString(CultureInfo.InvariantCulture)} " +
+                        $"endpointLoss={endpointLoss.ToString(CultureInfo.InvariantCulture)} " +
+                        $"unwitnessed={unwitnessed.ToString(CultureInfo.InvariantCulture)}";
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static Dictionary<string, InventoryPayloadItem> BuildInventoryMap(

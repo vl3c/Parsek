@@ -173,16 +173,61 @@ namespace Parsek.Tests
             Assert.False(result.ResourceDeliveryManifest.ContainsKey("Ore"));
         }
 
+        // M3 Phase 5 (plan D7): an inventory pickup matched by an endpoint LOSS
+        // (the endpoint LOSES the container AND the transport GAINS it) now
+        // CLASSIFIES into the inventory load manifest and ADMITS instead of
+        // rejecting MixedPickupDelivery. BuildDeliveryWindow also delivers
+        // LiquidFuel, so this is a MIXED resource-delivery + inventory-pickup
+        // window. Pre-M3 (and pre-Phase-5) this rejected; the inventory pickup
+        // is now the sign-flip mirror of inventory delivery.
         [Fact]
-        public void AnalyzeRecording_InventoryPickup_RejectsV0Route()
+        public void AnalyzeRecording_InventoryPickup_ClassifiesAndAdmits()
         {
             RouteConnectionWindow window = BuildDeliveryWindow();
             InventoryPayloadItem pickup = Payload("ore-container", "smallCargoContainer", 1, slotsTaken: 1);
+            // Endpoint LOSES the container across the window (Dock has it,
+            // Undock does not) AND the transport GAINS it (Dock lacks it,
+            // Undock has it) -> a clean, witnessed inventory pickup.
             window.DockEndpointInventory = new List<InventoryPayloadItem> { pickup.DeepClone() };
+            window.UndockEndpointInventory = null;
+            window.DockTransportInventory = null;
             window.UndockTransportInventory = new List<InventoryPayloadItem> { pickup.DeepClone() };
             Recording rec = new Recording
             {
                 RecordingId = "mixed-inventory",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                RouteConnectionWindows = new List<RouteConnectionWindow> { window }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.True(result.IsEligible,
+                $"a clean inventory pickup must classify and admit, got {result.Status}");
+            Assert.NotNull(result.InventoryLoadManifest);
+            Assert.Single(result.InventoryLoadManifest);
+            Assert.Equal("ore-container", result.InventoryLoadManifest[0].IdentityHash);
+            Assert.Equal(1, result.InventoryLoadManifest[0].Quantity);
+        }
+
+        // M3 Phase 5 (plan D7 / OQ3): an UNWITNESSED transport inventory gain -
+        // the transport gains a container the endpoint did NOT lose - fails
+        // closed window-locally (inventory is non-fungible, no harvest
+        // provenance). The window rejects MixedPickupDelivery.
+        [Fact]
+        public void AnalyzeRecording_UnwitnessedInventoryGain_RejectsWindowLocal()
+        {
+            RouteConnectionWindow window = BuildDeliveryWindow();
+            InventoryPayloadItem phantom = Payload("phantom-container", "smallCargoContainer", 1, slotsTaken: 1);
+            // Transport GAINS a container (Dock lacks it, Undock has it) with NO
+            // matching endpoint loss (the endpoint never held it) -> unwitnessed.
+            window.DockTransportInventory = null;
+            window.UndockTransportInventory = new List<InventoryPayloadItem> { phantom.DeepClone() };
+            window.DockEndpointInventory = null;
+            window.UndockEndpointInventory = null;
+            Recording rec = new Recording
+            {
+                RecordingId = "phantom-inventory",
                 StartBodyName = "Kerbin",
                 LaunchSiteName = "LaunchPad",
                 RouteConnectionWindows = new List<RouteConnectionWindow> { window }
@@ -664,18 +709,20 @@ namespace Parsek.Tests
                 l.Contains("load=1"));
         }
 
-        // M3 Phase 1 (resources only): an INVENTORY pickup still rejects
-        // MixedPickupDelivery (inventory pickup is Phase 5; resource pickup now
-        // admits). The diagnostic names the culprit payload identity. logLines
-        // is captured by the constructor sink.
+        // M3 Phase 5 (plan D7 / OQ3): the UNWITNESSED-inventory-gain reject
+        // diagnostic names the culprit payload identity + the unwitnessed
+        // quantity. logLines is captured by the constructor sink.
         [Fact]
-        public void AnalyzeRecording_InventoryPickup_DiagnosticNamesIdentity()
+        public void AnalyzeRecording_UnwitnessedInventoryGain_DiagnosticNamesIdentity()
         {
             RouteConnectionWindow window = BuildDeliveryWindow();
-            InventoryPayloadItem pickup =
+            InventoryPayloadItem phantom =
                 Payload("ore-container", "smallCargoContainer", 1, slotsTaken: 1);
-            window.DockEndpointInventory = new List<InventoryPayloadItem> { pickup.DeepClone() };
-            window.UndockTransportInventory = new List<InventoryPayloadItem> { pickup.DeepClone() };
+            // Transport gains it with no endpoint loss -> unwitnessed.
+            window.DockTransportInventory = null;
+            window.UndockTransportInventory = new List<InventoryPayloadItem> { phantom.DeepClone() };
+            window.DockEndpointInventory = null;
+            window.UndockEndpointInventory = null;
             Recording rec = new Recording
             {
                 RecordingId = "mixed-inventory-diag",
@@ -689,7 +736,7 @@ namespace Parsek.Tests
             Assert.Equal(RouteAnalysisStatus.MixedPickupDelivery, result.Status);
             Assert.Contains(logLines, l =>
                 l.Contains("[Route]") &&
-                l.Contains("inventory pickup unsupported") &&
+                l.Contains("unwitnessed inventory gain") &&
                 l.Contains("inventory=ore-container"));
         }
 
