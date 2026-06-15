@@ -399,6 +399,21 @@ namespace Parsek.Patches
                 v.CoMD = refBody.position + pos;
                 v.CoM = v.CoMD;
                 directorIconCoMDRefreshCount++;
+
+                // Record the exact UT the icon was just placed at (propagateUT: the legacy recorded-
+                // clock effUT, an off-arc / window clamp, or the live-clock liveDriveUT under the
+                // director epoch-bake) so MapRenderProbe's icon-off-orbit check compares its reference
+                // conic against where the drive ACTUALLY positioned the icon THIS frame, instead of
+                // independently re-deriving the clock via IsDirectorDriveActive. The drive (exec-order
+                // 0) and the probe (exec-order 10000) evaluating that predicate separately let the
+                // shadow's StockConic seed flip to "fresh" between them in one frame, so the probe
+                // assumed the unshifted director phase while the icon was still at the legacy shifted
+                // phase - the transient creation-frame / reseed icon-off-orbit false positive. pos is
+                // orbit@propagateUT, so the recorded UT and the placed icon are exact by construction.
+                // Only the probe consumes this, and the probe is gated on mapRenderTracing, so gate the
+                // write the same way - normal (tracing-off) play pays nothing on this per-frame hot path.
+                if (MapRenderTrace.IsEnabled)
+                    GhostMapPresence.RecordIconDrivePropagateUT(pid, propagateUT, Time.frameCount);
             }
 
             // Shared-key proof-of-fire (no-op trap guard): a warp playtest must show refreshed>0 (the

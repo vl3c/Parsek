@@ -590,6 +590,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: resolve the UT at which the <c>icon-off-orbit</c> probe should evaluate the
+        /// reference conic for a ghost. When the icon-drive recorded the exact UT it propagated the
+        /// icon at this frame (<paramref name="hasDrivenUT"/> from
+        /// <see cref="GhostMapPresence.TryGetFreshIconDrivePropagateUT"/>), use that drive truth so
+        /// the reference conic matches where the icon was ACTUALLY placed - the drive and the probe
+        /// can no longer disagree within a frame (the transient creation / reseed false-positive
+        /// facet). Otherwise fall back to the legacy derivation: the director-drive bakes the loop
+        /// shift into the orbit epoch and resolves the icon at the live clock (shift 0), while the
+        /// legacy raw-epoch path drives at <c>effUT = liveUT - loopShift</c>.
+        /// </summary>
+        internal static double ResolveIconReferenceUT(
+            bool hasDrivenUT, double drivenUT,
+            double currentUT, bool directorDriveActive, double loopShift)
+        {
+            if (hasDrivenUT)
+                return drivenUT;
+            return currentUT - (directorDriveActive ? 0.0 : loopShift);
+        }
+
+        /// <summary>
         /// Pure gate predicate, shaped like
         /// <see cref="GhostRenderTrace.EvaluateGateForTesting"/>. Decides
         /// whether a frame emits and whether the line is important (routed to

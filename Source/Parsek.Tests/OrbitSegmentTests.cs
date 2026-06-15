@@ -1528,5 +1528,187 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region TryExpandStoredSingleSegmentWindow
+
+        // Mun-approach hyperbola fragment (mirrors the live failing case: the recorder split the
+        // incoming SOI approach into adjacent fragments with IDENTICAL Kepler elements).
+        private OrbitSegment MakeMunApproachHyperbola(double startUT, double endUT, bool isPredicted = false)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                inclination = 18.0837,
+                eccentricity = 1.7523,
+                semiMajorAxis = -332716,
+                longitudeOfAscendingNode = 120,
+                argumentOfPeriapsis = 200,
+                meanAnomalyAtEpoch = 0.5,
+                epoch = startUT,
+                bodyName = "Mun",
+                isPredicted = isPredicted
+            };
+        }
+
+        // Captured Mun ellipse (the DIFFERENT conic that must stop the grow, not fold in).
+        private OrbitSegment MakeMunCapturedEllipse(double startUT, double endUT)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                inclination = 18.0837,
+                eccentricity = 0.548,
+                semiMajorAxis = 551701,
+                longitudeOfAscendingNode = 120,
+                argumentOfPeriapsis = 200,
+                meanAnomalyAtEpoch = 1.5,
+                epoch = startUT,
+                bodyName = "Mun"
+            };
+        }
+
+        [Fact]
+        public void TryExpandStoredSingleSegmentWindow_MergesAdjacentEquivalentAndStopsAtNonEquivalent()
+        {
+            // seg3 + seg4 hyperbola (same elements), seg5 captured ellipse (different conic).
+            var segments = new List<OrbitSegment>
+            {
+                MakeMunApproachHyperbola(14031.6, 16200.0),
+                MakeMunApproachHyperbola(16200.0, 18408.8),
+                MakeMunCapturedEllipse(18408.8, 22000.0)
+            };
+
+            bool expanded = TrajectoryMath.TryExpandStoredSingleSegmentWindow(
+                segments, 14031.6, 16200.0,
+                out double expStart, out double expEnd,
+                out int firstIndex, out int lastIndex, out int fragmentCount);
+
+            Assert.True(expanded);
+            Assert.Equal(14031.6, expStart, 3);
+            Assert.Equal(18408.8, expEnd, 3);   // seg3.start..seg4.end - the whole approach hyperbola
+            Assert.Equal(0, firstIndex);
+            Assert.Equal(1, lastIndex);          // STOPS before the captured ellipse seg5 (guardrail 1)
+            Assert.Equal(2, fragmentCount);
+        }
+
+        [Fact]
+        public void TryExpandStoredSingleSegmentWindow_SingleSegmentNoEquivalentNeighbour_ReturnsCountOne()
+        {
+            // Seed hyperbola flanked by a different conic on each side.
+            var segments = new List<OrbitSegment>
+            {
+                MakeMunCapturedEllipse(10000.0, 14031.6),
+                MakeMunApproachHyperbola(14031.6, 16200.0),
+                MakeMunCapturedEllipse(16200.0, 20000.0)
+            };
+
+            bool expanded = TrajectoryMath.TryExpandStoredSingleSegmentWindow(
+                segments, 14031.6, 16200.0,
+                out double expStart, out double expEnd,
+                out int firstIndex, out int lastIndex, out int fragmentCount);
+
+            Assert.True(expanded);
+            Assert.Equal(1, fragmentCount);
+            Assert.Equal(14031.6, expStart, 3);  // no widening
+            Assert.Equal(16200.0, expEnd, 3);
+            Assert.Equal(1, firstIndex);
+            Assert.Equal(1, lastIndex);
+        }
+
+        [Fact]
+        public void TryExpandStoredSingleSegmentWindow_NoSeedMatch_ReturnsFalse()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeMunApproachHyperbola(14031.6, 16200.0),
+                MakeMunApproachHyperbola(16200.0, 18408.8)
+            };
+
+            // A stored window whose startUT matches no segment within tolerance.
+            bool expanded = TrajectoryMath.TryExpandStoredSingleSegmentWindow(
+                segments, 9999.0, 12000.0,
+                out double expStart, out double expEnd,
+                out int firstIndex, out int lastIndex, out int fragmentCount);
+
+            Assert.False(expanded);
+            Assert.Equal(9999.0, expStart, 3);   // out params left at the stored values
+            Assert.Equal(12000.0, expEnd, 3);
+            Assert.Equal(-1, firstIndex);
+            Assert.Equal(-1, lastIndex);
+            Assert.Equal(1, fragmentCount);
+        }
+
+        [Fact]
+        public void TryExpandStoredSingleSegmentWindow_DoesNotMergeAcrossPredictedBoundary()
+        {
+            // seg_a non-predicted, seg_b SAME Kepler elements but predicted: must NOT fold in.
+            var segments = new List<OrbitSegment>
+            {
+                MakeMunApproachHyperbola(14031.6, 16200.0, isPredicted: false),
+                MakeMunApproachHyperbola(16200.0, 18408.8, isPredicted: true)
+            };
+
+            bool expanded = TrajectoryMath.TryExpandStoredSingleSegmentWindow(
+                segments, 14031.6, 16200.0,
+                out double expStart, out double expEnd,
+                out int firstIndex, out int lastIndex, out int fragmentCount);
+
+            Assert.True(expanded);
+            Assert.Equal(1, fragmentCount);      // grow stops at the predicted boundary (guardrail 3)
+            Assert.Equal(14031.6, expStart, 3);
+            Assert.Equal(16200.0, expEnd, 3);
+            Assert.Equal(0, firstIndex);
+            Assert.Equal(0, lastIndex);
+        }
+
+        [Fact]
+        public void TryExpandStoredSingleSegmentWindow_EmptyOrNull_ReturnsFalse()
+        {
+            bool nullResult = TrajectoryMath.TryExpandStoredSingleSegmentWindow(
+                null, 100.0, 200.0,
+                out double nullStart, out double nullEnd,
+                out _, out _, out int nullFragments);
+            Assert.False(nullResult);
+            Assert.Equal(100.0, nullStart, 3);
+            Assert.Equal(200.0, nullEnd, 3);
+            Assert.Equal(1, nullFragments);
+
+            bool emptyResult = TrajectoryMath.TryExpandStoredSingleSegmentWindow(
+                new List<OrbitSegment>(), 100.0, 200.0,
+                out double emptyStart, out double emptyEnd,
+                out _, out _, out int emptyFragments);
+            Assert.False(emptyResult);
+            Assert.Equal(100.0, emptyStart, 3);
+            Assert.Equal(200.0, emptyEnd, 3);
+            Assert.Equal(1, emptyFragments);
+        }
+
+        [Fact]
+        public void TryExpandStoredSingleSegmentWindow_MatchesSeedByStartUTWithinTolerance()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeMunApproachHyperbola(14031.6, 16200.0),
+                MakeMunApproachHyperbola(16200.0, 18408.8),
+                MakeMunCapturedEllipse(18408.8, 22000.0)
+            };
+
+            // Stored startUT off by < 1e-3 s (floating-point round-trip) still resolves the seed.
+            bool expanded = TrajectoryMath.TryExpandStoredSingleSegmentWindow(
+                segments, 14031.6 + 5e-4, 16200.0,
+                out double expStart, out double expEnd,
+                out int firstIndex, out int lastIndex, out int fragmentCount);
+
+            Assert.True(expanded);
+            Assert.Equal(2, fragmentCount);
+            Assert.Equal(14031.6, expStart, 3);
+            Assert.Equal(18408.8, expEnd, 3);
+            Assert.Equal(0, firstIndex);
+            Assert.Equal(1, lastIndex);
+        }
+
+        #endregion
     }
 }
