@@ -41,6 +41,17 @@ namespace Parsek.Reaim
             cacheByMember.Clear();
         }
 
+        /// <summary>Test seam: drops all cached window adapters so a test that drove the
+        /// process-shared <see cref="Shared"/> instance cannot leak a stale window cache into the
+        /// next test. Production paths clear through <see cref="Clear"/> on the committed-set /
+        /// missions rebuild; tests should reset between runs.</summary>
+        internal void ResetForTesting()
+        {
+            int prevCount = cacheByMember.Count;
+            cacheByMember.Clear();
+            ParsekLog.Verbose("ReaimPlayback", $"ResetForTesting prevCount={prevCount}");
+        }
+
         /// <summary>
         /// Resolves the playback trajectory for one re-aim loop member this frame. Returns the per-window
         /// <see cref="ReaimedTrajectory"/> when the window's transfer synthesizes, or
