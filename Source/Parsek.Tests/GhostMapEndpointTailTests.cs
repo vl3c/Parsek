@@ -361,6 +361,109 @@ namespace Parsek.Tests
                 && line.Contains("windowUT=100.00-600.00"));
         }
 
+        [Fact]
+        public void TryGetVisibleOrbitBoundsForGhostVessel_LoopShifted_CoalescesEquivalentArcWindowAcrossSegments()
+        {
+            // The 2026-06-15 loop arc-segment-coalesce fix end to end through the WRAPPER
+            // (ExpandStoredBoundsAcrossEquivalentSegments). The Mun approach is stored as two
+            // ADJACENT element-equivalent hyperbola OrbitSegments (the recorder closes + reopens a
+            // segment at every recording-mode transition) followed by a captured ellipse (a DIFFERENT
+            // conic). A loop-shifted ghost short-circuits to the stored SINGLE applied-segment bounds
+            // (just the first hyperbola, shifted into the live frame); the wrapper must un-shift to raw,
+            // expand across the two equivalent hyperbola fragments, STOP before the ellipse, and
+            // re-apply the shift. Proves G2 (un-shift -> expand -> re-shift) AND the element-equivalence
+            // stop boundary, AND emits the coalesce log line.
+            const double shift = 6529475.83;
+            // seg0 + seg1: identical Kepler elements (element-equivalent); seg2: captured ellipse (NOT).
+            var seg0 = LoopArcHyperbola(startUT: 14031.6, endUT: 15044.8);
+            var seg1 = LoopArcHyperbola(startUT: 15048.2, endUT: 18408.8);
+            var seg2 = LoopArcCapturedEllipse(startUT: 18428.5, endUT: 18483.6);
+            Recording rec = new Recording
+            {
+                RecordingId = "rec_loop_arc_coalesce_wrapper",
+                VesselName = "Loop Transfer Ghost",
+                ExplicitStartUT = 14031.6,
+                ExplicitEndUT = 18483.6,
+                OrbitSegments = new List<OrbitSegment> { seg0, seg1, seg2 }
+            };
+            Assert.True(rec.HasOrbitSegments);
+            RecordingStore.AddCommittedInternal(rec);
+
+            // A distinct, fresh pid so the wrapper's VerboseOnChange change-key
+            // ("loop-arc-coalesce|<pid>|loop-shifted") is first-seen and emits on this call.
+            const uint ghostPid = 555111222u;
+            // FindRecordingIndexByVesselPid resolves via the vesselPidToRecordingIndex reverse map,
+            // which TrackEndpointTailGhostBoundsForTesting (-> TrackRecordingGhostIdentityForTesting)
+            // seeds; rec is committed at index 0, so seed the pid -> index 0 mapping the same way and
+            // overwrite the stored bounds with the loop-shifted FIRST hyperbola window below.
+            GhostMapPresence.TrackEndpointTailGhostBoundsForTesting(
+                ghostPid,
+                recordingIndex: 0,
+                recordingId: rec.RecordingId,
+                bodyName: "Mun",
+                startUT: seg0.startUT + shift,
+                endUT: seg0.endUT + shift);
+            // Mark the ghost loop-shifted and record the loop epoch shift so the wrapper un-shifts to raw.
+            GhostMapPresence.ghostOrbitEpochShift[ghostPid] = shift;
+            GhostMapPresence.ghostOrbitLoopShiftedPids.Add(ghostPid);
+            GhostMapPresence.ghostOrbitBounds[ghostPid] = (seg0.startUT + shift, seg0.endUT + shift);
+
+            bool resolved = GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
+                ghostPid,
+                currentUT: 14500.0 + shift,  // inside the first shifted hyperbola window
+                out double startUT,
+                out double endUT);
+
+            Assert.True(resolved);
+            // Un-shift -> expand seg0+seg1 (equivalent hyperbola) -> stop before seg2 (ellipse) -> re-shift.
+            Assert.Equal(seg0.startUT + shift, startUT, 3);   // 14031.6 + shift
+            Assert.Equal(seg1.endUT + shift, endUT, 3);       // 18408.8 + shift, NOT the ellipse seg2
+            Assert.Contains(logLines, line =>
+                line.Contains("Loop arc-window coalesced")
+                && line.Contains("reason=loop-shifted")
+                && line.Contains("fragments=2")
+                && line.Contains("segIndices=0-1"));
+        }
+
+        // Mun-approach hyperbola fragment for the loop arc-coalesce wrapper test (mirrors the live
+        // failing case: the recorder split the incoming SOI approach into adjacent fragments with
+        // IDENTICAL Kepler elements). lan/argPe are shared so AreOrbitSegmentsEquivalentForMapDisplay
+        // treats two of these as the same orbit.
+        private static OrbitSegment LoopArcHyperbola(double startUT, double endUT)
+        {
+            return new OrbitSegment
+            {
+                bodyName = "Mun",
+                startUT = startUT,
+                endUT = endUT,
+                semiMajorAxis = -332716.0,
+                eccentricity = 1.7523,
+                inclination = 18.0837,
+                longitudeOfAscendingNode = 120.0,
+                argumentOfPeriapsis = 200.0,
+                meanAnomalyAtEpoch = 0.5,
+                epoch = startUT
+            };
+        }
+
+        // Captured Mun ellipse: the DIFFERENT conic that must STOP the grow (not fold in).
+        private static OrbitSegment LoopArcCapturedEllipse(double startUT, double endUT)
+        {
+            return new OrbitSegment
+            {
+                bodyName = "Mun",
+                startUT = startUT,
+                endUT = endUT,
+                semiMajorAxis = 551701.0,
+                eccentricity = 0.548,
+                inclination = 18.0837,
+                longitudeOfAscendingNode = 120.0,
+                argumentOfPeriapsis = 200.0,
+                meanAnomalyAtEpoch = 1.5,
+                epoch = startUT
+            };
+        }
+
         private static Recording BuildEndpointRecording(OrbitSegment selectedSegment)
         {
             return new Recording
