@@ -175,6 +175,11 @@ namespace Parsek
                 case GameActionType.RouteRecoveryCredited:
                     ProcessRouteRecoveryCredited(action);
                     break;
+                // RouteCargoPickedUp (logistics M3, design D6): a NON-funds row -
+                // a per-window pickup debits its physical source, never funds, so it
+                // is INTENTIONALLY not cased here (it falls through and moves no
+                // funds, exactly like RouteDispatched / RouteCargoDelivered). Do NOT
+                // add a case: a funds mutation here would be a phantom charge.
                 // All other action types: ignore silently
             }
         }

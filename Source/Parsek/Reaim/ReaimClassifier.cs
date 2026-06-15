@@ -32,6 +32,13 @@ namespace Parsek.Reaim
         public double RecordedArrivalUT;       // S2 end   = target SOI entry
         public double RecordedTransferTofSeconds; // S2 duration (a nudge seed; the window solves its own tof)
 
+        // True when the transfer departs not from the launch-body SOI exit but from a HELIOCENTRIC
+        // PARKING orbit (a two-burn departure: escape into a near-circular solar orbit co-orbital with
+        // the launch body, coast >= 1 full heliocentric revolution, then burn for the target). The
+        // transfer fields above are unchanged (the transfer leg, not the park, is re-aimed); this flag
+        // is purely diagnostic so the ReaimDiag log shows WHY a Sun-predecessor mission engaged.
+        public bool DepartedFromHeliocentricPark;
+
         internal static ReaimMissionPlan Unsupported(string launchBody, string reason)
         {
             return new ReaimMissionPlan { Supported = false, LaunchBody = launchBody, Reason = reason };
@@ -207,6 +214,9 @@ namespace Parsek.Reaim
 
             // Decline a run that spans more than ~1 revolution: a clean transfer is a single partial pass
             // (duration < period), so a longer run means a heliocentric loiter was absorbed (review M1).
+            // NOTE: a heliocentric PARKING departure (handled by the exception below) sits on a DIFFERENT
+            // solar orbit than the transfer, so the a-step ends the transfer run before reaching it - the
+            // park is never absorbed here, and transferStart stays the trans-target burn (tof excludes it).
             double tRep = ReaimLoiterCompressor.OrbitalPeriod(firstA, bodyInfo.GravParameter(commonAncestor));
             if (!double.IsNaN(tRep) && tRep > 0.0
                 && (lastCoast.endUT - transferStart.startUT) > 1.5 * tRep)
@@ -221,8 +231,19 @@ namespace Parsek.Reaim
             // burn) leaves a wide gap to the prior coast but is still a partial transfer. Same-orbit prior
             // coasts were already merged into the run above, so a remaining common-ancestor predecessor is
             // necessarily a different orbit (a real maneuver / parking), never a sampling gap.
-            if (transferStartIdx - 1 >= 0
-                && segs[transferStartIdx - 1].bodyName == commonAncestor)
+            //
+            // EXCEPTION (s15 Kerbal X #2): a HELIOCENTRIC PARKING departure is re-aimable. When the Sun
+            // predecessor is a near-circular solar loiter CO-ORBITAL with the launch body (the player
+            // escaped into ~the launch body's own solar orbit, phased there >= 1 full revolution, then
+            // burned for the target), r1 = launchBody stays a valid Lambert departure approximation and the
+            // park is a closed loiter the existing whole-period cut re-times. IsHeliocentricParkingDeparture
+            // engages ONLY that admissible, empty-cut shape; a sub-period MCC, a multi-rev park, or a
+            // wide/eccentric solar park all return false and stay declined -> faithful (fail-closed).
+            bool sunPredecessor = transferStartIdx - 1 >= 0
+                && segs[transferStartIdx - 1].bodyName == commonAncestor;
+            bool parkingDeparture = sunPredecessor
+                && IsHeliocentricParkingDeparture(segs, transferStartIdx, launchBody, commonAncestor, bodyInfo);
+            if (sunPredecessor && !parkingDeparture)
                 return ReaimMissionPlan.Unsupported(launchBody,
                     "transfer departs from a heliocentric parking orbit or mid-course correction (deferred); staying faithful");
             return new ReaimMissionPlan
@@ -237,8 +258,110 @@ namespace Parsek.Reaim
                 ArrivalLeg = arrival,
                 RecordedDepartureUT = transferStart.startUT,            // transfer departure (SOI exit)
                 RecordedArrivalUT = arrival.startUT,                    // target SOI entry
-                RecordedTransferTofSeconds = arrival.startUT - transferStart.startUT
+                RecordedTransferTofSeconds = arrival.startUT - transferStart.startUT,
+                DepartedFromHeliocentricPark = parkingDeparture
             };
+        }
+
+        // A heliocentric phasing park is admissible for re-aim only when it is near-circular (ecc <=
+        // this) AND co-orbital with the launch body (its sma within this relative tolerance of the launch
+        // body's OWN heliocentric sma), so r1 = launchBody stays a valid Lambert departure approximation
+        // (the burn point sits near the launch body). s15 Kerbal X #2: park ecc 0.0327, sma 3.5% off
+        // Kerbin's -> admissible; a wide or eccentric solar park -> declined (fail-closed to faithful).
+        internal const double ParkDepartureEccMax = 0.1;
+        internal const double ParkDepartureSmaRelTolerance = 0.1;
+
+        /// <summary>
+        /// True when the common-ancestor segment immediately before the transfer is an admissible
+        /// HELIOCENTRIC PARKING departure (a two-burn departure), as opposed to a sub-period mid-course
+        /// correction or a wide/eccentric solar parking orbit. Admissible means: a closed solar loiter of
+        /// EXACTLY <c>DefaultKeepRevs</c> whole revolutions (so the existing whole-period loiter cut is
+        /// EMPTY - a multi-rev park would fire the unvalidated launch-side cut and is deferred), that is
+        /// near-circular AND co-orbital with the launch body. Pure (ecc + sma form; no live position) and
+        /// fail-closed: any degenerate / NaN / unknown-mu input returns false. Reuses
+        /// <see cref="ReaimLoiterCompressor.DetectRuns"/> so the empty-cut decision here is exactly the
+        /// run the compressor will (not) cut.
+        /// </summary>
+        internal static bool IsHeliocentricParkingDeparture(
+            IReadOnlyList<OrbitSegment> segs, int transferStartIdx,
+            string launchBody, string commonAncestor, IBodyInfo bodyInfo,
+            double parkEccMax = ParkDepartureEccMax,
+            double parkSmaRelTolerance = ParkDepartureSmaRelTolerance)
+        {
+            if (segs == null || bodyInfo == null
+                || transferStartIdx <= 0 || transferStartIdx > segs.Count - 1)
+                return false;
+            OrbitSegment lastPark = segs[transferStartIdx - 1];
+            if (lastPark.bodyName != commonAncestor)
+                return false;
+
+            // Identify the park run with the SAME detector ComputeCuts uses (so the empty-cut decision is
+            // exactly the cut the compressor will make). The run we want is the common-ancestor loiter run
+            // whose end coincides with the transfer's predecessor segment.
+            List<ReaimLoiterCompressor.LoiterRun> runs =
+                ReaimLoiterCompressor.DetectRuns(segs, bodyInfo.GravParameter);
+            ReaimLoiterCompressor.LoiterRun park = default;
+            bool found = false;
+            for (int i = 0; i < runs.Count; i++)
+            {
+                if (runs[i].BodyName == commonAncestor
+                    && Math.Abs(runs[i].EndUT - lastPark.endUT)
+                        <= ReaimLoiterCompressor.DefaultContiguityEpsilonSeconds)
+                {
+                    park = runs[i];
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                return false; // the Sun predecessor is a sub-period (< 1 rev) MCC arc, not a closed park
+
+            // Empty-cut scope (Open Q3 decision, 2026-06-15): engage ONLY when the park already keeps
+            // DefaultKeepRevs (the loiter cut is empty, so phaseAnchorUT stays byte-identical to faithful).
+            // A multi-rev park (wholeRevs > keepRevs) would fire the launch-side cutBeforeDeparture
+            // composition, unvalidated on a heliocentric park; deferred to a follow-up -> decline.
+            if (park.WholeRevs != ReaimLoiterCompressor.DefaultKeepRevs)
+                return false;
+
+            // Admissibility gate (keeps r1 = launchBody valid): near-circular AND co-orbital with the
+            // launch body. The anchor segment carries the park's ecc + sma; the launch body's heliocentric
+            // sma comes from its orbit period about the common ancestor (Kepler's third law).
+            OrbitSegment anchor = lastPark;
+            for (int i = 0; i < segs.Count; i++)
+            {
+                if (segs[i].bodyName == commonAncestor
+                    && Math.Abs(segs[i].startUT - park.StartUT)
+                        <= ReaimLoiterCompressor.DefaultContiguityEpsilonSeconds)
+                {
+                    anchor = segs[i];
+                    break;
+                }
+            }
+            if (Math.Abs(anchor.eccentricity) > parkEccMax)
+                return false;
+            double launchHelioSma = HeliocentricSemiMajorAxis(launchBody, commonAncestor, bodyInfo);
+            if (double.IsNaN(launchHelioSma) || launchHelioSma <= 0.0)
+                return false; // cannot establish the launch body's orbit -> fail closed
+            double smaRel = Math.Abs(anchor.semiMajorAxis - launchHelioSma) / launchHelioSma;
+            return smaRel <= parkSmaRelTolerance;
+        }
+
+        /// <summary>
+        /// Semi-major axis (metres) of <paramref name="launchBody"/>'s orbit about
+        /// <paramref name="commonAncestor"/>, derived from its orbit period via Kepler's third law
+        /// <c>a = cbrt(mu * (T / 2*pi)^2)</c>. Pure; NaN on a degenerate period / unknown mu so the
+        /// admissibility gate fails closed.
+        /// </summary>
+        internal static double HeliocentricSemiMajorAxis(
+            string launchBody, string commonAncestor, IBodyInfo bodyInfo)
+        {
+            double t = bodyInfo.OrbitPeriod(launchBody);
+            double mu = bodyInfo.GravParameter(commonAncestor);
+            if (double.IsNaN(t) || double.IsInfinity(t) || t <= 0.0
+                || double.IsNaN(mu) || double.IsInfinity(mu) || mu <= 0.0)
+                return double.NaN;
+            double tOver2Pi = t / (2.0 * Math.PI);
+            return Math.Pow(mu * tOver2Pi * tOver2Pi, 1.0 / 3.0);
         }
     }
 }

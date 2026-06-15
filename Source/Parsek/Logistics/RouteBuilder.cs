@@ -306,9 +306,30 @@ namespace Parsek.Logistics
                 !string.IsNullOrEmpty(originRec.LaunchSiteName)
                 && string.Equals(originRec.StartBodyName, "Kerbin", StringComparison.Ordinal);
 
+            // M3 pickup direction (plan D8): an originless PURE-PICKUP run loads
+            // its cargo FROM the dock endpoint (the reverse of delivery), so it
+            // has no KSC launch, no start-docked origin proof, and no harvest
+            // origin - the v0 chain below would reject it endpoint-missing. The
+            // endpoint IS the source (debited later, Phase 3/4), so admit it: a
+            // populated load manifest with NO delivery is the witnessed proof
+            // the cargo came aboard. Resolution metadata only - a window that
+            // ALSO delivers (mixed) keeps its real KSC / docked origin and never
+            // reaches this branch.
+            bool hasResourceLoad = analysis.ResourceLoadManifest != null
+                && analysis.ResourceLoadManifest.Count > 0;
+            bool hasInventoryLoad = analysis.InventoryLoadManifest != null
+                && analysis.InventoryLoadManifest.Count > 0;
+            bool hasLoad = hasResourceLoad || hasInventoryLoad;
+            bool hasDelivery =
+                (analysis.ResourceDeliveryManifest != null
+                    && analysis.ResourceDeliveryManifest.Count > 0)
+                || (analysis.InventoryDeliveryManifest != null
+                    && analysis.InventoryDeliveryManifest.Count > 0);
+
             RouteEndpoint origin;
             string originLabel;
             bool isHarvestOrigin = false;
+            bool isPickupOrigin = false;
             if (isKscOrigin)
             {
                 origin = new RouteEndpoint
@@ -385,6 +406,34 @@ namespace Parsek.Logistics
                 isHarvestOrigin = true;
                 originLabel = "harvest";
             }
+            else if (hasLoad && !hasDelivery
+                && analysis.ConnectionWindow.EndpointAtDock.HasValue)
+            {
+                // M3 pickup origin (plan D8): the run loaded cargo FROM the dock
+                // endpoint with NOTHING delivered (pure pickup, resource AND/OR
+                // inventory). The endpoint IS the source - debited at the
+                // per-window pickup applier (Phase 3/4 resources, Phase 5
+                // inventory), NOT at dispatch and NOT against funds - so the
+                // origin is a DISPLAY-ONLY descriptor built from the connection
+                // window's pickup endpoint (its pid resolves the live source
+                // vessel at debit time; cost manifests stay EMPTY below,
+                // mirroring the harvest-origin no-debit shape). A MIXED window
+                // (loads AND delivers) keeps its real KSC / docked origin and
+                // never lands here (the hasDelivery guard).
+                RouteEndpoint pickupEndpoint = analysis.ConnectionWindow.EndpointAtDock.Value;
+                origin = new RouteEndpoint
+                {
+                    VesselPersistentId = pickupEndpoint.VesselPersistentId,
+                    BodyName = pickupEndpoint.BodyName ?? string.Empty,
+                    Latitude = pickupEndpoint.Latitude,
+                    Longitude = pickupEndpoint.Longitude,
+                    Altitude = pickupEndpoint.Altitude,
+                    IsSurface = pickupEndpoint.IsSurface
+                };
+                isPickupOrigin = true;
+                originLabel =
+                    "pickup:pid=" + origin.VesselPersistentId.ToString(CultureInfo.InvariantCulture);
+            }
             else
             {
                 ParsekLog.Info(Tag,
@@ -392,7 +441,10 @@ namespace Parsek.Logistics
                     $"originRec={originRec.RecordingId ?? "<none>"} " +
                     $"launchSite={(string.IsNullOrEmpty(originRec.LaunchSiteName) ? "<none>" : originRec.LaunchSiteName)} " +
                     $"startBody={originRec.StartBodyName ?? "<none>"} originProof={(originRec.RouteOriginProof != null ? "yes" : "no")} " +
-                    $"harvestOrigin={(analysis.IsHarvestOrigin ? "yes-but-no-window" : "no")}");
+                    $"harvestOrigin={(analysis.IsHarvestOrigin ? "yes-but-no-window" : "no")} " +
+                    $"resourceLoad={(hasResourceLoad ? "yes" : "no")} " +
+                    $"inventoryLoad={(hasInventoryLoad ? "yes" : "no")} delivery={(hasDelivery ? "yes" : "no")} " +
+                    $"pickupEndpoint={(analysis.ConnectionWindow.EndpointAtDock.HasValue ? "yes" : "no")}");
                 return new RouteBuildOutcome { RejectReason = "endpoint-missing" };
             }
 
@@ -408,6 +460,28 @@ namespace Parsek.Logistics
                 InventoryDeliveryManifest = analysis.InventoryDeliveryManifest != null
                     ? new List<InventoryPayloadItem>(analysis.InventoryDeliveryManifest)
                     : new List<InventoryPayloadItem>(),
+                // M3 pickup direction (plan D8): the Phase-1 analysis load manifest
+                // is the resource cargo that flowed FROM the endpoint ONTO the
+                // transport across the window (the sign-flip mirror of delivery).
+                // Defensively copy so store mutations cannot reach back into the
+                // analysis result. Null when the window carried no resource pickup
+                // (pure-delivery stop) -> the codec omits the PICKUP_MANIFEST node.
+                PickupManifest = analysis.ResourceLoadManifest != null
+                    ? new Dictionary<string, double>(analysis.ResourceLoadManifest)
+                    : null,
+                // M3 inventory pickup (plan D7/D8, Phase 5): the analysis inventory
+                // load manifest is the stored-part cargo that flowed FROM the
+                // endpoint ONTO the transport across the window (the sign-flip
+                // mirror of inventory delivery, identity carried intact).
+                // Defensively deep-copy so store mutations cannot reach back into
+                // the analysis result (the items carry mutable StoredPartSnapshot
+                // ConfigNodes). Null when the window carried no inventory pickup
+                // (resource-only / pure-delivery stop) -> the codec omits the
+                // INVENTORY_PICKUP_MANIFEST node and the route round-trips
+                // byte-identically.
+                InventoryPickupManifest = analysis.InventoryLoadManifest != null
+                    ? RouteProofMetadata.CloneInventoryPayloadItems(analysis.InventoryLoadManifest)
+                    : null,
                 SegmentIndexBefore = 0,
                 DeliveryOffsetSeconds = 0.0
             };
@@ -432,9 +506,16 @@ namespace Parsek.Logistics
             //   uses the SAME scoped D5/D6 rules as the gain check - the
             //   BLOCKER-1 scope fix is what keeps this reduction from zeroing
             //   a depot debit it should not.
+            // - PICKUP origin (plan D6/D8): a pure-pickup run delivers NOTHING,
+            //   so its dispatch-time CostManifest is EMPTY (mirrors harvest
+            //   origin). Loaded-en-route cargo debits its physical SOURCE at the
+            //   per-window pickup applier (Phase 3/4), never funds and never the
+            //   dispatch-time origin cost - so the route-level cost manifests
+            //   stay empty here; the witnessed pickup amounts live on the stop's
+            //   PickupManifest, captured above.
             Dictionary<string, double> costManifest;
             List<InventoryPayloadItem> inventoryCostManifest;
-            if (isHarvestOrigin)
+            if (isHarvestOrigin || isPickupOrigin)
             {
                 costManifest = new Dictionary<string, double>();
                 inventoryCostManifest = new List<InventoryPayloadItem>();
@@ -547,6 +628,11 @@ namespace Parsek.Logistics
             int stopInventory = stop.InventoryDeliveryManifest != null
                 ? stop.InventoryDeliveryManifest.Count
                 : 0;
+            // M3: per-stop pickup-direction count (resource load manifest size).
+            int stopPickup = stop.PickupManifest != null ? stop.PickupManifest.Count : 0;
+            int stopInventoryPickup = stop.InventoryPickupManifest != null
+                ? stop.InventoryPickupManifest.Count
+                : 0;
             ParsekLog.Info(Tag,
                 $"Built route id={shortId} origin={originLabel} " +
                 $"originSurface={(origin.IsSurface ? "1" : "0")} " +
@@ -565,6 +651,8 @@ namespace Parsek.Logistics
                 $"creationTreeRecordings={creationTreeRecordingIds.Count.ToString(ic)} " +
                 $"stop-resources={stopResources.ToString(ic)} " +
                 $"stop-inventory={stopInventory.ToString(ic)} " +
+                $"stop-pickup={stopPickup.ToString(ic)} " +
+                $"stop-inventory-pickup={stopInventoryPickup.ToString(ic)} " +
                 $"mode={mode}");
 
             return new RouteBuildOutcome { Route = route };

@@ -372,6 +372,19 @@ namespace Parsek
                         var msegs = new List<OrbitSegment>(mrec.OrbitSegments);
                         msegs.Sort((a, b) => a.startUT.CompareTo(b.startUT));
                         ReaimMissionPlan mp = ReaimClassifier.Classify(msegs, bodyInfo);
+                        // Per-member classify verdict: the classifier returns a per-member reason but the
+                        // gather kept only the chosen-supported member's details, so a "why
+                        // transferMemberSegs=0" diagnosis had to be reverse-engineered from the recording.
+                        // Log each member's verdict (member count is bounded) so the decline reason is
+                        // visible in KSP.log directly.
+                        if (!SuppressLogging)
+                            ParsekLog.Verbose("ReaimDiag",
+                                $"mission='{mission.Name}' member#{mi} segs={msegs.Count} " +
+                                $"startBody={(msegs.Count > 0 ? msegs[0].bodyName : "none")} " +
+                                $"supported={mp.Supported}" +
+                                (mp.Supported
+                                    ? $" target={mp.TargetBody} parking={mp.DepartedFromHeliocentricPark}"
+                                    : $" reason='{mp.Reason}'"));
                         if (mp.Supported && transferSegments == null)
                         {
                             plan = mp;
@@ -395,7 +408,8 @@ namespace Parsek
                                 ? $" departUT={plan.RecordedDepartureUT.ToString("F0", dic)}" +
                                   $" arrivalUT={plan.RecordedArrivalUT.ToString("F0", dic)}" +
                                   $" tof={plan.RecordedTransferTofSeconds.ToString("F0", dic)}" +
-                                  $" ancestor={plan.CommonAncestor}"
+                                  $" ancestor={plan.CommonAncestor}" +
+                                  $" parking={plan.DepartedFromHeliocentricPark}"
                                 : ""));
                         int logged = 0;
                         for (int si = 0; si < dumpSegs.Count && logged < 60; si++, logged++)
