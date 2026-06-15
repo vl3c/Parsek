@@ -1823,6 +1823,54 @@ namespace Parsek.Tests
             Assert.Equal(70.0, closure.UnaccountedQuantity, 6);
         }
 
+        // catches (M3 Phase 6, the mixed-window closure case): the SAME resource
+        // appearing in BOTH the loaded AND the delivered window list for one window
+        // not summing BOTH terms into the balance. A mixed window that delivers 60
+        // Ore AND picks up 50 Ore at one dock must count the loaded 50 on the
+        // arrived side and the delivered 60 on the departed side; ComputeFlowClosure
+        // already takes both as LISTS and sums per-name, so a same-resource mixed
+        // window closes when the terms balance. launched 100, loaded 50,
+        // harvested 0, delivered 60, residual 90 -> slack = 100 + 50 - 60 - 90 = 0.
+        // The pickup raises the arrived side so the elevated residual (the run kept
+        // the picked-up cargo aboard) is fully accounted - no phantom over-delivery.
+        [Fact]
+        public void ComputeFlowClosure_MixedSameResourceWindow_BothTermsBalance()
+        {
+            FlowClosureResult closure = RouteAnalysisEngine.ComputeFlowClosure(
+                OreAmountD(100.0),                                                 // launched
+                new List<Dictionary<string, double>> { OreAmountD(50.0) },         // loaded (pickup)
+                null,                                                              // harvested
+                new List<Dictionary<string, double>> { OreAmountD(60.0) },         // delivered
+                OreAmountD(90.0));                                                  // residual
+
+            Assert.True(closure.Closes,
+                $"a balanced same-resource mixed window must close, offending={closure.OffendingResource}");
+            Assert.Null(closure.OffendingResource);
+        }
+
+        // catches (M3 Phase 6 inverse): the loaded term on a mixed window NOT
+        // covering an elevated residual, so a real over-delivery slips through. If
+        // the SAME-resource mixed window's loaded + launched + harvested cannot
+        // cover delivered + residual, closure must still reject and name the
+        // unaccounted quantity. launched 0, loaded 50, harvested 0, delivered 60,
+        // residual 50 -> slack = 50 - 60 - 50 = -60: delivered + residual (110)
+        // exceeds arrived (50). Over-delivered 60.
+        [Fact]
+        public void ComputeFlowClosure_MixedSameResourceWindow_OverDelivery_Rejects()
+        {
+            FlowClosureResult closure = RouteAnalysisEngine.ComputeFlowClosure(
+                OreAmountD(0.0),
+                new List<Dictionary<string, double>> { OreAmountD(50.0) },         // loaded (pickup)
+                null,
+                new List<Dictionary<string, double>> { OreAmountD(60.0) },         // delivered
+                OreAmountD(50.0));                                                  // residual
+
+            Assert.False(closure.Closes);
+            Assert.Equal("Ore", closure.OffendingResource);
+            Assert.Equal(60.0, closure.UnaccountedQuantity, 6);
+            Assert.Equal("Ore: 60.0 over-delivered", closure.RejectDetail);
+        }
+
         // catches: EC/IntakeAir participating in the balance. They are
         // environmental noise on every term and must be skipped even if a
         // spurious delta would otherwise read as over-delivery.

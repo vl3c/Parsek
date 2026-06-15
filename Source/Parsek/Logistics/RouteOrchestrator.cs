@@ -1027,17 +1027,50 @@ namespace Parsek.Logistics
             // Pickup half (M3, D6). When the cycle stop carries a witnessed pickup
             // manifest, physically debit the per-window pickup ENDPOINT and emit one
             // RouteCargoPickedUp row under the SAME cycleId, with a deterministic
-            // Sequence AFTER RouteDispatched (Seq0) + RouteCargoDebited (Seq1). Fired
-            // BETWEEN the dispatch-debit half and the delivery half so all of a
-            // mixed window's rows share one cycleId and a stable order. A
+            // Sequence AFTER RouteDispatched (Seq0) + RouteCargoDebited (Seq1). A
             // pure-delivery route has no pickup manifest and skips this (no
             // RouteCargoPickedUp row).
+            //
+            // MIXED-WINDOW ORDERING RULE (M3 Phase 6, design D6/D3 - the
+            // phantom-clamp invariant). The pickup half (endpoint DEBIT, removes a
+            // resource from the endpoint's source tank => FREES space) MUST run
+            // BEFORE the delivery half (endpoint CREDIT, adds a resource to the
+            // endpoint's destination tank => FILLS it) because BOTH halves resolve
+            // the SAME stop.Endpoint => the SAME physical vessel, so for a resource
+            // that is both delivered AND picked up at one dock (a net-zero or
+            // partially-overlapping flow) the two physical writes hit the SAME tank
+            // and the ORDER decides the result:
+            //   * pickup-then-delivery (THIS order): the debit frees capacity first,
+            //     so the endpoint holds MAXIMUM free space when ApplyDelivery's live
+            //     LiveDeliveryCapacityProbe + LiveDeliveryWriters.WriteResourceLoaded
+            //     run (the probe/planner read LIVE tank state AFTER the debit). A
+            //     same-resource deliver+pickup nets correctly with NO phantom clamp
+            //     and no clamp-and-waste of the delivered amount.
+            //   * delivery-then-pickup (the WRONG order): a delivery into an
+            //     already-near-full endpoint clamps at maxAmount (WriteResourceLoaded
+            //     line `free = pr.maxAmount - pr.amount`), silently WASTES the
+            //     clamped surplus, then the pickup debits from the post-clamp state -
+            //     a different (lossy) result than the witnessed recording.
+            // The rule is REPLAY-DETERMINISTIC: it is a fixed statement order inside
+            // EmitLoopCycle under one cycleId, and the whole cycle re-presents
+            // idempotently via the dispatch-keyed backstop above, so re-presentation
+            // never re-runs either half. Pinned by RouteLoopPickupFireTests'
+            // MixedSameResourceWindow_PickupFiresBeforeDelivery regression test.
+            // Inventory pickup (EmitPickupHalf's inventory dimension) and inventory
+            // delivery (ApplyDelivery's inventory writer) act on different identity /
+            // resource spaces (stored-part STOREDPART slots keyed by IdentityHash vs
+            // resource tanks), so they rarely collide on one tank; the same
+            // debit-before-credit order still holds and is harmless when they do not.
             if (RouteHasPickupManifest(route))
             {
                 EmitPickupHalf(route, currentUT, env, cycleId);
             }
 
-            // Delivery half (M3 gate, D6). Skip ENTIRELY for a pure-PICKUP route
+            // Delivery half (M3 gate, D6). Runs AFTER the pickup half above (the
+            // mixed-window ordering rule: endpoint DEBIT before endpoint CREDIT, see
+            // the pickup-half comment) so ApplyDelivery's live capacity probe sees
+            // the post-debit (max-free) tank state on a same-resource mixed window.
+            // Skip ENTIRELY for a pure-PICKUP route
             // (no delivery manifest): firing ApplyDelivery on an empty plan would
             // emit a RouteCargoDelivered row even with nothing to deliver, which is
             // exactly what created the OQ4 replay hole (the re-key above keys on

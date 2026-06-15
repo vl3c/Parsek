@@ -341,6 +341,96 @@ namespace Parsek.Tests.Logistics
             Assert.Null(Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDelivered));
         }
 
+        // ==================================================================
+        // Mixed-window ordering rule (M3 Phase 6, design D6/D3 - phantom clamp)
+        // ==================================================================
+
+        // catches (Phase 6, the phantom-clamp invariant): a mixed window that
+        // DELIVERS and PICKS UP the SAME resource at one dock firing the two
+        // physical halves in the WRONG order. Both halves resolve the SAME
+        // stop.Endpoint (same physical vessel), so the endpoint DEBIT (pickup,
+        // frees tank space) MUST run BEFORE the endpoint CREDIT (delivery, fills
+        // the tank) - otherwise a delivery into a near-full endpoint clamps at
+        // maxAmount and silently wastes the surplus, producing a different result
+        // than the witnessed recording. The order is a fixed statement order in
+        // EmitLoopCycle, so it is replay-deterministic. This test records the
+        // invocation order via the two seams and asserts pickup-before-delivery on
+        // a same-resource (Ore deliver + Ore pickup) mixed window - the net-zero /
+        // net-overlap case where the order is load-bearing.
+        [Fact]
+        public void MixedSameResourceWindow_PickupFiresBeforeDelivery()
+        {
+            // Same resource (Ore) flows in BOTH directions at one dock: deliver 60,
+            // pick up 50 - a partially-overlapping flow on the endpoint's tank.
+            var route = BuildLoopRoute(
+                deliveryManifest: M(("Ore", 60.0)),
+                pickupManifest: M(("Ore", 50.0)));
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+
+            // Record the order both physical halves are invoked in. A monotonically
+            // increasing counter stamps each call so the assertion is order-only and
+            // does not depend on wall-clock timing.
+            int orderCounter = 0;
+            int pickupOrder = -1;
+            int deliveryOrder = -1;
+
+            RouteOrchestrator.PickupDebitApplierForTesting = (ep, manifest, env) =>
+            {
+                pickupOrder = orderCounter++;
+                var actual = manifest != null
+                    ? new Dictionary<string, double>(manifest, StringComparer.Ordinal)
+                    : null;
+                return new RouteOrchestrator.OriginDebitOutcome
+                {
+                    ActualDebited = actual,
+                    RequestedOnShortfall = null,
+                    OriginVesselPid = 777u,
+                    Short = false,
+                    Unresolved = false,
+                };
+            };
+            RouteOrchestrator.DeliveryApplierForTesting = (r, ut, env) =>
+            {
+                deliveryOrder = orderCounter++;
+                string cycleId = "cycle-" + (r.CompletedCycles + r.SkippedCycles).ToString(IC);
+                Ledger.AddAction(new GameAction
+                {
+                    Type = GameActionType.RouteCargoDelivered,
+                    UT = ut,
+                    RouteId = r.Id,
+                    RouteCycleId = cycleId,
+                    RouteStopIndex = 0,
+                    Sequence = 0,
+                });
+                r.CompletedCycles += 1;
+                r.PendingDeliveryUT = null;
+                r.PendingStopIndex = -1;
+                r.TransitionTo(RouteStatus.Active, "delivered-loop-fake");
+            };
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            // Both halves fired.
+            Assert.True(pickupOrder >= 0, "pickup half must have fired on the mixed window");
+            Assert.True(deliveryOrder >= 0, "delivery half must have fired on the mixed window");
+            // The ORDERING RULE: endpoint DEBIT (pickup) strictly precedes endpoint
+            // CREDIT (delivery) so the live capacity probe sees the freed tank space.
+            Assert.True(pickupOrder < deliveryOrder,
+                $"pickup (endpoint debit, frees space) must run BEFORE delivery " +
+                $"(endpoint credit, fills space) so a same-resource mixed window nets " +
+                $"without a phantom clamp; pickupOrder={pickupOrder} deliveryOrder={deliveryOrder}");
+
+            // And the full mixed cycle still emitted both rows under one cycleId.
+            var pickedUp = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoPickedUp);
+            var delivered = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDelivered);
+            Assert.Equal("cycle-0", pickedUp.RouteCycleId);
+            Assert.Equal("cycle-0", delivered.RouteCycleId);
+            // The pickup row carries the actual Ore debit (50); delivery is the
+            // separate credit half (60) - the net-overlap is real flow, not a clamp.
+            Assert.Equal(50.0, pickedUp.RouteResourceManifest["Ore"]);
+        }
+
         // catches (Sequence / RouteModule out-of-order guard): the pickup row
         // front-running the dispatch row. RouteDispatched MUST stay Seq0; the
         // pickup row gets Seq2 (after dispatch 0 + debit 1) so the ledger walker
