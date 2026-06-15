@@ -59,8 +59,16 @@ namespace Parsek.InGameTests
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = IsolatedOnlyBatchSkipReason,
             Description = "ApplyPickupDebit re-aimed at the LOADED active vessel as the resolved pickup endpoint physically removes the pickup-manifest LiquidFuel through the production probe + writer, returns an outcome carrying the actual-debited manifest + endpoint pid (not short), and logs the PickupDebit plan + Origin debit lines on path=loaded")]
-        public void PickupDebit_LoadedEndpointVessel_RemovesManifestAmount()
+        public IEnumerator PickupDebit_LoadedEndpointVessel_RemovesManifestAmount()
         {
+            // Post-restore unpack wait (yields BEFORE any state read/mutation): the
+            // isolated-batch baseline restore reloads FLIGHT and leaves the active
+            // vessel packed for a few frames; without this the synchronous
+            // loaded+unpacked precondition skipped every run (3x observed 2026-06-15).
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
             if (FlightGlobals.ActiveVessel == null)
                 InGameAssert.Skip("FlightGlobals.ActiveVessel is null; need a live endpoint vessel to debit");
             Vessel endpointVessel = FlightGlobals.ActiveVessel;
@@ -122,6 +130,7 @@ namespace Parsek.InGameTests
             {
                 RestoreLoadedLiquidFuel(tankSnapshot);
             }
+            yield break;
         }
 
         // ==================================================================
@@ -193,8 +202,13 @@ namespace Parsek.InGameTests
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = IsolatedOnlyBatchSkipReason,
             Description = "ApplyPickupDebit against a resolved endpoint whose stored LiquidFuel is below the pickup manifest clamps the removal to what is stored, marks the outcome short, and records the full requested amount on RequestedOnShortfall (clamp-and-warn, design D3)")]
-        public void PickupDebit_ShortEndpoint_ClampsAndRecordsRequested()
+        public IEnumerator PickupDebit_ShortEndpoint_ClampsAndRecordsRequested()
         {
+            // Post-restore unpack wait (see PickupDebit_LoadedEndpointVessel).
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
             if (FlightGlobals.ActiveVessel == null)
                 InGameAssert.Skip("FlightGlobals.ActiveVessel is null; need a live endpoint vessel to debit");
             Vessel endpointVessel = FlightGlobals.ActiveVessel;
@@ -247,6 +261,7 @@ namespace Parsek.InGameTests
             {
                 RestoreLoadedLiquidFuel(tankSnapshot);
             }
+            yield break;
         }
 
         // ==================================================================
@@ -260,6 +275,11 @@ namespace Parsek.InGameTests
             Description = "ApplyInventoryPickupDebit re-aimed at the LOADED active vessel removes a witnessed stored-part payload by IdentityHash via the production LiveInventoryPickupWriter (stock ClearPartAtSlot), returns an outcome carrying the actual-picked-up inventory + endpoint pid (not short), and restores the cargo in finally")]
         public IEnumerator InventoryPickupDebit_LoadedEndpointVessel_RemovesStoredPart()
         {
+            // Post-restore unpack wait (see PickupDebit_LoadedEndpointVessel).
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
             if (FlightGlobals.ActiveVessel == null)
                 InGameAssert.Skip("FlightGlobals.ActiveVessel is null; need a live endpoint vessel to debit");
             Vessel endpointVessel = FlightGlobals.ActiveVessel;
@@ -330,8 +350,13 @@ namespace Parsek.InGameTests
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = IsolatedOnlyBatchSkipReason,
             Description = "ApplyInventoryPickupDebit for an identity the resolved endpoint does NOT hold removes nothing, marks the outcome short, and records the full witnessed quantity on RequestedOnShortfall (clamp-and-warn, design D7) - no mutation, so no restore needed")]
-        public void InventoryPickupDebit_IdentityNotHeld_ClampsShortNoMutation()
+        public IEnumerator InventoryPickupDebit_IdentityNotHeld_ClampsShortNoMutation()
         {
+            // Post-restore unpack wait (see PickupDebit_LoadedEndpointVessel).
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
             if (FlightGlobals.ActiveVessel == null)
                 InGameAssert.Skip("FlightGlobals.ActiveVessel is null; need a live endpoint vessel");
             Vessel endpointVessel = FlightGlobals.ActiveVessel;
@@ -360,6 +385,7 @@ namespace Parsek.InGameTests
 
             ParsekLog.Info("TestRunner",
                 $"InventoryPickupDebit_NotHeld: PASS endpoint={endpointVessel.vesselName} (no mutation, clamp short)");
+            yield break;
         }
 
         // ==================================================================
