@@ -1610,7 +1610,8 @@ namespace Parsek
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowGroup");
 
             // Loop checkbox + Period cell are both gated by ShouldSuppressRowLoopUi
-            // (Unfinished Flights virtual group, or debris). Render width-stable
+            // (Unfinished Flights virtual group, or a non-loopable recording: debris
+            // or a pure orbital coast that is not player-viewable). Render width-stable
             // placeholders when suppressed so the grid stays aligned.
             bool suppressRowLoop = ShouldSuppressRowLoopUi(rec, unfinishedFlightRowDepth > 0);
             if (suppressRowLoop)

@@ -19,6 +19,8 @@ The Recordings window/tab now shows the per-row **Loop** checkbox and **Period**
 
 Implemented by routing `RecordingsTableUI.ShouldSuppressRowLoopUi`, `ComputeLoopAggregate`, and `BulkSetLoopPlayback` through the (previously dead-code, now extended) `Recording.IsLoopableRecording`, which gained a relative-track case (`Recording.HasViewableRelativeTrack`, excluding parent-anchored children/debris). The split optimizer already re-derives `SegmentPhase` per half and leaves a split-off coast without the launch's start fields, so a coast tail correctly loses the toggle while the ascent half keeps it.
 
+The visibility gate is paired with a model-layer guarantee so that "no loop toggle means it does not loop": the OnLoad sweep `RecordingStore.SanitizeDebrisLoopPlayback` was generalized to `RecordingStore.SanitizeNonLoopableLoopPlayback`, which clears a stale `LoopPlayback=true` on any `!IsLoopableRecording(rec)` recording (debris and pure orbital coasts alike; `IsLoopableRecording` already returns false for debris, so the predicate subsumes the former debris-only sweep). Post-change the UI never sets the flag on a non-loopable row (per-row toggle hidden, bulk write skips it) and the load sweep clears any pre-existing one, so the engine never loops a recording that has no toggle. This does NOT touch Mission looping: a Mission loops via `Mission.LoopPlayback` + the shared span clock and never reads a member recording's `LoopPlayback` (the loop-unit interception in `GhostPlaybackEngine` sits above the per-recording loop gate), and standalone chain looping is per-recording so the real legs keep their flags while only the no-loop-value coast legs are cleared.
+
 ---
 
 ## Fixed - quickload-resume Limbo-tree data loss (mission silently purged)

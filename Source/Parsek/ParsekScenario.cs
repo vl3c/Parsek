@@ -3276,8 +3276,8 @@ namespace Parsek
                 loadPhase = "recording-trees";
                 LoadRecordingTrees(node, recordings);
                 loadedRecordingCount = recordings.Count;
-                loadPhase = "sanitize-debris-loop";
-                RecordingStore.SanitizeDebrisLoopPlayback();
+                loadPhase = "sanitize-nonloopable-loop";
+                RecordingStore.SanitizeNonLoopableLoopPlayback();
                 loadPhase = "missions";
                 MissionStore.Load(node);
                 // Protect missions whose tree is parked (a quickload-resume isActive / isPending
