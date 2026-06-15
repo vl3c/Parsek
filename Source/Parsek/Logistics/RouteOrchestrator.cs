@@ -1882,32 +1882,9 @@ namespace Parsek.Logistics
         /// </summary>
         private static bool IsDeliveryAlreadyInLedger(string routeId, string cycleId)
         {
-            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
-                return false;
-
-            IReadOnlyList<GameAction> els;
-            try
-            {
-                els = EffectiveState.ComputeELS();
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"IsDeliveryAlreadyInLedger: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as not-in-ledger");
-                return false;
-            }
-
-            if (els == null) return false;
-            for (int i = 0; i < els.Count; i++)
-            {
-                GameAction a = els[i];
-                if (a == null) continue;
-                if (a.Type != GameActionType.RouteCargoDelivered) continue;
-                if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
-                if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
-                return true;
-            }
-            return false;
+            return ElsContainsRouteCycleRow(
+                GameActionType.RouteCargoDelivered, routeId, cycleId,
+                "IsDeliveryAlreadyInLedger");
         }
 
         /// <summary>
@@ -1924,6 +1901,24 @@ namespace Parsek.Logistics
         /// </summary>
         private static bool IsRecoveryCreditAlreadyInLedger(string routeId, string cycleId)
         {
+            return ElsContainsRouteCycleRow(
+                GameActionType.RouteRecoveryCredited, routeId, cycleId,
+                "IsRecoveryCreditAlreadyInLedger");
+        }
+
+        /// <summary>
+        /// Shared ELS idempotency scan folded out of the structurally identical
+        /// <see cref="IsDeliveryAlreadyInLedger"/> and
+        /// <see cref="IsRecoveryCreditAlreadyInLedger"/> bodies. Returns
+        /// <c>true</c> if any ELS row of <paramref name="type"/> matches the given
+        /// <paramref name="routeId"/> + <paramref name="cycleId"/> pair. ELS is
+        /// supersede / tombstone aware. Exception-safe: a throw is treated as
+        /// not-in-ledger. The <paramref name="logCtx"/> reproduces each caller's
+        /// original log prefix verbatim so the emitted line is unchanged.
+        /// </summary>
+        private static bool ElsContainsRouteCycleRow(
+            GameActionType type, string routeId, string cycleId, string logCtx)
+        {
             if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
                 return false;
 
@@ -1935,7 +1930,7 @@ namespace Parsek.Logistics
             catch (Exception ex)
             {
                 ParsekLog.Verbose(Tag,
-                    $"IsRecoveryCreditAlreadyInLedger: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as not-in-ledger");
+                    $"{logCtx}: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as not-in-ledger");
                 return false;
             }
 
@@ -1944,7 +1939,7 @@ namespace Parsek.Logistics
             {
                 GameAction a = els[i];
                 if (a == null) continue;
-                if (a.Type != GameActionType.RouteRecoveryCredited) continue;
+                if (a.Type != type) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
                 if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
                 return true;
