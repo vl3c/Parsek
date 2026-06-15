@@ -511,6 +511,106 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Expand-on-read helper for the LOOP-SHIFTED / endpoint-tail map arc clip.
+        ///
+        /// <para>The loop-shifted ghost path stores a SINGLE currently-applied OrbitSegment's bounds
+        /// (<c>ghostOrbitBounds[pid]</c>) and short-circuits the non-loop merge in
+        /// <c>GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel</c>, so the orbit-line arc gets
+        /// clipped to one same-orbit fragment. When the recorder split a single coast into several
+        /// adjacent fragments with IDENTICAL Kepler elements (it closes + reopens a segment at every
+        /// recording-mode transition), the incoming SOI-approach hyperbola draws one piece at the
+        /// crossing and the rest appears seconds later as the head advances into the next fragment.</para>
+        ///
+        /// <para>This pure helper locates the RAW recorded segment whose bounds match the stored RAW
+        /// window (caller un-shifts the live-frame stored bounds first), then grows the window across
+        /// element-equivalent adjacent neighbours using the SAME
+        /// <see cref="AreOrbitSegmentsEquivalentForMapDisplay"/> predicate the non-loop merge uses, so a
+        /// genuinely different conic (e.g. a captured ellipse after the hyperbola) stops the grow and is
+        /// NOT folded in. Unlike <see cref="ExpandEquivalentOrbitWindow"/> the grow ALSO requires
+        /// <c>isPredicted</c> to match (mirroring <see cref="CoalesceSameOrbitFragments"/>), so a
+        /// predicted ballistic tail never folds into a non-predicted coast even when the elements match.</para>
+        ///
+        /// <para>READ-ONLY: it only reads <paramref name="segments"/> and returns time bounds; recorded
+        /// data is never mutated. Returns <c>false</c> (caller keeps the stored single-segment bounds)
+        /// when the list is null/empty or no segment matches the stored window. Returns <c>true</c> with
+        /// <paramref name="fragmentCount"/> == 1 when the matched seed has no equivalent neighbour (a true
+        /// single-segment ghost, no widening). The caller only widens when <paramref name="fragmentCount"/>
+        /// &gt; 1.</para>
+        /// </summary>
+        internal static bool TryExpandStoredSingleSegmentWindow(
+            List<OrbitSegment> segments,
+            double storedStartUT,
+            double storedEndUT,
+            out double expandedStartUT,
+            out double expandedEndUT,
+            out int firstVisibleIndex,
+            out int lastVisibleIndex,
+            out int fragmentCount)
+        {
+            expandedStartUT = storedStartUT;
+            expandedEndUT = storedEndUT;
+            firstVisibleIndex = -1;
+            lastVisibleIndex = -1;
+            fragmentCount = 1;
+
+            if (segments == null || segments.Count == 0)
+                return false;
+
+            // ghostOrbitBounds is written verbatim from one segment's startUT/endUT, so an exact
+            // (within tolerance) startUT match identifies the seed; tie-break on the closer endUT
+            // match to disambiguate a (recorder never emits) zero-length collision.
+            const double MatchToleranceSeconds = 1e-3;
+            int seedIndex = -1;
+            double bestStartDelta = double.PositiveInfinity;
+            double bestEndDelta = double.PositiveInfinity;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                double startDelta = System.Math.Abs(segments[i].startUT - storedStartUT);
+                if (startDelta > MatchToleranceSeconds)
+                    continue;
+
+                double endDelta = System.Math.Abs(segments[i].endUT - storedEndUT);
+                if (seedIndex < 0
+                    || startDelta < bestStartDelta
+                    || (startDelta <= bestStartDelta && endDelta < bestEndDelta))
+                {
+                    seedIndex = i;
+                    bestStartDelta = startDelta;
+                    bestEndDelta = endDelta;
+                }
+            }
+
+            if (seedIndex < 0)
+                return false;
+
+            // Grow across element-equivalent AND isPredicted-matching neighbours. Inlined (rather than
+            // calling ExpandEquivalentOrbitWindow, which ignores isPredicted) so the isPredicted guard is
+            // explicit and self-contained per the no-predicted-straddle guardrail.
+            firstVisibleIndex = seedIndex;
+            while (firstVisibleIndex > 0
+                && segments[firstVisibleIndex - 1].isPredicted == segments[firstVisibleIndex].isPredicted
+                && AreOrbitSegmentsEquivalentForMapDisplay(
+                    segments[firstVisibleIndex - 1], segments[firstVisibleIndex]))
+            {
+                firstVisibleIndex--;
+            }
+
+            lastVisibleIndex = seedIndex;
+            while (lastVisibleIndex < segments.Count - 1
+                && segments[lastVisibleIndex].isPredicted == segments[lastVisibleIndex + 1].isPredicted
+                && AreOrbitSegmentsEquivalentForMapDisplay(
+                    segments[lastVisibleIndex], segments[lastVisibleIndex + 1]))
+            {
+                lastVisibleIndex++;
+            }
+
+            expandedStartUT = segments[firstVisibleIndex].startUT;
+            expandedEndUT = segments[lastVisibleIndex].endUT;
+            fragmentCount = lastVisibleIndex - firstVisibleIndex + 1;
+            return true;
+        }
+
+        /// <summary>
         /// Map-view policy helper: return the active orbit segment for the given UT plus
         /// the merged visible time bounds to use for map-line/icon continuity.
         /// Equivalent same-body segments are expanded into one continuous visible window,

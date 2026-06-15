@@ -360,5 +360,64 @@ namespace Parsek.Tests
 
             Assert.False(off);
         }
+
+        // ---- ResolveIconReferenceUT ----
+
+        [Fact]
+        public void ResolveIconReferenceUT_DriveRecorded_UsesDrivenUT()
+        {
+            // A fresh drive record wins: the probe compares against the exact UT the icon-drive
+            // placed the icon at, regardless of the re-derived director/shift inputs.
+            double ut = MapRenderTrace.ResolveIconReferenceUT(
+                hasDrivenUT: true, drivenUT: 13453.3,
+                currentUT: 4043195.9, directorDriveActive: true, loopShift: 4029742.5);
+
+            Assert.Equal(13453.3, ut, 3);
+        }
+
+        [Fact]
+        public void ResolveIconReferenceUT_NoRecord_DirectorActive_UsesLiveClock()
+        {
+            // Fallback, director epoch-bake: the icon resolves at the live clock (shift 0).
+            double ut = MapRenderTrace.ResolveIconReferenceUT(
+                hasDrivenUT: false, drivenUT: 0.0,
+                currentUT: 4043195.9, directorDriveActive: true, loopShift: 4029742.5);
+
+            Assert.Equal(4043195.9, ut, 3);
+        }
+
+        [Fact]
+        public void ResolveIconReferenceUT_NoRecord_Legacy_UsesShiftedClock()
+        {
+            // Fallback, legacy raw-epoch drive: effUT = liveUT - loopShift.
+            double ut = MapRenderTrace.ResolveIconReferenceUT(
+                hasDrivenUT: false, drivenUT: 0.0,
+                currentUT: 4043195.9, directorDriveActive: false, loopShift: 4029742.5);
+
+            Assert.Equal(13453.4, ut, 1);
+        }
+
+        [Fact]
+        public void ResolveIconReferenceUT_RegressionFacet_RecordedShiftedWins_OverDirectorReDerivation()
+        {
+            // The exact residual false-positive from the 2026-06-14 warp capture: the icon-drive
+            // placed the icon at the legacy SHIFTED phase (effUT 13453.3), but on the probe frame the
+            // shadow's StockConic seed had flipped fresh, so a re-derivation (directorDriveActive=true)
+            // would evaluate the reference conic at the live clock (4043195.9) -> spurious ~132 deg.
+            // With the drive's recorded propagateUT present, the recorded value wins, so the reference
+            // conic lands on the icon's actual phase.
+            double drivenUT = 13453.3;
+            double reDerived = MapRenderTrace.ResolveIconReferenceUT(
+                hasDrivenUT: false, drivenUT: 0.0,
+                currentUT: 4043195.9, directorDriveActive: true, loopShift: 4029742.5);
+            double resolved = MapRenderTrace.ResolveIconReferenceUT(
+                hasDrivenUT: true, drivenUT: drivenUT,
+                currentUT: 4043195.9, directorDriveActive: true, loopShift: 4029742.5);
+
+            // The re-derivation would have used the (wrong) live clock; the recorded value does not.
+            Assert.Equal(4043195.9, reDerived, 3);
+            Assert.Equal(drivenUT, resolved, 3);
+            Assert.NotEqual(reDerived, resolved, 3);
+        }
     }
 }
