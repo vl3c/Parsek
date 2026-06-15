@@ -5507,25 +5507,32 @@ namespace Parsek
             => ResetForTestingInternal(allowWipingLiveSaveData: false);
 
         /// <summary>
-        /// Clears stale <c>LoopPlayback=true</c> on every <c>IsDebris=true</c>
-        /// recording in <see cref="committedRecordings"/>. Parent-anchored
-        /// debris rides its parent's loop clock (see
-        /// <c>GhostPlaybackEngine.TryUpdateLoopSyncedDebris</c>) so its own
-        /// <c>LoopPlayback</c> flag has no effect at the engine boundary.
-        /// Pre-PR #966 saves may carry a stale <c>true</c> here from before
-        /// the per-row toggle was hidden; clearing at load time keeps the
-        /// Timeline-tab <c>L</c> button consistent with the Recordings-tab
-        /// hide. Returns the count cleared (zero on subsequent loads once
-        /// the sweep has run, so this is idempotent).
+        /// Clears stale <c>LoopPlayback=true</c> on every recording that is not
+        /// "logically loopable" (see <see cref="Recording.IsLoopableRecording"/>):
+        /// debris (which rides its parent's loop clock via
+        /// <c>GhostPlaybackEngine.TryUpdateLoopSyncedDebris</c>) and pure orbital
+        /// coasts (a map line with no watchable flying phase). Neither gets a
+        /// Recordings-tab loop toggle, so a stale <c>true</c> here (from a save
+        /// made before the toggle was hidden, or from any path that set it on a
+        /// non-loopable row) would otherwise loop at the engine with no way to
+        /// clear it from the table. Clearing at load keeps "no loop toggle means
+        /// it does not loop" consistent. Mission looping is unaffected: a Mission
+        /// loops via its own <c>Mission.LoopPlayback</c> plus the shared span
+        /// clock and never reads a member recording's <c>LoopPlayback</c> flag
+        /// (the loop-unit interception sits above the per-recording loop gate in
+        /// <c>GhostPlaybackEngine</c>). Returns the count cleared (zero on
+        /// subsequent loads once swept, so this is idempotent).
         /// </summary>
-        internal static int SanitizeDebrisLoopPlayback()
+        internal static int SanitizeNonLoopableLoopPlayback()
         {
             int cleared = 0;
             for (int i = 0; i < committedRecordings.Count; i++)
             {
                 var rec = committedRecordings[i];
                 if (rec == null) continue;
-                if (rec.IsDebris && rec.LoopPlayback)
+                // IsLoopableRecording already returns false for debris, so this
+                // single predicate subsumes the former debris-only sweep.
+                if (rec.LoopPlayback && !Recording.IsLoopableRecording(rec))
                 {
                     rec.LoopPlayback = false;
                     cleared++;
@@ -5534,8 +5541,8 @@ namespace Parsek
             if (cleared > 0)
             {
                 ParsekLog.Warn("RecordingStore",
-                    $"SanitizeDebrisLoopPlayback: cleared LoopPlayback on {cleared} debris recording(s) " +
-                    "(stale flag from pre-PR #966 save; debris rides parent loop clock)");
+                    $"SanitizeNonLoopableLoopPlayback: cleared LoopPlayback on {cleared} non-loopable recording(s) " +
+                    "(debris or pure orbital coast; no Recordings-tab loop toggle, so the stale flag had no way to be cleared)");
             }
             return cleared;
         }

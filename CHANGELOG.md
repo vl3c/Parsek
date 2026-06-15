@@ -29,6 +29,7 @@ All notable changes to Parsek are documented here.
 - Supply routes now work with resources from other mods: any resource KSP knows about can be recorded, analyzed, delivered, and charged at its own unit cost, with unknown resource names excluded and logged instead of priced at zero.
 - Mining routes: a supply run that drills or converts cargo during the run (stock and modded drills, including asteroid and comet drills on an already-grappled asteroid) now records the harvest and becomes a valid route, with no depot debit for harvested cargo; a cargo gain with no recorded source is rejected with the exact unaccounted amount named.
 - The per-cycle funds charge for KSC routes built from new recordings is now based on what was aboard at launch instead of what remained at docking, so harvested cargo is never billed and burned transit fuel is no longer free; existing routes keep their old cost.
+- In the Recordings tab, the Loop checkbox and Period cell now appear only for recordings you can actually watch fly: a takeoff or landing, a docking, or an approach toward a base or station. Recordings that are only a coast through space (shown as a map line, with nothing to watch up close) and debris no longer offer a loop toggle, and the group/select-all loop toggles count and set only the watchable recordings to match. Any leftover loop flag on one of these non-watchable recordings (from an older save) is cleared on load so it no longer loops with no way to turn it off; looping of whole Missions is unchanged.
 
 ### Fixes
 
