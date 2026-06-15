@@ -123,6 +123,18 @@ namespace Parsek.Tests.Logistics
                 InventoryDeliveryManifest = new List<InventoryPayloadItem>
                 {
                     BuildPayloadItem()
+                },
+                // M3 pickup direction (mixed stop): cargo flowed BOTH ways.
+                PickupManifest = new Dictionary<string, double>
+                {
+                    { "Ore", 42.0 },
+                    { "MonoPropellant", 7.5 }
+                },
+                // M3 inventory pickup: exercise the populated INVENTORY_PICKUP_MANIFEST round-trip
+                // (the builder leaves this null until Phase 5, but the codec node is live now).
+                InventoryPickupManifest = new List<InventoryPayloadItem>
+                {
+                    BuildPayloadItem()
                 }
             };
 
@@ -918,6 +930,133 @@ namespace Parsek.Tests.Logistics
                 "INVENTORY_COST_MANIFEST must be omitted when empty/null");
         }
 
+        // catches (M3, plan D8/D9): a stop carrying a PICKUP_MANIFEST not
+        // round-tripping its load amounts. The pickup direction is the sign-flip
+        // mirror of delivery, written as a sparse PICKUP_MANIFEST node.
+        [Fact]
+        public void RoundTrip_PickupManifest_Preserved()
+        {
+            var pickupStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                // A pure-pickup stop: nothing delivered, cargo loaded FROM the endpoint.
+                DeliveryManifest = null,
+                PickupManifest = new Dictionary<string, double>
+                {
+                    { "Ore", 120.0 },
+                    { "LiquidFuel", 33.5 }
+                },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+            var route = new RouteFixtureBuilder()
+                .WithId("pickup-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(pickupStop)
+                .Build();
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+
+            // The PICKUP_MANIFEST node lands under the STOP.
+            ConfigNode stopNode = node.GetNode(RouteCodec.StopNode);
+            Assert.NotNull(stopNode);
+            Assert.True(stopNode.HasNode(RouteCodec.PickupManifestNode),
+                "PICKUP_MANIFEST must be written when the pickup manifest is non-empty");
+
+            Route roundTripped = Route.DeserializeFrom(node);
+            Assert.NotNull(roundTripped);
+            Assert.Single(roundTripped.Stops);
+            RouteStop back = roundTripped.Stops[0];
+            Assert.NotNull(back.PickupManifest);
+            Assert.Equal(2, back.PickupManifest.Count);
+            Assert.Equal(120.0, back.PickupManifest["Ore"]);
+            Assert.Equal(33.5, back.PickupManifest["LiquidFuel"]);
+            // Empty/absent delivery manifest still reads back null (no lazy alloc).
+            Assert.Null(back.DeliveryManifest);
+        }
+
+        // catches (M3, plan D8/D9 sparse omission): an empty/null pickup manifest
+        // on a delivery-only stop writing a spurious PICKUP_MANIFEST /
+        // INVENTORY_PICKUP_MANIFEST node (save bloat) OR round-tripping to a
+        // non-null empty manifest. A pre-M3 / delivery-only route must write
+        // NOTHING new and read back null.
+        [Fact]
+        public void RoundTrip_EmptyPickupManifest_OmittedAndNull()
+        {
+            var deliveryOnlyStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                // No pickup in EITHER direction (pure delivery, the pre-M3 shape).
+                PickupManifest = null,
+                InventoryPickupManifest = null,
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+            var route = new RouteFixtureBuilder()
+                .WithId("delivery-only-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(deliveryOnlyStop)
+                .Build();
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+
+            ConfigNode stopNode = node.GetNode(RouteCodec.StopNode);
+            Assert.NotNull(stopNode);
+            Assert.False(stopNode.HasNode(RouteCodec.PickupManifestNode),
+                "PICKUP_MANIFEST must be omitted when the pickup manifest is empty/null");
+            Assert.False(stopNode.HasNode(RouteCodec.InventoryPickupManifestNode),
+                "INVENTORY_PICKUP_MANIFEST must be omitted when empty/null");
+
+            Route roundTripped = Route.DeserializeFrom(node);
+            Assert.NotNull(roundTripped);
+            Assert.Single(roundTripped.Stops);
+            RouteStop back = roundTripped.Stops[0];
+            Assert.Null(back.PickupManifest);
+            Assert.Null(back.InventoryPickupManifest);
+            // Delivery side unaffected.
+            Assert.NotNull(back.DeliveryManifest);
+            Assert.Equal(100.0, back.DeliveryManifest["LiquidFuel"]);
+        }
+
+        // catches (M3, plan D8): an empty (non-null but zero-count) pickup
+        // dictionary leaking a PICKUP_MANIFEST node. SerializeFlatResourceManifest
+        // skips a zero-count manifest, so this must behave like null.
+        [Fact]
+        public void RoundTrip_ZeroCountPickupManifest_OmittedAndNull()
+        {
+            var stop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                PickupManifest = new Dictionary<string, double>(),
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+            var route = new RouteFixtureBuilder()
+                .WithId("zero-pickup-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(stop)
+                .Build();
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+
+            ConfigNode stopNode = node.GetNode(RouteCodec.StopNode);
+            Assert.NotNull(stopNode);
+            Assert.False(stopNode.HasNode(RouteCodec.PickupManifestNode),
+                "PICKUP_MANIFEST must be omitted when the manifest is zero-count");
+
+            Route roundTripped = Route.DeserializeFrom(node);
+            Assert.NotNull(roundTripped);
+            Assert.Null(roundTripped.Stops[0].PickupManifest);
+        }
+
         // catches: an accidental canonicalization that drifts payload identity hashes.
         [Fact]
         public void StoredPartSnapshot_PreservedVerbatim()
@@ -1067,6 +1206,9 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(a.DeliveryOffsetSeconds, b.DeliveryOffsetSeconds);
             AssertResourceManifestEqual(a.DeliveryManifest, b.DeliveryManifest);
             AssertInventoryListEqual(a.InventoryDeliveryManifest, b.InventoryDeliveryManifest);
+            // M3 pickup direction (plan D8/D9).
+            AssertResourceManifestEqual(a.PickupManifest, b.PickupManifest);
+            AssertInventoryListEqual(a.InventoryPickupManifest, b.InventoryPickupManifest);
         }
 
         private static void AssertResourceManifestEqual(

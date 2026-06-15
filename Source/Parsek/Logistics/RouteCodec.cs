@@ -41,6 +41,12 @@ namespace Parsek.Logistics
         internal const string EndpointNode = "ENDPOINT";
         internal const string DeliveryManifestNode = "DELIVERY_MANIFEST";
         internal const string InventoryDeliveryManifestNode = "INVENTORY_DELIVERY_MANIFEST";
+        // M3 pickup direction (plan D8/D9): sparse per-stop nodes mirroring the
+        // delivery-manifest nodes. Omitted when empty (SerializeFlatResourceManifest
+        // / SerializeInventoryItems already skip empty), so pre-M3 / delivery-only
+        // routes write nothing new and round-trip byte-identically.
+        internal const string PickupManifestNode = "PICKUP_MANIFEST";
+        internal const string InventoryPickupManifestNode = "INVENTORY_PICKUP_MANIFEST";
         internal const string CostManifestNode = "COST_MANIFEST";
         internal const string InventoryCostManifestNode = "INVENTORY_COST_MANIFEST";
         internal const string InventoryItemNode = "ITEM";
@@ -526,6 +532,12 @@ namespace Parsek.Logistics
 
             SerializeFlatResourceManifest(node, DeliveryManifestNode, stop.DeliveryManifest, ic);
             SerializeInventoryItems(node, InventoryDeliveryManifestNode, stop.InventoryDeliveryManifest, ic);
+
+            // M3 pickup direction (plan D8/D9): verbatim mirror of the delivery
+            // call sites with the new node names. Both helpers omit the node when
+            // the manifest is null/empty, so a delivery-only stop writes nothing.
+            SerializeFlatResourceManifest(node, PickupManifestNode, stop.PickupManifest, ic);
+            SerializeInventoryItems(node, InventoryPickupManifestNode, stop.InventoryPickupManifest, ic);
         }
 
         private static RouteStop DeserializeStop(
@@ -542,6 +554,12 @@ namespace Parsek.Logistics
 
             stop.DeliveryManifest = DeserializeFlatResourceManifest(node, DeliveryManifestNode, inv, ic);
             stop.InventoryDeliveryManifest = DeserializeInventoryItems(node, InventoryDeliveryManifestNode, ic);
+
+            // M3 pickup direction (plan D8/D9): a missing node deserializes to null
+            // (no-lazy-alloc), the same empty->null normalization the delivery
+            // manifests use, so a pre-M3 save reads back null pickup manifests.
+            stop.PickupManifest = DeserializeFlatResourceManifest(node, PickupManifestNode, inv, ic);
+            stop.InventoryPickupManifest = DeserializeInventoryItems(node, InventoryPickupManifestNode, ic);
 
             return stop;
         }

@@ -93,7 +93,29 @@ namespace Parsek
         /// tombstone reverses it through the same recalc + patch path that reverses
         /// a recovery <see cref="GameActionType.FundsEarning"/>.
         /// </summary>
-        RouteRecoveryCredited = 28
+        RouteRecoveryCredited = 28,
+
+        /// <summary>
+        /// Per-window pickup debit (logistics M3, plan Phase 4 / OQ4 / D6): cargo
+        /// flowed FROM a stop's endpoint ONTO the transport across a connection
+        /// window (the reverse of <see cref="RouteCargoDelivered"/>), and the
+        /// witnessed amount was PHYSICALLY removed from the endpoint vessel at the
+        /// dock crossing. The mirror of <see cref="RouteCargoDebited"/> but for a
+        /// per-window pickup ENDPOINT, not the dispatch-time origin. Carries the
+        /// ACTUAL debited manifest (<see cref="GameAction.RouteResourceManifest"/>),
+        /// the requested-on-shortfall manifest
+        /// (<see cref="GameAction.RouteRequestedResourceManifest"/>) when the source
+        /// came up short / unresolved, and the endpoint pid
+        /// (<see cref="GameAction.RouteOriginVesselPid"/>). Emits ZERO funds
+        /// (loaded-en-route cargo debits its physical source, never funds, design
+        /// D6); no resource module consumes it (the physical removal happened LIVE
+        /// at emit and is reverted by the rewind quicksave, exactly like
+        /// <see cref="RouteCargoDebited"/>'s physical half), so it is NOT a
+        /// resource-impacting action and supersede does NOT strict-block on it.
+        /// Sequence is assigned AFTER <see cref="RouteDispatched"/> (Seq0) so the
+        /// ledger walker sees dispatch first at the shared UT.
+        /// </summary>
+        RouteCargoPickedUp = 29
     }
 
     /// <summary>How science was collected — transmitted from orbit or recovered on the ground.</summary>
@@ -472,6 +494,36 @@ namespace Parsek
         public Dictionary<string, double> RouteRequestedResourceManifest;
 
         /// <summary>
+        /// M3 picked-up stored-part inventory payloads (Phase 5, design D7),
+        /// keyed by exact <see cref="InventoryPayloadItem.IdentityHash"/>. On a
+        /// <see cref="GameActionType.RouteCargoPickedUp"/> row this is the ACTUAL
+        /// inventory removed from the per-window pickup endpoint (identity intact,
+        /// the removed quantity), the inventory analogue of
+        /// <see cref="RouteResourceManifest"/>. The transport credit is
+        /// bookkeeping (the transport never materializes), so this row is the only
+        /// record the inventory came aboard. Sparse: null/empty writes nothing, so
+        /// a resource-only pickup row round-trips byte-identically. No
+        /// <c>RouteCargoDelivered</c> row carries inventory (delivery inventory is
+        /// applied physically, not recorded on the ledger row), so this is the
+        /// FIRST ledger-row inventory manifest.
+        /// <para>INTERNAL (not public) because <see cref="InventoryPayloadItem"/>
+        /// is an internal route-proof type; the public ledger surface stays
+        /// resource-keyed. Tests reach it via InternalsVisibleTo.</para>
+        /// </summary>
+        internal List<InventoryPayloadItem> RouteInventoryManifest;
+
+        /// <summary>
+        /// Requested inventory payloads, populated only when the actual fell short
+        /// of the witnessed pickup for at least one identity (the source no longer
+        /// held a witnessed item at debit time). Same keying as
+        /// <see cref="RouteInventoryManifest"/>; the inventory analogue of
+        /// <see cref="RouteRequestedResourceManifest"/>. Null when the actual met
+        /// the request in full. INTERNAL for the same reason as
+        /// <see cref="RouteInventoryManifest"/>.
+        /// </summary>
+        internal List<InventoryPayloadItem> RouteRequestedInventoryManifest;
+
+        /// <summary>
         /// Persistent id of the live origin vessel a physical origin debit
         /// removed cargo from (M1). Stored sparsely on
         /// <see cref="GameActionType.RouteCargoDebited"/> rows for attribution
@@ -547,6 +599,18 @@ namespace Parsek
 
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         private static readonly NumberStyles NS = NumberStyles.Float;
+
+        // M3 Phase 5 (D7): per-row inventory manifest node names. The picked-up
+        // inventory + requested-on-shortfall inventory each serialize as a sparse
+        // child node holding one ITEM subnode per stored-part identity; omitted
+        // when empty so a resource-only RouteCargoPickedUp row stays
+        // byte-identical (D9). Distinct names from the route-side
+        // INVENTORY_*_MANIFEST nodes (RouteCodec) - this is the ledger row codec.
+        private const string RouteInventoryManifestNode = "ROUTE_INVENTORY_MANIFEST";
+        private const string RouteRequestedInventoryManifestNode = "ROUTE_REQUESTED_INVENTORY_MANIFEST";
+        private const string RouteInventoryItemNode = "ITEM";
+        private const string RouteInventoryStoredResourcesNode = "STORED_RESOURCES";
+        private const string RouteInventoryStoredPartNode = "STOREDPART";
 
         /// <summary>
         /// Computes a deterministic legacy <see cref="ActionId"/> for
@@ -686,6 +750,9 @@ namespace Parsek
                 case GameActionType.RouteRecoveryCredited:
                     SerializeRouteRecoveryCredited(node);
                     break;
+                case GameActionType.RouteCargoPickedUp:
+                    SerializeRouteCargoPickedUp(node);
+                    break;
             }
         }
 
@@ -822,6 +889,9 @@ namespace Parsek
                     break;
                 case GameActionType.RouteRecoveryCredited:
                     DeserializeRouteRecoveryCredited(node, a);
+                    break;
+                case GameActionType.RouteCargoPickedUp:
+                    DeserializeRouteCargoPickedUp(node, a);
                     break;
             }
 
@@ -1204,6 +1274,12 @@ namespace Parsek
             // KSC rows and legacy non-loop rows carry neither, so their
             // on-disk shape is byte-identical to the pre-M1 codec.
             WriteResourceManifest(n, "requestedResource", RouteRequestedResourceManifest);
+            // M3 Phase 5 (D7 carve-out lift): the origin INVENTORY debit's actual
+            // + requested-on-shortfall payloads, sparse. Empty/null writes nothing
+            // so a resource-only origin debit row stays byte-identical to the M1
+            // codec.
+            WriteInventoryManifest(n, RouteInventoryManifestNode, RouteInventoryManifest);
+            WriteInventoryManifest(n, RouteRequestedInventoryManifestNode, RouteRequestedInventoryManifest);
             if (RouteOriginVesselPid != 0u)
                 n.AddValue("routeOriginVesselPid", RouteOriginVesselPid.ToString(IC));
             if (RouteKscFundsCost != 0f)
@@ -1217,6 +1293,8 @@ namespace Parsek
             // Additive M1 keys: absent on pre-M1 rows, which read back with
             // the defaults (null requested manifest, 0 origin pid).
             a.RouteRequestedResourceManifest = ReadResourceManifest(n, "requestedResource");
+            a.RouteInventoryManifest = ReadInventoryManifest(n, RouteInventoryManifestNode);
+            a.RouteRequestedInventoryManifest = ReadInventoryManifest(n, RouteRequestedInventoryManifestNode);
             string pidStr = n.GetValue("routeOriginVesselPid");
             if (pidStr != null && uint.TryParse(pidStr, NumberStyles.Integer, IC, out uint originPid))
                 a.RouteOriginVesselPid = originPid;
@@ -1278,6 +1356,39 @@ namespace Parsek
         {
             ReadRouteCommon(n, a);
             TryParseFloat(n, "routeKscFundsCost", out a.RouteKscFundsCost);
+        }
+
+        // RouteCargoPickedUp (logistics M3, plan Phase 4 / OQ4 / D6): the
+        // pickup-direction mirror of RouteCargoDebited's physical-debit shape.
+        // Carries the actual debited manifest (resource), the requested-on-shortfall
+        // manifest (requestedResource), and the endpoint pid (routeOriginVesselPid),
+        // all sparse. NO funds field is written: a pickup emits ZERO funds
+        // (loaded-en-route cargo debits its physical source, never funds, D6), so
+        // unlike RouteCargoDebited there is no routeKscFundsCost line.
+        private void SerializeRouteCargoPickedUp(ConfigNode n)
+        {
+            WriteRouteCommon(n);
+            WriteResourceManifest(n, "resource", RouteResourceManifest);
+            WriteResourceManifest(n, "requestedResource", RouteRequestedResourceManifest);
+            // M3 Phase 5 (D7): the picked-up stored-part inventory + the
+            // requested-on-shortfall inventory, sparse. Empty/null writes nothing
+            // so a resource-only pickup row stays byte-identical.
+            WriteInventoryManifest(n, RouteInventoryManifestNode, RouteInventoryManifest);
+            WriteInventoryManifest(n, RouteRequestedInventoryManifestNode, RouteRequestedInventoryManifest);
+            if (RouteOriginVesselPid != 0u)
+                n.AddValue("routeOriginVesselPid", RouteOriginVesselPid.ToString(IC));
+        }
+
+        private static void DeserializeRouteCargoPickedUp(ConfigNode n, GameAction a)
+        {
+            ReadRouteCommon(n, a);
+            a.RouteResourceManifest = ReadResourceManifest(n, "resource");
+            a.RouteRequestedResourceManifest = ReadResourceManifest(n, "requestedResource");
+            a.RouteInventoryManifest = ReadInventoryManifest(n, RouteInventoryManifestNode);
+            a.RouteRequestedInventoryManifest = ReadInventoryManifest(n, RouteRequestedInventoryManifestNode);
+            string pidStr = n.GetValue("routeOriginVesselPid");
+            if (pidStr != null && uint.TryParse(pidStr, NumberStyles.Integer, IC, out uint endpointPid))
+                a.RouteOriginVesselPid = endpointPid;
         }
 
         /// <summary>
@@ -1362,6 +1473,129 @@ namespace Parsek
                 dict[name] = amount;
             }
             return dict.Count == 0 ? null : dict;
+        }
+
+        /// <summary>
+        /// M3 Phase 5 (D7): serializes a stored-part inventory manifest as one
+        /// <paramref name="nodeName"/> child holding one <c>ITEM</c> subnode per
+        /// payload (identityHash / partName / variantName / quantity / slotsTaken
+        /// + the verbatim STOREDPART snapshot, identity preserved exactly). Mirror
+        /// of the route-side <c>RouteCodec.SerializeInventoryItems</c> shape, kept
+        /// self-contained here (the ledger row codec). Empty / null manifests
+        /// write NOTHING (sparse, D9).
+        /// </summary>
+        private static void WriteInventoryManifest(
+            ConfigNode n, string nodeName, List<InventoryPayloadItem> manifest)
+        {
+            if (manifest == null || manifest.Count == 0)
+                return;
+
+            ConfigNode parent = n.AddNode(nodeName);
+            for (int i = 0; i < manifest.Count; i++)
+            {
+                InventoryPayloadItem item = manifest[i];
+                if (item == null)
+                    continue;
+
+                ConfigNode itemNode = parent.AddNode(RouteInventoryItemNode);
+                if (!string.IsNullOrEmpty(item.IdentityHash))
+                    itemNode.AddValue("identityHash", item.IdentityHash);
+                if (!string.IsNullOrEmpty(item.PartName))
+                    itemNode.AddValue("partName", item.PartName);
+                if (!string.IsNullOrEmpty(item.VariantName))
+                    itemNode.AddValue("variantName", item.VariantName);
+                if (item.Quantity != 0)
+                    itemNode.AddValue("quantity", item.Quantity.ToString(IC));
+                if (item.SlotsTaken != 0)
+                    itemNode.AddValue("slotsTaken", item.SlotsTaken.ToString(IC));
+
+                if (item.StoredResources != null && item.StoredResources.Count > 0)
+                {
+                    ConfigNode res = itemNode.AddNode(RouteInventoryStoredResourcesNode);
+                    foreach (var kvp in item.StoredResources)
+                    {
+                        if (string.IsNullOrEmpty(kvp.Key))
+                            continue;
+                        ConfigNode r = res.AddNode("RESOURCE");
+                        r.AddValue("name", kvp.Key);
+                        r.AddValue("amount", kvp.Value.amount.ToString("R", IC));
+                        r.AddValue("maxAmount", kvp.Value.maxAmount.ToString("R", IC));
+                    }
+                }
+
+                if (item.StoredPartSnapshot != null)
+                {
+                    ConfigNode copy = item.StoredPartSnapshot.CreateCopy();
+                    copy.name = RouteInventoryStoredPartNode;
+                    itemNode.AddNode(copy);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reads a stored-part inventory manifest written by
+        /// <see cref="WriteInventoryManifest"/>. Returns null when the node is
+        /// absent OR carries no items so callers distinguish "absent" from
+        /// "empty" (sparse, D9).
+        /// </summary>
+        private static List<InventoryPayloadItem> ReadInventoryManifest(ConfigNode n, string nodeName)
+        {
+            ConfigNode parent = n.GetNode(nodeName);
+            if (parent == null)
+                return null;
+
+            ConfigNode[] itemNodes = parent.GetNodes(RouteInventoryItemNode);
+            if (itemNodes.Length == 0)
+                return null;
+
+            var items = new List<InventoryPayloadItem>(itemNodes.Length);
+            for (int i = 0; i < itemNodes.Length; i++)
+            {
+                ConfigNode itemNode = itemNodes[i];
+                var item = new InventoryPayloadItem
+                {
+                    IdentityHash = itemNode.GetValue("identityHash"),
+                    PartName = itemNode.GetValue("partName"),
+                    VariantName = itemNode.GetValue("variantName"),
+                };
+                if (TryParseInt(itemNode, "quantity", out int qty))
+                    item.Quantity = qty;
+                if (TryParseInt(itemNode, "slotsTaken", out int slots))
+                    item.SlotsTaken = slots;
+
+                ConfigNode res = itemNode.GetNode(RouteInventoryStoredResourcesNode);
+                if (res != null)
+                {
+                    ConfigNode[] resNodes = res.GetNodes("RESOURCE");
+                    if (resNodes.Length > 0)
+                    {
+                        item.StoredResources = new Dictionary<string, ResourceAmount>(
+                            resNodes.Length, StringComparer.Ordinal);
+                        for (int r = 0; r < resNodes.Length; r++)
+                        {
+                            string name = resNodes[r].GetValue("name");
+                            if (string.IsNullOrEmpty(name))
+                                continue;
+                            double amount = 0.0, maxAmount = 0.0;
+                            double.TryParse(resNodes[r].GetValue("amount"), NS, IC, out amount);
+                            double.TryParse(resNodes[r].GetValue("maxAmount"), NS, IC, out maxAmount);
+                            item.StoredResources[name] = new ResourceAmount { amount = amount, maxAmount = maxAmount };
+                        }
+                    }
+                }
+
+                ConfigNode snapshot = itemNode.GetNode(RouteInventoryStoredPartNode);
+                if (snapshot != null)
+                {
+                    ConfigNode copy = snapshot.CreateCopy();
+                    copy.name = RouteInventoryStoredPartNode;
+                    item.StoredPartSnapshot = copy;
+                }
+
+                items.Add(item);
+            }
+
+            return items.Count == 0 ? null : items;
         }
 
         // ---- Parse helpers ----
