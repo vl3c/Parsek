@@ -13,6 +13,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Changed - Recordings tab loop/period restricted to player-viewable recordings
+
+The Recordings window/tab now shows the per-row **Loop** checkbox and **Period** cell only for recordings the player can actually watch as a flying ghost — a takeoff / landing (launch site, Prelaunch start, or `SegmentPhase` atmo/approach/surface), a docking segment, or a valid relative track approaching a base or station (a `ReferenceFrame.Relative` `TrackSection` with a resolvable anchor). Pure orbital coasts (a map line only, no watchable flight phase) and debris no longer get a loop toggle. The header / group / chain aggregate Loop toggles and the bulk-write exclude the same non-loopable rows so they stay consistent with which rows show a toggle.
+
+Implemented by routing `RecordingsTableUI.ShouldSuppressRowLoopUi`, `ComputeLoopAggregate`, and `BulkSetLoopPlayback` through the (previously dead-code, now extended) `Recording.IsLoopableRecording`, which gained a relative-track case (`Recording.HasViewableRelativeTrack`, excluding parent-anchored children/debris). The split optimizer already re-derives `SegmentPhase` per half and leaves a split-off coast without the launch's start fields, so a coast tail correctly loses the toggle while the ascent half keeps it.
+
+---
+
 ## Fixed - quickload-resume Limbo-tree data loss (mission silently purged)
 
 **Symptom (found 2026-06-13 in the `orbital supply route` career save):** a whole mission ("Duna Supply 1": its Missions entry, its recording tree, and all 13 recordings + sidecars) vanished while the flown Duna vessels stayed in the FLIGHTSTATE. Reconstructed from KSP auto-backups + `collect-logs` snapshots; the save was recovered by splicing the tree + mission nodes and the sidecars back from the `2026-06-13_1750_loopanchor-pr-playtest` snapshot.

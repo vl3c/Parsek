@@ -44,7 +44,12 @@ namespace Parsek.Tests
 
         private static Recording MakeRec(double startUT, double endUT, string name = "Test")
         {
-            var rec = new Recording { VesselName = name };
+            // SegmentPhase "atmo" makes the recording player-viewable (loopable):
+            // a default test recording stands in for an ordinary watchable flight,
+            // matching the pre-IsLoopableRecording assumption that any non-debris
+            // recording got a loop toggle. Tests that need a non-loopable row build
+            // a bare Recording (no phase / launch / approach) directly.
+            var rec = new Recording { VesselName = name, SegmentPhase = "atmo" };
             rec.Points.Add(new TrajectoryPoint { ut = startUT });
             if (endUT > startUT)
                 rec.Points.Add(new TrajectoryPoint { ut = endUT });
@@ -1793,12 +1798,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSuppressRowLoopUi_NullRecording_NotSuppressed_OutsideUnfinishedFlights()
+        public void ShouldSuppressRowLoopUi_NullRecording_Suppressed()
         {
-            // Null is a defensive case; the predicate only returns true via the
-            // group flag (the loop UI is drawn against a real recording, so a
-            // null here is the "outside group, no row" case — should not crash).
-            Assert.False(RecordingsTableUI.ShouldSuppressRowLoopUi(null, false));
+            // Null is a defensive case: it is not a loopable (viewable) recording,
+            // so the loop UI is suppressed. The loop UI is only ever drawn against
+            // a real recording, so suppressing the null case is harmless and safe
+            // (it must not crash).
+            Assert.True(RecordingsTableUI.ShouldSuppressRowLoopUi(null, false));
+        }
+
+        [Fact]
+        public void ShouldSuppressRowLoopUi_NonViewableOrbitalCoast_Suppressed()
+        {
+            // A pure orbital coast (no launch / atmo / approach / surface phase,
+            // no docking, no relative track) is only a map line, not a watchable
+            // flying ghost — its loop + period controls are hidden.
+            var coast = new Recording { VesselName = "Transfer", SegmentPhase = "exo" };
+            Assert.True(RecordingsTableUI.ShouldSuppressRowLoopUi(coast, false));
+        }
+
+        [Fact]
+        public void ShouldSuppressRowLoopUi_RelativeTrackApproach_NotSuppressed()
+        {
+            // An orbital rendezvous approaching a station (RELATIVE track with a
+            // resolvable anchor) is watchable even though it never hard-docks and
+            // stays in the "exo" phase — its loop + period controls stay visible.
+            var approach = new Recording { VesselName = "Ferry", SegmentPhase = "exo" };
+            approach.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                anchorRecordingId = "station-leg-1"
+            });
+            Assert.False(RecordingsTableUI.ShouldSuppressRowLoopUi(approach, false));
         }
 
         // ── ComputeLoopAggregate (group / chain / header) ──
@@ -1810,7 +1841,7 @@ namespace Parsek.Tests
             var b = MakeRec(0, 10, "B"); b.LoopPlayback = true;
             var committed = new List<Recording> { a, b };
             var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1 });
-            Assert.Equal(2, agg.NonDebrisCount);
+            Assert.Equal(2, agg.LoopableCount);
             Assert.Equal(2, agg.LoopCount);
             Assert.True(agg.AllLoop);
             Assert.False(agg.SuppressToggle);
@@ -1823,7 +1854,7 @@ namespace Parsek.Tests
             var b = MakeRec(0, 10, "B"); b.LoopPlayback = false;
             var committed = new List<Recording> { a, b };
             var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1 });
-            Assert.Equal(2, agg.NonDebrisCount);
+            Assert.Equal(2, agg.LoopableCount);
             Assert.Equal(1, agg.LoopCount);
             Assert.False(agg.AllLoop);
             Assert.False(agg.SuppressToggle);
@@ -1841,7 +1872,7 @@ namespace Parsek.Tests
             var deb2 = MakeRec(3, 5, "Deb2"); deb2.IsDebris = true; deb2.LoopPlayback = true;
             var committed = new List<Recording> { main, deb1, deb2 };
             var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1, 2 });
-            Assert.Equal(1, agg.NonDebrisCount);
+            Assert.Equal(1, agg.LoopableCount);
             Assert.Equal(0, agg.LoopCount);
             Assert.False(agg.AllLoop);
             Assert.False(agg.SuppressToggle);
@@ -1857,7 +1888,7 @@ namespace Parsek.Tests
             var deb2 = MakeRec(3, 5, "Deb2"); deb2.IsDebris = true;
             var committed = new List<Recording> { deb1, deb2 };
             var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1 });
-            Assert.Equal(0, agg.NonDebrisCount);
+            Assert.Equal(0, agg.LoopableCount);
             Assert.Equal(0, agg.LoopCount);
             Assert.False(agg.AllLoop);
             Assert.True(agg.SuppressToggle);
@@ -1868,7 +1899,7 @@ namespace Parsek.Tests
         {
             var committed = new List<Recording>();
             var agg = RecordingsTableUI.ComputeLoopAggregate(committed, Array.Empty<int>());
-            Assert.Equal(0, agg.NonDebrisCount);
+            Assert.Equal(0, agg.LoopableCount);
             Assert.True(agg.SuppressToggle);
         }
 
@@ -1878,7 +1909,7 @@ namespace Parsek.Tests
             var a = MakeRec(0, 10, "A"); a.LoopPlayback = true;
             var committed = new List<Recording> { a };
             var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { -1, 0, 99 });
-            Assert.Equal(1, agg.NonDebrisCount);
+            Assert.Equal(1, agg.LoopableCount);
             Assert.Equal(1, agg.LoopCount);
             Assert.True(agg.AllLoop);
             Assert.False(agg.SuppressToggle);
@@ -1889,12 +1920,12 @@ namespace Parsek.Tests
         {
             var agg1 = RecordingsTableUI.ComputeLoopAggregate(null, new[] { 0 });
             Assert.True(agg1.SuppressToggle);
-            Assert.Equal(0, agg1.NonDebrisCount);
+            Assert.Equal(0, agg1.LoopableCount);
 
             var committed = new List<Recording> { MakeRec(0, 10, "A") };
             var agg2 = RecordingsTableUI.ComputeLoopAggregate(committed, null);
             Assert.True(agg2.SuppressToggle);
-            Assert.Equal(0, agg2.NonDebrisCount);
+            Assert.Equal(0, agg2.LoopableCount);
         }
 
         // ── ComputeLoopAggregate header overload (no indices) ──
@@ -1913,11 +1944,11 @@ namespace Parsek.Tests
             var headerAgg = RecordingsTableUI.ComputeLoopAggregate(committed);
             var indexedAgg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1, 2 });
 
-            Assert.Equal(indexedAgg.NonDebrisCount, headerAgg.NonDebrisCount);
+            Assert.Equal(indexedAgg.LoopableCount, headerAgg.LoopableCount);
             Assert.Equal(indexedAgg.LoopCount, headerAgg.LoopCount);
             Assert.Equal(indexedAgg.AllLoop, headerAgg.AllLoop);
             Assert.Equal(indexedAgg.SuppressToggle, headerAgg.SuppressToggle);
-            Assert.Equal(2, headerAgg.NonDebrisCount);
+            Assert.Equal(2, headerAgg.LoopableCount);
             Assert.Equal(1, headerAgg.LoopCount);
         }
 
@@ -1938,15 +1969,15 @@ namespace Parsek.Tests
             // and the derived state was possible. They are now read-only
             // properties computed from the two count inputs, so any caller
             // that materialises a state by hand sees a consistent result.
-            var s = new RecordingsTableUI.LoopAggregateState { NonDebrisCount = 0, LoopCount = 0 };
+            var s = new RecordingsTableUI.LoopAggregateState { LoopableCount = 0, LoopCount = 0 };
             Assert.False(s.AllLoop);
             Assert.True(s.SuppressToggle);
 
-            s = new RecordingsTableUI.LoopAggregateState { NonDebrisCount = 3, LoopCount = 3 };
+            s = new RecordingsTableUI.LoopAggregateState { LoopableCount = 3, LoopCount = 3 };
             Assert.True(s.AllLoop);
             Assert.False(s.SuppressToggle);
 
-            s = new RecordingsTableUI.LoopAggregateState { NonDebrisCount = 3, LoopCount = 2 };
+            s = new RecordingsTableUI.LoopAggregateState { LoopableCount = 3, LoopCount = 2 };
             Assert.False(s.AllLoop);
             Assert.False(s.SuppressToggle);
         }
@@ -1986,8 +2017,8 @@ namespace Parsek.Tests
             // LoopStartUT/LoopEndUT survives an off/on toggle. Pins the regression
             // the Opus review caught: ApplyAutoLoopRange in the group bulk write
             // would clobber custom ranges.
-            var a = new Recording { VesselName = "A", LoopPlayback = false, LoopStartUT = 123.0, LoopEndUT = 456.0 };
-            var b = new Recording { VesselName = "B", LoopPlayback = false, LoopStartUT = 789.0, LoopEndUT = 1011.0 };
+            var a = new Recording { VesselName = "A", SegmentPhase = "atmo", LoopPlayback = false, LoopStartUT = 123.0, LoopEndUT = 456.0 };
+            var b = new Recording { VesselName = "B", SegmentPhase = "atmo", LoopPlayback = false, LoopStartUT = 789.0, LoopEndUT = 1011.0 };
             var committed = new List<Recording> { a, b };
 
             int written = RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0, 1 }, value: true, applyAutoRange: false);
@@ -2008,7 +2039,7 @@ namespace Parsek.Tests
             // off-then-on toggle. The hand-rolled pre-refactor loop also
             // satisfied this, so the test guards against future regressions
             // either way (a switch to applyAutoRange:true would fail here).
-            var rec = new Recording { VesselName = "Custom", LoopPlayback = true, LoopStartUT = 200.0, LoopEndUT = 300.0 };
+            var rec = new Recording { VesselName = "Custom", SegmentPhase = "atmo", LoopPlayback = true, LoopStartUT = 200.0, LoopEndUT = 300.0 };
             var committed = new List<Recording> { rec };
 
             RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0 }, value: false, applyAutoRange: false);
@@ -2030,8 +2061,8 @@ namespace Parsek.Tests
             // the loop window on every member (ApplyAutoLoopRange(_, false)
             // sets LoopStartUT/LoopEndUT back to NaN). Without applyAutoRange
             // the custom range would survive instead.
-            var a = new Recording { VesselName = "A", LoopPlayback = true, LoopStartUT = 100.0, LoopEndUT = 200.0 };
-            var b = new Recording { VesselName = "B", LoopPlayback = true, LoopStartUT = 300.0, LoopEndUT = 400.0 };
+            var a = new Recording { VesselName = "A", SegmentPhase = "atmo", LoopPlayback = true, LoopStartUT = 100.0, LoopEndUT = 200.0 };
+            var b = new Recording { VesselName = "B", SegmentPhase = "atmo", LoopPlayback = true, LoopStartUT = 300.0, LoopEndUT = 400.0 };
             var committed = new List<Recording> { a, b };
 
             int written = RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0, 1 }, value: false, applyAutoRange: true);
@@ -2052,7 +2083,7 @@ namespace Parsek.Tests
             // aggregate write. Pre-existing LoopPlayback on debris is preserved
             // (the write value differs from each debris's prior state, so this
             // catches a skip-bug that ignores debris exclusion).
-            var main = new Recording { VesselName = "Main", LoopPlayback = false };
+            var main = new Recording { VesselName = "Main", SegmentPhase = "atmo", LoopPlayback = false };
             var debTrue = new Recording { VesselName = "DebTrue", LoopPlayback = true, IsDebris = true };
             var debFalse = new Recording { VesselName = "DebFalse", LoopPlayback = false, IsDebris = true };
             var committed = new List<Recording> { main, debTrue, debFalse };
@@ -2068,7 +2099,7 @@ namespace Parsek.Tests
         [Fact]
         public void BulkSetLoopPlayback_SkipsNullAndOutOfRange()
         {
-            var a = new Recording { VesselName = "A", LoopPlayback = false };
+            var a = new Recording { VesselName = "A", SegmentPhase = "atmo", LoopPlayback = false };
             var committed = new List<Recording> { a, null };
 
             int written = RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { -1, 0, 1, 99 }, value: true, applyAutoRange: false);
@@ -2083,8 +2114,8 @@ namespace Parsek.Tests
             // The header path passes indices:null so the helper walks committed
             // directly. Mirrors the no-Range-allocation header overload of
             // ComputeLoopAggregate.
-            var a = new Recording { VesselName = "A", LoopPlayback = false };
-            var b = new Recording { VesselName = "B", LoopPlayback = false };
+            var a = new Recording { VesselName = "A", SegmentPhase = "atmo", LoopPlayback = false };
+            var b = new Recording { VesselName = "B", SegmentPhase = "atmo", LoopPlayback = false };
             var deb = new Recording { VesselName = "Deb", LoopPlayback = false, IsDebris = true };
             var committed = new List<Recording> { a, b, deb };
 
