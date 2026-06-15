@@ -241,7 +241,13 @@ namespace Parsek.Reaim
             // regression). Full-span render restores the seamless handoff; the brief in-SOI stub sits
             // sub-pixel at the body centre at map scale, and the recorded escape / capture legs cover inside
             // the SOI.
-            List<OrbitSegment> assembled = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+            // Gate ONLY the assembler call on the reaimChainSynthesis flag (default OFF -> identity path).
+            // The flag must not gate the Supported / no-helio-leg / parked guards, the faithful/declined
+            // return, or the ReferenceEquals(effective, recorded) no-op contract above; it only chooses
+            // between today's single-leg replacement (OFF) and the P3 chain synthesis (ON, currently a
+            // placeholder returning the same result). See ReaimChainSynthesis / AssembleWindowChain.
+            List<OrbitSegment> assembled = ReaimSegmentAssembler.AssembleWindowChain(
+                ReaimChainSynthesis.IsEnabled,
                 memberSegments, transferSeg, plan.CommonAncestor,
                 plan.RecordedDepartureUT, plan.RecordedArrivalUT,
                 double.NaN, double.NaN);

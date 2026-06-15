@@ -194,6 +194,7 @@ namespace Parsek
                 s.ghostRenderTracing = false;
                 s.mapRenderTracing = false;
                 s.ledgerTracing = false;
+                s.reaimChainSynthesis = false;
                 s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
@@ -206,6 +207,8 @@ namespace Parsek
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
                 ParsekSettingsPersistence.RecordMapRenderTracing(s.mapRenderTracing);
                 ParsekSettingsPersistence.RecordLedgerTracing(s.ledgerTracing);
+                ParsekSettingsPersistence.RecordReaimChainSynthesis(s.reaimChainSynthesis);
+                Parsek.Reaim.ReaimPlaybackResolver.Shared.Clear();
                 // blockCommittedActions needs no controller refresh; click-block patches read it at call time.
                 if (s.showCommittedFutureOverlays != priorShowCommittedFutureOverlays)
                     StockUiOverlayController.RefreshOpenScreensAfterSettingsChanged();
@@ -478,6 +481,19 @@ namespace Parsek
                 s.ledgerTracing = ledgerTracing;
                 ParsekSettingsPersistence.RecordLedgerTracing(s.ledgerTracing);
                 ParsekLog.Info("UI", $"Setting changed: ledgerTracing={s.ledgerTracing}");
+            }
+
+            bool reaimChainSynthesis = GUILayout.Toggle(s.reaimChainSynthesis,
+                new GUIContent(" Re-aim chain synthesis (experimental)",
+                    "When on, re-aimed interplanetary transfers synthesize a continuous patched-conic chain (escape + transfer + capture) so the transfer line forms a real encounter into the target SOI. Default off keeps re-aim playback byte-identical to today. Experimental; leave off unless validating the chain-synthesis fix."));
+            if (reaimChainSynthesis != s.reaimChainSynthesis)
+            {
+                s.reaimChainSynthesis = reaimChainSynthesis;
+                ParsekSettingsPersistence.RecordReaimChainSynthesis(s.reaimChainSynthesis);
+                // Drop cached per-window adapters so the toggle takes effect without a rebuild (A/B): the
+                // cross-consumer cache must not serve a stale flag-OFF window adapter to a flag-ON read.
+                Parsek.Reaim.ReaimPlaybackResolver.Shared.Clear();
+                ParsekLog.Info("UI", $"Setting changed: reaimChainSynthesis={s.reaimChainSynthesis}");
             }
 
             bool writeReadableSidecarMirrors = GUILayout.Toggle(s.writeReadableSidecarMirrors,
