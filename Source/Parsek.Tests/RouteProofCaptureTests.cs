@@ -461,7 +461,15 @@ namespace Parsek.Tests
             bug.UndockEndpointResources = undockEndpoint;
             RouteAnalysisResult bugResult = RouteAnalysisEngine.AnalyzeRecording(
                 new Recording { RecordingId = "deflated", StartBodyName = "Kerbin", LaunchSiteName = "LaunchPad", RouteConnectionWindows = new List<RouteConnectionWindow> { bug } });
-            Assert.Equal(RouteAnalysisStatus.MixedPickupDelivery, bugResult.Status);
+            // The deflated baseline still produces a WRONG reject (vs the
+            // pre-couple fix's Eligible below). M3 no longer rejects resource
+            // flow as MixedPickupDelivery; the inconsistent deflated data (the
+            // transport AND the endpoint both appearing to gain 100, which is
+            // physically impossible from one transfer) admits neither a clean
+            // delivery nor a clean load, so it now rejects NoDeliveryManifest.
+            Assert.False(bugResult.IsEligible,
+                "the deflated dock-transport baseline must still reject (the bug case)");
+            Assert.Equal(RouteAnalysisStatus.NoDeliveryManifest, bugResult.Status);
 
             // FIX: transport pre-couple -> DockTransport = 500 -> transportGain = -100.
             RouteConnectionWindow fix = RouteProofCapture.BuildDockRouteConnectionWindow(

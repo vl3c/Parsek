@@ -149,8 +149,16 @@ namespace Parsek
                 // RoutePaused / RouteEndpointLost are scheduler state flips. The
                 // funds-moving route rows (RouteCargoDebited, RouteRecoveryCredited)
                 // are classified true above.
+                //
+                // RouteCargoPickedUp (logistics M3, design D6): the per-window pickup
+                // debit moves NO funds pool (loaded-en-route cargo debits its physical
+                // source, never funds) and no resource module consumes it - the
+                // physical removal happened live at emit and is reverted by the rewind
+                // quicksave, exactly like RouteCargoDebited's physical half. So it
+                // mirrors RouteCargoDelivered: false here.
                 case GameActionType.RouteDispatched:
                 case GameActionType.RouteCargoDelivered:
+                case GameActionType.RouteCargoPickedUp:
                 case GameActionType.RoutePaused:
                 case GameActionType.RouteEndpointLost:
                     return false;

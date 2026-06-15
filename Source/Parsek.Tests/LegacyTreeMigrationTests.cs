@@ -84,6 +84,11 @@ namespace Parsek.Tests
         [InlineData(GameActionType.RoutePaused,          false)]
         [InlineData(GameActionType.RouteEndpointLost,    false)]
         [InlineData(GameActionType.RouteRecoveryCredited, true)]
+        // RouteCargoPickedUp (logistics M3, design D6): the per-window pickup debit
+        // moves no funds pool and no resource module consumes it (the physical
+        // removal is live at emit, reverted by the rewind quicksave), so it mirrors
+        // RouteCargoDelivered and stays false.
+        [InlineData(GameActionType.RouteCargoPickedUp,   false)]
         public void IsResourceImpactingAction_Theory(GameActionType type, bool expected)
         {
             Assert.Equal(expected, LedgerOrchestrator.IsResourceImpactingAction(type));

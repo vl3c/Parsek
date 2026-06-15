@@ -51,14 +51,24 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "LiquidFuel", 0.0));
         }
 
-        // catches: the inventory-unsupported marker degrading to the resource text.
+        // M3 Phase 5 (D7 carve-out lift): the inventory-origin debit is now
+        // supported, so a non-KSC origin short of a stored part holds with an
+        // "inventory:<identityHash>" short token. The presentation renders a
+        // missing-stored-part hold (the opaque hash is not surfaced), NOT the
+        // retired "unsupported" deferral text and NOT the raw resource text.
         [Fact]
-        public void DescribeHold_InventoryUnsupported()
+        public void DescribeHold_OriginMissingStoredPart()
         {
             Assert.Equal(
-                "this route carries stored inventory parts, which docked-origin routes cannot debit yet",
+                "origin is missing a required stored part - delivers when the origin holds it",
                 LogisticsHoldPresentation.DescribeHold(
-                    OriginLacksCargo, "inventory-origin-debit-unsupported", 0.0));
+                    OriginLacksCargo, "inventory:abc123def456", 0.0));
+            // The legacy "origin-lacks-" wrapper strips first, same as the
+            // resource and origin-unresolved markers.
+            Assert.Equal(
+                "origin is missing a required stored part - delivers when the origin holds it",
+                LogisticsHoldPresentation.DescribeHold(
+                    OriginLacksCargo, "origin-lacks-inventory:abc123def456", 0.0));
         }
 
         // catches: the origin-unresolved marker losing its raw token tail (the
@@ -159,8 +169,8 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-unresolved:no-live-vessels", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-lacks-origin-unresolved:no-live-vessels", 0.0));
             Assert.Equal(
-                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "inventory-origin-debit-unsupported", 0.0),
-                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-lacks-inventory-origin-debit-unsupported", 0.0));
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "inventory:abc123def456", 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-lacks-inventory:abc123def456", 0.0));
         }
 
         // catches: the SourcesStale row going blank.
@@ -297,7 +307,7 @@ namespace Parsek.Tests.Logistics
             {
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "LiquidFuel", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-lacks-LiquidFuel", 0.0),
-                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "inventory-origin-debit-unsupported", 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "inventory:abc123def456", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-unresolved:pid-miss-no-surface-fallback", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "", 0.0),
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-short", 1234.5),

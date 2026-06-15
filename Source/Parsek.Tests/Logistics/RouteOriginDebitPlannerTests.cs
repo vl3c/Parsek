@@ -176,7 +176,7 @@ namespace Parsek.Tests.Logistics
         {
             var probe = new FakeOriginCargoProbe();
 
-            var nullRoute = RouteOriginDebitPlanner.PrepareDebit(null, probe);
+            var nullRoute = RouteOriginDebitPlanner.PrepareDebit((Route)null, probe);
             Assert.Empty(nullRoute.Resources);
             Assert.False(nullRoute.IsShort);
 
@@ -190,6 +190,116 @@ namespace Parsek.Tests.Logistics
             var emptyManifest = RouteOriginDebitPlanner.PrepareDebit(
                 MakeRoute(new Dictionary<string, double>()), probe);
             Assert.Empty(emptyManifest.Resources);
+        }
+
+        // ==============================================================
+        // M3 Phase 3 (design D5): manifest-agnostic overload. The planner
+        // plans a debit from an ARBITRARY required-amounts manifest (the
+        // per-window PICKUP manifest), not only route.CostManifest. The
+        // clamp / short / order rules must be identical to the M1 path.
+        // ==============================================================
+
+        // catches: the manifest overload diverging from the CostManifest path -
+        // a pickup manifest must clamp available=min(required,stored) with the
+        // same short flag the row's requested-on-shortfall keys off.
+        [Fact]
+        public void ManifestOverload_PlansFromArbitraryManifest_ClampsAndShorts()
+        {
+            var pickupManifest = new Dictionary<string, double>
+            {
+                { "Ore", 200.0 },
+                { "LiquidFuel", 50.0 },
+            };
+            var probe = new FakeOriginCargoProbe
+            {
+                Stored = new Dictionary<string, double>
+                {
+                    { "Ore", 80.0 },        // short: clamps to 80
+                    { "LiquidFuel", 999.0 }, // covered
+                },
+            };
+
+            var plan = RouteOriginDebitPlanner.PrepareDebit(pickupManifest, probe);
+
+            Assert.Equal(2, plan.Resources.Count);
+            Assert.True(plan.IsShort);
+            // Ordinal order: LiquidFuel before Ore.
+            Assert.Equal("LiquidFuel", plan.Resources[0].Name);
+            Assert.Equal(50.0, plan.Resources[0].Available);
+            Assert.False(plan.Resources[0].Required > plan.Resources[0].Available);
+            Assert.Equal("Ore", plan.Resources[1].Name);
+            Assert.Equal(200.0, plan.Resources[1].Required);
+            Assert.Equal(80.0, plan.Resources[1].Available); // clamped to stored
+        }
+
+        // catches: the manifest overload not sharing the non-positive skip /
+        // empty-plan guards with the route path.
+        [Fact]
+        public void ManifestOverload_SkipsNonPositive_EmptyOnNullOrEmpty()
+        {
+            var probe = new FakeOriginCargoProbe
+            {
+                Stored = new Dictionary<string, double> { { "Ore", 100.0 } },
+            };
+
+            var withZero = RouteOriginDebitPlanner.PrepareDebit(
+                new Dictionary<string, double> { { "Ablator", 0.0 }, { "Ore", 30.0 } }, probe);
+            Assert.Single(withZero.Resources);
+            Assert.Equal("Ore", withZero.Resources[0].Name);
+            Assert.False(withZero.IsShort);
+
+            var nullManifest = RouteOriginDebitPlanner.PrepareDebit((Dictionary<string, double>)null, probe);
+            Assert.Empty(nullManifest.Resources);
+
+            var emptyManifest = RouteOriginDebitPlanner.PrepareDebit(new Dictionary<string, double>(), probe);
+            Assert.Empty(emptyManifest.Resources);
+
+            var nullProbe = RouteOriginDebitPlanner.PrepareDebit(
+                new Dictionary<string, double> { { "Ore", 1.0 } }, null);
+            Assert.Empty(nullProbe.Resources);
+        }
+
+        // catches: the M1 Route overload no longer delegating to the manifest
+        // overload byte-behaviour-identically (the headline Phase 3 invariant -
+        // the M1 origin-debit path must be UNCHANGED). Plans the SAME plan from
+        // the route as from its CostManifest directly.
+        [Fact]
+        public void RouteOverload_DelegatesToManifestOverload_ByteIdentical()
+        {
+            var costManifest = new Dictionary<string, double>
+            {
+                { "LiquidFuel", 100.0 },
+                { "Oxidizer", 120.0 },
+            };
+            var route = MakeRoute(costManifest);
+            var probe = new FakeOriginCargoProbe
+            {
+                Stored = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 40.0 }, // short
+                    { "Oxidizer", 500.0 },  // covered
+                },
+            };
+            var probe2 = new FakeOriginCargoProbe
+            {
+                Stored = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 40.0 },
+                    { "Oxidizer", 500.0 },
+                },
+            };
+
+            var viaRoute = RouteOriginDebitPlanner.PrepareDebit(route, probe);
+            var viaManifest = RouteOriginDebitPlanner.PrepareDebit(costManifest, probe2);
+
+            Assert.Equal(viaManifest.Resources.Count, viaRoute.Resources.Count);
+            Assert.Equal(viaManifest.IsShort, viaRoute.IsShort);
+            for (int i = 0; i < viaRoute.Resources.Count; i++)
+            {
+                Assert.Equal(viaManifest.Resources[i].Name, viaRoute.Resources[i].Name);
+                Assert.Equal(viaManifest.Resources[i].Required, viaRoute.Resources[i].Required);
+                Assert.Equal(viaManifest.Resources[i].Available, viaRoute.Resources[i].Available);
+            }
         }
     }
 }
