@@ -61,10 +61,6 @@ namespace Parsek
             toolTip = "When enabled, write detailed ledger reconstruction diagnostics to KSP.log: one structural snapshot per recalc, per-identity change lines (facility / tech-node / contract / per-subject science), and computed-vs-live read-back mismatch warnings. Leave off for normal playtests. Per-identity detail also requires Verbose logging on.")]
         public bool ledgerTracing = false;
 
-        [GameParameters.CustomParameterUI("Re-aim chain synthesis (experimental)",
-            toolTip = "When enabled, re-aimed interplanetary transfers synthesize a continuous patched-conic chain (escape + transfer + capture) so the transfer line forms a real encounter into the target SOI. Default OFF: with this off, re-aim playback is byte-identical to today's single-leg heliocentric replacement. Experimental; leave off unless validating the chain-synthesis fix.")]
-        public bool reaimChainSynthesis = false;
-
         [GameParameters.CustomParameterUI("Readable sidecar mirrors (Warning: extra disk usage)",
             toolTip = "When enabled, also write human-readable .txt mirrors of recording sidecars for debugging and binary/text comparison")]
         public bool writeReadableSidecarMirrors = true;

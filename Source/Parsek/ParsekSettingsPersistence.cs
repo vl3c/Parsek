@@ -45,7 +45,6 @@ namespace Parsek
         private const string GhostRenderTracingKey = "ghostRenderTracing";
         private const string MapRenderTracingKey = "mapRenderTracing";
         private const string LedgerTracingKey = "ledgerTracing";
-        private const string ReaimChainSynthesisKey = "reaimChainSynthesis";
         private const string WarpYearKey = "warpYear";
         private const string WarpDayKey = "warpDay";
         private const string WarpHourKey = "warpHour";
@@ -59,7 +58,6 @@ namespace Parsek
         private static bool? storedGhostRenderTracing;
         private static bool? storedMapRenderTracing;
         private static bool? storedLedgerTracing;
-        private static bool? storedReaimChainSynthesis;
         // Warp-to-time draft inputs (Timeline window). Pure UI state persisted across
         // sessions so the user need not re-type a frequently-used target date.
         private static int? storedWarpYear;
@@ -184,17 +182,6 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {LedgerTracingKey} — using default");
                 }
 
-                string reaimChainSynthesisStr = root.GetValue(ReaimChainSynthesisKey);
-                if (!string.IsNullOrEmpty(reaimChainSynthesisStr)
-                    && bool.TryParse(reaimChainSynthesisStr, out bool reaimChainSynthesis))
-                {
-                    storedReaimChainSynthesis = reaimChainSynthesis;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ReaimChainSynthesisKey} — using default");
-                }
-
                 storedWarpYear = ParseStoredInt(root, WarpYearKey);
                 storedWarpDay = ParseStoredInt(root, WarpDayKey);
                 storedWarpHour = ParseStoredInt(root, WarpHourKey);
@@ -207,8 +194,7 @@ namespace Parsek
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<default>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<default>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<default>")}" +
-                    $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<default>")}" +
-                    $" reaimChainSynthesis={(storedReaimChainSynthesis.HasValue ? storedReaimChainSynthesis.Value.ToString() : "<default>")}");
+                    $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<default>")}");
             }
             catch (Exception ex)
             {
@@ -315,15 +301,6 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"Restored ledgerTracing {prev} -> {storedLedgerTracing.Value} from persistent store");
             }
-
-            if (storedReaimChainSynthesis.HasValue
-                && storedReaimChainSynthesis.Value != settings.reaimChainSynthesis)
-            {
-                bool prev = settings.reaimChainSynthesis;
-                settings.reaimChainSynthesis = storedReaimChainSynthesis.Value;
-                ParsekLog.Info(Tag,
-                    $"Restored reaimChainSynthesis {prev} -> {storedReaimChainSynthesis.Value} from persistent store");
-            }
         }
 
         /// <summary>
@@ -411,26 +388,6 @@ namespace Parsek
             }
         }
 
-        internal static void RecordReaimChainSynthesis(bool value)
-        {
-            try { LoadIfNeeded(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordReaimChainSynthesis: LoadIfNeeded threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
-            }
-            if (storedReaimChainSynthesis.HasValue && storedReaimChainSynthesis.Value == value) return;
-            storedReaimChainSynthesis = value;
-            try { Save(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordReaimChainSynthesis: Save threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
-            }
-        }
-
         /// <summary>
         /// Writes the current store to disk via the shared safe-write helper.
         /// </summary>
@@ -452,8 +409,6 @@ namespace Parsek
                     root.AddValue(MapRenderTracingKey, storedMapRenderTracing.Value.ToString());
                 if (storedLedgerTracing.HasValue)
                     root.AddValue(LedgerTracingKey, storedLedgerTracing.Value.ToString());
-                if (storedReaimChainSynthesis.HasValue)
-                    root.AddValue(ReaimChainSynthesisKey, storedReaimChainSynthesis.Value.ToString());
                 if (storedWarpYear.HasValue)
                     root.AddValue(WarpYearKey, storedWarpYear.Value.ToString(CultureInfo.InvariantCulture));
                 if (storedWarpDay.HasValue)
@@ -470,8 +425,7 @@ namespace Parsek
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<null>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<null>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<null>")}" +
-                    $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<null>")}" +
-                    $" reaimChainSynthesis={(storedReaimChainSynthesis.HasValue ? storedReaimChainSynthesis.Value.ToString() : "<null>")}");
+                    $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<null>")}");
             }
             catch (Exception ex)
             {
@@ -490,7 +444,6 @@ namespace Parsek
             storedGhostRenderTracing = null;
             storedMapRenderTracing = null;
             storedLedgerTracing = null;
-            storedReaimChainSynthesis = null;
             storedWarpYear = null;
             storedWarpDay = null;
             storedWarpHour = null;
@@ -512,8 +465,6 @@ namespace Parsek
         internal static bool? GetStoredMapRenderTracing() => storedMapRenderTracing;
 
         internal static bool? GetStoredLedgerTracing() => storedLedgerTracing;
-
-        internal static bool? GetStoredReaimChainSynthesis() => storedReaimChainSynthesis;
 
         internal static int? GetStoredWarpYear() => storedWarpYear;
         internal static int? GetStoredWarpDay() => storedWarpDay;
@@ -567,12 +518,6 @@ namespace Parsek
         internal static void SetStoredLedgerTracingForTesting(bool? value)
         {
             storedLedgerTracing = value;
-            loaded = true;
-        }
-
-        internal static void SetStoredReaimChainSynthesisForTesting(bool? value)
-        {
-            storedReaimChainSynthesis = value;
             loaded = true;
         }
     }

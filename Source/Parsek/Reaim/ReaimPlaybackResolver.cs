@@ -271,14 +271,7 @@ namespace Parsek.Reaim
             // regression). Full-span render restores the seamless handoff; the brief in-SOI stub sits
             // sub-pixel at the body centre at map scale, and the recorded escape / capture legs cover inside
             // the SOI. parkDeltaLonDeg re-phases the recorded park (departure-side) into the live frame.
-            // Gate ONLY the assembler call on the reaimChainSynthesis flag (default OFF -> identity path).
-            // The flag must not gate the Supported / no-helio-leg / parked guards, the faithful/declined
-            // return, or the ReferenceEquals(effective, recorded) no-op contract above; it only chooses
-            // between today's single-leg replacement (OFF) and the P3 chain synthesis (ON, currently a
-            // placeholder returning the same result). The #1167 parkDeltaLonDeg re-phase is threaded
-            // through AssembleWindowChain to ReplaceHeliocentricLeg unchanged. See ReaimChainSynthesis.
-            List<OrbitSegment> assembled = ReaimSegmentAssembler.AssembleWindowChain(
-                ReaimChainSynthesis.IsEnabled,
+            List<OrbitSegment> assembled = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
                 memberSegments, transferSeg, plan.CommonAncestor,
                 plan.RecordedDepartureUT, plan.RecordedArrivalUT,
                 double.NaN, double.NaN, parkDeltaLonDeg);
