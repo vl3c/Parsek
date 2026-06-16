@@ -146,10 +146,16 @@ namespace Parsek
             // wrapped token would render "origin is out of
             // origin-unresolved:..." (post-implementation review NIT 2).
             string token = StripPrefix(detail, "origin-lacks-");
-            if (string.Equals(token, "inventory-origin-debit-unsupported",
-                    System.StringComparison.Ordinal))
+            // M3 Phase 5 (D7 carve-out lift): the inventory-origin debit is now
+            // supported, so a non-KSC origin short of a witnessed STORED PART
+            // holds with an "inventory:<identityHash>" short token instead of the
+            // retired "inventory-origin-debit-unsupported" deferral marker. Render
+            // it as a missing-stored-part hold (the hash is not player-meaningful,
+            // so name the category rather than the opaque hash).
+            if (token != null
+                && token.StartsWith("inventory:", System.StringComparison.Ordinal))
             {
-                return "this route carries stored inventory parts, which docked-origin routes cannot debit yet";
+                return "origin is missing a required stored part - delivers when the origin holds it";
             }
             if (token != null
                 && token.StartsWith("origin-unresolved:", System.StringComparison.Ordinal))

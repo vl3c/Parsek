@@ -300,5 +300,176 @@ namespace Parsek.Tests
             Assert.Equal("Sun", segs[1].bodyName);
             Assert.Equal(600.0, segs[1].startUT, 3);
         }
+
+        // ---- Heliocentric-park LAN re-phase (Increment 1: departure-side render) ----
+
+        [Fact]
+        public void RotateLanForParkRephase_AdvancesAndWrapsLan()
+        {
+            // LAN 30 + 90 -> 120 (no wrap).
+            Assert.Equal(120.0, ReaimSegmentAssembler.RotateLanForParkRephase(
+                Seg("Sun", 0, 0, 0), 90.0).longitudeOfAscendingNode, 6);
+            // LAN 30 + 350 -> 380 -> wrap to 20.
+            Assert.Equal(20.0, ReaimSegmentAssembler.RotateLanForParkRephase(
+                Seg("Sun", 0, 0, 0), 350.0).longitudeOfAscendingNode, 6);
+            // LAN 30 + 768.5 (the window-0 s15 magnitude) -> 798.5 -> wrap to 78.5 (2 full turns out).
+            Assert.Equal(78.5, ReaimSegmentAssembler.RotateLanForParkRephase(
+                Seg("Sun", 0, 0, 0), 768.5).longitudeOfAscendingNode, 6);
+            // Negative delta wraps into [0,360): LAN 30 - 90 -> -60 -> 300.
+            Assert.Equal(300.0, ReaimSegmentAssembler.RotateLanForParkRephase(
+                Seg("Sun", 0, 0, 0), -90.0).longitudeOfAscendingNode, 6);
+            // Zero delta is the identity (byte-identical default path).
+            Assert.Equal(30.0, ReaimSegmentAssembler.RotateLanForParkRephase(
+                Seg("Sun", 0, 0, 0), 0.0).longitudeOfAscendingNode, 6);
+            // Only LAN moves; shape/body untouched.
+            var rot = ReaimSegmentAssembler.RotateLanForParkRephase(Seg("Sun", 0, 0, 0, sma: 1.4e10), 90.0);
+            Assert.Equal(1.4e10, rot.semiMajorAxis, 0);
+            Assert.Equal(5.0, rot.inclination, 6);
+            Assert.Equal(45.0, rot.argumentOfPeriapsis, 6);
+        }
+
+        [Fact]
+        public void ComputeParkDeltaLonDegrees_IsOmegaTimesWindowOffset()
+        {
+            // omega_parent = 360 / period. Delta_lon = omega * (D_c - RecDep).
+            // period = 9,203,545 s (Kerbin), D_c - RecDep = +19,645,697 s (one synodic) -> ~768.49 deg.
+            double dLon = ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(
+                departureUTForWindow: 2580716597.0, recordedDepartureUT: 2561070900.0,
+                launchBodyOrbitPeriodSeconds: 9203545.0);
+            Assert.Equal(360.0 * (2580716597.0 - 2561070900.0) / 9203545.0, dLon, 4);
+            Assert.True(dLon > 768.0 && dLon < 769.0);
+            // Degenerate period -> NaN (fail-closed signal).
+            Assert.True(double.IsNaN(ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(1.0, 0.0, 0.0)));
+            Assert.True(double.IsNaN(ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(1.0, 0.0, double.NaN)));
+            Assert.True(double.IsNaN(ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(1.0, 0.0, double.PositiveInfinity)));
+            Assert.True(double.IsNaN(ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(double.NaN, 0.0, 100.0)));
+        }
+
+        [Fact]
+        public void FindHeliocentricParkInclination_FindsLatestParkBeforeBurn()
+        {
+            // s15 shape: Kerbin escape -> Sun PARK [600,1500] -> Sun TRANSFER [1500,3000] -> Duna.
+            // The park is the Sun coast ENDING at/before the burn (recordedDepartureUT=1500). The in-window
+            // transfer (endUT 3000 > 1500) is NOT the park.
+            var park = Seg("Sun", 600, 1500, 1000, sma: 1.4e10);
+            park.inclination = 1.3;
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                park,
+                Seg("Sun", 1500, 3000, 2000, sma: 1.79e10), // in-window transfer, not the park
+                Seg("Duna", 3000, 5000, 3500),
+            };
+            Assert.Equal(1.3, ReaimSegmentAssembler.FindHeliocentricParkInclination(member, "Sun", 1500.0), 6);
+
+            // Two solar parks before the burn -> the LATEST-ending one's inclination.
+            var early = Seg("Sun", 600, 1000, 700, sma: 1.4e10); early.inclination = 1.0;
+            var late = Seg("Sun", 1000, 1500, 1100, sma: 1.4e10); late.inclination = 2.5;
+            var twoParks = new List<OrbitSegment> { Seg("Kerbin", 100, 600, 300), early, late };
+            Assert.Equal(2.5, ReaimSegmentAssembler.FindHeliocentricParkInclination(twoParks, "Sun", 1500.0), 6);
+
+            // No solar park (direct transfer: only Kerbin + in-window Sun + Duna) -> NaN.
+            var direct = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 1500, 800),
+                Seg("Sun", 1500, 3000, 2000, sma: 1.79e10),
+                Seg("Duna", 3000, 5000, 3500),
+            };
+            Assert.True(double.IsNaN(ReaimSegmentAssembler.FindHeliocentricParkInclination(direct, "Sun", 1500.0)));
+
+            // A predicted Sun coast before the burn does not count (NaN).
+            var predictedPark = new List<OrbitSegment> { Seg("Sun", 600, 1500, 1000, sma: 1.4e10, predicted: true) };
+            Assert.True(double.IsNaN(ReaimSegmentAssembler.FindHeliocentricParkInclination(predictedPark, "Sun", 1500.0)));
+        }
+
+        [Fact]
+        public void TryComputeParkRephase_FailsClosedOnNonEquatorialOrDegenerate()
+        {
+            // Near-equatorial co-orbital park -> rephase with the computed angle.
+            Assert.True(ReaimSegmentAssembler.TryComputeParkRephase(
+                parkInclinationDeg: 1.3, departureUTForWindow: 2580716597.0,
+                recordedDepartureUT: 2561070900.0, launchBodyOrbitPeriodSeconds: 9203545.0,
+                out double dLon));
+            Assert.True(dLon > 768.0 && dLon < 769.0);
+
+            // At the guard threshold (15 deg) it still engages; just over it fails closed.
+            Assert.True(ReaimSegmentAssembler.TryComputeParkRephase(
+                ReaimSegmentAssembler.ParkRephaseMaxInclinationDeg, 100.0, 0.0, 9203545.0, out _));
+            Assert.False(ReaimSegmentAssembler.TryComputeParkRephase(
+                ReaimSegmentAssembler.ParkRephaseMaxInclinationDeg + 0.1, 100.0, 0.0, 9203545.0, out double offDeg));
+            Assert.Equal(0.0, offDeg, 6);
+
+            // NaN inclination (no park found) -> fail closed.
+            Assert.False(ReaimSegmentAssembler.TryComputeParkRephase(
+                double.NaN, 100.0, 0.0, 9203545.0, out _));
+            // Degenerate launch-body period -> fail closed.
+            Assert.False(ReaimSegmentAssembler.TryComputeParkRephase(
+                1.0, 100.0, 0.0, 0.0, out _));
+        }
+
+        [Fact]
+        public void ReplaceHeliocentricLeg_RotatesOnlyTheSunParkBeforeBurn()
+        {
+            // s15 shape with a re-aimed transfer. parkDeltaLonDeg=90 rotates ONLY the Sun PARK [600,1500]
+            // (before the burn); the in-window transfer (the replacement), the body-relative Kerbin/Duna
+            // legs are untouched.
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),                       // escape (LAN 30) - kept
+                Seg("Sun", 600, 1500, 1000, sma: 1.4e10),           // PARK (LAN 30) - rotated
+                Seg("Sun", 1500, 3000, 2000, sma: 1.79e10),         // in-window transfer - replaced
+                Seg("Duna", 3000, 5000, 3500),                      // capture (LAN 30) - kept
+            };
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);        // synthesized replacement (LAN 30)
+
+            var segs = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", recordedDepartureUT: 1500.0, recordedArrivalUT: 3000.0,
+                transferRenderStartUT: double.NaN, transferRenderEndUT: double.NaN, parkDeltaLonDeg: 90.0);
+
+            Assert.NotNull(segs);
+            Assert.Equal(4, segs.Count);
+            // Kerbin escape: kept, NOT rotated.
+            Assert.Equal("Kerbin", segs[0].bodyName);
+            Assert.Equal(30.0, segs[0].longitudeOfAscendingNode, 6);
+            // Sun PARK [600,1500]: rotated 30 -> 120.
+            Assert.Equal("Sun", segs[1].bodyName);
+            Assert.Equal(600.0, segs[1].startUT, 3);
+            Assert.Equal(1.4e10, segs[1].semiMajorAxis, 0);
+            Assert.Equal(120.0, segs[1].longitudeOfAscendingNode, 6);
+            // Sun TRANSFER (the re-aimed replacement at [1500,3000]): NOT rotated (LAN 30, sma 2e10).
+            Assert.Equal("Sun", segs[2].bodyName);
+            Assert.Equal(1500.0, segs[2].startUT, 3);
+            Assert.Equal(2.0e10, segs[2].semiMajorAxis, 0);
+            Assert.Equal(30.0, segs[2].longitudeOfAscendingNode, 6);
+            // Duna capture: kept, NOT rotated.
+            Assert.Equal("Duna", segs[3].bodyName);
+            Assert.Equal(30.0, segs[3].longitudeOfAscendingNode, 6);
+        }
+
+        [Fact]
+        public void ReplaceHeliocentricLeg_ZeroParkDelta_LeavesParkVerbatim()
+        {
+            // The regression fence: parkDeltaLonDeg=0 (direct transfer / Increment-1-disabled) leaves the
+            // Sun park's LAN byte-identical to the recorded value (no rotation).
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                Seg("Sun", 600, 1500, 1000, sma: 1.4e10),
+                Seg("Sun", 1500, 3000, 2000, sma: 1.79e10),
+                Seg("Duna", 3000, 5000, 3500),
+            };
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);
+
+            // Default (no parkDeltaLonDeg arg) and explicit 0 are identical.
+            var segsDefault = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", 1500.0, 3000.0, double.NaN, double.NaN);
+            var segsZero = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", 1500.0, 3000.0, double.NaN, double.NaN, parkDeltaLonDeg: 0.0);
+
+            Assert.Equal(30.0, segsDefault[1].longitudeOfAscendingNode, 6); // park LAN unchanged
+            Assert.Equal(30.0, segsZero[1].longitudeOfAscendingNode, 6);
+            Assert.Equal("Sun", segsDefault[1].bodyName);
+            Assert.Equal(1.4e10, segsDefault[1].semiMajorAxis, 0);
+        }
     }
 }
