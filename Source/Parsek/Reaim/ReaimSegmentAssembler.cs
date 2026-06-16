@@ -270,5 +270,54 @@ namespace Parsek.Reaim
             // the recorded data is never touched. See TrajectoryMath.CoalesceSameOrbitFragments.
             return TrajectoryMath.CoalesceSameOrbitFragments(result);
         }
+
+        /// <summary>
+        /// Flag dispatcher for the re-aim whole-chain synthesis fix (reaim-fix-plan.md, option 3 / P1).
+        /// This is the PURE seam the <c>reaimChainSynthesis</c> feature flag gates so the flag-OFF
+        /// byte-identical proof is runnable in xUnit (the live <c>BuildWindowSegments</c> is Unity-bound
+        /// and cannot run headless).
+        ///
+        /// <para>When <paramref name="useChain"/> is <c>false</c> this returns EXACTLY
+        /// <see cref="ReplaceHeliocentricLeg"/>'s output (the identity path: today's single-leg
+        /// heliocentric replacement, byte-identical to the baseline). When <c>true</c> it CURRENTLY also
+        /// returns <see cref="ReplaceHeliocentricLeg"/> - a placeholder for the P3 chain synthesis
+        /// (escape + transfer + capture). Until P3 lands, flag ON and flag OFF are identical, so turning
+        /// the flag on changes no behavior yet. Same purity contract as
+        /// <see cref="ReplaceHeliocentricLeg"/>: operates on copied OrbitSegment value structs, never
+        /// writes back to <paramref name="memberSegments"/> / the recording / the .prec.</para>
+        /// </summary>
+        // TODO P3: when useChain is true, call the new ReplaceTransferChain(...) instead of
+        // ReplaceHeliocentricLeg(...). ReplaceTransferChain synthesizes the escape + transfer + capture
+        // legs from the single Lambert solve's v1/v2 and tiles them contiguously into the recorded
+        // segments (see reaim-fix-plan.md STEP 0-5 + the P2/P3 phases). On any synthesis failure it must
+        // fall back to ReplaceHeliocentricLeg (all-or-nothing fail-closed). For now the ON path is a no-op
+        // placeholder returning the identical result so P1 ships a default-OFF flag with zero behavior
+        // change.
+        // parkDeltaLonDeg (#1167 live-frame park re-phase, default 0 = no rotation) is forwarded unchanged
+        // to ReplaceHeliocentricLeg on BOTH branches so gating the flag never silently drops the re-phase;
+        // the future P3 ReplaceTransferChain must keep threading it.
+        internal static List<OrbitSegment> AssembleWindowChain(
+            bool useChain,
+            IReadOnlyList<OrbitSegment> memberSegments, OrbitSegment transferSegment,
+            string commonAncestor, double recordedDepartureUT, double recordedArrivalUT,
+            double transferRenderStartUT, double transferRenderEndUT,
+            double parkDeltaLonDeg = 0.0)
+        {
+            if (useChain)
+            {
+                // P3 placeholder: same result as the identity path until ReplaceTransferChain lands. Keeps
+                // flag ON behavior-identical to flag OFF in this phase (no actual chain synthesis yet).
+                return ReplaceHeliocentricLeg(
+                    memberSegments, transferSegment, commonAncestor,
+                    recordedDepartureUT, recordedArrivalUT,
+                    transferRenderStartUT, transferRenderEndUT, parkDeltaLonDeg);
+            }
+
+            // Identity path (flag OFF): byte-identical to today's baseline (parkDeltaLonDeg forwarded).
+            return ReplaceHeliocentricLeg(
+                memberSegments, transferSegment, commonAncestor,
+                recordedDepartureUT, recordedArrivalUT,
+                transferRenderStartUT, transferRenderEndUT, parkDeltaLonDeg);
+        }
     }
 }
