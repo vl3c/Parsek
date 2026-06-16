@@ -29,6 +29,110 @@ namespace Parsek.Reaim
     internal static class ReaimSegmentAssembler
     {
         /// <summary>
+        /// Near-equatorial inclination guard (degrees) for the heliocentric-park LAN re-phase
+        /// (<see cref="ReplaceHeliocentricLeg"/> parkDeltaLonDeg). The LAN += Delta_lon rotation rotates
+        /// the orbit's position about the parent reference-plane normal exactly for inc = 0 and degrades
+        /// with inclination. A re-aim heliocentric park is admissibility-gated near-circular + co-orbital
+        /// with the (near-ecliptic) launch body by ReaimClassifier, so a real park is well under this. A
+        /// park above this threshold (or a degenerate omega) fails CLOSED - the caller declines the
+        /// window to faithful (recorded) playback rather than rendering a wrong-plane rotation.
+        /// </summary>
+        internal const double ParkRephaseMaxInclinationDeg = 15.0;
+
+        /// <summary>
+        /// Returns a copy of <paramref name="seg"/> with its <see cref="OrbitSegment.longitudeOfAscendingNode"/>
+        /// advanced by <paramref name="deltaLonDeg"/> (degrees) and re-wrapped to [0, 360). For a
+        /// near-equatorial orbit this rotates the orbit's inertial orientation - and so its position at
+        /// every preserved mean anomaly - by <paramref name="deltaLonDeg"/> about the parent
+        /// reference-plane normal (R_z(LAN + d) = R_z(d) * R_z(LAN); exact for inc = 0). The orbit shape
+        /// (inc/ecc/sma/argPe/mEp/epoch) and body/UTs are untouched, so the orbit still replays at its
+        /// recorded-span UTs - only its inertial longitude turns. Pure. Used to re-phase a recorded
+        /// heliocentric PARK from its recorded (Sun-inertial) longitude into the LIVE frame so it connects
+        /// to the body-relative escape leg + the per-window re-aimed transfer.
+        /// </summary>
+        internal static OrbitSegment RotateLanForParkRephase(OrbitSegment seg, double deltaLonDeg)
+        {
+            double lan = (seg.longitudeOfAscendingNode + deltaLonDeg) % 360.0;
+            if (lan < 0.0)
+                lan += 360.0;
+            seg.longitudeOfAscendingNode = lan;
+            return seg;
+        }
+
+        /// <summary>
+        /// The per-window park re-phase angle (degrees): how far the launch body's heliocentric longitude
+        /// advanced between the RECORDED departure and this window's live departure
+        /// <paramref name="departureUTForWindow"/> (= <c>schedule.DepartureUTForWindow(window)</c>, i.e.
+        /// D_c). <c>Delta_lon(c) = omega_parent * (D_c - recordedDepartureUT)</c> where
+        /// <c>omega_parent = 360 / launchBodyOrbitPeriodSeconds</c> (deg/s, the launch body's HELIOCENTRIC
+        /// rate - NOT its rotation period). The recorded park sits at the recorded-epoch longitude; the
+        /// re-aimed transfer is freshly synthesized at D_c (in the live frame), so the park must rotate by
+        /// this same inertial angle to connect to it. Returns NaN on a degenerate period (&lt;= 0 / NaN /
+        /// Inf) so the caller fails closed to faithful. Pure (no Unity). The result may exceed 360 (the
+        /// LAN re-wrap in <see cref="RotateLanForParkRephase"/> reduces it).
+        /// </summary>
+        internal static double ComputeParkDeltaLonDegrees(
+            double departureUTForWindow, double recordedDepartureUT, double launchBodyOrbitPeriodSeconds)
+        {
+            if (double.IsNaN(launchBodyOrbitPeriodSeconds) || double.IsInfinity(launchBodyOrbitPeriodSeconds)
+                || launchBodyOrbitPeriodSeconds <= 0.0
+                || double.IsNaN(departureUTForWindow) || double.IsNaN(recordedDepartureUT))
+                return double.NaN;
+            double omegaParent = 360.0 / launchBodyOrbitPeriodSeconds; // deg/s
+            return omegaParent * (departureUTForWindow - recordedDepartureUT);
+        }
+
+        /// <summary>
+        /// The inclination (degrees) of the recorded heliocentric PARK - the latest non-predicted
+        /// <paramref name="commonAncestor"/>-bodied segment ending at/before
+        /// <paramref name="recordedDepartureUT"/> (the coast BEFORE the trans-target burn). Returns NaN
+        /// when the member has no such segment (e.g. a direct transfer with no park). The caller uses this
+        /// for the near-equatorial fail-closed guard (<see cref="ParkRephaseMaxInclinationDeg"/>). Pure.
+        /// </summary>
+        internal static double FindHeliocentricParkInclination(
+            IReadOnlyList<OrbitSegment> memberSegments, string commonAncestor, double recordedDepartureUT)
+        {
+            if (memberSegments == null || string.IsNullOrEmpty(commonAncestor))
+                return double.NaN;
+            double inc = double.NaN;
+            double latestEnd = double.NegativeInfinity;
+            for (int i = 0; i < memberSegments.Count; i++)
+            {
+                OrbitSegment s = memberSegments[i];
+                if (!s.isPredicted && s.bodyName == commonAncestor
+                    && s.endUT <= recordedDepartureUT + 1.0 && s.endUT >= latestEnd)
+                {
+                    latestEnd = s.endUT;
+                    inc = s.inclination;
+                }
+            }
+            return inc;
+        }
+
+        /// <summary>
+        /// The fail-closed park re-phase decision (pure). Returns true with the window's
+        /// <paramref name="parkDeltaLonDeg"/> when the recorded park can be safely re-phased: a finite
+        /// <see cref="ComputeParkDeltaLonDegrees"/> angle AND a near-equatorial park
+        /// (<paramref name="parkInclinationDeg"/> &lt;= <see cref="ParkRephaseMaxInclinationDeg"/>, not
+        /// NaN). Returns false (parkDeltaLonDeg = 0) on a degenerate omega / non-equatorial / unknown-inc
+        /// park - the caller then declines the window to faithful (never the verbatim park). Pure.
+        /// </summary>
+        internal static bool TryComputeParkRephase(
+            double parkInclinationDeg, double departureUTForWindow, double recordedDepartureUT,
+            double launchBodyOrbitPeriodSeconds, out double parkDeltaLonDeg)
+        {
+            parkDeltaLonDeg = 0.0;
+            double dLon = ComputeParkDeltaLonDegrees(
+                departureUTForWindow, recordedDepartureUT, launchBodyOrbitPeriodSeconds);
+            if (double.IsNaN(dLon)
+                || double.IsNaN(parkInclinationDeg)
+                || parkInclinationDeg > ParkRephaseMaxInclinationDeg)
+                return false;
+            parkDeltaLonDeg = dLon;
+            return true;
+        }
+
+        /// <summary>
         /// Shifts an OrbitSegment in time by <paramref name="deltaUT"/>, moving startUT/endUT AND the
         /// Kepler epoch by the same amount so the mean anomaly at each corresponding time is unchanged
         /// (M(t) = mEp + n*(t - epoch); shifting t and epoch together preserves the phase along the
@@ -79,11 +183,23 @@ namespace Parsek.Reaim
         /// The caller has already placed the transfer at [departure, arrival] with its per-window
         /// orientation + recorded-span epoch. Pure. Returns null when the member has NO heliocentric leg
         /// in the window (nothing to substitute -> the member stays faithful).
+        ///
+        /// <para><paramref name="parkDeltaLonDeg"/> (default 0 = no rotation, byte-identical to the
+        /// direct-transfer path): the per-window park re-phase angle. When non-zero, each recorded
+        /// heliocentric PARK segment (a non-predicted <paramref name="commonAncestor"/>-bodied coast
+        /// ENDING at/before <paramref name="recordedDepartureUT"/> - the coast BEFORE the trans-target
+        /// burn) has its LAN advanced by this angle (<see cref="RotateLanForParkRephase"/>) so the
+        /// Sun-inertial recorded park is rotated into the LIVE frame and connects to the escape leg + the
+        /// re-aimed transfer. Only the departure-side park is rotated; the in-window transfer leg, the
+        /// body-relative Kerbin/Duna legs, and any predicted tails are untouched. The caller computes the
+        /// angle via <see cref="ComputeParkDeltaLonDegrees"/> and gates / fails-closed on the
+        /// near-equatorial guard - this method only applies a supplied non-zero rotation.</para>
         /// </summary>
         internal static List<OrbitSegment> ReplaceHeliocentricLeg(
             IReadOnlyList<OrbitSegment> memberSegments, OrbitSegment transferSegment,
             string commonAncestor, double recordedDepartureUT, double recordedArrivalUT,
-            double transferRenderStartUT, double transferRenderEndUT)
+            double transferRenderStartUT, double transferRenderEndUT,
+            double parkDeltaLonDeg = 0.0)
         {
             if (memberSegments == null || string.IsNullOrEmpty(commonAncestor))
                 return null;
@@ -126,7 +242,20 @@ namespace Parsek.Reaim
                 }
                 else
                 {
-                    result.Add(s);
+                    // Heliocentric PARK re-phase: rotate ONLY the recorded common-ancestor coast(s)
+                    // BEFORE the burn (the Sun-inertial park) into the live frame. The body-relative
+                    // Kerbin/Duna legs (which already follow their live body) and predicted tails are
+                    // never rotated. parkDeltaLonDeg == 0 (the direct-transfer / Increment-1-disabled
+                    // path) leaves every segment byte-identical.
+                    if (parkDeltaLonDeg != 0.0 && !s.isPredicted && s.bodyName == commonAncestor
+                        && s.endUT <= recordedDepartureUT + 1.0)
+                    {
+                        result.Add(RotateLanForParkRephase(s, parkDeltaLonDeg));
+                    }
+                    else
+                    {
+                        result.Add(s);
+                    }
                 }
             }
 
