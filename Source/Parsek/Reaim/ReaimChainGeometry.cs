@@ -44,6 +44,55 @@ namespace Parsek.Reaim
             return rTransfer - rBody;
         }
 
+        // Upper bound on a sane escape/capture-leg eccentricity (reaim-fix-plan.md STEP 2/3 fail-closed
+        // gate). A real interplanetary ejection / capture hyperbola from a low parking orbit sits at ecc
+        // ~1.05-1.5 (Kerbin->Duna v-infinity ~0.9-1.2 km/s over a ~700 km periapsis); anything above ~3 is
+        // a state-vector reconstruction artifact (the ecc 8-13 garbage the velocity-source bug produced),
+        // never a real leg. The band is deliberately generous (it must accept eccentric Moho/Eeloo
+        // departures) but well below the artifact regime so a corrupted leg fails closed.
+        internal const double MaxSaneLegEccentricity = 3.0;
+
+        /// <summary>
+        /// PURE leg-conic sanity gate (reaim-fix-plan.md STEP 2/3 "MEASURE and fail-closed"). True when a
+        /// synthesized escape/capture leg is a real hyperbola anchored at a sane periapsis altitude, so the
+        /// caller may splice it; false (FAIL CLOSED to the recorded leg verbatim / the baseline) when the
+        /// reduced state produced a degenerate or wrong-altitude conic.
+        ///
+        /// <para>Rejects, in order: NaN/Inf elements; a non-hyperbolic conic (<paramref name="eccentricity"/>
+        /// &lt; 1, i.e. a bound ellipse - a real escape/capture leg is hyperbolic); an absurd eccentricity
+        /// (&gt; <see cref="MaxSaneLegEccentricity"/> - the ecc 8-13 garbage from an inconsistent
+        /// position/velocity state); and a periapsis radius <c>rp = a*(1-e)</c> outside the sane band
+        /// [<paramref name="minPeriapsisRadius"/>, <c>soiRadius * <paramref name="maxPeriapsisSoiFraction"/></c>].
+        /// The lower bound is the body's surface (or atmosphere top) radius - a periapsis below it is a leg
+        /// that clips the body; the upper bound (default half the SOI) rejects a leg whose periapsis sits out
+        /// near the SOI shell (the center-vs-shell sampling artifact: periapsis tens of Mm up).</para>
+        ///
+        /// <para>For a KSP hyperbola sma &lt; 0 and ecc &gt; 1, so <c>rp = a*(1-e)</c> = (negative)*(negative)
+        /// = positive. Pure (scalar arithmetic); the live caller passes the body's Radius/atmosphere/SOI.</para>
+        /// </summary>
+        internal static bool IsSaneLegConic(
+            double eccentricity, double semiMajorAxis,
+            double minPeriapsisRadius, double soiRadius,
+            double maxLegEccentricity = MaxSaneLegEccentricity,
+            double maxPeriapsisSoiFraction = 0.5)
+        {
+            if (double.IsNaN(eccentricity) || double.IsInfinity(eccentricity)
+                || double.IsNaN(semiMajorAxis) || double.IsInfinity(semiMajorAxis))
+                return false;
+            // Real escape/capture leg is hyperbolic; a bound ellipse (ecc < 1) is not a valid leg here.
+            if (eccentricity < 1.0 || eccentricity > maxLegEccentricity)
+                return false;
+            if (double.IsNaN(minPeriapsisRadius) || minPeriapsisRadius <= 0.0
+                || double.IsNaN(soiRadius) || soiRadius <= 0.0)
+                return false;
+            // Periapsis radius of the hyperbola (sma < 0, ecc > 1 => a*(1-e) > 0).
+            double rp = semiMajorAxis * (1.0 - eccentricity);
+            if (double.IsNaN(rp) || double.IsInfinity(rp) || rp <= 0.0)
+                return false;
+            double maxPeriapsis = soiRadius * maxPeriapsisSoiFraction;
+            return rp >= minPeriapsisRadius && rp <= maxPeriapsis;
+        }
+
         // Default bisection control for the SOI-sphere crossing refinement. The proximity scan
         // (ReaimTransferSynthesizer.TryFindTargetEncounterByProximity) has ~span/96 UT resolution; bisecting
         // to the SOI shell tightens the seam to well under the in-SOI handoff residual the playtest already

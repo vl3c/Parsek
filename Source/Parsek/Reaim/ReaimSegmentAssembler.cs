@@ -449,6 +449,9 @@ namespace Parsek.Reaim
                     if (!escapeReplaced)
                     {
                         OrbitSegment escape = escapeSeg.Value;
+                        // The caller phase-pinned the escape SOI-EXIT moment to RecordedDepartureUT (==
+                        // escapeRunEndUT within tolerance) via ShiftInTime, so the epoch already places the
+                        // SOI exit here; these stamp only the RENDER WINDOW over the recorded escape run.
                         escape.startUT = escapeRunStartUT;
                         escape.endUT = escapeRunEndUT;
                         escape.bodyName = launchBody;
@@ -469,7 +472,12 @@ namespace Parsek.Reaim
                     if (!captureReplaced)
                     {
                         OrbitSegment capture = captureSeg.Value;
-                        capture.startUT = recordedArrivalUT; // STEP 4: pin SOI-entry to the compressed-clock arrival boundary
+                        // STEP 4: the caller phase-pinned the capture SOI-ENTRY moment to RecordedArrivalUT
+                        // (the compressed-clock arrival boundary) via ShiftInTime, so the epoch already
+                        // places the SOI entry here; these stamp only the RENDER WINDOW over the recorded
+                        // first-capture leg. (Earlier this force-overwrote startUT WITHOUT moving the epoch,
+                        // a phase error along the leg - fixed in the resolver's capturePinShift.)
+                        capture.startUT = recordedArrivalUT;
                         capture.endUT = firstCaptureEndUT;
                         capture.bodyName = targetBody;
                         capture.isPredicted = false;

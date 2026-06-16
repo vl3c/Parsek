@@ -239,24 +239,34 @@ namespace Parsek.Reaim
             // RecordedDepartureUT the orbit sits where it was at absolute departureUT.
             transferSeg = ReaimSegmentAssembler.ShiftInTime(transferSeg, shift);
 
-            // STEP 4 (uniform shift): the escape + capture legs were built against the SAME live-clock window
-            // (launchSoiExitUT / targetSoiEntryUT are absolute live-frame UTs of the same solve as
-            // departureUT), so the SAME `shift` moves all three legs into recorded-span time, preserving
-            // each leg's per-leg phase AND their relative phase (proven by the pure
-            // UniformShift_PreservesPerLegPhaseAndSeamContiguity test). A leg that failed to build (null
-            // Orbit) stays null and the assembler fails that SIDE closed (the recorded escape/capture
-            // verbatim). The escape leg is launch-body-relative, the capture leg target-body-relative.
+            // STEP 4 (phase pin, reaim-fix-plan rework finding B): the escape + capture legs are shifted so
+            // their SOI-crossing MOMENT lands exactly on the recorded-span run boundary the assembler tiles
+            // against - the escape SOI-EXIT on RecordedDepartureUT (the transfer-run start) and the capture
+            // SOI-ENTRY on RecordedArrivalUT (the heliocentric->capture boundary the loop clock compresses).
+            // ShiftInTime moves startUT/endUT/epoch together, so the leg's geometry (its periapsis, its SOI
+            // crossing) rides the shift; pinning by the CROSSING moment keeps the leg's phase intact while
+            // placing the crossing where the assembler stamps the render window. This replaces the earlier
+            // force-overwrite of capture.startUT = recordedArrivalUT (which moved the render bound WITHOUT
+            // moving the epoch, so the leg was sampled at a UT offset from its true SOI crossing - a phase
+            // error along the leg). The leg's natural crossing UT is launchSoiExitUT / targetSoiEntryUT
+            // (absolute live frame); the pin shift is therefore (recorded boundary - natural crossing UT),
+            // which subsumes the `shift` above. A leg that failed to build (null Orbit) stays null and the
+            // assembler fails that SIDE closed (the recorded escape/capture verbatim).
             OrbitSegment? escapeSeg = null;
             OrbitSegment? captureSeg = null;
-            if (escapeOrbit != null)
+            if (escapeOrbit != null && !double.IsNaN(launchSoiExitUT))
             {
                 OrbitSegment e = ReaimOrbitSegmentConverter.ToSegment(escapeOrbit, plan.LaunchBody);
-                escapeSeg = ReaimSegmentAssembler.ShiftInTime(e, shift);
+                // Pin the escape SOI-EXIT moment to the recorded transfer-run start (escape.endUT).
+                double escapePinShift = plan.RecordedDepartureUT - launchSoiExitUT;
+                escapeSeg = ReaimSegmentAssembler.ShiftInTime(e, escapePinShift);
             }
-            if (captureOrbit != null)
+            if (captureOrbit != null && !double.IsNaN(targetSoiEntryUT))
             {
                 OrbitSegment cap = ReaimOrbitSegmentConverter.ToSegment(captureOrbit, plan.TargetBody);
-                captureSeg = ReaimSegmentAssembler.ShiftInTime(cap, shift);
+                // Pin the capture SOI-ENTRY moment to the recorded arrival boundary (capture.startUT).
+                double capturePinShift = plan.RecordedArrivalUT - targetSoiEntryUT;
+                captureSeg = ReaimSegmentAssembler.ShiftInTime(cap, capturePinShift);
             }
 
             // Heliocentric-PARK re-phase (Increment 1, departure-side render). A two-burn departure escapes

@@ -170,13 +170,14 @@ namespace Parsek.Reaim
             Vector3d launchPlaneNormal = Vector3d.Cross(
                 r1, launchBody.orbit.getOrbitalVelocityAtUT(departureUT).xzy);
 
-            // Capture BOTH endpoint velocities: v1 (heliocentric departure) builds the escape leg, v2
-            // (heliocentric arrival) builds the first-capture leg - the SAME single Lambert solve feeds
-            // both SOI legs so the chain is continuous (reaim-fix-plan.md STEP 0). The ITransferSolver /
-            // UvLambert already return v2; no signature change there. r1/r2 are un-swizzled (.xzy) world,
-            // so v1/v2 are too.
+            // Solve the Lambert problem for the transfer's departure velocity v1 (which builds the Sun-
+            // relative transfer conic below). The arrival velocity v2 is solved too (the ITransferSolver /
+            // UvLambert contract returns both) but is NOT used to build the SOI legs: the escape / capture
+            // legs are built from the transfer's OWN state at the SOI crossings (see TryBuild*Leg /
+            // BuildBodyRelativeLeg), not from the planet-center endpoint velocities. r1/r2 are un-swizzled
+            // (.xzy) world, so v1/v2 are too.
             if (!TransferSolver.Solve(mu, r1, r2, tofSeconds, prograde, launchPlaneNormal,
-                    out Vector3d v1, out Vector3d v2))
+                    out Vector3d v1, out Vector3d _))
             {
                 failReason = "lambert no solution (degenerate geometry / non-convergence)";
                 return false;
@@ -252,16 +253,26 @@ namespace Parsek.Reaim
             encounterBody = targetBody;
             LogSynthGeometry(transfer, launchBody, targetBody, departureUT, arrivalUT, soiEntryUT, encounterPath);
 
-            // Build the two SOI legs from the SAME Lambert solve (reaim-fix-plan.md STEP 1/2). These are
-            // best-effort: a leg that cannot converge a sane conic leaves its out-Orbit null + its UT NaN,
-            // and the P3 assembler falls back accordingly (all-or-nothing fail-closed at the chain level).
-            // The transfer encounter itself already succeeded, so the heliocentric-only baseline is always
-            // available even when neither leg builds.
-            captureOrbit = TryBuildCaptureLeg(transfer, targetBody, v2, soiEntryUT, departureUT, arrivalUT,
-                out targetSoiEntryUT);
-            escapeOrbit = TryBuildEscapeLeg(transfer, launchBody, v1, departureUT, arrivalUT,
-                out launchSoiExitUT);
-            LogChainLegs(launchBody, targetBody, escapeOrbit, captureOrbit, launchSoiExitUT, targetSoiEntryUT);
+            // Build the two SOI legs from the transfer's own state at the SOI crossings (reaim-fix-plan.md
+            // STEP 1/2). These are best-effort: a leg that cannot build a sane conic (the periapsis / ecc
+            // fail-closed gate in BuildBodyRelativeLeg) leaves its out-Orbit null + its UT NaN, and the P3
+            // assembler falls back accordingly (all-or-nothing fail-closed at the chain level). The transfer
+            // encounter itself already succeeded, so the heliocentric-only baseline is always available even
+            // when neither leg builds.
+            //
+            // FLAG-GATED (reaim-fix-plan rework, finding F): the leg construction (two SOI scans + two
+            // bisections + two UpdateFromStateVectors + the chain-legs log) runs ONLY when chain synthesis is
+            // enabled. With the flag OFF the legs stay null + their UTs NaN, so the resolver's AssembleWindowChain
+            // takes the identity (ReplaceHeliocentricLeg) path with no escape/capture inputs - flag-OFF is a
+            // true no-op (no wasted leg math, no 'chain legs:' log line).
+            if (ReaimChainSynthesis.IsEnabled)
+            {
+                captureOrbit = TryBuildCaptureLeg(transfer, targetBody, soiEntryUT, departureUT, arrivalUT,
+                    out targetSoiEntryUT);
+                escapeOrbit = TryBuildEscapeLeg(transfer, launchBody, departureUT, arrivalUT,
+                    out launchSoiExitUT);
+                LogChainLegs(launchBody, targetBody, escapeOrbit, captureOrbit, launchSoiExitUT, targetSoiEntryUT);
+            }
             return true;
         }
 
@@ -291,15 +302,23 @@ namespace Parsek.Reaim
         // staying well above floating-point noise on the sampled positions.
         internal const double SoiBisectionToleranceFraction = 1e-4;
 
-        // Builds the first-capture leg (target-relative hyperbola) from the heliocentric arrival velocity v2
-        // (reaim-fix-plan.md STEP 1, state-vector PRIMARY path). Bisects the target SOI-sphere crossing
-        // around the resolved soiEntryUT, then constructs a target-relative Orbit from the body-relative
-        // state at that UT. Mirrors the transfer build's .xzy round-trip EXACTLY (un-swizzle to difference
-        // in one world frame, re-swizzle for UpdateFromStateVectors). v2 is in the SAME un-swizzled frame
-        // as r1/r2. Returns null (with refinedEntryUT = the raw soiEntryUT) on a degenerate result; the
-        // caller / assembler then fails the capture side closed. Live (Orbit + getOrbital*AtUT).
+        // Builds the first-capture leg (target-relative hyperbola) from the transfer's OWN state at the
+        // target SOI-sphere crossing (reaim-fix-plan.md STEP 1, state-vector PRIMARY path). Refines the
+        // crossing UT by bisection, then constructs a target-relative Orbit (BuildBodyRelativeLeg samples the
+        // transfer position AND velocity at the refined UT). Returns null (with refinedEntryUT = the raw
+        // soiEntryUT) on a degenerate result; the caller / assembler then fails the capture side closed.
+        // Live (Orbit + getRelativePositionAtUT).
+        //
+        // BISECTION BRACKET (reaim-fix-plan rework, finding A): the transfer is aimed at the target CENTER,
+        // so arrivalUT is the DEEPEST-inside sample; walk BACKWARD from arrivalUT to find an OUTSIDE sample
+        // (distance > SOI), then bisect [insideUT=arrivalUT-ish, outsideUT]. The earlier code assumed
+        // soiEntryUT was the FIRST inside sample with one step outside, but on the proximity path soiEntryUT
+        // EQUALS arrivalUT (the scan only got within SOI at its final sample), so soiEntryUT-step was still
+        // INSIDE the SOI -> the straddle guard failed, the bisection no-op'd, and the leg was built at the
+        // planet CENTER (|rRel|~0). Mirroring the escape leg's scan (here reversed: forward = deeper inside)
+        // makes the bracket a genuine inside/outside straddle.
         private static Orbit TryBuildCaptureLeg(
-            Orbit transfer, CelestialBody targetBody, Vector3d v2, double soiEntryUT,
+            Orbit transfer, CelestialBody targetBody, double soiEntryUT,
             double departureUT, double arrivalUT, out double refinedEntryUT)
         {
             refinedEntryUT = soiEntryUT;
@@ -308,33 +327,55 @@ namespace Parsek.Reaim
                 return null;
 
             double soi = targetBody.sphereOfInfluence;
+            if (double.IsNaN(soi) || soi <= 0.0)
+                return null;
             // Distance (un-swizzled, consistent frame) from the transfer to the target at a UT.
             Func<double, double> dist = ut => ReaimChainGeometry.RelativePosition(
                 transfer.getRelativePositionAtUT(ut).xzy,
                 targetBody.orbit.getRelativePositionAtUT(ut).xzy).magnitude;
 
-            // Bisect to the SOI shell. Bracket: soiEntryUT (the proximity scan returned it as inside the
-            // SOI) to arrivalUT (the transfer is aimed at the target center, so by arrivalUT it is well
-            // inside). Walk a tiny step BEFORE soiEntryUT to find an outside sample (the scan's resolution
-            // is ~span/96, so soiEntryUT is the FIRST inside sample - just before it is outside).
             double span = arrivalUT - departureUT;
-            double step = span > 0.0 ? span / 96.0 : 0.0;
-            double outsideUT = soiEntryUT - step;
-            double tol = (!double.IsNaN(soi) && soi > 0.0) ? soi * SoiBisectionToleranceFraction : double.NaN;
-            if (step > 0.0 && ReaimChainGeometry.TryBisectSoiCrossing(
-                    dist, soi, soiEntryUT, outsideUT, tol, out double crossing))
-                refinedEntryUT = crossing;
+            if (span <= 0.0)
+                return null;
 
-            return BuildBodyRelativeLeg(transfer, targetBody, v2, refinedEntryUT);
+            // arrivalUT is the deepest-inside sample (transfer aimed at the target center). Confirm it is
+            // actually inside, then walk BACKWARD toward departureUT to find the first OUTSIDE sample.
+            if (dist(arrivalUT) > soi)
+                return null; // arrival not inside the SOI -> no clean capture geometry (fail closed)
+            const int scan = 96;
+            double dStep = span / scan;
+            double insideUT = arrivalUT;
+            double foundOutsideUT = double.NaN;
+            for (int i = 1; i <= scan; i++)
+            {
+                double ut = arrivalUT - dStep * i;
+                if (ut <= departureUT)
+                    break;
+                if (dist(ut) > soi)
+                {
+                    foundOutsideUT = ut;
+                    break;
+                }
+                insideUT = ut; // still inside the target SOI -> advance the inside boundary backward
+            }
+            double tol = soi * SoiBisectionToleranceFraction;
+            if (!double.IsNaN(foundOutsideUT) && ReaimChainGeometry.TryBisectSoiCrossing(
+                    dist, soi, insideUT, foundOutsideUT, tol, out double crossing))
+                refinedEntryUT = crossing;
+            // else: never found an outside sample within the span -> keep the raw soiEntryUT (the leg sanity
+            // gate in BuildBodyRelativeLeg fails it closed if the resulting conic is degenerate).
+
+            return BuildBodyRelativeLeg(transfer, targetBody, refinedEntryUT);
         }
 
-        // Builds the escape leg (launch-body-relative hyperbola) from the heliocentric departure velocity v1
-        // (reaim-fix-plan.md STEP 2). The transfer is center-to-center, so just after departureUT it sits
-        // near the launch-body center; walk FORWARD to the launch SOI shell and bisect there, then construct
-        // a launch-body-relative Orbit from the body-relative state at that UT. Same .xzy round-trip + same
-        // fail-closed contract as the capture leg. Returns null (launchSoiExitUT NaN) on a degenerate result.
+        // Builds the escape leg (launch-body-relative hyperbola) from the transfer's OWN state at the launch
+        // SOI-sphere crossing (reaim-fix-plan.md STEP 2). The transfer is center-to-center, so just after
+        // departureUT it sits near the launch-body center; walk FORWARD to the launch SOI shell and bisect
+        // there, then construct a launch-body-relative Orbit (BuildBodyRelativeLeg samples the transfer
+        // position AND velocity at that UT). Same .xzy round-trip + same fail-closed contract as the capture
+        // leg. Returns null (launchSoiExitUT NaN) on a degenerate result.
         private static Orbit TryBuildEscapeLeg(
-            Orbit transfer, CelestialBody launchBody, Vector3d v1,
+            Orbit transfer, CelestialBody launchBody,
             double departureUT, double arrivalUT, out double launchSoiExitUT)
         {
             launchSoiExitUT = double.NaN;
@@ -375,35 +416,57 @@ namespace Parsek.Reaim
                     dist, soi, insideUT, foundOutsideUT, tol, out launchSoiExitUT))
                 return null;
 
-            return BuildBodyRelativeLeg(transfer, launchBody, v1, launchSoiExitUT);
+            return BuildBodyRelativeLeg(transfer, launchBody, launchSoiExitUT);
         }
 
         // Shared state-vector construction (reaim-fix-plan.md STEP 1/2): given the heliocentric transfer,
-        // a body, the heliocentric endpoint velocity vHelio (UN-swizzled .xzy frame) and the SOI-crossing
-        // UT, build a body-relative Orbit. Mirrors ReaimTransferSynthesizer.TrySynthesizeTransfer's transfer
-        // build EXACTLY: difference the parent-relative positions and velocities in the UN-swizzled (.xzy)
-        // world frame, then re-swizzle (.xzy is its own inverse) for UpdateFromStateVectors (which expects
-        // swizzled inputs). A dropped/doubled swizzle silently corrupts the orbit - verified in-game by the
-        // canary. Returns null when the resulting conic is degenerate (NaN elements / non-finite sma).
+        // a body, and the SOI-crossing UT, build a body-relative Orbit from the transfer's OWN state at the
+        // crossing. Mirrors ReaimTransferSynthesizer.TrySynthesizeTransfer's transfer build EXACTLY:
+        // difference the parent-relative positions and velocities in the UN-swizzled (.xzy) world frame, then
+        // re-swizzle (.xzy is its own inverse) for UpdateFromStateVectors (which expects swizzled inputs). A
+        // dropped/doubled swizzle silently corrupts the orbit - verified in-game by the canary.
+        //
+        // VELOCITY SOURCE (reaim-fix-plan rework, finding root-cause): the body-relative velocity uses the
+        // transfer's OWN orbital velocity AT crossingUT (transfer.getOrbitalVelocityAtUT(crossingUT)), NOT
+        // the Lambert ENDPOINT velocity v1/v2. v1/v2 are the transfer's velocity at the planet CENTERS
+        // (departureUT / arrivalUT); pairing them with the POSITION sampled at the SOI crossing made the
+        // state vector inconsistent (position from one point on the conic, velocity from another), which
+        // UpdateFromStateVectors reconciled into a garbage hyperbola with periapsis tens of Mm up and ecc
+        // 8-13. Using the transfer's velocity at the SAME UT as the position yields a self-consistent point
+        // on the heliocentric conic, so the body-relative reduction is a real escape/capture state.
+        //
+        // FAIL-CLOSED GATE (reaim-fix-plan.md STEP 2/3, the never-implemented "MEASURE and fail-closed"
+        // step): even with a self-consistent state, the center-to-center transfer's position at the crossing
+        // is not guaranteed to land at a sane parking-orbit periapsis. Reject the leg (return null -> the
+        // assembler keeps the recorded leg verbatim / the chain falls back to today's baseline) unless it is
+        // a real hyperbola anchored at a sane periapsis altitude (ReaimChainGeometry.IsSaneLegConic). This
+        // guarantees flag-ON is NEVER worse than the baseline: a still-wrong leg fails closed, never renders.
         private static Orbit BuildBodyRelativeLeg(
-            Orbit transfer, CelestialBody body, Vector3d vHelio, double crossingUT)
+            Orbit transfer, CelestialBody body, double crossingUT)
         {
-            if (double.IsNaN(crossingUT) || double.IsInfinity(crossingUT) || body.orbit == null)
+            if (transfer == null || body == null
+                || double.IsNaN(crossingUT) || double.IsInfinity(crossingUT) || body.orbit == null)
                 return null;
 
-            // Un-swizzled, consistent-frame body-relative state at the crossing.
+            // Un-swizzled, consistent-frame body-relative state at the crossing. Position AND velocity are
+            // both sampled from the transfer at the SAME crossingUT, so the state is self-consistent.
             Vector3d rRel = ReaimChainGeometry.RelativePosition(
                 transfer.getRelativePositionAtUT(crossingUT).xzy,
                 body.orbit.getRelativePositionAtUT(crossingUT).xzy);
             Vector3d vRel = ReaimChainGeometry.RelativeVelocity(
-                vHelio,
+                transfer.getOrbitalVelocityAtUT(crossingUT).xzy,
                 body.orbit.getOrbitalVelocityAtUT(crossingUT).xzy);
 
             var leg = new Orbit();
             // Re-swizzle (.xzy) for UpdateFromStateVectors, exactly as the transfer build does.
             leg.UpdateFromStateVectors(rRel.xzy, vRel.xzy, body, crossingUT);
-            if (double.IsNaN(leg.semiMajorAxis) || double.IsInfinity(leg.semiMajorAxis)
-                || double.IsNaN(leg.eccentricity) || double.IsInfinity(leg.eccentricity))
+
+            // Periapsis lower bound: the body's surface, or the atmosphere top when it has one (a leg whose
+            // periapsis sits below the atmosphere top clips into the body and is not a real ejection/capture).
+            double minPeriapsisRadius = body.Radius
+                + (body.atmosphere && body.atmosphereDepth > 0.0 ? body.atmosphereDepth : 0.0);
+            if (!ReaimChainGeometry.IsSaneLegConic(
+                    leg.eccentricity, leg.semiMajorAxis, minPeriapsisRadius, body.sphereOfInfluence))
                 return null;
             return leg;
         }

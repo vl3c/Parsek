@@ -179,5 +179,98 @@ namespace Parsek.Tests
             // 60 bisections of a 1000s bracket -> < 1e-15 s residual, far inside any UT meaning.
             Assert.Equal(1000.0, crossing, 6);
         }
+
+        // ---- IsSaneLegConic (reaim-fix-plan rework, STEP 2/3 fail-closed gate) ----
+        // Kerbin reference numbers for the periapsis band: Radius ~600 km, SOI ~84.16 Mm.
+        private const double KerbinRadius = 600000.0;
+        private const double KerbinSoi = 84159286.0;
+
+        [Fact]
+        public void IsSaneLegConic_RealEjectionHyperbola_Accepted()
+        {
+            // A real Kerbin->Duna ejection: ecc ~1.2, periapsis ~700 km (just above the surface). Build sma
+            // from rp = a*(1-e) => a = rp/(1-e).
+            double ecc = 1.2, rp = 700000.0;
+            double sma = rp / (1.0 - ecc); // negative (hyperbola)
+            Assert.True(sma < 0.0);
+            Assert.True(ReaimChainGeometry.IsSaneLegConic(ecc, sma, KerbinRadius, KerbinSoi));
+        }
+
+        [Fact]
+        public void IsSaneLegConic_Ecc13GarbageWithPeriapsisFarOut_Rejected()
+        {
+            // The exact regression shape: sma=-1542755, ecc=12.9 -> periapsis ~18.36 Mm (far above a sane
+            // parking altitude). The velocity-source artifact this gate exists to fail closed.
+            double sma = -1542755.6888135117, ecc = 12.9031;
+            double rp = sma * (1.0 - ecc);
+            Assert.True(rp > 5.0e6); // periapsis is tens of Mm up
+            Assert.False(ReaimChainGeometry.IsSaneLegConic(ecc, sma, KerbinRadius, KerbinSoi));
+        }
+
+        [Fact]
+        public void IsSaneLegConic_EccentricButSanePeriapsis_Accepted()
+        {
+            // An eccentric (Moho/Eeloo) departure can sit nearer the top of the band; ecc 2.5 with a low
+            // periapsis is still a real leg and must be accepted (the band is deliberately generous).
+            double ecc = 2.5, rp = 650000.0;
+            double sma = rp / (1.0 - ecc);
+            Assert.True(ReaimChainGeometry.IsSaneLegConic(ecc, sma, KerbinRadius, KerbinSoi));
+        }
+
+        [Fact]
+        public void IsSaneLegConic_AboveMaxEccentricity_Rejected()
+        {
+            // ecc just above the band ceiling (3.0) with an otherwise-sane periapsis is still rejected -
+            // the ceiling is the artifact cutoff.
+            double ecc = 3.5, rp = 650000.0;
+            double sma = rp / (1.0 - ecc);
+            Assert.False(ReaimChainGeometry.IsSaneLegConic(ecc, sma, KerbinRadius, KerbinSoi));
+        }
+
+        [Fact]
+        public void IsSaneLegConic_BoundEllipse_Rejected()
+        {
+            // A bound (elliptic) conic is not a valid escape/capture leg (ecc < 1).
+            Assert.False(ReaimChainGeometry.IsSaneLegConic(0.3, 700000.0, KerbinRadius, KerbinSoi));
+        }
+
+        [Fact]
+        public void IsSaneLegConic_PeriapsisBelowSurface_Rejected()
+        {
+            // A hyperbola whose periapsis is below the body surface (here below the min radius) clips the
+            // body and is rejected.
+            double ecc = 1.2, rp = 100000.0; // 100 km < Kerbin's 600 km min radius
+            double sma = rp / (1.0 - ecc);
+            Assert.False(ReaimChainGeometry.IsSaneLegConic(ecc, sma, KerbinRadius, KerbinSoi));
+        }
+
+        [Fact]
+        public void IsSaneLegConic_PeriapsisAboveHalfSoi_Rejected()
+        {
+            // A periapsis beyond half the SOI is the center-vs-shell sampling artifact (the leg sits out
+            // near the SOI edge), rejected even at a sane eccentricity.
+            double ecc = 1.2, rp = KerbinSoi * 0.6; // > half SOI
+            double sma = rp / (1.0 - ecc);
+            Assert.False(ReaimChainGeometry.IsSaneLegConic(ecc, sma, KerbinRadius, KerbinSoi));
+        }
+
+        [Fact]
+        public void IsSaneLegConic_NaNOrInfElements_Rejected()
+        {
+            Assert.False(ReaimChainGeometry.IsSaneLegConic(double.NaN, -1.5e6, KerbinRadius, KerbinSoi));
+            Assert.False(ReaimChainGeometry.IsSaneLegConic(1.2, double.NaN, KerbinRadius, KerbinSoi));
+            Assert.False(ReaimChainGeometry.IsSaneLegConic(double.PositiveInfinity, -1.5e6, KerbinRadius, KerbinSoi));
+            Assert.False(ReaimChainGeometry.IsSaneLegConic(1.2, double.NegativeInfinity, KerbinRadius, KerbinSoi));
+        }
+
+        [Fact]
+        public void IsSaneLegConic_DegenerateBodyBounds_Rejected()
+        {
+            // Non-positive / NaN body bounds fail closed (can't establish a sane band).
+            double ecc = 1.2, sma = 700000.0 / (1.0 - 1.2);
+            Assert.False(ReaimChainGeometry.IsSaneLegConic(ecc, sma, 0.0, KerbinSoi));
+            Assert.False(ReaimChainGeometry.IsSaneLegConic(ecc, sma, KerbinRadius, 0.0));
+            Assert.False(ReaimChainGeometry.IsSaneLegConic(ecc, sma, double.NaN, KerbinSoi));
+        }
     }
 }

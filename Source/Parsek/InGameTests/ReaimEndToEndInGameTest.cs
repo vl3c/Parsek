@@ -1248,7 +1248,60 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(System.Math.Abs(lastSeg.endUT - spanEnd) < 1.0,
                 $"window k={k} the arrival/descent leg must keep its recorded span end (fits span; was {lastSeg.endUT.ToString("R", ic)})");
 
+            // ESCAPE + CAPTURE LEG SANITY (reaim-fix-plan rework, guard b): the synth (flag ON) escape /
+            // capture legs are launch-/target-body HYPERBOLAE that the velocity-source bug turned into ecc
+            // 8-13 garbage with periapsis tens of Mm up. Assert any leg occupying the escape-run /
+            // first-capture window is a SANE hyperbola (ReaimChainGeometry.IsSaneLegConic ecc/periapsis
+            // band). This holds for BOTH the synth legs (when synthesized) AND the recorded legs (when the
+            // side fails closed to verbatim), so it is a valid invariant under every flag/topology state -
+            // and it is the exact guard that would have caught the ecc-8-13 regression before a playtest.
+            // Bound the periapsis to the live body's surface (or atmosphere top) and half its SOI.
+            AssertLegInRunIsSaneHyperbola(
+                segs, launchName, ctx.LaunchBody, plan.EscapeRunStartUT, plan.EscapeRunEndUT, "escape", k);
+            AssertLegInRunIsSaneHyperbola(
+                segs, targetName, ctx.TargetBody, plan.FirstCaptureStartUT, plan.FirstCaptureEndUT, "capture", k);
+
             return transfer;
+        }
+
+        // Asserts every body-relative leg (launch escape or target capture) overlapping the recorded run
+        // window [runStartUT, runEndUT] is a SANE hyperbola per ReaimChainGeometry.IsSaneLegConic (ecc in
+        // [1, 3], periapsis within [body surface/atmosphere top, half SOI]). Skips when the run window is
+        // NaN (an Unsupported plan field) or the live body is null. The synth legs (flag ON) and the
+        // recorded legs (fail-closed verbatim) both satisfy this, so it is flag-/topology-agnostic; it
+        // fires only on a corrupted leg (the ecc-8-13 velocity-source artifact).
+        private static void AssertLegInRunIsSaneHyperbola(
+            List<OrbitSegment> segs, string bodyName, CelestialBody body,
+            double runStartUT, double runEndUT, string label, long k)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            if (segs == null || body == null
+                || double.IsNaN(runStartUT) || double.IsNaN(runEndUT) || !(runStartUT < runEndUT))
+                return;
+            double minPeriapsisRadius = body.Radius
+                + (body.atmosphere && body.atmosphereDepth > 0.0 ? body.atmosphereDepth : 0.0);
+            for (int i = 0; i < segs.Count; i++)
+            {
+                OrbitSegment s = segs[i];
+                if (s.bodyName != bodyName || s.isPredicted)
+                    continue;
+                if (!(s.startUT < runEndUT && s.endUT > runStartUT))
+                    continue;
+                // A bound (elliptic) leg occupying the run is a recorded circular parking / descent that the
+                // run-window happens to graze, not a synth/recorded hyperbola - the sane-hyperbola gate does
+                // not apply to it (IsSaneLegConic would reject a legitimate ellipse). Only check hyperbolae.
+                bool isHyperbola = s.semiMajorAxis < 0.0 || s.eccentricity >= 1.0;
+                if (!isHyperbola)
+                    continue;
+                InGameAssert.IsTrue(
+                    ReaimChainGeometry.IsSaneLegConic(
+                        s.eccentricity, s.semiMajorAxis, minPeriapsisRadius, body.sphereOfInfluence),
+                    $"window k={k} the {label} leg @{bodyName} must be a sane hyperbola " +
+                    $"(ecc={s.eccentricity.ToString("F4", ic)} sma={s.semiMajorAxis.ToString("R", ic)} " +
+                    $"rp={(s.semiMajorAxis * (1.0 - s.eccentricity)).ToString("R", ic)} " +
+                    $"minRp={minPeriapsisRadius.ToString("R", ic)} SOI={body.sphereOfInfluence.ToString("R", ic)}); " +
+                    $"ecc 8-13 / periapsis-far-out is the velocity-source artifact this gate fails closed");
+            }
         }
 
         // The re-aimed transfer leg (the single common-ancestor-bodied segment overlapping the recorded
