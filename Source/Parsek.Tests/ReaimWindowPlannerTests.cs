@@ -60,6 +60,83 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RelaunchUTForWindow_StepsByCadence()
+        {
+            var s = PlanKerbinDuna(referenceUT: 100_000.0);
+            Assert.True(s.Valid, s.Reason);
+            Assert.Equal(s.FirstDepartureUT, s.RelaunchUTForWindow(0), 3);
+            Assert.Equal(s.FirstDepartureUT + s.CadenceSeconds, s.RelaunchUTForWindow(1), 3);
+            Assert.Equal(s.FirstDepartureUT + 5.0 * s.CadenceSeconds, s.RelaunchUTForWindow(5), 3);
+        }
+
+        [Fact]
+        public void RelaunchUTForWindow_NormalCase_CoincidesWithSynodicDeparture()
+        {
+            // synodic > span => cadence == synodic, so the cadence-clock relaunch time and the synodic-clock
+            // departure are identical at every window (the park re-phase is byte-identical to pre-fix).
+            var s = PlanKerbinDuna(referenceUT: 100_000.0);
+            Assert.True(s.Valid, s.Reason);
+            Assert.Equal(s.SynodicPeriodSeconds, s.CadenceSeconds, 3);
+            for (long k = 0; k <= 5; k++)
+                Assert.Equal(s.DepartureUTForWindow(k), s.RelaunchUTForWindow(k), 3);
+        }
+
+        [Fact]
+        public void RelaunchUTForWindow_SpanExceedsSynodic_TracksEngineRelaunchNotSynodicWindow()
+        {
+            // A mission whose recorded span (25e6 s) EXCEEDS the Kerbin->Duna synodic (~19.6e6 s): the loop
+            // engine relaunches every CADENCE = span, but the synodic-clock departure steps by synodic. The
+            // body-relative escape leg follows the live launch body at the cadence relaunch time, so the park
+            // must re-phase to RelaunchUTForWindow (cadence), not DepartureUTForWindow (synodic). This is the
+            // span>synodic case (e.g. Kerbal X #2) where the two clocks DIVERGE and the old code put the
+            // loiter ~142 deg*window off live Kerbin.
+            const double bigSpanStart = 0.0, bigSpanEnd = 25_000_000.0;
+            const double bigDeparture = 2_000_000.0, bigTof = 3_000_000.0;
+            var s = ReaimWindowPlanner.Plan(
+                KerbinPeriod, DunaPeriod, bigDeparture, bigTof, bigSpanStart, bigSpanEnd, referenceUT: 0.0);
+            Assert.True(s.Valid, s.Reason);
+
+            double spanDuration = bigSpanEnd - bigSpanStart;
+            Assert.Equal(spanDuration, s.CadenceSeconds, 3);        // cadence == span (span > synodic)
+            Assert.True(s.CadenceSeconds > s.SynodicPeriodSeconds); // the divergent case
+
+            // Window 0 coincides; later windows diverge by exactly window*(cadence - synodic).
+            Assert.Equal(s.DepartureUTForWindow(0), s.RelaunchUTForWindow(0), 3);
+            for (long k = 1; k <= 4; k++)
+            {
+                double diverge = k * (s.CadenceSeconds - s.SynodicPeriodSeconds);
+                Assert.True(diverge > 0.0);
+                Assert.Equal(s.DepartureUTForWindow(k) + diverge, s.RelaunchUTForWindow(k), 3);
+            }
+        }
+
+        [Fact]
+        public void ParkRephase_SpanExceedsSynodic_CadenceClockMovesParkOntoLiveLaunchBody()
+        {
+            // End-to-end on the consumer: the park re-phase angle (ComputeParkDeltaLonDegrees) fed the
+            // CADENCE-clock relaunch UT differs from the old SYNODIC-clock departure by the launch body's
+            // heliocentric advance across the span-vs-synodic gap = omega_Kerbin * (cadence - synodic) per
+            // window (~142 deg/window for stock Kerbin->Duna). That advance is exactly how far the live
+            // launch body moved past the synodic window, i.e. the loiter teleport the fix removes.
+            const double bigSpanStart = 0.0, bigSpanEnd = 25_000_000.0;
+            const double bigDeparture = 2_000_000.0, bigTof = 3_000_000.0;
+            var s = ReaimWindowPlanner.Plan(
+                KerbinPeriod, DunaPeriod, bigDeparture, bigTof, bigSpanStart, bigSpanEnd, referenceUT: 0.0);
+            Assert.True(s.Valid, s.Reason);
+
+            for (long k = 1; k <= 3; k++)
+            {
+                double cadenceAngle = ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(
+                    s.RelaunchUTForWindow(k), bigDeparture, KerbinPeriod);
+                double synodicAngle = ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(
+                    s.DepartureUTForWindow(k), bigDeparture, KerbinPeriod);
+                double expectedExtra = (360.0 / KerbinPeriod) * k * (s.CadenceSeconds - s.SynodicPeriodSeconds);
+                Assert.True(expectedExtra > 0.0);
+                Assert.Equal(expectedExtra, cadenceAngle - synodicAngle, 6);
+            }
+        }
+
+        [Fact]
         public void Plan_ReferenceBeforeRecordedDeparture_FirstWindowIsTheRecordedDeparture()
         {
             // A recording dated in the future (e.g. after a career rewind): the first window is the
