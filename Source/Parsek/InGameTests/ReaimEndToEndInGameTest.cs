@@ -279,9 +279,8 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsTrue(ok, $"window k={k} must resolve a re-aimed transfer (congruent-window model, mid-band departure)");
                 InGameAssert.AreEqual(k, windowIndex, $"resolved window index must equal k={k}");
-                AssertSaneWindowSegments(ctx, segs, plan, goodDep, spanEnd, k);
+                OrbitSegment transfer = AssertSaneWindowSegments(ctx, segs, plan, goodDep, spanEnd, k);
 
-                OrbitSegment transfer = segs[1];
                 if (k == 0)
                 {
                     firstEcc = transfer.eccentricity;
@@ -427,6 +426,183 @@ namespace Parsek.InGameTests
         {
             RunEccentricTargetWindows(KerbinToEeloo(), "reaim-e2e-eeloo",
                 combinedInclinationCase: false);
+        }
+
+        // ----- Chain-synthesis (reaimChainSynthesis flag ON): real-topology + Ike-thread fail-closed -----
+        //
+        // P4 of the re-aim whole-chain synthesis fix (reaim-fix-plan.md). These run the SAME pinned mid-band
+        // Kerbin->Duna geometry as the strict test, but on the REAL-TOPOLOGY member
+        // (BuildRealTopologyMemberAndPlan: circular parking + escape hyperbola + Sun transfer + Duna capture
+        // hyperbola [+ Ike thread] + descent) and with the reaimChainSynthesis flag FORCED ON. They prove the
+        // chain synthesis (a) splices the synth escape + transfer + capture contiguously when the arrival is
+        // clean, (b) FAILS CLOSED on the capture side for the Ike-threaded arrival (recorded capture verbatim,
+        // escape + transfer still synth), and (c) is deterministic on a cache-cleared re-solve.
+        //
+        // The flag override is a process-wide mutable static, so it is reset in a finally. A PRIVATE resolver
+        // is used (Shared untouched). These are the in-game complement to the pure ReaimChainSynthesisTests
+        // (ReplaceTransferChain) - they drive the LIVE resolver (Lambert + CalculatePatch + the synth
+        // escape/capture state-vector legs), which xUnit cannot.
+
+        [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
+            Description = "Re-aim chain synthesis (flag ON, clean Kerbin->Duna arrival): the synth escape + transfer + capture splice contiguously; the recorded escape/capture hyperbolae are REPLACED; deterministic on re-solve")]
+        public void Reaim_ChainSynthesis_CleanArrival_SplicesEscapeTransferCapture()
+        {
+            DriveChainSynthesisWindows(ikeThread: false, "reaim-e2e-chain-clean");
+        }
+
+        [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
+            Description = "Re-aim chain synthesis (flag ON, Ike-threaded Kerbin->Duna arrival): the capture side FAILS CLOSED (recorded Duna capture verbatim), the escape + transfer still synthesize; deterministic on re-solve")]
+        public void Reaim_ChainSynthesis_IkeThreadedArrival_CaptureFailsClosed()
+        {
+            DriveChainSynthesisWindows(ikeThread: true, "reaim-e2e-chain-ike");
+        }
+
+        // Drives the chain-synthesis path under the flag ON for the real-topology member. ikeThread selects
+        // the clean single-capture arrival (capture synthesized) vs the Ike-threaded arrival (capture fails
+        // closed). Asserts the chain shape + the synth-vs-verbatim contract per window, plus the cache-cleared
+        // determinism re-solve. The flag override is reset in finally; the resolver is private (Shared safe).
+        private static void DriveChainSynthesisWindows(bool ikeThread, string memberIdPrefix)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            ScanContext ctx = BuildPinnedScanOrSkip(KerbinToDuna());
+            if (ctx == null)
+                return;
+
+            int midIdx = ReaimFeasibilityScan.CenterOfLongestRunIndex(ctx.Scan, cyclic: true);
+            if (midIdx < 0)
+            {
+                InGameAssert.Skip("no good Kerbin->Duna departure found in the pinned synodic scan (unexpected on stock)");
+                return;
+            }
+            double goodDep = ctx.ScanDepartureUTs[midIdx];
+
+            bool? savedFlag = ReaimChainSynthesis.ForceEnabledForTesting;
+            try
+            {
+                ReaimChainSynthesis.ForceEnabledForTesting = true;
+                InGameAssert.IsTrue(ReaimChainSynthesis.IsEnabled,
+                    "the chain-synthesis flag must read ON for this test (forced via ForceEnabledForTesting)");
+
+                BuildRealTopologyMemberAndPlan(ctx, goodDep, ikeThread,
+                    out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
+                    out double spanStart, out double spanEnd);
+                ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
+                    ctx.LaunchBody.orbit.period, ctx.TargetBody.orbit.period, goodDep, ctx.TofSeconds,
+                    spanStart, spanEnd, referenceUT: goodDep - 1.0);
+                InGameAssert.IsTrue(sched.Valid, "window schedule must be valid: " + (sched.Reason ?? ""));
+
+                var resolver = new ReaimPlaybackResolver();
+                string memberId = memberIdPrefix + "-" + midIdx.ToString(ic);
+                double span = spanEnd - spanStart;
+                int resolved = 0, captureSynthCount = 0, captureVerbatimCount = 0;
+                for (long k = 0; k < WindowsToCheck; k++)
+                {
+                    double currentUT = sched.PhaseAnchorUT + k * sched.CadenceSeconds + 0.5 * span;
+                    bool ok = resolver.TryResolveWindowSegments(
+                        memberId, memberSegments, plan, sched,
+                        sched.PhaseAnchorUT, spanStart, spanEnd, sched.CadenceSeconds, currentUT,
+                        out List<OrbitSegment> segs, out long windowIndex);
+                    InGameAssert.AreEqual(k, windowIndex, $"window index must equal k={k}");
+
+                    // Window 0 (the recorded departure) must resolve; later windows may decline cleanly
+                    // (the separate eccentric-drift mode), which is a clean fail-closed fall-back.
+                    if (k == 0)
+                        InGameAssert.IsTrue(ok,
+                            "window k=0 (the recorded departure) must resolve the chain (flag ON, real topology)");
+                    if (!ok)
+                    {
+                        InGameAssert.IsTrue(segs == null, $"window k={k} decline must return null segments");
+                        continue;
+                    }
+                    resolved++;
+
+                    // Shape-agnostic sanity (launch leg / re-aimed transfer / target arrival, recorded-span).
+                    AssertSaneWindowSegments(ctx, segs, plan, goodDep, spanEnd, k);
+
+                    // The chain must FULLY COVER its synth span with NO UT overlap (guarantee 7's in-game
+                    // counterpart; the recorder's sub-tolerance sampling gaps may persist outside the synth
+                    // span, but the synth legs themselves must not overlap a neighbor).
+                    AssertNoOverlaps(segs, k);
+
+                    // Capture side: VERBATIM for the Ike thread (a deterministic assembler contract given
+                    // CaptureSynthesizable=false), best-effort SYNTH for the clean arrival (the synth capture
+                    // leg is built from v2 + a state-vector construction the live geometry may decline; the
+                    // assembler then keeps the recorded capture verbatim - a clean fail-closed, never worse
+                    // than the baseline). So the Ike fail-closed is HARD; the clean-arrival capture synth is
+                    // OBSERVATIONAL (logged), tracked by the captureSynth / captureVerbatim counters.
+                    bool recordedCaptureVerbatim = segs.Exists(
+                        s => s.bodyName == ctx.TargetBodyName && s.semiMajorAxis == -563351.0
+                             && System.Math.Abs(s.startUT - plan.FirstCaptureStartUT) < 1.0);
+                    if (ikeThread)
+                    {
+                        // CAPTURE FAIL-CLOSED (HARD): the recorded Duna capture hyperbola (-563351) stays
+                        // verbatim, pinned at the recorded SOI-entry boundary, and the Ike thread is preserved.
+                        // This is byte-identical to today's arrival (guarantee 8), so it never renders worse.
+                        InGameAssert.IsTrue(recordedCaptureVerbatim,
+                            $"window k={k} the Ike-threaded arrival must keep the recorded Duna capture (-563351) verbatim (capture fail-closed)");
+                        InGameAssert.IsTrue(segs.Exists(s => s.bodyName == "Ike"),
+                            $"window k={k} the recorded Ike thread must be preserved when the capture side fails closed");
+                        captureVerbatimCount++;
+                    }
+                    else
+                    {
+                        // CLEAN ARRIVAL: count whether the synth capture engaged (recorded capture replaced) vs
+                        // fell back to verbatim. Both are valid (fail-closed); the count is the P6 measurement
+                        // surface. When the synth engaged, the capture leg is target-RELATIVE and starts at the
+                        // recorded SOI-entry boundary - that is what makes the line enter the SOI + icon follow.
+                        if (recordedCaptureVerbatim)
+                            captureVerbatimCount++;
+                        else
+                            captureSynthCount++;
+                    }
+
+                    // Cache-cleared determinism: the SAME window must re-solve to the SAME chain shape +
+                    // transfer conic (knife-edge windows are floored by the fail-closed-to-faithful contract).
+                    resolver.Clear();
+                    bool ok2 = resolver.TryResolveWindowSegments(
+                        memberId, memberSegments, plan, sched,
+                        sched.PhaseAnchorUT, spanStart, spanEnd, sched.CadenceSeconds, currentUT,
+                        out List<OrbitSegment> segs2, out long windowIndex2);
+                    InGameAssert.IsTrue(ok2, $"window k={k} cache-cleared re-solve must reproduce the resolve");
+                    InGameAssert.AreEqual(windowIndex, windowIndex2, $"window k={k} re-solve index must match");
+                    InGameAssert.AreEqual(segs.Count, segs2.Count,
+                        $"window k={k} re-solved chain must have the same segment count");
+                    OrbitSegment a = FindReaimedTransfer(segs, plan);
+                    OrbitSegment b = FindReaimedTransfer(segs2, plan);
+                    InGameAssert.IsTrue(
+                        NearlyEqual(a.semiMajorAxis, b.semiMajorAxis) && NearlyEqual(a.eccentricity, b.eccentricity)
+                        && NearlyEqual(a.inclination, b.inclination)
+                        && NearlyEqual(a.longitudeOfAscendingNode, b.longitudeOfAscendingNode)
+                        && NearlyEqual(a.argumentOfPeriapsis, b.argumentOfPeriapsis),
+                        $"window k={k} re-solved transfer conic must match the first solve");
+                }
+
+                ParsekLog.Info("ReaimE2E",
+                    $"Kerbin->Duna chain synthesis (flag ON, ikeThread={ikeThread}): scanIdx={midIdx} goodDep={goodDep.ToString("F1", ic)} " +
+                    $"checked={WindowsToCheck} resolved={resolved} captureSynth={captureSynthCount} captureVerbatim={captureVerbatimCount} " +
+                    $"(clean=capture replaced by synth target-relative leg; ike=capture fail-closed verbatim)");
+            }
+            finally
+            {
+                ReaimChainSynthesis.ForceEnabledForTesting = savedFlag;
+            }
+        }
+
+        // Asserts the assembled segment list has NO UT overlaps (a later segment starting before its
+        // predecessor ends): the synth legs must tile, never overlap (reaim-fix-plan.md guarantee 7). Small
+        // FORWARD recorder sampling gaps are allowed (the raw recording carries them); overlaps are not.
+        private static void AssertNoOverlaps(List<OrbitSegment> segs, long k)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            if (segs == null)
+                return;
+            for (int i = 1; i < segs.Count; i++)
+            {
+                double overlap = segs[i - 1].endUT - segs[i].startUT;
+                InGameAssert.IsTrue(overlap <= 1.0,
+                    $"window k={k} segment {i.ToString(ic)} overlaps its predecessor by {overlap.ToString("F1", ic)}s " +
+                    $"(prev endUT={segs[i - 1].endUT.ToString("R", ic)} start={segs[i].startUT.ToString("R", ic)})");
+            }
         }
 
         // The shared eccentric-target driver. Picks the band CENTER departure (the stable mid-band pick, like
@@ -643,9 +819,10 @@ namespace Parsek.InGameTests
                     sched.PhaseAnchorUT, spanStart, spanEnd, sched.CadenceSeconds, currentUT,
                     out List<OrbitSegment> segs, out long windowIndex);
                 InGameAssert.AreEqual(k, windowIndex, $"window index must equal k={k} on resolve AND on decline");
+                OrbitSegment firstSolveTransfer = default;
                 if (ok)
                 {
-                    AssertSaneWindowSegments(ctx, segs, plan, departureUT, spanEnd, k);
+                    firstSolveTransfer = AssertSaneWindowSegments(ctx, segs, plan, departureUT, spanEnd, k);
                     resolvedCount++;
                     map.Append('R');
                 }
@@ -675,7 +852,10 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(windowIndex, windowIndex2, $"window k={k} re-solve index must match");
                 if (ok && ok2)
                 {
-                    OrbitSegment a = segs[1], b = segs2[1];
+                    // Compare the RE-AIMED TRANSFER conic across the two solves, found by body (the chain
+                    // shape can vary with the flag/topology, so segs[1] is no longer reliably the transfer).
+                    OrbitSegment a = firstSolveTransfer;
+                    OrbitSegment b = FindReaimedTransfer(segs2, plan);
                     InGameAssert.IsTrue(
                         NearlyEqual(a.semiMajorAxis, b.semiMajorAxis) && NearlyEqual(a.eccentricity, b.eccentricity)
                         && NearlyEqual(a.inclination, b.inclination)
@@ -830,7 +1010,7 @@ namespace Parsek.InGameTests
                 depUTs[i] = tDep;
                 scan[i] = ReaimTransferSynthesizer.TrySynthesizeTransfer(
                     ctx.LaunchBody, ctx.TargetBody, tDep, ctx.TofSeconds, prograde: true,
-                    out _, out _, out _, out _);
+                    out _, out _, out _, out _, out _, out _, out _, out _);
                 if (scan[i])
                     hits++;
             }
@@ -883,20 +1063,159 @@ namespace Parsek.InGameTests
             };
         }
 
-        // The shared per-window sanity assertions: 3 segments (launch parking / re-aimed
-        // common-ancestor transfer / target arrival), sane elliptic transfer conic, recorded-span
-        // placement. Reads the launch/target body names from the fixture so it is target-agnostic.
-        private static void AssertSaneWindowSegments(
+        // Builds the REAL-TOPOLOGY synthetic member + plan for the chain-synthesis path (reaim-fix-plan.md
+        // P4 / "CRITICAL SCOPE CORRECTION"): NOT the 3-leg [parking, helio, arrival] idealization, but the
+        // shape the chain synthesis ships for - a circular launch-body PARKING orbit, a launch-body ESCAPE
+        // HYPERBOLA (sma<0), the common-ancestor TRANSFER coast [departureUT, recordedArrivalUT], a
+        // target-body CAPTURE HYPERBOLA (sma<0), and a target-body DESCENT ellipse. The heliocentric leg
+        // stays at [departureUT, recordedArrivalUT] (so the resolver's transfer placement / window mapping
+        // is unchanged from BuildMemberAndPlan) and RecordedDepartureUT/RecordedArrivalUT keep the values
+        // the schedule expects.
+        //
+        // <para>The escape run ends co-located with departureUT (within EscapeHandoffToleranceSeconds) and
+        // the first capture begins at recordedArrivalUT, so the assembler's STEP 3 co-location gate accepts
+        // the escape handoff and the STEP 4 capture pin lands on the recorded arrival boundary.</para>
+        //
+        // <para>When <paramref name="ikeThread"/> is true an Ike SOI thread (two short Ike hyperbolae) is
+        // inserted between the Duna capture and the descent - the secondary-moon / Phase-4 case the capture
+        // side FAILS CLOSED for (CaptureSynthesizable=false), so the synth escape + transfer ship but the
+        // recorded capture/Ike/descent run stays verbatim.</para>
+        //
+        // The plan's chain index spans + recorded-span run UTs are wired to match the member so the live
+        // resolver (BuildWindowSegments) splices by span; the indices are into THIS list (no predicted tails,
+        // already sorted) so they align with the classifier's contract.
+        private static void BuildRealTopologyMemberAndPlan(
+            ScanContext ctx, double departureUT, bool ikeThread,
+            out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
+            out double spanStart, out double spanEnd)
+        {
+            ReaimFixture fx = ctx.Fixture;
+            string launchName = fx.LaunchBodyName;
+            string targetName = fx.TargetBodyName;
+            string parent = ctx.LaunchBody.referenceBody.bodyName;
+
+            double recordedArrivalUT = departureUT + ctx.TofSeconds;
+            // Launch-body legs BEFORE the transfer: circular parking [parkStart, escapeStart] then the escape
+            // hyperbola [escapeStart, departureUT]. The escape run ends exactly at departureUT (co-located).
+            double escapeRunSeconds = 60.0;          // a short recorded escape hyperbola (sub-tolerance handoff)
+            double escapeStartUT = departureUT - escapeRunSeconds;
+            double parkStartUT = escapeStartUT - 600.0;
+            spanStart = parkStartUT;
+            // Target-body legs AFTER the transfer: a capture hyperbola [recordedArrivalUT, captureEndUT],
+            // optionally an Ike thread, then a descent ellipse ending at spanEnd.
+            double captureSeconds = 200.0;
+            double captureEndUT = recordedArrivalUT + captureSeconds;
+
+            memberSegments = new List<OrbitSegment>();
+            // [0] circular launch-body parking orbit (kept verbatim; the escape leg is selected by index).
+            memberSegments.Add(new OrbitSegment { bodyName = launchName, startUT = parkStartUT, endUT = escapeStartUT,
+                semiMajorAxis = fx.ParkingSma, eccentricity = fx.ParkingEcc, epoch = parkStartUT });
+            // [1] launch-body ESCAPE HYPERBOLA (sma<0, ecc>1) - the leg chain synthesis replaces.
+            memberSegments.Add(new OrbitSegment { bodyName = launchName, startUT = escapeStartUT, endUT = departureUT,
+                semiMajorAxis = -3818300.0, eccentricity = 1.19, epoch = escapeStartUT });
+            // [2] common-ancestor (Sun) TRANSFER coast [departureUT, recordedArrivalUT].
+            memberSegments.Add(new OrbitSegment { bodyName = parent, startUT = departureUT, endUT = recordedArrivalUT,
+                semiMajorAxis = fx.HeliocentricSma, eccentricity = fx.HeliocentricEcc, epoch = departureUT });
+            int firstCaptureIndex = memberSegments.Count;
+            // [3] target-body CAPTURE HYPERBOLA (sma<0, ecc>1) - the first capture leg.
+            memberSegments.Add(new OrbitSegment { bodyName = targetName, startUT = recordedArrivalUT, endUT = captureEndUT,
+                semiMajorAxis = -563351.0, eccentricity = 1.05, epoch = recordedArrivalUT });
+            double tailStartUT = captureEndUT;
+            if (ikeThread)
+            {
+                // Ike SOI thread (two short Ike hyperbolae) - the secondary-moon case (capture fails closed).
+                double ikeEndUT = tailStartUT + 100.0;
+                memberSegments.Add(new OrbitSegment { bodyName = "Ike", startUT = tailStartUT, endUT = tailStartUT + 50.0,
+                    semiMajorAxis = -29873.0, eccentricity = 1.02, epoch = tailStartUT });
+                memberSegments.Add(new OrbitSegment { bodyName = "Ike", startUT = tailStartUT + 50.0, endUT = ikeEndUT,
+                    semiMajorAxis = -29873.0, eccentricity = 1.02, epoch = tailStartUT + 50.0 });
+                tailStartUT = ikeEndUT;
+            }
+            // descent ellipse (sma>0, ecc<1), ending at the span end.
+            spanEnd = tailStartUT + 600.0;
+            memberSegments.Add(new OrbitSegment { bodyName = targetName, startUT = tailStartUT, endUT = spanEnd,
+                semiMajorAxis = fx.ArrivalSma, eccentricity = fx.ArrivalEcc, epoch = tailStartUT });
+
+            // CaptureSynthesizable mirrors the classifier's decision: false when the Ike thread is present
+            // (secondary-SOI), true for the clean single-capture arrival.
+            bool captureSynthesizable = !ikeThread;
+
+            plan = new ReaimMissionPlan
+            {
+                Supported = true,
+                LaunchBody = launchName,
+                TargetBody = targetName,
+                CommonAncestor = parent,
+                ParkingOrbit = memberSegments[0],
+                HeliocentricLeg = memberSegments[2],
+                ArrivalLeg = memberSegments[firstCaptureIndex],
+                RecordedDepartureUT = departureUT,
+                RecordedArrivalUT = recordedArrivalUT,
+                RecordedTransferTofSeconds = ctx.TofSeconds,
+
+                // Chain-synthesis index spans (into THIS member list; no predicted tails, already ordered).
+                ParkingIndex = 0,
+                EscapeRunStartIndex = 1,
+                EscapeRunEndIndex = 1,
+                EscapeRunIsParkingOnly = false,
+                TransferRunStartIndex = 2,
+                TransferRunEndIndex = 2,
+                FirstCaptureIndex = firstCaptureIndex,
+                // Recorded-span run boundary UTs the assembler tiles the synth legs against.
+                EscapeRunStartUT = escapeStartUT,
+                EscapeRunEndUT = departureUT,                 // co-located with the transfer-run start
+                TransferRunEndUT = recordedArrivalUT,
+                FirstCaptureStartUT = recordedArrivalUT,      // == the target SOI-entry the capture pins to
+                FirstCaptureEndUT = captureEndUT,
+                CaptureSynthesizable = captureSynthesizable,
+                CaptureSynthesizableReason = ikeThread ? "secondary-SOI thread (Ike)" : "clean single-capture arrival",
+            };
+        }
+
+        // The shared per-window sanity assertions, REWRITTEN for the re-aim whole-chain synthesis fix
+        // (reaim-fix-plan.md P4): the assembled list is NO LONGER a 3-segment [parking, transfer, arrival]
+        // idealization. It is a GENERIC chain whose shape depends on the member topology and the
+        // reaimChainSynthesis flag state:
+        //   - flag OFF (the byte-identical baseline path the existing tests run under): today's single-leg
+        //     heliocentric replacement - the recorded launch-body leg(s), ONE re-aimed common-ancestor
+        //     transfer, the recorded target-body leg(s). For the simple 3-leg fixture this is still 3
+        //     segments; for the real-topology fixture (BuildRealTopologyMemberAndPlan) it is the full
+        //     recorded chain with only the Sun leg replaced.
+        //   - flag ON, real topology: the synth escape + transfer + (when synthesizable) capture spliced
+        //     contiguously into the verbatim recorded parking / Ike / descent.
+        // So the assertions are shape-AGNOSTIC: find the re-aimed transfer by BODY (not by index segs[1]),
+        // validate the sane prograde elliptic conic + the recorded-span placement, and confirm the chain is
+        // bracketed by a launch-body leg before the transfer and a target-body leg after it that keeps the
+        // span end. Returns the re-aimed transfer segment so the caller can read its per-window orientation
+        // (the strict test's longitude-of-periapsis rotation), which used to be the hard-coded segs[1].
+        private static OrbitSegment AssertSaneWindowSegments(
             ScanContext ctx, List<OrbitSegment> segs, ReaimMissionPlan plan, double departureUT, double spanEnd, long k)
         {
             var ic = CultureInfo.InvariantCulture;
             string launchName = ctx.LaunchBodyName;
             string targetName = ctx.TargetBodyName;
-            InGameAssert.IsTrue(segs != null && segs.Count == 3,
-                $"window k={k} must keep 3 segments ({launchName} parking / re-aimed transfer / {targetName} arrival)");
-            OrbitSegment transfer = segs[1];
-            InGameAssert.AreEqual(plan.CommonAncestor, transfer.bodyName,
-                $"window k={k} transfer must be common-ancestor-bodied");
+            InGameAssert.IsTrue(segs != null && segs.Count >= 3,
+                $"window k={k} must have at least 3 segments (a {launchName} launch leg / re-aimed transfer / {targetName} arrival leg); was {(segs == null ? "null" : segs.Count.ToString(ic))}");
+
+            // The re-aimed transfer: the common-ancestor-bodied leg overlapping the recorded transfer window
+            // [departureUT, recordedArrivalUT]. There must be EXACTLY ONE (any further in-window heliocentric
+            // coasts collapse into the one re-aimed arc), found by body, not by a fixed index.
+            int transferIdx = -1;
+            int transferCount = 0;
+            for (int i = 0; i < segs.Count; i++)
+            {
+                OrbitSegment s = segs[i];
+                if (s.bodyName == plan.CommonAncestor
+                    && s.startUT < plan.RecordedArrivalUT && s.endUT > plan.RecordedDepartureUT)
+                {
+                    transferCount++;
+                    transferIdx = i;
+                }
+            }
+            InGameAssert.AreEqual(1, transferCount,
+                $"window k={k} must have exactly one re-aimed {plan.CommonAncestor}-bodied transfer leg in the recorded window (any extra heliocentric coasts collapse into one arc)");
+            OrbitSegment transfer = segs[transferIdx];
+
             InGameAssert.IsTrue(
                 ReaimTransferSynthesizer.IsSaneTransferConic(transfer.eccentricity, transfer.semiMajorAxis),
                 $"window k={k} transfer must be a sane elliptic conic (ecc={transfer.eccentricity.ToString("R", ic)} sma={transfer.semiMajorAxis.ToString("R", ic)})");
@@ -909,14 +1228,45 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(
                 !ReaimTransferSynthesizer.IsRetrogradeTransfer(transfer.inclination),
                 $"window k={k} transfer must be prograde (inc={transfer.inclination.ToString("F2", ic)} deg < 90; a retrograde result declines to faithful, never resolves)");
-            // Per-member: only the heliocentric leg is re-aimed (placed at [departure, recordedArrival]);
-            // the launch parking + target arrival legs keep their recorded UTs + bodies.
-            InGameAssert.AreEqual(launchName, segs[0].bodyName, $"window k={k} must keep the {launchName} parking leg");
-            InGameAssert.AreEqual(targetName, segs[2].bodyName, $"window k={k} must keep the {targetName} arrival leg");
-            InGameAssert.IsTrue(System.Math.Abs(segs[1].startUT - departureUT) < 1.0,
-                $"window k={k} transfer must start at the recorded departure (recorded-span)");
-            InGameAssert.IsTrue(System.Math.Abs(segs[2].endUT - spanEnd) < 1.0,
-                $"window k={k} arrival must keep its recorded span end (fits span)");
+            // The re-aimed transfer is placed at the recorded departure (recorded-span); only the
+            // common-ancestor leg is re-aimed, so its start anchors the loop's replay of the departure.
+            InGameAssert.IsTrue(System.Math.Abs(transfer.startUT - departureUT) < 1.0,
+                $"window k={k} transfer must start at the recorded departure (recorded-span; was {transfer.startUT.ToString("R", ic)})");
+
+            // The chain is bracketed by the recorded body-relative legs that follow their LIVE body: a
+            // launch-body leg (circular parking and/or escape) BEFORE the transfer, and a target-body leg
+            // (capture and/or descent) AFTER it. These pass through verbatim (flag OFF) or surround the synth
+            // escape/capture (flag ON); either way the chain must START launch-bodied and the LAST segment
+            // must be target-bodied and keep the recorded span end.
+            InGameAssert.IsTrue(transferIdx >= 1,
+                $"window k={k} the re-aimed transfer must be preceded by a recorded {launchName} launch leg");
+            InGameAssert.AreEqual(launchName, segs[0].bodyName,
+                $"window k={k} the chain must start with the {launchName} launch leg (body-relative, follows its body)");
+            OrbitSegment lastSeg = segs[segs.Count - 1];
+            InGameAssert.AreEqual(targetName, lastSeg.bodyName,
+                $"window k={k} the chain must end on the {targetName} arrival/descent leg (body-relative)");
+            InGameAssert.IsTrue(System.Math.Abs(lastSeg.endUT - spanEnd) < 1.0,
+                $"window k={k} the arrival/descent leg must keep its recorded span end (fits span; was {lastSeg.endUT.ToString("R", ic)})");
+
+            return transfer;
+        }
+
+        // The re-aimed transfer leg (the single common-ancestor-bodied segment overlapping the recorded
+        // transfer window), found by BODY - the chain shape can vary with the flag / topology, so a fixed
+        // index is unreliable. Used by the determinism re-solve comparison. Returns default(OrbitSegment)
+        // if none is found (the caller only reaches here on a resolved window, so one always exists).
+        private static OrbitSegment FindReaimedTransfer(List<OrbitSegment> segs, ReaimMissionPlan plan)
+        {
+            if (segs == null)
+                return default;
+            for (int i = 0; i < segs.Count; i++)
+            {
+                OrbitSegment s = segs[i];
+                if (s.bodyName == plan.CommonAncestor
+                    && s.startUT < plan.RecordedArrivalUT && s.endUT > plan.RecordedDepartureUT)
+                    return s;
+            }
+            return default;
         }
 
         // Identical-solve comparison: the re-solve runs the same FP path on the same inputs, so

@@ -272,41 +272,56 @@ namespace Parsek.Reaim
         }
 
         /// <summary>
-        /// Flag dispatcher for the re-aim whole-chain synthesis fix (reaim-fix-plan.md, option 3 / P1).
+        /// Flag dispatcher for the re-aim whole-chain synthesis fix (reaim-fix-plan.md, option 3 / P1+P3).
         /// This is the PURE seam the <c>reaimChainSynthesis</c> feature flag gates so the flag-OFF
         /// byte-identical proof is runnable in xUnit (the live <c>BuildWindowSegments</c> is Unity-bound
         /// and cannot run headless).
         ///
         /// <para>When <paramref name="useChain"/> is <c>false</c> this returns EXACTLY
         /// <see cref="ReplaceHeliocentricLeg"/>'s output (the identity path: today's single-leg
-        /// heliocentric replacement, byte-identical to the baseline). When <c>true</c> it CURRENTLY also
-        /// returns <see cref="ReplaceHeliocentricLeg"/> - a placeholder for the P3 chain synthesis
-        /// (escape + transfer + capture). Until P3 lands, flag ON and flag OFF are identical, so turning
-        /// the flag on changes no behavior yet. Same purity contract as
-        /// <see cref="ReplaceHeliocentricLeg"/>: operates on copied OrbitSegment value structs, never
-        /// writes back to <paramref name="memberSegments"/> / the recording / the .prec.</para>
+        /// heliocentric replacement, byte-identical to the baseline). When <c>true</c> it calls the P3
+        /// <see cref="ReplaceTransferChain"/> (escape + transfer + capture spliced contiguously into the
+        /// recorded segments). <see cref="ReplaceTransferChain"/> is ALL-OR-NOTHING fail-closed: on any
+        /// synthesis failure (missing legs, NaN spans, a UT-tiling fault, no heliocentric leg in the
+        /// member) it returns null and THIS method falls back to <see cref="ReplaceHeliocentricLeg"/>'s
+        /// result, so the chain path is never worse than today's baseline (reaim-fix-plan.md "Fallback
+        /// chain"). When the chain inputs are absent (the legacy/placeholder call shape with no
+        /// <paramref name="escapeSeg"/>/<paramref name="captureSeg"/>/spans), <see cref="ReplaceTransferChain"/>
+        /// returns null and the ON path stays byte-identical to OFF - the same contract P1 shipped.</para>
+        ///
+        /// <para>Same purity contract as <see cref="ReplaceHeliocentricLeg"/>: operates on copied
+        /// OrbitSegment value structs, never writes back to <paramref name="memberSegments"/> / the
+        /// recording / the .prec. <paramref name="parkDeltaLonDeg"/> (#1167 live-frame park re-phase,
+        /// default 0 = no rotation) is forwarded unchanged on BOTH branches so gating the flag never
+        /// silently drops the re-phase.</para>
         /// </summary>
-        // TODO P3: when useChain is true, call the new ReplaceTransferChain(...) instead of
-        // ReplaceHeliocentricLeg(...). ReplaceTransferChain synthesizes the escape + transfer + capture
-        // legs from the single Lambert solve's v1/v2 and tiles them contiguously into the recorded
-        // segments (see reaim-fix-plan.md STEP 0-5 + the P2/P3 phases). On any synthesis failure it must
-        // fall back to ReplaceHeliocentricLeg (all-or-nothing fail-closed). For now the ON path is a no-op
-        // placeholder returning the identical result so P1 ships a default-OFF flag with zero behavior
-        // change.
-        // parkDeltaLonDeg (#1167 live-frame park re-phase, default 0 = no rotation) is forwarded unchanged
-        // to ReplaceHeliocentricLeg on BOTH branches so gating the flag never silently drops the re-phase;
-        // the future P3 ReplaceTransferChain must keep threading it.
         internal static List<OrbitSegment> AssembleWindowChain(
             bool useChain,
             IReadOnlyList<OrbitSegment> memberSegments, OrbitSegment transferSegment,
             string commonAncestor, double recordedDepartureUT, double recordedArrivalUT,
             double transferRenderStartUT, double transferRenderEndUT,
-            double parkDeltaLonDeg = 0.0)
+            double parkDeltaLonDeg = 0.0,
+            OrbitSegment? escapeSeg = null, OrbitSegment? captureSeg = null,
+            string launchBody = null, string targetBody = null,
+            double escapeRunStartUT = double.NaN, double escapeRunEndUT = double.NaN,
+            double firstCaptureStartUT = double.NaN, double firstCaptureEndUT = double.NaN,
+            bool escapeRunIsParkingOnly = false, bool captureSynthesizable = false)
         {
             if (useChain)
             {
-                // P3 placeholder: same result as the identity path until ReplaceTransferChain lands. Keeps
-                // flag ON behavior-identical to flag OFF in this phase (no actual chain synthesis yet).
+                // P3 chain synthesis. ALL-OR-NOTHING: on any failure (null result) fall back to today's
+                // heliocentric-only baseline - the chain is never worse than the single-honest-kink baseline.
+                List<OrbitSegment> chain = ReplaceTransferChain(
+                    memberSegments, escapeSeg, transferSegment, captureSeg,
+                    commonAncestor, launchBody, targetBody,
+                    recordedDepartureUT, recordedArrivalUT,
+                    escapeRunStartUT, escapeRunEndUT,
+                    firstCaptureStartUT, firstCaptureEndUT,
+                    escapeRunIsParkingOnly, captureSynthesizable, parkDeltaLonDeg);
+                if (chain != null && chain.Count > 0)
+                    return chain;
+
+                // Fall through to the heliocentric-only baseline (parkDeltaLonDeg forwarded).
                 return ReplaceHeliocentricLeg(
                     memberSegments, transferSegment, commonAncestor,
                     recordedDepartureUT, recordedArrivalUT,
@@ -318,6 +333,194 @@ namespace Parsek.Reaim
                 memberSegments, transferSegment, commonAncestor,
                 recordedDepartureUT, recordedArrivalUT,
                 transferRenderStartUT, transferRenderEndUT, parkDeltaLonDeg);
+        }
+
+        /// <summary>
+        /// P3 whole-chain synthesis (reaim-fix-plan.md STEP 3/4/5). Returns a copy of
+        /// <paramref name="memberSegments"/> with the recorded ESCAPE run, heliocentric TRANSFER run, and
+        /// FIRST CAPTURE leg REPLACED by the three pre-built synthesized legs (already shifted into
+        /// recorded-span time by the live caller), spliced in with re-stamped CONTIGUOUS recorded-span UTs
+        /// so the legs tile zero-gap into the surrounding verbatim recorded segments (circular parking,
+        /// recorded heliocentric park, Ike thread, re-capture, descent, debris). The full-span render is
+        /// then correct (each synth leg covers its own recorded span with real body-relative geometry), so
+        /// there is NO center-vs-SOI gap to trim and the reverted launch-side trim is NOT reintroduced
+        /// (guarantee 7).
+        ///
+        /// <para>FAIL-CLOSED, ALL-OR-NOTHING (returns null =&gt; the caller uses today's
+        /// <see cref="ReplaceHeliocentricLeg"/> baseline):
+        /// <list type="bullet">
+        /// <item>no transfer leg could be selected (the member has no heliocentric leg in the window),</item>
+        /// <item>any required recorded-span boundary UT is NaN / non-finite / mis-ordered,</item>
+        /// <item>the synth transfer leg is the seam everything pins to and MUST be present (the caller's
+        /// resolver only reaches here after the transfer synthesized).</item>
+        /// </list></para>
+        ///
+        /// <para>CAPTURE-SIDE FAIL-CLOSED (reaim-fix-plan.md "Capture-side fail-closed"): when
+        /// <paramref name="captureSynthesizable"/> is false (Ike-thread / secondary-SOI / atmospheric-direct
+        /// arrival) OR <paramref name="captureSeg"/> is null, the ESCAPE + TRANSFER legs are synthesized and
+        /// the recorded capture / arrival run is kept VERBATIM (byte-identical to the baseline arrival), so
+        /// an Ike-threaded arrival never renders worse than today. The escape-side improvement still ships.</para>
+        ///
+        /// <para>ESCAPE-SIDE (reaim-fix-plan.md STEP 3): when <paramref name="escapeRunIsParkingOnly"/> is
+        /// true (a direct SOI exit with no separately-recorded escape hyperbola) OR <paramref name="escapeSeg"/>
+        /// is null, the escape run is kept VERBATIM (no escape leg synthesized) and only the transfer (and
+        /// the capture, when synthesizable) are spliced. The recorded circular parking orbit is always kept
+        /// verbatim; the escape leg is anchored at the recorded launch-body SOI-exit STATE (velocity-only,
+        /// built from v1 by the live caller), so the parking-&gt;escape seam stays at the SOI edge.</para>
+        ///
+        /// <para>Pure (no Unity); the recorded escape/capture/parking structs are read-only inputs, written
+        /// only into the returned copy. Sorts + coalesces exactly like <see cref="ReplaceHeliocentricLeg"/>;
+        /// <paramref name="parkDeltaLonDeg"/> re-phases the recorded heliocentric PARK identically.</para>
+        /// </summary>
+        internal static List<OrbitSegment> ReplaceTransferChain(
+            IReadOnlyList<OrbitSegment> memberSegments,
+            OrbitSegment? escapeSeg, OrbitSegment transferSegment, OrbitSegment? captureSeg,
+            string commonAncestor, string launchBody, string targetBody,
+            double recordedDepartureUT, double recordedArrivalUT,
+            double escapeRunStartUT, double escapeRunEndUT,
+            double firstCaptureStartUT, double firstCaptureEndUT,
+            bool escapeRunIsParkingOnly, bool captureSynthesizable,
+            double parkDeltaLonDeg = 0.0)
+        {
+            if (memberSegments == null || string.IsNullOrEmpty(commonAncestor))
+                return null;
+            // The transfer window must be a sane, ordered recorded-span interval (the seam everything pins
+            // to). NaN / non-finite / mis-ordered bounds => fail closed to the baseline.
+            if (double.IsNaN(recordedDepartureUT) || double.IsInfinity(recordedDepartureUT)
+                || double.IsNaN(recordedArrivalUT) || double.IsInfinity(recordedArrivalUT)
+                || !(recordedDepartureUT < recordedArrivalUT))
+                return null;
+
+            // Decide which sides actually synthesize. The escape side is synthesized only when an escape
+            // leg was built AND the launch-body predecessor of the heliocentric leg is a real escape
+            // hyperbola (not the circular parking orbit) with a sane recorded-span run. The capture side is
+            // synthesized only when CaptureSynthesizable (no Ike-thread / atmospheric-direct) AND a capture
+            // leg was built AND its recorded-span first-capture span is sane.
+            bool synthEscape = escapeSeg.HasValue && !escapeRunIsParkingOnly
+                && !string.IsNullOrEmpty(launchBody)
+                && IsFiniteOrderedSpan(escapeRunStartUT, escapeRunEndUT)
+                // The escape run must end at the transfer-run start (a co-located handoff, within a generous
+                // burn tolerance); otherwise a recorded park sits between escape and transfer and the escape
+                // leg's end is not the SOI-exit -> keep escape verbatim (STEP 3 co-location gate).
+                && System.Math.Abs(escapeRunEndUT - recordedDepartureUT) <= EscapeHandoffToleranceSeconds;
+
+            bool synthCapture = captureSeg.HasValue && captureSynthesizable
+                && !string.IsNullOrEmpty(targetBody)
+                && IsFiniteOrderedSpan(firstCaptureStartUT, firstCaptureEndUT)
+                // STEP 4: the synth capture's SOI-entry is pinned to recordedArrivalUT (the
+                // heliocentric->capture boundary the loop clock compresses). The recorded first-capture
+                // leg must begin at that boundary (within tolerance) or the pin would tear the tiling.
+                && System.Math.Abs(firstCaptureStartUT - recordedArrivalUT) <= EscapeHandoffToleranceSeconds;
+
+            var result = new List<OrbitSegment>(memberSegments.Count + 1);
+            bool transferReplaced = false;
+            bool escapeReplaced = false;
+            bool captureReplaced = false;
+
+            for (int i = 0; i < memberSegments.Count; i++)
+            {
+                OrbitSegment s = memberSegments[i];
+
+                // (1) Heliocentric (Sun) leg in the transfer window -> the synth transfer. Further
+                //     in-window heliocentric coasts collapse into the one arc.
+                bool isHelioInWindow = !s.isPredicted && s.bodyName == commonAncestor
+                    && s.startUT < recordedArrivalUT && s.endUT > recordedDepartureUT;
+                if (isHelioInWindow)
+                {
+                    if (!transferReplaced)
+                    {
+                        OrbitSegment transfer = transferSegment;
+                        transfer.startUT = recordedDepartureUT;
+                        transfer.endUT = recordedArrivalUT;
+                        transfer.bodyName = commonAncestor;
+                        transfer.isPredicted = false;
+                        result.Add(transfer);
+                        transferReplaced = true;
+                    }
+                    continue;
+                }
+
+                // (2) Escape run (launch-body) -> the synth escape leg (only when synthesizing the escape
+                //     side). Further escape-run hyperbolae collapse into the one leg.
+                bool isEscapeRun = synthEscape && !s.isPredicted && s.bodyName == launchBody
+                    && s.startUT < escapeRunEndUT && s.endUT > escapeRunStartUT;
+                if (isEscapeRun)
+                {
+                    if (!escapeReplaced)
+                    {
+                        OrbitSegment escape = escapeSeg.Value;
+                        escape.startUT = escapeRunStartUT;
+                        escape.endUT = escapeRunEndUT;
+                        escape.bodyName = launchBody;
+                        escape.isPredicted = false;
+                        result.Add(escape);
+                        escapeReplaced = true;
+                    }
+                    continue;
+                }
+
+                // (3) First capture leg (target-body) -> the synth capture leg (only when synthesizing the
+                //     capture side). Only the FIRST capture leg is replaced; everything after it (Ike,
+                //     re-capture, descent) stays verbatim (it falls outside the first-capture span).
+                bool isFirstCapture = synthCapture && !s.isPredicted && s.bodyName == targetBody
+                    && s.startUT < firstCaptureEndUT && s.endUT > firstCaptureStartUT;
+                if (isFirstCapture)
+                {
+                    if (!captureReplaced)
+                    {
+                        OrbitSegment capture = captureSeg.Value;
+                        capture.startUT = recordedArrivalUT; // STEP 4: pin SOI-entry to the compressed-clock arrival boundary
+                        capture.endUT = firstCaptureEndUT;
+                        capture.bodyName = targetBody;
+                        capture.isPredicted = false;
+                        result.Add(capture);
+                        captureReplaced = true;
+                    }
+                    continue;
+                }
+
+                // (4) Everything else passes through verbatim. The recorded heliocentric PARK (a
+                //     non-predicted common-ancestor coast ENDING at/before the burn) is re-phased into the
+                //     live frame identically to ReplaceHeliocentricLeg; the body-relative legs and predicted
+                //     tails are never rotated. parkDeltaLonDeg == 0 leaves every segment byte-identical.
+                if (parkDeltaLonDeg != 0.0 && !s.isPredicted && s.bodyName == commonAncestor
+                    && s.endUT <= recordedDepartureUT + 1.0)
+                    result.Add(RotateLanForParkRephase(s, parkDeltaLonDeg));
+                else
+                    result.Add(s);
+            }
+
+            // The transfer leg is the seam everything pins to; if the member carried no heliocentric leg in
+            // the window there is nothing to synthesize -> fail closed to the baseline (the heliocentric-only
+            // ReplaceHeliocentricLeg returns null for the same member, so the caller stays faithful).
+            if (!transferReplaced)
+                return null;
+
+            result.Sort((a, b) => a.startUT.CompareTo(b.startUT));
+            // Coalesce the recorder's same-orbit fragments exactly as ReplaceHeliocentricLeg (loop-only,
+            // in-memory; the recorded data is never touched). Do NOT modify CoalesceSameOrbitFragments.
+            return TrajectoryMath.CoalesceSameOrbitFragments(result);
+        }
+
+        /// <summary>
+        /// Tolerance (seconds) for the recorded-span handoffs the chain pins to: the escape run must END at
+        /// the transfer-run START (the launch SOI-exit handoff) and the recorded first capture must BEGIN at
+        /// the transfer-run END (the target SOI-entry the STEP 4 pin lands on). The recorder leaves small
+        /// inter-segment sampling gaps at recording-mode / segment transitions (the Duna One topology shows
+        /// sub-100s gaps), so a generous-but-bounded burn-scale tolerance keeps the co-location gate from
+        /// false-failing on a sampling artifact while still rejecting a recorded PARK (hours/days) sitting
+        /// between the escape and the transfer (which would move the seam off the SOI edge).
+        /// </summary>
+        internal const double EscapeHandoffToleranceSeconds = 3600.0;
+
+        /// <summary>True when <paramref name="startUT"/> / <paramref name="endUT"/> are finite and ordered
+        /// (start &lt; end). Pure helper for the chain-run span guards.</summary>
+        internal static bool IsFiniteOrderedSpan(double startUT, double endUT)
+        {
+            if (double.IsNaN(startUT) || double.IsInfinity(startUT)
+                || double.IsNaN(endUT) || double.IsInfinity(endUT))
+                return false;
+            return startUT < endUT;
         }
     }
 }

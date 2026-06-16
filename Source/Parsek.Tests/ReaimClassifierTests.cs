@@ -608,5 +608,256 @@ namespace Parsek.Tests
             double a = ReaimClassifier.HeliocentricSemiMajorAxis("Kerbin", "Sun", StockParents());
             Assert.InRange(a, 1.358e10, 1.362e10);
         }
+
+        // =====================================================================================
+        // P2 chain-synthesis index spans + CaptureSynthesizable (reaim-fix-plan.md BLOCKER 1, #3/#4)
+        // =====================================================================================
+
+        [Fact]
+        public void Classify_SimpleTransfer_IndexSpans_SelectParkingEscapeTransferCapture()
+        {
+            // The clean 3-leg [Kerbin parking, Sun transfer, Duna capture]: the launch-body predecessor of
+            // the heliocentric leg IS the parking orbit (no separate escape hyperbola), so the escape run is
+            // that single segment (EscapeRunIsParkingOnly). The transfer run is the single Sun coast; the
+            // first capture is the Duna leg.
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 700000, 0.0),       // 0: parking (also the degenerate escape run)
+                SegAE("Sun", 5000, 1000000, 1.7e10, 0.2),      // 1: transfer
+                SegAE("Duna", 1000000, 1005000, -1.88e5, 3.6), // 2: capture hyperbola
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.True(plan.Supported, plan.Reason);
+
+            Assert.Equal(0, plan.ParkingIndex);
+            Assert.Equal(0, plan.EscapeRunStartIndex);
+            Assert.Equal(0, plan.EscapeRunEndIndex);
+            Assert.True(plan.EscapeRunIsParkingOnly,
+                "a direct SOI exit (no recorded escape hyperbola) has the parking orbit as the only launch-body leg");
+
+            Assert.Equal(1, plan.TransferRunStartIndex);
+            Assert.Equal(1, plan.TransferRunEndIndex);
+
+            Assert.Equal(2, plan.FirstCaptureIndex);
+            Assert.Equal(1000000.0, plan.FirstCaptureStartUT, 3);
+            Assert.Equal(1005000.0, plan.FirstCaptureEndUT, 3);
+        }
+
+        [Fact]
+        public void Classify_EscapeHyperbolaBeforeTransfer_EscapeRunIsHyperbola_NotParking()
+        {
+            // The REAL Duna One shape (minus the Ike thread): a circular parking orbit, then a Kerbin ESCAPE
+            // HYPERBOLA (sma<0), then the Sun transfer, then the Duna capture. The escape run must select the
+            // HYPERBOLA (index 1), the parking orbit (index 0) is kept separate, and EscapeRunIsParkingOnly
+            // is false (there is a real escape leg to synthesize).
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 700000, 0.0),         // 0: circular parking
+                SegAE("Kerbin", 5000, 6000, -3.8e6, 1.19),       // 1: escape hyperbola
+                SegAE("Sun", 6000, 1000000, 1.76e10, 0.21),      // 2: transfer
+                SegAE("Duna", 1000000, 1005000, -5.6e5, 1.05),   // 3: capture hyperbola
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.True(plan.Supported, plan.Reason);
+
+            Assert.Equal(0, plan.ParkingIndex);
+            Assert.Equal(1, plan.EscapeRunStartIndex);
+            Assert.Equal(1, plan.EscapeRunEndIndex);
+            Assert.False(plan.EscapeRunIsParkingOnly);
+
+            Assert.Equal(2, plan.TransferRunStartIndex);
+            Assert.Equal(2, plan.TransferRunEndIndex);
+            Assert.Equal(3, plan.FirstCaptureIndex);
+            Assert.True(plan.CaptureSynthesizable, plan.CaptureSynthesizableReason);
+        }
+
+        [Fact]
+        public void Classify_TransferRunSpansMultipleCoasts_IndexSpanCoversAll()
+        {
+            // A mid-course correction splits the transfer into two Sun coasts. The transfer run span must
+            // cover BOTH (start at the first coast, end at the last that hands off to the capture).
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 700000, 0.0),        // 0: parking
+                SegAE("Sun", 5000, 400000, 1.7e10, 0.2),        // 1: coast 1
+                SegAE("Sun", 400500, 1000000, 1.7e10, 0.2),     // 2: coast 2 (ends at the Duna SOI)
+                SegAE("Duna", 1000000, 1005000, -1.88e5, 3.6),  // 3: capture
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.True(plan.Supported, plan.Reason);
+            Assert.Equal(1, plan.TransferRunStartIndex);
+            Assert.Equal(2, plan.TransferRunEndIndex);
+            Assert.Equal(3, plan.FirstCaptureIndex);
+        }
+
+        [Fact]
+        public void Classify_IkeThreadedArrival_CaptureSynthesizableFalse()
+        {
+            // The DUNA ONE real topology threads Ike between two Duna capture fragments (seg#12/13 Duna,
+            // seg#14/15 Ike, seg#16+ Duna). The capture side MUST fail closed (CaptureSynthesizable=false)
+            // so chain synthesis keeps the recorded capture/arrival run verbatim. This is the #3/#4 scope
+            // correction's load-bearing detection.
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 700000, 0.0),
+                SegAE("Kerbin", 5000, 6000, -3.8e6, 1.19),       // escape
+                SegAE("Sun", 6000, 1000000, 1.76e10, 0.21),      // transfer
+                SegAE("Duna", 1000000, 1010000, -5.6e5, 1.05),   // capture hyperbola (arrival)
+                SegAE("Duna", 1010000, 1020000, -5.6e5, 1.05),   // capture fragment 2
+                SegAE("Ike", 1020000, 1021000, -2.9e4, 1.02),    // IKE THREAD
+                SegAE("Ike", 1021000, 1022000, -2.9e4, 1.02),
+                SegAE("Duna", 1022000, 1023000, -5.3e5, 1.04),   // Duna re-capture
+                SegAE("Duna", 1023000, 1024000, 4.9e5, 0.45),    // descent ellipse
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.True(plan.Supported, plan.Reason);
+            Assert.Equal("Duna", plan.TargetBody);
+            Assert.False(plan.CaptureSynthesizable);
+            Assert.Contains("Ike", plan.CaptureSynthesizableReason);
+            // The FIRST capture is still the first Duna hyperbola (so the transfer run still ends correctly),
+            // even though the capture is NOT synthesized.
+            Assert.Equal("Duna", segs[plan.FirstCaptureIndex].bodyName);
+            Assert.Equal(1000000.0, plan.FirstCaptureStartUT, 3);
+        }
+
+        [Fact]
+        public void Classify_DunaOneRealFixture_CaptureSynthesizableFalse_IkeThread()
+        {
+            // The shared P0 golden-master fixture (the 15-segment Duna One member with the Ike thread).
+            // CaptureSynthesizable must be false (Ike thread); the escape run must select the escape
+            // hyperbola (index 1, not the index-0 parking); the transfer run spans the three Sun coasts.
+            var member = Parsek.Tests.Generators.ReaimChainSynthesisFixtures.BuildDunaOneTransferMember();
+            var plan = ReaimClassifier.Classify(member, StockParents());
+            Assert.True(plan.Supported, plan.Reason);
+            Assert.Equal("Kerbin", plan.LaunchBody);
+            Assert.Equal("Duna", plan.TargetBody);
+
+            // index 0 = circular parking, index 1 = escape hyperbola (the run), indices 2..4 = the 3 Sun coasts.
+            Assert.Equal(0, plan.ParkingIndex);
+            Assert.Equal(1, plan.EscapeRunStartIndex);
+            Assert.Equal(1, plan.EscapeRunEndIndex);
+            Assert.False(plan.EscapeRunIsParkingOnly);
+            Assert.Equal(2, plan.TransferRunStartIndex);
+            Assert.Equal(4, plan.TransferRunEndIndex);
+            Assert.Equal(5, plan.FirstCaptureIndex); // the first Duna capture hyperbola (seg#12)
+
+            // Recorded-span UT spans (P3 STEP 5: the assembler selects the runs by UT span, not by index).
+            // Escape run = seg#8 [63966986, 64044033]; transfer run start = the first Sun coast 64044033
+            // (== RecordedDepartureUT); transfer run end = the last Sun coast end 70898646
+            // (== RecordedArrivalUT == FirstCaptureStartUT); first capture [70898646, 70912684].
+            Assert.Equal(63966986.0, plan.EscapeRunStartUT, 3);
+            Assert.Equal(64044033.0, plan.EscapeRunEndUT, 3);
+            Assert.Equal(64044033.0, plan.RecordedDepartureUT, 3); // transfer-run start
+            Assert.Equal(70898646.0, plan.TransferRunEndUT, 3);
+            Assert.Equal(70898646.0, plan.FirstCaptureStartUT, 3);
+            Assert.Equal(70912684.0, plan.FirstCaptureEndUT, 3);
+            // The escape run END is co-located with the transfer-run START (the SOI-exit handoff), so the
+            // assembler's STEP 3 co-location gate accepts the escape side.
+            Assert.Equal(plan.EscapeRunEndUT, plan.RecordedDepartureUT, 3);
+
+            Assert.False(plan.CaptureSynthesizable);
+            Assert.Contains("Ike", plan.CaptureSynthesizableReason);
+        }
+
+        [Fact]
+        public void Classify_AtmosphericDirectArrival_CaptureSynthesizableFalse()
+        {
+            // The first target-bodied leg is an elliptic DESCENDING arc (sma>0, ecc<1), not a capture
+            // hyperbola - an atmospheric-direct arrival. No capture hyperbola exists to synthesize, so the
+            // capture side fails closed.
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 700000, 0.0),
+                SegAE("Sun", 5000, 1000000, 1.7e10, 0.2),
+                SegAE("Duna", 1000000, 1005000, 4.9e5, 0.45),   // ELLIPTIC descent, not a hyperbola
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.True(plan.Supported, plan.Reason);
+            Assert.False(plan.CaptureSynthesizable);
+            Assert.Contains("atmospheric-direct", plan.CaptureSynthesizableReason);
+        }
+
+        [Fact]
+        public void Classify_CleanHyperbolaCapture_CaptureSynthesizableTrue()
+        {
+            // A clean single-capture arrival (a Duna capture hyperbola, no Ike, no descent ellipse after) ->
+            // CaptureSynthesizable=true (the case option 3 fully improves).
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 700000, 0.0),
+                SegAE("Sun", 5000, 1000000, 1.7e10, 0.2),
+                SegAE("Duna", 1000000, 1005000, -1.88e5, 3.6),   // capture hyperbola, nothing after
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.True(plan.Supported, plan.Reason);
+            Assert.True(plan.CaptureSynthesizable, plan.CaptureSynthesizableReason);
+            Assert.Contains("clean", plan.CaptureSynthesizableReason);
+        }
+
+        // ---- ClassifyCaptureSynthesizable directly (pure predicate) ----
+
+        [Fact]
+        public void ClassifyCaptureSynthesizable_HyperbolaNoThread_True()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Duna", 1000000, 1005000, -1.88e5, 3.6),   // 0: capture hyperbola (arrivalIdx)
+                SegAE("Duna", 1005000, 1006000, 4.9e5, 0.45),    // 1: same-body descent (not a thread)
+            };
+            Assert.True(ReaimClassifier.ClassifyCaptureSynthesizable(
+                segs, arrivalIdx: 0, "Duna", "Sun", "Kerbin", StockParents(), out string reason), reason);
+        }
+
+        [Fact]
+        public void ClassifyCaptureSynthesizable_SecondaryBodyThread_False()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Duna", 1000000, 1005000, -1.88e5, 3.6),   // 0: capture hyperbola
+                SegAE("Ike", 1005000, 1006000, -2.9e4, 1.02),    // 1: Ike thread -> fail closed
+            };
+            Assert.False(ReaimClassifier.ClassifyCaptureSynthesizable(
+                segs, arrivalIdx: 0, "Duna", "Sun", "Kerbin", StockParents(), out string reason));
+            Assert.Contains("Ike", reason);
+        }
+
+        [Fact]
+        public void ClassifyCaptureSynthesizable_EllipticFirstLeg_False_AtmosphericDirect()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Duna", 1000000, 1005000, 4.9e5, 0.45),    // 0: elliptic descending arc, no hyperbola
+            };
+            Assert.False(ReaimClassifier.ClassifyCaptureSynthesizable(
+                segs, arrivalIdx: 0, "Duna", "Sun", "Kerbin", StockParents(), out string reason));
+            Assert.Contains("atmospheric-direct", reason);
+        }
+
+        [Fact]
+        public void ClassifyCaptureSynthesizable_LaunchBodyAndCommonAncestorAfterCapture_NotAThread()
+        {
+            // A launch-body or common-ancestor segment after the capture (e.g. jettisoned debris back to
+            // Kerbin / a same-orbit Sun fragment) is NOT a secondary-SOI thread - only a DIFFERENT
+            // non-target body is. (Guards against over-eager fail-closed.)
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Duna", 1000000, 1005000, -1.88e5, 3.6),   // 0: capture hyperbola
+                SegAE("Kerbin", 1005000, 1006000, 700000, 0.0),  // 1: launch body (not a thread)
+                SegAE("Sun", 1006000, 1007000, 1.7e10, 0.2),     // 2: common ancestor (not a thread)
+            };
+            Assert.True(ReaimClassifier.ClassifyCaptureSynthesizable(
+                segs, arrivalIdx: 0, "Duna", "Sun", "Kerbin", StockParents(), out string reason), reason);
+        }
+
+        [Fact]
+        public void ClassifyCaptureSynthesizable_DegenerateInputs_False()
+        {
+            Assert.False(ReaimClassifier.ClassifyCaptureSynthesizable(
+                null, 0, "Duna", "Sun", "Kerbin", StockParents(), out _));
+            Assert.False(ReaimClassifier.ClassifyCaptureSynthesizable(
+                new List<OrbitSegment>(), 0, "Duna", "Sun", "Kerbin", StockParents(), out _));
+            Assert.False(ReaimClassifier.ClassifyCaptureSynthesizable(
+                new List<OrbitSegment> { SegAE("Duna", 0, 1, -1e5, 3.0) }, -1, "Duna", "Sun", "Kerbin", StockParents(), out _));
+        }
     }
 }

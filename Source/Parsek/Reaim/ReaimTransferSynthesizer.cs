@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 
 namespace Parsek.Reaim
@@ -94,11 +95,17 @@ namespace Parsek.Reaim
             CelestialBody launchBody, CelestialBody targetBody, double departureUT, double tofSeconds,
             bool prograde,
             out Orbit transferOrbit, out double soiEntryUT, out CelestialBody encounterBody,
+            out Orbit escapeOrbit, out Orbit captureOrbit,
+            out double launchSoiExitUT, out double targetSoiEntryUT,
             out string failReason)
         {
             transferOrbit = null;
             soiEntryUT = double.NaN;
             encounterBody = null;
+            escapeOrbit = null;
+            captureOrbit = null;
+            launchSoiExitUT = double.NaN;
+            targetSoiEntryUT = double.NaN;
             failReason = null;
 
             if (launchBody == null || targetBody == null)
@@ -163,7 +170,13 @@ namespace Parsek.Reaim
             Vector3d launchPlaneNormal = Vector3d.Cross(
                 r1, launchBody.orbit.getOrbitalVelocityAtUT(departureUT).xzy);
 
-            if (!TransferSolver.Solve(mu, r1, r2, tofSeconds, prograde, launchPlaneNormal, out Vector3d v1, out _))
+            // Capture BOTH endpoint velocities: v1 (heliocentric departure) builds the escape leg, v2
+            // (heliocentric arrival) builds the first-capture leg - the SAME single Lambert solve feeds
+            // both SOI legs so the chain is continuous (reaim-fix-plan.md STEP 0). The ITransferSolver /
+            // UvLambert already return v2; no signature change there. r1/r2 are un-swizzled (.xzy) world,
+            // so v1/v2 are too.
+            if (!TransferSolver.Solve(mu, r1, r2, tofSeconds, prograde, launchPlaneNormal,
+                    out Vector3d v1, out Vector3d v2))
             {
                 failReason = "lambert no solution (degenerate geometry / non-convergence)";
                 return false;
@@ -208,35 +221,191 @@ namespace Parsek.Reaim
             PatchedConics.CalculatePatch(
                 transfer, nextPatch, departureUT, new PatchedConics.SolverParameters(), targetBody);
 
+            string encounterPath = null;
             if (transfer.patchEndTransition == Orbit.PatchTransitionType.ENCOUNTER
                 && transfer.closestEncounterBody == targetBody)
             {
-                transferOrbit = transfer;
                 soiEntryUT = transfer.UTsoi;
-                encounterBody = targetBody;
-                LogSynthGeometry(transfer, launchBody, targetBody, departureUT, arrivalUT, soiEntryUT, "patched-conic");
-                return true;
+                encounterPath = "patched-conic";
             }
-
-            // CalculatePatch resolved to the LAUNCH body instead (or did not promote an encounter): the
-            // heliocentric transfer STARTS at the launch body's position (inside its SOI), so the first
-            // patch is that launch-SOI transition, which masks the downstream target encounter. The
-            // Lambert solution passes through the target's exact position at arrivalUT BY CONSTRUCTION, so
-            // validate the encounter DIRECTLY by proximity: sample the transfer-to-target distance over
-            // the leg and accept if it comes within the target's SOI. Robust to the launch-SOI masking.
-            if (TryFindTargetEncounterByProximity(transfer, targetBody, departureUT, arrivalUT, out double geomSoiUT))
+            else if (TryFindTargetEncounterByProximity(transfer, targetBody, departureUT, arrivalUT, out double geomSoiUT))
             {
-                transferOrbit = transfer;
+                // CalculatePatch resolved to the LAUNCH body instead (or did not promote an encounter): the
+                // heliocentric transfer STARTS at the launch body's position (inside its SOI), so the first
+                // patch is that launch-SOI transition, which masks the downstream target encounter. The
+                // Lambert solution passes through the target's exact position at arrivalUT BY CONSTRUCTION,
+                // so validate the encounter DIRECTLY by proximity: sample the transfer-to-target distance
+                // over the leg and accept if it comes within the target's SOI. Robust to the launch-SOI
+                // masking.
                 soiEntryUT = geomSoiUT;
-                encounterBody = targetBody;
-                LogSynthGeometry(transfer, launchBody, targetBody, departureUT, arrivalUT, soiEntryUT, "proximity");
-                return true;
+                encounterPath = "proximity";
+            }
+            else
+            {
+                failReason = $"no target encounter (transition={transfer.patchEndTransition} " +
+                             $"closest={(transfer.closestEncounterBody != null ? transfer.closestEncounterBody.bodyName : "<none>")}; " +
+                             $"proximity check also failed)";
+                return false;
             }
 
-            failReason = $"no target encounter (transition={transfer.patchEndTransition} " +
-                         $"closest={(transfer.closestEncounterBody != null ? transfer.closestEncounterBody.bodyName : "<none>")}; " +
-                         $"proximity check also failed)";
-            return false;
+            transferOrbit = transfer;
+            encounterBody = targetBody;
+            LogSynthGeometry(transfer, launchBody, targetBody, departureUT, arrivalUT, soiEntryUT, encounterPath);
+
+            // Build the two SOI legs from the SAME Lambert solve (reaim-fix-plan.md STEP 1/2). These are
+            // best-effort: a leg that cannot converge a sane conic leaves its out-Orbit null + its UT NaN,
+            // and the P3 assembler falls back accordingly (all-or-nothing fail-closed at the chain level).
+            // The transfer encounter itself already succeeded, so the heliocentric-only baseline is always
+            // available even when neither leg builds.
+            captureOrbit = TryBuildCaptureLeg(transfer, targetBody, v2, soiEntryUT, departureUT, arrivalUT,
+                out targetSoiEntryUT);
+            escapeOrbit = TryBuildEscapeLeg(transfer, launchBody, v1, departureUT, arrivalUT,
+                out launchSoiExitUT);
+            LogChainLegs(launchBody, targetBody, escapeOrbit, captureOrbit, launchSoiExitUT, targetSoiEntryUT);
+            return true;
+        }
+
+        // Diagnostic: log the two synthesized SOI legs (escape launch-body-relative, capture
+        // target-relative) + their refined SOI-crossing UTs, so a corrupted leg (a swizzle error, a missed
+        // bisection) is caught at the source before P3 assembles the chain. A null leg logs "(fail-closed)"
+        // so the all-or-nothing fallback reason is visible. Verbose, one-shot per window resolve (the
+        // resolver caches the window) - mirrors LogSynthGeometry's level.
+        private static void LogChainLegs(
+            CelestialBody launchBody, CelestialBody targetBody,
+            Orbit escapeOrbit, Orbit captureOrbit, double launchSoiExitUT, double targetSoiEntryUT)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string esc = escapeOrbit == null
+                ? "(fail-closed)"
+                : $"sma={escapeOrbit.semiMajorAxis.ToString("R", ic)} ecc={escapeOrbit.eccentricity.ToString("F4", ic)}";
+            string cap = captureOrbit == null
+                ? "(fail-closed)"
+                : $"sma={captureOrbit.semiMajorAxis.ToString("R", ic)} ecc={captureOrbit.eccentricity.ToString("F4", ic)}";
+            ParsekLog.Verbose("ReaimSeam",
+                $"chain legs: escape@{launchBody.bodyName} {esc} launchSoiExitUT={launchSoiExitUT.ToString("F0", ic)} | " +
+                $"capture@{targetBody.bodyName} {cap} targetSoiEntryUT={targetSoiEntryUT.ToString("F0", ic)}");
+        }
+
+        // The fractional tolerance (of the body SOI radius) the SOI-crossing bisection refines to. 1e-4 of
+        // the SOI radius is far tighter than the in-SOI handoff seams the playtest already tolerates while
+        // staying well above floating-point noise on the sampled positions.
+        internal const double SoiBisectionToleranceFraction = 1e-4;
+
+        // Builds the first-capture leg (target-relative hyperbola) from the heliocentric arrival velocity v2
+        // (reaim-fix-plan.md STEP 1, state-vector PRIMARY path). Bisects the target SOI-sphere crossing
+        // around the resolved soiEntryUT, then constructs a target-relative Orbit from the body-relative
+        // state at that UT. Mirrors the transfer build's .xzy round-trip EXACTLY (un-swizzle to difference
+        // in one world frame, re-swizzle for UpdateFromStateVectors). v2 is in the SAME un-swizzled frame
+        // as r1/r2. Returns null (with refinedEntryUT = the raw soiEntryUT) on a degenerate result; the
+        // caller / assembler then fails the capture side closed. Live (Orbit + getOrbital*AtUT).
+        private static Orbit TryBuildCaptureLeg(
+            Orbit transfer, CelestialBody targetBody, Vector3d v2, double soiEntryUT,
+            double departureUT, double arrivalUT, out double refinedEntryUT)
+        {
+            refinedEntryUT = soiEntryUT;
+            if (transfer == null || targetBody == null || targetBody.orbit == null
+                || double.IsNaN(soiEntryUT))
+                return null;
+
+            double soi = targetBody.sphereOfInfluence;
+            // Distance (un-swizzled, consistent frame) from the transfer to the target at a UT.
+            Func<double, double> dist = ut => ReaimChainGeometry.RelativePosition(
+                transfer.getRelativePositionAtUT(ut).xzy,
+                targetBody.orbit.getRelativePositionAtUT(ut).xzy).magnitude;
+
+            // Bisect to the SOI shell. Bracket: soiEntryUT (the proximity scan returned it as inside the
+            // SOI) to arrivalUT (the transfer is aimed at the target center, so by arrivalUT it is well
+            // inside). Walk a tiny step BEFORE soiEntryUT to find an outside sample (the scan's resolution
+            // is ~span/96, so soiEntryUT is the FIRST inside sample - just before it is outside).
+            double span = arrivalUT - departureUT;
+            double step = span > 0.0 ? span / 96.0 : 0.0;
+            double outsideUT = soiEntryUT - step;
+            double tol = (!double.IsNaN(soi) && soi > 0.0) ? soi * SoiBisectionToleranceFraction : double.NaN;
+            if (step > 0.0 && ReaimChainGeometry.TryBisectSoiCrossing(
+                    dist, soi, soiEntryUT, outsideUT, tol, out double crossing))
+                refinedEntryUT = crossing;
+
+            return BuildBodyRelativeLeg(transfer, targetBody, v2, refinedEntryUT);
+        }
+
+        // Builds the escape leg (launch-body-relative hyperbola) from the heliocentric departure velocity v1
+        // (reaim-fix-plan.md STEP 2). The transfer is center-to-center, so just after departureUT it sits
+        // near the launch-body center; walk FORWARD to the launch SOI shell and bisect there, then construct
+        // a launch-body-relative Orbit from the body-relative state at that UT. Same .xzy round-trip + same
+        // fail-closed contract as the capture leg. Returns null (launchSoiExitUT NaN) on a degenerate result.
+        private static Orbit TryBuildEscapeLeg(
+            Orbit transfer, CelestialBody launchBody, Vector3d v1,
+            double departureUT, double arrivalUT, out double launchSoiExitUT)
+        {
+            launchSoiExitUT = double.NaN;
+            if (transfer == null || launchBody == null || launchBody.orbit == null)
+                return null;
+
+            double soi = launchBody.sphereOfInfluence;
+            if (double.IsNaN(soi) || soi <= 0.0)
+                return null;
+            Func<double, double> dist = ut => ReaimChainGeometry.RelativePosition(
+                transfer.getRelativePositionAtUT(ut).xzy,
+                launchBody.orbit.getRelativePositionAtUT(ut).xzy).magnitude;
+
+            // Find an OUTSIDE sample by walking forward from departureUT (inside, near the launch center)
+            // until the distance exceeds the SOI radius, then bisect [insideUT, outsideUT].
+            double span = arrivalUT - departureUT;
+            if (span <= 0.0)
+                return null;
+            const int scan = 96;
+            double dStep = span / scan;
+            double insideUT = departureUT;
+            double foundOutsideUT = double.NaN;
+            for (int i = 1; i <= scan; i++)
+            {
+                double ut = departureUT + dStep * i;
+                if (dist(ut) > soi)
+                {
+                    foundOutsideUT = ut;
+                    break;
+                }
+                insideUT = ut; // still inside the launch SOI -> advance the inside boundary
+            }
+            if (double.IsNaN(foundOutsideUT))
+                return null; // never left the launch SOI within the span -> no escape (fail closed)
+
+            double tol = soi * SoiBisectionToleranceFraction;
+            if (!ReaimChainGeometry.TryBisectSoiCrossing(
+                    dist, soi, insideUT, foundOutsideUT, tol, out launchSoiExitUT))
+                return null;
+
+            return BuildBodyRelativeLeg(transfer, launchBody, v1, launchSoiExitUT);
+        }
+
+        // Shared state-vector construction (reaim-fix-plan.md STEP 1/2): given the heliocentric transfer,
+        // a body, the heliocentric endpoint velocity vHelio (UN-swizzled .xzy frame) and the SOI-crossing
+        // UT, build a body-relative Orbit. Mirrors ReaimTransferSynthesizer.TrySynthesizeTransfer's transfer
+        // build EXACTLY: difference the parent-relative positions and velocities in the UN-swizzled (.xzy)
+        // world frame, then re-swizzle (.xzy is its own inverse) for UpdateFromStateVectors (which expects
+        // swizzled inputs). A dropped/doubled swizzle silently corrupts the orbit - verified in-game by the
+        // canary. Returns null when the resulting conic is degenerate (NaN elements / non-finite sma).
+        private static Orbit BuildBodyRelativeLeg(
+            Orbit transfer, CelestialBody body, Vector3d vHelio, double crossingUT)
+        {
+            if (double.IsNaN(crossingUT) || double.IsInfinity(crossingUT) || body.orbit == null)
+                return null;
+
+            // Un-swizzled, consistent-frame body-relative state at the crossing.
+            Vector3d rRel = ReaimChainGeometry.RelativePosition(
+                transfer.getRelativePositionAtUT(crossingUT).xzy,
+                body.orbit.getRelativePositionAtUT(crossingUT).xzy);
+            Vector3d vRel = ReaimChainGeometry.RelativeVelocity(
+                vHelio,
+                body.orbit.getOrbitalVelocityAtUT(crossingUT).xzy);
+
+            var leg = new Orbit();
+            // Re-swizzle (.xzy) for UpdateFromStateVectors, exactly as the transfer build does.
+            leg.UpdateFromStateVectors(rRel.xzy, vRel.xzy, body, crossingUT);
+            if (double.IsNaN(leg.semiMajorAxis) || double.IsInfinity(leg.semiMajorAxis)
+                || double.IsNaN(leg.eccentricity) || double.IsInfinity(leg.eccentricity))
+                return null;
+            return leg;
         }
 
         // Diagnostic: log the synthesized transfer's geometry against the bodies it must connect, so a

@@ -197,15 +197,25 @@ namespace Parsek.Reaim
             Orbit transferOrbit = null;
             double soiEntryUT = double.NaN;
             CelestialBody encounterBody = null;
+            Orbit escapeOrbit = null;
+            Orbit captureOrbit = null;
+            double launchSoiExitUT = double.NaN;
+            double targetSoiEntryUT = double.NaN;
             double usedTofSeconds = double.NaN;
             string failReason = null;
             for (int c = 0; c < candidateTofs.Count; c++)
             {
                 double tof = candidateTofs[c];
                 // ReaimTofSearch drops non-positive tofs already; keep the positivity guard as a backstop.
+                // STEP 0 widened TrySynthesizeTransfer to also emit the escape/capture legs + their SOI UTs;
+                // P3 consumes them below (the chain assembly). The legs are best-effort: a leg that cannot
+                // build leaves its Orbit null and the assembler fails that SIDE closed (escape/capture
+                // verbatim), or the whole chain falls back to the heliocentric-only baseline.
                 if (tof > 0.0 && ReaimTransferSynthesizer.TrySynthesizeTransfer(
                         launchBody, targetBody, departureUT, tof, progradeWanted,
-                        out transferOrbit, out soiEntryUT, out encounterBody, out failReason))
+                        out transferOrbit, out soiEntryUT, out encounterBody,
+                        out escapeOrbit, out captureOrbit,
+                        out launchSoiExitUT, out targetSoiEntryUT, out failReason))
                 {
                     usedTofSeconds = tof;
                     break;
@@ -228,6 +238,26 @@ namespace Parsek.Reaim
             // segment's phase matches the recorded-span playback clock: at recorded-span
             // RecordedDepartureUT the orbit sits where it was at absolute departureUT.
             transferSeg = ReaimSegmentAssembler.ShiftInTime(transferSeg, shift);
+
+            // STEP 4 (uniform shift): the escape + capture legs were built against the SAME live-clock window
+            // (launchSoiExitUT / targetSoiEntryUT are absolute live-frame UTs of the same solve as
+            // departureUT), so the SAME `shift` moves all three legs into recorded-span time, preserving
+            // each leg's per-leg phase AND their relative phase (proven by the pure
+            // UniformShift_PreservesPerLegPhaseAndSeamContiguity test). A leg that failed to build (null
+            // Orbit) stays null and the assembler fails that SIDE closed (the recorded escape/capture
+            // verbatim). The escape leg is launch-body-relative, the capture leg target-body-relative.
+            OrbitSegment? escapeSeg = null;
+            OrbitSegment? captureSeg = null;
+            if (escapeOrbit != null)
+            {
+                OrbitSegment e = ReaimOrbitSegmentConverter.ToSegment(escapeOrbit, plan.LaunchBody);
+                escapeSeg = ReaimSegmentAssembler.ShiftInTime(e, shift);
+            }
+            if (captureOrbit != null)
+            {
+                OrbitSegment cap = ReaimOrbitSegmentConverter.ToSegment(captureOrbit, plan.TargetBody);
+                captureSeg = ReaimSegmentAssembler.ShiftInTime(cap, shift);
+            }
 
             // Heliocentric-PARK re-phase (Increment 1, departure-side render). A two-burn departure escapes
             // into a Sun-inertial PARKING orbit BEFORE the trans-target burn. That park renders verbatim at
@@ -274,14 +304,23 @@ namespace Parsek.Reaim
             // Gate ONLY the assembler call on the reaimChainSynthesis flag (default OFF -> identity path).
             // The flag must not gate the Supported / no-helio-leg / parked guards, the faithful/declined
             // return, or the ReferenceEquals(effective, recorded) no-op contract above; it only chooses
-            // between today's single-leg replacement (OFF) and the P3 chain synthesis (ON, currently a
-            // placeholder returning the same result). The #1167 parkDeltaLonDeg re-phase is threaded
-            // through AssembleWindowChain to ReplaceHeliocentricLeg unchanged. See ReaimChainSynthesis.
+            // between today's single-leg replacement (OFF) and the P3 chain synthesis (ON). When ON,
+            // AssembleWindowChain splices the synth escape + transfer + capture legs contiguously into the
+            // recorded segments (ReaimSegmentAssembler.ReplaceTransferChain), failing CLOSED to today's
+            // heliocentric-only baseline on ANY synthesis failure (all-or-nothing). Index spans + the
+            // capture-side / escape-side fail-closed flags come from the classifier (plan); the escape /
+            // capture legs are the v1/v2-derived body-relative legs shifted into recorded-span time above.
+            // The #1167 parkDeltaLonDeg re-phase is threaded through unchanged. See ReaimChainSynthesis.
             List<OrbitSegment> assembled = ReaimSegmentAssembler.AssembleWindowChain(
                 ReaimChainSynthesis.IsEnabled,
                 memberSegments, transferSeg, plan.CommonAncestor,
                 plan.RecordedDepartureUT, plan.RecordedArrivalUT,
-                double.NaN, double.NaN, parkDeltaLonDeg);
+                double.NaN, double.NaN, parkDeltaLonDeg,
+                escapeSeg, captureSeg,
+                plan.LaunchBody, plan.TargetBody,
+                plan.EscapeRunStartUT, plan.EscapeRunEndUT,
+                plan.FirstCaptureStartUT, plan.FirstCaptureEndUT,
+                plan.EscapeRunIsParkingOnly, plan.CaptureSynthesizable);
             if (assembled == null || assembled.Count == 0)
             {
                 ParsekLog.Warn("ReaimPlayback",

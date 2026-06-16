@@ -56,7 +56,8 @@ namespace Parsek.InGameTests
                 double tDep = now + (synodic * i) / steps;
                 bool ok = ReaimTransferSynthesizer.TrySynthesizeTransfer(
                     kerbin, duna, tDep, tof, prograde: true,
-                    out Orbit transfer, out double soiEntryUT, out CelestialBody enc, out string fail);
+                    out Orbit transfer, out double soiEntryUT, out CelestialBody enc,
+                    out _, out _, out _, out _, out string fail);
                 if (transfer != null && ReaimTransferSynthesizer.IsSaneTransferConic(
                         transfer.eccentricity, transfer.semiMajorAxis))
                     saneTransfers++;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek.Reaim
 {
@@ -40,9 +41,79 @@ namespace Parsek.Reaim
         // is purely diagnostic so the ReaimDiag log shows WHY a Sun-predecessor mission engaged.
         public bool DepartedFromHeliocentricPark;
 
+        // ---- Chain-synthesis index spans (reaim-fix-plan.md P2, BLOCKER 1) ----
+        // The recorded transfer member is NOT a clean 3-leg [parking, helio, arrival] shape: the real
+        // Duna One is a 14+-segment chain with a recorded Kerbin ESCAPE HYPERBOLA, THREE Sun coasts, a
+        // Duna CAPTURE HYPERBOLA, an Ike thread, and a descent. Chain synthesis (P3) must replace the
+        // escape RUN, the transfer RUN, and the FIRST capture leg by INDEX (never the misnamed
+        // ParkingOrbit field, the post-capture parking, the Ike segs, the descent, or chained debris).
+        // These indices are into the SORTED non-predicted segment list the classifier walked.
+
+        // The launch-body segment(s) between the circular parking orbit and the heliocentric leg - the
+        // ESCAPE RUN. [EscapeRunStartIndex, EscapeRunEndIndex] inclusive. When the launch-body predecessor
+        // of the heliocentric leg is the circular parking orbit itself (a direct SOI-exit with no recorded
+        // escape hyperbola), the run is a single index (== ParkingIndex) and EscapeRunIsParkingOnly is
+        // true (no separate escape leg to synthesize). -1 when not applicable.
+        public int EscapeRunStartIndex;
+        public int EscapeRunEndIndex;
+        public bool EscapeRunIsParkingOnly;   // the launch-body predecessor IS the circular parking orbit (no escape hyperbola)
+
+        // The circular-parking-orbit index (the last launch-body orbit before the escape run), kept
+        // VERBATIM. == ParkingIndex below when the escape run is a separate hyperbola; == EscapeRunStartIndex
+        // when EscapeRunIsParkingOnly. -1 when not applicable.
+        public int ParkingIndex;
+
+        // The common-ancestor (Sun) transfer RUN: [TransferRunStartIndex, TransferRunEndIndex] inclusive
+        // (transferStartIdx..lastCoastIdx). All collapse into the one re-aimed arc. -1 when not applicable.
+        public int TransferRunStartIndex;
+        public int TransferRunEndIndex;
+
+        // ---- Recorded-span UT spans of the chain runs (reaim-fix-plan.md P3/STEP 5) ----
+        // The pure assembler (ReaimSegmentAssembler.ReplaceTransferChain) selects the escape / transfer /
+        // capture runs out of the member's OWN recorded segment list by recorded-span UT span, NOT by the
+        // classifier's segment INDICES: the classifier filters predicted segments and SORTS, so its indices
+        // do not align with the caller's raw memberSegments (which can carry predicted tails / a different
+        // order). These are the recorded-span boundary UTs the assembler tiles the synth legs against:
+        //   - escape run  [EscapeRunStartUT, EscapeRunEndUT]  (launch-body hyperbola run; the synth escape
+        //     replaces this span; == ParkingIndex's own span when EscapeRunIsParkingOnly, in which case the
+        //     escape side is NOT synthesized).
+        //   - transfer run [RecordedDepartureUT, TransferRunEndUT]  (the Sun coasts; the synth transfer
+        //     replaces them; RecordedDepartureUT is the run start, == HeliocentricLeg.startUT).
+        //   - first capture [FirstCaptureStartUT, FirstCaptureEndUT]  (the first target hyperbola).
+        // NaN when not applicable (an Unsupported plan).
+        public double EscapeRunStartUT;
+        public double EscapeRunEndUT;
+        public double TransferRunEndUT;
+
+        // The FIRST target-bodied capture leg (the first Duna hyperbola), kept its own index. The only
+        // capture leg chain synthesis replaces (when CaptureSynthesizable); everything after it (Ike,
+        // re-capture, descent) stays verbatim. -1 when not applicable.
+        public int FirstCaptureIndex;
+
+        // The target SOI-entry UT (== ArrivalLeg.startUT == RecordedArrivalUT) the synth capture leg's
+        // SOI-entry is pinned to (in recorded-span time). Convenience copy for the assembler.
+        public double FirstCaptureStartUT;
+        public double FirstCaptureEndUT;
+
+        // FALSE when the capture side must FAIL CLOSED (reaim-fix-plan.md CRITICAL SCOPE CORRECTION #3/#4):
+        // a SECONDARY-body SOI segment (e.g. Ike) threads between the heliocentric leg and the destination
+        // capture, OR the arrival is atmospheric-direct (the first target-bodied leg is an elliptic
+        // descending arc, no capture hyperbola to synthesize). The Duna One real topology threads Ike, so
+        // CaptureSynthesizable = false there: chain synthesis synthesizes escape + transfer only and keeps
+        // the recorded capture/arrival run VERBATIM. CaptureSynthesizableReason records why (diagnostic).
+        public bool CaptureSynthesizable;
+        public string CaptureSynthesizableReason;
+
         internal static ReaimMissionPlan Unsupported(string launchBody, string reason)
         {
-            return new ReaimMissionPlan { Supported = false, LaunchBody = launchBody, Reason = reason };
+            return new ReaimMissionPlan
+            {
+                Supported = false, LaunchBody = launchBody, Reason = reason,
+                EscapeRunStartIndex = -1, EscapeRunEndIndex = -1, ParkingIndex = -1,
+                TransferRunStartIndex = -1, TransferRunEndIndex = -1, FirstCaptureIndex = -1,
+                EscapeRunStartUT = double.NaN, EscapeRunEndUT = double.NaN, TransferRunEndUT = double.NaN,
+                FirstCaptureStartUT = double.NaN, FirstCaptureEndUT = double.NaN,
+            };
         }
     }
 
@@ -247,6 +318,60 @@ namespace Parsek.Reaim
             if (sunPredecessor && !parkingDeparture)
                 return ReaimMissionPlan.Unsupported(launchBody,
                     "transfer departs from a heliocentric parking orbit or mid-course correction (deferred); staying faithful");
+
+            // ESCAPE RUN (reaim-fix-plan.md P2/STEP 2/STEP 3, BLOCKER 1). The launch-body segment(s)
+            // immediately before the heliocentric leg are the recorded escape (a real Kerbin HYPERBOLA in
+            // the Duna One case, seg#8) - the leg chain synthesis replaces by INDEX, not the misnamed
+            // ParkingOrbit field. The discriminator between the escape leg and the circular PARKING orbit is
+            // the conic shape: the parking orbit is a BOUND (elliptic, ecc < 1, sma > 0) launch-body orbit,
+            // the escape leg is HYPERBOLIC (ecc >= 1 / sma < 0). Walk back from helioIdx-1 over CONTIGUOUS
+            // launch-body HYPERBOLAE; the first BOUND launch-body orbit hit is the parking orbit (kept
+            // verbatim, never synthesized). When the launch-body predecessor of the heliocentric leg is
+            // itself BOUND (a direct SOI exit with no separately-recorded escape hyperbola), the escape run
+            // is that single parking segment and there is nothing to synthesize on the escape side
+            // (EscapeRunIsParkingOnly).
+            int escapeRunEndIdx = helioIdx - 1;             // last launch-body seg before helio
+            bool lastLaunchBodyIsHyperbolic = IsHyperbolicConic(segs[escapeRunEndIdx]);
+            int escapeRunStartIdx;
+            int parkingOrbitIdx;
+            bool escapeRunIsParkingOnly;
+            if (!lastLaunchBodyIsHyperbolic)
+            {
+                // Direct SOI exit: the launch-body predecessor of helio IS the bound circular parking orbit.
+                // The escape run is that single segment; no escape hyperbola to synthesize.
+                escapeRunStartIdx = escapeRunEndIdx;
+                parkingOrbitIdx = escapeRunEndIdx;
+                escapeRunIsParkingOnly = true;
+            }
+            else
+            {
+                // Walk back over contiguous launch-body HYPERBOLAE; stop at the first non-launch-body seg or
+                // the first BOUND launch-body orbit (the circular parking).
+                escapeRunStartIdx = escapeRunEndIdx;
+                parkingOrbitIdx = -1;
+                for (int i = escapeRunEndIdx - 1; i >= 0; i--)
+                {
+                    if (segs[i].bodyName != launchBody)
+                        break;                              // hit a non-launch-body seg -> run ends
+                    if (!IsHyperbolicConic(segs[i]))
+                    {
+                        parkingOrbitIdx = i;                // the bound circular parking orbit
+                        break;
+                    }
+                    escapeRunStartIdx = i;                  // another launch-body escape hyperbola segment
+                }
+                // If no bound parking orbit was found before the escape run (recording started already on the
+                // escape hyperbola), fall back to the escape-run start as the parking anchor.
+                if (parkingOrbitIdx < 0)
+                    parkingOrbitIdx = escapeRunStartIdx;
+                escapeRunIsParkingOnly = false;
+            }
+
+            // CAPTURE-SIDE FAIL-CLOSED detection (reaim-fix-plan.md CRITICAL SCOPE CORRECTION #3/#4).
+            bool captureSynthesizable = ClassifyCaptureSynthesizable(
+                segs, arrivalIdx, targetBody, commonAncestor, launchBody, bodyInfo,
+                out string captureReason);
+
             return new ReaimMissionPlan
             {
                 Supported = true,
@@ -260,8 +385,97 @@ namespace Parsek.Reaim
                 RecordedDepartureUT = transferStart.startUT,            // transfer-run start (SOI exit, or the heliocentric-park burn)
                 RecordedArrivalUT = arrival.startUT,                    // target SOI entry
                 RecordedTransferTofSeconds = arrival.startUT - transferStart.startUT,
-                DepartedFromHeliocentricPark = parkingDeparture
+                DepartedFromHeliocentricPark = parkingDeparture,
+
+                // Chain-synthesis index spans (into the sorted non-predicted segs list).
+                EscapeRunStartIndex = escapeRunStartIdx,
+                EscapeRunEndIndex = escapeRunEndIdx,
+                EscapeRunIsParkingOnly = escapeRunIsParkingOnly,
+                ParkingIndex = parkingOrbitIdx,
+                TransferRunStartIndex = transferStartIdx,
+                TransferRunEndIndex = lastCoastIdx,
+                EscapeRunStartUT = segs[escapeRunStartIdx].startUT,
+                EscapeRunEndUT = segs[escapeRunEndIdx].endUT,
+                TransferRunEndUT = lastCoast.endUT,
+                FirstCaptureIndex = arrivalIdx,
+                FirstCaptureStartUT = arrival.startUT,
+                FirstCaptureEndUT = arrival.endUT,
+                CaptureSynthesizable = captureSynthesizable,
+                CaptureSynthesizableReason = captureReason,
             };
+        }
+
+        /// <summary>
+        /// True when an OrbitSegment's conic is HYPERBOLIC (an escape / capture leg) rather than BOUND
+        /// (a circular / elliptic parking orbit). A KSP hyperbola has sma &lt; 0 (and ecc &gt;= 1); a bound
+        /// orbit has sma &gt; 0 and ecc &lt; 1. Used to separate the escape hyperbola from the circular
+        /// parking orbit. Pure. NaN sma/ecc reads as NOT hyperbolic (fail safe toward treating it as a
+        /// bound parking boundary).
+        /// </summary>
+        internal static bool IsHyperbolicConic(OrbitSegment seg)
+        {
+            if (double.IsNaN(seg.semiMajorAxis) || double.IsNaN(seg.eccentricity))
+                return false;
+            return seg.semiMajorAxis < 0.0 || seg.eccentricity >= 1.0;
+        }
+
+        /// <summary>
+        /// Decides whether the FIRST target-bodied capture leg (<paramref name="arrivalIdx"/>) can be
+        /// synthesized, or whether the capture side must FAIL CLOSED to the recorded capture verbatim
+        /// (reaim-fix-plan.md CRITICAL SCOPE CORRECTION #3/#4). Returns false when:
+        /// <list type="bullet">
+        /// <item>ATMOSPHERIC-DIRECT: the first target-bodied leg is already an elliptic DESCENDING arc
+        /// (sma &gt; 0, ecc &lt; 1) rather than a capture hyperbola - there is no capture hyperbola to
+        /// synthesize.</item>
+        /// <item>SECONDARY-SOI THREAD (e.g. Ike): a segment in the arrival window after the first capture
+        /// is bodied as a DIFFERENT body that is neither the target nor the common ancestor nor the launch
+        /// body (a secondary moon SOI the arrival threads). The Duna One real topology threads Ike, so this
+        /// fires and the capture side fails closed.</item>
+        /// </list>
+        /// Pure (scans the segment bodies + the first capture's conic sign). <paramref name="reason"/>
+        /// records the decision for the diagnostic log.
+        /// </summary>
+        internal static bool ClassifyCaptureSynthesizable(
+            IReadOnlyList<OrbitSegment> segs, int arrivalIdx, string targetBody,
+            string commonAncestor, string launchBody, IBodyInfo bodyInfo, out string reason)
+        {
+            reason = null;
+            if (segs == null || arrivalIdx < 0 || arrivalIdx >= segs.Count)
+            {
+                reason = "no first-capture leg";
+                return false;
+            }
+
+            // ATMOSPHERIC-DIRECT: the first target leg is an elliptic descending arc, not a capture
+            // hyperbola (a hyperbola is sma < 0 / ecc >= 1). No capture hyperbola exists to synthesize.
+            OrbitSegment firstCapture = segs[arrivalIdx];
+            bool isHyperbola = firstCapture.semiMajorAxis < 0.0 || firstCapture.eccentricity >= 1.0;
+            if (!isHyperbola)
+            {
+                reason = $"atmospheric-direct arrival (first '{targetBody}' leg is elliptic ecc=" +
+                         $"{firstCapture.eccentricity.ToString("F3", CultureInfo.InvariantCulture)} " +
+                         $"sma={firstCapture.semiMajorAxis.ToString("R", CultureInfo.InvariantCulture)}); capture verbatim";
+                return false;
+            }
+
+            // SECONDARY-SOI THREAD: a body other than the target / common ancestor / launch body appears
+            // after the first capture (e.g. Ike between two Duna captures). Scan forward from the segment
+            // after the first capture; stop at the next heliocentric leg (none here - the multi-hop guard
+            // already rejected those) or the end of the member.
+            for (int i = arrivalIdx + 1; i < segs.Count; i++)
+            {
+                string b = segs[i].bodyName;
+                if (string.IsNullOrEmpty(b))
+                    continue;
+                if (b != targetBody && b != commonAncestor && b != launchBody)
+                {
+                    reason = $"secondary-SOI thread ('{b}' between '{targetBody}' captures, e.g. Ike via Duna); capture verbatim";
+                    return false;
+                }
+            }
+
+            reason = "clean single-capture arrival";
+            return true;
         }
 
         // A heliocentric phasing park is admissible for re-aim only when it is near-circular (ecc <=
