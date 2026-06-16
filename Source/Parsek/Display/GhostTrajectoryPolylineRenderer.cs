@@ -3242,7 +3242,13 @@ namespace Parsek.Display
                         // sides, e.g. the launch ascent). A non-loop ghost (shift == 0) keeps its live
                         // ascent glued to the pad; a two-sided burn-leg anchor candidate is left to
                         // TryAnchorLegToConicSeam (the correction would shift the anchor's input).
-                        double headLegShift = GhostMapPresence.GetGhostOrbitEpochShift(ghostPid);
+                        // Loop shift = currentUT - headUT (the playback head's offset into this
+                        // recording's own timeline): the loop shift for a loop member, EXACTLY 0 for a
+                        // non-loop ghost (ResolveTrackingStationSampleUT returns liveUT verbatim), and -
+                        // unlike GetGhostOrbitEpochShift(ghostPid) - valid in the TRACKING STATION where
+                        // the ghost has no spawned proto-vessel (pid 0, so the dict lookup returned 0 and
+                        // the correction never fired). The conic carries the same shift in its epoch.
+                        double headLegShift = currentUT - headUT;
                         bool headLegOneSided = !IsRunLegAnchorCandidate(
                             rec.OrbitSegments, leg.bodyName, leg.startUT, leg.endUT);
                         bool headLegCorrectLon = headLegShift != 0.0 && headLegOneSided;
@@ -4215,7 +4221,10 @@ namespace Parsek.Display
                             // run, so counter-rotate its longitudes into the conic frame. Two-sided anchor
                             // legs are left to TryAnchorLegToConicSeam; non-loop ghosts (shift == 0) keep
                             // the raw recorded longitudes verbatim.
-                            double fwdLegShift = GhostMapPresence.GetGhostOrbitEpochShift(ghostPid);
+                            // Loop shift = currentUT - headUT (TS-valid; 0 for non-loop, the loop shift
+                            // for a loop member). See the head-leg note above: GetGhostOrbitEpochShift
+                            // returns 0 in the Tracking Station where the ghost is not spawned (pid 0).
+                            double fwdLegShift = currentUT - headUT;
                             bool fwdLegCorrectLon = fwdLegShift != 0.0 && !anchorCandidate;
                             pendingDraws.Add(new PendingLegDraw
                             {
@@ -4298,7 +4307,7 @@ namespace Parsek.Display
                 // above, find the adjacent conics on both sides and arm a bridge wherever a REAL gap
                 // exists (angle in (min, max], previous end BEHIND the next start along the travel
                 // direction - the maintainer's overshoot rule).
-                int bridgesArmed = DecideSeamBridges(scene, surface, drawFrame, currentUT, ghostPid);
+                int bridgesArmed = DecideSeamBridges(scene, surface, drawFrame, currentUT, currentUT - headUT);
 
                 ParsekLog.VerboseRateLimited(DriverTag, "fwd-window." + rec.RecordingId,
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -4331,7 +4340,7 @@ namespace Parsek.Display
             /// </summary>
             private int DecideSeamBridges(
                 GameScenes scene, BodySurfaceProvider surface, int drawFrame,
-                double liveUT, uint ghostPid)
+                double liveUT, double loopShiftBasis)
             {
                 int armed = 0;
                 for (int ci = 0; ci < bridgeLegScratch.Count; ci++)
@@ -4353,7 +4362,10 @@ namespace Parsek.Display
                     // LOOP-shifted ghost (shift != 0) AND a ONE-SIDED leg (!anchorCandidate - a two-sided
                     // anchor leg is rotated onto the seam by TryAnchorLegToConicSeam, not the lon lift).
                     // recordedUTs null/short -> fall back to the raw lon (mirrors the draw guard).
-                    double candShift = GhostMapPresence.GetGhostOrbitEpochShift(ghostPid);
+                    // loopShiftBasis = currentUT - headUT (passed by the caller): the loop shift for a
+                    // loop member, EXACTLY 0 for a non-loop ghost, and valid in the Tracking Station (the
+                    // spawned-vessel GetGhostOrbitEpochShift is 0 there, which left this skip-and-jump).
+                    double candShift = loopShiftBasis;
                     bool candOneSided = !IsRunLegAnchorCandidate(
                         cand.rec.OrbitSegments, cand.bodyName, cand.startUT, cand.endUT);
                     bool candCorrectLon = candShift != 0.0 && candOneSided
@@ -4464,10 +4476,11 @@ namespace Parsek.Display
                                     "bridge-angle." + cand.recordingId + "." + cand.legIndex,
                                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
                                         "Seam bridge skipped (angle too large): rec={0} leg={1} side={2} " +
-                                        "angleDeg={3:F1} max={4:F1}",
+                                        "angleDeg={3:F1} max={4:F1} correctLon={5} shiftBasis={6:F0}",
                                         cand.recordingId, cand.legIndex, atLegStart ? "start" : "end",
                                         angleRad * (180.0 / System.Math.PI),
-                                        BridgeMaxAngleRadians * (180.0 / System.Math.PI)),
+                                        BridgeMaxAngleRadians * (180.0 / System.Math.PI),
+                                        candCorrectLon, candShift),
                                     5.0);
                             continue;
                         }
