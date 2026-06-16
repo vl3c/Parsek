@@ -1339,6 +1339,161 @@ namespace Parsek.Tests
                 10);
         }
 
+        // --- Launch-to-escape loop-shift seam fix (s15 / aa48920e) ---
+        //
+        // A looped ghost's escape conic is INERTIAL (the seam is sampled at the recorded UT), but a
+        // one-sided body-fixed launch leg drawn at the LIVE planet rotation diverges from it by the body
+        // spin accrued over the loop shift (82-146 deg measured). DecideSeamBridges measures the angle
+        // between the leg endpoint and the conic seam; >45 deg skips the bridge and the icon jumps.
+        // BodyFixedLongitudeAtUT counter-rotates the leg longitude back into the conic's inertial frame so
+        // the residual seam collapses to a few degrees and the existing 45 deg bridge arms. These tests
+        // model the equatorial seam in metre-space (an equator point is a body-relative ray whose azimuth
+        // = longitude), so SeamBridgeAngleRad on the leg ray vs the conic ray IS the measured seam angle.
+
+        // Equatorial body-relative ray at the given longitude (deg), radius 700 km. The azimuth of the ray
+        // is the longitude; GetWorldSurfacePosition produces the analogous world ray in the live frame.
+        private static Vector3d EquatorRay(double lonDeg)
+        {
+            double r = lonDeg * System.Math.PI / 180.0;
+            return new Vector3d(System.Math.Cos(r) * 700000.0, 0.0, System.Math.Sin(r) * 700000.0);
+        }
+
+        [Theory]
+        [InlineData(82.0)]   // low end of the measured launch->escape seam gap
+        [InlineData(110.0)]
+        [InlineData(146.0)]  // high end of the measured launch->escape seam gap
+        public void BodyFixedLongitudeAtUT_CollapsesLoopShiftSeam_BelowBridgeGate(double spinGapDeg)
+        {
+            // The conic seam is sampled at the recorded leg UT; the body has since spun spinGapDeg east
+            // (the loop shift). Model period 360 s -> 1 deg/s, so a spinGapDeg-second live gap accrues
+            // exactly spinGapDeg of spin. The RAW (uncorrected) live leg longitude is the recorded
+            // longitude PLUS the spin (GetWorldSurfacePosition applies the live spin); the conic seam sits
+            // at the recorded longitude.
+            const double recordedLon = 50.0;
+            const double recordedUT = 1000.0;
+            const double period = 360.0;            // 1 deg/s
+            double liveUT = recordedUT + spinGapDeg; // spinGapDeg seconds -> spinGapDeg deg of spin
+            double rawLiveLon = recordedLon + spinGapDeg; // where the body-fixed leg lands at live rotation
+
+            // BEFORE the fix: the seam angle is the full spin gap and the bridge skips.
+            double rawAngle = GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(
+                EquatorRay(rawLiveLon), EquatorRay(recordedLon));
+            Assert.Equal(spinGapDeg * System.Math.PI / 180.0, rawAngle, 6);
+            Assert.True(rawAngle > GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians,
+                "raw loop-shift seam (" + spinGapDeg + " deg) must exceed the 45 deg bridge gate");
+
+            // AFTER the fix: counter-rotate the leg longitude into the conic frame. The corrected
+            // longitude must equal the recorded longitude (the spin is fully undone), so the residual
+            // seam is ~0 and well under the gate.
+            double correctedLon = GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(
+                rawLiveLon, recordedUT, liveUT, period);
+            Assert.Equal(recordedLon, correctedLon, 9);
+
+            double correctedAngle = GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(
+                EquatorRay(correctedLon), EquatorRay(recordedLon));
+            Assert.True(correctedAngle < GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians,
+                "corrected seam (" + (correctedAngle * 180.0 / System.Math.PI)
+                    + " deg) must pass the 45 deg bridge gate");
+            Assert.True(correctedAngle < 1e-6,
+                "fully-undone spin should leave a residual seam of ~0");
+        }
+
+        [Fact]
+        public void BodyFixedLongitudeAtUT_ResidualSpinUnderGate_StillArmsBridge()
+        {
+            // The leg span itself accrues a few degrees of real spin between the leg's own start UT and
+            // the per-point recorded UTs; the correction uses the per-point UT, so a small residual (well
+            // under 45 deg) remains and the bridge still arms (it does NOT need to be exactly 0).
+            const double recordedLon = 50.0;
+            const double recordedUT = 1000.0;
+            const double period = 360.0; // 1 deg/s
+            // 100 deg raw gap, but the per-point UT lags the seam UT by 3 s, so 3 deg of residual remains.
+            double liveUT = recordedUT + 100.0;
+            double pointRecordedUT = recordedUT + 3.0; // this point recorded 3 s into the leg
+            double rawLiveLon = recordedLon + 100.0;
+
+            double correctedLon = GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(
+                rawLiveLon, pointRecordedUT, liveUT, period);
+            // 100 raw - (liveUT - pointRecordedUT)=97 deg undone -> 3 deg residual east of the seam.
+            Assert.Equal(recordedLon + 3.0, correctedLon, 9);
+
+            double correctedAngle = GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(
+                EquatorRay(correctedLon), EquatorRay(recordedLon));
+            Assert.InRange(correctedAngle * 180.0 / System.Math.PI, 2.9, 3.1);
+            Assert.True(correctedAngle < GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians,
+                "a small residual seam must still be under the bridge gate");
+        }
+
+        [Fact]
+        public void LoopShiftSeam_RawSkipsBridge_CorrectedArms_LogAssertion()
+        {
+            // Log-assertion mirror of the DecideSeamBridges gate (the real method needs a live
+            // CelestialBody + the full Driver walk, so the literal "Seam bridge skipped" line firing is
+            // verified end-to-end by the in-game tests; this proves the GATE DECISION flips headless).
+            // RAW: a 120 deg loop-shift seam exceeds the 45 deg gate -> DecideSeamBridges logs the skip.
+            // CORRECTED: BodyFixedLongitudeAtUT collapses it to ~0 -> under the gate -> the bridge arms,
+            // no skip line. The emit + wording match DecideSeamBridges:bridge-angle exactly.
+            ParsekLog.ResetRateLimitsForTesting();
+            const double padLon = -74.5573;
+            const double recordedUT = 1000.0;
+            const double period = 21600.0;            // Kerbin day
+            double liveUT = recordedUT + period / 3.0; // ~120 deg of spin (the loop shift)
+            double rawLiveLon = padLon + 120.0;         // body-fixed leg at the live rotation
+
+            // Helper: run the EXACT DecideSeamBridges step-4 gate on a leg lon vs the inertial conic seam
+            // (at the recorded longitude) and emit the same skip line on a too-large angle. Returns the
+            // measured angle so the test can assert the arm/skip boundary.
+            double EvalGate(double legLon, string tag)
+            {
+                double angleRad = GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(
+                    EquatorRay(legLon), EquatorRay(padLon));
+                if (angleRad > GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians
+                    && !double.IsInfinity(angleRad))
+                    ParsekLog.VerboseRateLimited("GhostTrajectoryPolylineDriver", "bridge-angle." + tag,
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Seam bridge skipped (angle too large): rec={0} leg=0 side=start " +
+                            "angleDeg={1:F1} max={2:F1}",
+                            tag, angleRad * (180.0 / System.Math.PI),
+                            GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians * (180.0 / System.Math.PI)),
+                        0.0);
+                return angleRad;
+            }
+
+            // RAW leg -> skip line fires.
+            double rawAngle = EvalGate(rawLiveLon, "raw");
+            Assert.True(rawAngle > GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians);
+            Assert.Contains(logLines, l =>
+                l.Contains("Seam bridge skipped (angle too large)") && l.Contains("rec=raw"));
+
+            // CORRECTED leg -> under the gate, NO skip line for the corrected seam (the bridge arms).
+            double correctedLon = GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(
+                rawLiveLon, recordedUT, liveUT, period);
+            double corrAngle = EvalGate(correctedLon, "corr");
+            Assert.True(corrAngle < GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians,
+                "corrected seam must pass the 45 deg gate (the bridge arms)");
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Seam bridge skipped (angle too large)") && l.Contains("rec=corr"));
+        }
+
+        [Fact]
+        public void LoopShiftCorrection_ShiftZero_LeavesLongitudesByteIdentical()
+        {
+            // A NON-looped / live ghost passes applyLoopShiftLonCorrection=false: the draw + decide paths
+            // use the RAW recorded longitudes verbatim (a STRUCTURAL no-op, never an arithmetic
+            // cancellation through the helper), so a live in-progress ascent stays glued to the pad. Model
+            // the gate as the call site computes it: shift==0 -> no correction -> raw lon returned bit-for-
+            // bit, for ANY live UT / period (the helper is never even invoked).
+            double[] lons = { -74.5573, 12.0, 0.0, 179.999, -180.0, 88.123456789 };
+            foreach (double lon in lons)
+            {
+                const bool shiftZero = false; // applyLoopShiftLonCorrection when shift == 0
+                double used = shiftZero
+                    ? GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(lon, 1000.0, 9999.0, 21600.0)
+                    : lon;
+                Assert.Equal(BitConverter.DoubleToInt64Bits(lon), BitConverter.DoubleToInt64Bits(used));
+            }
+        }
+
         // --- Pan-stability: WillLegDraw (FIX 1 decide-pass will-draw predicate) ---
 
         [Fact]

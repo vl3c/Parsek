@@ -65,10 +65,12 @@ namespace Parsek.MapRender
         /// </summary>
         internal static bool TryDrawOwnedLeg(
             ref GhostTrajectoryPolylineRenderer.LegPolyline leg, Recording rec, CelestialBody body,
-            int targetLayer, int drawFrame, string recordingId, int legIndex, uint pid)
+            int targetLayer, int drawFrame, string recordingId, int legIndex, uint pid,
+            double liveUT = 0.0, bool applyLoopShiftLonCorrection = false)
         {
             bool drawn = GhostTrajectoryPolylineRenderer.TryDrawLeg(
-                ref leg, rec, body, targetLayer, drawFrame, recordingId, legIndex);
+                ref leg, rec, body, targetLayer, drawFrame, recordingId, legIndex,
+                liveUT: liveUT, applyLoopShiftLonCorrection: applyLoopShiftLonCorrection);
 
             // §13 traced-drive line (design §13): the treatment owns this leg this frame. Rate-limited
             // per pid so a steady non-orbital phase does not spam. Reuses the recorded leg span as the

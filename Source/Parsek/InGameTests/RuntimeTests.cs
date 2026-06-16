@@ -10208,6 +10208,181 @@ namespace Parsek.InGameTests
             }
         }
 
+        // ----------------------------------------------------------------------------------------
+        // Launch-to-escape loop-shift seam fix (s15 / aa48920e). A LOOPED ghost's escape conic is
+        // INERTIAL with the loop shift baked into its epoch, but the one-sided body-fixed launch leg
+        // draws at the LIVE planet rotation, so the two diverge by the body spin over the loop shift
+        // (82-146 deg measured) - the 45 deg seam bridge skips and the icon jumps at the handoff. The
+        // fix counter-rotates the one-sided leg's longitudes through BodyFixedLongitudeAtUT into the
+        // conic's inertial frame. These need a LIVE CelestialBody (GetWorldSurfacePosition is a Unity
+        // ECall), so they cannot run headless - the pure helper + the gate math are covered by xUnit
+        // (GhostTrajectoryPolylineBuildTests), and the end-to-end "Seam bridge skipped" log line no
+        // longer firing is only observable here (DecideSeamBridges needs the full live Driver walk).
+        // ----------------------------------------------------------------------------------------
+
+        // Helper: builds a one-sided launch leg (constant pad longitude, no bracketing conic) carrying
+        // recordedUTs, drawn through TryDrawLeg with the loop-shift correction toggled. Returns the leg's
+        // last drawn body-relative point (scaled-space minus the scaled body centre), so the caller can
+        // compare the corrected vs raw vs inertial-reference endpoints. Destroys the VectorLine before
+        // returning. liveUT = the recorded leg end UT + the loop shift (the looped ghost's live clock).
+        private static Vector3d DrawLaunchLegLastBodyRelPoint(
+            CelestialBody body, double padLon, double shiftSeconds, bool correct,
+            out Vector3d lastWorldNoBody)
+        {
+            var rec = new Recording { RecordingId = "ingame-loopseam-" + (correct ? "corr" : "raw") };
+            // One-sided launch leg: a vertical ascent at the pad longitude. No OrbitSegments bracket it
+            // on the start side (anchorCandidate == false), so it is the launch-leg case.
+            double startUT = 1000.0;
+            double endUT = 1090.0; // ~90 s ascent
+            var frames = new System.Collections.Generic.List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = startUT, latitude = -0.05, longitude = padLon, altitude = 70.0, bodyName = body.name, rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = (startUT + endUT) * 0.5, latitude = -0.02, longitude = padLon, altitude = 30000.0, bodyName = body.name, rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = endUT, latitude = 0.0, longitude = padLon, altitude = 100000.0, bodyName = body.name, rotation = Quaternion.identity },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = startUT,
+                endUT = endUT,
+                frames = frames,
+                checkpoints = new System.Collections.Generic.List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 1f,
+            });
+
+            var legs = Parsek.Display.GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+            InGameAssert.AreEqual(1, legs.Count, "expected one launch leg");
+            var leg = legs[0];
+            InGameAssert.IsTrue(leg.recordedUTs != null && leg.recordedUTs.Length == leg.PointCount,
+                "launch leg must carry per-point recordedUTs for the correction");
+
+            double liveUT = endUT + shiftSeconds; // looped ghost: live clock is shift seconds ahead
+            int drawFrame = Time.frameCount;
+            bool drawn = Parsek.Display.GhostTrajectoryPolylineRenderer.TryDrawLeg(
+                ref leg, rec, body, /*targetLayer*/ 31, drawFrame, rec.RecordingId, /*legIndex*/ 0,
+                requireConicAnchor: false, liveUT: liveUT, applyLoopShiftLonCorrection: correct);
+            InGameAssert.IsTrue(drawn, "the launch leg must draw");
+
+            int last = leg.PointCount - 1;
+            Vector3 bodyCentreScaled = body.scaledBody != null
+                ? body.scaledBody.transform.position : Vector3.zero;
+            Vector3d bodyRel = (Vector3d)(leg.scratchScaledSpace[last] - bodyCentreScaled);
+
+            // Independent inertial reference: where the conic frame expects the leg's last point. The
+            // conic seam is sampled at the RECORDED end UT, so the matching body-fixed point is the pad
+            // longitude counter-rotated by the spin accrued between the recorded UT and liveUT.
+            double refLon = Parsek.Display.GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(
+                padLon, endUT, liveUT, body.rotationPeriod);
+            lastWorldNoBody = body.GetWorldSurfacePosition(0.0, refLon, 100000.0) - body.position;
+
+            var line = leg.vectorLine;
+            if (line != null)
+                Vectrosity.VectorLine.Destroy(ref line);
+            return bodyRel;
+        }
+
+        // Angle (deg) between two body-relative rays.
+        private static double BodyRelAngleDeg(Vector3d a, Vector3d b)
+        {
+            return Parsek.Display.GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(a, b)
+                * (180.0 / System.Math.PI);
+        }
+
+        /// <summary>
+        /// FLIGHT-scene coverage of the launch-to-escape loop-shift seam fix (s15 / aa48920e). With a
+        /// large loop shift the RAW (uncorrected) one-sided launch leg endpoint sits ~100 deg off the
+        /// inertial conic frame (the icon-jump cause); the corrected endpoint collapses onto the inertial
+        /// reference (the conic seam, evaluated at the recorded UT) within the 45 deg bridge gate, so the
+        /// icon follows a continuous line at the leg->conic handoff. Needs a live CelestialBody.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "Looped launch-leg endpoint snaps onto the inertial conic frame after the loop-shift longitude correction (FLIGHT)")]
+        public void GhostTrajectoryPolyline_LoopShiftLaunchSeam_CollapsesToConicFrame_Flight()
+        {
+            AssertLoopShiftLaunchSeamCollapses();
+        }
+
+        /// <summary>
+        /// TRACKSTATION variant of the launch-to-escape loop-shift seam fix (s15 / aa48920e): the same
+        /// inertial-frame collapse must hold in the Tracking Station map (the polyline Driver is shared
+        /// across FLIGHT + TRACKSTATION, so both scenes must show the icon on a continuous line).
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "Looped launch-leg endpoint snaps onto the inertial conic frame after the loop-shift longitude correction (TRACKSTATION)")]
+        public void GhostTrajectoryPolyline_LoopShiftLaunchSeam_CollapsesToConicFrame_Trackstation()
+        {
+            AssertLoopShiftLaunchSeamCollapses();
+        }
+
+        private void AssertLoopShiftLaunchSeamCollapses()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies.Find(b => b.name == "Kerbin");
+            InGameAssert.IsTrue(kerbin != null, "Kerbin body must resolve");
+            InGameAssert.IsTrue(kerbin.rotationPeriod > 0.0, "Kerbin must be rotating");
+
+            // A loop shift of a third of a Kerbin day -> ~120 deg of spin (in the measured 82-146 band).
+            double shiftSeconds = kerbin.rotationPeriod / 3.0;
+            const double padLon = -74.5573; // KSC longitude
+
+            Vector3d rawRel = DrawLaunchLegLastBodyRelPoint(
+                kerbin, padLon, shiftSeconds, correct: false, out Vector3d inertialRef);
+            Vector3d corrRel = DrawLaunchLegLastBodyRelPoint(
+                kerbin, padLon, shiftSeconds, correct: true, out _);
+
+            // RAW: the body-fixed launch leg is drawn at the LIVE rotation, so it sits a full spin gap
+            // (~120 deg) off the inertial conic frame - the seam the 45 deg bridge skips and the icon
+            // jumps across.
+            double rawOffDeg = BodyRelAngleDeg(rawRel, inertialRef);
+            InGameAssert.IsTrue(rawOffDeg > 45.0,
+                "raw (uncorrected) launch leg must sit beyond the 45 deg bridge gate from the conic frame (off="
+                + rawOffDeg.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " deg)");
+
+            // CORRECTED: the leg endpoint is counter-rotated into the inertial conic frame, so it lands
+            // on the reference within the bridge gate (a continuous handoff, no icon jump).
+            double corrOffDeg = BodyRelAngleDeg(corrRel, inertialRef);
+            InGameAssert.IsTrue(corrOffDeg < 1.0,
+                "corrected launch leg must land on the inertial conic frame (off="
+                + corrOffDeg.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + " deg)");
+            InGameAssert.IsTrue(corrOffDeg
+                < Parsek.Display.GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians * (180.0 / System.Math.PI),
+                "corrected seam must pass the 45 deg bridge gate");
+        }
+
+        /// <summary>
+        /// Regression guard for the loop-shift seam fix: a NON-looped / live ghost (shift == 0 ->
+        /// applyLoopShiftLonCorrection == false) must keep its in-progress ascent glued to the pad. The
+        /// xUnit suite proves the helper returns the raw longitude verbatim; this proves the END-TO-END
+        /// draw path leaves the leg at the LIVE body rotation (the actual rendered geometry an xUnit
+        /// cannot reach) - the corrected and uncorrected draws are byte-identical when correction is off.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "Non-looped live ascent stays glued to the pad (loop-shift correction off) - FLIGHT regression guard")]
+        public void GhostTrajectoryPolyline_NonLoopedAscent_StaysGluedToPad()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies.Find(b => b.name == "Kerbin");
+            InGameAssert.IsTrue(kerbin != null, "Kerbin body must resolve");
+            const double padLon = -74.5573;
+
+            // shift == 0 -> the call site passes applyLoopShiftLonCorrection = false; the draw must use
+            // the raw recorded longitudes. Drawing with correct:false and correct:true at shift 0 must be
+            // identical (the helper is never invoked because the gate flag is false). The leg endpoint
+            // must equal the LIVE GetWorldSurfacePosition at the raw pad longitude (glued to the pad).
+            Vector3d offRel = DrawLaunchLegLastBodyRelPoint(
+                kerbin, padLon, /*shiftSeconds*/ 0.0, correct: false, out _);
+
+            // The raw pad point at the LIVE rotation (no counter-rotation). endUT==liveUT at shift 0, so
+            // BodyFixedLongitudeAtUT returns padLon unchanged -> the same world point.
+            Vector3d livePadRel = kerbin.GetWorldSurfacePosition(0.0, padLon, 100000.0) - kerbin.position;
+
+            double offDeg = BodyRelAngleDeg(offRel, livePadRel);
+            InGameAssert.IsTrue(offDeg < 0.5,
+                "a non-looped ascent must stay glued to the live pad longitude (off="
+                + offDeg.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + " deg)");
+        }
+
         /// <summary>
         /// Bug 1 (looped-mission map trajectory lines vanish when zoomed out) coverage. The fix routes
         /// every leg / arc / bridge draw through

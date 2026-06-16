@@ -2344,7 +2344,8 @@ namespace Parsek.Display
         internal static bool TryDrawLeg(
             ref LegPolyline leg, Recording rec, CelestialBody body,
             int targetLayer, int drawFrame, string recordingId, int legIndex,
-            bool requireConicAnchor = false)
+            bool requireConicAnchor = false,
+            double liveUT = 0.0, bool applyLoopShiftLonCorrection = false)
         {
             int m = leg.PointCount;
             if (m < 2) return false;
@@ -2391,6 +2392,24 @@ namespace Parsek.Display
             // scaledXform.position == LocalToScaledSpace(body.position) - but it never touches the
             // strobing totalOffset. Recomputed LIVE every frame: strobe-free at all warps, and with
             // no capture it can never go stale / invisible. scaledXform also feeds the conic anchor.
+            // LOOP-SHIFT LONGITUDE CORRECTION (launch-to-escape seam, s15 / aa48920e). A LOOPED
+            // ghost's escape conic is INERTIAL with the loop shift baked into its epoch, but a one-sided
+            // body-fixed launch leg is drawn at the LIVE planet rotation, so the two diverge by the body
+            // spin accrued over the loop shift (82-146 deg measured) - the 45 deg seam bridge then skips
+            // and the icon jumps at the leg->conic handoff. When this leg is loop-shifted AND one-sided
+            // (applyLoopShiftLonCorrection, gated by the caller on shift != 0 && !anchorCandidate),
+            // counter-rotate each point's longitude through BodyFixedLongitudeAtUT so the body-fixed leg
+            // lands in the conic's inertial frame (the residual seam collapses to a few degrees and the
+            // existing bridge arms). NON-looped / live ghosts pass applyLoopShiftLonCorrection=false and
+            // use the raw recorded longitudes verbatim (a structural no-op, NOT arithmetic cancellation),
+            // so a live in-progress ascent stays glued to the rotating pad. recordedUTs null/short -> the
+            // per-point resolver below falls back to the raw lon (mirrors the haveUTs guard in the conic
+            // anchor); rotationPeriod 0/NaN/Inf -> BodyFixedLongitudeAtUT returns lon unchanged. Two-sided
+            // burn-leg anchor legs are NEVER corrected here (the caller gates on !anchorCandidate), so the
+            // TryAnchorLegToConicSeam input below is untouched.
+            bool correctLon = applyLoopShiftLonCorrection
+                && leg.recordedUTs != null && leg.recordedUTs.Length == m;
+            double legRotationPeriod = body.rotationPeriod;
             var scaledBody = body.scaledBody;
             Transform scaledXform = scaledBody != null ? scaledBody.transform : null;
             if (scaledXform != null)
@@ -2400,8 +2419,11 @@ namespace Parsek.Display
                 Vector3d bodyPos = body.position;
                 for (int i = 0; i < m; i++)
                 {
+                    double lon = correctLon
+                        ? BodyFixedLongitudeAtUT(leg.lons[i], leg.recordedUTs[i], liveUT, legRotationPeriod)
+                        : leg.lons[i];
                     Vector3d world = body.GetWorldSurfacePosition(
-                        leg.lats[i], leg.lons[i], leg.alts[i]);
+                        leg.lats[i], lon, leg.alts[i]);
                     leg.scratchScaledSpace[i] = bodyCentreScaled
                         + (Vector3)((world - bodyPos) * invScale);
                 }
@@ -2412,8 +2434,11 @@ namespace Parsek.Display
                 // direct absolute path. Strobes under warp, but at least renders on the surface.
                 for (int i = 0; i < m; i++)
                 {
+                    double lon = correctLon
+                        ? BodyFixedLongitudeAtUT(leg.lons[i], leg.recordedUTs[i], liveUT, legRotationPeriod)
+                        : leg.lons[i];
                     Vector3d world = body.GetWorldSurfacePosition(
-                        leg.lats[i], leg.lons[i], leg.alts[i]);
+                        leg.lats[i], lon, leg.alts[i]);
                     leg.scratchScaledSpace[i] =
                         (Vector3)ScaledSpace.LocalToScaledSpace(world);
                 }
@@ -2756,6 +2781,14 @@ namespace Parsek.Display
                 // legs draw regardless (anchored when possible, body-fixed otherwise - the Duna landing
                 // descent), connected to the inertial run by the seam bridges.
                 public bool requireConicAnchor;
+                // Loop-shift launch-to-escape seam fix (s15 / aa48920e): the live UT this draw was
+                // decided at, and whether this leg's body-fixed longitudes must be counter-rotated into
+                // the conic's inertial frame (true only for a LOOPED one-sided leg - shift != 0 &&
+                // !anchorCandidate; false for non-loop / live ghosts and two-sided anchor legs). Captured
+                // at the decide-pass enqueue site where both the ghost loop shift and the leg's
+                // one-sidedness are known; consumed by TryDrawLeg in the onPreCull draw pass.
+                public double liveUT;
+                public bool applyLoopShiftLonCorrection;
             }
             private readonly List<PendingLegDraw> pendingDraws = new List<PendingLegDraw>();
             private int pendingDrawsFrame = -1;
@@ -3203,6 +3236,17 @@ namespace Parsek.Display
                         if (!willDraw)
                             continue;
 
+                        // Loop-shift launch-to-escape seam fix (s15 / aa48920e): correct this leg's
+                        // body-fixed longitudes into the conic's inertial frame ONLY when the ghost is
+                        // loop-shifted (shift != 0) AND this leg is ONE-SIDED (no bracketing conic on both
+                        // sides, e.g. the launch ascent). A non-loop ghost (shift == 0) keeps its live
+                        // ascent glued to the pad; a two-sided burn-leg anchor candidate is left to
+                        // TryAnchorLegToConicSeam (the correction would shift the anchor's input).
+                        double headLegShift = GhostMapPresence.GetGhostOrbitEpochShift(ghostPid);
+                        bool headLegOneSided = !IsRunLegAnchorCandidate(
+                            rec.OrbitSegments, leg.bodyName, leg.startUT, leg.endUT);
+                        bool headLegCorrectLon = headLegShift != 0.0 && headLegOneSided;
+
                         pendingDraws.Add(new PendingLegDraw
                         {
                             recordingId = rec.RecordingId,
@@ -3210,7 +3254,9 @@ namespace Parsek.Display
                             body = body,
                             rec = rec,
                             ownedByTreatment = ownedByTreatment,
-                            ghostPid = ghostPid
+                            ghostPid = ghostPid,
+                            liveUT = currentUT,
+                            applyLoopShiftLonCorrection = headLegCorrectLon
                         });
                         anyDrawn = true;
                     }
@@ -3442,10 +3488,12 @@ namespace Parsek.Display
                     // body-fixed otherwise), connected by the seam bridges.
                     bool legDrawn = p.ownedByTreatment
                         ? Parsek.MapRender.TracedPathTreatment.TryDrawOwnedLeg(
-                            ref leg, p.rec, p.body, pendingTargetLayer, frame, p.recordingId, p.legIndex, p.ghostPid)
+                            ref leg, p.rec, p.body, pendingTargetLayer, frame, p.recordingId, p.legIndex, p.ghostPid,
+                            liveUT: p.liveUT, applyLoopShiftLonCorrection: p.applyLoopShiftLonCorrection)
                         : TryDrawLeg(
                             ref leg, p.rec, p.body, pendingTargetLayer, frame, p.recordingId, p.legIndex,
-                            requireConicAnchor: p.requireConicAnchor);
+                            requireConicAnchor: p.requireConicAnchor,
+                            liveUT: p.liveUT, applyLoopShiftLonCorrection: p.applyLoopShiftLonCorrection);
                     // Persist the lazily-inflated line + the lastDrawnFrame stamp back into the cached
                     // array (set.legs is the same array reference the dict holds).
                     set.legs[p.legIndex] = leg;
@@ -4161,6 +4209,14 @@ namespace Parsek.Display
                             CelestialBody legBody = ResolveBodyByName(scene, leg.bodyName);
                             if (legBody == null) continue;
                             if (!WillLegDraw(leg.PointCount, true)) continue;
+                            // Loop-shift launch-to-escape seam fix (s15 / aa48920e): a ONE-SIDED
+                            // (!anchorCandidate) body-fixed run leg of a LOOP-shifted ghost (shift != 0)
+                            // is drawn at the live planet rotation but must connect to the inertial conic
+                            // run, so counter-rotate its longitudes into the conic frame. Two-sided anchor
+                            // legs are left to TryAnchorLegToConicSeam; non-loop ghosts (shift == 0) keep
+                            // the raw recorded longitudes verbatim.
+                            double fwdLegShift = GhostMapPresence.GetGhostOrbitEpochShift(ghostPid);
+                            bool fwdLegCorrectLon = fwdLegShift != 0.0 && !anchorCandidate;
                             pendingDraws.Add(new PendingLegDraw
                             {
                                 recordingId = member.rec.RecordingId,
@@ -4173,6 +4229,8 @@ namespace Parsek.Display
                                 // A kept terminal past leg CANNOT anchor (one-sided by construction) -
                                 // it draws body-fixed; other past legs keep the anchor requirement.
                                 requireConicAnchor = isPast && anchorCandidate,
+                                liveUT = currentUT,
+                                applyLoopShiftLonCorrection = fwdLegCorrectLon,
                             });
                             frameForwardLegs++;
 
@@ -4240,7 +4298,7 @@ namespace Parsek.Display
                 // above, find the adjacent conics on both sides and arm a bridge wherever a REAL gap
                 // exists (angle in (min, max], previous end BEHIND the next start along the travel
                 // direction - the maintainer's overshoot rule).
-                int bridgesArmed = DecideSeamBridges(scene, surface, drawFrame);
+                int bridgesArmed = DecideSeamBridges(scene, surface, drawFrame, currentUT, ghostPid);
 
                 ParsekLog.VerboseRateLimited(DriverTag, "fwd-window." + rec.RecordingId,
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -4272,7 +4330,8 @@ namespace Parsek.Display
             /// number of bridges armed.
             /// </summary>
             private int DecideSeamBridges(
-                GameScenes scene, BodySurfaceProvider surface, int drawFrame)
+                GameScenes scene, BodySurfaceProvider surface, int drawFrame,
+                double liveUT, uint ghostPid)
             {
                 int armed = 0;
                 for (int ci = 0; ci < bridgeLegScratch.Count; ci++)
@@ -4286,6 +4345,20 @@ namespace Parsek.Display
                     if (leg.PointCount < 1) continue;
                     CelestialBody body = ResolveBodyByName(scene, cand.bodyName);
                     if (body == null) continue;
+
+                    // Loop-shift launch-to-escape seam fix (s15 / aa48920e): the leg-side endpoint below
+                    // must be measured in the SAME inertial frame the draw uses, or this decide pass
+                    // measures the full 82-146 deg body-spin gap and skips the bridge (making the draw-side
+                    // fix inert). Apply the IDENTICAL longitude correction the draw applies: gated on a
+                    // LOOP-shifted ghost (shift != 0) AND a ONE-SIDED leg (!anchorCandidate - a two-sided
+                    // anchor leg is rotated onto the seam by TryAnchorLegToConicSeam, not the lon lift).
+                    // recordedUTs null/short -> fall back to the raw lon (mirrors the draw guard).
+                    double candShift = GhostMapPresence.GetGhostOrbitEpochShift(ghostPid);
+                    bool candOneSided = !IsRunLegAnchorCandidate(
+                        cand.rec.OrbitSegments, cand.bodyName, cand.startUT, cand.endUT);
+                    bool candCorrectLon = candShift != 0.0 && candOneSided
+                        && leg.recordedUTs != null && leg.recordedUTs.Length == leg.PointCount;
+                    double candRotationPeriod = body.rotationPeriod;
 
                     for (int side = 0; side < 2; side++)
                     {
@@ -4370,10 +4443,16 @@ namespace Parsek.Display
                         }
 
                         // 3. Leg-side endpoint, body-fixed at the LIVE rotation (metre space - the same
-                        //    frame as the conic samples; angles/signs are scale-invariant).
+                        //    frame as the conic samples; angles/signs are scale-invariant). For a
+                        //    loop-shifted one-sided leg the longitude is counter-rotated into the conic's
+                        //    inertial frame (candCorrectLon) so the measured angle matches what the draw
+                        //    actually paints; otherwise the raw recorded longitude is used verbatim.
                         int pi = atLegStart ? 0 : leg.PointCount - 1;
+                        double legLon = candCorrectLon
+                            ? BodyFixedLongitudeAtUT(leg.lons[pi], leg.recordedUTs[pi], liveUT, candRotationPeriod)
+                            : leg.lons[pi];
                         Vector3d legRel = body.GetWorldSurfacePosition(
-                            leg.lats[pi], leg.lons[pi], leg.alts[pi]) - body.position;
+                            leg.lats[pi], legLon, leg.alts[pi]) - body.position;
 
                         // 4. Gates: angle window + the signed-gap (overshoot) rule.
                         double angleRad = SeamBridgeAngleRad(legRel, seamRel);
