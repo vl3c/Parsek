@@ -395,6 +395,67 @@ namespace Parsek.Tests
             AssertListValueEqual(flagOff, flagOn);
         }
 
+        // Non-throwing per-field list comparison (the bool form of AssertListValueEqual), used by the
+        // protective guard below.
+        private static bool SegmentListsValueEqual(List<OrbitSegment> a, List<OrbitSegment> b)
+        {
+            if (a == null || b == null) return ReferenceEquals(a, b);
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                OrbitSegment x = a[i], y = b[i];
+                if (x.bodyName != y.bodyName || x.startUT != y.startUT || x.endUT != y.endUT
+                    || x.inclination != y.inclination || x.eccentricity != y.eccentricity
+                    || x.semiMajorAxis != y.semiMajorAxis
+                    || x.longitudeOfAscendingNode != y.longitudeOfAscendingNode
+                    || x.argumentOfPeriapsis != y.argumentOfPeriapsis
+                    || x.meanAnomalyAtEpoch != y.meanAnomalyAtEpoch || x.epoch != y.epoch
+                    || x.isPredicted != y.isPredicted)
+                    return false;
+            }
+            return true;
+        }
+
+        // Regression guard for the #1167 merge: the live-frame park re-phase (parkDeltaLonDeg) must thread
+        // through the AssembleWindowChain seam UNCHANGED on both flag states. Uses a heliocentric-parking
+        // departure (a pre-departure Sun coast that ReplaceHeliocentricLeg rotates) so a dropped param is
+        // observable - the rotated output differs from the parkDeltaLonDeg=0 output.
+        [Fact]
+        public void AssembleWindowChain_ForwardsParkDeltaLonDeg_OnBothFlagStates()
+        {
+            var member = new List<OrbitSegment>
+            {
+                new OrbitSegment { bodyName = "Kerbin", startUT = 100, endUT = 600, epoch = 300, semiMajorAxis = 1e7, eccentricity = 0.1, inclination = 5 },
+                // pre-departure heliocentric park coast (endUT == recordedDepartureUT -> re-phased):
+                new OrbitSegment { bodyName = "Sun", startUT = 600, endUT = 1000, epoch = 700, semiMajorAxis = 8e9, eccentricity = 0.05, inclination = 5, longitudeOfAscendingNode = 30 },
+                // in-window heliocentric transfer leg (replaced by the transfer segment):
+                new OrbitSegment { bodyName = "Sun", startUT = 1000, endUT = 2600, epoch = 1200, semiMajorAxis = 1e9, eccentricity = 0.1, inclination = 5 },
+                new OrbitSegment { bodyName = "Duna", startUT = 2600, endUT = 5000, epoch = 3000, semiMajorAxis = 1e7, eccentricity = 0.1, inclination = 5 },
+            };
+            var transfer = new OrbitSegment { bodyName = "Sun", semiMajorAxis = 2e10, eccentricity = 0.2, inclination = 5 };
+            const string commonAncestor = "Sun";
+            const double depUT = 1000.0, arrUT = 2600.0, parkDeltaLonDeg = 17.0;
+
+            var baselineRephased = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, commonAncestor, depUT, arrUT, double.NaN, double.NaN, parkDeltaLonDeg);
+            var baselineNoRephase = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, commonAncestor, depUT, arrUT, double.NaN, double.NaN, 0.0);
+
+            // The chosen parkDeltaLonDeg must actually change the output, else the forwarding assertions
+            // below would pass even if AssembleWindowChain dropped the parameter.
+            Assert.False(SegmentListsValueEqual(baselineRephased, baselineNoRephase),
+                "parkDeltaLonDeg=17 must rotate the pre-departure Sun park coast (otherwise this guard is not protective)");
+
+            var flagOff = ReaimSegmentAssembler.AssembleWindowChain(
+                useChain: false, member, transfer, commonAncestor, depUT, arrUT, double.NaN, double.NaN, parkDeltaLonDeg);
+            var flagOn = ReaimSegmentAssembler.AssembleWindowChain(
+                useChain: true, member, transfer, commonAncestor, depUT, arrUT, double.NaN, double.NaN, parkDeltaLonDeg);
+
+            // Both flag states reproduce the re-phased baseline exactly (parkDeltaLonDeg threaded through).
+            AssertListValueEqual(baselineRephased, flagOff);
+            AssertListValueEqual(baselineRephased, flagOn);
+        }
+
         [Fact]
         public void AssembleWindowChain_FlagOff_NoHeliocentricLeg_ReturnsNullLikeBaseline()
         {

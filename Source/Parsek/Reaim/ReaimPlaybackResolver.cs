@@ -229,6 +229,36 @@ namespace Parsek.Reaim
             // RecordedDepartureUT the orbit sits where it was at absolute departureUT.
             transferSeg = ReaimSegmentAssembler.ShiftInTime(transferSeg, shift);
 
+            // Heliocentric-PARK re-phase (Increment 1, departure-side render). A two-burn departure escapes
+            // into a Sun-inertial PARKING orbit BEFORE the trans-target burn. That park renders verbatim at
+            // its RECORDED solar longitude (~239 deg off live Kerbin at the captured window) while the
+            // escape leg (body-relative) and the re-aimed transfer (synthesized at D_k) anchor to LIVE
+            // Kerbin - a teleport seam. Rotate the recorded park's LAN by Delta_lon(window) = omega_parent *
+            // (D_k - RecordedDepartureUT) so it re-phases into the live frame and connects to the escape +
+            // transfer. Gated on DepartedFromHeliocentricPark (a direct transfer has it false => 0 => byte-
+            // identical) + a near-equatorial guard; FAILS CLOSED (decline this window to faithful, NEVER the
+            // verbatim 239 deg park) on a non-equatorial park or a degenerate launch-body period. NOTE
+            // (Increment 1): windowIndex here is the SPAN-clock window (the unit is still single-instance),
+            // so park + transfer share the same window and connect, and window 0 renders correct; the
+            // span-vs-synodic window drift for later windows is what the Increment-2 overlap build fixes.
+            double parkDeltaLonDeg = 0.0;
+            if (plan.DepartedFromHeliocentricPark)
+            {
+                double launchPeriod = launchBody.orbit != null ? launchBody.orbit.period : double.NaN;
+                double parkInc = ReaimSegmentAssembler.FindHeliocentricParkInclination(
+                    memberSegments, plan.CommonAncestor, plan.RecordedDepartureUT);
+                if (!ReaimSegmentAssembler.TryComputeParkRephase(
+                        parkInc, nominalDepartureUT, plan.RecordedDepartureUT, launchPeriod,
+                        out parkDeltaLonDeg))
+                {
+                    ParsekLog.Verbose("ReaimPlayback",
+                        $"member={memberId} window={windowIndex} park re-phase DECLINED -> faithful " +
+                        $"(parkInc={parkInc.ToString("F2", ic)} maxInc={ReaimSegmentAssembler.ParkRephaseMaxInclinationDeg.ToString("F1", ic)} " +
+                        $"launchPeriod={launchPeriod.ToString("R", ic)})");
+                    return null; // fail closed to faithful; never the verbatim ~239 deg park
+                }
+            }
+
             // Render the re-aimed transfer over the FULL recorded heliocentric span
             // [RecordedDepartureUT, RecordedArrivalUT] (NaN render bounds => no trim). That span is exactly
             // where the member's recorded launch-escape leg ENDS and its recorded capture leg BEGINS, so the
@@ -240,17 +270,18 @@ namespace Parsek.Reaim
             // motion across the gap (the "transfer is in the wrong place right after Kerbin SOI exit"
             // regression). Full-span render restores the seamless handoff; the brief in-SOI stub sits
             // sub-pixel at the body centre at map scale, and the recorded escape / capture legs cover inside
-            // the SOI.
+            // the SOI. parkDeltaLonDeg re-phases the recorded park (departure-side) into the live frame.
             // Gate ONLY the assembler call on the reaimChainSynthesis flag (default OFF -> identity path).
             // The flag must not gate the Supported / no-helio-leg / parked guards, the faithful/declined
             // return, or the ReferenceEquals(effective, recorded) no-op contract above; it only chooses
             // between today's single-leg replacement (OFF) and the P3 chain synthesis (ON, currently a
-            // placeholder returning the same result). See ReaimChainSynthesis / AssembleWindowChain.
+            // placeholder returning the same result). The #1167 parkDeltaLonDeg re-phase is threaded
+            // through AssembleWindowChain to ReplaceHeliocentricLeg unchanged. See ReaimChainSynthesis.
             List<OrbitSegment> assembled = ReaimSegmentAssembler.AssembleWindowChain(
                 ReaimChainSynthesis.IsEnabled,
                 memberSegments, transferSeg, plan.CommonAncestor,
                 plan.RecordedDepartureUT, plan.RecordedArrivalUT,
-                double.NaN, double.NaN);
+                double.NaN, double.NaN, parkDeltaLonDeg);
             if (assembled == null || assembled.Count == 0)
             {
                 ParsekLog.Warn("ReaimPlayback",
@@ -271,6 +302,7 @@ namespace Parsek.Reaim
                 $"devFromRecorded={devFromRecorded.ToString("R", ic)}s devFromGeom={devFromGeom.ToString("R", ic)}s) " +
                 $"soiEntryUT={soiEntryUT.ToString("R", ic)} " +
                 $"encounter={(encounterBody != null ? encounterBody.bodyName : "<none>")} segs={assembled.Count} " +
+                $"parkDeltaLon={parkDeltaLonDeg.ToString("R", ic)}deg (parking={plan.DepartedFromHeliocentricPark}) " +
                 $"renderSpan=full-recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}]");
             return assembled;
         }

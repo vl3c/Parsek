@@ -498,6 +498,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Classify_TwoSolarParks_EarlierMultiRev_Declined()
+        {
+            // An admissible ~1-rev co-orbital park (the transfer's immediate predecessor) preceded by a
+            // DISTINCT earlier multi-rev solar park on a different orbit. ComputeCuts would excise whole
+            // periods from the earlier park (firing the unvalidated heliocentric cutBeforeDeparture), so the
+            // empty-cut scope must DECLINE even though the immediate predecessor alone looks admissible.
+            // Pins the all-common-ancestor-runs scan (not just the predecessor run).
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 1.37e6, 0.0),
+                SegAE("Sun", 5000, 25000000, 1.0e10, 0.03),          // parkA: ~4.3 rev, different solar orbit
+                SegAE("Sun", 25000000, 38560000, 1.4072e10, 0.0327), // parkB: ~1.4 rev, co-orbital (admissible alone)
+                SegAE("Sun", 38560000, 47944036, 1.7909e10, 0.192),  // transfer
+                SegAE("Duna", 47944036, 47949036, -1.88e5, 3.60),
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.False(plan.Supported);
+            Assert.Contains("heliocentric parking", plan.Reason);
+        }
+
+        [Fact]
+        public void Classify_ParkEccentricAtBurnPoint_Declined()
+        {
+            // A same-sma solar park run near-circular at the START but ECCENTRIC at the burn point
+            // (DetectRuns merges on sma only, not ecc). The departure orbit r1 approximates is the burn
+            // point, so admissibility reads the LAST park segment's ecc, not just the run anchor's.
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 1.37e6, 0.0),
+                SegAE("Sun", 5000, 9000000, 1.4072e10, 0.0327),      // circular first sub-coast (anchor)
+                SegAE("Sun", 9000006, 13560000, 1.4072e10, 0.6),     // SAME sma, eccentric burn point
+                SegAE("Sun", 13560000, 22944036, 1.7909e10, 0.192),  // transfer
+                SegAE("Duna", 22944036, 22949036, -1.88e5, 3.60),
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.False(plan.Supported);
+            Assert.Contains("heliocentric parking", plan.Reason);
+        }
+
+        [Fact]
         public void IsHeliocentricParkingDeparture_OneRevCoOrbitalPark_True()
         {
             var segs = new List<OrbitSegment>

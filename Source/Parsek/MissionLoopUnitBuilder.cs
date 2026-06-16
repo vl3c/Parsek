@@ -1112,7 +1112,7 @@ namespace Parsek
         // ReaimLoiterCompressor.ComputeCuts for those runs so the launch-parking compression stays
         // byte-identical to today. Destination-side runs (EndUT > the SOI entry) are excluded here;
         // their re-timing is decided jointly with the arrival hold in DestinationLoiterTrim.
-        private static List<GhostPlaybackLogic.LoopCut> BuildLaunchSideKeepOneCuts(
+        internal static List<GhostPlaybackLogic.LoopCut> BuildLaunchSideKeepOneCuts(
             IReadOnlyList<ReaimLoiterCompressor.LoiterRun> runs, double recordedArrivalUT)
         {
             var cuts = new List<GhostPlaybackLogic.LoopCut>();

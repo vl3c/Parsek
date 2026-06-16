@@ -62,7 +62,8 @@ the launch body.
 ## Mechanism (as built)
 
 The per-window `r1` / `r2` / `tof` / synodic-window solve is UNCHANGED from the shipped direct case.
-The only behaviour change is one conjunct on the `ReaimClassifier.cs:224` decline:
+The only behaviour change is one conjunct on the "transfer departs from a heliocentric parking orbit"
+decline in `ReaimClassifier.Classify`:
 
 ```
 bool sunPredecessor = transferStartIdx - 1 >= 0
@@ -79,14 +80,23 @@ if (sunPredecessor && !parkingDeparture)
    uses), finds the common-ancestor loiter run whose end coincides with the transfer's predecessor.
    If no >=1-rev solar loiter run ends there, the predecessor is a sub-period MCC arc -> false ->
    declined.
-2. **Empty-cut scope** - engage only when `park.WholeRevs == DefaultKeepRevs` (1), so the loiter cut
-   is empty and `phaseAnchorUT` is byte-identical to faithful. A multi-rev park would fire the
-   launch-side `cutBeforeDeparture` composition (unvalidated on a heliocentric park) -> deferred ->
-   declined.
-3. **Admissibility gate** - the anchor segment's `ecc <= 0.1` (near-circular) AND its sma within 10%
-   of the launch body's heliocentric sma (co-orbital). The launch body's heliocentric sma is derived
-   from `IBodyInfo.OrbitPeriod(launchBody)` + `GravParameter(commonAncestor)` via Kepler's third law
-   (`a = cbrt(mu * (T / 2*pi)^2)`) - pure, no Unity. Any degenerate / NaN / unknown-mu input -> false.
+2. **Empty-cut scope** - engage only when EVERY common-ancestor (solar) run keeps `DefaultKeepRevs`
+   (1), so no heliocentric loiter cut fires. The scan is over ALL solar runs, not just the
+   predecessor: `ComputeCuts` runs downstream on the whole member and would excise whole periods from
+   a multi-rev solar park ANYWHERE before the transfer, firing the `cutBeforeDeparture` composition
+   that is unvalidated on a heliocentric run (deferred). A launch-body loiter cut is the existing
+   validated L2 trim and is NOT gated. Engaging therefore adds no park-driven anchor shift on top of
+   the re-aim schedule's pad-aligned anchor. (This is distinct from the direct-transfer
+   byte-identical claim below: engaging re-aim DOES move the anchor off the faithful one - that is the
+   whole point - it just adds no EXTRA park cut.)
+3. **Admissibility gate** - near-circular at BOTH the run anchor AND the burn point (`ecc <= 0.1`;
+   `DetectRuns` merges on sma only, so ecc can drift within a same-sma run), AND co-orbital with the
+   launch body at the burn point (the last park segment's sma within 10% of the launch body's
+   heliocentric sma). The launch body's heliocentric sma is derived from `IBodyInfo.OrbitPeriod` +
+   `GravParameter(commonAncestor)` via Kepler's third law (`a = cbrt(mu * (T / 2*pi)^2)`) - pure, no
+   Unity. Any degenerate / NaN / unknown-mu input -> false. KNOWN LIMITATION: sma + ecc bound the
+   departure ORBIT, not the vessel's true-anomaly PHASE on it (see the risk register); the gate fails
+   closed, so a pathological out-of-phase park reproduces the prior faithful render, never corruption.
 
 When it engages, `transferStart` (and therefore `RecordedDepartureUT` and `tof`) is unchanged - the
 tof is the trans-target burn -> arrival, EXCLUDING the park. The park is left outside the
@@ -123,6 +133,16 @@ than `ReaimClassifier.cs` changes behaviour; the `MissionLoopUnitBuilder` edits 
 - `r1 = launchBody` is an approximation for a two-burn departure -> mitigated by the admissibility
   gate (near-circular + co-orbital); a park that drifts the burn point far from the launch body is
   declined.
+- **True-anomaly PHASE gap (accepted, fails closed).** The admissibility gate bounds the departure
+  ORBIT (sma + ecc), not the vessel's PHASE on it. A near-circular co-orbital park can have the
+  vessel at an arbitrary true anomaly - up to ~180 deg / ~2 AU out of phase from the launch body at
+  the burn - and still pass both gates, so `r1 = launchBody` would mis-approximate the real burn
+  point. This is an accepted limitation of the chosen pure (no-live-position) ecc+sma form (Open Q2/Q4
+  decision): it FAILS CLOSED (a mis-aimed `r1` reproduces the prior faithful render, not new
+  corruption), the downstream encounter check can still reject a transfer that misses the target, and
+  a real two-burn departure phases to end near the launch body at the burn (you burn when you reach
+  the transfer point, which for a co-orbital park is near the body). If a future recording exposes the
+  gap, add a true-anomaly proximity check (needs an `IBodyInfo` position-at-UT accessor).
 - The park->transfer handoff is the same sub-pixel-at-map-scale seam the shipped escape->transfer
   handoff already tolerates (B never moves `RecordedDepartureUT` and never window-rotates the park).
 - Too-long-tof trap (the M1 failure mode): `transferStart` is unchanged, so the park is never folded
@@ -130,11 +150,13 @@ than `ReaimClassifier.cs` changes behaviour; the `MissionLoopUnitBuilder` edits 
 
 ## Tests
 
-`ReaimClassifierTests` (+10): the s15 two-burn fixture engages with the correct departure UT / tof /
-`DepartedFromHeliocentricPark`; multi-rev / eccentric / wide-sma parks decline; the predicate's
-loiter / admissibility / fail-closed branches; the Kepler sma round-trip. The existing sub-period
+`ReaimClassifierTests` (+12): the s15 two-burn fixture engages with the correct departure UT / tof /
+`DepartedFromHeliocentricPark`; multi-rev / eccentric / wide-sma parks decline; a non-adjacent
+earlier multi-rev solar park declines (the all-runs empty-cut scan); a same-sma park eccentric at the
+burn point declines (burn-point ecc check); the predicate's loiter / admissibility / fail-closed
+branches; the Kepler sma round-trip. The existing sub-period
 (`Classify_HeliocentricLoiterBeforeTransfer_Declined`) and same-sma >1-rev decline fences stay green.
-Full headless suite green (15694; InjectAllRecordings env-flake excluded).
+Full headless suite green (15696; InjectAllRecordings env-flake excluded).
 
 **Acceptance pending in-game:** load s15, loop "Kerbal X #2", confirm `ReaimDiag plan.Supported=true
 parking=True`, `ENGAGED re-aim Kerbin->Duna`, the Missions tab shows the synodic window, the map
