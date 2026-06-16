@@ -309,6 +309,65 @@ namespace Parsek.Tests
             Assert.False(ok);
         }
 
+        // === #1166 co-occurrence: a heliocentric (common-ancestor / Sun) parking loiter ===========
+        // #1166 engages re-aim on a transfer that DEPARTS from a Sun parking orbit, so the transfer
+        // member can now contain a 1-rev Sun park alongside the real destination loiter (the s15
+        // "Kerbal X #2" shape that reaches P4). These pin that P4 never mis-selects or mis-cuts it.
+
+        [Fact]
+        public void Selector_IgnoresCommonAncestorPark_PicksDestinationRun()
+        {
+            var runs = new List<ReaimLoiterCompressor.LoiterRun>
+            {
+                Run("Sun", 60.0, 30.0, 1),     // EndUT 90 < arrival 150: heliocentric park (common ancestor)
+                Run(Target, 200.0, 35.0, 5),   // EndUT 375: the real Duna destination parking
+            };
+            bool ok = DestinationLoiterTrim.TrySelectDestinationRun(
+                runs, Target, 150.0, 400.0, out ReaimLoiterCompressor.LoiterRun sel);
+            Assert.True(ok);
+            Assert.Equal(Target, sel.BodyName);  // never the Sun park
+            Assert.Equal(200.0, sel.StartUT, 9);
+        }
+
+        [Fact]
+        public void Applied_WithCommonAncestorParkInAllRuns_TrimsDestinationNotPark()
+        {
+            // Same destination geometry as LongLoiter_IntermediateKeepRevs (keepRevs=3), plus a 1-rev
+            // Sun park in allRuns. The solve must be unperturbed: select + trim the Duna run.
+            var runs = new List<ReaimLoiterCompressor.LoiterRun>
+            {
+                Run("Sun", 60.0, 30.0, 1),
+                Run(Target, 200.0, 35.0, 5),
+            };
+            var r = DestinationLoiterTrim.SolveTrimAndHold(
+                runs, null, Landing(), Rotation(Target, 100.0), Launch, Target,
+                recordedArrivalUT: 150.0, recordedDestSurfaceUT: 400.0, rotationPeriod: 100.0,
+                phaseAnchorUT: 50.0, spanStartUT: 0.0, spanSeconds: 1.0e6,
+                mode: TransitedBodyRotationMode.Loose, maxKeepRevs: 10, bodyInfo: new TrimFake());
+            Assert.True(r.Applied);
+            Assert.Equal(3, r.DestinationKeepRevs);
+            Assert.Equal(5L, r.DestinationWholeRevs);          // the Duna run, not the 1-rev Sun park
+            Assert.True(r.HasDestinationCut);
+            Assert.Equal(200.0, r.DestinationCut.StartUT, 9);  // Duna run start, never the Sun park (60)
+        }
+
+        [Fact]
+        public void BuildLaunchSideKeepOneCuts_OneRevCommonAncestorPark_ProducesNoCut()
+        {
+            // The builder partition: a 1-rev heliocentric Sun park yields NO launch-side cut (WholeRevs
+            // == 1 is below the > keepRevs gate, exactly as ComputeCuts), while a genuine multi-rev
+            // launch-body loiter still does.
+            var runs = new List<ReaimLoiterCompressor.LoiterRun>
+            {
+                Run("Sun", 60.0, 30.0, 1),     // 1-rev heliocentric park -> no cut
+                Run(Launch, 100.0, 20.0, 4),   // EndUT 180 <= arrival 200; multi-rev launch loiter -> a cut
+            };
+            var cuts = MissionLoopUnitBuilder.BuildLaunchSideKeepOneCuts(runs, recordedArrivalUT: 200.0);
+            Assert.Single(cuts);
+            Assert.Equal(100.0, cuts[0].StartUT, 9);        // the Kerbin launch loiter, not the Sun park
+            Assert.Equal(60.0, cuts[0].LengthSeconds, 9);   // (4 - 1) * 20
+        }
+
         // === Logging =====================================================================
 
         [Fact]
