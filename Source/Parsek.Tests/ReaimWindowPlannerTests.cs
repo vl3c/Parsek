@@ -137,6 +137,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Window0_DepartureAndRelaunchClocksCoincide_DivergeForKGreaterThanZero()
+        {
+            // The departure-seam fix closes the seam at WINDOW 0 (k=0), where the synodic-departure clock
+            // (DepartureUTForWindow, what the transfer geometry is solved for) and the cadence-relaunch clock
+            // (RelaunchUTForWindow, what the body-relative escape leg / park re-phase track) COINCIDE. This
+            // documents the in-scope boundary: window 0 is clock-consistent (the transfer's r1 and the park's
+            // re-phase share one UT), and the divergence for k >= 1 is the SEPARATE windows-1+ arrival
+            // clock-drift (self-overlap Increment 2), explicitly out of scope for this fix.
+            //
+            // Use the span>synodic case (Kerbal X #2 shape) so cadence != synodic and the divergence is real.
+            const double bigSpanStart = 0.0, bigSpanEnd = 25_000_000.0;
+            const double bigDeparture = 2_000_000.0, bigTof = 3_000_000.0;
+            var s = ReaimWindowPlanner.Plan(
+                KerbinPeriod, DunaPeriod, bigDeparture, bigTof, bigSpanStart, bigSpanEnd, referenceUT: 0.0);
+            Assert.True(s.Valid, s.Reason);
+            Assert.True(s.CadenceSeconds > s.SynodicPeriodSeconds); // the divergent (span>synodic) case
+
+            // Window 0: D0 == R0 == FirstDepartureUT (the seam-fix window; the two clocks coincide here).
+            Assert.Equal(s.FirstDepartureUT, s.DepartureUTForWindow(0), 3);
+            Assert.Equal(s.FirstDepartureUT, s.RelaunchUTForWindow(0), 3);
+            Assert.Equal(s.DepartureUTForWindow(0), s.RelaunchUTForWindow(0), 3);
+
+            // k >= 1: the clocks diverge by exactly k*(cadence - synodic) - the OUT-OF-SCOPE windows-1+
+            // arrival clock-drift, not this fix's concern.
+            for (long k = 1; k <= 4; k++)
+            {
+                double diverge = k * (s.CadenceSeconds - s.SynodicPeriodSeconds);
+                Assert.True(diverge > 0.0);
+                Assert.Equal(s.DepartureUTForWindow(k) + diverge, s.RelaunchUTForWindow(k), 3);
+            }
+        }
+
+        [Fact]
         public void Plan_ReferenceBeforeRecordedDeparture_FirstWindowIsTheRecordedDeparture()
         {
             // A recording dated in the future (e.g. after a career rewind): the first window is the

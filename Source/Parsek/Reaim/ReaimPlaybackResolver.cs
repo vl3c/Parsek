@@ -194,6 +194,74 @@ namespace Parsek.Reaim
             IReadOnlyList<double> candidateTofs = ReaimTofSearch.BuildCandidateTofs(
                 schedule.TofSeconds, geomTofSeconds, eTarget);
 
+            // DEPARTURE-ANCHOR DECISION (moved BEFORE the tof loop so r1 is fixed for every candidate).
+            // For a heliocentric-PARKING departure the icon coasts on the heliocentric PARK at the burn, so
+            // the transfer must emanate from the vessel's re-phased PARK-END state, not the launch body's
+            // center. Resolve WHICH segment is the park (the SAME predicate the inc guard uses, via
+            // FindHeliocentricParkSegment) + the pure mode decision, then reconstruct the LAN-rotated park
+            // Sun orbit and evaluate r1 / vel at the RECORDED burn UT (BLOCKER 1: the rendered park-end the
+            // icon abuts is the LAN-rotated park at RecordedDepartureUT - the park is only LAN-rotated, NOT
+            // ShiftInTime'd, so it keeps its recorded epoch; evaluating at the future synodic departure D0
+            // would advance it N*synodic revs and re-open the seam).
+            //
+            // FAIL-CLOSED ORDER: a parking departure whose re-phase DECLINES returns faithful (null) HERE,
+            // BEFORE any synthesis - it must NEVER fall back to a launch-center r1 for a parking departure
+            // (that would render the original seam disguised as a fix). A direct transfer takes the
+            // launch-center path with hasDepartureOverride=false => byte-identical to main.
+            double parkReplayUT = schedule.RelaunchUTForWindow(windowIndex);
+            // Walk the member's segments ONCE: FindHeliocentricParkSegment is the single source for both the
+            // inc guard (DecideDepartureAnchor) and the r1 reconstruction below, so resolve the park segment
+            // here and reuse the same Nullable instead of also calling FindHeliocentricParkInclination (which
+            // would re-walk the list internally).
+            OrbitSegment? parkSeg = ReaimSegmentAssembler.FindHeliocentricParkSegment(
+                memberSegments, plan.CommonAncestor, plan.RecordedDepartureUT);
+            double parkInc = parkSeg.HasValue ? parkSeg.Value.inclination : double.NaN;
+            ReaimSegmentAssembler.DepartureAnchorDecision anchor =
+                ReaimSegmentAssembler.DecideDepartureAnchor(
+                    plan.DepartedFromHeliocentricPark, parkInc, parkReplayUT, plan.RecordedDepartureUT,
+                    launchBody.orbit != null ? launchBody.orbit.period : double.NaN);
+
+            if (anchor.Mode == ReaimSegmentAssembler.DepartureAnchorMode.DeclineToFaithful)
+            {
+                ParsekLog.Verbose("ReaimPlayback",
+                    $"member={memberId} window={windowIndex} park re-phase DECLINED -> faithful " +
+                    $"(parkInc={parkInc.ToString("F2", ic)} maxInc={ReaimSegmentAssembler.ParkRephaseMaxInclinationDeg.ToString("F1", ic)} " +
+                    $"launchPeriod={(launchBody.orbit != null ? launchBody.orbit.period.ToString("R", ic) : "NaN")})");
+                return null; // fail closed to faithful; never the verbatim ~239 deg park, never launch-center r1
+            }
+
+            double parkDeltaLonDeg = anchor.ParkDeltaLonDeg;
+            bool hasDepartureOverride = anchor.Mode == ReaimSegmentAssembler.DepartureAnchorMode.ParkEndOverride;
+            Vector3d parkEndPosUnswizzled = default(Vector3d);
+            Vector3d parkEndVelUnswizzled = default(Vector3d);
+            double parkEndOffLaunchCenter = double.NaN; // |parkEndPos - launchBody center| (window-0 proof)
+            if (hasDepartureOverride)
+            {
+                // Reconstruct the recorded park (the same Nullable resolved above), LAN-rotate it by the
+                // window's re-phase angle (same RotateLanForParkRephase the assembler applies to the rendered
+                // park leg), then evaluate r1 / vel on it at the RECORDED burn UT. getRelativePositionAtUT/.xzy
+                // match the synth frame (NEVER getPositionAtUT - that adds the Sun world offset and breaks the
+                // round-trip with UpdateFromStateVectors). Relies on the Sun being the root body (the
+                // common-ancestor leg).
+                if (!parkSeg.HasValue)
+                {
+                    // The mode decision said ParkEndOverride (inc was finite) but the segment vanished -
+                    // structural inconsistency; fail closed rather than silently anchoring on the launch center.
+                    ParsekLog.Warn("ReaimPlayback",
+                        $"member={memberId} window={windowIndex} park-end override requested but no park segment resolved - faithful this window");
+                    return null;
+                }
+                OrbitSegment rotatedPark = ReaimSegmentAssembler.RotateLanForParkRephase(
+                    parkSeg.Value, parkDeltaLonDeg);
+                if (!TryBuildParkEndState(rotatedPark, anchor.ParkEvalUT, launchBody,
+                        out parkEndPosUnswizzled, out parkEndVelUnswizzled, out parkEndOffLaunchCenter))
+                {
+                    ParsekLog.Warn("ReaimPlayback",
+                        $"member={memberId} window={windowIndex} park-end state reconstruction failed (body/elements) - faithful this window");
+                    return null;
+                }
+            }
+
             Orbit transferOrbit = null;
             double soiEntryUT = double.NaN;
             CelestialBody encounterBody = null;
@@ -205,7 +273,8 @@ namespace Parsek.Reaim
                 // ReaimTofSearch drops non-positive tofs already; keep the positivity guard as a backstop.
                 if (tof > 0.0 && ReaimTransferSynthesizer.TrySynthesizeTransfer(
                         launchBody, targetBody, departureUT, tof, progradeWanted,
-                        out transferOrbit, out soiEntryUT, out encounterBody, out failReason))
+                        out transferOrbit, out soiEntryUT, out encounterBody, out failReason,
+                        parkEndPosUnswizzled, parkEndVelUnswizzled, hasDepartureOverride))
                 {
                     usedTofSeconds = tof;
                     break;
@@ -233,9 +302,13 @@ namespace Parsek.Reaim
             // Sun-inertial PARKING orbit BEFORE the trans-target burn. That park renders verbatim at its
             // RECORDED solar longitude (~239 deg off live Kerbin at the captured window) while the escape leg
             // (body-relative) anchors to the LIVE launch body (KSP Orbit.getPositionAtUT adds the live
-            // referenceBody.position) - a teleport seam right at SOI exit. Rotate the recorded park's LAN by
+            // referenceBody.position) - a teleport seam right at SOI exit. parkDeltaLonDeg (decided ABOVE
+            // via DecideDepartureAnchor, BEFORE the tof loop) rotates the recorded park's LAN by
             // Delta_lon(window) = omega_parent * (replayUT - RecordedDepartureUT) so the Sun-inertial park
             // re-phases into the live frame and sits next to the live launch body, connecting to the escape.
+            // The SAME rotated park supplies the transfer's r1 departure anchor (the override above), so the
+            // park-end and the transfer-start are the SAME point and the icon traverses park -> transfer
+            // continuously.
             //
             // CLOCK CHOICE (the issue-1 fix): replayUT is the CADENCE-clock relaunch time
             // (schedule.RelaunchUTForWindow = D0 + window*cadence), NOT the synodic departure
@@ -247,31 +320,9 @@ namespace Parsek.Reaim
             // exceeds the synodic (a mission longer than its own transfer window, e.g. Kerbal X #2): there the
             // synodic-clock re-phase drifts the park ~142 deg*window off the live launch body, which is the
             // distant-loiter teleport. Pinning the park to the cadence clock keeps the loiter on the live
-            // launch body at every window. (The TRANSFER stays on the synodic clock so it still aims at the
-            // target's true position; the residual park->transfer / transfer->target seam in the span>synodic
-            // case is the separate Increment-2 overlap work.)
-            //
-            // Gated on DepartedFromHeliocentricPark (a direct transfer has it false => 0 => byte-identical) +
-            // a near-equatorial guard; FAILS CLOSED (decline this window to faithful, NEVER the verbatim
-            // ~239 deg park) on a non-equatorial park or a degenerate launch-body period.
-            double parkReplayUT = schedule.RelaunchUTForWindow(windowIndex);
-            double parkDeltaLonDeg = 0.0;
-            if (plan.DepartedFromHeliocentricPark)
-            {
-                double launchPeriod = launchBody.orbit != null ? launchBody.orbit.period : double.NaN;
-                double parkInc = ReaimSegmentAssembler.FindHeliocentricParkInclination(
-                    memberSegments, plan.CommonAncestor, plan.RecordedDepartureUT);
-                if (!ReaimSegmentAssembler.TryComputeParkRephase(
-                        parkInc, parkReplayUT, plan.RecordedDepartureUT, launchPeriod,
-                        out parkDeltaLonDeg))
-                {
-                    ParsekLog.Verbose("ReaimPlayback",
-                        $"member={memberId} window={windowIndex} park re-phase DECLINED -> faithful " +
-                        $"(parkInc={parkInc.ToString("F2", ic)} maxInc={ReaimSegmentAssembler.ParkRephaseMaxInclinationDeg.ToString("F1", ic)} " +
-                        $"launchPeriod={launchPeriod.ToString("R", ic)})");
-                    return null; // fail closed to faithful; never the verbatim ~239 deg park
-                }
-            }
+            // launch body at every window. (The TRANSFER's ARRIVAL still rides the synodic clock so it aims
+            // at the target's true position; the residual transfer->target seam in the span>synodic case is
+            // the separate Increment-2 overlap work, out of scope for this departure-seam fix.)
 
             // Render the re-aimed transfer over the FULL recorded heliocentric span
             // [RecordedDepartureUT, RecordedArrivalUT] (NaN render bounds => no trim). That span is exactly
@@ -309,6 +360,10 @@ namespace Parsek.Reaim
                 $"devFromRecorded={devFromRecorded.ToString("R", ic)}s devFromGeom={devFromGeom.ToString("R", ic)}s) " +
                 $"soiEntryUT={soiEntryUT.ToString("R", ic)} " +
                 $"encounter={(encounterBody != null ? encounterBody.bodyName : "<none>")} segs={assembled.Count} " +
+                $"departAnchor={(hasDepartureOverride ? "parkEnd" : "launchCenter")} " +
+                (hasDepartureOverride
+                    ? $"parkEndOffLaunchCenter={parkEndOffLaunchCenter.ToString("R", ic)}m (r1 moved off {launchBody.bodyName}; evalUT={anchor.ParkEvalUT.ToString("R", ic)}=RecordedDepartureUT) "
+                    : "") +
                 $"parkDeltaLon={parkDeltaLonDeg.ToString("R", ic)}deg (parking={plan.DepartedFromHeliocentricPark} " +
                 $"parkReplayUT={parkReplayUT.ToString("R", ic)} cadence={schedule.CadenceSeconds.ToString("R", ic)} synodic={schedule.SynodicPeriodSeconds.ToString("R", ic)}) " +
                 $"renderSpan=full-recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}]");
@@ -333,6 +388,50 @@ namespace Parsek.Reaim
                     return s.inclination;
             }
             return double.NaN;
+        }
+
+        // Live (Unity-bound) reconstruction of the LAN-rotated park-end state used as the transfer's r1
+        // departure anchor. Rebuilds the Sun orbit from the rotated park's Kepler elements with the SAME
+        // new Orbit(inc, ecc, sma, LAN, argPe, mEp, epoch, body) field-order/units contract used in
+        // TrajectoryMath / ReaimOrbitSegmentConverter (inc/LAN/argPe degrees, mEp radians, epoch UT), then
+        // evaluates getRelativePositionAtUT / getOrbitalVelocityAtUT at evalUT (== RecordedDepartureUT) and
+        // un-swizzles with .xzy to match the synth's r1/r2 Lambert frame. NEVER getPositionAtUT (that adds
+        // the Sun world offset and breaks the round-trip with UpdateFromStateVectors). Relies on the
+        // common-ancestor body (the Sun) being the root. Returns false on a missing body / NaN result.
+        // offLaunchCenter = |parkEndPos - launchBody center| in the same .xzy frame (the window-0 proof that
+        // r1 actually moved off the launch body's center).
+        private static bool TryBuildParkEndState(
+            OrbitSegment rotatedPark, double evalUT, CelestialBody launchBody,
+            out Vector3d parkEndPosUnswizzled, out Vector3d parkEndVelUnswizzled, out double offLaunchCenter)
+        {
+            parkEndPosUnswizzled = default(Vector3d);
+            parkEndVelUnswizzled = default(Vector3d);
+            offLaunchCenter = double.NaN;
+
+            CelestialBody parent = FindBody(rotatedPark.bodyName);
+            if (parent == null)
+                return false;
+            try
+            {
+                Orbit park = new Orbit(
+                    rotatedPark.inclination, rotatedPark.eccentricity, rotatedPark.semiMajorAxis,
+                    rotatedPark.longitudeOfAscendingNode, rotatedPark.argumentOfPeriapsis,
+                    rotatedPark.meanAnomalyAtEpoch, rotatedPark.epoch, parent);
+                Vector3d pos = park.getRelativePositionAtUT(evalUT).xzy;
+                Vector3d vel = park.getOrbitalVelocityAtUT(evalUT).xzy;
+                if (double.IsNaN(pos.x) || double.IsNaN(pos.y) || double.IsNaN(pos.z)
+                    || double.IsNaN(vel.x) || double.IsNaN(vel.y) || double.IsNaN(vel.z))
+                    return false;
+                parkEndPosUnswizzled = pos;
+                parkEndVelUnswizzled = vel;
+                if (launchBody != null && launchBody.orbit != null)
+                    offLaunchCenter = (pos - launchBody.orbit.getRelativePositionAtUT(evalUT).xzy).magnitude;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static CelestialBody FindBody(string bodyName)
