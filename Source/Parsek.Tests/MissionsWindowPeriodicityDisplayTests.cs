@@ -390,15 +390,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputeNextRelaunchUT_LaunchAlignmentEngaged_ReportsLNMinusDeltaMinusLead()
+        public void ComputeNextRelaunchUT_LaunchAlignmentEngaged_ReportsLNMinusDelta()
         {
-            // Per-loop launch alignment (borrow-at-launch): the navigable launch time the user warps to is
-            // L_N - capped_delta_N - 15s lead (delta_N EARLIER than nominal, then 15 s before the actual launch
-            // so warping lands on the pad just before lift-off). span [0,1000], cadence 2000 (no self-overlap),
-            // phaseAnchor 300, T_sid 700, no hold/cut so the cap never bites => the nominal window at/after now
-            // is L = anchor + n*2000; delta for that window is (300 + n*2000) mod 700.
+            // Per-loop launch alignment (borrow-at-launch): the navigable launch time the user warps to is the
+            // ACTUAL launch instant L_N - capped_delta_N (delta_N EARLIER than nominal). The 15 s warp lead is
+            // NOT subtracted here - it is applied once at the warp site by TimeJumpManager.ApplyJumpLead, so
+            // ComputeNextRelaunchUT returns the real launch instant (no double-lead). span [0,1000], cadence
+            // 2000 (no self-overlap), phaseAnchor 300, T_sid 700, no hold/cut so the cap never bites => the
+            // nominal window at/after now is L = anchor + n*2000; delta for that window is (300 + n*2000) mod 700.
             const double anchor = 300, cadence = 2000, tSid = 700;
-            const double lead = MissionsWindowUI.LaunchWarpLeadSeconds; // 15
             var unit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex: 0, memberIndices: new[] { 0 },
                 spanStartUT: 0.0, spanEndUT: 1000.0,
@@ -411,12 +411,12 @@ namespace Parsek.Tests
 
             // now = 100 (before the first window L_1 = 2300; n clamps so the nominal next window is L_1).
             // anchor 300, now 100 < anchor -> n=0, nominal next = anchor = 300 = L_0; delta_0 = 300 mod 700 =
-            // 300, advanced launch = 300 - 300 = 0, minus 15 = -15 < now(100) so fall forward to L_1: delta_1 =
-            // (300+2000) mod 700 = 200, advanced = 2300 - 200 = 2100, minus the 15 s lead = 2085.
+            // 300, advanced launch = 300 - 300 = 0 < now(100) so fall forward to L_1: delta_1 =
+            // (300+2000) mod 700 = 200, advanced launch = 2300 - 200 = 2100 (the actual launch instant, no lead).
             double next = ComputeNextRelaunchUT(unit, 100.0);
-            Assert.Equal(2100.0 - lead, next, 6);
+            Assert.Equal(2100.0, next, 6);
 
-            // The not-engaged unit (same params) reports the plain nominal launch (no subtraction, no lead).
+            // The not-engaged unit (same params) reports the plain nominal launch (no subtraction).
             var plainUnit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex: 0, memberIndices: new[] { 0 },
                 spanStartUT: 0.0, spanEndUT: 1000.0,
@@ -426,19 +426,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputeNextRelaunchUT_LaunchAlignmentEngaged_TargetsRealLaunchMinusLead()
+        public void ComputeNextRelaunchUT_LaunchAlignmentEngaged_TargetsRealLaunch()
         {
             // THE KEY integration test: drive the ACTUAL span clock (TryComputeSpanLoopUT) to find the real
             // launch UT of an instance (the currentUT where the resolved loopUT snaps back to spanStart in the
             // region-B early launch), then assert ComputeNextRelaunchUT(unit, just-before) == that real launch
-            // UT - 15 s. This pins the displayed "Warp to..." time to where the ghost actually launches (the
-            // maintainer's bug: the old display used the uncapped delta and pointed hours too early).
+            // UT (the ACTUAL launch instant, NOT minus 15). This pins the returned "Warp to..." time to where
+            // the ghost actually launches (the maintainer's bug: the old display used the uncapped delta and
+            // pointed hours too early). The 15 s warp lead is applied separately at the warp site via
+            // TimeJumpManager.ApplyJumpLead (verified below), NOT inside ComputeNextRelaunchUT (which used to
+            // double-lead the warp ~30 s early).
             //
             // cadence == span regime (the s15 case) with a loiter cut + per-loop arrival hold so the span
             // compresses and slack = cut - W varies per loop (the region-A/B cap can differ from the raw delta).
             const double anchor = 1000, s0 = 0, s1 = 200000, cad = 200000, tSid = 21549.425;
             const double w0 = 4000, tAlign = 21549.425, soiExit = 40000, holdAt = 150000;
-            const double lead = MissionsWindowUI.LaunchWarpLeadSeconds;
             var cuts = new System.Collections.Generic.List<GhostPlaybackLogic.LoopCut>
             {
                 new GhostPlaybackLogic.LoopCut { StartUT = 120000, LengthSeconds = 60000 }
@@ -462,27 +464,30 @@ namespace Parsek.Tests
                 spanStart: s0, spanEnd: s1, cadence: cad, anchor: anchor);
             Assert.True(realLaunch1 > anchor, "expected a region-B early launch for instance 1 inside cycle 0");
 
-            // nowUT comfortably BEFORE the navigable launch time (realLaunch1 - lead): the display must point at
-            // the real launch - 15 s lead, NOT fall forward to the next window. The scan resolves realLaunch1 to
-            // within `step`, so allow a tolerance of step + a small float margin.
-            double next = ComputeNextRelaunchUT(unit, realLaunch1 - lead - 100.0);
-            Assert.Equal(realLaunch1 - lead, next, step + 0.5);
+            // nowUT comfortably BEFORE the real launch: the returned time must be the real launch instant,
+            // NOT fall forward to the next window. The scan resolves realLaunch1 to within `step`, so allow a
+            // tolerance of step + a small float margin.
+            double next = ComputeNextRelaunchUT(unit, realLaunch1 - 100.0);
+            Assert.Equal(realLaunch1, next, step + 0.5);
 
-            // Sanity: the displayed time is BEFORE the real launch (the lead), ~one lead window before it.
-            Assert.True(next < realLaunch1, "the navigable time must precede the real launch");
-            Assert.True(realLaunch1 - next <= lead + step + 1.0, "the navigable time is ~15 s (one lead) before launch");
+            // The 15 s warp lead is applied once at the warp site: ApplyJumpLead(next, now) == real_launch - 15
+            // (the warp lands 15 s before launch). now is comfortably before the lead window so no clamp.
+            const double lead = RecordingStore.RewindToLaunchLeadTimeSeconds; // 15
+            double warpTarget = TimeJumpManager.ApplyJumpLead(next, realLaunch1 - 100.0);
+            Assert.Equal(next - lead, warpTarget, step + 0.5);
+            Assert.True(warpTarget < realLaunch1, "the warp target must precede the real launch (the lead)");
         }
 
         [Fact]
-        public void ComputeNextRelaunchUT_LaunchAlignmentEngaged_CappedLoop_TargetsRealLaunchMinusLead()
+        public void ComputeNextRelaunchUT_LaunchAlignmentEngaged_CappedLoop_TargetsRealLaunch()
         {
             // A CAPPED loop (delta_N > slack_{N-1}): a tight cut (small slack) so the raw delta exceeds it and
-            // the capped advance bites. The display must STILL agree with the clock's real launch (both use the
-            // SAME ComputeCappedLaunchAdvanceSeconds), minus the 15 s lead. cadence==span 200000, cut 8000 so
-            // compressedSpan 192000, slack ~ 8000 - W << the raw deltas (which reach ~21000).
+            // the capped advance bites. The returned time must STILL agree with the clock's real launch (both
+            // use the SAME ComputeCappedLaunchAdvanceSeconds), as the ACTUAL launch instant (no lead subtracted
+            // here). cadence==span 200000, cut 8000 so compressedSpan 192000, slack ~ 8000 - W << the raw deltas
+            // (which reach ~21000).
             const double anchor = 1000, s0 = 0, s1 = 200000, cad = 200000, tSid = 21549.425;
             const double w0 = 1000, tAlign = 21549.425, soiExit = 40000, holdAt = 150000;
-            const double lead = MissionsWindowUI.LaunchWarpLeadSeconds;
             var cuts = new System.Collections.Generic.List<GhostPlaybackLogic.LoopCut>
             {
                 new GhostPlaybackLogic.LoopCut { StartUT = 120000, LengthSeconds = 8000 }
@@ -510,8 +515,8 @@ namespace Parsek.Tests
                 spanStart: s0, spanEnd: s1, cadence: cad, anchor: anchor);
             Assert.True(realLaunch1 > anchor, "expected a region-B early launch for the capped instance 1");
 
-            double next = ComputeNextRelaunchUT(unit, realLaunch1 - lead - 100.0);
-            Assert.Equal(realLaunch1 - lead, next, step + 0.5);
+            double next = ComputeNextRelaunchUT(unit, realLaunch1 - 100.0);
+            Assert.Equal(realLaunch1, next, step + 0.5);
         }
 
         // Scans the actual span clock for the region-B early-launch UT: the loopUT snaps DOWN from spanEnd back

@@ -7751,20 +7751,51 @@ namespace Parsek
                         if (renderedSlack < 0.0)
                             renderedSlack = 0.0;
                     }
+                    // The UNCAPPED raw delta for the RENDERED instance: region B renders instance N+1
+                    // (rawAdvNext), region A renders instance N (rawLaunchAdvance). The cap can fall short of
+                    // this raw value; the shortfall is launch-body rotation the cap could not align.
+                    double rawDeltaN = earlyNextLaunch ? rawAdvNext : rawLaunchAdvance;
+                    // residualDeg = the leftover launch-body rotation the cap could NOT align = the
+                    // unrepaid advance (rawDeltaN - cappedAdvance) expressed as a fraction of one sidereal
+                    // rotation, in degrees normalized to [0,360). This IS the body-fixed-ascent vs
+                    // inertial-escape-conic SEAM ANGLE this loop carries: 0 when not capped (the cap equals
+                    // the raw delta), large when capped. cappedAdvance is the rendered effectiveLaunchAdvance.
+                    double residualSeconds = rawDeltaN - effectiveLaunchAdvance;
+                    double residualDeg = (residualSeconds % tSid) / tSid * 360.0;
+                    if (residualDeg < 0.0)
+                        residualDeg += 360.0;
                     ParsekLog.VerboseRateLimited(
                         "Reaim",
                         $"perloop-launch-advance.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
                         $"per-loop launch advance: cycleIndex={cycleIndex.ToString(lic)} " +
                         $"Tsid={tSid.ToString("R", lic)}s cadence={cycleDuration.ToString("R", lic)}s " +
                         $"deltaN={effectiveLaunchAdvance.ToString("R", lic)}s slack={renderedSlack.ToString("R", lic)}s " +
-                        $"region={(earlyNextLaunch ? "B-earlyNext" : "A-current")} capped={launchAdvanceCapped}");
+                        $"region={(earlyNextLaunch ? "B-earlyNext" : "A-current")} capped={launchAdvanceCapped} " +
+                        $"rawDeltaN={rawDeltaN.ToString("R", lic)}s residualDeg={residualDeg.ToString("R", lic)}");
                     if (launchAdvanceCapped)
                         ParsekLog.WarnRateLimited(
                             "Reaim",
                             $"launch-advance-capped.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
                             $"per-loop launch advance CAPPED to slack={renderedSlack.ToString("R", lic)}s " +
                             $"(delta_N > slack_(N-1): this loop carries a residual launch->escape seam); " +
-                            $"cycleIndex={cycleIndex.ToString(lic)} cadence={cycleDuration.ToString("R", lic)}s");
+                            $"cycleIndex={cycleIndex.ToString(lic)} cadence={cycleDuration.ToString("R", lic)}s " +
+                            $"rawDeltaN={rawDeltaN.ToString("R", lic)}s residualDeg={residualDeg.ToString("R", lic)}");
+                    // ACTUAL-LAUNCH-INSTANT marker: region B fires the early launch of the next instance, so
+                    // cycleIndex is already the LAUNCHED instance N+1. Name the real launch UT
+                    // (L_N - effectiveLaunchAdvance) alongside the nominal L_N so a playtest can compare the
+                    // Missions warp-to target against where the ghost actually lifts off. Rate-limited per
+                    // mission identity (its own key, distinct from the per-loop-advance line's key).
+                    if (earlyNextLaunch)
+                    {
+                        double nominalLN = phaseAnchorUT + cycleIndex * cycleDuration;
+                        double actualLaunchUT = nominalLN - effectiveLaunchAdvance;
+                        ParsekLog.VerboseRateLimited(
+                            "Reaim",
+                            $"launch-instant.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
+                            $"launch instant: instance N={cycleIndex.ToString(lic)} launches at " +
+                            $"UT={actualLaunchUT.ToString("R", lic)} (nominal L_N={nominalLN.ToString("R", lic)} " +
+                            $"advance={effectiveLaunchAdvance.ToString("R", lic)}s)");
+                    }
                 }
             }
 

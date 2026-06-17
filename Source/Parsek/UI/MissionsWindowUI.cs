@@ -1523,12 +1523,14 @@ namespace Parsek
             // RENDERS is L_N - min(delta_N, slack_{N-1}) - the SAME CAPPED advance the span clock applies in
             // region B (ComputeCappedLaunchAdvanceSeconds, capped to the LAUNCHING cycle's slack, NOT the
             // uncapped delta_N the old display used, which pointed a few hours too early when delta_N > slack).
-            // The navigable / "Warp to..." time is then 15 s BEFORE that launch (LaunchWarpLeadSeconds) so the
-            // user arrives on the pad just before lift-off rather than mid-ascent. Subtract the capped advance +
-            // lead for window n; if that advanced launch already passed, fall forward to window n+1's advanced
-            // launch + lead. No-op when the launch alignment is not engaged (a degenerate T_sid yields delta_N
-            // == 0; the lead applies only on the engaged path). PhaseAnchorUT / cadence / the window index are
-            // untouched (targeting is unchanged) - only the displayed launch time shifts.
+            // This returns the ACTUAL launch instant L_N - capped_delta_N: subtract the capped advance for
+            // window n; if that advanced launch already passed, fall forward to window n+1's advanced launch.
+            // The 15 s warp lead is NOT applied here - it is applied ONCE at the warp site by
+            // TimeJumpManager.ApplyJumpLead(relaunchUT, ...) in ShowMissionWarpToWindowConfirmation, so the
+            // warp lands the player on the pad just before lift-off (applying it here too would double-lead the
+            // warp ~30 s early). No-op when the launch alignment is not engaged (a degenerate T_sid yields
+            // delta_N == 0). PhaseAnchorUT / cadence / the window index are untouched (targeting is unchanged) -
+            // only the displayed launch time shifts.
             if (unit.LaunchHoldEngaged)
             {
                 long win = (long)System.Math.Round((next - anchor) / interval);
@@ -1536,26 +1538,18 @@ namespace Parsek
                     anchor, unit.SpanStartUT, unit.SpanEndUT, interval, win,
                     unit.LaunchBodyRotationPeriodSeconds, unit.LoiterCuts,
                     unit.ArrivalHoldSeconds, unit.ArrivalAlignPeriodSeconds);
-                next = next - delta - LaunchWarpLeadSeconds;
+                next = next - delta;
                 if (next < nowUT - 1e-6)
                 {
                     double deltaNext = GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(
                         anchor, unit.SpanStartUT, unit.SpanEndUT, interval, win + 1,
                         unit.LaunchBodyRotationPeriodSeconds, unit.LoiterCuts,
                         unit.ArrivalHoldSeconds, unit.ArrivalAlignPeriodSeconds);
-                    next = anchor + (win + 1) * interval - deltaNext - LaunchWarpLeadSeconds;
+                    next = anchor + (win + 1) * interval - deltaNext;
                 }
             }
             return next;
         }
-
-        /// <summary>
-        /// Lead (seconds) the navigable "Warp to..." / next-relaunch time is placed BEFORE the actual ghost
-        /// launch instant when launch alignment is engaged, so warping lands the player on the pad just before
-        /// lift-off rather than mid-ascent. Applies only on the engaged path (the non-engaged display is
-        /// unchanged).
-        /// </summary>
-        internal const double LaunchWarpLeadSeconds = 15.0;
 
         /// <summary>
         /// The "Time to launch" cell text for the four states (design doc UX):
