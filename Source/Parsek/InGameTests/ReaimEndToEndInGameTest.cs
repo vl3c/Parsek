@@ -963,12 +963,15 @@ namespace Parsek.InGameTests
             var fx = new ParkingDepartureFixture { ParkSma = ctx.LaunchBody.orbit.semiMajorAxis };
             BuildParkingMemberAndPlan(ctx, goodDep, fx,
                 out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
-                out double spanStart, out double spanEnd);
+                out double spanStart, out double spanEnd, out double recordedTofSeconds);
             InGameAssert.IsTrue(plan.DepartedFromHeliocentricPark,
                 "the parking-departure fixture plan must have DepartedFromHeliocentricPark=true");
 
+            // Plan the schedule with the member's OWN (inflated) recorded tof so the span stays coherent. The
+            // parking path's tof candidate band is centered on geomTof, NOT this schedule tof, so the inflated
+            // recorded tof does not bias the synthesis - it only sets the recorded arrival the capture re-times from.
             ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
-                ctx.LaunchBody.orbit.period, ctx.TargetBody.orbit.period, goodDep, ctx.TofSeconds,
+                ctx.LaunchBody.orbit.period, ctx.TargetBody.orbit.period, goodDep, recordedTofSeconds,
                 spanStart, spanEnd, referenceUT: referenceUT);
             InGameAssert.IsTrue(sched.Valid, "window schedule must be valid: " + (sched.Reason ?? ""));
 
@@ -1074,24 +1077,93 @@ namespace Parsek.InGameTests
                 $"re-aimed transfer must START at the re-phased park-end (r1==park-end): seamMiss={seamMiss.ToString("F0", ic)}m must be < {seamTolMetres.ToString("F0", ic)}m");
             InGameAssert.IsTrue(parkEndOffLaunchCenter > seamTolMetres,
                 $"the park-end must be genuinely OFF the launch body's center (else the gate is vacuous): off={parkEndOffLaunchCenter.ToString("F0", ic)}m");
+
+            // F2 PLACEMENT CONTRACT: the parking-departure transfer uses the GEOMETRIC Hohmann tof (shorter
+            // than the recorded tof), so it ARRIVES at RecordedDepartureUT + usedTof - EARLIER than the recorded
+            // arrival - and the recorded Duna capture leg is re-timed to begin at that SAME UT (the seam closes).
+            // usedTof is read off the rendered transfer leg's own span (startUT==RecordedDepartureUT, so
+            // endUT - RecordedDepartureUT == usedTof); the capture leg must start where the transfer ends.
+            double newArrivalUT = transferSeg.endUT;
+            double usedTof = newArrivalUT - plan.RecordedDepartureUT;
+            OrbitSegment captureSeg = FindTargetCaptureLeg(segs, plan);
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(captureSeg.bodyName),
+                "the resolved window must contain a re-timed target capture leg");
+
+            // The transfer ends and the capture begins at the SAME UT (no gap, no overlap).
+            InGameAssert.IsTrue(System.Math.Abs(captureSeg.startUT - newArrivalUT) < 1.0,
+                $"the re-timed capture leg must begin where the transfer ends: captureStart={captureSeg.startUT.ToString("R", ic)} vs transferEnd={newArrivalUT.ToString("R", ic)}");
+            // NIT #4 (catches the FIX #1 latent gap): no OTHER segment may sit in the (transferEnd, captureStart)
+            // window. If the render clamp ever fell back to the full recorded span while captureShift stayed
+            // positive (usedTof > recordedTof, uncoupled), a stale recorded Sun/Duna segment would be left
+            // straddling that gap. With FIX #1's coupling transferEnd == captureStart, so the open interval is
+            // empty and any segment whose start lands strictly inside it is the regression.
+            double gapLo = System.Math.Min(newArrivalUT, captureSeg.startUT) + 1.0;
+            double gapHi = System.Math.Max(newArrivalUT, captureSeg.startUT) - 1.0;
+            for (int gi = 0; gi < segs.Count; gi++)
+            {
+                OrbitSegment gseg = segs[gi];
+                InGameAssert.IsTrue(!(gseg.startUT > gapLo && gseg.startUT < gapHi),
+                    $"no segment may sit in the transfer->capture gap [{newArrivalUT.ToString("R", ic)},{captureSeg.startUT.ToString("R", ic)}]: " +
+                    $"found body={gseg.bodyName} startUT={gseg.startUT.ToString("R", ic)} endUT={gseg.endUT.ToString("R", ic)}");
+            }
+            // The new arrival is EARLIER than the recorded arrival (Hohmann tof << recorded tof for a two-burn
+            // departure), proving the capture was re-timed back, not left at its recorded UT.
+            InGameAssert.IsTrue(newArrivalUT < plan.RecordedArrivalUT - 1.0,
+                $"the re-aimed (Hohmann) arrival must be EARLIER than the recorded arrival: new={newArrivalUT.ToString("R", ic)} recorded={plan.RecordedArrivalUT.ToString("R", ic)}");
+            // usedTof lands within the parking band of the geometric Hohmann tof (step 0 == geomTof; the band is
+            // +-HalfWidthFraction(eTarget), capped at MaxHalfWidthFraction). A generous bound covers the widest band.
+            double tofBandTol = ctx.GeomTofSeconds * (ReaimTofSearch.MaxHalfWidthFraction + ReaimTofSearch.DefaultStepFraction);
+            InGameAssert.IsTrue(System.Math.Abs(usedTof - ctx.GeomTofSeconds) <= tofBandTol,
+                $"the re-aimed tof must be within the parking band of geomTof: usedTof={usedTof.ToString("R", ic)} geomTof={ctx.GeomTofSeconds.ToString("R", ic)} tol={tofBandTol.ToString("R", ic)}");
+
+            ParsekLog.Info("ReaimE2E",
+                $"parking-departure F2 placement ({memberId}): usedTof={usedTof.ToString("R", ic)} geomTof={ctx.GeomTofSeconds.ToString("R", ic)} " +
+                $"recordedTof={plan.RecordedTransferTofSeconds.ToString("R", ic)} newArrivalUT={newArrivalUT.ToString("R", ic)} (recordedArrival={plan.RecordedArrivalUT.ToString("R", ic)}) " +
+                $"captureStartUT={captureSeg.startUT.ToString("R", ic)}");
+        }
+
+        // The re-timed target-body capture leg in a resolved segment list: the non-predicted targetBody-bodied
+        // segment whose startUT is at/after the (re-timed) arrival. The LAST targetBody segment is the capture
+        // (a chained mission could in principle carry earlier targetBody legs, but the parking fixture has one).
+        private static OrbitSegment FindTargetCaptureLeg(List<OrbitSegment> segs, ReaimMissionPlan plan)
+        {
+            if (segs == null)
+                return default(OrbitSegment);
+            OrbitSegment found = default(OrbitSegment);
+            for (int i = 0; i < segs.Count; i++)
+            {
+                OrbitSegment s = segs[i];
+                if (!s.isPredicted && s.bodyName == plan.TargetBody)
+                    found = s; // keep the latest targetBody leg (the capture)
+            }
+            return found;
         }
 
         // Builds a HELIOCENTRIC-PARKING-DEPARTURE member + plan: Kerbin ascent/park [spanStart, depUT-parkDur],
         // a Sun PARK sub-coast ENDING at the burn (depUT), the recorded heliocentric transfer leg [depUT, arrUT],
         // then the Duna arrival. plan.DepartedFromHeliocentricPark=true, RecordedDepartureUT=depUT (the burn).
+        // The recorded transfer tof is DELIBERATELY inflated to ~1.44x the geometric Hohmann time (the real s15
+        // "Kerbal X #2" ratio), so the F2 fix has real work to do: the re-aimed (Hohmann) transfer arrives
+        // EARLIER than the recorded arrival, exercising the render-span trim + capture re-time. recordedTofSeconds
+        // is output so the caller plans the schedule with the SAME recorded tof (keeps the span coherent).
         private static void BuildParkingMemberAndPlan(
             ScanContext ctx, double departureUT, ParkingDepartureFixture fx,
             out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
-            out double spanStart, out double spanEnd)
+            out double spanStart, out double spanEnd, out double recordedTofSeconds)
         {
             string launchName = fx.LaunchBodyName;
             string targetName = fx.TargetBodyName;
             string parent = ctx.LaunchBody.referenceBody.bodyName;
 
+            // Recorded tof = 1.44x the geometric Hohmann time (the s15 ratio): a two-burn departure flies a
+            // slower transfer than the optimal Hohmann, so the recorded arrival is genuinely LATER than the
+            // re-aimed (Hohmann) arrival - the F2 fix re-times the capture back to the earlier arrival.
+            recordedTofSeconds = 1.44 * ctx.GeomTofSeconds;
+
             const double parkDur = 1200.0;        // the Sun PARK sub-coast duration before the burn
             double parkStart = departureUT - parkDur;
             spanStart = parkStart - 600.0;        // a brief Kerbin park/ascent before the heliocentric park
-            double recordedArrivalUT = departureUT + ctx.TofSeconds;
+            double recordedArrivalUT = departureUT + recordedTofSeconds;
             spanEnd = recordedArrivalUT + 600.0;
 
             var parkSeg = new OrbitSegment
@@ -1128,7 +1200,7 @@ namespace Parsek.InGameTests
                 ArrivalLeg = memberSegments[3],
                 RecordedDepartureUT = departureUT,        // the trans-target BURN (park end)
                 RecordedArrivalUT = recordedArrivalUT,
-                RecordedTransferTofSeconds = ctx.TofSeconds,
+                RecordedTransferTofSeconds = recordedTofSeconds,
                 DepartedFromHeliocentricPark = true
             };
         }

@@ -252,6 +252,39 @@ namespace Parsek.Reaim
             return seg;
         }
 
+        /// <summary>
+        /// Re-times the IN-CAPTURE PartEvents (those with <c>ut &gt;= recordedArrivalUT - eps</c>) by
+        /// <paramref name="captureShiftSeconds"/> so a recorded capture-phase event (capture-burn / staging /
+        /// decouple) stays aligned with the capture OrbitSegment after that segment was
+        /// <see cref="ShiftInTime"/>'d by the SAME amount (the parking-departure F2 path arrives on the
+        /// shorter Hohmann tof, so the capture leg + its events move earlier together). PartEvents are
+        /// consumed monotonically by <c>GhostPlaybackLogic.ApplyPartEvents</c> at their <c>ut</c> against the
+        /// playback clock, so without this the FX would fire <c>|captureShift|</c> off from the shifted
+        /// geometry. Returns a NEW list with the in-capture events shifted and every PRE-capture event
+        /// (transfer / launch / park phase) untouched, KEEPING the original event ordering (the resolver's
+        /// shift is always &lt;= 0, so the relative order of the shifted block is preserved and it cannot
+        /// cross into the pre-capture block; the engine re-sorts defensively anyway). When
+        /// <paramref name="captureShiftSeconds"/> is 0 (or events are null/empty) the input reference is
+        /// returned unchanged (byte-identical direct path / no-op). Pure.
+        /// </summary>
+        internal static List<PartEvent> ShiftCapturePartEvents(
+            IReadOnlyList<PartEvent> events, double recordedArrivalUT, double captureShiftSeconds)
+        {
+            if (events == null)
+                return null;
+            if (events.Count == 0 || captureShiftSeconds == 0.0)
+                return new List<PartEvent>(events); // no-op copy (caller owns a List it can hand to the adapter)
+            var result = new List<PartEvent>(events.Count);
+            for (int i = 0; i < events.Count; i++)
+            {
+                PartEvent e = events[i];
+                if (e.ut >= recordedArrivalUT - 1.0)
+                    e.ut += captureShiftSeconds; // in-capture event moves with its (earlier) capture segment
+                result.Add(e);
+            }
+            return result;
+        }
+
 
         /// <summary>
         /// True when <paramref name="memberSegments"/> contains at least one non-predicted
@@ -300,12 +333,24 @@ namespace Parsek.Reaim
         /// body-relative Kerbin/Duna legs, and any predicted tails are untouched. The caller computes the
         /// angle via <see cref="ComputeParkDeltaLonDegrees"/> and gates / fails-closed on the
         /// near-equatorial guard - this method only applies a supplied non-zero rotation.</para>
+        ///
+        /// <para><paramref name="captureRetimeShiftSeconds"/> (default 0 = no shift, byte-identical to the
+        /// direct-transfer path) + <paramref name="targetBody"/> (default null): the parking-departure
+        /// capture-leg re-time. When the re-aimed transfer arrives EARLIER than the recorded arrival (the
+        /// Hohmann tof is shorter than the recorded tof), the recorded target-body capture leg(s) must move
+        /// back to meet the new arrival. When <paramref name="captureRetimeShiftSeconds"/> != 0 AND
+        /// <paramref name="targetBody"/> != null, each non-predicted <paramref name="targetBody"/>-bodied
+        /// segment starting at/after <paramref name="recordedArrivalUT"/> is
+        /// <see cref="ShiftInTime"/>'d by this (negative = earlier) amount, BEFORE the sort/coalesce, so its
+        /// startUT/endUT/epoch move together (phase preserved). The transfer + launch + park legs are
+        /// untouched. Defaults (0 / null) leave every capture segment byte-identical (direct path).</para>
         /// </summary>
         internal static List<OrbitSegment> ReplaceHeliocentricLeg(
             IReadOnlyList<OrbitSegment> memberSegments, OrbitSegment transferSegment,
             string commonAncestor, double recordedDepartureUT, double recordedArrivalUT,
             double transferRenderStartUT, double transferRenderEndUT,
-            double parkDeltaLonDeg = 0.0)
+            double parkDeltaLonDeg = 0.0,
+            double captureRetimeShiftSeconds = 0.0, string targetBody = null)
         {
             if (memberSegments == null || string.IsNullOrEmpty(commonAncestor))
                 return null;
@@ -348,12 +393,25 @@ namespace Parsek.Reaim
                 }
                 else
                 {
+                    // Capture-leg re-time (parking path): the re-aimed transfer arrives EARLIER than the
+                    // recorded arrival, so shift the recorded target-body capture leg(s) back to meet it. Only
+                    // a non-predicted targetBody-bodied segment starting at/after the recorded arrival is
+                    // moved; ShiftInTime moves startUT/endUT/epoch together (phase preserved). Gated on a
+                    // non-zero shift + a non-null targetBody, so the direct path (0 / null) leaves it
+                    // byte-identical. Mutually exclusive with the park-rephase below (park is commonAncestor,
+                    // capture is targetBody).
+                    if (captureRetimeShiftSeconds != 0.0 && !string.IsNullOrEmpty(targetBody)
+                        && !s.isPredicted && s.bodyName == targetBody
+                        && s.startUT >= recordedArrivalUT - 1.0)
+                    {
+                        result.Add(ShiftInTime(s, captureRetimeShiftSeconds));
+                    }
                     // Heliocentric PARK re-phase: rotate ONLY the recorded common-ancestor coast(s)
                     // BEFORE the burn (the Sun-inertial park) into the live frame. The body-relative
                     // Kerbin/Duna legs (which already follow their live body) and predicted tails are
                     // never rotated. parkDeltaLonDeg == 0 (the direct-transfer / Increment-1-disabled
                     // path) leaves every segment byte-identical.
-                    if (parkDeltaLonDeg != 0.0 && !s.isPredicted && s.bodyName == commonAncestor
+                    else if (parkDeltaLonDeg != 0.0 && !s.isPredicted && s.bodyName == commonAncestor
                         && s.endUT <= recordedDepartureUT + 1.0)
                     {
                         result.Add(RotateLanForParkRephase(s, parkDeltaLonDeg));

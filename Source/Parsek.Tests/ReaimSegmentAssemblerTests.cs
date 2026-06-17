@@ -650,5 +650,181 @@ namespace Parsek.Tests
             Assert.Equal("Sun", segsDefault[1].bodyName);
             Assert.Equal(1.4e10, segsDefault[1].semiMajorAxis, 0);
         }
+
+        // ---- Capture-leg re-time (F2: parking-departure transfer arrives earlier than recorded) ----
+
+        [Fact]
+        public void ReplaceHeliocentricLeg_CaptureRetime_ShiftsOnlyTargetCaptureLeg_Earlier()
+        {
+            // Kerbin park -> Sun transfer [600,2600] -> Duna capture [2600,5000]. The re-aimed transfer now
+            // arrives 500s EARLIER, so the recorded Duna capture leg must shift back by -500 (startUT/endUT/
+            // epoch together). The transfer + launch legs are untouched.
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                Seg("Sun", 600, 2600, 1000, sma: 1.0e9),
+                Seg("Duna", 2600, 5000, 3000),
+            };
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);
+
+            const double captureShift = -500.0;
+            // Render end trims to the new (earlier) arrival 2100 so the transfer ends where the capture begins.
+            var segs = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", recordedDepartureUT: 600.0, recordedArrivalUT: 2600.0,
+                transferRenderStartUT: 600.0, transferRenderEndUT: 2100.0, parkDeltaLonDeg: 0.0,
+                captureRetimeShiftSeconds: captureShift, targetBody: "Duna");
+
+            Assert.NotNull(segs);
+            Assert.Equal(3, segs.Count);
+            // Kerbin launch leg untouched.
+            Assert.Equal("Kerbin", segs[0].bodyName);
+            Assert.Equal(100.0, segs[0].startUT, 3);
+            Assert.Equal(600.0, segs[0].endUT, 3);
+            // Sun transfer ends at the new arrival (2100), NOT the recorded 2600.
+            Assert.Equal("Sun", segs[1].bodyName);
+            Assert.Equal(600.0, segs[1].startUT, 3);
+            Assert.Equal(2100.0, segs[1].endUT, 3);
+            // Duna capture leg shifted EARLIER by 500: [2600,5000]@epoch3000 -> [2100,4500]@epoch2500.
+            Assert.Equal("Duna", segs[2].bodyName);
+            Assert.Equal(2100.0, segs[2].startUT, 3); // == transfer endUT: the seam closes
+            Assert.Equal(4500.0, segs[2].endUT, 3);
+            Assert.Equal(2500.0, segs[2].epoch, 3);   // epoch moved with the UTs (phase preserved)
+            // The list stays sorted by startUT.
+            for (int i = 1; i < segs.Count; i++)
+                Assert.True(segs[i].startUT >= segs[i - 1].startUT, "result must stay sorted by startUT");
+        }
+
+        [Fact]
+        public void ReplaceHeliocentricLeg_CaptureRetime_ZeroOrNull_LeavesCaptureVerbatim()
+        {
+            // The regression fence (mirror of ZeroParkDelta_LeavesParkVerbatim): captureRetimeShiftSeconds=0
+            // OR targetBody=null leaves the Duna capture leg byte-identical (no shift) - the direct-transfer
+            // path that passes the defaults.
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                Seg("Sun", 600, 2600, 1000, sma: 1.0e9),
+                Seg("Duna", 2600, 5000, 3000),
+            };
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);
+
+            // Default (no capture args), explicit 0/null, and a non-zero shift with a NULL targetBody are all
+            // no-ops on the capture leg.
+            var segsDefault = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", 600.0, 2600.0, double.NaN, double.NaN);
+            var segsZero = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", 600.0, 2600.0, double.NaN, double.NaN, parkDeltaLonDeg: 0.0,
+                captureRetimeShiftSeconds: 0.0, targetBody: "Duna");
+            var segsNullBody = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", 600.0, 2600.0, double.NaN, double.NaN, parkDeltaLonDeg: 0.0,
+                captureRetimeShiftSeconds: -500.0, targetBody: null);
+
+            foreach (var segs in new[] { segsDefault, segsZero, segsNullBody })
+            {
+                Assert.NotNull(segs);
+                // Duna capture leg untouched: [2600,5000]@epoch3000.
+                var duna = segs[segs.Count - 1];
+                Assert.Equal("Duna", duna.bodyName);
+                Assert.Equal(2600.0, duna.startUT, 3);
+                Assert.Equal(5000.0, duna.endUT, 3);
+                Assert.Equal(3000.0, duna.epoch, 3);
+            }
+        }
+
+        [Fact]
+        public void ReplaceHeliocentricLeg_RenderEndPastArrival_FullSpanRender_NoGap()
+        {
+            // Review FIX #1 (the latent gap, exercised directly at the assembler boundary): if the caller ever
+            // passed a renderEnd PAST the recorded arrival while KEEPING the capture leg at its recorded UT
+            // (captureShift 0 - the coupled-clamp outcome when usedTof > recordedTof), the render clamp must
+            // degrade to the FULL recorded span and the capture must stay put, leaving NO gap between the
+            // transfer end and the capture start. (The resolver's FIX #1 clamp guarantees this pairing; this
+            // pins the assembler half: renderEnd > recordedArrival => full span, and captureShift 0 => capture
+            // unmoved.)
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                Seg("Sun", 600, 2600, 1000, sma: 1.0e9),
+                Seg("Duna", 2600, 5000, 3000),
+            };
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);
+
+            // renderEnd 3000 > recordedArrival 2600 (the would-be forward over-run), captureShift 0 (the coupled
+            // clamp's outcome): the transfer must render the FULL [600,2600] span and the capture stay at 2600.
+            var segs = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", recordedDepartureUT: 600.0, recordedArrivalUT: 2600.0,
+                transferRenderStartUT: 600.0, transferRenderEndUT: 3000.0, parkDeltaLonDeg: 0.0,
+                captureRetimeShiftSeconds: 0.0, targetBody: "Duna");
+
+            Assert.NotNull(segs);
+            Assert.Equal(3, segs.Count);
+            // Transfer rendered over the FULL recorded span (the invalid renderEnd was clamped away).
+            Assert.Equal("Sun", segs[1].bodyName);
+            Assert.Equal(600.0, segs[1].startUT, 3);
+            Assert.Equal(2600.0, segs[1].endUT, 3);   // full span, NOT the over-run 3000
+            // Capture leg stayed at its recorded UT (captureShift 0), so transferEnd == captureStart: NO gap.
+            Assert.Equal("Duna", segs[2].bodyName);
+            Assert.Equal(2600.0, segs[2].startUT, 3);
+            Assert.Equal(segs[1].endUT, segs[2].startUT, 3); // seam closed, no forward gap
+        }
+
+        // ---- ShiftCapturePartEvents (FIX #2: re-time in-capture PartEvents with the capture leg) ----
+
+        private static PartEvent Pe(double ut, uint pid = 7, PartEventType type = PartEventType.Decoupled)
+        {
+            return new PartEvent { ut = ut, partPersistentId = pid, eventType = type, partName = "p", value = 0f, moduleIndex = 0 };
+        }
+
+        [Fact]
+        public void ShiftCapturePartEvents_ShiftsOnlyInCaptureEvents_PreCaptureUntouched()
+        {
+            // Transfer window [600,2600]; the recorded arrival is 2600. Events before 2600 (launch / park /
+            // transfer phase) stay put; events at/after 2600 (the capture phase) shift EARLIER by -500 with the
+            // capture leg, so a capture-burn / decouple stays aligned with its (shifted) segment.
+            var events = new List<PartEvent>
+            {
+                Pe(300.0),   // park/launch phase - untouched
+                Pe(1500.0),  // transfer phase - untouched
+                Pe(2600.0),  // at the recorded arrival (boundary) - in-capture, shifts
+                Pe(3200.0),  // capture phase - shifts
+            };
+
+            var shifted = ReaimSegmentAssembler.ShiftCapturePartEvents(events, recordedArrivalUT: 2600.0, captureShiftSeconds: -500.0);
+
+            Assert.NotNull(shifted);
+            Assert.Equal(4, shifted.Count);
+            Assert.Equal(300.0, shifted[0].ut, 3);    // pre-capture untouched
+            Assert.Equal(1500.0, shifted[1].ut, 3);   // pre-capture untouched
+            Assert.Equal(2100.0, shifted[2].ut, 3);   // 2600 - 500 (boundary event shifts)
+            Assert.Equal(2700.0, shifted[3].ut, 3);   // 3200 - 500
+            // Input list is not mutated (a NEW list is returned).
+            Assert.Equal(2600.0, events[2].ut, 3);
+            Assert.Equal(3200.0, events[3].ut, 3);
+            // Non-ut fields preserved.
+            Assert.Equal((uint)7, shifted[3].partPersistentId);
+            Assert.Equal(PartEventType.Decoupled, shifted[3].eventType);
+        }
+
+        [Fact]
+        public void ShiftCapturePartEvents_ZeroShift_ReturnsContentCopy_Unmodified()
+        {
+            // captureShift 0 (direct path / no shift) is a no-op: every event keeps its recorded UT.
+            var events = new List<PartEvent> { Pe(300.0), Pe(2600.0), Pe(3200.0) };
+            var same = ReaimSegmentAssembler.ShiftCapturePartEvents(events, recordedArrivalUT: 2600.0, captureShiftSeconds: 0.0);
+            Assert.NotNull(same);
+            Assert.Equal(3, same.Count);
+            Assert.Equal(300.0, same[0].ut, 3);
+            Assert.Equal(2600.0, same[1].ut, 3);
+            Assert.Equal(3200.0, same[2].ut, 3);
+        }
+
+        [Fact]
+        public void ShiftCapturePartEvents_NullOrEmpty_HandledCleanly()
+        {
+            Assert.Null(ReaimSegmentAssembler.ShiftCapturePartEvents(null, 2600.0, -500.0));
+            var empty = ReaimSegmentAssembler.ShiftCapturePartEvents(new List<PartEvent>(), 2600.0, -500.0);
+            Assert.NotNull(empty);
+            Assert.Empty(empty);
+        }
     }
 }

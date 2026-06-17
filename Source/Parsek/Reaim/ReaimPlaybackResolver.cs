@@ -29,6 +29,11 @@ namespace Parsek.Reaim
             public long Window;
             public bool Resolved;          // a cache entry exists for this window
             public List<OrbitSegment> Segments; // the re-aimed segment list, or null on a miss (=> faithful)
+            // The amount the parking-departure capture leg was shifted (review FIX #2): ResolveForFrame
+            // re-times the in-capture PartEvents (ut >= RecordedArrivalUT) by this same value so capture-phase
+            // FX stay aligned with the shifted geometry. 0 on the direct path / decline / miss => no re-time.
+            public double CaptureShiftSeconds;
+            public double RecordedArrivalUT;    // the boundary above which a PartEvent is "in-capture"
         }
 
         // Keyed by the member recording id (stable across frames; the committed index can shuffle).
@@ -69,7 +74,18 @@ namespace Parsek.Reaim
                     unitPhaseAnchorUT, unitSpanStartUT, unitSpanEndUT, unitCadenceSeconds, currentUT,
                     out List<OrbitSegment> segments, out windowIndex))
             {
-                return new ReaimedTrajectory(inner, segments);
+                // Re-time the in-capture PartEvents by the SAME shift the capture OrbitSegment moved (review
+                // FIX #2): the parking-departure F2 path arrives on the shorter Hohmann tof, so the capture
+                // leg + a capture-phase event (capture-burn / staging / decouple) move earlier together. The
+                // flight engine consumes ReaimedTrajectory.PartEvents for FX (GhostPlaybackLogic.ApplyPartEvents),
+                // so a non-zero shift here would otherwise fire capture FX |captureShift| off from the shifted
+                // geometry when the ghost is watched at the arrival. captureShift is 0 on the direct path /
+                // decline / miss (TryResolveWindowSegments only returns true with a cached resolved entry), so
+                // this is a no-op copy there. Map/TS paths read only OrbitSegments, never these PartEvents.
+                cacheByMember.TryGetValue(memberId, out CacheEntry resolved);
+                List<PartEvent> retimedPartEvents = ReaimSegmentAssembler.ShiftCapturePartEvents(
+                    inner.PartEvents, resolved.RecordedArrivalUT, resolved.CaptureShiftSeconds);
+                return new ReaimedTrajectory(inner, segments, retimedPartEvents);
             }
             return inner;
         }
@@ -119,11 +135,15 @@ namespace Parsek.Reaim
             if (!cacheByMember.TryGetValue(memberId, out CacheEntry entry)
                 || !entry.Resolved || entry.Window != cycleIndex)
             {
+                List<OrbitSegment> built = BuildWindowSegments(
+                    memberId, memberSegments, plan, schedule, cycleIndex, out double captureShiftSeconds);
                 entry = new CacheEntry
                 {
                     Window = cycleIndex,
                     Resolved = true,
-                    Segments = BuildWindowSegments(memberId, memberSegments, plan, schedule, cycleIndex)
+                    Segments = built,
+                    CaptureShiftSeconds = captureShiftSeconds,
+                    RecordedArrivalUT = plan.RecordedArrivalUT
                 };
                 cacheByMember[memberId] = entry;
             }
@@ -138,9 +158,14 @@ namespace Parsek.Reaim
         // (=> faithful) on any synthesis/replacement failure. One-shot per window (cached), so logs at Verbose.
         private static List<OrbitSegment> BuildWindowSegments(
             string memberId, IReadOnlyList<OrbitSegment> memberSegments, ReaimMissionPlan plan,
-            ReaimWindowPlanner.ReaimWindowSchedule schedule, long windowIndex)
+            ReaimWindowPlanner.ReaimWindowSchedule schedule, long windowIndex,
+            out double captureShiftSeconds)
         {
             var ic = CultureInfo.InvariantCulture;
+            // Default 0 for every fail/decline/miss return below (definite-assignment-safe); set on the
+            // success path so ResolveForFrame can re-time the in-capture PartEvents by the SAME shift the
+            // capture OrbitSegment moved (review FIX #2).
+            captureShiftSeconds = 0.0;
             double nominalDepartureUT = schedule.DepartureUTForWindow(windowIndex);
 
             CelestialBody launchBody = FindBody(plan.LaunchBody);
@@ -191,8 +216,6 @@ namespace Parsek.Reaim
                 launchBody.referenceBody != null ? launchBody.referenceBody.gravParameter : double.NaN);
             double eTarget = targetBody.orbit.eccentricity;
             double halfWidthFraction = ReaimTofSearch.HalfWidthFraction(eTarget);
-            IReadOnlyList<double> candidateTofs = ReaimTofSearch.BuildCandidateTofs(
-                schedule.TofSeconds, geomTofSeconds, eTarget);
 
             // DEPARTURE-ANCHOR DECISION (moved BEFORE the tof loop so r1 is fixed for every candidate).
             // For a heliocentric-PARKING departure the icon coasts on the heliocentric PARK at the burn, so
@@ -262,6 +285,17 @@ namespace Parsek.Reaim
                 }
             }
 
+            // The tof candidate list is GATED on the parking path (F2). DIRECT transfer
+            // (hasDepartureOverride == false): byte-identical to main - the recorded-tof-centered band
+            // (BuildCandidateTofs). PARKING departure (hasDepartureOverride == true): the recorded tof is whatever
+            // the player flew (s15 ~1.44x Hohmann) and forcing it from the re-phased park-end makes a degenerate
+            // conic, so search around the GEOMETRIC Hohmann time instead (BuildParkingCandidateTofs, step 0 =
+            // geomTof). geomTofSeconds/eTarget are already computed above; the park-vs-Kerbin sma is ~2%, inside
+            // the band, so launchBody.orbit.semiMajorAxis is the right radius for the Hohmann time.
+            IReadOnlyList<double> candidateTofs = hasDepartureOverride
+                ? ReaimTofSearch.BuildParkingCandidateTofs(geomTofSeconds, eTarget)
+                : ReaimTofSearch.BuildCandidateTofs(schedule.TofSeconds, geomTofSeconds, eTarget);
+
             Orbit transferOrbit = null;
             double soiEntryUT = double.NaN;
             CelestialBody encounterBody = null;
@@ -324,22 +358,51 @@ namespace Parsek.Reaim
             // at the target's true position; the residual transfer->target seam in the span>synodic case is
             // the separate Increment-2 overlap work, out of scope for this departure-seam fix.)
 
-            // Render the re-aimed transfer over the FULL recorded heliocentric span
-            // [RecordedDepartureUT, RecordedArrivalUT] (NaN render bounds => no trim). That span is exactly
-            // where the member's recorded launch-escape leg ENDS and its recorded capture leg BEGINS, so the
-            // re-aimed transfer hands off seamlessly from the recorded escape - no gap. An earlier pass
-            // trimmed the launch side to the SYNTHESIZED center-to-center transfer's launch-SOI-exit UT,
-            // which lands ~0.9 day LATER (in recorded-span time) than where the recorded escape ends: that
-            // opened a gap right after the launch SOI exit where the orbit ghost was destroyed
-            // (gap-between-orbit-segments) and the transfer line restarted displaced by the launch body's own
-            // motion across the gap (the "transfer is in the wrong place right after Kerbin SOI exit"
-            // regression). Full-span render restores the seamless handoff; the brief in-SOI stub sits
-            // sub-pixel at the body centre at map scale, and the recorded escape / capture legs cover inside
-            // the SOI. parkDeltaLonDeg re-phases the recorded park (departure-side) into the live frame.
+            // RENDER SPAN + CAPTURE RE-TIME (F2, parking path only). The parking-departure transfer now uses
+            // the GEOMETRIC Hohmann tof (much shorter than the recorded tof), so it ARRIVES earlier than the
+            // recorded arrival. Two coupled adjustments, both GATED on hasDepartureOverride:
+            //   (ii) render span = the TRUE transfer duration [RecordedDepartureUT, RecordedDepartureUT +
+            //        usedTof]. The launch side stays at RecordedDepartureUT (the recorded escape ends exactly
+            //        at the burn UT - no launch-side gap); the arrival side trims to the new (earlier) arrival
+            //        so the transfer line does not over-run to the stale recorded arrival. ReplaceHeliocentricLeg
+            //        clamps these into [recordedDeparture, recordedArrival] and falls back to the full leg if
+            //        invalid, so a degenerate usedTof cannot mis-render.
+            //   (iii) capture re-time: the recorded Duna capture leg, recorded to begin at RecordedArrivalUT,
+            //        must shift back by captureShift = newArrivalUT - RecordedArrivalUT (negative) so it begins
+            //        where the transfer now ends (seam closes). ShiftInTime moves startUT/endUT/epoch together.
+            //
+            // DIRECT path (hasDepartureOverride == false): renderStart/End stay NaN (full-leg, byte-identical)
+            // and captureShift/targetBody are 0/null (no-op) - exactly as on main. The full-recorded-span
+            // rationale below still applies to the direct path (the recorded escape/capture cover inside the SOI).
+            //
+            // Full-recorded-span (direct) rationale: the synthesized transfer is center-to-center, so its
+            // first/last stretches sit inside the launch/target SOI at the body center; the recorded escape /
+            // capture legs cover inside the SOI and the brief in-SOI stub sits sub-pixel at map scale. An
+            // earlier pass trimmed the LAUNCH side to the synthesized SOI-exit UT and opened a gap right after
+            // Kerbin SOI exit - the parking path here trims only the ARRIVAL side (the launch side stays at the
+            // burn UT, where the recorded escape ends), so it does not reintroduce that launch-side gap.
+            //
+            // COUPLING GUARD (review FIX #1): the render-end and the captureShift MUST be derived from the SAME
+            // arrival UT, or they desync into a real GAP. BuildParkingCandidateTofs allows usedTof up to the
+            // band cap (~1.20*geomTof), so a near-Hohmann two-burn (or an eccentric target where the cap binds)
+            // can yield usedTof > recordedTof => newArrivalUT > RecordedArrivalUT. If we passed that raw forward
+            // arrival, ReplaceHeliocentricLeg's render clamp (renderEnd > recordedArrival) would silently fall
+            // back to the FULL recorded span while captureShift stayed POSITIVE and ShiftInTime'd the capture
+            // FORWARD - opening a gap of (newArrivalUT - RecordedArrivalUT) between the (full-span) transfer end
+            // and the shifted capture start. Clamp newArrivalUT to <= RecordedArrivalUT FIRST and feed the
+            // clamped value to BOTH: usedTof > recordedTof then degrades cleanly to render-full-span +
+            // captureShift 0 (no gap, no forward shift); the s15 case (usedTof < recordedTof) is unchanged
+            // (newArrivalUT < RecordedArrivalUT, so the clamp is a no-op and the capture re-times earlier).
+            double rawArrivalUT = plan.RecordedDepartureUT + usedTofSeconds;
+            double newArrivalUT = rawArrivalUT < plan.RecordedArrivalUT ? rawArrivalUT : plan.RecordedArrivalUT;
+            double captureShift = hasDepartureOverride ? (newArrivalUT - plan.RecordedArrivalUT) : 0.0;
+            double renderStartUT = hasDepartureOverride ? plan.RecordedDepartureUT : double.NaN;
+            double renderEndUT = hasDepartureOverride ? newArrivalUT : double.NaN;
             List<OrbitSegment> assembled = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
                 memberSegments, transferSeg, plan.CommonAncestor,
                 plan.RecordedDepartureUT, plan.RecordedArrivalUT,
-                double.NaN, double.NaN, parkDeltaLonDeg);
+                renderStartUT, renderEndUT, parkDeltaLonDeg,
+                captureShift, hasDepartureOverride ? plan.TargetBody : null);
             if (assembled == null || assembled.Count == 0)
             {
                 ParsekLog.Warn("ReaimPlayback",
@@ -347,15 +410,20 @@ namespace Parsek.Reaim
                 return null;
             }
 
-            // usedTof deviation from BOTH centers (recorded tof = the band center / step 0; geomTof = the
-            // geometric Hohmann time the ecc band reaches toward) so an "Eeloo declined / drifted" report can
-            // be diagnosed straight from KSP.log: which center the resolved tof landed near tells whether the
-            // ecc band did the work. NaN-safe (geomTof can be NaN if the parent mu/SMAs are degenerate).
+            // usedTof deviation from BOTH centers (recorded tof = the direct-path band center / step 0; geomTof
+            // = the parking-path band center and the geometric Hohmann time) so an "Eeloo declined / drifted"
+            // report can be diagnosed straight from KSP.log. On the PARKING path the tof is centered on geomTof
+            // (F2), so devFromGeom should be ~0 and the recorded tof is NOT used for the band - the log carries
+            // both deltas regardless so the regression is visible either way. NaN-safe (geomTof can be NaN if
+            // the parent mu/SMAs are degenerate).
             double devFromRecorded = usedTofSeconds - schedule.TofSeconds;
             double devFromGeom = usedTofSeconds - geomTofSeconds;
             ParsekLog.Verbose("ReaimPlayback",
                 $"member={memberId} window={windowIndex} re-aimed transfer ready: departUT={departureUT.ToString("R", ic)} (nominal D_k) " +
-                $"tof={usedTofSeconds.ToString("R", ic)} (recorded={schedule.TofSeconds.ToString("R", ic)} geom={geomTofSeconds.ToString("R", ic)} " +
+                $"tof={usedTofSeconds.ToString("R", ic)} " +
+                (hasDepartureOverride
+                    ? $"(geom={geomTofSeconds.ToString("R", ic)} [parking band center; recorded NOT used] "
+                    : $"(recorded={schedule.TofSeconds.ToString("R", ic)} geom={geomTofSeconds.ToString("R", ic)} ") +
                 $"eTarget={eTarget.ToString("F4", ic)} halfWidthFraction={halfWidthFraction.ToString("F4", ic)} " +
                 $"devFromRecorded={devFromRecorded.ToString("R", ic)}s devFromGeom={devFromGeom.ToString("R", ic)}s) " +
                 $"soiEntryUT={soiEntryUT.ToString("R", ic)} " +
@@ -366,7 +434,11 @@ namespace Parsek.Reaim
                     : "") +
                 $"parkDeltaLon={parkDeltaLonDeg.ToString("R", ic)}deg (parking={plan.DepartedFromHeliocentricPark} " +
                 $"parkReplayUT={parkReplayUT.ToString("R", ic)} cadence={schedule.CadenceSeconds.ToString("R", ic)} synodic={schedule.SynodicPeriodSeconds.ToString("R", ic)}) " +
-                $"renderSpan=full-recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}]");
+                (hasDepartureOverride
+                    ? $"renderSpan=[{plan.RecordedDepartureUT.ToString("R", ic)},{newArrivalUT.ToString("R", ic)}] (transfer-duration) " +
+                      $"captureShift={captureShift.ToString("R", ic)}s (recordedArrival={plan.RecordedArrivalUT.ToString("R", ic)} -> newArrival={newArrivalUT.ToString("R", ic)})"
+                    : $"renderSpan=full-recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}]"));
+            captureShiftSeconds = captureShift; // success: the capture leg moved by this; PartEvents re-time the same
             return assembled;
         }
 
