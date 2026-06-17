@@ -1189,7 +1189,7 @@ namespace Parsek
                 memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
                 out bool isInInterCycleTail, unit.RelaunchSchedule, unit.LoiterCuts,
                 unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
-                unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged);
+                unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
 
             // Cycle-wrap / camera-handoff diagnostics: the first member to run this frame observes
             // the unit-wide transition and logs it once (rate-limited per unit owner).
@@ -1222,20 +1222,6 @@ namespace Parsek
                             + currentUT.ToString("F2", CultureInfo.InvariantCulture)
                             + " (span=" + unit.SpanStartUT.ToString("F2", CultureInfo.InvariantCulture)
                             + ".." + unit.SpanEndUT.ToString("F2", CultureInfo.InvariantCulture) + ")",
-                        5.0);
-                }
-                else if (decision == GhostPlaybackLogic.UnitMemberRenderDecision.HiddenPreLaunchHold)
-                {
-                    // Per-loop launch hold: the loop has not LAUNCHED yet (the launch instant is L_N +
-                    // H_launch). The KSC/TS ghost is ABSENT (it has not launched, not frozen on the pad), so
-                    // tear it down for the frame exactly as the icon + line are suppressed on the map surfaces.
-                    ParsekLog.VerboseRateLimited(
-                        "KSCGhost", unitKey + "-prelaunch-" + i.ToString(CultureInfo.InvariantCulture),
-                        "Mission-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
-                            + " member #" + i.ToString(CultureInfo.InvariantCulture)
-                            + " absent (pre-launch hold): loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
-                            + " below spanStart=" + unit.SpanStartUT.ToString("F2", CultureInfo.InvariantCulture)
-                            + " - loop has not launched yet",
                         5.0);
                 }
                 else

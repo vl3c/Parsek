@@ -247,13 +247,16 @@ namespace Parsek
             ReaimWindowPlanner.ReaimWindowSchedule? reaimSchedule = null;
             IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts = null;
             ArrivalHoldPlanner.ArrivalHoldResult arrivalHold = ArrivalHoldPlanner.ArrivalHoldResult.None;
-            // Per-loop launch hold (docs/dev/design-reaim-launch-hold-seam.md): the launch-TIME shift that
-            // closes the launch->escape render seam for the span>=synodic re-aim regime PadAlignLaunch
-            // declines. Engaged only inside the re-aim block (re-aim engaged && !pad.Applied && a body-fixed
-            // launch leg exists); NaN period + not-engaged here keeps the unit byte-identical for every other
-            // shape, so ComputePerLoopLaunchHoldSeconds returns 0 and the span clock is unchanged.
+            // Per-loop launch alignment (docs/dev/design-reaim-launch-hold-seam.md, borrow-at-launch /
+            // repay-at-SOI-exit): launch delta_N EARLIER so the in-SOI replay runs at the recorded launch-body
+            // rotation (the launch->escape seam closes), and repay delta_N as a coast hold at the SOI-exit
+            // boundary so everything from the SOI exit onward is UNCHANGED vs baseline. Engaged only inside the
+            // re-aim block (re-aim engaged && !pad.Applied && plan.Supported && a valid SOI-exit boundary);
+            // NaN period + not-engaged here keeps the unit byte-identical for every other shape, so
+            // ComputePerLoopLaunchAdvanceSeconds returns 0 and the span clock is unchanged.
             bool launchHoldEngaged = false;
             double launchHoldRotationPeriod = double.NaN;
+            double launchHoldSoiExitUT = double.NaN;
             if (bodyInfo != null)
             {
                 ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
@@ -547,31 +550,50 @@ namespace Parsek
                                 }
                             }
 
-                            // Per-loop LAUNCH HOLD gate (docs/dev/design-reaim-launch-hold-seam.md 6.3): engage
-                            // the launch-time shift that closes the launch->escape render seam ONLY when
-                            // PadAlignLaunch declined (cadence != synodic, the span>=synodic regime PadAlignLaunch
-                            // bails on). When pad.Applied (cadence == synodic) the pad is already globally aligned,
-                            // so the launch hold must stay off (no double-correction). plan.Supported (a re-aim
-                            // mission with a recorded launch-body parking orbit preceding the heliocentric leg) is
-                            // the body-fixed-launch-leg precondition: a member starting already in orbit or a
-                            // chained continuation with no ascent never classifies Supported with a launch-body
-                            // ParkingOrbit at spanStart, so it never engages a no-op hold. T_sid is the same
-                            // rotation period PadAlignLaunch consumed; a degenerate (non-rotating) period makes
-                            // ComputePerLoopLaunchHoldSeconds return 0, so the gate ordering is safe either way.
-                            if (!pad.Applied && plan.Supported)
+                            // Per-loop LAUNCH ALIGNMENT gate (docs/dev/design-reaim-launch-hold-seam.md 6.3):
+                            // engage the borrow-at-launch / repay-at-SOI-exit shift that closes the
+                            // launch->escape render seam ONLY when PadAlignLaunch declined (cadence != synodic,
+                            // the span>=synodic regime PadAlignLaunch bails on). When pad.Applied (cadence ==
+                            // synodic) the pad is already globally aligned, so it must stay off (no
+                            // double-correction). plan.Supported (a re-aim mission with a recorded launch-body
+                            // parking orbit preceding the heliocentric leg) is the body-fixed-launch-leg
+                            // precondition: a member starting already in orbit or a chained continuation with no
+                            // ascent never classifies Supported with a launch-body ParkingOrbit at spanStart, so
+                            // it never engages a no-op shift. The SOI-exit boundary (plan.RecordedSoiExitUT, the
+                            // launch-body->heliocentric handoff) must be finite and strictly inside the span
+                            // before the arrival, since the delta_N repay coast hold is inserted there. T_sid is
+                            // the same rotation period PadAlignLaunch consumed; a degenerate (non-rotating)
+                            // period makes ComputePerLoopLaunchAdvanceSeconds return 0, so the gate ordering is
+                            // safe either way.
+                            bool soiExitValid = !double.IsNaN(plan.RecordedSoiExitUT)
+                                && !double.IsInfinity(plan.RecordedSoiExitUT)
+                                && plan.RecordedSoiExitUT > spanStartUT
+                                && plan.RecordedSoiExitUT < plan.RecordedArrivalUT;
+                            if (!pad.Applied && plan.Supported && soiExitValid)
                             {
                                 launchHoldEngaged = true;
                                 launchHoldRotationPeriod = launchRotationPeriod;
+                                launchHoldSoiExitUT = plan.RecordedSoiExitUT;
                                 if (!SuppressLogging)
                                 {
                                     var lic = CultureInfo.InvariantCulture;
                                     ParsekLog.Info("Reaim",
                                         $"MissionLoopUnit: mission='{mission.Name}' LAUNCH HOLD engaged to " +
-                                        $"{plan.LaunchBody} rotation (PadAlignLaunch declined -> per-loop launch hold): " +
+                                        $"{plan.LaunchBody} rotation (PadAlignLaunch declined -> per-loop launch advance / SOI-exit repay): " +
                                         $"siderealDay={launchRotationPeriod.ToString("F1", lic)}s " +
+                                        $"soiExit={launchHoldSoiExitUT.ToString("R", lic)} " +
                                         $"phaseAnchor={phaseAnchorUT.ToString("R", lic)} " +
                                         $"cadence={effectiveCadence.ToString("R", lic)}");
                                 }
+                            }
+                            else if (!pad.Applied && plan.Supported && !SuppressLogging)
+                            {
+                                var lic = CultureInfo.InvariantCulture;
+                                ParsekLog.Verbose("Reaim",
+                                    $"MissionLoopUnit: mission='{mission.Name}' LAUNCH HOLD declined " +
+                                    $"(SOI-exit boundary invalid): soiExit={plan.RecordedSoiExitUT.ToString("R", lic)} " +
+                                    $"spanStart={spanStartUT.ToString("R", lic)} arrival={plan.RecordedArrivalUT.ToString("R", lic)} " +
+                                    "- staying on faithful in-SOI render (seam remains)");
                             }
 
                             if (!SuppressLogging)
@@ -701,7 +723,7 @@ namespace Parsek
                 effectiveOverlapCadence, memberWindowByIndex, relaunchSchedule, reaimPlan, reaimSchedule,
                 loiterCuts, arrivalHold.HoldSeconds, arrivalHold.HoldAtUT,
                 arrivalHold.AlignPeriodSeconds, arrivalHold.AmberReason,
-                launchHoldRotationPeriod, launchHoldEngaged);
+                launchHoldRotationPeriod, launchHoldEngaged, launchHoldSoiExitUT);
 
             if (!SuppressLogging)
             {

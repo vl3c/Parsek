@@ -5,14 +5,14 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Per-loop LAUNCH HOLD (docs/dev/design-reaim-launch-hold-seam.md): the PURE residual helper
-    /// (<see cref="GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds"/>) that defers replayed loop N's
-    /// launch instant by H_N (in [0, T_sid)) so the launch body rotates back to the recorded inertial
-    /// orientation and the body-fixed launch ascent coincides with the frozen escape conic (the
-    /// launch->escape render seam closes), launch on the real pad. The span-clock composition (pre-launch
-    /// ABSENCE, verbatim-deferred replay, arrival-wait self-correction, targeting invariants) is covered in
-    /// LaunchHoldClockTests; the log-assertion test is in LaunchHoldLoggingTests. The helper is pure (no
-    /// Unity), so Parsek.Tests drives it directly.
+    /// Per-loop LAUNCH ALIGNMENT (docs/dev/design-reaim-launch-hold-seam.md, borrow-at-launch /
+    /// repay-at-SOI-exit): the PURE residual helper
+    /// (<see cref="GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds"/>) that returns the per-loop
+    /// BACKWARD advance delta_N (in [0, T_sid)) to SUBTRACT from replayed loop N's nominal launch L_N so
+    /// the in-Kerbin-SOI replay runs at the recorded launch-body rotation (the launch->escape render seam
+    /// closes), launch on the real pad delta_N EARLIER. The borrowed delta_N is repaid as a coast hold at
+    /// the SOI exit (covered by the span-clock composition in LaunchHoldClockTests; the log-assertion test
+    /// is in LaunchHoldLoggingTests). The helper is pure (no Unity), so Parsek.Tests drives it directly.
     /// </summary>
     public class LaunchHoldTests
     {
@@ -28,19 +28,19 @@ namespace Parsek.Tests
         [InlineData(double.NegativeInfinity)]
         public void NonRotatingLaunchBody_ReturnsZero(double rotationPeriod)
         {
-            // A degenerate T_sid (non-rotating launch body): no pad realignment possible, no hold.
-            double h = GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds(1000.0, 100.0, 5L, 200000.0, rotationPeriod);
-            Assert.Equal(0.0, h, Tol);
+            // A degenerate T_sid (non-rotating launch body): no pad realignment possible, no advance.
+            double d = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(1000.0, 100.0, 5L, 200000.0, rotationPeriod);
+            Assert.Equal(0.0, d, Tol);
         }
 
         [Fact]
         public void NaNDisplacementInputs_ReturnZero()
         {
-            Assert.Equal(0.0, GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds(double.NaN, 100.0, 3L, 200000.0, 21600.0), Tol);
-            Assert.Equal(0.0, GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds(1000.0, double.NaN, 3L, 200000.0, 21600.0), Tol);
+            Assert.Equal(0.0, GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(double.NaN, 100.0, 3L, 200000.0, 21600.0), Tol);
+            Assert.Equal(0.0, GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(1000.0, double.NaN, 3L, 200000.0, 21600.0), Tol);
         }
 
-        // === Realignment property: (Off_N + H_N) is a whole multiple of T_sid =====================
+        // === Realignment property: (Off_N - delta_N) is a whole multiple of T_sid ==================
 
         [Theory]
         [InlineData(1000.0, 100.0, 200000.0, 0L, 21600.0)]
@@ -48,12 +48,17 @@ namespace Parsek.Tests
         [InlineData(1000.0, 100.0, 200000.0, 7L, 21600.0)]
         [InlineData(123456.0, 654.0, 19653076.0, 13L, 21549.425)]
         [InlineData(-5000.0, 1000.0, 88775.0, 4L, 88775.0)]   // retrograde-ish period via Math.Abs covered below
-        public void RealignsModTsid(double phaseAnchor, double spanStart, double cadence, long n, double tSid)
+        public void RealignsModTsid_BackwardSubtraction(double phaseAnchor, double spanStart, double cadence, long n, double tSid)
         {
-            double h = GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds(phaseAnchor, spanStart, n, cadence, tSid);
+            double d = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(phaseAnchor, spanStart, n, cadence, tSid);
             double offN = (phaseAnchor - spanStart) + n * cadence;
-            double aligned = ((offN + h) % tSid + tSid) % tSid;
-            Assert.Equal(0.0, aligned, 4);   // the shifted launch displacement is a whole number of T_sid
+            // Launching at L_N - delta_N makes the in-SOI displacement (Off_N - delta_N) a whole number of
+            // T_sid, so the live launch-body rotation equals the recorded rotation throughout the in-SOI replay.
+            // The residual can land just below T_sid (float wrap of an exact-zero), so measure the distance to
+            // the NEAREST whole multiple of T_sid.
+            double rem = ((offN - d) % tSid + tSid) % tSid;
+            double aligned = Math.Min(rem, tSid - rem);
+            Assert.True(aligned < 1e-3, $"residual {aligned} not aligned mod {tSid}");
         }
 
         [Fact]
@@ -62,12 +67,12 @@ namespace Parsek.Tests
             // The Math.Abs matches PadAlignLaunch's retrograde handling: a negative period aligns the same
             // way as its absolute value.
             double tSid = 21600.0;
-            double hPos = GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds(1000.0, 100.0, 3L, 200000.0, tSid);
-            double hNeg = GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds(1000.0, 100.0, 3L, 200000.0, -tSid);
-            Assert.Equal(hPos, hNeg, Tol);
+            double dPos = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(1000.0, 100.0, 3L, 200000.0, tSid);
+            double dNeg = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(1000.0, 100.0, 3L, 200000.0, -tSid);
+            Assert.Equal(dPos, dNeg, Tol);
         }
 
-        // === Range: H_N in [0, T_sid) for any N (incl. large N, negative inner term) =============
+        // === Range: delta_N in [0, T_sid) for any N (incl. large N, negative inner term) ==========
 
         [Theory]
         [InlineData(1000.0, 100.0, 200000.0, 21600.0)]
@@ -77,8 +82,8 @@ namespace Parsek.Tests
         {
             for (long n = 0; n < 200; n++)
             {
-                double h = GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds(phaseAnchor, spanStart, n, cadence, tSid);
-                Assert.True(h >= 0.0 && h < tSid, $"N={n} H={h} out of [0,{tSid})");
+                double d = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(phaseAnchor, spanStart, n, cadence, tSid);
+                Assert.True(d >= 0.0 && d < tSid, $"N={n} delta={d} out of [0,{tSid})");
             }
         }
 
@@ -91,28 +96,29 @@ namespace Parsek.Tests
         public void AlreadyAligned_ReturnsZero(long n)
         {
             // Off_N an exact whole multiple of T_sid for every N: phaseAnchor-spanStart = 2*T_sid and
-            // cadence = 3*T_sid, so Off_N = (2 + 3N)*T_sid is always aligned -> H_N == 0.
+            // cadence = 3*T_sid, so Off_N = (2 + 3N)*T_sid is always aligned -> delta_N == 0.
             const double tSid = 21600.0;
             double spanStart = 100.0;
             double phaseAnchor = spanStart + 2.0 * tSid;
             double cadence = 3.0 * tSid;
-            double h = GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds(phaseAnchor, spanStart, n, cadence, tSid);
-            Assert.Equal(0.0, h, 3);
+            double d = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(phaseAnchor, spanStart, n, cadence, tSid);
+            Assert.Equal(0.0, d, 3);
         }
 
-        // === Sawtooth in N: H_{N+1} - H_N == (-cadence) mod T_sid (the per-loop drift) ============
+        // === Sawtooth in N: delta_{N+1} - delta_N == cadence mod T_sid (the per-loop drift) ========
 
         [Fact]
-        public void SawtoothInN_StepIsNegativeCadenceModTsid()
+        public void SawtoothInN_StepIsCadenceModTsid()
         {
             const double phaseAnchor = 1000.0, spanStart = 100.0, cadence = 200000.0, tSid = 21600.0;
-            // The per-loop step is the residual of (-cadence) mod T_sid, wrapped into [0, T_sid).
-            double expectStep = ((-cadence) % tSid + tSid) % tSid;
+            // The per-loop step is the residual of (+cadence) mod T_sid, wrapped into [0, T_sid) (delta_N is
+            // Off_N mod T_sid, so adding one more cadence advances delta by cadence mod T_sid).
+            double expectStep = (cadence % tSid + tSid) % tSid;
             for (long n = 0; n < 50; n++)
             {
-                double hN = GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds(phaseAnchor, spanStart, n, cadence, tSid);
-                double hNext = GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds(phaseAnchor, spanStart, n + 1, cadence, tSid);
-                double step = ((hNext - hN) % tSid + tSid) % tSid;
+                double dN = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(phaseAnchor, spanStart, n, cadence, tSid);
+                double dNext = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(phaseAnchor, spanStart, n + 1, cadence, tSid);
+                double step = ((dNext - dN) % tSid + tSid) % tSid;
                 Assert.Equal(expectStep, step, 3);
             }
         }
@@ -124,9 +130,22 @@ namespace Parsek.Tests
             const double phaseAnchor = 1000.0, spanStart = 100.0, cadence = 200000.0, tSid = 21600.0;
             for (long n = 0; n < 100000; n += 997)
             {
-                double h = GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds(phaseAnchor, spanStart, n, cadence, tSid);
-                Assert.True(h >= 0.0 && h < tSid, $"N={n} H={h} grew past [0,{tSid})");
+                double d = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(phaseAnchor, spanStart, n, cadence, tSid);
+                Assert.True(d >= 0.0 && d < tSid, $"N={n} delta={d} grew past [0,{tSid})");
             }
+        }
+
+        // === Common-case parity with the worked example (N=13: delta=5058 <= slack=5419) ==========
+
+        [Fact]
+        public void WorkedExample_N13_DeltaInRange()
+        {
+            // The design's worked common case (s15 / Kerbal X #2): N=13 delta ~ 5058 s, well inside the
+            // Kerbin sidereal day. We only assert it is in range here (the slack comparison is a clock-level
+            // concern covered in LaunchHoldClockTests); the exact value depends on the real phaseAnchor.
+            const double tSid = 21549.425;   // Kerbin sidereal day
+            double d = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(123456.0, 654.0, 13L, 19653076.0, tSid);
+            Assert.True(d >= 0.0 && d < tSid);
         }
     }
 }

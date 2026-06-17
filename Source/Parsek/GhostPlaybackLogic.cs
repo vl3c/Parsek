@@ -6834,7 +6834,8 @@ namespace Parsek
                 double arrivalAlignPeriodSeconds = double.NaN,
                 string arrivalAmberReason = null,
                 double launchBodyRotationPeriodSeconds = double.NaN,
-                bool launchHoldEngaged = false)
+                bool launchHoldEngaged = false,
+                double recordedSoiExitUT = double.NaN)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6854,6 +6855,7 @@ namespace Parsek
                 ArrivalAmberReason = arrivalAmberReason;
                 LaunchBodyRotationPeriodSeconds = launchBodyRotationPeriodSeconds;
                 LaunchHoldEngaged = launchHoldEngaged;
+                RecordedSoiExitUT = recordedSoiExitUT;
             }
 
             /// <summary>
@@ -6994,27 +6996,39 @@ namespace Parsek
             internal string ArrivalAmberReason { get; }
 
             /// <summary>
-            /// The launch body's sidereal rotation period T_sid (seconds) used by the PER-LOOP LAUNCH HOLD
-            /// (the launch-time shift that closes the launch-&gt;escape render seam for the span&gt;=synodic
-            /// re-aim regime PadAlignLaunch declines). Carried alongside <see cref="LaunchHoldEngaged"/> so the
-            /// span clock can compute H_N per replayed loop (<see cref="ComputePerLoopLaunchHoldSeconds"/>):
-            /// the loop launches at <c>L_N + H_N</c> so the pad rotates back to the recorded inertial
-            /// orientation and the verbatim launch ascent coincides with the frozen escape conic. NaN
-            /// (the "no period" sentinel, matching <see cref="ArrivalAlignPeriodSeconds"/>) on every non-re-aim
-            /// unit and whenever the launch hold is not engaged, in which case <see cref="TryComputeSpanLoopUT"/>
-            /// is byte-identical to the pre-launch-hold behavior. Runtime-only; the LoopUnit set is rebuilt
-            /// per scene, not persisted, so no OnSave/OnLoad handling is required.
+            /// The launch body's sidereal rotation period T_sid (seconds) used by the PER-LOOP LAUNCH
+            /// ALIGNMENT (the borrow-at-launch / repay-at-SOI-exit shift that closes the launch-&gt;escape
+            /// render seam for the span&gt;=synodic re-aim regime PadAlignLaunch declines). Carried alongside
+            /// <see cref="LaunchHoldEngaged"/> so the span clock can compute delta_N per replayed loop
+            /// (<see cref="ComputePerLoopLaunchAdvanceSeconds"/>): the loop launches at <c>L_N - delta_N</c> so
+            /// the launch body rotates to the recorded inertial orientation during the in-SOI replay and the
+            /// verbatim launch ascent coincides with the frozen escape conic; delta_N is repaid as a coast hold
+            /// at <see cref="RecordedSoiExitUT"/>. NaN (the "no period" sentinel, matching
+            /// <see cref="ArrivalAlignPeriodSeconds"/>) on every non-re-aim unit and whenever the launch
+            /// alignment is not engaged, in which case <see cref="TryComputeSpanLoopUT"/> is byte-identical to
+            /// the pre-alignment behavior. Runtime-only; the LoopUnit set is rebuilt per scene, not persisted,
+            /// so no OnSave/OnLoad handling is required.
             /// </summary>
             internal double LaunchBodyRotationPeriodSeconds { get; }
 
             /// <summary>
-            /// True only when the PER-LOOP LAUNCH HOLD engages for this unit: re-aim engaged AND PadAlignLaunch
-            /// did NOT apply (cadence != synodic, the regime PadAlignLaunch bails on) AND the unit has a
-            /// body-fixed launch leg to align. When false the launch hold is 0 and the span clock stays
-            /// byte-identical (no double-correction with PadAlignLaunch, no no-op hold for an
-            /// already-in-orbit / chained-continuation member). Runtime-only (never persisted).
+            /// True only when the PER-LOOP LAUNCH ALIGNMENT engages for this unit: re-aim engaged AND
+            /// PadAlignLaunch did NOT apply (cadence != synodic, the regime PadAlignLaunch bails on) AND the
+            /// unit has a body-fixed launch leg with a valid SOI-exit boundary to align. When false the launch
+            /// advance is 0 and the span clock stays byte-identical (no double-correction with PadAlignLaunch,
+            /// no no-op shift for an already-in-orbit / chained-continuation member). Runtime-only (never persisted).
             /// </summary>
             internal bool LaunchHoldEngaged { get; }
+
+            /// <summary>
+            /// The recorded-span UT of the launch-body SOI EXIT (the launch-body-&gt;heliocentric boundary,
+            /// = the re-aim plan's RecordedSoiExitUT). The borrow-at-launch / repay-at-SOI-exit launch
+            /// alignment inserts the delta_N repay coast hold at this recorded boundary so the SOI-exit-and-onward
+            /// timeline returns to the baseline L_N schedule (targeting + the destination arrival hold UNCHANGED).
+            /// NaN (the "no boundary" sentinel) on every non-re-aim unit and whenever the launch alignment is not
+            /// engaged, in which case <see cref="TryComputeSpanLoopUT"/> inserts no SOI-exit hold. Runtime-only.
+            /// </summary>
+            internal double RecordedSoiExitUT { get; }
         }
 
         /// <summary>
@@ -7199,30 +7213,36 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The PER-LOOP launch HOLD H_N (seconds, in [0, T_sid)) that defers replayed loop
-        /// <paramref name="cycleIndex"/> (N)'s launch instant so the launch body has rotated back to the
-        /// SAME inertial orientation it had at the recorded launch. The body-fixed launch ascent then
-        /// replays VERBATIM at the recorded rotation phase and coincides with the frozen recorded escape
-        /// conic (the launch-&gt;escape render seam closes), launch on the real pad.
+        /// The PER-LOOP launch ADVANCE delta_N (seconds, in [0, T_sid)) to SUBTRACT from replayed loop
+        /// <paramref name="cycleIndex"/> (N)'s nominal launch instant L_N so the launch body rotates to the
+        /// SAME inertial orientation it had at the recorded launch DURING the in-SOI replay. Launching at
+        /// <c>L_N - delta_N</c> (delta_N EARLIER than nominal) makes <c>currentUT - spanStartUT</c> a whole
+        /// multiple of <c>T_sid</c> throughout the verbatim in-Kerbin-SOI replay, so the live launch-body
+        /// rotation equals the recorded rotation and the body-fixed ascent / parking / escape coincide with
+        /// the frozen inertial escape conic (the launch-&gt;escape render seam closes), launch on the real pad.
+        /// The borrowed delta_N is REPAID as a coast hold at the Kerbin-SOI-exit boundary (see
+        /// <see cref="TryComputeSpanLoopUT"/>), so the SOI-exit-and-onward timeline (heliocentric transfer,
+        /// trans-target burn, destination arrival + its arrival hold) is back EXACTLY on the baseline L_N
+        /// schedule (targeting + the arrival hold UNCHANGED).
         ///
-        /// The pad-alignment quantity is the LAUNCH DISPLACEMENT (NOT an absolute recorded-launch epoch):
-        /// the loop's unshifted launch displacement from the recorded launch is
+        /// The alignment quantity is the LAUNCH DISPLACEMENT (NOT an absolute recorded-launch epoch): the
+        /// loop's unshifted launch displacement from the recorded launch is
         /// <c>Off_N = (phaseAnchorUT - spanStartUT) + N * cadence</c> (the same quantity PadAlignLaunch
         /// snaps, <c>ReaimWindowPlanner.cs:211</c>, extended per loop;
         /// <c>phaseAnchorUT - spanStartUT == d0 - recordedDepartureUT</c> by <c>ReaimWindowPlanner.cs:124</c>).
-        /// The pad is rotation-aligned with the recorded launch iff <c>Off_N</c> is a whole number of
-        /// <c>T_sid</c>; the minimal FORWARD hold that achieves this is
-        /// <c>H_N = ((-Off_N) mod T_sid + T_sid) mod T_sid</c>. The double-mod-plus-T_sid form keeps H_N in
-        /// [0, T_sid) for any sign and any N (a sawtooth in N, never growing with the loop index), exactly
-        /// like <see cref="ComputePerLoopArrivalHoldSeconds"/>.
+        /// The in-SOI replay is rotation-aligned with the recorded launch iff <c>Off_N - delta_N</c> is a
+        /// whole number of <c>T_sid</c>; the minimal BACKWARD advance that achieves this is
+        /// <c>delta_N = (Off_N mod T_sid + T_sid) mod T_sid</c> (Off_N mod T_sid, the positive residual).
+        /// The double-mod-plus-T_sid form keeps delta_N in [0, T_sid) for any sign and any N (a sawtooth in
+        /// N, never growing with the loop index), exactly like <see cref="ComputePerLoopArrivalHoldSeconds"/>.
         ///
         /// <c>T_sid = Math.Abs(launchBodyRotationPeriod)</c> (the Math.Abs matches PadAlignLaunch's retrograde
         /// handling). Returns 0 for a degenerate <paramref name="launchBodyRotationPeriod"/> (NaN / Infinity /
-        /// &lt;= 0, a non-rotating launch body: no pad realignment possible, no hold) or a NaN
+        /// &lt;= 0, a non-rotating launch body: no pad realignment possible, no advance) or a NaN
         /// <paramref name="phaseAnchorUT"/> / <paramref name="spanStartUT"/> (matching the
         /// <see cref="ComputeArrivalAlignHoldSeconds"/> NaN guard). Pure; no Unity (xUnit-testable).
         /// </summary>
-        internal static double ComputePerLoopLaunchHoldSeconds(
+        internal static double ComputePerLoopLaunchAdvanceSeconds(
             double phaseAnchorUT, double spanStartUT, long cycleIndex, double cadence,
             double launchBodyRotationPeriod)
         {
@@ -7232,8 +7252,8 @@ namespace Parsek
             if (double.IsNaN(phaseAnchorUT) || double.IsNaN(spanStartUT))
                 return 0.0;
             double offN = (phaseAnchorUT - spanStartUT) + cycleIndex * cadence;
-            double h = (-offN) % tSid;
-            return (h + tSid) % tSid;
+            double d = offN % tSid;
+            return (d + tSid) % tSid;
         }
 
         /// <summary>
@@ -7385,7 +7405,8 @@ namespace Parsek
             double arrivalHoldAtUT = double.NaN,
             double arrivalHoldAlignPeriod = double.NaN,
             double launchBodyRotationPeriod = double.NaN,
-            bool launchHoldEngaged = false)
+            bool launchHoldEngaged = false,
+            double soiExitAtUT = double.NaN)
         {
             loopUT = spanStartUT;
             cycleIndex = 0;
@@ -7481,18 +7502,21 @@ namespace Parsek
             cycleIndex = (long)(elapsed / cycleDuration);
             double phaseInCycle = elapsed - (cycleIndex * cycleDuration);
 
-            // Per-loop LAUNCH HOLD (docs/dev/design-reaim-launch-hold-seam.md): a launch-TIME shift that
-            // closes the launch->escape render seam for the span>=synodic re-aim regime PadAlignLaunch
-            // declines (cadence != synodic). For replayed loop N the launch instant becomes L_N + H_N, so
-            // the launch body rotates back to the recorded inertial orientation and the body-fixed launch
-            // ascent replays VERBATIM coincident with the frozen escape conic. H_launch is computed AFTER
-            // cycleIndex / phaseInCycle (like the per-loop arrival hold) so it never changes cadence, the
+            // Per-loop LAUNCH ALIGNMENT (docs/dev/design-reaim-launch-hold-seam.md, borrow-at-launch /
+            // repay-at-SOI-exit): closes the launch->escape render seam for the span>=synodic re-aim regime
+            // PadAlignLaunch declines (cadence != synodic). For replayed loop N the launch happens delta_N
+            // EARLIER (at L_N - delta_N) so the in-Kerbin-SOI verbatim replay (ascent + parking + escape) runs
+            // at the RECORDED launch-body rotation (currentUT - spanStartUT is a whole multiple of T_sid),
+            // closing the seam; the borrowed delta_N is REPAID as a coast hold inserted at the SOI-exit
+            // boundary, so everything from the SOI exit onward (heliocentric transfer, trans-target burn,
+            // destination arrival + its arrival hold, landing) is UNCHANGED vs baseline. delta_N is computed
+            // AFTER cycleIndex / phaseInCycle (like the per-loop arrival hold) so it never changes cadence, the
             // phase anchor, the cycle index, or the resolver's window-index<->departure map. Gated on
-            // launchHoldEngaged (the builder sets it only when re-aim engaged && !pad.Applied && a
-            // body-fixed launch leg exists); a degenerate T_sid returns 0. Every other caller passes the
+            // launchHoldEngaged (the builder sets it only when re-aim engaged && !pad.Applied && plan.Supported
+            // && a valid SOI-exit boundary); a degenerate T_sid returns 0. Every other caller passes the
             // default (not engaged, NaN period), so the helper returns 0 and the clock stays byte-identical.
-            double launchHold = launchHoldEngaged
-                ? ComputePerLoopLaunchHoldSeconds(phaseAnchorUT, spanStartUT, cycleIndex, cycleDuration, launchBodyRotationPeriod)
+            double launchAdvance = launchHoldEngaged
+                ? ComputePerLoopLaunchAdvanceSeconds(phaseAnchorUT, spanStartUT, cycleIndex, cycleDuration, launchBodyRotationPeriod)
                 : 0.0;
 
             // Loiter compression (docs/dev/plans/reaim-loiter-compression.md section 5): when a re-aim unit
@@ -7526,21 +7550,13 @@ namespace Parsek
             {
                 double w0 = hold;
                 hold = ComputePerLoopArrivalHoldSeconds(w0, cycleIndex, cycleDuration, arrivalHoldAlignPeriod);
-                // Launch-hold self-correction (design 5.4): the launch hold defers the WHOLE loop (the SOI
-                // entry included) by H_launch, so the ghost's actual SOI entry occurs H_launch later than the
-                // unheld reference W_N was computed against. The destination-side arrival wait already
-                // holds-until-aligned, so a SINGLE in-clock subtraction self-corrects it:
-                // W_N_effective = ((W_N - H_launch) mod T_align + T_align) mod T_align. Applied ONLY when a
-                // valid T_align exists (the same gate ComputePerLoopArrivalHoldSeconds requires to be
-                // non-degenerate) and the launch hold is engaged; otherwise the constant-hold path is
-                // byte-identical. The builder-side arrival-hold producers are UNCHANGED.
+                // The arrival hold is UNCHANGED by the launch alignment (borrow-at-launch / repay-at-SOI-exit):
+                // the SOI-exit repay nets to zero with the earlier launch, so the SOI entry occurs at the SAME
+                // live UT as baseline and W_N aligns the destination rotation phase correctly with no
+                // compensation. (The PR #1174 forward-shift required a (W_N - H_launch) subtraction; the
+                // borrow-repay model removes it.)
                 bool tAlignValid = !double.IsNaN(arrivalHoldAlignPeriod) && !double.IsInfinity(arrivalHoldAlignPeriod)
                     && arrivalHoldAlignPeriod > 0.0;
-                if (launchHold > 0.0 && tAlignValid)
-                {
-                    double corrected = (hold - launchHold) % arrivalHoldAlignPeriod;
-                    hold = (corrected + arrivalHoldAlignPeriod) % arrivalHoldAlignPeriod;
-                }
                 // Per-frame hot path: rate-limited per mission (keyed on phaseAnchorUT + spanStartUT, NOT
                 // cycleIndex, so the key set stays bounded by mission count rather than growing one entry per
                 // replayed loop). The message carries cycleIndex and W_N, so a playtest sees W_N step as the
@@ -7556,26 +7572,95 @@ namespace Parsek
                         $"perloop-hold.{phaseAnchorUT.ToString("R", hic)}.{spanStartUT.ToString("R", hic)}",
                         $"per-loop arrival hold: cycleIndex={cycleIndex.ToString(hic)} " +
                         $"W0={w0.ToString("R", hic)}s cadence={cycleDuration.ToString("R", hic)}s " +
-                        $"Talign={arrivalHoldAlignPeriod.ToString("R", hic)}s WN={hold.ToString("R", hic)}s " +
-                        $"Hlaunch={launchHold.ToString("R", hic)}s");
+                        $"Talign={arrivalHoldAlignPeriod.ToString("R", hic)}s WN={hold.ToString("R", hic)}s");
                 }
             }
             // Defense-in-depth: never let the holds push the active span past the cadence (a mid-span cycle
-            // wrap would silently truncate the in-SOI replay). No current caller can trip this (the re-aim
-            // cadence = max(span, synodic) >> span + arrivalHold + launchHold), but this clock is shared by
-            // ALL ghost playback, so the bound is enforced rather than merely assumed. Cap the LAUNCH hold
-            // FIRST (it is the discretionary quantity bounded by T_sid), preserving the full arrival-hold +
-            // in-SOI replay window before trimming the arrival hold.
-            if (launchHold > 0.0 && compressedSpan + hold + launchHold > cycleDuration)
-                launchHold = Math.Max(0.0, cycleDuration - compressedSpan - hold);
+            // wrap would silently truncate the in-SOI replay). No current caller can trip this for the common
+            // re-aim case (the SOI-exit repay nets to zero with the earlier launch, so the SOI-exit-and-onward
+            // timeline stays on baseline and effectiveSpan = compressedSpan + delta + hold <= cadence whenever
+            // delta <= slack), but this clock is shared by ALL ghost playback, so the bound is enforced rather
+            // than merely assumed. Cap the LAUNCH ADVANCE delta FIRST (the discretionary quantity bounded by
+            // T_sid): capping it to slack = cadence - compressedSpan - hold is exactly the design's
+            // delta_N > slack edge handling (§2.6) - it bounds the borrow to the previous instance's idle gap
+            // so the early launch never overlaps the previous instance's live replay, and it can never reopen
+            // the seam the way the old forward H_N truncation did (the advance is bounded BY slack). When
+            // capped, a residual rotation offset remains only on those loops; the common case (delta <= slack)
+            // is unaffected. A WARN fires once per mission so a playtest sees which loops carry a residual.
+            double slack = cycleDuration - compressedSpan - hold;
+            if (slack < 0.0)
+                slack = 0.0;
+            bool launchAdvanceCapped = false;
+            if (launchAdvance > slack)
+            {
+                launchAdvance = slack;
+                launchAdvanceCapped = true;
+            }
             if (hold > 0.0 && compressedSpan + hold > cycleDuration)
                 hold = Math.Max(0.0, cycleDuration - compressedSpan);
-            // Per-loop LAUNCH hold diagnostic (design 6.4): a rate-limited Verbose Reaim line in the
-            // launch-hold branch, gated on launchHoldEngaged && a finite/positive T_sid (a degenerate T_sid
-            // yields launchHold == 0). Keyed on mission identity (phaseAnchorUT + spanStartUT, NOT cycleIndex)
-            // so the key set stays bounded by mission count. Carries cycleIndex, T_sid, and H_N so a playtest
-            // sees H_N step across loops. Distinct from the arrival-hold line above (the launch hold can be
-            // engaged with no arrival hold), so it emits on its own key under its own gate.
+
+            // The SOI-exit repay boundary in compressed-span phase (from spanStart): where the delta_N coast
+            // hold is inserted so the SOI-exit-and-onward timeline returns to baseline. Mirrors how the arrival
+            // hold derives holdPhasePos from arrivalHoldAtUT. Falls back to NaN (no SOI hold) when the launch
+            // alignment is not engaged or the boundary is degenerate.
+            double soiExitPhasePos = (launchAdvance > 0.0 && !double.IsNaN(soiExitAtUT))
+                ? CompressSpanUT(soiExitAtUT, loiterCuts) - spanStartUT
+                : double.NaN;
+            // The next instance's advance, capped to slack: instance (cycleIndex+1) launches early at
+            // phaseInCycle = cadence - advNext of THIS cycle (it borrows advNext from this cycle's idle tail).
+            // Bounded by slack so the early launch never overlaps this instance's still-live replay.
+            double advNext = launchHoldEngaged
+                ? ComputePerLoopLaunchAdvanceSeconds(phaseAnchorUT, spanStartUT, cycleIndex + 1, cycleDuration, launchBodyRotationPeriod)
+                : 0.0;
+            if (advNext > slack)
+                advNext = slack;
+
+            // Borrow-at-launch / repay-at-SOI-exit phase model (design §2). Each cadence-cycle window
+            // [0, cadence) renders ONE instance launched delta EARLIER than its nominal L boundary, so the
+            // in-SOI replay runs at the recorded launch-body rotation (the seam closes). Two sub-regions:
+            //   (A) phaseInCycle < cadence - advNext: render THIS cycle's instance N (launched at L_N - advN,
+            //       i.e. in the PRIOR cycle's idle tail). phaseFromLaunch = phaseInCycle + advN, so at
+            //       phaseInCycle == 0 the replay is already advN into flight (continuous with the prior
+            //       window's region-B early launch of this same instance) and the SOI-exit hold inserts advN.
+            //   (B) phaseInCycle >= cadence - advNext: render the NEXT instance (N+1) launched EARLY at
+            //       phaseInCycle = cadence - advNext (borrowing advNext from this cycle's parked idle tail).
+            //       phaseFromLaunch = phaseInCycle - (cadence - advNext) (0 at the early launch); report
+            //       cycleIndex = N+1 and the SOI-exit hold inserts advNext. This is what makes the navigable
+            //       launch time L_{N+1} - advNext actually render the launch (no pad absence): the ghost
+            //       coasts at the SOI boundary during the repay, never absent on the pad.
+            // launchAdvance == 0 (not engaged / degenerate T_sid / already aligned) collapses BOTH regions to
+            // the plain clock below: advNext is 0 so region B never triggers, phaseFromLaunch == phaseInCycle,
+            // and the boundary rollback / arrival-hold composition is byte-identical to the pre-alignment clock.
+            double effectiveLaunchAdvance = launchAdvance;
+            double phaseFromLaunch = phaseInCycle;
+            bool earlyNextLaunch = false;
+            if (launchAdvance > 0.0)
+            {
+                if (advNext > 0.0 && phaseInCycle >= cycleDuration - advNext)
+                {
+                    // Region B: the next instance's early launch in this cycle's idle tail.
+                    cycleIndex += 1;
+                    phaseFromLaunch = phaseInCycle - (cycleDuration - advNext);
+                    effectiveLaunchAdvance = advNext;
+                    soiExitPhasePos = !double.IsNaN(soiExitAtUT)
+                        ? CompressSpanUT(soiExitAtUT, loiterCuts) - spanStartUT
+                        : double.NaN;
+                    earlyNextLaunch = true;
+                }
+                else
+                {
+                    // Region A: this cycle's instance, launched advN ago (continuous across the boundary).
+                    phaseFromLaunch = phaseInCycle + launchAdvance;
+                    effectiveLaunchAdvance = launchAdvance;
+                }
+            }
+
+            // Per-loop LAUNCH ADVANCE diagnostic (design 6.4): a rate-limited Verbose Reaim line, gated on
+            // launchHoldEngaged && a finite/positive T_sid (a degenerate T_sid yields launchAdvance == 0).
+            // Keyed on mission identity (phaseAnchorUT + spanStartUT, NOT cycleIndex) so the key set stays
+            // bounded by mission count. Carries cycleIndex, T_sid, the rendered instance's delta, slack, and a
+            // capped flag so a playtest sees delta step across loops and any slack cap. A capped advance also
+            // emits a one-shot WARN (the residual-seam loops).
             if (launchHoldEngaged)
             {
                 double tSid = Math.Abs(launchBodyRotationPeriod);
@@ -7584,73 +7669,56 @@ namespace Parsek
                     var lic = CultureInfo.InvariantCulture;
                     ParsekLog.VerboseRateLimited(
                         "Reaim",
-                        $"perloop-launch-hold.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
-                        $"per-loop launch hold: cycleIndex={cycleIndex.ToString(lic)} " +
+                        $"perloop-launch-advance.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
+                        $"per-loop launch advance: cycleIndex={cycleIndex.ToString(lic)} " +
                         $"Tsid={tSid.ToString("R", lic)}s cadence={cycleDuration.ToString("R", lic)}s " +
-                        $"HN={launchHold.ToString("R", lic)}s");
+                        $"deltaN={effectiveLaunchAdvance.ToString("R", lic)}s slack={slack.ToString("R", lic)}s " +
+                        $"region={(earlyNextLaunch ? "B-earlyNext" : "A-current")} capped={launchAdvanceCapped}");
+                    if (launchAdvanceCapped)
+                        ParsekLog.WarnRateLimited(
+                            "Reaim",
+                            $"launch-advance-capped.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
+                            $"per-loop launch advance CAPPED to slack={slack.ToString("R", lic)}s " +
+                            $"(delta_N > slack: this loop carries a residual launch->escape seam); " +
+                            $"cycleIndex={cycleIndex.ToString(lic)} cadence={cycleDuration.ToString("R", lic)}s");
                 }
             }
-            double holdPhasePos = hold > 0.0 ? CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT : double.NaN;
-            double effectiveSpan = compressedSpan + hold;
 
-            // Epsilon-tolerant boundary, matching ComputeLoopPhaseFromUT: at exactly a cycle
-            // boundary (phaseInCycle ~ 0 with cycleIndex > 0) the clock shows the PRIOR cycle's
-            // final frame (spanEnd), not the next cycle's first frame. This makes "currentUT ==
-            // spanEnd" report spanEnd in cycle 0 when cadence == span, and the wrap to spanStart
-            // happen one sliver later in cycle+1 (seamless, no pause). Without this, a UT landing
-            // exactly on a back-to-back boundary would flicker to spanStart a frame early.
-            if (cycleIndex > 0 && phaseInCycle <= LoopTiming.BoundaryEpsilon)
+            double holdPhasePos = hold > 0.0 ? CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT : double.NaN;
+            double effectiveSpan = compressedSpan + effectiveLaunchAdvance + hold;
+
+            // Epsilon-tolerant boundary, matching ComputeLoopPhaseFromUT: at exactly a cycle boundary
+            // (phaseInCycle ~ 0 with cycleIndex > 0) the clock shows the PRIOR cycle's final frame (spanEnd),
+            // not the next cycle's first frame, so "currentUT == spanEnd" reports spanEnd in cycle 0 when
+            // cadence == span and the wrap to spanStart happens one sliver later (seamless, no pause). The
+            // launch alignment SKIPS this rollback: under borrow-repay the boundary is already continuous (the
+            // prior window's region-B early launch of THIS instance hands off to region A at phaseFromLaunch ==
+            // launchAdvance with no flicker), and a rollback to spanEnd would wrongly show the prior instance's
+            // landed frame instead of this instance's just-launched ascent. Only the non-aligned clock rolls back.
+            if (launchAdvance <= 0.0 && cycleIndex > 0 && phaseInCycle <= LoopTiming.BoundaryEpsilon)
             {
                 cycleIndex -= 1;
                 loopUT = spanEndUT;
-                // NOT the parked idle tail: this is the legitimate end-of-cycle final frame at the
-                // back-to-back wrap boundary (cadence == span). The ghost is still mid-loop, just
-                // showing the prior cycle's last frame, so the tail flag stays false. The launch hold
-                // does NOT apply here: the rolled-back frame is the PRIOR cycle's last (already-launched)
-                // recorded frame, which must keep rendering through the back-to-back wrap.
+                // NOT the parked idle tail: the legitimate end-of-cycle final frame at the back-to-back wrap
+                // boundary (cadence == span). The ghost is still mid-loop, just showing the prior cycle's last
+                // frame, so the tail flag stays false.
                 isInInterCycleTail = false;
                 return true;
             }
 
-            // Pre-launch ABSENCE (design 6.2 step 2): for phaseInCycle < H_launch the loop has NOT launched
-            // yet (the launch instant is L_N + H_launch), so the ghost must render ABSENT - exactly as a ghost
-            // is absent before any first launch, NOT frozen on the pad. Resolve loopUT strictly BELOW the
-            // member window (below spanStartUT) and report it: DecideUnitMemberRender maps a launch-hold unit
-            // whose resolved loopUT is below spanStartUT to HiddenPreLaunchHold (hide, do not destroy), and the
-            // TS/map sampler maps any non-Render decision to renderHidden=true. We do NOT resolve to
-            // spanStartUT (the frozen-on-pad pose, which IsLoopUTInMemberWindow would accept => Render). This
-            // is checked AFTER the boundary rollback so the prior cycle's final frame still wins at the exact
-            // back-to-back boundary. launchHold == 0 (not engaged / degenerate T_sid / already aligned) makes
-            // this a no-op (phaseInCycle < 0 is impossible here), byte-identical to the pre-launch-hold clock.
-            if (launchHold > 0.0 && phaseInCycle < launchHold)
-            {
-                // A pre-launch UT below the member window; the magnitude (<= T_sid) is irrelevant - any value
-                // < spanStartUT routes to the absence path. cycleIndex / isInInterCycleTail are left as the
-                // computed pre-launch cycle / false.
-                loopUT = spanStartUT - (launchHold - phaseInCycle);
-                isInInterCycleTail = false;
-                return true;
-            }
-
-            // Post-launch DEFERRAL (design 6.2 step 3): for phaseInCycle >= H_launch the verbatim recorded
-            // span replays from spanStartUT deferred by H_launch (launch at L_N + H_launch). A flat offset on
-            // the working phase BEFORE the arrival-hold / loiter-cut composition; the arrival hold's single
-            // mid-span insertion (ApplyArrivalHoldToPhase at holdPhasePos) is untouched and its per-loop W_N
-            // is self-corrected by the single subtraction above. launchHold == 0 keeps workPhase == phaseInCycle.
-            double workPhase = phaseInCycle - launchHold;
-
-            // Park at spanEnd once the phase reaches the span (cadence > span clamp leaves a tail
-            // parked at spanEnd; cadence == span never reaches span except at the rolled-back
-            // boundary handled above). isInInterCycleTail is true exactly in that parked tail —
-            // the phase ran past the span and we are idling at spanEnd until the next cycle.
-            double clampedPhase = workPhase >= effectiveSpan ? effectiveSpan : workPhase;
-            // Remove the arrival hold (held at the boundary, then deferred), then DecompressSpanUT through
-            // the loiter cuts to the recorded loopUT - holds and cuts compose. hold == 0 makes
-            // ApplyArrivalHoldToPhase the identity and DecompressSpanUT is identity for empty cuts, so a unit
+            // Park at spanEnd once the working phase reaches the effective span. isInInterCycleTail is true
+            // exactly in that parked tail (the phase ran past the span and we idle at spanEnd until the next
+            // cycle / early launch). The two holds compose as two sequential insertions on one phase axis:
+            // FIRST the SOI-exit repay (delta inserted at soiExitPhasePos, returning the post-SOI portion to
+            // baseline), THEN the arrival hold (W_N inserted at holdPhasePos, which is measured in
+            // recorded/compressed-span phase and is unchanged by the SOI-exit insertion that lies strictly
+            // before it). Both reduce to the identity when their hold is 0 / their position is NaN, so a unit
             // with neither is byte-identical to the pre-hold clock.
-            double cutPhase = ApplyArrivalHoldToPhase(clampedPhase, holdPhasePos, hold);
+            double clampedPhase = phaseFromLaunch >= effectiveSpan ? effectiveSpan : phaseFromLaunch;
+            double afterSoi = ApplyArrivalHoldToPhase(clampedPhase, soiExitPhasePos, effectiveLaunchAdvance);
+            double cutPhase = ApplyArrivalHoldToPhase(afterSoi, holdPhasePos, hold);
             loopUT = DecompressSpanUT(spanStartUT + cutPhase, loiterCuts);
-            isInInterCycleTail = (workPhase >= effectiveSpan);
+            isInInterCycleTail = (phaseFromLaunch >= effectiveSpan);
             return true;
         }
 
@@ -7741,14 +7809,6 @@ namespace Parsek
             HiddenInterCycleTail,
             /// <summary>The shared clock is outside this member's own window — hide this member.</summary>
             HiddenOutsideWindow,
-            /// <summary>
-            /// The loop has not LAUNCHED yet (the per-loop launch hold: phaseInCycle &lt; H_launch, the resolved
-            /// span-clock loopUT is below spanStartUT). The ghost must render ABSENT - exactly as a ghost is
-            /// absent before any first launch, NOT frozen on the pad - WITHOUT destroying it (the camera stays
-            /// anchored via the keep-watched-owner-alive fallback). Distinct from HiddenOutsideWindow so the
-            /// engine routes it to a hide, not a destroy.
-            /// </summary>
-            HiddenPreLaunchHold,
         }
 
         /// <summary>
@@ -7784,7 +7844,8 @@ namespace Parsek
             double arrivalHoldAtUT = double.NaN,
             double arrivalHoldAlignPeriod = double.NaN,
             double launchBodyRotationPeriod = double.NaN,
-            bool launchHoldEngaged = false)
+            bool launchHoldEngaged = false,
+            double soiExitAtUT = double.NaN)
         {
             spanLoopUT = spanStartUT;
             unitCycle = 0;
@@ -7794,22 +7855,16 @@ namespace Parsek
                     currentUT, phaseAnchorUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT,
                     out unitCycle, out isInInterCycleTail, schedule, loiterCuts,
                     arrivalHoldSeconds, arrivalHoldAtUT, arrivalHoldAlignPeriod,
-                    launchBodyRotationPeriod, launchHoldEngaged))
+                    launchBodyRotationPeriod, launchHoldEngaged, soiExitAtUT))
                 return UnitMemberRenderDecision.SpanClockUnresolved;
 
-            // Inter-cycle tail (the "wait" between cycles when cadence > span): render nothing.
+            // Inter-cycle tail (the "wait" between cycles when cadence > span): render nothing. Under the
+            // borrow-at-launch / repay-at-SOI-exit launch alignment there is NO pre-launch absence: the launch
+            // is EARLIER (at L_N - delta_N) and the delta_N repay is a COAST hold at the SOI-exit boundary
+            // (rendered in-window), so the resolved spanLoopUT is always >= spanStartUT and the ghost is never
+            // absent on the pad.
             if (isInInterCycleTail)
                 return UnitMemberRenderDecision.HiddenInterCycleTail;
-
-            // Pre-launch ABSENCE (per-loop launch hold, design 6.2): when the launch hold is engaged the span
-            // clock resolves a pre-launch window (phaseInCycle < H_launch) to a loopUT strictly BELOW
-            // spanStartUT (the loop has not launched yet). Map that to HiddenPreLaunchHold so the engine hides
-            // the ghost WITHOUT destroying it (the keep-watched-owner-alive fallback keeps the camera
-            // anchored). The pre-launch UT is below every member window, so without this branch it would route
-            // to HiddenOutsideWindow -> the destroy path; the ABSENCE framing (not a pad-wait) requires the
-            // hide-not-destroy route. Inert when the launch hold is not engaged (spanLoopUT >= spanStartUT).
-            if (launchHoldEngaged && spanLoopUT < spanStartUT - LoopTiming.BoundaryEpsilon)
-                return UnitMemberRenderDecision.HiddenPreLaunchHold;
 
             // Each member renders independently iff the shared clock is in its own window.
             return IsLoopUTInMemberWindow(spanLoopUT, memberStartUT, memberEndUT)
@@ -7867,14 +7922,15 @@ namespace Parsek
                 unit.ArrivalHoldAtUT,
                 unit.ArrivalAlignPeriodSeconds,
                 unit.LaunchBodyRotationPeriodSeconds,
-                unit.LaunchHoldEngaged);
+                unit.LaunchHoldEngaged,
+                unit.RecordedSoiExitUT);
 
             if (decision == UnitMemberRenderDecision.Render)
                 return loopUT;
 
-            // Any non-Render decision (SpanClockUnresolved / HiddenInterCycleTail / HiddenOutsideWindow /
-            // HiddenPreLaunchHold) hides the ghost for this frame: the pre-launch absence (the loop has not
-            // launched yet) suppresses the icon + line + marker on every map/TS surface automatically.
+            // Any non-Render decision (SpanClockUnresolved / HiddenInterCycleTail / HiddenOutsideWindow) hides
+            // the ghost for this frame, suppressing the icon + line + marker on every map/TS surface
+            // automatically.
             renderHidden = true;
             return liveUT;
         }

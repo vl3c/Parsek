@@ -6654,17 +6654,17 @@ namespace Parsek.Tests
             Assert.Equal(1010.0, loopUT, 6); // newest instance, NOT the span-clock single-instance UT
         }
 
-        // --- Per-loop LAUNCH HOLD watch<->render clock parity (design 6.4, reviewer blocker) -------
+        // --- Per-loop LAUNCH ALIGNMENT watch<->render clock parity (borrow-at-launch / repay-at-SOI-exit) -
         // The watch-camera UT resolver (TryResolveUnitMemberPlaybackUT) feeds
         // WatchModeController.ResolveWatchPlaybackUT -> EnsureGhostVisualsLoadedForWatch and MUST
         // resolve the SAME loopUT the engine renders the member at (DecideUnitMemberRender) and the TS
-        // sampler reads (ResolveTrackingStationSampleUT). Before this fix the watch resolver did NOT
-        // forward the launch-hold args, so post-launch it tracked an UN-deferred pose H_N ahead of the
-        // engine, and pre-launch it returned a valid in-window UT while the engine hid the ghost.
+        // sampler reads (ResolveTrackingStationSampleUT). It forwards the launch-alignment args (T_sid +
+        // engaged flag + SOI-exit UT) so its borrow-at-launch / repay-at-SOI-exit clock is byte-identical to
+        // the render/TS surface (the early launch, the SOI-exit dwell, and the post-SOI baseline timeline).
 
-        // Launch-hold fixture matching LaunchHoldClockTests: span [0,1000], cadence 2000 (> span),
-        // phaseAnchor 300, T_sid 400 => H_0 = ((-300) mod 400 + 400) mod 400 = 100.
-        private const double LhS0 = 0.0, LhS1 = 1000.0, LhCad = 2000.0, LhAnchor = 300.0, LhTsid = 400.0;
+        // Launch-alignment fixture matching LaunchHoldClockTests: span [0,1000], cadence 2000 (slack 1000),
+        // phaseAnchor 300, T_sid 700, SOI exit 600 => delta_N steps 300, 200, 100, ...
+        private const double LhS0 = 0.0, LhS1 = 1000.0, LhCad = 2000.0, LhAnchor = 300.0, LhTsid = 700.0, LhSoi = 600.0;
 
         private static GhostPlaybackLogic.LoopUnitSet BuildLaunchHoldUnit(int memberIndex)
         {
@@ -6686,68 +6686,73 @@ namespace Parsek.Tests
                 arrivalAlignPeriodSeconds: double.NaN,
                 arrivalAmberReason: null,
                 launchBodyRotationPeriodSeconds: LhTsid,
-                launchHoldEngaged: true);
+                launchHoldEngaged: true,
+                recordedSoiExitUT: LhSoi);
             return new GhostPlaybackLogic.LoopUnitSet(
                 new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { memberIndex, unit } },
                 new Dictionary<int, int> { { memberIndex, memberIndex } });
         }
 
         [Fact]
-        public void TryResolveUnitMemberPlaybackUT_LaunchHold_PostLaunch_MatchesEngineAndTsDeferredLoopUT()
+        public void TryResolveUnitMemberPlaybackUT_LaunchAlignment_EarlyLaunch_MatchesTsAtSpanStart()
         {
-            // currentUT 600: phaseInCycle 300, workPhase 300 - H_0(100) = 200 => deferred loopUT 200.
-            // The watch resolver must return that deferred UT, NOT the un-deferred span-clock UT 300.
+            // currentUT 2100: instance 1's early launch (region B, L_1 - delta_1 = 2300 - 200). The watch
+            // resolver must return loopUT == spanStart (just launched, ON the pad - no pad absence), matching
+            // the render/TS surface.
             var engine = new GhostPlaybackEngine(null);
             engine.SetLoopUnits(BuildLaunchHoldUnit(0));
 
             bool resolved = engine.TryResolveUnitMemberPlaybackUT(
-                0, currentUT: 600.0, memberStartUT: LhS0, memberEndUT: LhS1, out double watchUT);
+                0, currentUT: 2100.0, memberStartUT: LhS0, memberEndUT: LhS1, out double watchUT);
 
             Assert.True(resolved);
-            Assert.Equal(200.0, watchUT, 6); // deferred, matching the render/TS clock (NOT 300)
+            Assert.Equal(LhS0, watchUT, 3);
 
-            // Parity with the TS sampler surface (same currentUT, same unit).
+            // Parity with the TS sampler surface (same currentUT, same unit): rendered, not hidden.
             double tsUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
-                0, LhS0, LhS1, 600.0, BuildLaunchHoldUnit(0), out bool tsHidden);
+                0, LhS0, LhS1, 2100.0, BuildLaunchHoldUnit(0), out bool tsHidden);
             Assert.False(tsHidden);
-            Assert.Equal(tsUT, watchUT, 6);
+            Assert.Equal(tsUT, watchUT, 3);
         }
 
         [Fact]
-        public void TryResolveUnitMemberPlaybackUT_LaunchHold_PreLaunch_ReturnsFalse_NotInSpanUT()
+        public void TryResolveUnitMemberPlaybackUT_LaunchAlignment_PostSoi_MatchesTsAndBaseline()
         {
-            // currentUT 350: phaseInCycle 50 < H_0(100) => pre-launch. The engine hides the ghost
-            // (HiddenPreLaunchHold) and the TS sampler reports renderHidden=true, so the watch resolver
-            // must NOT feed an in-span UT for this frame: it returns false + the raw fallback UT so the
-            // caller keeps the camera anchored (mirroring the engine's hidden-not-destroyed absence).
+            // currentUT 3000: region A of cycle 1, past the SOI-exit repay hold. The watch resolver returns
+            // the post-SOI loopUT, which equals the baseline (the repay nets to zero), matching the TS surface.
             var engine = new GhostPlaybackEngine(null);
             engine.SetLoopUnits(BuildLaunchHoldUnit(0));
 
             bool resolved = engine.TryResolveUnitMemberPlaybackUT(
-                0, currentUT: 350.0, memberStartUT: LhS0, memberEndUT: LhS1, out double watchUT);
-
-            Assert.False(resolved);
-            Assert.Equal(350.0, watchUT, 6); // raw fallback UT, not an in-span loopUT
-
-            // The render/TS surface agrees: the loop has not launched, the ghost is absent.
-            double tsUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
-                0, LhS0, LhS1, 350.0, BuildLaunchHoldUnit(0), out bool tsHidden);
-            Assert.True(tsHidden);
-        }
-
-        [Fact]
-        public void TryResolveUnitMemberPlaybackUT_LaunchHold_AtLaunchInstant_ResolvesAtSpanStart()
-        {
-            // currentUT 400: phaseInCycle == H_0(100) => the ascent starts exactly at spanStart. The watch
-            // resolver resolves (in-window, not pre-launch) at spanStart, matching the render decision.
-            var engine = new GhostPlaybackEngine(null);
-            engine.SetLoopUnits(BuildLaunchHoldUnit(0));
-
-            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
-                0, currentUT: 400.0, memberStartUT: LhS0, memberEndUT: LhS1, out double watchUT);
+                0, currentUT: 3000.0, memberStartUT: LhS0, memberEndUT: LhS1, out double watchUT);
 
             Assert.True(resolved);
-            Assert.Equal(LhS0, watchUT, 6);
+
+            double tsUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                0, LhS0, LhS1, 3000.0, BuildLaunchHoldUnit(0), out bool tsHidden);
+            Assert.False(tsHidden);
+            Assert.Equal(tsUT, watchUT, 3);
+
+            // Post-SOI == baseline (not-engaged) at the same currentUT.
+            GhostPlaybackLogic.TryComputeSpanLoopUT(
+                3000.0, LhAnchor, LhS0, LhS1, LhCad, out double baselineUT, out long _, out bool _);
+            Assert.Equal(baselineUT, watchUT, 3);
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_LaunchAlignment_NeverAbsentBelowSpan()
+        {
+            // There is NO pad absence under borrow-repay: sweep across cycles and assert the watch resolver
+            // always resolves an in-span loopUT (>= spanStart), never below the span.
+            var engine = new GhostPlaybackEngine(null);
+            engine.SetLoopUnits(BuildLaunchHoldUnit(0));
+            for (double t = LhAnchor; t <= LhAnchor + 4.0 * LhCad; t += 23.0)
+            {
+                bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                    0, currentUT: t, memberStartUT: LhS0, memberEndUT: LhS1, out double watchUT);
+                if (resolved)
+                    Assert.True(watchUT >= LhS0 - 1e-6, $"t={t} watchUT {watchUT} below spanStart (pad absence)");
+            }
         }
 
         #endregion

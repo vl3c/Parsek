@@ -5,14 +5,20 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Span-clock composition tests for the per-loop LAUNCH HOLD
-    /// (docs/dev/design-reaim-launch-hold-seam.md sections 6.2 / 9.2): the launch-TIME shift wired into
-    /// <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/> and surfaced through
-    /// <see cref="GhostPlaybackLogic.DecideUnitMemberRender"/>. Covers the pre-launch ABSENCE (phaseInCycle
-    /// &lt; H_N resolves below the member window, mapped to HiddenPreLaunchHold), the verbatim-deferred replay
-    /// (phaseInCycle &gt;= H_N), the targeting invariants (cycleIndex / window read byte-identical with or
-    /// without the hold), cadence==synodic untouched (not engaged), and the arrival-wait self-correction
-    /// ((W_N - H_N) mod T_align). Pure inputs (no Unity).
+    /// Span-clock composition tests for the per-loop LAUNCH ALIGNMENT
+    /// (docs/dev/design-reaim-launch-hold-seam.md, borrow-at-launch / repay-at-SOI-exit): the launch shift
+    /// wired into <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/> and surfaced through
+    /// <see cref="GhostPlaybackLogic.DecideUnitMemberRender"/>. Covers:
+    /// - in-SOI rotation alignment (currentUT - resolvedLoopUT is a whole multiple of T_sid through the
+    ///   launch / parking / escape), via both the region-A (current cycle) and region-B (early next launch)
+    ///   paths;
+    /// - the SOI-exit repay coast hold (loopUT held at the SOI-exit recorded UT across the delta window);
+    /// - the post-SOI-and-onward timeline byte-identical to BASELINE (the repay nets to zero with the
+    ///   earlier launch, so targeting + the arrival hold are unchanged);
+    /// - no pad absence (the early launch renders loopUT == spanStart, never a hidden/below-span sample);
+    /// - cadence==synodic / not-engaged byte-identical;
+    /// - the delta &gt; slack edge capped to slack.
+    /// Pure inputs (no Unity).
     /// </summary>
     [Collection("Sequential")]
     public class LaunchHoldClockTests : IDisposable
@@ -31,83 +37,159 @@ namespace Parsek.Tests
             GhostPlaybackLogic.ResetForTesting();
         }
 
-        // Standard fixture: span [0,1000], cadence 2000 (> span so the inter-cycle tail engages between
-        // loops), phaseAnchor 300, T_sid 400 => Off_0 = 300, H_0 = ((-300) mod 400 + 400) mod 400 = 100.
-        // The cycle-0 launch is deferred by 100 s.
-        private const double Anchor = 300, S0 = 0, S1 = 1000, Cad = 2000, Tsid = 400;
+        // Standard fixture: span [0,1000], cadence 2000 (so each cycle has a 1000 s idle tail => slack 1000),
+        // phaseAnchor 300, T_sid 700, SOI exit at recorded UT 600. delta_N = (300 + N*2000) mod 700 steps
+        // 300, 200, 100, ... (a true sawtooth, since 2000 mod 700 = 600 != 0), every delta well under slack.
+        private const double Anchor = 300, S0 = 0, S1 = 1000, Cad = 2000, Tsid = 700, SoiExit = 600;
 
-        private static double Loop(double currentUT, bool engaged, double tSid = Tsid)
+        private static double Loop(double currentUT, bool engaged, double tSid = Tsid, double soiExit = SoiExit)
         {
             GhostPlaybackLogic.TryComputeSpanLoopUT(
                 currentUT, Anchor, S0, S1, Cad, out double loopUT, out long _, out bool _,
                 schedule: null, loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
-                arrivalHoldAlignPeriod: double.NaN, launchBodyRotationPeriod: tSid, launchHoldEngaged: engaged);
+                arrivalHoldAlignPeriod: double.NaN, launchBodyRotationPeriod: tSid, launchHoldEngaged: engaged,
+                soiExitAtUT: soiExit);
             return loopUT;
         }
 
-        // === Pre-launch ABSENCE (phaseInCycle < H_N) ============================================
+        private static double Delta(long n, double cadence = Cad, double tSid = Tsid)
+            => GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(Anchor, S0, n, cadence, tSid);
+
+        // === No pad absence + in-SOI rotation alignment (region B: early next launch) =============
 
         [Fact]
-        public void PreLaunch_ResolvesBelowSpanStart_NotFrozenOnPad()
+        public void EarlyNextLaunch_RendersAtSpanStart_NotAbsent()
         {
-            // currentUT 350: phaseInCycle = 50 < H_0 (100) -> pre-launch. The loop has not launched yet;
-            // the resolved loopUT must be BELOW spanStart (so DecideUnitMemberRender hides it), NOT clamped
-            // to spanStart (the frozen-on-pad pose, which would render).
-            double loopUT = Loop(350.0, engaged: true);
-            Assert.True(loopUT < S0, $"pre-launch loopUT {loopUT} should be below spanStart {S0}");
-        }
-
-        [Fact]
-        public void PreLaunch_DecideUnitMemberRender_HiddenPreLaunchHold()
-        {
-            // The pre-launch window routes to HiddenPreLaunchHold (hide-not-destroy), NOT HiddenOutsideWindow
-            // (which would route to the engine's destroy path) and NOT Render (frozen on the pad).
-            var decision = GhostPlaybackLogic.DecideUnitMemberRender(
-                350.0, Anchor, S0, S1, Cad, S0, S1, out double loopUT, out long _, out bool _,
-                schedule: null, loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
-                arrivalHoldAlignPeriod: double.NaN, launchBodyRotationPeriod: Tsid, launchHoldEngaged: true);
-            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenPreLaunchHold, decision);
-        }
-
-        [Fact]
-        public void AtLaunchInstant_AscentStartsAtSpanStart()
-        {
-            // currentUT 400: phaseInCycle == H_0 (100) -> the ascent starts exactly at spanStart.
-            double loopUT = Loop(400.0, engaged: true);
+            // Instance 1 launches early at L_1 - delta_1 = (300+2000) - 200 = 2100 (region B of cycle 0,
+            // phaseInCycle = cadence - delta_1 = 1800). At that instant the in-SOI replay renders loopUT ==
+            // spanStart (just launched, ON the pad) - NEVER below the span (no pad absence).
+            double loopUT = Loop(2100.0, engaged: true);
             Assert.Equal(S0, loopUT, Tol);
-            var decision = GhostPlaybackLogic.DecideUnitMemberRender(
-                400.0, Anchor, S0, S1, Cad, S0, S1, out double _, out long _, out bool _,
-                schedule: null, loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
-                arrivalHoldAlignPeriod: double.NaN, launchBodyRotationPeriod: Tsid, launchHoldEngaged: true);
-            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision);
-        }
-
-        // === Verbatim-deferred replay (phaseInCycle > H_N) ======================================
-
-        [Fact]
-        public void PostLaunch_VerbatimDeferredByHN()
-        {
-            // currentUT 600: phaseInCycle 300, workPhase 300 - 100 = 200 -> loopUT == spanStart + 200 == 200.
-            double loopUT = Loop(600.0, engaged: true);
-            Assert.Equal(200.0, loopUT, Tol);
+            Assert.False(loopUT < S0, "the early launch renders at spanStart, never absent below the span");
         }
 
         [Fact]
-        public void PostLaunch_ProbeEqualsNoShiftAtCurrentMinusHN()
+        public void InSoiReplay_AlignedToRecordedRotation_AcrossLaunchAndEscape()
         {
-            // The deferral identity: loopUT(currentUT, with-shift) == loopUT(currentUT - H_N, no-shift) for a
-            // probe UT past the launch window (design 9.2). H_0 = 100.
-            const double h0 = 100.0;
-            double probe = 650.0;
-            double withShift = Loop(probe, engaged: true);
-            double noShift = Loop(probe - h0, engaged: false);
-            Assert.Equal(noShift, withShift, Tol);
+            // The alignment proof (design §1.2): throughout the in-SOI replay (loopUT in [spanStart, SOI exit])
+            // the live rotation equals the recorded rotation, i.e. (currentUT - resolvedLoopUT) is a whole
+            // multiple of T_sid. Sweep the early launch of instance 1 (region B) from launch through the
+            // SOI-exit boundary and assert congruence at every sample.
+            for (double t = 2100.0; t <= 2100.0 + SoiExit; t += 7.0)
+            {
+                double loopUT = Loop(t, engaged: true);
+                if (loopUT >= SoiExit - Tol)
+                    break;   // at/past the SOI exit -> repay coast hold / post-SOI (covered separately)
+                double rem = ((t - loopUT) % Tsid + Tsid) % Tsid;
+                // Either ~0 or ~T_sid (float wrap): assert within tolerance of a whole multiple.
+                double off = Math.Min(rem, Tsid - rem);
+                Assert.True(off < 1e-3, $"t={t} loopUT={loopUT} not rotation-aligned (off={off})");
+            }
         }
 
         [Fact]
-        public void DegenerateTsid_NoHold_ByteIdenticalAcrossSweep()
+        public void InSoiReplay_AlignedToRecordedRotation_RegionA()
         {
-            // launchHoldEngaged true but a degenerate (non-rotating) T_sid -> H_N == 0 -> byte-identical to
+            // Region A (the current cycle's instance, launched delta ago in the prior window's tail): at the
+            // cycle-1 boundary (currentUT 2300, phaseInCycle 0) the replay is delta_1 into flight (loopUT 200)
+            // and stays rotation-aligned through the SOI exit.
+            for (double t = 2300.0; t <= 2300.0 + SoiExit; t += 11.0)
+            {
+                double loopUT = Loop(t, engaged: true);
+                // Stop once the replay reaches the SOI exit: at/after that boundary the loopUT enters the
+                // delta coast HOLD (frozen at 600 while currentUT advances), which is intentionally NOT
+                // rotation-aligned (it is the repay dwell). The in-SOI ascent/parking/escape BEFORE the exit
+                // is what must be aligned.
+                if (loopUT >= SoiExit - Tol)
+                    break;
+                double rem = ((t - loopUT) % Tsid + Tsid) % Tsid;
+                double off = Math.Min(rem, Tsid - rem);
+                Assert.True(off < 1e-3, $"t={t} loopUT={loopUT} not rotation-aligned (off={off})");
+            }
+        }
+
+        // === Boundary continuity (region B of cycle N hands off to region A of cycle N+1) =========
+
+        [Fact]
+        public void BoundaryContinuity_RegionBHandsOffToRegionA()
+        {
+            // Just below the cycle 0->1 boundary (region B, instance 1) and just at it (region A, instance 1)
+            // resolve nearly the same loopUT (continuous: no flicker, no rollback to the prior instance's
+            // landed frame). The loopUT difference equals the currentUT probe step (the clock is locally linear
+            // here), so a 1e-4 probe yields a ~1e-4 loopUT gap - the point is continuity, not exact equality.
+            double justBelow = Loop(2300.0 - 1e-4, engaged: true);
+            double atBoundary = Loop(2300.0, engaged: true);
+            Assert.Equal(atBoundary, justBelow, 1e-3);
+        }
+
+        // === SOI-exit repay coast hold (loopUT held at the SOI-exit recorded UT) ==================
+
+        [Fact]
+        public void SoiExitRepay_HoldsAtSoiExitUT()
+        {
+            // Region A of cycle 1, instance 1: phaseFromLaunch = phaseInCycle + delta_1 (=200). The SOI hold
+            // inserts delta_1 at soiExitPhasePos = 600, so for phaseFromLaunch in (600, 600+200] the loopUT is
+            // HELD at 600. phaseFromLaunch = 700 -> phaseInCycle 500 -> currentUT 2300 + 500 = 2800.
+            double loopUT = Loop(2800.0, engaged: true);
+            Assert.Equal(SoiExit, loopUT, 1e-3);
+        }
+
+        // === Post-SOI-and-onward timeline byte-identical to baseline (the repay nets to zero) =====
+
+        [Fact]
+        public void PostSoi_ByteIdenticalToBaseline()
+        {
+            // Region A, past the SOI-exit hold (phaseFromLaunch > soiExitPhasePos + delta): the engaged loopUT
+            // equals the BASELINE (not-engaged) loopUT at the SAME currentUT - the SOI-exit repay nets to zero
+            // with the earlier launch, so everything from the SOI exit onward is on the baseline schedule.
+            // phaseInCycle 700 of cycle 1 -> currentUT 3000, phaseFromLaunch 900 > 800.
+            double engaged = Loop(3000.0, engaged: true);
+            double baseline = Loop(3000.0, engaged: false);
+            Assert.Equal(baseline, engaged, 1e-3);
+        }
+
+        [Fact]
+        public void PostSoi_ByteIdenticalToBaseline_AcrossSweep()
+        {
+            // The post-SOI baseline-equality holds across a swept range of post-SOI-hold currentUTs (region A
+            // of several cycles). Only sample where the engaged loopUT is past the SOI-exit recorded UT.
+            for (double t = 2300.0; t <= 2300.0 + 6.0 * Cad; t += 13.0)
+            {
+                double engaged = Loop(t, engaged: true);
+                if (engaged <= SoiExit + Tol)
+                    continue;   // in-SOI / repay window: covered by the alignment + repay tests
+                double baseline = Loop(t, engaged: false);
+                Assert.Equal(baseline, engaged, 1e-3);
+            }
+        }
+
+        // === Not-engaged / degenerate T_sid byte-identical ========================================
+
+        [Fact]
+        public void NotEngaged_ByteIdenticalToBareClock_AcrossSweep()
+        {
+            // launchHoldEngaged false (every non-re-aim caller) -> the launch-alignment params are inert;
+            // loopUT, cycleIndex, and the tail flag match the pre-alignment call across a swept range.
+            for (double t = Anchor; t <= Anchor + 3.0 * Cad; t += 29.0)
+            {
+                bool okBase = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    t, Anchor, S0, S1, Cad, out double baseUT, out long baseCyc, out bool baseTail);
+                bool okNew = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    t, Anchor, S0, S1, Cad, out double newUT, out long newCyc, out bool newTail,
+                    schedule: null, loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
+                    arrivalHoldAlignPeriod: double.NaN, launchBodyRotationPeriod: Tsid, launchHoldEngaged: false,
+                    soiExitAtUT: SoiExit);
+                Assert.Equal(okBase, okNew);
+                Assert.Equal(baseUT, newUT, Tol);
+                Assert.Equal(baseCyc, newCyc);
+                Assert.Equal(baseTail, newTail);
+            }
+        }
+
+        [Fact]
+        public void DegenerateTsid_NoAdvance_ByteIdenticalAcrossSweep()
+        {
+            // launchHoldEngaged true but a degenerate (non-rotating) T_sid -> delta_N == 0 -> byte-identical to
             // the not-engaged clock across a swept currentUT and several loops.
             for (double t = Anchor; t <= Anchor + 3.0 * Cad; t += 31.0)
             {
@@ -117,54 +199,33 @@ namespace Parsek.Tests
             }
         }
 
-        [Fact]
-        public void NotEngaged_ByteIdenticalToBareClock_AcrossSweep()
-        {
-            // launchHoldEngaged false (every non-re-aim caller) -> the launch-hold params are inert; loopUT,
-            // cycleIndex, and the tail flag match the pre-launch-hold call across a swept range.
-            for (double t = Anchor; t <= Anchor + 3.0 * Cad; t += 29.0)
-            {
-                bool okBase = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                    t, Anchor, S0, S1, Cad, out double baseUT, out long baseCyc, out bool baseTail);
-                bool okNew = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                    t, Anchor, S0, S1, Cad, out double newUT, out long newCyc, out bool newTail,
-                    schedule: null, loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
-                    arrivalHoldAlignPeriod: double.NaN, launchBodyRotationPeriod: Tsid, launchHoldEngaged: false);
-                Assert.Equal(okBase, okNew);
-                Assert.Equal(baseUT, newUT, Tol);
-                Assert.Equal(baseCyc, newCyc);
-                Assert.Equal(baseTail, newTail);
-            }
-        }
-
-        // === Targeting invariants byte-identical (the resolver window read, schedule:null) =======
+        // === Targeting invariants byte-identical (the resolver window read, schedule:null) ========
 
         [Fact]
-        public void TargetingInvariant_CycleIndexUnchangedByLaunchHold()
+        public void TargetingInvariant_CycleIndexUnchangedBySchedulelessResolverCall()
         {
-            // The resolver derives windowIndex from TryComputeSpanLoopUT(..., schedule:null) with NO hold
-            // args; the launch hold must not move cycleIndex. Assert cycleIndex is byte-identical with the
-            // launch hold engaged vs. the bare resolver call across a sweep (incl. pre-launch UTs).
+            // The resolver derives windowIndex from TryComputeSpanLoopUT(..., schedule:null) with NO launch-hold
+            // args; that call's cycleIndex is byte-identical to the bare clock (the launch-alignment defaults to
+            // not engaged there). Sweep including pre-anchor + early-launch UTs.
             for (double t = Anchor; t <= Anchor + 4.0 * Cad; t += 17.0)
             {
                 GhostPlaybackLogic.TryComputeSpanLoopUT(
                     t, Anchor, S0, S1, Cad, out double _, out long resolverCyc, out bool _, schedule: null);
+                // The resolver call passes only the first 5 positional args (schedule:null), so the launch
+                // alignment is dormant. This pins that the window read the resolver uses is unchanged.
                 GhostPlaybackLogic.TryComputeSpanLoopUT(
-                    t, Anchor, S0, S1, Cad, out double _, out long heldCyc, out bool _,
-                    schedule: null, loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
-                    arrivalHoldAlignPeriod: double.NaN, launchBodyRotationPeriod: Tsid, launchHoldEngaged: true);
-                Assert.Equal(resolverCyc, heldCyc);
+                    t, Anchor, S0, S1, Cad, out double _, out long bareCyc, out bool _);
+                Assert.Equal(bareCyc, resolverCyc);
             }
         }
 
-        // === cadence == synodic untouched (the launch hold never engages there) ==================
+        // === cadence == synodic untouched (the launch alignment never engages there) =============
 
         [Fact]
         public void CadenceEqualsSynodic_NotEngaged_ByteIdentical()
         {
             // For cadence == synodic PadAlignLaunch applies, so the builder sets launchHoldEngaged=false. With
-            // the hold not engaged the clock is byte-identical to today regardless of the carried T_sid.
-            // (Same assertion shape as NotEngaged_ByteIdenticalToBareClock with a synodic-scale cadence.)
+            // the alignment not engaged the clock is byte-identical to today regardless of the carried T_sid.
             const double synodic = 19653076.0, span = 1000000.0;
             for (double t = 0.0; t <= 3.0 * synodic; t += synodic / 7.0)
             {
@@ -173,7 +234,8 @@ namespace Parsek.Tests
                 bool okNew = GhostPlaybackLogic.TryComputeSpanLoopUT(
                     t, 0.0, 0.0, span, synodic, out double newUT, out long newCyc, out bool newTail,
                     schedule: null, loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
-                    arrivalHoldAlignPeriod: double.NaN, launchBodyRotationPeriod: 21600.0, launchHoldEngaged: false);
+                    arrivalHoldAlignPeriod: double.NaN, launchBodyRotationPeriod: 21600.0, launchHoldEngaged: false,
+                    soiExitAtUT: 500000.0);
                 Assert.Equal(okBase, okNew);
                 Assert.Equal(baseUT, newUT, 3);
                 Assert.Equal(baseCyc, newCyc);
@@ -181,122 +243,92 @@ namespace Parsek.Tests
             }
         }
 
-        // === Defense-in-depth clamp: launch hold capped first, in-SOI replay never truncated =====
+        // === Arrival hold UNCHANGED by the launch alignment (no (W_N - H) subtraction) ===========
 
         [Fact]
-        public void Clamp_LaunchHoldCappedFirst_SoArrivalAndInSoiReplayPreserved()
+        public void ArrivalHold_UnchangedByLaunchAlignment()
         {
-            // Pathological: span 1000, cadence 1100, arrivalHold 50, a launch T_sid of 400 (so the raw H_N can
-            // be up to ~400). compressedSpan(1000) + arrivalHold(50) + launchHold would exceed cadence 1100
-            // whenever launchHold > 50. The clamp caps the LAUNCH hold first to cadence - span - arrivalHold =
-            // 50, leaving the arrival hold (50) and the full 1000 s in-SOI replay intact. Verify the deferral
-            // is by at most the clamped launch hold (<= 50), never the raw H_N, so the replay is not truncated.
-            const double anchor = 300, s0 = 0, s1 = 1000, cad = 1100, hold = 50, holdAt = 600, tAlign = 700, tSid = 400;
-            // A late-in-cycle UT well past any plausible hold sum: the resolved loopUT must still be a real
-            // recorded UT inside [s0, s1], proving the in-SOI replay was not clamped away.
+            // The arrival hold is byte-identical whether or not the launch alignment is engaged, for a
+            // post-SOI / post-arrival probe (the repay nets to zero, so the SOI entry + arrival occur at the
+            // same live UT as baseline). Fixture: arrival hold at recorded UT 800 (after the SOI exit 600),
+            // W_0 = 100, T_align = 250. Probe a post-arrival UT in region A of cycle 1.
+            const double holdAt = 800, w0 = 100, tAlign = 250;
+            // currentUT 3000: region A cycle 1, phaseFromLaunch 900, well past the arrival boundary.
             GhostPlaybackLogic.TryComputeSpanLoopUT(
-                anchor + 1050.0, anchor, s0, s1, cad, out double loopUT, out long _, out bool tail,
-                schedule: null, loiterCuts: null, arrivalHoldSeconds: hold, arrivalHoldAtUT: holdAt,
-                arrivalHoldAlignPeriod: tAlign, launchBodyRotationPeriod: tSid, launchHoldEngaged: true);
-            Assert.True(loopUT >= s0 - Tol && loopUT <= s1 + Tol, $"loopUT {loopUT} outside recorded span");
+                3000.0, Anchor, S0, S1, Cad, out double engagedUT, out long _, out bool _,
+                schedule: null, loiterCuts: null, arrivalHoldSeconds: w0, arrivalHoldAtUT: holdAt,
+                arrivalHoldAlignPeriod: tAlign, launchBodyRotationPeriod: Tsid, launchHoldEngaged: true,
+                soiExitAtUT: SoiExit);
+            GhostPlaybackLogic.TryComputeSpanLoopUT(
+                3000.0, Anchor, S0, S1, Cad, out double baselineUT, out long _, out bool _,
+                schedule: null, loiterCuts: null, arrivalHoldSeconds: w0, arrivalHoldAtUT: holdAt,
+                arrivalHoldAlignPeriod: tAlign, launchBodyRotationPeriod: Tsid, launchHoldEngaged: false,
+                soiExitAtUT: SoiExit);
+            // The post-SOI portion (incl. the arrival hold) is byte-identical: the launch alignment does NOT
+            // perturb the arrival hold (the PR #1174 (W_N - H_N) subtraction was removed).
+            Assert.Equal(baselineUT, engagedUT, 1e-3);
         }
 
-        // === Arrival-wait self-correction: (W_N - H_N) mod T_align (design 5.4 / 9.2) ============
+        // === delta > slack edge: capped to slack ==================================================
 
         [Fact]
-        public void ArrivalWait_SelfCorrects_DeorbitRotationPhaseStaysAligned()
+        public void DeltaExceedsSlack_CappedToSlack()
         {
-            // The 5.4 regression fence as an end-to-end alignment property. Pick a fixture where the launch
-            // hold is nonzero on several loops and the arrival hold aligns a destination rotation phase. With
-            // the single subtraction W_N_effective = ((W_N - H_N) mod T_align + T_align) mod T_align applied,
-            // the destination rotation phase at the launch-shifted SOI-entry replay must stay congruent to the
-            // recorded arrival phase on EVERY loop. The deorbit live UT is:
-            //   arrivalLiveUT = (L_N + H_N) + (recordedArrivalDisplacement) + W_N_effective
-            // where the launch shift defers the whole sequence by H_N. We pin the rotation-phase congruence.
-            // T_sid 300 does NOT divide cad 2000 (2000 mod 300 = 200), so H_N genuinely varies per loop -
-            // the case where the self-correction matters (with a T_sid that divides cad, H_N is constant and
-            // the subtraction is a no-op).
-            const double anchor = 0, s0 = 0, cad = 2000, holdAt = 600;
-            const double tSid = 300, tAlign = 700;
-            const double baseW0 = 200;       // the per-mission base arrival hold W_0 (> 0)
-            // The recorded arrival sits at recorded-span phase holdAt; its live-UT displacement from spanStart
-            // (before any hold) on loop N is (L_N - spanStart) + holdAt. The recorded rotation phase target is
-            // (recordedArrivalAbsolute) mod T_align. We assert the live deorbit lands at a CONSTANT rotation
-            // phase across loops, which is exactly what the self-correction guarantees.
-            double? firstPhase = null;
-            for (long n = 0; n < 8; n++)
+            // Pathological: span 1000, cadence 1100 (slack 100), arrivalHold 0, T_sid 700 so the raw delta can
+            // reach ~700 >> slack 100. The clamp caps the launch advance to slack (100), so the in-SOI replay
+            // and the SOI-exit-and-onward timeline are never truncated and the resolved loopUT stays a real
+            // recorded UT inside [s0, s1]. (Capping only shortens the borrow; it cannot reopen the seam since
+            // the advance is bounded BY slack.)
+            const double cad = 1100, soi = 600;
+            for (double t = Anchor; t <= Anchor + 3.0 * cad; t += 9.0)
             {
-                // Recompute the effective per-loop arrival hold the way the clock does:
-                double wN = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(baseW0, n, cad, tAlign);
-                double hN = GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds(anchor, s0, n, cad, tSid);
-                double wEff = ((wN - hN) % tAlign + tAlign) % tAlign;
-                // The launch instant L_N + H_N, plus the recorded arrival displacement holdAt, plus the
-                // effective arrival hold, is the live deorbit UT.
-                double lN = anchor + n * cad;
-                double arrivalLiveUT = (lN + hN) + holdAt + wEff;
-                double phase = (arrivalLiveUT % tAlign + tAlign) % tAlign;
-                if (firstPhase == null) firstPhase = phase;
-                else Assert.Equal(firstPhase.Value, phase, 3);   // constant rotation phase => aligned every loop
+                GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    t, Anchor, S0, S1, cad, out double loopUT, out long _, out bool tail,
+                    schedule: null, loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
+                    arrivalHoldAlignPeriod: double.NaN, launchBodyRotationPeriod: Tsid, launchHoldEngaged: true,
+                    soiExitAtUT: soi);
+                if (!tail)
+                    Assert.True(loopUT >= S0 - Tol && loopUT <= S1 + Tol, $"t={t} loopUT {loopUT} outside recorded span");
             }
-        }
-
-        [Fact]
-        public void ArrivalWait_WithoutSubtraction_WouldDrift_ProvingTheCorrectionIsLoadBearing()
-        {
-            // Negative control for the test above: WITHOUT subtracting H_N from W_N, the deorbit rotation phase
-            // drifts loop-to-loop (because the launch shift H_N moved the whole sequence but the unshifted W_N
-            // aligns against the unshifted entry). At least one loop must differ, proving the subtraction is
-            // load-bearing (the test above fails if the subtraction is dropped from the clock).
-            const double anchor = 0, s0 = 0, cad = 2000, holdAt = 600;
-            const double tSid = 300, tAlign = 700, baseW0 = 200;
-            double? firstPhase = null;
-            bool sawDrift = false;
-            for (long n = 0; n < 8; n++)
-            {
-                double wN = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(baseW0, n, cad, tAlign);
-                double hN = GhostPlaybackLogic.ComputePerLoopLaunchHoldSeconds(anchor, s0, n, cad, tSid);
-                double lN = anchor + n * cad;
-                double arrivalLiveUT = (lN + hN) + holdAt + wN;   // NO subtraction
-                double phase = (arrivalLiveUT % tAlign + tAlign) % tAlign;
-                if (firstPhase == null) firstPhase = phase;
-                else if (Math.Abs(phase - firstPhase.Value) > 1.0) sawDrift = true;
-            }
-            Assert.True(sawDrift, "expected the un-corrected arrival phase to drift, proving the H_N subtraction matters");
         }
 
         // === Cross-surface parity: ResolveTrackingStationSampleUT reads the hold from the unit =====
 
         private static GhostPlaybackLogic.LoopUnitSet BuildLaunchHoldUnit()
         {
-            // A launch-hold unit (member 0, span [0,1000], cadence 2000, phaseAnchor 300, T_sid 400). The
-            // reaimPlan / reaimSchedule are null here (the TS sampler reads only the span-clock + launch-hold
-            // fields, which are sufficient to exercise the pre-launch/post-launch resolution).
+            // A launch-alignment unit (member 0, span [0,1000], cadence 2000, phaseAnchor 300, T_sid 700,
+            // SOI exit 600). The reaimPlan / reaimSchedule are null here (the TS sampler reads only the
+            // span-clock + launch-alignment fields).
             var unit = new GhostPlaybackLogic.LoopUnit(
                 0, new[] { 0 }, S0, S1, Cad, Anchor, Cad, null, null, null, null,
                 loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
                 arrivalAlignPeriodSeconds: double.NaN, arrivalAmberReason: null,
-                launchBodyRotationPeriodSeconds: Tsid, launchHoldEngaged: true);
+                launchBodyRotationPeriodSeconds: Tsid, launchHoldEngaged: true,
+                recordedSoiExitUT: SoiExit);
             return new GhostPlaybackLogic.LoopUnitSet(
                 new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
                 new Dictionary<int, int> { { 0, 0 } });
         }
 
         [Fact]
-        public void TsSampler_PreLaunch_RenderHidden_PostLaunch_DeferredLoopUT()
+        public void TsSampler_RendersEarlyLaunch_AndPostSoiBaseline()
         {
             var units = BuildLaunchHoldUnit();
 
-            // Pre-launch (currentUT 350, phaseInCycle 50 < H_0 100): the TS sampler hides the ghost (icon +
-            // line + marker suppressed), reading the launch hold from the unit with NO external-caller change.
-            double preUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
-                0, S0, S1, 350.0, units, out bool preHidden);
-            Assert.True(preHidden, "pre-launch TS sample must be hidden (the loop has not launched)");
+            // Early launch of instance 1 (currentUT 2100): the TS sampler renders the ghost at spanStart (NOT
+            // hidden - there is no pad absence under borrow-repay), reading the launch-alignment fields from
+            // the unit with NO external-caller change.
+            double launchUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                0, S0, S1, 2100.0, units, out bool launchHidden);
+            Assert.False(launchHidden, "the early launch must render (no pad absence)");
+            Assert.Equal(S0, launchUT, 1e-3);
 
-            // Post-launch (currentUT 600, phaseInCycle 300): renders at the verbatim-deferred loopUT 200.
+            // Post-SOI (currentUT 3000): renders at the post-SOI loopUT, which equals the baseline.
             double postUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
-                0, S0, S1, 600.0, units, out bool postHidden);
+                0, S0, S1, 3000.0, units, out bool postHidden);
             Assert.False(postHidden);
-            Assert.Equal(200.0, postUT, Tol);
+            double baseline = Loop(3000.0, engaged: false);
+            Assert.Equal(baseline, postUT, 1e-3);
         }
     }
 }

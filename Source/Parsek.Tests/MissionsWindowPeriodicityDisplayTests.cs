@@ -389,6 +389,40 @@ namespace Parsek.Tests
             Assert.Equal(1000.0, ComputeNextRelaunchUT(unit, 5000.0), 6);
         }
 
+        [Fact]
+        public void ComputeNextRelaunchUT_LaunchAlignmentEngaged_ReportsLNMinusDelta()
+        {
+            // Per-loop launch alignment (borrow-at-launch): the navigable launch time the user warps to is
+            // L_N - delta_N (delta_N EARLIER than nominal), so the next-relaunch cell reads the advanced UT.
+            // span [0,1000], cadence 2000 (no self-overlap), phaseAnchor 300, T_sid 700 => the nominal window
+            // at/after now is L = anchor + n*2000; delta for that window is (300 + n*2000) mod 700.
+            const double anchor = 300, cadence = 2000, tSid = 700;
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 0.0, spanEndUT: 1000.0,
+                cadenceSeconds: cadence, phaseAnchorUT: anchor,
+                overlapCadenceSeconds: cadence, // == cadence (no overlap) -> uses the span-clock cadence
+                memberWindows: null, relaunchSchedule: null, reaimPlan: null, reaimSchedule: null,
+                loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
+                arrivalAlignPeriodSeconds: double.NaN, arrivalAmberReason: null,
+                launchBodyRotationPeriodSeconds: tSid, launchHoldEngaged: true, recordedSoiExitUT: 600.0);
+
+            // now = 100 (before the first window L_1 = 2300; n clamps so the nominal next window is L_1).
+            // Wait: anchor 300, now 100 < anchor -> n=0, nominal next = anchor = 300 = L_0; delta_0 = 300 mod
+            // 700 = 300, so the advanced launch is 300 - 300 = 0. 0 < now(100) so fall forward to L_1: delta_1
+            // = (300+2000) mod 700 = 200, advanced = 2300 - 200 = 2100.
+            double next = ComputeNextRelaunchUT(unit, 100.0);
+            Assert.Equal(2100.0, next, 6);
+
+            // The not-engaged unit (same params) reports the plain nominal launch (no subtraction).
+            var plainUnit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 0.0, spanEndUT: 1000.0,
+                cadenceSeconds: cadence, phaseAnchorUT: anchor,
+                overlapCadenceSeconds: cadence);
+            Assert.Equal(300.0, ComputeNextRelaunchUT(plainUnit, 100.0), 6); // L_0 = anchor, no advance
+        }
+
         // ===================== ShouldEnableWarpToWindow =====================
 
         [Fact]

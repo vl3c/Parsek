@@ -1516,6 +1516,27 @@ namespace Parsek
             // Floating-point guard: keep the result at or after now (and not a whole interval past).
             if (next < nowUT - 1e-6)
                 next += interval;
+
+            // Per-loop launch alignment (borrow-at-launch / repay-at-SOI-exit): when the unit's launch
+            // alignment is engaged the ghost launches delta_N EARLIER than the nominal window L_N (the
+            // launch-body rotates back under the recorded path), so the NAVIGABLE launch time the user warps
+            // to is L_N - delta_N, not L_N. Subtract the per-window advance for window n; if that advanced
+            // launch already passed, fall forward to window n+1's advanced launch. No-op when the launch
+            // alignment is not engaged (a degenerate T_sid yields delta_N == 0). PhaseAnchorUT / cadence /
+            // the window index are untouched (targeting is unchanged) - only the displayed launch time shifts.
+            if (unit.LaunchHoldEngaged)
+            {
+                long win = (long)System.Math.Round((next - anchor) / interval);
+                double delta = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(
+                    anchor, unit.SpanStartUT, win, interval, unit.LaunchBodyRotationPeriodSeconds);
+                next -= delta;
+                if (next < nowUT - 1e-6)
+                {
+                    double deltaNext = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(
+                        anchor, unit.SpanStartUT, win + 1, interval, unit.LaunchBodyRotationPeriodSeconds);
+                    next = anchor + (win + 1) * interval - deltaNext;
+                }
+            }
             return next;
         }
 

@@ -356,13 +356,14 @@ namespace Parsek
                 return false;
             }
 
-            // Forward the per-loop launch-hold inputs so the watch clock is byte-identical to the
-            // engine render clock (UpdateUnitMemberPlayback -> DecideUnitMemberRender at the render
-            // call below). WITHOUT these, a launch-hold-engaged re-aim member would (a) post-launch
-            // resolve the UN-deferred loopUT = spanStart + phaseInCycle while the engine renders the
-            // deferred loopUT = spanStart + (phaseInCycle - H_N), an offset of up to T_sid (~6 h of
-            // recorded trajectory), and (b) pre-launch return a valid in-window loopUT while the engine
-            // hides the ghost (HiddenPreLaunchHold). Both desync the watched ghost from the rendered one.
+            // Forward the per-loop launch-alignment inputs so the watch clock is byte-identical to the
+            // engine render clock (UpdateUnitMemberPlayback -> DecideUnitMemberRender at the render call
+            // below). WITHOUT these, a launch-alignment-engaged re-aim member would resolve a different loopUT
+            // than the engine renders: the borrow-at-launch / repay-at-SOI-exit model launches delta_N earlier
+            // and inserts a delta_N coast hold at the SOI exit, so the resolved in-SOI loopUT and the SOI-exit
+            // dwell differ from the plain clock by up to T_sid (~6 h of recorded trajectory). There is NO
+            // pre-launch absence under borrow-repay (the launch is earlier, the repay is an in-window coast),
+            // so the watch clock always resolves an in-span UT.
             if (!GhostPlaybackLogic.TryComputeSpanLoopUT(
                     currentUT,
                     unit.PhaseAnchorUT,
@@ -378,28 +379,9 @@ namespace Parsek
                     unit.ArrivalHoldAtUT,
                     unit.ArrivalAlignPeriodSeconds,
                     unit.LaunchBodyRotationPeriodSeconds,
-                    unit.LaunchHoldEngaged))
+                    unit.LaunchHoldEngaged,
+                    unit.RecordedSoiExitUT))
             {
-                return false;
-            }
-
-            // Pre-launch ABSENCE (design 6.2 step 2 / 6.4): when the launch hold is engaged and the loop
-            // has NOT launched yet (phaseInCycle < H_launch), TryComputeSpanLoopUT resolves a loopUT
-            // strictly BELOW the member window (< SpanStartUT) and DecideUnitMemberRender maps that to
-            // HiddenPreLaunchHold - the engine hides the ghost (keep-watched-owner-alive fallback holds the
-            // camera). The watch path must NOT feed an in-span UT for that frame (it would position visuals
-            // the engine is hiding), so return false here: the caller keeps its prior/anchored fallback,
-            // mirroring the engine's hidden-not-destroyed absence. loopUT stays at currentUT (the default).
-            if (spanLoopUT < unit.SpanStartUT)
-            {
-                ParsekLog.VerboseRateLimited(
-                    "CameraFollow",
-                    "watch-prelaunch-" + recordingIndex.ToString(CultureInfo.InvariantCulture),
-                    "watch UT resolver: member #" + recordingIndex.ToString(CultureInfo.InvariantCulture)
-                        + " in pre-launch hold (spanLoopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
-                        + " < spanStart=" + unit.SpanStartUT.ToString("F2", CultureInfo.InvariantCulture)
-                        + ") - ghost absent, keeping anchored fallback (no in-span watch UT fed)",
-                    5.0);
                 return false;
             }
 
@@ -1910,7 +1892,8 @@ namespace Parsek
                                 out parentCycle, out bool parentInInterCycleTail, parentUnit.RelaunchSchedule,
                                 parentUnit.LoiterCuts, parentUnit.ArrivalHoldSeconds, parentUnit.ArrivalHoldAtUT,
                                 parentUnit.ArrivalAlignPeriodSeconds,
-                                parentUnit.LaunchBodyRotationPeriodSeconds, parentUnit.LaunchHoldEngaged))
+                                parentUnit.LaunchBodyRotationPeriodSeconds, parentUnit.LaunchHoldEngaged,
+                                parentUnit.RecordedSoiExitUT))
                         {
                             GhostRenderTrace.EmitGuardSkip(
                                 traj, i, ctx.currentUT, "parent-unit-span-clock-unresolved");
@@ -2312,7 +2295,7 @@ namespace Parsek
                 memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
                 out bool isInInterCycleTail, unit.RelaunchSchedule, unit.LoiterCuts,
                 unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
-                unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged);
+                unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
 
             // Cycle-wrap / camera-handoff diagnostics + watch retarget: the first member of the unit
             // to run this frame observes the unit-wide transition and acts once (rate-limited per
@@ -2346,21 +2329,6 @@ namespace Parsek
                         "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
                             + " in inter-cycle wait at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
                             + " - all members hidden",
-                        5.0);
-                }
-                else if (decision == GhostPlaybackLogic.UnitMemberRenderDecision.HiddenPreLaunchHold)
-                {
-                    // The per-loop launch hold: the loop has not LAUNCHED yet (phaseInCycle < H_launch). The
-                    // ghost is ABSENT (it has not launched), NOT frozen on the pad - exactly as a ghost is
-                    // absent before any first launch. Routed here (not the destroy path) so the
-                    // keep-watched-owner-alive fallback below holds the camera through the < T_sid window.
-                    ParsekLog.VerboseRateLimited(
-                        "Engine", unitKey + "-prelaunch-" + i.ToString(CultureInfo.InvariantCulture),
-                        "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
-                            + " member #" + i.ToString(CultureInfo.InvariantCulture)
-                            + " absent (pre-launch hold): loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
-                            + " below spanStart=" + unit.SpanStartUT.ToString("F2", CultureInfo.InvariantCulture)
-                            + " - loop has not launched yet",
                         5.0);
                 }
                 else
