@@ -1125,11 +1125,18 @@ namespace Parsek.Display
         internal const double BridgeMaxSeamGapSeconds = 120.0;
 
         /// <summary>
-        /// Min seam angle (radians, ~0.006 deg) below which no bridge draws: the leg already meets the
-        /// conic (an anchored leg calibrated onto the seam, or a closed rotation gap) and a degenerate
-        /// bridge would only clip the arc's lead-in for nothing.
+        /// Min seam angle (radians, 5 deg) below which no bridge draws: the leg already MEETS the conic
+        /// (an anchored leg calibrated onto the seam, a closed rotation gap, or the now-common re-aim
+        /// launch-aligned ascent whose end lands within a few km of the escape conic). The bridge always
+        /// draws a fixed ~74 deg conic merge slice (<see cref="BridgeMergeSampleCount"/> samples) whose
+        /// off-chord bulge is ~200-370 km REGARDLESS of the gap, so for a near-meet (5 deg at Kerbin
+        /// radius is a ~50 km chord; the launch alignment collapses the seam to ~0-3 deg) it draws a
+        /// disproportionate arc that reads as a spurious extra segment beside the correct trajectory.
+        /// Above 5 deg the gap is comparable to the bridge's own bulge - the moderate-misalignment range
+        /// (5-45 deg) the bridge is designed to smooth - so it still draws. Was 1e-4 rad (~0.006 deg),
+        /// which only skipped a perfectly degenerate seam and let the launch-aligned near-meet bridge.
         /// </summary>
-        internal const double BridgeMinAngleRadians = 1e-4;
+        internal const double BridgeMinAngleRadians = 0.08726646259971647; // 5 deg
 
         /// <summary>
         /// PURE: angle (radians) between two body-relative rays, used by the decide-side bridge gate.
@@ -4389,6 +4396,21 @@ namespace Parsek.Display
                                         cand.recordingId, cand.legIndex, atLegStart ? "start" : "end",
                                         angleRad * (180.0 / System.Math.PI),
                                         BridgeMaxAngleRadians * (180.0 / System.Math.PI)),
+                                    5.0);
+                            // Near-meet: the leg endpoint already sits on the conic (<= the min angle).
+                            // The fixed ~74 deg conic merge slice would bulge a disproportionate ~200-370 km
+                            // off such a tiny gap, reading as a spurious extra segment beside the correct
+                            // trajectory (the now-common re-aim launch-aligned ascent). Skip it - the leg
+                            // and conic meet directly. (Re-aim launch alignment, render-polish follow-up.)
+                            else if (!double.IsInfinity(angleRad) && angleRad <= BridgeMinAngleRadians)
+                                ParsekLog.VerboseRateLimited(DriverTag,
+                                    "bridge-nearmeet." + cand.recordingId + "." + cand.legIndex,
+                                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                        "Seam bridge skipped (leg already meets conic): rec={0} leg={1} " +
+                                        "side={2} angleDeg={3:F2} min={4:F2}",
+                                        cand.recordingId, cand.legIndex, atLegStart ? "start" : "end",
+                                        angleRad * (180.0 / System.Math.PI),
+                                        BridgeMinAngleRadians * (180.0 / System.Math.PI)),
                                     5.0);
                             continue;
                         }

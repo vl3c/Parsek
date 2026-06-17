@@ -1965,6 +1965,60 @@ namespace Parsek.Tests
                 GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(Vector3d.zero, x)));
         }
 
+        // Min-angle gate (re-aim launch-aligned-ascent render-polish fix): the now-common case where the
+        // body-fixed launch ascent ALREADY MEETS the inertial escape conic (a few-km positional gap, a
+        // tiny seam angle) must SKIP the bridge - the fixed ~74 deg conic merge slice would bulge a
+        // disproportionate ~200-370 km off such a near-meet, reading as a spurious extra segment. The
+        // gate in DecideSeamBridges is exactly `angleRad <= BridgeMinAngleRadians`; this exercises that
+        // decision through the same pure SeamBridgeAngleRad the gate calls, at Kerbin geometry.
+        [Fact]
+        public void SeamBridge_MinAngleGate_NearMeetSkips_RealGapBridges()
+        {
+            // Threshold pinned at 5 deg.
+            Assert.Equal(5.0 * System.Math.PI / 180.0,
+                GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians, 9);
+            // ...and comfortably below the 45 deg max (the gate window is non-empty).
+            Assert.True(GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians
+                < GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians);
+
+            // Leg endpoint near Kerbin's surface (radius ~670 km from centre).
+            const double r = 670000.0;
+            Vector3d legRel = new Vector3d(r, 0.0, 0.0);
+
+            // NEAR-MEET: the launch-aligned ascent end and the conic seam are 4.59 deg apart (the largest
+            // redundant launch bridge from the aa48920e playtest; a ~54 km chord). Gate condition true ->
+            // bridge SKIPPED (the leg meets the conic; no disproportionate bridge).
+            Vector3d seamNearMeet = RotZ(legRel, 4.59 * System.Math.PI / 180.0);
+            double nearMeetAngle = GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(legRel, seamNearMeet);
+            Assert.True(nearMeetAngle <= GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians,
+                "a near-aligned launch handoff (4.59 deg) must fall at/below the min gate and skip the bridge");
+
+            // Also the aligned-seam ~0-3 deg population the design doc reports collapses to: skips.
+            Vector3d seamAligned = RotZ(legRel, 0.31 * System.Math.PI / 180.0);
+            Assert.True(
+                GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(legRel, seamAligned)
+                    <= GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians,
+                "a 0.31 deg aligned-seam handoff must skip the bridge");
+
+            // REAL GAP: a genuine moderate misalignment (the 26.77 deg 8538d9e1 case, a ~310 km chord -
+            // comparable to the bridge's own bulge, within the designed 5-45 deg range). Gate condition
+            // false -> bridge STILL DRAWS (it smooths a real visible gap; not re-opened by this fix).
+            Vector3d seamRealGap = RotZ(legRel, 26.77 * System.Math.PI / 180.0);
+            double realGapAngle = GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(legRel, seamRealGap);
+            Assert.True(realGapAngle > GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians,
+                "a 26.77 deg moderate-misalignment gap must stay above the min gate and still bridge");
+            Assert.True(realGapAngle <= GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians,
+                "26.77 deg is within the 45 deg max, so the bridge is not skipped as too-large either");
+
+            // A mid-range designed bridge (10 deg) also still draws: this fix does not narrow the 5-45
+            // deg range other missions / same-parent loops rely on.
+            Assert.True(
+                GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(
+                    legRel, RotZ(legRel, 10.0 * System.Math.PI / 180.0))
+                    > GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians,
+                "a 10 deg moderate-misalignment gap must still bridge");
+        }
+
         // The adjacency rule, both sides (playtest 7): a conic neighbours a leg seam when it shares
         // the body and ends (start-side) / starts (end-side) within [seam - maxGap, seam + 1s].
         [Fact]
