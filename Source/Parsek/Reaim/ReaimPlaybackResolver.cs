@@ -229,18 +229,32 @@ namespace Parsek.Reaim
             // RecordedDepartureUT the orbit sits where it was at absolute departureUT.
             transferSeg = ReaimSegmentAssembler.ShiftInTime(transferSeg, shift);
 
-            // Heliocentric-PARK re-phase (Increment 1, departure-side render). A two-burn departure escapes
-            // into a Sun-inertial PARKING orbit BEFORE the trans-target burn. That park renders verbatim at
-            // its RECORDED solar longitude (~239 deg off live Kerbin at the captured window) while the
-            // escape leg (body-relative) and the re-aimed transfer (synthesized at D_k) anchor to LIVE
-            // Kerbin - a teleport seam. Rotate the recorded park's LAN by Delta_lon(window) = omega_parent *
-            // (D_k - RecordedDepartureUT) so it re-phases into the live frame and connects to the escape +
-            // transfer. Gated on DepartedFromHeliocentricPark (a direct transfer has it false => 0 => byte-
-            // identical) + a near-equatorial guard; FAILS CLOSED (decline this window to faithful, NEVER the
-            // verbatim 239 deg park) on a non-equatorial park or a degenerate launch-body period. NOTE
-            // (Increment 1): windowIndex here is the SPAN-clock window (the unit is still single-instance),
-            // so park + transfer share the same window and connect, and window 0 renders correct; the
-            // span-vs-synodic window drift for later windows is what the Increment-2 overlap build fixes.
+            // Heliocentric-PARK re-phase (departure-side render). A two-burn departure escapes into a
+            // Sun-inertial PARKING orbit BEFORE the trans-target burn. That park renders verbatim at its
+            // RECORDED solar longitude (~239 deg off live Kerbin at the captured window) while the escape leg
+            // (body-relative) anchors to the LIVE launch body (KSP Orbit.getPositionAtUT adds the live
+            // referenceBody.position) - a teleport seam right at SOI exit. Rotate the recorded park's LAN by
+            // Delta_lon(window) = omega_parent * (replayUT - RecordedDepartureUT) so the Sun-inertial park
+            // re-phases into the live frame and sits next to the live launch body, connecting to the escape.
+            //
+            // CLOCK CHOICE (the issue-1 fix): replayUT is the CADENCE-clock relaunch time
+            // (schedule.RelaunchUTForWindow = D0 + window*cadence), NOT the synodic departure
+            // (DepartureUTForWindow = D0 + window*synodic). The loop ENGINE relaunches the ghost every
+            // CADENCE = max(span, synodic); the body-relative escape leg therefore follows the launch body at
+            // its position D0 + window*cadence, so the park must re-phase to the SAME time to meet it. When
+            // cadence == synodic (synodic > span, the normal interplanetary case) the two clocks coincide and
+            // this is byte-identical to the synodic departure. They DIVERGE only when the recorded span
+            // exceeds the synodic (a mission longer than its own transfer window, e.g. Kerbal X #2): there the
+            // synodic-clock re-phase drifts the park ~142 deg*window off the live launch body, which is the
+            // distant-loiter teleport. Pinning the park to the cadence clock keeps the loiter on the live
+            // launch body at every window. (The TRANSFER stays on the synodic clock so it still aims at the
+            // target's true position; the residual park->transfer / transfer->target seam in the span>synodic
+            // case is the separate Increment-2 overlap work.)
+            //
+            // Gated on DepartedFromHeliocentricPark (a direct transfer has it false => 0 => byte-identical) +
+            // a near-equatorial guard; FAILS CLOSED (decline this window to faithful, NEVER the verbatim
+            // ~239 deg park) on a non-equatorial park or a degenerate launch-body period.
+            double parkReplayUT = schedule.RelaunchUTForWindow(windowIndex);
             double parkDeltaLonDeg = 0.0;
             if (plan.DepartedFromHeliocentricPark)
             {
@@ -248,7 +262,7 @@ namespace Parsek.Reaim
                 double parkInc = ReaimSegmentAssembler.FindHeliocentricParkInclination(
                     memberSegments, plan.CommonAncestor, plan.RecordedDepartureUT);
                 if (!ReaimSegmentAssembler.TryComputeParkRephase(
-                        parkInc, nominalDepartureUT, plan.RecordedDepartureUT, launchPeriod,
+                        parkInc, parkReplayUT, plan.RecordedDepartureUT, launchPeriod,
                         out parkDeltaLonDeg))
                 {
                     ParsekLog.Verbose("ReaimPlayback",
@@ -295,7 +309,8 @@ namespace Parsek.Reaim
                 $"devFromRecorded={devFromRecorded.ToString("R", ic)}s devFromGeom={devFromGeom.ToString("R", ic)}s) " +
                 $"soiEntryUT={soiEntryUT.ToString("R", ic)} " +
                 $"encounter={(encounterBody != null ? encounterBody.bodyName : "<none>")} segs={assembled.Count} " +
-                $"parkDeltaLon={parkDeltaLonDeg.ToString("R", ic)}deg (parking={plan.DepartedFromHeliocentricPark}) " +
+                $"parkDeltaLon={parkDeltaLonDeg.ToString("R", ic)}deg (parking={plan.DepartedFromHeliocentricPark} " +
+                $"parkReplayUT={parkReplayUT.ToString("R", ic)} cadence={schedule.CadenceSeconds.ToString("R", ic)} synodic={schedule.SynodicPeriodSeconds.ToString("R", ic)}) " +
                 $"renderSpan=full-recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}]");
             return assembled;
         }
