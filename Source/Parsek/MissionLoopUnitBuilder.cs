@@ -247,6 +247,13 @@ namespace Parsek
             ReaimWindowPlanner.ReaimWindowSchedule? reaimSchedule = null;
             IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts = null;
             ArrivalHoldPlanner.ArrivalHoldResult arrivalHold = ArrivalHoldPlanner.ArrivalHoldResult.None;
+            // Per-loop launch hold (docs/dev/design-reaim-launch-hold-seam.md): the launch-TIME shift that
+            // closes the launch->escape render seam for the span>=synodic re-aim regime PadAlignLaunch
+            // declines. Engaged only inside the re-aim block (re-aim engaged && !pad.Applied && a body-fixed
+            // launch leg exists); NaN period + not-engaged here keeps the unit byte-identical for every other
+            // shape, so ComputePerLoopLaunchHoldSeconds returns 0 and the span clock is unchanged.
+            bool launchHoldEngaged = false;
+            double launchHoldRotationPeriod = double.NaN;
             if (bodyInfo != null)
             {
                 ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
@@ -540,6 +547,33 @@ namespace Parsek
                                 }
                             }
 
+                            // Per-loop LAUNCH HOLD gate (docs/dev/design-reaim-launch-hold-seam.md 6.3): engage
+                            // the launch-time shift that closes the launch->escape render seam ONLY when
+                            // PadAlignLaunch declined (cadence != synodic, the span>=synodic regime PadAlignLaunch
+                            // bails on). When pad.Applied (cadence == synodic) the pad is already globally aligned,
+                            // so the launch hold must stay off (no double-correction). plan.Supported (a re-aim
+                            // mission with a recorded launch-body parking orbit preceding the heliocentric leg) is
+                            // the body-fixed-launch-leg precondition: a member starting already in orbit or a
+                            // chained continuation with no ascent never classifies Supported with a launch-body
+                            // ParkingOrbit at spanStart, so it never engages a no-op hold. T_sid is the same
+                            // rotation period PadAlignLaunch consumed; a degenerate (non-rotating) period makes
+                            // ComputePerLoopLaunchHoldSeconds return 0, so the gate ordering is safe either way.
+                            if (!pad.Applied && plan.Supported)
+                            {
+                                launchHoldEngaged = true;
+                                launchHoldRotationPeriod = launchRotationPeriod;
+                                if (!SuppressLogging)
+                                {
+                                    var lic = CultureInfo.InvariantCulture;
+                                    ParsekLog.Info("Reaim",
+                                        $"MissionLoopUnit: mission='{mission.Name}' LAUNCH HOLD engaged to " +
+                                        $"{plan.LaunchBody} rotation (PadAlignLaunch declined -> per-loop launch hold): " +
+                                        $"siderealDay={launchRotationPeriod.ToString("F1", lic)}s " +
+                                        $"phaseAnchor={phaseAnchorUT.ToString("R", lic)} " +
+                                        $"cadence={effectiveCadence.ToString("R", lic)}");
+                                }
+                            }
+
                             if (!SuppressLogging)
                             {
                                 var ric = CultureInfo.InvariantCulture;
@@ -666,7 +700,8 @@ namespace Parsek
                 ownerIndex, memberArray, spanStartUT, spanEndUT, effectiveCadence, phaseAnchorUT,
                 effectiveOverlapCadence, memberWindowByIndex, relaunchSchedule, reaimPlan, reaimSchedule,
                 loiterCuts, arrivalHold.HoldSeconds, arrivalHold.HoldAtUT,
-                arrivalHold.AlignPeriodSeconds, arrivalHold.AmberReason);
+                arrivalHold.AlignPeriodSeconds, arrivalHold.AmberReason,
+                launchHoldRotationPeriod, launchHoldEngaged);
 
             if (!SuppressLogging)
             {

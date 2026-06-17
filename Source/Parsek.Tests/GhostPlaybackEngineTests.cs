@@ -6654,6 +6654,102 @@ namespace Parsek.Tests
             Assert.Equal(1010.0, loopUT, 6); // newest instance, NOT the span-clock single-instance UT
         }
 
+        // --- Per-loop LAUNCH HOLD watch<->render clock parity (design 6.4, reviewer blocker) -------
+        // The watch-camera UT resolver (TryResolveUnitMemberPlaybackUT) feeds
+        // WatchModeController.ResolveWatchPlaybackUT -> EnsureGhostVisualsLoadedForWatch and MUST
+        // resolve the SAME loopUT the engine renders the member at (DecideUnitMemberRender) and the TS
+        // sampler reads (ResolveTrackingStationSampleUT). Before this fix the watch resolver did NOT
+        // forward the launch-hold args, so post-launch it tracked an UN-deferred pose H_N ahead of the
+        // engine, and pre-launch it returned a valid in-window UT while the engine hid the ghost.
+
+        // Launch-hold fixture matching LaunchHoldClockTests: span [0,1000], cadence 2000 (> span),
+        // phaseAnchor 300, T_sid 400 => H_0 = ((-300) mod 400 + 400) mod 400 = 100.
+        private const double LhS0 = 0.0, LhS1 = 1000.0, LhCad = 2000.0, LhAnchor = 300.0, LhTsid = 400.0;
+
+        private static GhostPlaybackLogic.LoopUnitSet BuildLaunchHoldUnit(int memberIndex)
+        {
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: memberIndex,
+                memberIndices: new[] { memberIndex },
+                spanStartUT: LhS0,
+                spanEndUT: LhS1,
+                cadenceSeconds: LhCad,
+                phaseAnchorUT: LhAnchor,
+                overlapCadenceSeconds: LhCad, // == span-clock cadence (no self-overlap)
+                memberWindows: null,
+                relaunchSchedule: null,
+                reaimPlan: null,
+                reaimSchedule: null,
+                loiterCuts: null,
+                arrivalHoldSeconds: 0.0,
+                arrivalHoldAtUT: double.NaN,
+                arrivalAlignPeriodSeconds: double.NaN,
+                arrivalAmberReason: null,
+                launchBodyRotationPeriodSeconds: LhTsid,
+                launchHoldEngaged: true);
+            return new GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { memberIndex, unit } },
+                new Dictionary<int, int> { { memberIndex, memberIndex } });
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_LaunchHold_PostLaunch_MatchesEngineAndTsDeferredLoopUT()
+        {
+            // currentUT 600: phaseInCycle 300, workPhase 300 - H_0(100) = 200 => deferred loopUT 200.
+            // The watch resolver must return that deferred UT, NOT the un-deferred span-clock UT 300.
+            var engine = new GhostPlaybackEngine(null);
+            engine.SetLoopUnits(BuildLaunchHoldUnit(0));
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 600.0, memberStartUT: LhS0, memberEndUT: LhS1, out double watchUT);
+
+            Assert.True(resolved);
+            Assert.Equal(200.0, watchUT, 6); // deferred, matching the render/TS clock (NOT 300)
+
+            // Parity with the TS sampler surface (same currentUT, same unit).
+            double tsUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                0, LhS0, LhS1, 600.0, BuildLaunchHoldUnit(0), out bool tsHidden);
+            Assert.False(tsHidden);
+            Assert.Equal(tsUT, watchUT, 6);
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_LaunchHold_PreLaunch_ReturnsFalse_NotInSpanUT()
+        {
+            // currentUT 350: phaseInCycle 50 < H_0(100) => pre-launch. The engine hides the ghost
+            // (HiddenPreLaunchHold) and the TS sampler reports renderHidden=true, so the watch resolver
+            // must NOT feed an in-span UT for this frame: it returns false + the raw fallback UT so the
+            // caller keeps the camera anchored (mirroring the engine's hidden-not-destroyed absence).
+            var engine = new GhostPlaybackEngine(null);
+            engine.SetLoopUnits(BuildLaunchHoldUnit(0));
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 350.0, memberStartUT: LhS0, memberEndUT: LhS1, out double watchUT);
+
+            Assert.False(resolved);
+            Assert.Equal(350.0, watchUT, 6); // raw fallback UT, not an in-span loopUT
+
+            // The render/TS surface agrees: the loop has not launched, the ghost is absent.
+            double tsUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                0, LhS0, LhS1, 350.0, BuildLaunchHoldUnit(0), out bool tsHidden);
+            Assert.True(tsHidden);
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_LaunchHold_AtLaunchInstant_ResolvesAtSpanStart()
+        {
+            // currentUT 400: phaseInCycle == H_0(100) => the ascent starts exactly at spanStart. The watch
+            // resolver resolves (in-window, not pre-launch) at spanStart, matching the render decision.
+            var engine = new GhostPlaybackEngine(null);
+            engine.SetLoopUnits(BuildLaunchHoldUnit(0));
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 400.0, memberStartUT: LhS0, memberEndUT: LhS1, out double watchUT);
+
+            Assert.True(resolved);
+            Assert.Equal(LhS0, watchUT, 6);
+        }
+
         #endregion
     }
 }

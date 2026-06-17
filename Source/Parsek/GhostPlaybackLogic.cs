@@ -6832,7 +6832,9 @@ namespace Parsek
                 double arrivalHoldSeconds = 0.0,
                 double arrivalHoldAtUT = double.NaN,
                 double arrivalAlignPeriodSeconds = double.NaN,
-                string arrivalAmberReason = null)
+                string arrivalAmberReason = null,
+                double launchBodyRotationPeriodSeconds = double.NaN,
+                bool launchHoldEngaged = false)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6850,6 +6852,8 @@ namespace Parsek
                 ArrivalHoldAtUT = arrivalHoldAtUT;
                 ArrivalAlignPeriodSeconds = arrivalAlignPeriodSeconds;
                 ArrivalAmberReason = arrivalAmberReason;
+                LaunchBodyRotationPeriodSeconds = launchBodyRotationPeriodSeconds;
+                LaunchHoldEngaged = launchHoldEngaged;
             }
 
             /// <summary>
@@ -6988,6 +6992,29 @@ namespace Parsek
             /// Null on every other unit. Transient like the unit itself (never persisted).
             /// </summary>
             internal string ArrivalAmberReason { get; }
+
+            /// <summary>
+            /// The launch body's sidereal rotation period T_sid (seconds) used by the PER-LOOP LAUNCH HOLD
+            /// (the launch-time shift that closes the launch-&gt;escape render seam for the span&gt;=synodic
+            /// re-aim regime PadAlignLaunch declines). Carried alongside <see cref="LaunchHoldEngaged"/> so the
+            /// span clock can compute H_N per replayed loop (<see cref="ComputePerLoopLaunchHoldSeconds"/>):
+            /// the loop launches at <c>L_N + H_N</c> so the pad rotates back to the recorded inertial
+            /// orientation and the verbatim launch ascent coincides with the frozen escape conic. NaN
+            /// (the "no period" sentinel, matching <see cref="ArrivalAlignPeriodSeconds"/>) on every non-re-aim
+            /// unit and whenever the launch hold is not engaged, in which case <see cref="TryComputeSpanLoopUT"/>
+            /// is byte-identical to the pre-launch-hold behavior. Runtime-only; the LoopUnit set is rebuilt
+            /// per scene, not persisted, so no OnSave/OnLoad handling is required.
+            /// </summary>
+            internal double LaunchBodyRotationPeriodSeconds { get; }
+
+            /// <summary>
+            /// True only when the PER-LOOP LAUNCH HOLD engages for this unit: re-aim engaged AND PadAlignLaunch
+            /// did NOT apply (cadence != synodic, the regime PadAlignLaunch bails on) AND the unit has a
+            /// body-fixed launch leg to align. When false the launch hold is 0 and the span clock stays
+            /// byte-identical (no double-correction with PadAlignLaunch, no no-op hold for an
+            /// already-in-orbit / chained-continuation member). Runtime-only (never persisted).
+            /// </summary>
+            internal bool LaunchHoldEngaged { get; }
         }
 
         /// <summary>
@@ -7172,6 +7199,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The PER-LOOP launch HOLD H_N (seconds, in [0, T_sid)) that defers replayed loop
+        /// <paramref name="cycleIndex"/> (N)'s launch instant so the launch body has rotated back to the
+        /// SAME inertial orientation it had at the recorded launch. The body-fixed launch ascent then
+        /// replays VERBATIM at the recorded rotation phase and coincides with the frozen recorded escape
+        /// conic (the launch-&gt;escape render seam closes), launch on the real pad.
+        ///
+        /// The pad-alignment quantity is the LAUNCH DISPLACEMENT (NOT an absolute recorded-launch epoch):
+        /// the loop's unshifted launch displacement from the recorded launch is
+        /// <c>Off_N = (phaseAnchorUT - spanStartUT) + N * cadence</c> (the same quantity PadAlignLaunch
+        /// snaps, <c>ReaimWindowPlanner.cs:211</c>, extended per loop;
+        /// <c>phaseAnchorUT - spanStartUT == d0 - recordedDepartureUT</c> by <c>ReaimWindowPlanner.cs:124</c>).
+        /// The pad is rotation-aligned with the recorded launch iff <c>Off_N</c> is a whole number of
+        /// <c>T_sid</c>; the minimal FORWARD hold that achieves this is
+        /// <c>H_N = ((-Off_N) mod T_sid + T_sid) mod T_sid</c>. The double-mod-plus-T_sid form keeps H_N in
+        /// [0, T_sid) for any sign and any N (a sawtooth in N, never growing with the loop index), exactly
+        /// like <see cref="ComputePerLoopArrivalHoldSeconds"/>.
+        ///
+        /// <c>T_sid = Math.Abs(launchBodyRotationPeriod)</c> (the Math.Abs matches PadAlignLaunch's retrograde
+        /// handling). Returns 0 for a degenerate <paramref name="launchBodyRotationPeriod"/> (NaN / Infinity /
+        /// &lt;= 0, a non-rotating launch body: no pad realignment possible, no hold) or a NaN
+        /// <paramref name="phaseAnchorUT"/> / <paramref name="spanStartUT"/> (matching the
+        /// <see cref="ComputeArrivalAlignHoldSeconds"/> NaN guard). Pure; no Unity (xUnit-testable).
+        /// </summary>
+        internal static double ComputePerLoopLaunchHoldSeconds(
+            double phaseAnchorUT, double spanStartUT, long cycleIndex, double cadence,
+            double launchBodyRotationPeriod)
+        {
+            double tSid = Math.Abs(launchBodyRotationPeriod);
+            if (double.IsNaN(tSid) || double.IsInfinity(tSid) || tSid <= 0.0)
+                return 0.0;
+            if (double.IsNaN(phaseAnchorUT) || double.IsNaN(spanStartUT))
+                return 0.0;
+            double offN = (phaseAnchorUT - spanStartUT) + cycleIndex * cadence;
+            double h = (-offN) % tSid;
+            return (h + tSid) % tSid;
+        }
+
+        /// <summary>
         /// Effective-span phase -&gt; compressed-span phase under an arrival HOLD of
         /// <paramref name="holdSeconds"/> inserted at compressed-span phase position
         /// <paramref name="holdPhasePos"/> (the heliocentric-&gt;capture boundary, in compressed-span phase
@@ -7318,7 +7383,9 @@ namespace Parsek
             IReadOnlyList<LoopCut> loiterCuts = null,
             double arrivalHoldSeconds = 0.0,
             double arrivalHoldAtUT = double.NaN,
-            double arrivalHoldAlignPeriod = double.NaN)
+            double arrivalHoldAlignPeriod = double.NaN,
+            double launchBodyRotationPeriod = double.NaN,
+            bool launchHoldEngaged = false)
         {
             loopUT = spanStartUT;
             cycleIndex = 0;
@@ -7414,6 +7481,20 @@ namespace Parsek
             cycleIndex = (long)(elapsed / cycleDuration);
             double phaseInCycle = elapsed - (cycleIndex * cycleDuration);
 
+            // Per-loop LAUNCH HOLD (docs/dev/design-reaim-launch-hold-seam.md): a launch-TIME shift that
+            // closes the launch->escape render seam for the span>=synodic re-aim regime PadAlignLaunch
+            // declines (cadence != synodic). For replayed loop N the launch instant becomes L_N + H_N, so
+            // the launch body rotates back to the recorded inertial orientation and the body-fixed launch
+            // ascent replays VERBATIM coincident with the frozen escape conic. H_launch is computed AFTER
+            // cycleIndex / phaseInCycle (like the per-loop arrival hold) so it never changes cadence, the
+            // phase anchor, the cycle index, or the resolver's window-index<->departure map. Gated on
+            // launchHoldEngaged (the builder sets it only when re-aim engaged && !pad.Applied && a
+            // body-fixed launch leg exists); a degenerate T_sid returns 0. Every other caller passes the
+            // default (not engaged, NaN period), so the helper returns 0 and the clock stays byte-identical.
+            double launchHold = launchHoldEngaged
+                ? ComputePerLoopLaunchHoldSeconds(phaseAnchorUT, spanStartUT, cycleIndex, cycleDuration, launchBodyRotationPeriod)
+                : 0.0;
+
             // Loiter compression (docs/dev/plans/reaim-loiter-compression.md section 5): when a re-aim unit
             // carries whole-period loiter cuts, the loop's ACTIVE duration is the COMPRESSED span
             // (span - totalCut); the phase wraps over that, and the clamped compressed phase is remapped to
@@ -7445,12 +7526,26 @@ namespace Parsek
             {
                 double w0 = hold;
                 hold = ComputePerLoopArrivalHoldSeconds(w0, cycleIndex, cycleDuration, arrivalHoldAlignPeriod);
+                // Launch-hold self-correction (design 5.4): the launch hold defers the WHOLE loop (the SOI
+                // entry included) by H_launch, so the ghost's actual SOI entry occurs H_launch later than the
+                // unheld reference W_N was computed against. The destination-side arrival wait already
+                // holds-until-aligned, so a SINGLE in-clock subtraction self-corrects it:
+                // W_N_effective = ((W_N - H_launch) mod T_align + T_align) mod T_align. Applied ONLY when a
+                // valid T_align exists (the same gate ComputePerLoopArrivalHoldSeconds requires to be
+                // non-degenerate) and the launch hold is engaged; otherwise the constant-hold path is
+                // byte-identical. The builder-side arrival-hold producers are UNCHANGED.
+                bool tAlignValid = !double.IsNaN(arrivalHoldAlignPeriod) && !double.IsInfinity(arrivalHoldAlignPeriod)
+                    && arrivalHoldAlignPeriod > 0.0;
+                if (launchHold > 0.0 && tAlignValid)
+                {
+                    double corrected = (hold - launchHold) % arrivalHoldAlignPeriod;
+                    hold = (corrected + arrivalHoldAlignPeriod) % arrivalHoldAlignPeriod;
+                }
                 // Per-frame hot path: rate-limited per mission (keyed on phaseAnchorUT + spanStartUT, NOT
                 // cycleIndex, so the key set stays bounded by mission count rather than growing one entry per
                 // replayed loop). The message carries cycleIndex and W_N, so a playtest sees W_N step as the
                 // loop advances across the periodic lines, without per-frame spam.
-                if (!double.IsNaN(arrivalHoldAlignPeriod) && !double.IsInfinity(arrivalHoldAlignPeriod)
-                    && arrivalHoldAlignPeriod > 0.0)
+                if (tAlignValid)
                 {
                     var hic = CultureInfo.InvariantCulture;
                     ParsekLog.VerboseRateLimited(
@@ -7461,15 +7556,40 @@ namespace Parsek
                         $"perloop-hold.{phaseAnchorUT.ToString("R", hic)}.{spanStartUT.ToString("R", hic)}",
                         $"per-loop arrival hold: cycleIndex={cycleIndex.ToString(hic)} " +
                         $"W0={w0.ToString("R", hic)}s cadence={cycleDuration.ToString("R", hic)}s " +
-                        $"Talign={arrivalHoldAlignPeriod.ToString("R", hic)}s WN={hold.ToString("R", hic)}s");
+                        $"Talign={arrivalHoldAlignPeriod.ToString("R", hic)}s WN={hold.ToString("R", hic)}s " +
+                        $"Hlaunch={launchHold.ToString("R", hic)}s");
                 }
             }
-            // Defense-in-depth: never let the hold push the active span past the cadence (a mid-span cycle
+            // Defense-in-depth: never let the holds push the active span past the cadence (a mid-span cycle
             // wrap would silently truncate the in-SOI replay). No current caller can trip this (the re-aim
-            // cadence is the synodic period, far larger than span + hold), but this clock is shared by ALL
-            // ghost playback, so the bound is enforced rather than merely assumed.
+            // cadence = max(span, synodic) >> span + arrivalHold + launchHold), but this clock is shared by
+            // ALL ghost playback, so the bound is enforced rather than merely assumed. Cap the LAUNCH hold
+            // FIRST (it is the discretionary quantity bounded by T_sid), preserving the full arrival-hold +
+            // in-SOI replay window before trimming the arrival hold.
+            if (launchHold > 0.0 && compressedSpan + hold + launchHold > cycleDuration)
+                launchHold = Math.Max(0.0, cycleDuration - compressedSpan - hold);
             if (hold > 0.0 && compressedSpan + hold > cycleDuration)
                 hold = Math.Max(0.0, cycleDuration - compressedSpan);
+            // Per-loop LAUNCH hold diagnostic (design 6.4): a rate-limited Verbose Reaim line in the
+            // launch-hold branch, gated on launchHoldEngaged && a finite/positive T_sid (a degenerate T_sid
+            // yields launchHold == 0). Keyed on mission identity (phaseAnchorUT + spanStartUT, NOT cycleIndex)
+            // so the key set stays bounded by mission count. Carries cycleIndex, T_sid, and H_N so a playtest
+            // sees H_N step across loops. Distinct from the arrival-hold line above (the launch hold can be
+            // engaged with no arrival hold), so it emits on its own key under its own gate.
+            if (launchHoldEngaged)
+            {
+                double tSid = Math.Abs(launchBodyRotationPeriod);
+                if (!double.IsNaN(tSid) && !double.IsInfinity(tSid) && tSid > 0.0)
+                {
+                    var lic = CultureInfo.InvariantCulture;
+                    ParsekLog.VerboseRateLimited(
+                        "Reaim",
+                        $"perloop-launch-hold.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
+                        $"per-loop launch hold: cycleIndex={cycleIndex.ToString(lic)} " +
+                        $"Tsid={tSid.ToString("R", lic)}s cadence={cycleDuration.ToString("R", lic)}s " +
+                        $"HN={launchHold.ToString("R", lic)}s");
+                }
+            }
             double holdPhasePos = hold > 0.0 ? CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT : double.NaN;
             double effectiveSpan = compressedSpan + hold;
 
@@ -7485,23 +7605,52 @@ namespace Parsek
                 loopUT = spanEndUT;
                 // NOT the parked idle tail: this is the legitimate end-of-cycle final frame at the
                 // back-to-back wrap boundary (cadence == span). The ghost is still mid-loop, just
-                // showing the prior cycle's last frame, so the tail flag stays false.
+                // showing the prior cycle's last frame, so the tail flag stays false. The launch hold
+                // does NOT apply here: the rolled-back frame is the PRIOR cycle's last (already-launched)
+                // recorded frame, which must keep rendering through the back-to-back wrap.
                 isInInterCycleTail = false;
                 return true;
             }
+
+            // Pre-launch ABSENCE (design 6.2 step 2): for phaseInCycle < H_launch the loop has NOT launched
+            // yet (the launch instant is L_N + H_launch), so the ghost must render ABSENT - exactly as a ghost
+            // is absent before any first launch, NOT frozen on the pad. Resolve loopUT strictly BELOW the
+            // member window (below spanStartUT) and report it: DecideUnitMemberRender maps a launch-hold unit
+            // whose resolved loopUT is below spanStartUT to HiddenPreLaunchHold (hide, do not destroy), and the
+            // TS/map sampler maps any non-Render decision to renderHidden=true. We do NOT resolve to
+            // spanStartUT (the frozen-on-pad pose, which IsLoopUTInMemberWindow would accept => Render). This
+            // is checked AFTER the boundary rollback so the prior cycle's final frame still wins at the exact
+            // back-to-back boundary. launchHold == 0 (not engaged / degenerate T_sid / already aligned) makes
+            // this a no-op (phaseInCycle < 0 is impossible here), byte-identical to the pre-launch-hold clock.
+            if (launchHold > 0.0 && phaseInCycle < launchHold)
+            {
+                // A pre-launch UT below the member window; the magnitude (<= T_sid) is irrelevant - any value
+                // < spanStartUT routes to the absence path. cycleIndex / isInInterCycleTail are left as the
+                // computed pre-launch cycle / false.
+                loopUT = spanStartUT - (launchHold - phaseInCycle);
+                isInInterCycleTail = false;
+                return true;
+            }
+
+            // Post-launch DEFERRAL (design 6.2 step 3): for phaseInCycle >= H_launch the verbatim recorded
+            // span replays from spanStartUT deferred by H_launch (launch at L_N + H_launch). A flat offset on
+            // the working phase BEFORE the arrival-hold / loiter-cut composition; the arrival hold's single
+            // mid-span insertion (ApplyArrivalHoldToPhase at holdPhasePos) is untouched and its per-loop W_N
+            // is self-corrected by the single subtraction above. launchHold == 0 keeps workPhase == phaseInCycle.
+            double workPhase = phaseInCycle - launchHold;
 
             // Park at spanEnd once the phase reaches the span (cadence > span clamp leaves a tail
             // parked at spanEnd; cadence == span never reaches span except at the rolled-back
             // boundary handled above). isInInterCycleTail is true exactly in that parked tail —
             // the phase ran past the span and we are idling at spanEnd until the next cycle.
-            double clampedPhase = phaseInCycle >= effectiveSpan ? effectiveSpan : phaseInCycle;
+            double clampedPhase = workPhase >= effectiveSpan ? effectiveSpan : workPhase;
             // Remove the arrival hold (held at the boundary, then deferred), then DecompressSpanUT through
             // the loiter cuts to the recorded loopUT - holds and cuts compose. hold == 0 makes
             // ApplyArrivalHoldToPhase the identity and DecompressSpanUT is identity for empty cuts, so a unit
             // with neither is byte-identical to the pre-hold clock.
             double cutPhase = ApplyArrivalHoldToPhase(clampedPhase, holdPhasePos, hold);
             loopUT = DecompressSpanUT(spanStartUT + cutPhase, loiterCuts);
-            isInInterCycleTail = (phaseInCycle >= effectiveSpan);
+            isInInterCycleTail = (workPhase >= effectiveSpan);
             return true;
         }
 
@@ -7592,6 +7741,14 @@ namespace Parsek
             HiddenInterCycleTail,
             /// <summary>The shared clock is outside this member's own window — hide this member.</summary>
             HiddenOutsideWindow,
+            /// <summary>
+            /// The loop has not LAUNCHED yet (the per-loop launch hold: phaseInCycle &lt; H_launch, the resolved
+            /// span-clock loopUT is below spanStartUT). The ghost must render ABSENT - exactly as a ghost is
+            /// absent before any first launch, NOT frozen on the pad - WITHOUT destroying it (the camera stays
+            /// anchored via the keep-watched-owner-alive fallback). Distinct from HiddenOutsideWindow so the
+            /// engine routes it to a hide, not a destroy.
+            /// </summary>
+            HiddenPreLaunchHold,
         }
 
         /// <summary>
@@ -7625,7 +7782,9 @@ namespace Parsek
             IReadOnlyList<LoopCut> loiterCuts = null,
             double arrivalHoldSeconds = 0.0,
             double arrivalHoldAtUT = double.NaN,
-            double arrivalHoldAlignPeriod = double.NaN)
+            double arrivalHoldAlignPeriod = double.NaN,
+            double launchBodyRotationPeriod = double.NaN,
+            bool launchHoldEngaged = false)
         {
             spanLoopUT = spanStartUT;
             unitCycle = 0;
@@ -7634,12 +7793,23 @@ namespace Parsek
             if (!TryComputeSpanLoopUT(
                     currentUT, phaseAnchorUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT,
                     out unitCycle, out isInInterCycleTail, schedule, loiterCuts,
-                    arrivalHoldSeconds, arrivalHoldAtUT, arrivalHoldAlignPeriod))
+                    arrivalHoldSeconds, arrivalHoldAtUT, arrivalHoldAlignPeriod,
+                    launchBodyRotationPeriod, launchHoldEngaged))
                 return UnitMemberRenderDecision.SpanClockUnresolved;
 
             // Inter-cycle tail (the "wait" between cycles when cadence > span): render nothing.
             if (isInInterCycleTail)
                 return UnitMemberRenderDecision.HiddenInterCycleTail;
+
+            // Pre-launch ABSENCE (per-loop launch hold, design 6.2): when the launch hold is engaged the span
+            // clock resolves a pre-launch window (phaseInCycle < H_launch) to a loopUT strictly BELOW
+            // spanStartUT (the loop has not launched yet). Map that to HiddenPreLaunchHold so the engine hides
+            // the ghost WITHOUT destroying it (the keep-watched-owner-alive fallback keeps the camera
+            // anchored). The pre-launch UT is below every member window, so without this branch it would route
+            // to HiddenOutsideWindow -> the destroy path; the ABSENCE framing (not a pad-wait) requires the
+            // hide-not-destroy route. Inert when the launch hold is not engaged (spanLoopUT >= spanStartUT).
+            if (launchHoldEngaged && spanLoopUT < spanStartUT - LoopTiming.BoundaryEpsilon)
+                return UnitMemberRenderDecision.HiddenPreLaunchHold;
 
             // Each member renders independently iff the shared clock is in its own window.
             return IsLoopUTInMemberWindow(spanLoopUT, memberStartUT, memberEndUT)
@@ -7695,11 +7865,16 @@ namespace Parsek
                 unit.LoiterCuts,
                 unit.ArrivalHoldSeconds,
                 unit.ArrivalHoldAtUT,
-                unit.ArrivalAlignPeriodSeconds);
+                unit.ArrivalAlignPeriodSeconds,
+                unit.LaunchBodyRotationPeriodSeconds,
+                unit.LaunchHoldEngaged);
 
             if (decision == UnitMemberRenderDecision.Render)
                 return loopUT;
 
+            // Any non-Render decision (SpanClockUnresolved / HiddenInterCycleTail / HiddenOutsideWindow /
+            // HiddenPreLaunchHold) hides the ghost for this frame: the pre-launch absence (the loop has not
+            // launched yet) suppresses the icon + line + marker on every map/TS surface automatically.
             renderHidden = true;
             return liveUT;
         }
