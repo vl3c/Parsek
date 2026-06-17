@@ -61,15 +61,18 @@ namespace Parsek.Reaim
 
         /// <summary>
         /// The per-window park re-phase angle (degrees): how far the launch body's heliocentric longitude
-        /// advanced between the RECORDED departure and this window's live departure
-        /// <paramref name="departureUTForWindow"/> (= <c>schedule.DepartureUTForWindow(window)</c>, i.e.
-        /// D_c). <c>Delta_lon(c) = omega_parent * (D_c - recordedDepartureUT)</c> where
-        /// <c>omega_parent = 360 / launchBodyOrbitPeriodSeconds</c> (deg/s, the launch body's HELIOCENTRIC
-        /// rate - NOT its rotation period). The recorded park sits at the recorded-epoch longitude; the
-        /// re-aimed transfer is freshly synthesized at D_c (in the live frame), so the park must rotate by
-        /// this same inertial angle to connect to it. Returns NaN on a degenerate period (&lt;= 0 / NaN /
-        /// Inf) so the caller fails closed to faithful. Pure (no Unity). The result may exceed 360 (the
-        /// LAN re-wrap in <see cref="RotateLanForParkRephase"/> reduces it).
+        /// advanced between the RECORDED departure and a supplied live replay time
+        /// <paramref name="departureUTForWindow"/>. <c>Delta_lon = omega_parent * (replayUT -
+        /// recordedDepartureUT)</c> where <c>omega_parent = 360 / launchBodyOrbitPeriodSeconds</c> (deg/s,
+        /// the launch body's HELIOCENTRIC rate - NOT its rotation period). The recorded park sits at the
+        /// recorded-epoch longitude; rotating its LAN by this angle moves it to where the launch body is at
+        /// replayUT, so it sits next to the LIVE launch body. The caller passes the engine's CADENCE-clock
+        /// relaunch time (<c>schedule.RelaunchUTForWindow(window)</c>) - the live instant the ghost replays
+        /// its recorded departure, which the body-relative escape leg also tracks - NOT the synodic transfer
+        /// departure (<c>schedule.DepartureUTForWindow(window)</c>); the two coincide when cadence ==
+        /// synodic. Returns NaN on a degenerate period (&lt;= 0 / NaN / Inf) so the caller fails closed to
+        /// faithful. Pure (no Unity). The result may exceed 360 (the LAN re-wrap in
+        /// <see cref="RotateLanForParkRephase"/> reduces it).
         /// </summary>
         internal static double ComputeParkDeltaLonDegrees(
             double departureUTForWindow, double recordedDepartureUT, double launchBodyOrbitPeriodSeconds)
