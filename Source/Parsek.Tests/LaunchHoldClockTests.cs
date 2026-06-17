@@ -122,6 +122,61 @@ namespace Parsek.Tests
             Assert.Equal(atBoundary, justBelow, 1e-3);
         }
 
+        [Fact]
+        public void BoundaryContinuity_SameInstanceAdvance_AcrossAllCycleBoundaries()
+        {
+            // The internal-consistency fix: region B (cycle N) caps instance N+1's advance to slack_N, and
+            // region A (cycle N+1) caps the SAME instance N+1's advance to slack_{(N+1)-1} = slack_N - the SAME
+            // value, so the loopUT is continuous at the cycle boundary (no discontinuity from the two regions
+            // disagreeing on the instance's advance). Region B engages only when the PRIOR (launching) cycle has
+            // a positive own advance (the outer `launchAdvance > 0` guard hosts the early launch in its tail);
+            // when the launching cycle's delta == 0 there is no tail early-launch and the next instance appears
+            // via region A at the boundary (a structural seam unrelated to this fix). Assert continuity only at
+            // boundaries whose launching cycle (n-1) has a positive advance.
+            for (long n = 1; n <= 6; n++)
+            {
+                if (!(Delta(n - 1) > 0.0))
+                    continue; // launching cycle has no early-launch tail -> region B disabled there
+                double boundary = Anchor + n * Cad; // cycle n-1 -> n
+                double justBelow = Loop(boundary - 1e-3, engaged: true);
+                double atBoundary = Loop(boundary, engaged: true);
+                // Locally linear: a 1e-3 currentUT probe yields a ~1e-3 loopUT gap. Continuity, not a jump.
+                Assert.Equal(atBoundary, justBelow, 1e-2);
+            }
+        }
+
+        [Fact]
+        public void BoundaryContinuity_SameInstanceAdvance_PerLoopVaryingSlack()
+        {
+            // With a per-loop arrival hold (W_N drifts per cycle) slack_N varies, so region A's cap (slack_{N-1})
+            // and region B's cap (slack_N) are DIFFERENT slacks - but they cap DIFFERENT instances (region A
+            // caps instance N to slack_{N-1}, region B of the PRIOR cycle caps that SAME instance N to
+            // slack_{N-1} too). The shared helper guarantees both use slack_{N-1} for instance N, so the
+            // boundary stays continuous even when slack varies per loop. Fixture: span [0,1000], cadence 2000,
+            // arrival hold W_0=300 at recorded UT 800, T_align 250, SOI exit 600. As above, only boundaries
+            // whose launching cycle has a positive own advance host a region-B early launch.
+            const double holdAt = 800, w0 = 300, tAlign = 250;
+            for (long n = 1; n <= 6; n++)
+            {
+                if (!(Delta(n - 1) > 0.0))
+                    continue;
+                double boundary = Anchor + n * Cad;
+                double justBelow = LoopHold(boundary - 1e-3, w0, holdAt, tAlign);
+                double atBoundary = LoopHold(boundary, w0, holdAt, tAlign);
+                Assert.Equal(atBoundary, justBelow, 1e-2);
+            }
+        }
+
+        private static double LoopHold(double currentUT, double w0, double holdAt, double tAlign)
+        {
+            GhostPlaybackLogic.TryComputeSpanLoopUT(
+                currentUT, Anchor, S0, S1, Cad, out double loopUT, out long _, out bool _,
+                schedule: null, loiterCuts: null, arrivalHoldSeconds: w0, arrivalHoldAtUT: holdAt,
+                arrivalHoldAlignPeriod: tAlign, launchBodyRotationPeriod: Tsid, launchHoldEngaged: true,
+                soiExitAtUT: SoiExit);
+            return loopUT;
+        }
+
         // === SOI-exit repay coast hold (loopUT held at the SOI-exit recorded UT) ==================
 
         [Fact]

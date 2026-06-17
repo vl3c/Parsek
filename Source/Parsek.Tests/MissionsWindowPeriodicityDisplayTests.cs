@@ -390,13 +390,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputeNextRelaunchUT_LaunchAlignmentEngaged_ReportsLNMinusDelta()
+        public void ComputeNextRelaunchUT_LaunchAlignmentEngaged_ReportsLNMinusDeltaMinusLead()
         {
             // Per-loop launch alignment (borrow-at-launch): the navigable launch time the user warps to is
-            // L_N - delta_N (delta_N EARLIER than nominal), so the next-relaunch cell reads the advanced UT.
-            // span [0,1000], cadence 2000 (no self-overlap), phaseAnchor 300, T_sid 700 => the nominal window
-            // at/after now is L = anchor + n*2000; delta for that window is (300 + n*2000) mod 700.
+            // L_N - capped_delta_N - 15s lead (delta_N EARLIER than nominal, then 15 s before the actual launch
+            // so warping lands on the pad just before lift-off). span [0,1000], cadence 2000 (no self-overlap),
+            // phaseAnchor 300, T_sid 700, no hold/cut so the cap never bites => the nominal window at/after now
+            // is L = anchor + n*2000; delta for that window is (300 + n*2000) mod 700.
             const double anchor = 300, cadence = 2000, tSid = 700;
+            const double lead = MissionsWindowUI.LaunchWarpLeadSeconds; // 15
             var unit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex: 0, memberIndices: new[] { 0 },
                 spanStartUT: 0.0, spanEndUT: 1000.0,
@@ -408,19 +410,133 @@ namespace Parsek.Tests
                 launchBodyRotationPeriodSeconds: tSid, launchHoldEngaged: true, recordedSoiExitUT: 600.0);
 
             // now = 100 (before the first window L_1 = 2300; n clamps so the nominal next window is L_1).
-            // Wait: anchor 300, now 100 < anchor -> n=0, nominal next = anchor = 300 = L_0; delta_0 = 300 mod
-            // 700 = 300, so the advanced launch is 300 - 300 = 0. 0 < now(100) so fall forward to L_1: delta_1
-            // = (300+2000) mod 700 = 200, advanced = 2300 - 200 = 2100.
+            // anchor 300, now 100 < anchor -> n=0, nominal next = anchor = 300 = L_0; delta_0 = 300 mod 700 =
+            // 300, advanced launch = 300 - 300 = 0, minus 15 = -15 < now(100) so fall forward to L_1: delta_1 =
+            // (300+2000) mod 700 = 200, advanced = 2300 - 200 = 2100, minus the 15 s lead = 2085.
             double next = ComputeNextRelaunchUT(unit, 100.0);
-            Assert.Equal(2100.0, next, 6);
+            Assert.Equal(2100.0 - lead, next, 6);
 
-            // The not-engaged unit (same params) reports the plain nominal launch (no subtraction).
+            // The not-engaged unit (same params) reports the plain nominal launch (no subtraction, no lead).
             var plainUnit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex: 0, memberIndices: new[] { 0 },
                 spanStartUT: 0.0, spanEndUT: 1000.0,
                 cadenceSeconds: cadence, phaseAnchorUT: anchor,
                 overlapCadenceSeconds: cadence);
             Assert.Equal(300.0, ComputeNextRelaunchUT(plainUnit, 100.0), 6); // L_0 = anchor, no advance
+        }
+
+        [Fact]
+        public void ComputeNextRelaunchUT_LaunchAlignmentEngaged_TargetsRealLaunchMinusLead()
+        {
+            // THE KEY integration test: drive the ACTUAL span clock (TryComputeSpanLoopUT) to find the real
+            // launch UT of an instance (the currentUT where the resolved loopUT snaps back to spanStart in the
+            // region-B early launch), then assert ComputeNextRelaunchUT(unit, just-before) == that real launch
+            // UT - 15 s. This pins the displayed "Warp to..." time to where the ghost actually launches (the
+            // maintainer's bug: the old display used the uncapped delta and pointed hours too early).
+            //
+            // cadence == span regime (the s15 case) with a loiter cut + per-loop arrival hold so the span
+            // compresses and slack = cut - W varies per loop (the region-A/B cap can differ from the raw delta).
+            const double anchor = 1000, s0 = 0, s1 = 200000, cad = 200000, tSid = 21549.425;
+            const double w0 = 4000, tAlign = 21549.425, soiExit = 40000, holdAt = 150000;
+            const double lead = MissionsWindowUI.LaunchWarpLeadSeconds;
+            var cuts = new System.Collections.Generic.List<GhostPlaybackLogic.LoopCut>
+            {
+                new GhostPlaybackLogic.LoopCut { StartUT = 120000, LengthSeconds = 60000 }
+            };
+
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: s0, spanEndUT: s1,
+                cadenceSeconds: cad, phaseAnchorUT: anchor,
+                overlapCadenceSeconds: cad, // no overlap -> span-clock cadence
+                memberWindows: null, relaunchSchedule: null, reaimPlan: null, reaimSchedule: null,
+                loiterCuts: cuts, arrivalHoldSeconds: w0, arrivalHoldAtUT: holdAt,
+                arrivalAlignPeriodSeconds: tAlign, arrivalAmberReason: null,
+                launchBodyRotationPeriodSeconds: tSid, launchHoldEngaged: true, recordedSoiExitUT: soiExit);
+
+            const double step = 1.0;
+            // Find the real launch UT of instance 1: the region-B early launch in cycle 0's tail, where the
+            // loopUT snaps DOWN from spanEnd back toward spanStart (a large downward step). Scan fine.
+            double realLaunch1 = FindRealLaunchUT(unit, scanFrom: anchor, scanTo: anchor + cad, step: step,
+                tSid: tSid, soiExit: soiExit, cuts: cuts, w0: w0, holdAt: holdAt, tAlign: tAlign,
+                spanStart: s0, spanEnd: s1, cadence: cad, anchor: anchor);
+            Assert.True(realLaunch1 > anchor, "expected a region-B early launch for instance 1 inside cycle 0");
+
+            // nowUT comfortably BEFORE the navigable launch time (realLaunch1 - lead): the display must point at
+            // the real launch - 15 s lead, NOT fall forward to the next window. The scan resolves realLaunch1 to
+            // within `step`, so allow a tolerance of step + a small float margin.
+            double next = ComputeNextRelaunchUT(unit, realLaunch1 - lead - 100.0);
+            Assert.Equal(realLaunch1 - lead, next, step + 0.5);
+
+            // Sanity: the displayed time is BEFORE the real launch (the lead), ~one lead window before it.
+            Assert.True(next < realLaunch1, "the navigable time must precede the real launch");
+            Assert.True(realLaunch1 - next <= lead + step + 1.0, "the navigable time is ~15 s (one lead) before launch");
+        }
+
+        [Fact]
+        public void ComputeNextRelaunchUT_LaunchAlignmentEngaged_CappedLoop_TargetsRealLaunchMinusLead()
+        {
+            // A CAPPED loop (delta_N > slack_{N-1}): a tight cut (small slack) so the raw delta exceeds it and
+            // the capped advance bites. The display must STILL agree with the clock's real launch (both use the
+            // SAME ComputeCappedLaunchAdvanceSeconds), minus the 15 s lead. cadence==span 200000, cut 8000 so
+            // compressedSpan 192000, slack ~ 8000 - W << the raw deltas (which reach ~21000).
+            const double anchor = 1000, s0 = 0, s1 = 200000, cad = 200000, tSid = 21549.425;
+            const double w0 = 1000, tAlign = 21549.425, soiExit = 40000, holdAt = 150000;
+            const double lead = MissionsWindowUI.LaunchWarpLeadSeconds;
+            var cuts = new System.Collections.Generic.List<GhostPlaybackLogic.LoopCut>
+            {
+                new GhostPlaybackLogic.LoopCut { StartUT = 120000, LengthSeconds = 8000 }
+            };
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: s0, spanEndUT: s1,
+                cadenceSeconds: cad, phaseAnchorUT: anchor,
+                overlapCadenceSeconds: cad,
+                memberWindows: null, relaunchSchedule: null, reaimPlan: null, reaimSchedule: null,
+                loiterCuts: cuts, arrivalHoldSeconds: w0, arrivalHoldAtUT: holdAt,
+                arrivalAlignPeriodSeconds: tAlign, arrivalAmberReason: null,
+                launchBodyRotationPeriodSeconds: tSid, launchHoldEngaged: true, recordedSoiExitUT: soiExit);
+
+            // The advance for window 1 is capped (raw delta_1 ~7055 vs slack ~7000) - confirm the cap bit so the
+            // test genuinely exercises the capped path.
+            double raw1 = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(anchor, s0, 1L, cad, tSid);
+            double cap1 = GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(
+                anchor, s0, s1, cad, 1L, tSid, cuts, w0, tAlign);
+            Assert.True(cap1 < raw1, $"expected the cap to bite for window 1 (raw {raw1} cap {cap1})");
+
+            const double step = 1.0;
+            double realLaunch1 = FindRealLaunchUT(unit, scanFrom: anchor, scanTo: anchor + cad, step: step,
+                tSid: tSid, soiExit: soiExit, cuts: cuts, w0: w0, holdAt: holdAt, tAlign: tAlign,
+                spanStart: s0, spanEnd: s1, cadence: cad, anchor: anchor);
+            Assert.True(realLaunch1 > anchor, "expected a region-B early launch for the capped instance 1");
+
+            double next = ComputeNextRelaunchUT(unit, realLaunch1 - lead - 100.0);
+            Assert.Equal(realLaunch1 - lead, next, step + 0.5);
+        }
+
+        // Scans the actual span clock for the region-B early-launch UT: the loopUT snaps DOWN from spanEnd back
+        // toward spanStart (a large downward step >= half the span) - the early launch of the next instance.
+        // Returns the first such currentUT, or NaN.
+        private static double FindRealLaunchUT(
+            GhostPlaybackLogic.LoopUnit unit, double scanFrom, double scanTo, double step,
+            double tSid, double soiExit, System.Collections.Generic.List<GhostPlaybackLogic.LoopCut> cuts,
+            double w0, double holdAt, double tAlign, double spanStart, double spanEnd, double cadence, double anchor)
+        {
+            double prev = double.NaN;
+            double half = spanStart + 0.5 * (spanEnd - spanStart);
+            for (double t = scanFrom; t <= scanTo; t += step)
+            {
+                GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    t, anchor, spanStart, spanEnd, cadence, out double loopUT, out long _, out bool _,
+                    schedule: null, loiterCuts: cuts, arrivalHoldSeconds: w0, arrivalHoldAtUT: holdAt,
+                    arrivalHoldAlignPeriod: tAlign, launchBodyRotationPeriod: tSid, launchHoldEngaged: true,
+                    soiExitAtUT: soiExit);
+                // A region-B early launch is a large DOWNWARD step (from near spanEnd to near spanStart).
+                if (!double.IsNaN(prev) && prev > half && loopUT < half)
+                    return t;
+                prev = loopUT;
+            }
+            return double.NaN;
         }
 
         // ===================== ShouldEnableWarpToWindow =====================

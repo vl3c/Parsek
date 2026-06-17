@@ -147,5 +147,109 @@ namespace Parsek.Tests
             double d = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(123456.0, 654.0, 13L, 19653076.0, tSid);
             Assert.True(d >= 0.0 && d < tSid);
         }
+
+        // === ComputeCappedLaunchAdvanceSeconds: min(delta_win, slack_{win-1}) =====================
+        //
+        // Shared helper that bounds the per-loop launch advance to the LAUNCHING cycle's idle gap so the
+        // span clock (region A/B) and the Missions-window navigable launch time agree on the SAME capped
+        // value. slack_{win-1} = cadence - compressedSpan - W_{win-1}.
+
+        [Fact]
+        public void Capped_NoHoldNoCut_ReturnsDeltaWhenUnderSlack()
+        {
+            // span 1000, cadence 2000 -> compressedSpan 1000, no hold so W=0, slack = 2000-1000 = 1000.
+            // delta_N for N>=0 is (anchor-spanStart + N*cadence) mod 700 (300, 200, 100, ...), all < 1000,
+            // so the capped advance equals the raw delta.
+            const double anchor = 300, s0 = 0, s1 = 1000, cad = 2000, tSid = 700;
+            for (long n = 0; n < 6; n++)
+            {
+                double raw = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(anchor, s0, n, cad, tSid);
+                double capped = GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(
+                    anchor, s0, s1, cad, n, tSid, loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalAlignPeriod: double.NaN);
+                Assert.Equal(raw, capped, Tol);
+            }
+        }
+
+        [Fact]
+        public void Capped_DeltaExceedsSlack_ClampedToSlack()
+        {
+            // span 1000, cadence 1100 -> compressedSpan 1000, W=0, slack = 100. With T_sid 700 the raw delta
+            // can reach ~700 >> 100, so the capped advance is bounded at slack (100).
+            const double anchor = 300, s0 = 0, s1 = 1000, cad = 1100, tSid = 700;
+            for (long n = 0; n < 8; n++)
+            {
+                double raw = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(anchor, s0, n, cad, tSid);
+                double capped = GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(
+                    anchor, s0, s1, cad, n, tSid, loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalAlignPeriod: double.NaN);
+                double slack = cad - (s1 - s0); // 100
+                Assert.True(capped <= slack + Tol, $"N={n} capped {capped} > slack {slack}");
+                Assert.Equal(System.Math.Min(raw, slack), capped, 1e-3);
+            }
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(-100.0)]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        public void Capped_DegenerateOrNaNPeriod_ReturnsZero(double rotationPeriod)
+        {
+            double capped = GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(
+                300.0, 0.0, 1000.0, 2000.0, 3L, rotationPeriod, loiterCuts: null,
+                arrivalHoldSeconds: 0.0, arrivalAlignPeriod: double.NaN);
+            Assert.Equal(0.0, capped, Tol);
+        }
+
+        [Fact]
+        public void Capped_NaNDisplacement_ReturnsZero()
+        {
+            Assert.Equal(0.0, GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(
+                double.NaN, 0.0, 1000.0, 2000.0, 3L, 700.0, null, 0.0, double.NaN), Tol);
+            Assert.Equal(0.0, GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(
+                300.0, double.NaN, 1000.0, 2000.0, 3L, 700.0, null, 0.0, double.NaN), Tol);
+        }
+
+        [Fact]
+        public void Capped_HoldReducesSlack_UsesLaunchingCycleHold()
+        {
+            // The cap uses W_{win-1} (the LAUNCHING cycle's per-loop arrival hold), not W_win. Build a fixture
+            // where the per-loop hold varies per cycle so slack_{win-1} != slack_win, and assert the helper's
+            // slack matches a hand recomputation using cycle win-1.
+            const double anchor = 300, s0 = 0, s1 = 1000, cad = 2000, tSid = 700;
+            const double w0 = 400, tAlign = 250;  // per-loop hold drifts each cycle
+            long win = 5;
+            double wPrev = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(w0, win - 1, cad, tAlign);
+            double compressedSpan = s1 - s0; // no cut
+            // mirror the clock's hold clamp
+            if (wPrev > 0.0 && compressedSpan + wPrev > cad)
+                wPrev = System.Math.Max(0.0, cad - compressedSpan);
+            double slackPrev = System.Math.Max(0.0, cad - compressedSpan - wPrev);
+            double rawDelta = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(anchor, s0, win, cad, tSid);
+            double expected = System.Math.Min(rawDelta, slackPrev);
+            double capped = GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(
+                anchor, s0, s1, cad, win, tSid, loiterCuts: null, arrivalHoldSeconds: w0, arrivalAlignPeriod: tAlign);
+            Assert.Equal(expected, capped, 1e-3);
+        }
+
+        [Fact]
+        public void Capped_WithLoiterCut_UsesCompressedSpan()
+        {
+            // A whole-period loiter cut compresses the span; slack uses the COMPRESSED span. span 1000, cut 600
+            // -> compressedSpan 400, cadence 1100, W=0 -> slack = 1100-400 = 700. Raw delta (T_sid 700) maxes
+            // just under 700, so the cap rarely bites; assert the helper's value matches min(delta, 700).
+            const double anchor = 300, s0 = 0, s1 = 1000, cad = 1100, tSid = 700;
+            var cuts = new List<GhostPlaybackLogic.LoopCut>
+            {
+                new GhostPlaybackLogic.LoopCut { StartUT = 200, LengthSeconds = 600 }
+            };
+            for (long n = 0; n < 6; n++)
+            {
+                double raw = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(anchor, s0, n, cad, tSid);
+                double capped = GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(
+                    anchor, s0, s1, cad, n, tSid, cuts, arrivalHoldSeconds: 0.0, arrivalAlignPeriod: double.NaN);
+                double slack = cad - 400.0; // compressedSpan = 400
+                Assert.Equal(System.Math.Min(raw, slack), capped, 1e-3);
+            }
+        }
     }
 }

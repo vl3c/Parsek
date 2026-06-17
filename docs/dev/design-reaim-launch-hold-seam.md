@@ -86,10 +86,16 @@ Because the post-SOI portion plays at baseline timing, the SOI entry occurs at t
 
 ### 3.3 The clamp / delta > slack edge
 
-`slack = cadence - compressedSpan - hold` (the previous instance's inter-cycle idle gap). The defense-in-depth `effectiveSpan <= cadence` clamp caps `delta` to `slack` FIRST. This IS the `delta > slack` edge handling:
+For replayed loop N the launching cycle is N-1 and `slack_{N-1} = cadence - compressedSpan - W_{N-1}` (the LAUNCHING cycle's inter-cycle idle gap, using the PREVIOUS instance's per-loop arrival hold). The advance is capped to that launching-cycle slack FIRST. This IS the `delta_N > slack_{N-1}` edge handling:
 
-- When `delta <= slack` (the common case, e.g. s15 N=13: delta=5058 <= slack=5419), the early launch starts within the previous instance's idle tail (already parked at spanEnd), so there is no overlap with the previous instance's live replay - renders perfectly.
-- When `delta > slack` (rare), capping to slack shortens the borrow, leaving a residual rotation offset (`<= (T_sid - slack)/T_sid` of a turn) only on those loops, plus a one-shot WARN. Capping cannot reopen the seam the way the old forward `H_N` truncation did (the advance is bounded BY slack). Rejected alternatives: a bounded overlap with the previous instance (would resurrect a second live instance and re-entangle targeting; the overlap path is OFF for re-aim), and a minimal-magnitude nearest-`T_sid` shift (a forward shift reintroduces the pad-absence + arrival-budget problems).
+- When `delta_N <= slack_{N-1}` (the common case, e.g. s15 N=13: delta=5058 <= slack=5419), the early launch starts within the previous instance's idle tail (already parked at spanEnd), so there is no overlap with the previous instance's live replay - renders perfectly.
+- When `delta_N > slack_{N-1}` (rare), capping to that slack shortens the borrow, leaving a residual rotation offset (`<= (T_sid - slack)/T_sid` of a turn) only on those loops, plus a one-shot WARN. Capping cannot reopen the seam the way the old forward `H_N` truncation did (the advance is bounded BY slack). Rejected alternatives: a bounded overlap with the previous instance (would resurrect a second live instance and re-entangle targeting; the overlap path is OFF for re-aim), and a minimal-magnitude nearest-`T_sid` shift (a forward shift reintroduces the pad-absence + arrival-budget problems).
+
+**Unified capped advance (the SINGLE source of truth).** `GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(phaseAnchorUT, spanStartUT, spanEndUT, cadence, win, T_sid, loiterCuts, arrivalHoldSeconds, arrivalAlignPeriod)` returns `min(delta_win, slack_{win-1})`, mirroring `TryComputeSpanLoopUT`'s slack/clamp arithmetic EXACTLY (`compressedSpan`, the `W_{win-1}` clamp `if (W>0 && compressedSpan+W > cadence) W = max(0, cadence - compressedSpan)`, `slack = max(0, cadence - compressedSpan - W_{win-1})`). All three readers go through it so they agree on the SAME instance's advance:
+
+- region B caps instance N+1 (launching in cycle N) to `slack_N` (= `slack_{(N+1)-1}`);
+- region A caps the SAME instance N (launching in cycle N-1) to `slack_{N-1}` — NOT `slack_N`. This is the internal-consistency fix: region A and region B for one instance now use the SAME capped advance (the launching cycle's slack), so the cycle boundary is continuous even when `W_N != W_{N-1}` makes `slack_N != slack_{N-1}`. (Previously region A capped instance N to `slack_N`, so when the two slacks differed and `delta_N` exceeded them differently, the region-A render and the region-B launch instant used different advances — a discontinuity at the boundary.)
+- `MissionsWindowUI.ComputeNextRelaunchUT` uses it for window n (and the fall-forward to n+1), so the navigable launch time matches the clock's actual launch instant.
 
 ### 3.4 Boundary rollback
 
@@ -107,16 +113,17 @@ The resolver computes `windowIndex` from `TryComputeSpanLoopUT(..., schedule:nul
 
 - `ReaimClassifier.cs` - `ReaimMissionPlan.RecordedSoiExitUT`, populated `= segs[helioIdx].startUT`.
 - `GhostPlaybackLogic.cs`:
-  - `ComputePerLoopLaunchAdvanceSeconds` (renamed from `ComputePerLoopLaunchHoldSeconds`; backward residual).
+  - `ComputePerLoopLaunchAdvanceSeconds` (renamed from `ComputePerLoopLaunchHoldSeconds`; backward residual, uncapped delta_N).
+  - `ComputeCappedLaunchAdvanceSeconds` (the SINGLE source of truth for the capped advance `min(delta_win, slack_{win-1})`; used by region A, region B, and `ComputeNextRelaunchUT`).
   - `LoopUnit.RecordedSoiExitUT` field.
-  - `TryComputeSpanLoopUT` (new `soiExitAtUT` param; borrow-repay regions A/B; SOI-exit repay hold; clamp caps delta first; arrival hold unchanged; boundary rollback skipped when aligned; per-loop launch-advance Verbose + capped Warn).
+  - `TryComputeSpanLoopUT` (new `soiExitAtUT` param; borrow-repay regions A/B; SOI-exit repay hold; BOTH regions cap their rendered instance's advance via `ComputeCappedLaunchAdvanceSeconds` to the LAUNCHING cycle's slack — region A instance N to slack_{N-1}, region B instance N+1 to slack_N — so they agree on the same instance; arrival hold unchanged; boundary rollback skipped when aligned; per-loop launch-advance Verbose + capped Warn, capped flag = `delta_win > slack_{win-1}`).
   - `DecideUnitMemberRender` (new `soiExitAtUT` param; `HiddenPreLaunchHold` removed - no pad absence).
   - `UnitMemberRenderDecision` (`HiddenPreLaunchHold` value removed).
   - `ResolveTrackingStationSampleUT` (forwards `unit.RecordedSoiExitUT`).
 - `MissionLoopUnitBuilder.cs` - gate `!pad.Applied && plan.Supported && soiExitValid`; carries `launchHoldSoiExitUT`; Info line; ctor arg.
 - `GhostPlaybackEngine.cs` - `UpdateUnitMemberPlayback`, the watch-clock resolver, and the loop-synced-debris parent clock forward `RecordedSoiExitUT`; `HiddenPreLaunchHold` engine branch + the watch-clock pre-launch-absence early-return removed.
 - `ParsekKSC.cs` - `UpdateUnitMemberPlayback` forwards `RecordedSoiExitUT`; `HiddenPreLaunchHold` branch removed.
-- `UI/MissionsWindowUI.cs` - `ComputeNextRelaunchUT` subtracts `delta` so the navigable launch time reads `L_N - delta_N` (falls forward to window n+1 if the advanced launch already passed).
+- `UI/MissionsWindowUI.cs` - `ComputeNextRelaunchUT` subtracts the CAPPED advance (`ComputeCappedLaunchAdvanceSeconds`, the same value the clock's region B launches at) AND a 15-second lead (`LaunchWarpLeadSeconds`), so the navigable / "Warp to..." launch time reads `L_N - capped_delta_N - 15s` (falls forward to window n+1 with the capped helper + lead if the advanced launch already passed). The lead places the warp target 15 s BEFORE the actual launch so warping lands the player on the pad just before lift-off. Previously it subtracted the UNCAPPED `delta_N`, which pointed a few hours too early when `delta_N > slack_{N-1}` and forced a manual warp forward.
 - `Display/GhostTrajectoryPolylineRenderer.cs` - no code change; honors the span clock via `ResolveTrackingStationSampleUT`, so the launch leg enters its window at `L_N - delta_N` and renders the in-SOI line at the aligned rotation.
 
 `PadAlignLaunch` is unchanged and STAYS for `cadence == synodic`. `bodyFixedShift` is untouched (re-aim units set `relaunchSchedule = null`, so it is already 0).
@@ -125,11 +132,11 @@ The resolver computes `windowIndex` from `TryComputeSpanLoopUT(..., schedule:nul
 
 ## 6. Tests
 
-- `LaunchHoldTests` - pure `ComputePerLoopLaunchAdvanceSeconds`: `(Off_N - delta_N)` aligns mod T_sid, range `[0,T_sid)`, already-aligned->0, degenerate/NaN->0, sawtooth `delta_{N+1} - delta_N == cadence mod T_sid`.
-- `LaunchHoldClockTests` - in-SOI rotation alignment through ascent/parking/escape (region A + region B), SOI-exit repay coast hold (held at the SOI-exit UT), post-SOI-and-onward byte-identical to baseline (the repay nets to zero), no pad absence (early launch at spanStart), targeting + cadence==synodic / not-engaged byte-identical, arrival hold unchanged, delta>slack capped, TS-sampler parity.
+- `LaunchHoldTests` - pure `ComputePerLoopLaunchAdvanceSeconds`: `(Off_N - delta_N)` aligns mod T_sid, range `[0,T_sid)`, already-aligned->0, degenerate/NaN->0, sawtooth `delta_{N+1} - delta_N == cadence mod T_sid`. Also `ComputeCappedLaunchAdvanceSeconds`: returns the raw delta under slack, clamps to slack when over, uses the LAUNCHING cycle's hold `W_{win-1}` and the compressed span (loiter cut), degenerate/NaN period and displacement -> 0.
+- `LaunchHoldClockTests` - in-SOI rotation alignment through ascent/parking/escape (region A + region B), SOI-exit repay coast hold (held at the SOI-exit UT), post-SOI-and-onward byte-identical to baseline (the repay nets to zero), no pad absence (early launch at spanStart), targeting + cadence==synodic / not-engaged byte-identical, arrival hold unchanged, delta>slack capped, TS-sampler parity, AND region-A/B continuity: the loopUT is continuous at every cycle boundary whose launching cycle has a positive advance (both regions cap the same instance to the same launching-cycle slack), including the per-loop-varying-slack case.
 - `LaunchHoldLoggingTests` - the per-loop Verbose `Reaim` launch-advance line fires with non-zero `delta_N` across two cycles (propagation proof); builder Info-line / ctor-wiring source-text gate.
 - `GhostPlaybackEngineTests` - watch<->render<->TS clock parity: early launch at spanStart, post-SOI baseline, never absent below span.
-- `MissionsWindowPeriodicityDisplayTests` - next-relaunch reports `L_N - delta_N`.
+- `MissionsWindowPeriodicityDisplayTests` - next-relaunch reports `L_N - capped_delta_N - 15s`; the KEY integration test drives the actual `TryComputeSpanLoopUT` across a synthetic launch-aligned `cadence==span` unit (loiter cut + arrival hold so slack varies), finds the real region-B launch UT of an instance, and asserts `ComputeNextRelaunchUT(unit, before) == real_launch - 15s` for both an uncapped and a capped loop.
 - `ReaimClassifierTests` - `RecordedSoiExitUT` precedes `RecordedDepartureUT` for the s15 heliocentric-park chain.
 
 ---
@@ -137,7 +144,7 @@ The resolver computes `windowIndex` from `TryComputeSpanLoopUT(..., schedule:nul
 ## 7. In-game validation (s15 / Kerbal X #2, recording aa48920e), high warp, multiple loops
 
 1. Seam collapses: launch->escape gap drops from 82-220 deg to ~0-3 deg.
-2. Launch starts on the real pad, EARLIER than the nominal window (the navigable / "Warp to..." UT is `L_N - delta_N`).
+2. Launch starts on the real pad, EARLIER than the nominal window. The navigable / "Warp to..." UT is `L_N - capped_delta_N - 15s` (15 seconds before the actual launch), so warping forward lands on the pad just before lift-off instead of a few hours too early.
 3. No pad absence: the ghost is never absent on the pad before launch.
 4. SOI-exit coast hold visible: the ghost briefly holds at the SOI boundary, then continues on the heliocentric transfer at baseline timing.
 5. Targeting unchanged: the transfer resolves for consecutive `windowIndex`; departure UT byte-identical to baseline.

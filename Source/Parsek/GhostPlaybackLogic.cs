@@ -7257,6 +7257,54 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The CAPPED per-loop launch advance for replayed loop <paramref name="win"/> (the instance launched
+        /// in cycle <c>win-1</c>'s idle tail): <c>min(delta_win, slack_{win-1})</c>, where
+        /// <c>delta_win = ComputePerLoopLaunchAdvanceSeconds(...)</c> and <c>slack_{win-1}</c> is the LAUNCHING
+        /// cycle's inter-cycle idle gap (<c>cadence - compressedSpan - W_{win-1}</c>). This is the SINGLE source
+        /// of truth for the borrow-at-launch advance: <see cref="TryComputeSpanLoopUT"/> uses it for BOTH the
+        /// region-B early launch of instance N+1 (launching in cycle N, slack_N) AND the region-A render of
+        /// instance N (launched in cycle N-1, slack_{N-1}), so the SAME instance is capped to the SAME advance
+        /// in both regions (no cycle-boundary discontinuity), and
+        /// <see cref="MissionsWindowUI.ComputeNextRelaunchUT"/> uses it so the navigable launch time agrees with
+        /// the clock. The borrow is bounded by the LAUNCHING cycle's slack so the early launch never overlaps
+        /// the previous instance's still-live replay.
+        ///
+        /// The slack/clamp arithmetic MIRRORS <see cref="TryComputeSpanLoopUT"/> EXACTLY:
+        /// <c>compressedSpan = (totalCut &gt; 0 &amp;&amp; totalCut &lt; span) ? span - totalCut : span</c>;
+        /// <c>W_{win-1}</c> is <see cref="ComputePerLoopArrivalHoldSeconds"/> for the LAUNCHING cycle, clamped by
+        /// <c>if (W &gt; 0 &amp;&amp; compressedSpan + W &gt; cadence) W = max(0, cadence - compressedSpan)</c>;
+        /// <c>slack = max(0, cadence - compressedSpan - W_{win-1})</c>. A degenerate / NaN advance collapses to
+        /// 0 (mirroring <see cref="ComputePerLoopLaunchAdvanceSeconds"/>). Pure; no Unity (xUnit-testable).
+        /// </summary>
+        internal static double ComputeCappedLaunchAdvanceSeconds(
+            double phaseAnchorUT, double spanStartUT, double spanEndUT, double cadence, long win,
+            double launchBodyRotationPeriod, IReadOnlyList<LoopCut> loiterCuts,
+            double arrivalHoldSeconds, double arrivalAlignPeriod)
+        {
+            double delta = ComputePerLoopLaunchAdvanceSeconds(
+                phaseAnchorUT, spanStartUT, win, cadence, launchBodyRotationPeriod);
+            if (!(delta > 0.0))
+                return 0.0; // degenerate / NaN / already-aligned -> no advance (and nothing to cap)
+
+            double span = spanEndUT - spanStartUT;
+            double totalCut = TotalCutLength(loiterCuts);
+            double compressedSpan = (totalCut > 0.0 && totalCut < span) ? span - totalCut : span;
+
+            // W_{win-1}: the LAUNCHING cycle's per-loop arrival hold (the instance for window `win` launches in
+            // cycle win-1's idle tail). Mirror TryComputeSpanLoopUT's hold derivation + clamp EXACTLY.
+            double w = (arrivalHoldSeconds > 0.0 && !double.IsInfinity(arrivalHoldSeconds)) ? arrivalHoldSeconds : 0.0;
+            if (w > 0.0)
+                w = ComputePerLoopArrivalHoldSeconds(w, win - 1, cadence, arrivalAlignPeriod);
+            if (w > 0.0 && compressedSpan + w > cadence)
+                w = Math.Max(0.0, cadence - compressedSpan);
+
+            double slack = cadence - compressedSpan - w;
+            if (slack < 0.0)
+                slack = 0.0;
+            return delta < slack ? delta : slack;
+        }
+
+        /// <summary>
         /// Effective-span phase -&gt; compressed-span phase under an arrival HOLD of
         /// <paramref name="holdSeconds"/> inserted at compressed-span phase position
         /// <paramref name="holdPhasePos"/> (the heliocentric-&gt;capture boundary, in compressed-span phase
@@ -7515,8 +7563,21 @@ namespace Parsek
             // launchHoldEngaged (the builder sets it only when re-aim engaged && !pad.Applied && plan.Supported
             // && a valid SOI-exit boundary); a degenerate T_sid returns 0. Every other caller passes the
             // default (not engaged, NaN period), so the helper returns 0 and the clock stays byte-identical.
-            double launchAdvance = launchHoldEngaged
+            //
+            // The raw uncapped delta for THIS cycle's instance N (region A renders instance N). The CAP is
+            // applied below through ComputeCappedLaunchAdvanceSeconds (= min(delta_N, slack_{N-1})), the SAME
+            // capped value MissionsWindowUI.ComputeNextRelaunchUT uses, so the navigable launch time agrees with
+            // the clock. Region A caps instance N to the LAUNCHING cycle's slack (slack_{N-1}, the cycle this
+            // instance launched in), NOT this cycle's slack_N - that is what makes region A and region B agree on
+            // the SAME instance's advance (region B caps instance N+1 to slack_N, the cycle IT launches in), so
+            // the cycle boundary is continuous.
+            double rawLaunchAdvance = launchHoldEngaged
                 ? ComputePerLoopLaunchAdvanceSeconds(phaseAnchorUT, spanStartUT, cycleIndex, cycleDuration, launchBodyRotationPeriod)
+                : 0.0;
+            double launchAdvance = launchHoldEngaged
+                ? ComputeCappedLaunchAdvanceSeconds(
+                    phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, cycleIndex,
+                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod)
                 : 0.0;
 
             // Loiter compression (docs/dev/plans/reaim-loiter-compression.md section 5): when a re-aim unit
@@ -7579,23 +7640,22 @@ namespace Parsek
             // wrap would silently truncate the in-SOI replay). No current caller can trip this for the common
             // re-aim case (the SOI-exit repay nets to zero with the earlier launch, so the SOI-exit-and-onward
             // timeline stays on baseline and effectiveSpan = compressedSpan + delta + hold <= cadence whenever
-            // delta <= slack), but this clock is shared by ALL ghost playback, so the bound is enforced rather
-            // than merely assumed. Cap the LAUNCH ADVANCE delta FIRST (the discretionary quantity bounded by
-            // T_sid): capping it to slack = cadence - compressedSpan - hold is exactly the design's
-            // delta_N > slack edge handling (§2.6) - it bounds the borrow to the previous instance's idle gap
-            // so the early launch never overlaps the previous instance's live replay, and it can never reopen
-            // the seam the way the old forward H_N truncation did (the advance is bounded BY slack). When
-            // capped, a residual rotation offset remains only on those loops; the common case (delta <= slack)
-            // is unaffected. A WARN fires once per mission so a playtest sees which loops carry a residual.
+            // delta <= slack). The LAUNCH ADVANCE cap (the design's delta_N > slack edge handling, §2.6) is now
+            // applied UPSTREAM by ComputeCappedLaunchAdvanceSeconds (launchAdvance + advNext below are already
+            // capped to the LAUNCHING cycle's slack), so launchAdvance arrives here pre-bounded; the local slack
+            // below is slack_N (= cadence - compressedSpan - W_N), kept only for the diagnostic line + the hold
+            // clamp. Capping bounds the borrow to the previous instance's idle gap so the early launch never
+            // overlaps the previous instance's live replay, and it can never reopen the seam the way the old
+            // forward H_N truncation did (the advance is bounded BY slack). When capped, a residual rotation
+            // offset remains only on those loops; the common case (delta <= slack) is unaffected. A WARN fires
+            // once per mission so a playtest sees which loops carry a residual.
             double slack = cycleDuration - compressedSpan - hold;
             if (slack < 0.0)
                 slack = 0.0;
-            bool launchAdvanceCapped = false;
-            if (launchAdvance > slack)
-            {
-                launchAdvance = slack;
-                launchAdvanceCapped = true;
-            }
+            // The capped flag for the diagnostic: did THIS cycle's instance N raw delta exceed its cap? (Region B
+            // reassigns this below for instance N+1.) launchAdvance is the helper's min(delta_N, slack_{N-1}), so
+            // a strict shortfall from the raw delta means the cap bit.
+            bool launchAdvanceCapped = rawLaunchAdvance > launchAdvance + 1e-9;
             if (hold > 0.0 && compressedSpan + hold > cycleDuration)
                 hold = Math.Max(0.0, cycleDuration - compressedSpan);
 
@@ -7606,14 +7666,19 @@ namespace Parsek
             double soiExitPhasePos = (launchAdvance > 0.0 && !double.IsNaN(soiExitAtUT))
                 ? CompressSpanUT(soiExitAtUT, loiterCuts) - spanStartUT
                 : double.NaN;
-            // The next instance's advance, capped to slack: instance (cycleIndex+1) launches early at
-            // phaseInCycle = cadence - advNext of THIS cycle (it borrows advNext from this cycle's idle tail).
-            // Bounded by slack so the early launch never overlaps this instance's still-live replay.
-            double advNext = launchHoldEngaged
+            // The next instance's advance, capped to slack_N: instance (cycleIndex+1) launches early at
+            // phaseInCycle = cadence - advNext of THIS cycle (it borrows advNext from this cycle's idle tail),
+            // so its launching cycle is THIS cycle N and ComputeCappedLaunchAdvanceSeconds(win=cycleIndex+1)
+            // caps delta_{N+1} to slack_N = cadence - compressedSpan - W_N (W_{(N+1)-1} = W_N). Bounded by
+            // slack_N so the early launch never overlaps this instance's still-live replay.
+            double rawAdvNext = launchHoldEngaged
                 ? ComputePerLoopLaunchAdvanceSeconds(phaseAnchorUT, spanStartUT, cycleIndex + 1, cycleDuration, launchBodyRotationPeriod)
                 : 0.0;
-            if (advNext > slack)
-                advNext = slack;
+            double advNext = launchHoldEngaged
+                ? ComputeCappedLaunchAdvanceSeconds(
+                    phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, cycleIndex + 1,
+                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod)
+                : 0.0;
 
             // Borrow-at-launch / repay-at-SOI-exit phase model (design §2). Each cadence-cycle window
             // [0, cadence) renders ONE instance launched delta EARLIER than its nominal L boundary, so the
@@ -7646,6 +7711,8 @@ namespace Parsek
                         ? CompressSpanUT(soiExitAtUT, loiterCuts) - spanStartUT
                         : double.NaN;
                     earlyNextLaunch = true;
+                    // The rendered instance is now N+1: its capped flag is whether delta_{N+1} > slack_N.
+                    launchAdvanceCapped = rawAdvNext > advNext + 1e-9;
                 }
                 else
                 {
@@ -7667,19 +7734,36 @@ namespace Parsek
                 if (!double.IsNaN(tSid) && !double.IsInfinity(tSid) && tSid > 0.0)
                 {
                     var lic = CultureInfo.InvariantCulture;
+                    // The slack that bound the RENDERED instance is its LAUNCHING cycle's slack: slack_N (the
+                    // local `slack`) for the region-B instance N+1 (it launched in the just-rendered cycle,
+                    // whose index is now cycleIndex after the +=1; old N), and slack_{N-1} for the region-A
+                    // instance N. Recompute the region-A launching-cycle slack so the diagnostic + WARN report
+                    // the actual cap, mirroring ComputeCappedLaunchAdvanceSeconds exactly.
+                    double renderedSlack = slack;
+                    if (!earlyNextLaunch && launchAdvanceCapped)
+                    {
+                        double wPrev = (arrivalHoldSeconds > 0.0 && !double.IsInfinity(arrivalHoldSeconds))
+                            ? ComputePerLoopArrivalHoldSeconds(arrivalHoldSeconds, cycleIndex - 1, cycleDuration, arrivalHoldAlignPeriod)
+                            : 0.0;
+                        if (wPrev > 0.0 && compressedSpan + wPrev > cycleDuration)
+                            wPrev = Math.Max(0.0, cycleDuration - compressedSpan);
+                        renderedSlack = cycleDuration - compressedSpan - wPrev;
+                        if (renderedSlack < 0.0)
+                            renderedSlack = 0.0;
+                    }
                     ParsekLog.VerboseRateLimited(
                         "Reaim",
                         $"perloop-launch-advance.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
                         $"per-loop launch advance: cycleIndex={cycleIndex.ToString(lic)} " +
                         $"Tsid={tSid.ToString("R", lic)}s cadence={cycleDuration.ToString("R", lic)}s " +
-                        $"deltaN={effectiveLaunchAdvance.ToString("R", lic)}s slack={slack.ToString("R", lic)}s " +
+                        $"deltaN={effectiveLaunchAdvance.ToString("R", lic)}s slack={renderedSlack.ToString("R", lic)}s " +
                         $"region={(earlyNextLaunch ? "B-earlyNext" : "A-current")} capped={launchAdvanceCapped}");
                     if (launchAdvanceCapped)
                         ParsekLog.WarnRateLimited(
                             "Reaim",
                             $"launch-advance-capped.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
-                            $"per-loop launch advance CAPPED to slack={slack.ToString("R", lic)}s " +
-                            $"(delta_N > slack: this loop carries a residual launch->escape seam); " +
+                            $"per-loop launch advance CAPPED to slack={renderedSlack.ToString("R", lic)}s " +
+                            $"(delta_N > slack_(N-1): this loop carries a residual launch->escape seam); " +
                             $"cycleIndex={cycleIndex.ToString(lic)} cadence={cycleDuration.ToString("R", lic)}s");
                 }
             }
