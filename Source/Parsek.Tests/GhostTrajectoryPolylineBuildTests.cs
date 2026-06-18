@@ -2011,6 +2011,82 @@ namespace Parsek.Tests
                 "bridge end must land on B's merge sample (off by " + (outPts[merge] - arc[merge]).magnitude + " m)");
         }
 
+        // === Small-gap CHORD bridge (launch->escape seam render) ===
+        // The sub-5-deg launch-aligned ascent->escape gap is filled by a STRAIGHT chord, not the merge
+        // slice (whose ~200-370km bulge dwarfs the gap). These pin the pure chord builder + the four-band
+        // angle classifier that routes a seam to skip / chord / merge-slice.
+
+        [Fact]
+        public void SeamBridgeChord_EndpointsExactAndStraight()
+        {
+            Vector3d endA = new Vector3d(700000.0, 0.0, 0.0);
+            Vector3d conicNear = new Vector3d(690000.0, 60000.0, 0.0); // ~5 deg away, slightly nearer
+            const int merge = 60;
+            var outPts = new Vector3d[merge + 1];
+
+            bool ok = GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeChordLocalPoints(
+                endA, conicNear, arcScale: 1.0, mergeCount: merge, outPoints: outPts);
+
+            Assert.True(ok);
+            Assert.True((outPts[0] - endA).magnitude < 1e-6, "chord must start exactly on the leg end");
+            Assert.True((outPts[merge] - conicNear).magnitude < 1e-6, "chord must end exactly on the conic near point");
+            // A straight chord has zero perpendicular deviation from its endpoint-to-endpoint line.
+            Assert.True(GhostTrajectoryPolylineRenderer.MaxChordDeviation(outPts, merge + 1) < 1e-6,
+                "the chord must be perfectly straight (no bulge)");
+            Assert.True((outPts[merge / 2] - (endA + conicNear) * 0.5).magnitude < 1e-6,
+                "the midpoint must be the average of the two endpoints");
+        }
+
+        [Fact]
+        public void SeamBridgeChord_AppliesArcScale()
+        {
+            // The conic near point arrives in body-LOCAL metres; arcScale converts it to the leg's space.
+            Vector3d endA = new Vector3d(70.0, 0.0, 0.0);
+            Vector3d conicNearLocal = new Vector3d(690000.0, 60000.0, 0.0);
+            const int merge = 60;
+            var outPts = new Vector3d[merge + 1];
+            Assert.True(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeChordLocalPoints(
+                endA, conicNearLocal, arcScale: 1e-4, mergeCount: merge, outPoints: outPts));
+            Assert.True((outPts[merge] - conicNearLocal * 1e-4).magnitude < 1e-9,
+                "the chord end must apply arcScale to the conic near point");
+        }
+
+        [Fact]
+        public void SeamBridgeChord_DegenerateInputs_ReturnFalse()
+        {
+            Vector3d a = new Vector3d(700000.0, 0, 0), b = new Vector3d(690000, 60000, 0);
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeChordLocalPoints(a, b, 1.0, 60, null));
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeChordLocalPoints(a, b, 1.0, 0, new Vector3d[61]));
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeChordLocalPoints(a, b, 1.0, 60, new Vector3d[10]));
+        }
+
+        [Fact]
+        public void ClassifySeamBridgeByAngle_FourBands()
+        {
+            double deg = System.Math.PI / 180.0;
+            // > 45 deg or infinite -> honest gap, no bridge.
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.SkipAngleTooLarge,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(double.PositiveInfinity));
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.SkipAngleTooLarge,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(60.0 * deg));
+            // (5, 45] -> the conic merge slice (existing moderate-misalignment smoother).
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.MergeSlice,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(20.0 * deg));
+            // (0.5, 5] -> the new straight chord (the launch->escape gap lives here, ~0.5-4.6 deg).
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.Chord,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(4.6 * deg));
+            // <= 0.5 deg -> the leg already meets the conic; no (degenerate) bridge.
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.SkipMeetsConic,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(0.2 * deg));
+            // Boundaries: 5 deg -> chord (inclusive), 45 deg -> merge slice (inclusive), 0.5 deg -> meets.
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.Chord,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians));
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.MergeSlice,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians));
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.SkipMeetsConic,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(GhostTrajectoryPolylineRenderer.BridgeChordMinAngleRadians));
+        }
+
         [Fact]
         public void SeamBridge_ZeroAngle_DegeneratesToArcLeadIn()
         {

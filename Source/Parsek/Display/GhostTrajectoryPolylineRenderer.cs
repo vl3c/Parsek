@@ -1169,6 +1169,20 @@ namespace Parsek.Display
         internal const double BridgeMinAngleRadians = 0.08726646259971647; // 5 deg
 
         /// <summary>
+        /// Below the 5 deg merge-slice floor (<see cref="BridgeMinAngleRadians"/>) the seam still has a
+        /// small but VISIBLE gap - most often the re-aim launch-aligned ascent, whose forward-drawn end
+        /// LEADS the icon by the rotation over the remaining ascent and so lands a few degrees (tens to
+        /// ~120 km) short of the inertial escape conic, a gap that shrinks to 0 as the icon climbs to the
+        /// handoff. The merge slice cannot fill it (its ~200-370 km bulge is worse than the gap, which is
+        /// why the 5 deg floor mutes it), but a STRAIGHT CHORD can - it links the leg's drawn end straight
+        /// to the conic's near endpoint with zero bulge. So in (this, 5 deg] a chord bridge draws instead
+        /// of the merge slice. BELOW this floor the leg already meets the conic within a few km (an
+        /// anchored leg, a closed rotation gap), so neither bridge draws - a sub-this chord would be a
+        /// degenerate near-zero-length line. 0.5 deg at Kerbin escape radius (~1370 km) is a ~12 km chord.
+        /// </summary>
+        internal const double BridgeChordMinAngleRadians = 0.008726646259971648; // 0.5 deg
+
+        /// <summary>
         /// PURE: angle (radians) between two body-relative rays, used by the decide-side bridge gate.
         /// Returns PositiveInfinity for a degenerate (near-zero) input so the gate always rejects it.
         /// xUnit-testable (System.Math only, no Unity ECalls).
@@ -1181,6 +1195,29 @@ namespace Parsek.Display
             double cross = Vector3d.Cross(an, bn).magnitude;
             double dot = Vector3d.Dot(an, bn);
             return System.Math.Atan2(cross, dot);
+        }
+
+        /// <summary>How the decide-side gate treats a seam given its leg-to-conic angle.</summary>
+        internal enum SeamBridgeKind { SkipAngleTooLarge, SkipMeetsConic, Chord, MergeSlice }
+
+        /// <summary>
+        /// PURE four-band seam-bridge classifier by leg-to-conic angle (launch-&gt;escape seam render):
+        /// (a) infinite / &gt; <see cref="BridgeMaxAngleRadians"/> (45 deg) -&gt; SkipAngleTooLarge (honest
+        /// gap; the merge slice would draw a wild spiral); (b) (5 deg, 45 deg] -&gt; MergeSlice (the
+        /// moderate-misalignment smoother); (c) (<see cref="BridgeChordMinAngleRadians"/> 0.5 deg, 5 deg]
+        /// -&gt; Chord (a small but visible gap the merge slice mutes itself on - a zero-bulge straight
+        /// chord closes it); (d) &lt;= 0.5 deg -&gt; SkipMeetsConic (the leg already meets the conic within
+        /// a few km; a chord would be degenerate). xUnit-testable.
+        /// </summary>
+        internal static SeamBridgeKind ClassifySeamBridgeByAngle(double angleRad)
+        {
+            if (double.IsInfinity(angleRad) || angleRad > BridgeMaxAngleRadians)
+                return SeamBridgeKind.SkipAngleTooLarge;
+            if (angleRad <= BridgeChordMinAngleRadians)
+                return SeamBridgeKind.SkipMeetsConic;
+            if (angleRad <= BridgeMinAngleRadians)
+                return SeamBridgeKind.Chord;
+            return SeamBridgeKind.MergeSlice;
         }
 
         /// <summary>
@@ -1255,6 +1292,30 @@ namespace Parsek.Display
                 // A's end can sit at a slightly different radius than B's first sample).
                 double radial = 1.0 + (radial0 - 1.0) * (1.0 - w);
                 outPoints[i] = rotated * radial;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// PURE small-gap CHORD builder (launch-&gt;escape seam render): a STRAIGHT line from the leg's
+        /// drawn end (<paramref name="endARel"/>, scaled body-relative) to the conic's near endpoint
+        /// (<paramref name="conicNearRel"/>, the conic's first sample in body-LOCAL metres, scaled by
+        /// <paramref name="arcScale"/>). Used instead of <see cref="TryBuildSeamBridgeLocalPoints"/>'s
+        /// conic-merge slice when the seam gap is small (a few degrees): the merge slice's fixed
+        /// ~200-370 km off-chord bulge would dwarf the gap, but a chord just closes it with zero bulge.
+        /// outPoints[0] == endARel (leg end), outPoints[mergeCount] == the conic near endpoint, linearly
+        /// interpolated between. No rotation, no radial blend, no conic clip (the chord ends exactly where
+        /// the conic begins). xUnit-testable (no Unity ECalls).
+        /// </summary>
+        internal static bool TryBuildSeamBridgeChordLocalPoints(
+            Vector3d endARel, Vector3d conicNearRel, double arcScale, int mergeCount, Vector3d[] outPoints)
+        {
+            if (outPoints == null || mergeCount < 1 || outPoints.Length < mergeCount + 1) return false;
+            Vector3d b0 = conicNearRel * arcScale;
+            for (int i = 0; i <= mergeCount; i++)
+            {
+                double w = (double)i / mergeCount;
+                outPoints[i] = endARel * (1.0 - w) + b0 * w;
             }
             return true;
         }
@@ -2947,6 +3008,10 @@ namespace Parsek.Display
                 // applied ONLY when this bridge actually DRAWS (review MINOR-2: a decide-time clip
                 // with a failed bridge draw left a one-frame hole in the arc). -1 = no clip.
                 public int clipArcPendingIndex;
+                // SMALL-GAP CHORD (launch->escape seam render): when true, the bridge is a STRAIGHT chord
+                // from the leg's drawn end to the conic's near endpoint (no merge-slice, no bulge, no conic
+                // clip), drawn for a sub-5 deg gap the merge slice mutes (BridgeChordMinAngleRadians,5deg].
+                public bool chord;
             }
             private readonly List<PendingBridgeDraw> pendingBridges = new List<PendingBridgeDraw>();
             private int pendingBridgeFrame = -1;
@@ -4028,10 +4093,23 @@ namespace Parsek.Display
                 // Leg endpoint in scaled space, body-relative (the leg's points are absolute scaled).
                 int pi = bridge.atLegStart ? 0 : m - 1;
                 Vector3d legEndRel = (Vector3d)(leg.scratchScaledSpace[pi] - center);
-                if (!TryBuildSeamBridgeLocalPoints(
+                double seamAngleRad;
+                if (bridge.chord)
+                {
+                    // SMALL-GAP CHORD (launch->escape seam render): a straight line from the leg's drawn
+                    // end to the conic's NEAR endpoint (bridgeArcSliceScratch[0] is the conic sample
+                    // nearest the leg for either side, after the slice fill above). No rotation, no clip.
+                    if (!TryBuildSeamBridgeChordLocalPoints(
+                            legEndRel, bridgeArcSliceScratch[0], ScaledSpace.InverseScaleFactor,
+                            BridgeMergeSampleCount, bridgePointScratch))
+                        return false;
+                    seamAngleRad = SeamBridgeAngleRad(
+                        legEndRel, bridgeArcSliceScratch[0] * ScaledSpace.InverseScaleFactor);
+                }
+                else if (!TryBuildSeamBridgeLocalPoints(
                         legEndRel, bridgeArcSliceScratch, ScaledSpace.InverseScaleFactor,
                         BridgeMergeSampleCount, BridgeMaxAngleRadians, bridgePointScratch,
-                        out double seamAngleRad))
+                        out seamAngleRad))
                     return false;
 
                 string lineKey = string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -4080,7 +4158,7 @@ namespace Parsek.Display
                         "Seam bridge drawn: rec={0} leg={1} side={2} src={3} angleDeg={4:F2} body={5} " +
                         "merge={6} chordDevKm={7:F1} sliceSpanDeg={8:F2}",
                         bridge.legRecordingId, bridge.legIndex, bridge.atLegStart ? "start" : "end",
-                        bridge.arcIndex >= 0 ? "cached-arc" : "sampled-conic",
+                        bridge.chord ? "chord" : (bridge.arcIndex >= 0 ? "cached-arc" : "sampled-conic"),
                         seamAngleRad * (180.0 / System.Math.PI), bodyName ?? "?",
                         BridgeMergeSampleCount,
                         MaxChordDeviation(bridgePointScratch, BridgeMergeSampleCount + 1)
@@ -4743,11 +4821,19 @@ namespace Parsek.Display
                             leg.lats[pi], leg.lons[pi], leg.alts[pi]) - body.position;
 
                         // 4. Gates: angle window + the signed-gap (overshoot) rule.
+                        // Three bands: (a) > max -> no bridge (honest gap); (b) (5deg, max] -> the conic
+                        // merge slice (the existing moderate-misalignment smoother); (c) (chord-floor,
+                        // 5deg] -> a STRAIGHT CHORD (launch->escape seam render): the merge slice's fixed
+                        // ~200-370 km bulge mutes itself below 5deg, but the launch-aligned ascent's
+                        // forward-drawn end still lands a few degrees short of the inertial escape conic - a
+                        // small but visible gap a zero-bulge chord can close; (d) <= chord-floor -> no
+                        // bridge (the leg already meets the conic within a few km - anchored / closed gap -
+                        // so a chord would be a degenerate near-zero-length line).
                         double angleRad = SeamBridgeAngleRad(legRel, seamRel);
-                        if (double.IsInfinity(angleRad) || angleRad <= BridgeMinAngleRadians
-                            || angleRad > BridgeMaxAngleRadians)
+                        SeamBridgeKind kind = ClassifySeamBridgeByAngle(angleRad);
+                        if (kind == SeamBridgeKind.SkipAngleTooLarge)
                         {
-                            if (angleRad > BridgeMaxAngleRadians && !double.IsInfinity(angleRad))
+                            if (!double.IsInfinity(angleRad))
                                 ParsekLog.VerboseRateLimited(DriverTag,
                                     "bridge-angle." + cand.recordingId + "." + cand.legIndex,
                                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -4757,23 +4843,25 @@ namespace Parsek.Display
                                         angleRad * (180.0 / System.Math.PI),
                                         BridgeMaxAngleRadians * (180.0 / System.Math.PI)),
                                     5.0);
-                            // Near-meet: the leg endpoint already sits on the conic (<= the min angle).
-                            // The fixed ~74 deg conic merge slice would bulge a disproportionate ~200-370 km
-                            // off such a tiny gap, reading as a spurious extra segment beside the correct
-                            // trajectory (the now-common re-aim launch-aligned ascent). Skip it - the leg
-                            // and conic meet directly. (Re-aim launch alignment, render-polish follow-up.)
-                            else if (!double.IsInfinity(angleRad) && angleRad <= BridgeMinAngleRadians)
-                                ParsekLog.VerboseRateLimited(DriverTag,
-                                    "bridge-nearmeet." + cand.recordingId + "." + cand.legIndex,
-                                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                        "Seam bridge skipped (leg already meets conic): rec={0} leg={1} " +
-                                        "side={2} angleDeg={3:F2} min={4:F2}",
-                                        cand.recordingId, cand.legIndex, atLegStart ? "start" : "end",
-                                        angleRad * (180.0 / System.Math.PI),
-                                        BridgeMinAngleRadians * (180.0 / System.Math.PI)),
-                                    5.0);
                             continue;
                         }
+                        if (kind == SeamBridgeKind.SkipMeetsConic)
+                        {
+                            // Anchored / exact meet: the leg endpoint already sits on the conic. Drawing
+                            // anything here would be a degenerate near-zero-length line.
+                            ParsekLog.VerboseRateLimited(DriverTag,
+                                "bridge-nearmeet." + cand.recordingId + "." + cand.legIndex,
+                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "Seam bridge skipped (leg already meets conic): rec={0} leg={1} " +
+                                    "side={2} angleDeg={3:F2} floor={4:F2}",
+                                    cand.recordingId, cand.legIndex, atLegStart ? "start" : "end",
+                                    angleRad * (180.0 / System.Math.PI),
+                                    BridgeChordMinAngleRadians * (180.0 / System.Math.PI)),
+                                5.0);
+                            continue;
+                        }
+                        // Chord (small visible gap, zero-bulge straight connector) or the conic merge slice.
+                        bool chord = kind == SeamBridgeKind.Chord;
                         bool gapAhead = atLegStart
                             ? IsSeamGapAhead(seamRel, legRel, travelDir)  // prev=conic end, next=leg start
                             : IsSeamGapAhead(legRel, seamRel, travelDir); // prev=leg end, next=conic start
@@ -4794,8 +4882,11 @@ namespace Parsek.Display
                         // APPLIED only when the bridge actually draws (review MINOR-2): bridges draw
                         // BEFORE arcs in the onPreCull pass, and a failed bridge leaves its arc
                         // unclipped so no one-frame hole opens at the merge sample.
+                        // A chord ends exactly where the conic begins (its near endpoint), so the conic
+                        // draws in full - no merge-sample clip. Only the merge slice REPLACES the conic's
+                        // lead-in and therefore needs the clip.
                         int clipIdx = -1;
-                        if (cachedArcIdx >= 0)
+                        if (!chord && cachedArcIdx >= 0)
                         {
                             for (int p = 0; p < pendingForwardArcs.Count; p++)
                             {
@@ -4818,6 +4909,7 @@ namespace Parsek.Display
                             sampleKeyRecordingId = segRecordingId,
                             sampleSegment = seg,
                             clipArcPendingIndex = clipIdx,
+                            chord = chord,
                         });
                         pendingBridgeFrame = drawFrame;
                         armed++;
