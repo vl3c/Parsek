@@ -53,5 +53,29 @@ namespace Parsek.Logistics
 
         /// <summary>Seconds from <c>CurrentCycleStartUT</c> to this stop boundary.</summary>
         public double DeliveryOffsetSeconds;
+
+        /// <summary>
+        /// M4a per-stop dock-phase UT (plan OQ3/D5): the recorded loop-clock UT
+        /// this stop fires its delivery / debit against, the per-window analogue
+        /// of the route-level <c>Route.RecordedDockUT</c>. Populated by
+        /// <c>RouteBuilder</c> from the per-window <c>RouteAnalysisStop.DockUT</c>.
+        /// <c>-1.0</c> when not set (a single-stop / pre-M4 route fires on the
+        /// route-level scalar). Sparse in the codec (omitted when -1.0,
+        /// empty -> -1.0 on load), so a single-stop / pre-M4 route writes no
+        /// <c>recordedDockUT</c> STOP key and round-trips byte-identically.
+        /// The per-window FIRING that reads this is Phase A3.
+        /// </summary>
+        public double RecordedDockUT = -1.0;
+
+        /// <summary>
+        /// M4a per-stop firing sub-gate (plan OQ3/D5): the last loop-cycle index
+        /// at which this stop fired, so a partially-fired multi-stop cycle does
+        /// not double-fire a window after save/reload. Left at the default this
+        /// phase; the firing logic that drives it is Phase A3. Sparse in the
+        /// codec (omitted when -1, empty -> -1 on load), so a single-stop / pre-M4
+        /// route writes no <c>lastFiredCycleIndex</c> STOP key and round-trips
+        /// byte-identically.
+        /// </summary>
+        public long LastFiredCycleIndex = -1;
     }
 }
