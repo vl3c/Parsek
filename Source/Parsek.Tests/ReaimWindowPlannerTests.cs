@@ -170,6 +170,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ParkEndOverrideClocksCoincide_CoincideTrue_DivergeFalse()
+        {
+            // The pure gate the resolver uses to decide whether the F2 park-end r1 override is geometrically
+            // valid this window. The two clocks coincide (diff 0) => true; diverge by the stock span>synodic
+            // gap (~3.6M s) => false. The 1.0 s tolerance is the resolver's UT-equality epsilon.
+            Assert.True(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(1_000_000.0, 1_000_000.0)); // diff 0
+            Assert.True(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(1_000_000.5, 1_000_000.0)); // diff 0.5 < 1
+            Assert.False(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(1_003_600_000.0, 1_000_000_000.0)); // diff 3.6M
+            Assert.False(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(1_000_002.0, 1_000_000.0)); // diff 2 > 1
+            // Just over the epsilon is gated off; just under stays on.
+            Assert.False(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(1_000_001.5, 1_000_000.0));
+            Assert.True(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(1_000_000.9, 1_000_000.0));
+        }
+
+        [Fact]
+        public void ParkEndOverrideClocksCoincide_Window0_TrueViaScheduleClocks()
+        {
+            // Window 0 always coincides (parkReplayUT == departureUT == D0), for BOTH the normal span<=synodic
+            // schedule and the divergent span>synodic schedule - so the F2 override applies at window 0 in
+            // every case (the seam-fix window).
+            var normal = PlanKerbinDuna(referenceUT: 100_000.0);
+            Assert.True(normal.Valid, normal.Reason);
+            Assert.True(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(
+                normal.RelaunchUTForWindow(0), normal.DepartureUTForWindow(0)));
+
+            const double bigSpanStart = 0.0, bigSpanEnd = 25_000_000.0;
+            const double bigDeparture = 2_000_000.0, bigTof = 3_000_000.0;
+            var big = ReaimWindowPlanner.Plan(
+                KerbinPeriod, DunaPeriod, bigDeparture, bigTof, bigSpanStart, bigSpanEnd, referenceUT: 0.0);
+            Assert.True(big.Valid, big.Reason);
+            Assert.True(big.CadenceSeconds > big.SynodicPeriodSeconds); // divergent schedule
+            Assert.True(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(
+                big.RelaunchUTForWindow(0), big.DepartureUTForWindow(0))); // still coincides at k=0
+            // But k>=1 of the divergent schedule gates the override OFF (the bounded-fix fallback to Increment-1).
+            Assert.False(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(
+                big.RelaunchUTForWindow(1), big.DepartureUTForWindow(1)));
+        }
+
+        [Fact]
+        public void ParkEndOverrideClocksCoincide_SpanLessThanOrEqualSynodic_TrueAtEveryWindow()
+        {
+            // For a normal span<=synodic mission cadence == synodic, so RelaunchUTForWindow(k) ==
+            // DepartureUTForWindow(k) at EVERY k => the gate is always true => F2 is UNAFFECTED for normal
+            // interplanetary missions (the bounded fix only changes the span>synodic k>=1 case). This reuses
+            // the existing 4000 s span (<< the ~19.6M s synodic) so cadence == synodic.
+            var s = PlanKerbinDuna(referenceUT: 100_000.0);
+            Assert.True(s.Valid, s.Reason);
+            Assert.Equal(s.SynodicPeriodSeconds, s.CadenceSeconds, 3); // span <= synodic => cadence == synodic
+            for (long k = 0; k <= 8; k++)
+                Assert.True(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(
+                    s.RelaunchUTForWindow(k), s.DepartureUTForWindow(k)),
+                    $"clocks must coincide at every window k={k} for a span<=synodic mission (F2 unaffected)");
+        }
+
+        [Fact]
         public void Plan_ReferenceBeforeRecordedDeparture_FirstWindowIsTheRecordedDeparture()
         {
             // A recording dated in the future (e.g. after a career rewind): the first window is the

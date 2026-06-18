@@ -253,8 +253,35 @@ namespace Parsek.Reaim
                 return null; // fail closed to faithful; never the verbatim ~239 deg park, never launch-center r1
             }
 
+            // parkDeltaLonDeg (the #1172 park LAN re-phase) is computed from the anchor decision and applied
+            // at EVERY window REGARDLESS of the clock-coincidence gate below - the park render stays correct
+            // even when the F2 r1 override is gated off. ONLY the F2 SYNTH BUNDLE (r1 override +
+            // BuildParkingCandidateTofs + true-duration render bounds + captureShift) gates on coincidence.
             double parkDeltaLonDeg = anchor.ParkDeltaLonDeg;
-            bool hasDepartureOverride = anchor.Mode == ReaimSegmentAssembler.DepartureAnchorMode.ParkEndOverride;
+
+            // BOUNDED FIX (this task): the park-end r1 anchor is evaluated on the CADENCE clock (parkReplayUT)
+            // while the transfer aims on the SYNODIC clock (nominalDepartureUT == departureUT). They coincide
+            // ONLY at window 0 (and at every window when cadence == synodic, i.e. span <= synodic). When they
+            // diverge (k >= 1 of a span > synodic mission) the park-end override produces a WILD conic
+            // (playtest window 21: ecc 0.82, r1 192 deg around the Sun), so gate the F2 bundle on coincidence
+            // and let the EXISTING code fall back to the tested Increment-1 path (r1 = launch-body center,
+            // BuildCandidateTofs, NaN render bounds, captureShift 0) - a sane Kerbin->Duna conic, NOT wild.
+            // The every-window fix is the deferred Approach A (overlap instances, cadence == synodic); the
+            // naive "move parkReplayUT to the synodic clock" (Approach C) was REJECTED as a #1172 revert (it
+            // re-opens the ~142 deg/loop distant-loiter park teleport).
+            bool anchorWantsOverride = anchor.Mode == ReaimSegmentAssembler.DepartureAnchorMode.ParkEndOverride;
+            bool clocksCoincide = ReaimWindowPlanner.ParkEndOverrideClocksCoincide(parkReplayUT, nominalDepartureUT);
+            bool hasDepartureOverride = anchorWantsOverride && clocksCoincide;
+            if (anchorWantsOverride && !clocksCoincide)
+            {
+                ParsekLog.Verbose("ReaimPlayback",
+                    $"member={memberId} window={windowIndex} park-end override gated off (clocks diverge: " +
+                    $"parkReplayUT={parkReplayUT.ToString("R", ic)} - departUT={nominalDepartureUT.ToString("R", ic)} = " +
+                    $"{(parkReplayUT - nominalDepartureUT).ToString("R", ic)}s, cadence={schedule.CadenceSeconds.ToString("R", ic)} " +
+                    $"synodic={schedule.SynodicPeriodSeconds.ToString("R", ic)}) -> Increment-1 Kerbin-center fallback " +
+                    $"(sane, not wild); #1172 park re-phase still applies (parkDeltaLon={parkDeltaLonDeg.ToString("R", ic)}deg); " +
+                    $"every-window-correct needs Approach A (overlap)");
+            }
             Vector3d parkEndPosUnswizzled = default(Vector3d);
             Vector3d parkEndVelUnswizzled = default(Vector3d);
             double parkEndOffLaunchCenter = double.NaN; // |parkEndPos - launchBody center| (window-0 proof)
@@ -428,7 +455,7 @@ namespace Parsek.Reaim
                 $"devFromRecorded={devFromRecorded.ToString("R", ic)}s devFromGeom={devFromGeom.ToString("R", ic)}s) " +
                 $"soiEntryUT={soiEntryUT.ToString("R", ic)} " +
                 $"encounter={(encounterBody != null ? encounterBody.bodyName : "<none>")} segs={assembled.Count} " +
-                $"departAnchor={(hasDepartureOverride ? "parkEnd" : "launchCenter")} " +
+                $"departAnchor={(hasDepartureOverride ? "parkEnd" : (anchorWantsOverride ? "launchCenter(gated:clocks-diverge,k>=1)" : "launchCenter"))} " +
                 (hasDepartureOverride
                     ? $"parkEndOffLaunchCenter={parkEndOffLaunchCenter.ToString("R", ic)}m (r1 moved off {launchBody.bodyName}; evalUT={anchor.ParkEvalUT.ToString("R", ic)}=RecordedDepartureUT) "
                     : "") +
