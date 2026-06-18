@@ -444,6 +444,11 @@ namespace Parsek.Tests
             Assert.Equal(13560000.0, plan.RecordedDepartureUT, 3);          // the trans-Duna burn, not the park
             Assert.Equal(22944036.0, plan.RecordedArrivalUT, 3);
             Assert.Equal(9384036.0, plan.RecordedTransferTofSeconds, 3);    // transfer leg only (no park)
+            // The SOI exit (the launch-body->Sun handoff = the first heliocentric segment start, 5000) is
+            // BEFORE the trans-Duna departure burn (13560000): the launch alignment repays delta_N here, not
+            // at the departure burn (the park + burn are inertial / rotation-independent and lie after the exit).
+            Assert.Equal(5000.0, plan.RecordedSoiExitUT, 3);
+            Assert.True(plan.RecordedSoiExitUT < plan.RecordedDepartureUT);
         }
 
         [Fact]

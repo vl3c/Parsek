@@ -33,6 +33,15 @@ namespace Parsek.Reaim
         public double RecordedArrivalUT;       // S2 end   = target SOI entry
         public double RecordedTransferTofSeconds; // S2 duration (a nudge seed; the window solves its own tof)
 
+        // The launch-body SOI EXIT UT: the start of the first common-ancestor (Sun) segment, i.e. the
+        // moment the recorded trajectory leaves the launch-body SOI for the heliocentric leg. This is the
+        // boundary the per-loop launch-alignment repay hold is inserted at (docs/dev/design-reaim-launch-hold-seam.md).
+        // For a HELIOCENTRIC PARKING departure (DepartedFromHeliocentricPark==true, e.g. s15) this is
+        // BEFORE RecordedDepartureUT (the trans-target burn from the park); the park + its burn are inertial
+        // (rotation-independent) and lie AFTER the SOI exit, so the repay belongs at the SOI exit, not the
+        // departure burn. For a direct transfer the two coincide.
+        public double RecordedSoiExitUT;
+
         // True when the transfer departs not from the launch-body SOI exit but from a HELIOCENTRIC
         // PARKING orbit (a two-burn departure: escape into a near-circular solar orbit co-orbital with
         // the launch body, coast >= 1 full heliocentric revolution, then burn for the target). The
@@ -260,6 +269,7 @@ namespace Parsek.Reaim
                 RecordedDepartureUT = transferStart.startUT,            // transfer-run start (SOI exit, or the heliocentric-park burn)
                 RecordedArrivalUT = arrival.startUT,                    // target SOI entry
                 RecordedTransferTofSeconds = arrival.startUT - transferStart.startUT,
+                RecordedSoiExitUT = segs[helioIdx].startUT,             // launch-body SOI exit -> first heliocentric segment
                 DepartedFromHeliocentricPark = parkingDeparture
             };
         }
