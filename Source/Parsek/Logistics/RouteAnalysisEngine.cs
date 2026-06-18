@@ -43,7 +43,28 @@ namespace Parsek.Logistics
         /// (<see cref="RouteAnalysisResult.RejectDetail"/>, mirrors
         /// <see cref="UntrackedCargoGain"/>). Append-only value.
         /// </summary>
-        FlowDoesNotClose = 8
+        FlowDoesNotClose = 8,
+        /// <summary>
+        /// M4a documented-limitation rejection (plan D9): an undock -> undock
+        /// shuttle whose route BEGINS between two docks - i.e. inside a pre-dock
+        /// recording - cannot be START-trimmed because a dock MID-recording is
+        /// not a selectable interval boundary in the locked Missions layer
+        /// (composition renders a contiguous <c>[min-start, max-end]</c> window
+        /// per vessel; Missions gap 1). The eventual lift is M-MIS-5.
+        /// <para>
+        /// RESERVED documented-limitation reason: this is the player-facing
+        /// SURFACE text, not (yet) emitted by an analysis detector. In M4a most
+        /// such runs already reject as <see cref="UndockedStartOrigin"/> (they
+        /// start undocked with cargo aboard, no KSC launch / docked-origin
+        /// proof), and the "begins mid-recording between two docks" shape is NOT
+        /// cleanly distinguishable from the general undocked-start case without
+        /// the Missions-side dock-as-interval-boundary detection (M-MIS-5,
+        /// locked). Per plan D9 we add the surfaced reason + formatter text now
+        /// and do not force a fragile detector. Append-only value; parses
+        /// forward-compatibly.
+        /// </para>
+        /// </summary>
+        MidRecordingStartTrimUnsupported = 9
     }
 
     /// <summary>

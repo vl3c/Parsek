@@ -227,6 +227,8 @@ namespace Parsek.Logistics
                     return "This run's cargo does not add up: the transport ended with more of a resource than ever arrived"
                         + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
                         + ". The recorded loads, harvest, and deliveries cannot account for what was left aboard. Re-record so every resource that leaves the transport is matched by a recorded load, harvest, or delivery.";
+                case RouteAnalysisStatus.MidRecordingStartTrimUnsupported:
+                    return "This run starts between two docks. Routes must begin at launch or while docked to the origin; mid-flight start points are not supported yet.";
                 default:
                     return "Route source is not eligible (" + status + ").";
             }
