@@ -36,14 +36,43 @@ namespace Parsek.Reaim
             public double RecordedArrivalUT;    // the boundary above which a PartEvent is "in-capture"
         }
 
-        // Keyed by the member recording id (stable across frames; the committed index can shuffle).
-        private readonly Dictionary<string, CacheEntry> cacheByMember = new Dictionary<string, CacheEntry>();
+        // Keyed by (member recording id, synodic window) - the member id is stable across frames (the
+        // committed index can shuffle) and the window discriminator lets TWO concurrent windows (k and
+        // k+1) coexist for overlapping ghost instances (Approach A). A different window is simply a
+        // different key, so advancing the window no longer self-evicts the prior window's entry (the
+        // old single-slot-per-member cache could hold only ONE window at a time). CacheEntry.Window is
+        // kept (some entries are read back through it for diagnostics), but the tuple KEY is now
+        // authoritative for which window an entry belongs to.
+        private readonly Dictionary<(string memberId, long window), CacheEntry> cacheByMemberWindow =
+            new Dictionary<(string memberId, long window), CacheEntry>();
+
+        // Test-only seam for the (member, window) cache keying / eviction / window-derivation contract.
+        // BuildWindowSegments is Unity-bound (it reads FlightGlobals.Bodies and reconstructs live orbits),
+        // so it cannot run headless; an xUnit test sets this to a pure synthetic builder to exercise the
+        // cache logic + tuple key + eviction band without Unity. NULL in production => the core calls the
+        // real BuildWindowSegments, so the live path is byte-identical (no branch, no behavior change).
+        // The args mirror BuildWindowSegments: (memberId, memberSegments, plan, schedule, window) ->
+        // (segments, captureShiftSeconds). Returning null models a window miss (=> faithful).
+        internal delegate List<OrbitSegment> WindowSegmentsBuilderForTesting(
+            string memberId, IReadOnlyList<OrbitSegment> memberSegments, ReaimMissionPlan plan,
+            ReaimWindowPlanner.ReaimWindowSchedule schedule, long window, out double captureShiftSeconds);
+        internal WindowSegmentsBuilderForTesting BuilderOverrideForTesting;
+
+        // Eviction band half-width (windows): on every insert, drop any of THIS member's cached windows
+        // whose index falls outside [currentWindow - CacheWindowBandHalfWidth, currentWindow +
+        // CacheWindowBandHalfWidth]. The overlap needs at most the current window + the next window
+        // (k and k+1) live at once, so a symmetric +-1 band (3 windows max per member) is the smallest
+        // bound that (a) never evicts a window still needed this frame - the window just inserted is the
+        // band center, so it is always kept - and (b) caps the per-member entry count at a small constant
+        // so a tuple dict cannot leak old windows at high warp between Clear() calls. Per-member: one
+        // member's eviction never touches another member's entries.
+        private const long CacheWindowBandHalfWidth = 1;
 
         /// <summary>Drops all cached window adapters (call when the committed set / missions change so a
         /// stale window adapter cannot survive a recording edit).</summary>
         internal void Clear()
         {
-            cacheByMember.Clear();
+            cacheByMemberWindow.Clear();
         }
 
         /// <summary>
@@ -82,7 +111,10 @@ namespace Parsek.Reaim
                 // geometry when the ghost is watched at the arrival. captureShift is 0 on the direct path /
                 // decline / miss (TryResolveWindowSegments only returns true with a cached resolved entry), so
                 // this is a no-op copy there. Map/TS paths read only OrbitSegments, never these PartEvents.
-                cacheByMember.TryGetValue(memberId, out CacheEntry resolved);
+                // Read the SAME (member, window) entry TryResolveWindowSegments just resolved this frame
+                // (windowIndex is its out-param), not a bare per-member slot - with two windows cached at
+                // once the per-member key alone is ambiguous.
+                cacheByMemberWindow.TryGetValue((memberId, windowIndex), out CacheEntry resolved);
                 List<PartEvent> retimedPartEvents = ReaimSegmentAssembler.ShiftCapturePartEvents(
                     inner.PartEvents, resolved.RecordedArrivalUT, resolved.CaptureShiftSeconds);
                 return new ReaimedTrajectory(inner, segments, retimedPartEvents);
@@ -132,26 +164,113 @@ namespace Parsek.Reaim
             }
             windowIndex = cycleIndex;
 
-            if (!cacheByMember.TryGetValue(memberId, out CacheEntry entry)
-                || !entry.Resolved || entry.Window != cycleIndex)
+            // The window is derived; the lookup/build/cache for (memberId, cycleIndex) is shared with the
+            // explicit-window overload below so the two cannot drift.
+            return TryResolveWindowSegmentsCore(
+                memberId, memberSegments, plan, schedule, cycleIndex, out segments);
+        }
+
+        /// <summary>
+        /// Resolves the re-aimed OrbitSegment list for one re-aim member at an EXPLICIT synodic
+        /// <paramref name="window"/>, SKIPPING the live-clock window derivation that
+        /// <see cref="TryResolveWindowSegments"/> performs. Caches by <c>(memberId, window)</c> with the
+        /// SAME semantics as the currentUT overload (they share <see cref="TryResolveWindowSegmentsCore"/>).
+        /// Returns false (keep the faithful recorded segments) on a window miss / unsupported plan.
+        /// DARK in sub-PR 2: no caller yet (sub-PR 3 calls this to pre-resolve the next overlap window k+1
+        /// independently of the live clock).
+        /// </summary>
+        internal bool TryResolveWindowSegmentsForWindow(
+            string memberId,
+            IReadOnlyList<OrbitSegment> memberSegments,
+            ReaimMissionPlan plan,
+            ReaimWindowPlanner.ReaimWindowSchedule schedule,
+            long window,
+            out List<OrbitSegment> segments)
+        {
+            segments = null;
+            if (!plan.Supported || !schedule.Valid || string.IsNullOrEmpty(memberId))
+                return false;
+
+            // Same cheap pre-check as the currentUT overload: a member with no heliocentric leg in the
+            // transfer window has nothing to re-aim - keep its faithful body-relative segments.
+            if (!ReaimSegmentAssembler.HasHeliocentricLegInWindow(
+                    memberSegments, plan.CommonAncestor, plan.RecordedDepartureUT, plan.RecordedArrivalUT))
+                return false;
+
+            return TryResolveWindowSegmentsCore(
+                memberId, memberSegments, plan, schedule, window, out segments);
+        }
+
+        // Shared lookup/build/cache core for BOTH overloads, keyed by (memberId, window). The currentUT
+        // overload derives the window from the live clock first; the explicit-window overload passes it
+        // straight through. Factoring this here keeps the two overloads byte-identical in caching +
+        // building semantics (they cannot drift). BuildWindowSegments is pure in its window argument
+        // (it reads schedule.DepartureUTForWindow(window) etc.), so an explicit window resolves the same
+        // geometry the currentUT path would at a UT mapping to that window.
+        private bool TryResolveWindowSegmentsCore(
+            string memberId,
+            IReadOnlyList<OrbitSegment> memberSegments,
+            ReaimMissionPlan plan,
+            ReaimWindowPlanner.ReaimWindowSchedule schedule,
+            long window,
+            out List<OrbitSegment> segments)
+        {
+            segments = null;
+
+            var key = (memberId, window);
+            if (!cacheByMemberWindow.TryGetValue(key, out CacheEntry entry) || !entry.Resolved)
             {
-                List<OrbitSegment> built = BuildWindowSegments(
-                    memberId, memberSegments, plan, schedule, cycleIndex, out double captureShiftSeconds);
+                // BuilderOverrideForTesting is null in production => the real (Unity-bound) builder runs,
+                // byte-identical to before; only headless tests swap in a pure synthetic builder.
+                double captureShiftSeconds;
+                List<OrbitSegment> built = BuilderOverrideForTesting != null
+                    ? BuilderOverrideForTesting(
+                        memberId, memberSegments, plan, schedule, window, out captureShiftSeconds)
+                    : BuildWindowSegments(
+                        memberId, memberSegments, plan, schedule, window, out captureShiftSeconds);
                 entry = new CacheEntry
                 {
-                    Window = cycleIndex,
+                    Window = window,
                     Resolved = true,
                     Segments = built,
                     CaptureShiftSeconds = captureShiftSeconds,
                     RecordedArrivalUT = plan.RecordedArrivalUT
                 };
-                cacheByMember[memberId] = entry;
+                cacheByMemberWindow[key] = entry;
+                // Cap the dict: drop THIS member's windows outside the +-CacheWindowBandHalfWidth band
+                // around the window just inserted (the band center is always kept). Per-member so another
+                // member's entries are untouched. Runs only on an insert (window advance), not per frame.
+                EvictStaleWindowsForMember(memberId, window);
             }
 
             if (entry.Segments == null)
                 return false; // window miss (cached) => faithful
             segments = entry.Segments;
             return true;
+        }
+
+        // Drops cached entries for THIS member whose window is outside the symmetric band
+        // [centerWindow - CacheWindowBandHalfWidth, centerWindow + CacheWindowBandHalfWidth]. Other
+        // members' entries are never inspected or removed. The center window (just inserted) is inside
+        // the band, so it is never evicted. Bounded scan: the dict holds at most a few windows per
+        // member between Clear()s, and the band keeps it that way.
+        private void EvictStaleWindowsForMember(string memberId, long centerWindow)
+        {
+            long lo = centerWindow - CacheWindowBandHalfWidth;
+            long hi = centerWindow + CacheWindowBandHalfWidth;
+            List<(string memberId, long window)> stale = null;
+            foreach (var kvp in cacheByMemberWindow)
+            {
+                if (kvp.Key.memberId != memberId)
+                    continue; // per-member: never evict another member's window
+                long w = kvp.Key.window;
+                if (w < lo || w > hi)
+                    (stale ?? (stale = new List<(string, long)>())).Add(kvp.Key);
+            }
+            if (stale == null)
+                return;
+            for (int i = 0; i < stale.Count; i++)
+                cacheByMemberWindow.Remove(stale[i]);
         }
 
         // Synthesizes the window transfer and replaces the member's heliocentric leg with it. Returns null
