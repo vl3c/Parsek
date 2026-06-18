@@ -889,5 +889,103 @@ namespace Parsek.Tests
                     BP("bpc", BranchPointType.Breakup, new[] { "b" }, new[] { "c" })
                 });
         }
+
+        // =====================================================================
+        // Approach-A re-aim SELF-OVERLAP cadence flip (sub-PR 1, DARK)
+        // ShouldFlipToSelfOverlapCadence decision + the OverlapCadenceSeconds lever.
+        // =====================================================================
+
+        // s15-shaped values: span 23.285e6 > synodic 19.646e6, cadence floor span/20 << synodic.
+        private const double S15Span = 23.285e6;
+        private const double S15Synodic = 19.646e6;
+
+        [Fact]
+        public void ShouldFlip_AllConditionsMet_ReturnsTrue()
+        {
+            // flag=true, !pad, supported, departedFromPark, span>synodic => true.
+            Assert.True(MissionLoopUnitBuilder.ShouldFlipToSelfOverlapCadence(
+                flagEnabled: true, padApplied: false, planSupported: true,
+                departedFromHeliocentricPark: true, span: S15Span, synodicSeconds: S15Synodic));
+        }
+
+        [Fact]
+        public void ShouldFlip_FlagDisabled_ReturnsFalse()
+        {
+            // The DARK invariant: with the production-default flag off, the flip never fires
+            // (every other condition met), so builder output is byte-identical.
+            Assert.False(MissionLoopUnitBuilder.ShouldFlipToSelfOverlapCadence(
+                flagEnabled: false, padApplied: false, planSupported: true,
+                departedFromHeliocentricPark: true, span: S15Span, synodicSeconds: S15Synodic));
+        }
+
+        [Fact]
+        public void ShouldFlip_PadApplied_ReturnsFalse()
+        {
+            // Defense-in-depth: never flip a pad-aligned unit.
+            Assert.False(MissionLoopUnitBuilder.ShouldFlipToSelfOverlapCadence(
+                flagEnabled: true, padApplied: true, planSupported: true,
+                departedFromHeliocentricPark: true, span: S15Span, synodicSeconds: S15Synodic));
+        }
+
+        [Fact]
+        public void ShouldFlip_PlanNotSupported_ReturnsFalse()
+        {
+            Assert.False(MissionLoopUnitBuilder.ShouldFlipToSelfOverlapCadence(
+                flagEnabled: true, padApplied: false, planSupported: false,
+                departedFromHeliocentricPark: true, span: S15Span, synodicSeconds: S15Synodic));
+        }
+
+        [Fact]
+        public void ShouldFlip_NotDepartedFromPark_ReturnsFalse()
+        {
+            Assert.False(MissionLoopUnitBuilder.ShouldFlipToSelfOverlapCadence(
+                flagEnabled: true, padApplied: false, planSupported: true,
+                departedFromHeliocentricPark: false, span: S15Span, synodicSeconds: S15Synodic));
+        }
+
+        [Fact]
+        public void ShouldFlip_SpanNotGreaterThanSynodic_ReturnsFalse()
+        {
+            // span <= synodic: the cadence already equals synodic, nothing to flip.
+            Assert.False(MissionLoopUnitBuilder.ShouldFlipToSelfOverlapCadence(
+                flagEnabled: true, padApplied: false, planSupported: true,
+                departedFromHeliocentricPark: true, span: S15Synodic, synodicSeconds: S15Synodic));
+        }
+
+        [Fact]
+        public void SelfOverlapCadence_ResolvesToSynodic_ForS15Shape()
+        {
+            // The flip drops effectiveOverlapCadence to ComputeEffectiveLaunchCadence(synodic, span, cap).
+            // For s15 the cap floor (span/20 ~= 1.164e6) is far below synodic, so the result IS synodic.
+            double flipped = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                S15Synodic, S15Span, 20);
+            Assert.Equal(S15Synodic, flipped, 3);
+            Assert.True(S15Span / 20.0 < S15Synodic, "cap floor must be below synodic for this shape");
+        }
+
+        [Fact]
+        public void OverlapLever_SynodicMakesUnitOverlap_MaxSpanSynodicDoesNot()
+        {
+            // The OVERLAP cadence is the sole UnitMemberOverlaps lever:
+            //   OverlapCadenceSeconds == synodic (< span)        => UnitMemberOverlaps true  (self-overlap path)
+            //   OverlapCadenceSeconds == max(span, synodic)(>=span) => UnitMemberOverlaps false (single-instance / #1174 branch)
+            var overlapUnit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 0.0, spanEndUT: S15Span,
+                cadenceSeconds: Math.Max(S15Span, S15Synodic), // playback cadence stays max(span,synodic)
+                phaseAnchorUT: 0.0,
+                overlapCadenceSeconds: S15Synodic,             // overlap cadence flipped to synodic
+                memberWindows: null, relaunchSchedule: null);
+            Assert.True(GhostPlaybackLogic.UnitMemberOverlaps(overlapUnit));
+
+            var singleUnit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 0.0, spanEndUT: S15Span,
+                cadenceSeconds: Math.Max(S15Span, S15Synodic),
+                phaseAnchorUT: 0.0,
+                overlapCadenceSeconds: Math.Max(S15Span, S15Synodic), // pre-flip: >= span
+                memberWindows: null, relaunchSchedule: null);
+            Assert.False(GhostPlaybackLogic.UnitMemberOverlaps(singleUnit));
+        }
     }
 }

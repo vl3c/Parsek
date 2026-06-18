@@ -23,6 +23,22 @@ namespace Parsek
         internal static bool SuppressLogging;
 
         /// <summary>
+        /// Approach-A re-aim SELF-OVERLAP decision (sub-PR 1). Pure so it is unit-testable headless with
+        /// the flag passed in (the compile-time const cannot be toggled at runtime). True only when the
+        /// rollout flag is on AND the unit is an unscheduled (pad NOT applied) re-aim-supported looping
+        /// heliocentric-PARKING departure whose recorded span exceeds the synodic period - the exact
+        /// span>synodic shape (s15) whose max(span,synodic) cadence makes only window 0 correct. Flipping
+        /// the OVERLAP cadence to synodic for this shape makes
+        /// <see cref="GhostPlaybackLogic.UnitMemberOverlaps"/> true. The pad.Applied exclusion is
+        /// defense-in-depth: a pad-aligned unit is already globally aligned and must never flip.
+        /// </summary>
+        internal static bool ShouldFlipToSelfOverlapCadence(
+            bool flagEnabled, bool padApplied, bool planSupported,
+            bool departedFromHeliocentricPark, double span, double synodicSeconds)
+            => flagEnabled && !padApplied && planSupported && departedFromHeliocentricPark
+               && span > synodicSeconds;
+
+        /// <summary>
         /// Builds the LoopUnitSet for every looping Mission (one unit per Mission). Multiple Missions
         /// loop concurrently - at most one per tree (enforced by MissionStore), so their committed
         /// indices are disjoint and each Mission owns its own span clock. Returns
@@ -547,6 +563,40 @@ namespace Parsek
                                         $"cadence={effectiveCadence.ToString("R", pic)} " +
                                         $"(launch-recLaunch)/day=" +
                                         $"{((phaseAnchorUT - spanStartUT) / launchRotationPeriod).ToString("F3", pic)}");
+                                }
+                            }
+
+                            // Approach-A re-aim SELF-OVERLAP cadence flip (sub-PR 1, DARK behind a
+                            // default-OFF compile-time const). A span>synodic looping heliocentric-parking
+                            // departure has cadence = max(span, synodic) != synodic, so the transfer (synodic
+                            // clock) and park/capture (cadence clock) diverge and only window 0 is correct.
+                            // Dropping ONLY the OVERLAP cadence to synodic flips
+                            // UnitMemberOverlaps(span>0 && OverlapCadenceSeconds<span) to true, routing the
+                            // unit OUT of the #1174 launch-hold-secondary (!UnitMemberOverlaps) branch and INTO
+                            // the per-instance self-overlap path so the mission relaunches on the synodic
+                            // clock. effectiveCadence (the playback/span cadence) STAYS max(span,synodic) - the
+                            // OVERLAP cadence is the sole UnitMemberOverlaps lever. The gate also excludes
+                            // pad.Applied (defense-in-depth: never flip a pad-aligned unit). With
+                            // ReaimSelfOverlapEnabled == false (production default) this never runs and builder
+                            // output is byte-identical; the per-frame body-following overlap refresh + the
+                            // #1174 launch-hold rotation port land in sub-PR 3 before the flag flips.
+                            if (ShouldFlipToSelfOverlapCadence(GhostPlayback.ReaimSelfOverlapEnabled, pad.Applied,
+                                    plan.Supported, plan.DepartedFromHeliocentricPark, span, sched.SynodicPeriodSeconds))
+                            {
+                                double preFlipOverlapCadence = effectiveOverlapCadence;
+                                effectiveOverlapCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                                    sched.SynodicPeriodSeconds, span, GhostPlayback.MaxOverlapMissionInstances);
+                                if (!SuppressLogging)
+                                {
+                                    var sic = CultureInfo.InvariantCulture;
+                                    ParsekLog.Info("Reaim",
+                                        $"MissionLoopUnit: mission='{mission.Name}' SELF-OVERLAP cadence flip: " +
+                                        $"effectiveOverlapCadence={effectiveOverlapCadence.ToString("R", sic)}=synodic " +
+                                        $"(was {preFlipOverlapCadence.ToString("R", sic)}); " +
+                                        $"effectiveCadence={effectiveCadence.ToString("R", sic)} UNCHANGED; " +
+                                        "UnitMemberOverlaps now true; unit swaps OUT of the #1174 " +
+                                        "launch-hold-secondary branch into the self-overlap path - sub-PR 3 must " +
+                                        "port the launch rotation alignment");
                                 }
                             }
 

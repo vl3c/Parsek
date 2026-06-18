@@ -64,6 +64,10 @@ All notable changes to Parsek are documented here.
 - On a tightly-packed looped re-aim launch (where the next launch lifts off as a second ghost while the previous one is still arriving), that second ghost now draws its forward trajectory too: the takeoff/ascent line and the escape trajectory ahead of its icon appear at launch, instead of only the icon and the orbit it has already reached showing up. The forward path was being dropped because the launch recording was skipped whenever the earlier ghost had moved on to the destination.
 - A launch recorded as two back-to-back ascent legs (pad climb then continuation to orbit) no longer draws a stray curved connector from the first leg straight to the escape orbit, shortcutting over the continuation leg; only the ascent leg that actually meets the escape orbit connects to it.
 
+### Internals
+
+- Re-aim Approach-A sub-PR 1 (dark, no behavior change): the mission loop builder can flip a span>synodic heliocentric-parking re-aim unit's overlap cadence to the synodic period, routing it onto the self-overlap path, behind the default-off `GhostPlayback.ReaimSelfOverlapEnabled` compile-time flag. Disabled by default, so builder output is byte-identical; the flag stays off until the per-frame body-following overlap refresh and launch-hold rotation port land.
+
 ---
 
 ## 0.10.1
