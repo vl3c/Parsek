@@ -1190,8 +1190,11 @@ namespace Parsek.Tests
         [Fact]
         public void WalkInclusion_PrimaryRendersSecondaryLive_WalkBoth()
         {
-            // The total-table edge (not reached today, since hasSecondary requires the engaged zero-slack
-            // loop where the primary is hidden during the borrow window): both heads contribute.
+            // REACHED in the single-recording validated case (review H1): when the launch member's window
+            // is the whole recording, during the borrow window the primary (instance N near the
+            // destination) is still in-window (primaryRenders=true) AND the secondary (N+1 ascent) is live,
+            // so BOTH passes run for the same recording in one frame. That is exactly why the forward-arc
+            // cache had to be namespaced per (recording, primary/secondary) - see ForwardArcDictKey_*.
             GhostTrajectoryPolylineRenderer.DecidePolylineWalkInclusion(
                 primaryRenders: true, hasSecondary: true,
                 out bool skip, out bool drawPrimary, out bool drawSecondary);
@@ -1199,6 +1202,51 @@ namespace Parsek.Tests
             Assert.False(skip);
             Assert.True(drawPrimary);
             Assert.True(drawSecondary);
+        }
+
+        // === Review H1: forward-arc cache namespace (primary vs boundary-overlap secondary) ===========
+        // During the borrow window the Driver runs the forward pass twice for the SAME recording in one
+        // frame (primary head + early-launch secondary head). The two heads select disjoint arc sets, so a
+        // single recording-id cache key made the second pass overwrite the first (the primary's forward
+        // conic then vanished). ForwardArcDictKey namespaces the secondary so both coexist.
+
+        [Fact]
+        public void ForwardArcDictKey_Primary_IsRecordingIdVerbatim()
+        {
+            // The primary pass keeps the recording id verbatim, so every non-launch-hold member / aligned
+            // loop is byte-identical to the pre-fix cache key.
+            Assert.Equal("rec-abc", GhostTrajectoryPolylineRenderer.ForwardArcDictKey("rec-abc", false));
+        }
+
+        [Fact]
+        public void ForwardArcDictKey_Secondary_IsDistinctFromPrimary()
+        {
+            string primary = GhostTrajectoryPolylineRenderer.ForwardArcDictKey("rec-abc", false);
+            string secondary = GhostTrajectoryPolylineRenderer.ForwardArcDictKey("rec-abc", true);
+            Assert.NotEqual(primary, secondary);
+            // The secondary key must START with the recording id (so it is recognizably the same recording)
+            // but differ, so the two ForwardArcSet entries coexist in the cache within one frame.
+            Assert.StartsWith("rec-abc", secondary);
+        }
+
+        [Fact]
+        public void ForwardArcDictKey_DistinctRecordings_SecondaryKeysNeverCollide()
+        {
+            // The secondary suffix must not let one recording's secondary key equal another recording's
+            // primary key (the control-char suffix guarantees this even for prefix-related ids).
+            string secAbc = GhostTrajectoryPolylineRenderer.ForwardArcDictKey("abc", true);
+            Assert.NotEqual("abc", secAbc);
+            Assert.NotEqual(
+                GhostTrajectoryPolylineRenderer.ForwardArcDictKey("abc", true),
+                GhostTrajectoryPolylineRenderer.ForwardArcDictKey("abcd", false));
+        }
+
+        [Fact]
+        public void ForwardArcDictKey_NullOrEmpty_PassesThrough()
+        {
+            // A null/empty recording id is never namespaced (the create early-returns on it anyway).
+            Assert.Null(GhostTrajectoryPolylineRenderer.ForwardArcDictKey(null, true));
+            Assert.Equal("", GhostTrajectoryPolylineRenderer.ForwardArcDictKey("", true));
         }
 
         // Adds an Absolute (ref=0) Duna section with `count` frames evenly spaced

@@ -2317,6 +2317,31 @@ namespace Parsek
                 return;
             }
 
+            // BOUNDARY-OVERLAP secondary decision (docs/dev/plan-launch-boundary-overlap.md 3.1/3.2),
+            // HOISTED above the (3) hide/destroy block (review H2). Resolve whether this member carries a
+            // live boundary-overlap secondary (the early-launching NEXT instance N+1) BEFORE the primary's
+            // out-of-window early returns below, because in a CHAIN launch member the primary (the continuing
+            // instance N) is months downstream near the destination - OUTSIDE this member's window - while the
+            // secondary is mid-ascent IN this member's window. If the decision stayed below the (3) block, the
+            // primary's HiddenOutsideWindow / HiddenInterCycleTail early return tore down overlapGhosts[i] (the
+            // secondary's 3D mesh) before it was ever dispatched. NoSecondary (every aligned loop /
+            // non-launch-hold member / single-recording launch whose primary IS in-window) leaves the (3)
+            // block byte-identical.
+            var boundarySecondaryDecision = GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.NoSecondary;
+            double boundarySecondaryLoopUT = unit.SpanStartUT;
+            long boundarySecondaryCycle = 0;
+            if (unit.LaunchHoldEngaged)
+            {
+                boundarySecondaryDecision = GhostPlaybackLogic.DecideBoundaryOverlapSecondaryRender(
+                    ctx.currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                    memberStartUT, memberEndUT, out boundarySecondaryLoopUT, out boundarySecondaryCycle,
+                    unit.RelaunchSchedule, unit.LoiterCuts,
+                    unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+            }
+            bool boundarySecondaryLive =
+                boundarySecondaryDecision == GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render;
+
             // (3) Not in THIS member's window (the shared clock is outside [StartUT, EndUT]), or in
             // the inter-cycle tail-wait (cadence greater than span): hide / destroy THIS member's ghost.
             if (decision != GhostPlaybackLogic.UnitMemberRenderDecision.Render)
@@ -2343,6 +2368,33 @@ namespace Parsek
                         5.0);
                 }
                 GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "mission-loop-unit-inactive");
+
+                // H2 (launch->escape seam render): a live boundary-overlap SECONDARY occupies
+                // overlapGhosts[i] even though the PRIMARY is OUTSIDE this member's window - the CHAIN case
+                // where the launch member spans two recordings and the continuing instance N is months
+                // downstream near the destination while the early-launching N+1 is mid-ascent in this
+                // member's window. Hide the primary mesh but DRIVE the secondary instead of tearing it down
+                // with the rest of the overlap storage: the secondary dispatch (7) sits AFTER this early
+                // return, so without this the secondary's 3D mesh is destroyed before it is ever positioned
+                // (flight 3D shows icon + trajectory but no ghost mesh during the borrow window). The primary
+                // is hidden, not destroyed, so a watching camera stays parented to a live (hidden) ghost
+                // exactly like the keep-watched-owner-alive fallback below. NoSecondary (every aligned loop /
+                // non-launch-hold member / single-recording launch whose primary IS in-window) skips this and
+                // takes the unchanged teardown below.
+                if (boundarySecondaryLive)
+                {
+                    if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                    {
+                        state.ghost.SetActive(false);
+                        ResetGhostAppearanceTracking(state);
+                    }
+                    UpdateBoundaryOverlapSecondary(
+                        i, traj, f, ctx, suppressGhosts, suppressVisualFx,
+                        boundarySecondaryLoopUT, boundarySecondaryCycle);
+                    CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
+                    return;
+                }
+
                 // Keep-watched-owner-alive fallback (design D5): if this hidden member is the one the
                 // camera is watching, hide its ghost WITHOUT destroying it so the camera never ends
                 // up parented to a deactivated/destroyed ghost even if the UnitHandoffRetarget to the
@@ -2440,25 +2492,8 @@ namespace Parsek
                 return;
             }
 
-            // BOUNDARY-OVERLAP secondary decision (docs/dev/plan-launch-boundary-overlap.md 3.1/3.2): resolve
-            // whether this member carries a live boundary-overlap secondary (the early-launching NEXT instance
-            // N+1) this frame, BEFORE the overlap teardown below so the teardown can be GATED on it. On an
-            // already-aligned (slack>0) loop / a not-engaged member this is NoSecondary, so the teardown below is
-            // byte-identical to today (unconditional clear). The secondary is dispatched AFTER the primary render.
-            var boundarySecondaryDecision = GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.NoSecondary;
-            double boundarySecondaryLoopUT = unit.SpanStartUT;
-            long boundarySecondaryCycle = 0;
-            if (unit.LaunchHoldEngaged)
-            {
-                boundarySecondaryDecision = GhostPlaybackLogic.DecideBoundaryOverlapSecondaryRender(
-                    ctx.currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
-                    memberStartUT, memberEndUT, out boundarySecondaryLoopUT, out boundarySecondaryCycle,
-                    unit.RelaunchSchedule, unit.LoiterCuts,
-                    unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
-                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
-            }
-            bool boundarySecondaryLive =
-                boundarySecondaryDecision == GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render;
+            // (boundarySecondaryDecision / boundarySecondaryLive / boundarySecondaryLoopUT /
+            // boundarySecondaryCycle are resolved ABOVE, hoisted over the (3) hide/destroy block - review H2.)
 
             // The shared clock never produces self-overlap cycles (one cycle live), so a unit member should never
             // carry SELF-overlap ghosts. Clear any stale ones left over from a prior standalone overlap-loop life

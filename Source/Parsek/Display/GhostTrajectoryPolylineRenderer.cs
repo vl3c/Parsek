@@ -119,6 +119,23 @@ namespace Parsek.Display
         private static readonly Dictionary<string, ForwardArcSet> forwardArcCache =
             new Dictionary<string, ForwardArcSet>(StringComparer.Ordinal);
 
+        // BOUNDARY-OVERLAP forward-arc namespace (launch->escape seam render, review H1): forwardArcCache is
+        // keyed by recording id, but during the borrow window of a zero-slack re-aim launch loop the Driver
+        // runs the forward pass TWICE for the SAME recording in one frame - the PRIMARY at the through-line
+        // head (e.g. the Duna approach) then the SECONDARY at the early-launch head (the Kerbin ascent +
+        // escape). The two heads select DISJOINT arc sets, so a single recording-id key made the second pass
+        // overwrite the first's cached arcs (destroying its VectorLines), and the first pass's already-enqueued
+        // PendingForwardArcDraw indices then read the wrong array (out-of-range -> the primary's forward conic
+        // vanished). The secondary's arcs live under recordingId + this suffix so BOTH coexist within one
+        // frame. The suffix uses a control char no real recording id contains. The primary path is unchanged
+        // (key == recordingId), so every non-launch-hold member / aligned loop is byte-identical.
+        private const string ForwardSecondaryCacheSuffix = "bsec";
+
+        internal static string ForwardArcDictKey(string recordingId, bool boundaryOverlapSecondary)
+            => (boundaryOverlapSecondary && !string.IsNullOrEmpty(recordingId))
+                ? recordingId + ForwardSecondaryCacheSuffix
+                : recordingId;
+
         // Reusable scratch buffer for OrbitArcSampler.SampleSegmentArc output (body-LOCAL points). The
         // sampler fills it transiently and RefreshForwardArcs copies the body-relative offsets out into each
         // arc's own array before the next sample, so a single shared buffer is safe (the map render loop is
@@ -707,10 +724,15 @@ namespace Parsek.Display
             if (polylineCache.TryGetValue(recordingId, out var set))
                 DestroyLegLines(set.legs);
             // Forward-arc lines for this recording (Step 3 C): destroyed + dropped on the SAME lifecycle as
-            // the legs so a reused RecordingId never inherits a stale wrong-aimed forward arc.
+            // the legs so a reused RecordingId never inherits a stale wrong-aimed forward arc. The
+            // boundary-overlap secondary (review H1) keeps its arcs under a namespaced key, released here too.
             if (forwardArcCache.TryGetValue(recordingId, out var fwd))
                 DestroyForwardArcLines(fwd.arcs);
             forwardArcCache.Remove(recordingId);
+            string fwdSecKey = ForwardArcDictKey(recordingId, true);
+            if (forwardArcCache.TryGetValue(fwdSecKey, out var fwdSec))
+                DestroyForwardArcLines(fwdSec.arcs);
+            forwardArcCache.Remove(fwdSecKey);
             // Seam-bridge lines (playtest 6/7): same lifecycle as the forward arcs they connect to.
             // Keys are (recordingId|legIndex|side); collect the recording's keys first (cannot mutate
             // while enumerating). The conic-sample cache entries for this recording drop too (cheap to
@@ -2405,8 +2427,11 @@ namespace Parsek.Display
         ///
         /// Decision table (skip / drawPrimaryLegs / drawSecondaryLegs):
         /// - primaryRenders &amp;&amp; !hasSecondary  -&gt; walk, primary only (the common case, byte-identical)
-        /// - primaryRenders &amp;&amp;  hasSecondary  -&gt; walk, primary + secondary (a slack&gt;0 edge; not reached
-        ///   today because hasSecondary requires the engaged zero-slack loop, but the table is total)
+        /// - primaryRenders &amp;&amp;  hasSecondary  -&gt; walk, primary + secondary. REACHED in the single-recording
+        ///   validated case (review H1): the launch member's window is the whole recording, so during the
+        ///   borrow window the primary (instance N near the destination) is still in-window AND the
+        ///   secondary (N+1 ascent) is live, so BOTH forward passes run for the SAME recording in one frame
+        ///   - which is why the forward-arc cache is namespaced per primary/secondary (ForwardArcDictKey).
         /// - !primaryRenders &amp;&amp;  hasSecondary -&gt; walk, secondary ONLY (the fix: launch ascent renders while
         ///   the primary is at the destination)
         /// - !primaryRenders &amp;&amp; !hasSecondary -&gt; SKIP (the old renderHidden skip, unchanged)
@@ -3389,9 +3414,13 @@ namespace Parsek.Display
                     // during the borrow window. The primary head (instance N, far downstream / near the destination)
                     // and the secondary head (instance N+1, in-SOI ascent) select DISJOINT legs because they are
                     // months apart in recorded-span phase, so the two heads draw two different legs at two different
-                    // places. The secondary's leg is enqueued keyed on the SECONDARY ghost pid (its proto orbit line
-                    // is hidden when its leg draws) and is EXCLUDED from anyDrawn / drewNonOrbitalLegRecordings (the
-                    // primary owns the ownership publish). Same-leg defensive guard: if both heads land in the same
+                    // places. The secondary's leg carries the SECONDARY ghost pid for symmetry with the primary's
+                    // owned-leg path, but the leg is NON-owned (ownedByTreatment=false below), so the pid is INERT
+                    // here - only TryDrawOwnedLeg consumes PendingLegDraw.ghostPid; TryDrawLeg ignores it. The
+                    // secondary's own proto orbit line is hidden by the map-presence path (its overlap-instance
+                    // ProtoVessel), NOT by this leg's pid. The leg is EXCLUDED from anyDrawn /
+                    // drewNonOrbitalLegRecordings (the primary owns the ownership publish). Same-leg defensive
+                    // guard: if both heads land in the same
                     // leg (impossible for an interplanetary transfer - the heliocentric tof is months), draw only the
                     // primary's leg. Inert (hasSecondaryHead false) for every non-launch-hold member / aligned loop.
                     // Resolved once for BOTH the secondary second-head leg pass and the secondary forward pass
@@ -3419,8 +3448,10 @@ namespace Parsek.Display
                                 continue;
                             // Additive, NON-ownership leg (mirrors the forward-additive mechanism): the
                             // boundary-overlap secondary leg is NOT owned-by-treatment (it is the raw in-SOI ascent
-                            // leg the Driver draws directly) and does NOT publish ownership. Keyed on the secondary
-                            // ghost pid so its own proto orbit line is hidden when this leg draws.
+                            // leg the Driver draws directly) and does NOT publish ownership. It carries the secondary
+                            // ghost pid for symmetry, but TryDrawLeg ignores ghostPid on this NON-owned path (only
+                            // TryDrawOwnedLeg consumes it); the secondary's proto orbit line is hidden by the
+                            // map-presence path, not by this field.
                             pendingDraws.Add(new PendingLegDraw
                             {
                                 recordingId = rec.RecordingId,
@@ -4503,10 +4534,14 @@ namespace Parsek.Display
                         // cached arc set. The selected indices fully determine the sampled geometry for a
                         // given re-aim window.
                         string cacheKey = BuildForwardArcKey(arcIndices, chainRunMemberReaimScratch[mi]);
+                        // H1: the boundary-overlap secondary forward pass writes/reads under a namespaced key
+                        // so it never overwrites the primary's same-recording arcs within one frame. The
+                        // PendingForwardArcDraw stores the dictKey so the draw pass reads the right arc set.
+                        string dictKey = ForwardArcDictKey(member.rec.RecordingId, boundaryOverlapSecondary);
                         RefreshForwardArcs(
-                            scene, member.rec.RecordingId, memberCoalesced, arcIndices, cacheKey);
+                            scene, member.rec.RecordingId, memberCoalesced, arcIndices, cacheKey, dictKey);
 
-                        if (forwardArcCache.TryGetValue(member.rec.RecordingId, out var fset)
+                        if (forwardArcCache.TryGetValue(dictKey, out var fset)
                             && fset.arcs != null)
                         {
                             for (int a = 0; a < fset.arcs.Length; a++)
@@ -4514,7 +4549,7 @@ namespace Parsek.Display
                                 if (fset.arcs[a].vectorLine == null) continue;
                                 pendingForwardArcs.Add(new PendingForwardArcDraw
                                 {
-                                    recordingId = member.rec.RecordingId,
+                                    recordingId = dictKey,
                                     arcIndex = a,
                                     drawEndIndex = -1,
                                 });
@@ -4804,12 +4839,17 @@ namespace Parsek.Display
             /// </summary>
             private void RefreshForwardArcs(
                 GameScenes scene, string recordingId, List<OrbitSegment> segments,
-                List<int> arcIndices, string cacheKey)
+                List<int> arcIndices, string cacheKey, string dictKey)
             {
                 if (string.IsNullOrEmpty(recordingId) || segments == null || arcIndices == null)
                     return;
 
-                if (forwardArcCache.TryGetValue(recordingId, out var existing)
+                // dictKey is the forwardArcCache dictionary key (== recordingId for the primary pass; a
+                // namespaced key for the boundary-overlap secondary, review H1). recordingId stays the
+                // geometry/VectorLine-name/log identity. Defensive: treat a null dictKey as the recording id.
+                if (string.IsNullOrEmpty(dictKey)) dictKey = recordingId;
+
+                if (forwardArcCache.TryGetValue(dictKey, out var existing)
                     && string.Equals(existing.cacheKey, cacheKey, StringComparison.Ordinal))
                 {
                     // Cache hit: same element / body / re-aim window. Rotating-frame staleness
@@ -4829,7 +4869,7 @@ namespace Parsek.Display
                             else faults++;
                         }
                         existing.captureInverseRotAngle = liveRot;
-                        forwardArcCache[recordingId] = existing;
+                        forwardArcCache[dictKey] = existing;
                         ParsekLog.VerboseRateLimited(DriverTag, "fwd-arc-rot-resample." + recordingId,
                             string.Format(System.Globalization.CultureInfo.InvariantCulture,
                                 "Forward-arc rotating-frame resample: rec={0} arcs={1} faults={2}",
@@ -4840,7 +4880,7 @@ namespace Parsek.Display
                 }
 
                 // Key changed: destroy the prior arc lines before rebuilding.
-                if (forwardArcCache.TryGetValue(recordingId, out var stale))
+                if (forwardArcCache.TryGetValue(dictKey, out var stale))
                     DestroyForwardArcLines(stale.arcs);
 
                 var arcs = new List<ForwardArc>(arcIndices.Count);
@@ -4899,7 +4939,9 @@ namespace Parsek.Display
                         endUT = seg.endUT,
                         bodyRelOffsets = rel,
                         scratchScaledSpace = new Vector3[cnt],
-                        vectorLine = BuildForwardArcVectorLine(recordingId, sampled, cnt),
+                        // Name on dictKey so the secondary's VectorLines do not collide with the primary's
+                        // (same recording id, two coexisting arc sets within one frame, review H1).
+                        vectorLine = BuildForwardArcVectorLine(dictKey, sampled, cnt),
                         lastDrawnFrame = -1,
                         lineMode = MapLineUses3D() ? 1 : 2,
                         sourceSegment = seg,
@@ -4909,7 +4951,7 @@ namespace Parsek.Display
                     sampled++;
                 }
 
-                forwardArcCache[recordingId] = new ForwardArcSet
+                forwardArcCache[dictKey] = new ForwardArcSet
                 {
                     arcs = arcs.ToArray(),
                     cacheKey = cacheKey,

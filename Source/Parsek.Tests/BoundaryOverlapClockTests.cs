@@ -397,5 +397,90 @@ namespace Parsek.Tests
                 Assert.False(hasSecondary, $"aligned unit must never expose a secondary (t={t})");
             }
         }
+
+        // === Test 5: TryResolveBoundaryOverlapSecondaryMarker - the additive-marker gate ============
+        // The map-marker wiring helper that decides whether to draw the secondary's pre-Segment ascent
+        // icon riding the polyline. It gates (map surface, non-debris, non-null) then delegates the
+        // live-secondary question to ResolveTrackingStationSampleFrame.
+
+        private static Recording ZRec()
+            => new Recording { RecordingId = "z", VesselName = "Z", ExplicitStartUT = ZS0, ExplicitEndUT = ZS1 };
+
+        [Fact]
+        public void SecondaryMarker_InBorrowWindow_DrawsAtSecondaryHead()
+        {
+            var units = BuildZeroSlackUnit();
+            double advNext = ZRawDelta(2);
+            double inBorrowUT = ZAnchor + 1 * ZCad + (ZCad - advNext) + 50.0;
+
+            bool draw = GhostMapPresence.TryResolveBoundaryOverlapSecondaryMarker(
+                isMapSurface: true, ZRec(), 0, inBorrowUT, units,
+                out double secondaryUT, out long secondaryCycle);
+
+            Assert.True(draw, "the borrow window must surface the secondary's ascent marker");
+            Assert.Equal(2, secondaryCycle);
+            Assert.True(secondaryUT >= ZS0 - Tol && secondaryUT <= ZS1 + Tol);
+        }
+
+        [Fact]
+        public void SecondaryMarker_NonMapSurface_NeverDraws()
+        {
+            var units = BuildZeroSlackUnit();
+            double advNext = ZRawDelta(2);
+            double inBorrowUT = ZAnchor + 1 * ZCad + (ZCad - advNext) + 50.0;
+
+            bool draw = GhostMapPresence.TryResolveBoundaryOverlapSecondaryMarker(
+                isMapSurface: false, ZRec(), 0, inBorrowUT, units, out double _, out long _);
+
+            Assert.False(draw, "flight (non-map) view has currentUT=0 and no map polyline to ride");
+        }
+
+        [Fact]
+        public void SecondaryMarker_Debris_NeverDraws()
+        {
+            var units = BuildZeroSlackUnit();
+            double advNext = ZRawDelta(2);
+            double inBorrowUT = ZAnchor + 1 * ZCad + (ZCad - advNext) + 50.0;
+            var debris = ZRec();
+            debris.IsDebris = true;
+
+            bool draw = GhostMapPresence.TryResolveBoundaryOverlapSecondaryMarker(
+                isMapSurface: true, debris, 0, inBorrowUT, units, out double _, out long _);
+
+            Assert.False(draw, "debris never carries a boundary-overlap secondary marker");
+        }
+
+        [Fact]
+        public void SecondaryMarker_NullRecording_NeverDraws()
+        {
+            var units = BuildZeroSlackUnit();
+            bool draw = GhostMapPresence.TryResolveBoundaryOverlapSecondaryMarker(
+                isMapSurface: true, null, 0, 1234.0, units, out double secondaryUT, out long _);
+            Assert.False(draw);
+            Assert.Equal(1234.0, secondaryUT, Tol); // defaulted to liveUT
+        }
+
+        [Fact]
+        public void SecondaryMarker_AlignedUnit_NeverDraws()
+        {
+            // An already-aligned (slack>0) launch loop never engages the boundary overlap, so the marker
+            // gate stays inert across the whole cycle (byte-identical to today).
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                0, new[] { 0 }, AS0, AS1, ACad, AAnchor, ACad, null, null, null, null,
+                loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
+                arrivalAlignPeriodSeconds: double.NaN, arrivalAmberReason: null,
+                launchBodyRotationPeriodSeconds: ATsid, launchHoldEngaged: true,
+                recordedSoiExitUT: ASoiExit);
+            var units = new GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
+                new Dictionary<int, int> { { 0, 0 } });
+            var rec = new Recording { RecordingId = "a", VesselName = "A", ExplicitStartUT = AS0, ExplicitEndUT = AS1 };
+            for (double t = AAnchor; t <= AAnchor + 4.0 * ACad; t += 29.0)
+            {
+                bool draw = GhostMapPresence.TryResolveBoundaryOverlapSecondaryMarker(
+                    isMapSurface: true, rec, 0, t, units, out double _, out long _);
+                Assert.False(draw, $"aligned unit must never draw a secondary marker (t={t})");
+            }
+        }
     }
 }

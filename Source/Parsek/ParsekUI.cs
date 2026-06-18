@@ -1390,6 +1390,29 @@ namespace Parsek
                     continue; // per-instance markers drew (or all skipped) — skip the 8c gate + tail
                 }
 
+                // ---- Boundary-overlap secondary marker (launch->escape seam render) ----
+                // The early-launching instance N+1's in-SOI ASCENT icon, riding the shared polyline,
+                // during the borrow window of a zero-slack re-aim launch loop. The PRIMARY (instance N,
+                // far downstream near the destination) draws its OWN marker via the proto gate / tail
+                // below; this ADDS the secondary's ascent marker at a DISJOINT position (the pad, months
+                // apart in span phase). The secondary's map-presence proto vessel (icon + escape conic)
+                // cannot exist during atmospheric ascent — no OrbitSegment to seed it — so the
+                // map-presence sweep defers the create until the recorded escape Segment (the pre-Segment
+                // gap). Without this the ascent POLYLINE draws (the second-head pass) with NO icon riding
+                // it for those minutes. DrawOneOverlapInstanceMarker self-gates per cycle: once the escape
+                // Segment materializes the proto icon owns the cycle and this returns false (no double).
+                // NO continue: the primary marker still draws below. Inert for every non-launch-hold
+                // member / aligned loop (no live secondary head) and outside map view.
+                if (GhostMapPresence.TryResolveBoundaryOverlapSecondaryMarker(
+                        isMapView, kvp.Key < committed.Count ? committed[kvp.Key] : null, kvp.Key,
+                        currentUT, flight.Engine.CurrentLoopUnits,
+                        out double boundarySecondaryUT, out long boundarySecondaryCycle)
+                    && DrawOneOverlapInstanceMarker(
+                        kvp.Key, committed, boundarySecondaryUT, boundarySecondaryCycle))
+                {
+                    summary.Drawn++;
+                }
+
                 // Skip if native KSP icon is active (ProtoVessel exists and icon not suppressed).
                 // When the Harmony patch suppresses the icon (below atmosphere), we draw
                 // our custom marker at the ghost mesh position instead.
