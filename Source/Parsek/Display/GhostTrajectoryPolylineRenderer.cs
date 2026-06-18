@@ -119,6 +119,23 @@ namespace Parsek.Display
         private static readonly Dictionary<string, ForwardArcSet> forwardArcCache =
             new Dictionary<string, ForwardArcSet>(StringComparer.Ordinal);
 
+        // BOUNDARY-OVERLAP forward-arc namespace (launch->escape seam render, review H1): forwardArcCache is
+        // keyed by recording id, but during the borrow window of a zero-slack re-aim launch loop the Driver
+        // runs the forward pass TWICE for the SAME recording in one frame - the PRIMARY at the through-line
+        // head (e.g. the Duna approach) then the SECONDARY at the early-launch head (the Kerbin ascent +
+        // escape). The two heads select DISJOINT arc sets, so a single recording-id key made the second pass
+        // overwrite the first's cached arcs (destroying its VectorLines), and the first pass's already-enqueued
+        // PendingForwardArcDraw indices then read the wrong array (out-of-range -> the primary's forward conic
+        // vanished). The secondary's arcs live under recordingId + this suffix so BOTH coexist within one
+        // frame. The suffix uses a control char no real recording id contains. The primary path is unchanged
+        // (key == recordingId), so every non-launch-hold member / aligned loop is byte-identical.
+        private const string ForwardSecondaryCacheSuffix = "bsec";
+
+        internal static string ForwardArcDictKey(string recordingId, bool boundaryOverlapSecondary)
+            => (boundaryOverlapSecondary && !string.IsNullOrEmpty(recordingId))
+                ? recordingId + ForwardSecondaryCacheSuffix
+                : recordingId;
+
         // Reusable scratch buffer for OrbitArcSampler.SampleSegmentArc output (body-LOCAL points). The
         // sampler fills it transiently and RefreshForwardArcs copies the body-relative offsets out into each
         // arc's own array before the next sample, so a single shared buffer is safe (the map render loop is
@@ -707,10 +724,15 @@ namespace Parsek.Display
             if (polylineCache.TryGetValue(recordingId, out var set))
                 DestroyLegLines(set.legs);
             // Forward-arc lines for this recording (Step 3 C): destroyed + dropped on the SAME lifecycle as
-            // the legs so a reused RecordingId never inherits a stale wrong-aimed forward arc.
+            // the legs so a reused RecordingId never inherits a stale wrong-aimed forward arc. The
+            // boundary-overlap secondary (review H1) keeps its arcs under a namespaced key, released here too.
             if (forwardArcCache.TryGetValue(recordingId, out var fwd))
                 DestroyForwardArcLines(fwd.arcs);
             forwardArcCache.Remove(recordingId);
+            string fwdSecKey = ForwardArcDictKey(recordingId, true);
+            if (forwardArcCache.TryGetValue(fwdSecKey, out var fwdSec))
+                DestroyForwardArcLines(fwdSec.arcs);
+            forwardArcCache.Remove(fwdSecKey);
             // Seam-bridge lines (playtest 6/7): same lifecycle as the forward arcs they connect to.
             // Keys are (recordingId|legIndex|side); collect the recording's keys first (cannot mutate
             // while enumerating). The conic-sample cache entries for this recording drop too (cheap to
@@ -1125,11 +1147,40 @@ namespace Parsek.Display
         internal const double BridgeMaxSeamGapSeconds = 120.0;
 
         /// <summary>
-        /// Min seam angle (radians, ~0.006 deg) below which no bridge draws: the leg already meets the
-        /// conic (an anchored leg calibrated onto the seam, or a closed rotation gap) and a degenerate
-        /// bridge would only clip the arc's lead-in for nothing.
+        /// Shared-seam-boundary slack (seconds) for the intervening-continuation-leg rule
+        /// (<see cref="HasInterveningContinuationLeg"/>): a continuation leg whose seam coincides with the
+        /// candidate leg's seam (a true handoff, gap of a second or less) still counts as intervening.
+        /// Mirrors the 1 s shared-boundary tolerance <see cref="IsBridgeAdjacentConic"/> uses.
         /// </summary>
-        internal const double BridgeMinAngleRadians = 1e-4;
+        internal const double BridgeSeamSharedBoundaryToleranceSeconds = 1.0;
+
+        /// <summary>
+        /// Min seam angle (radians, 5 deg) below which no bridge draws: the leg already MEETS the conic
+        /// (an anchored leg calibrated onto the seam, a closed rotation gap, or the now-common re-aim
+        /// launch-aligned ascent whose end lands within a few km of the escape conic). The bridge always
+        /// draws a fixed ~74 deg conic merge slice (<see cref="BridgeMergeSampleCount"/> samples) whose
+        /// off-chord bulge is ~200-370 km REGARDLESS of the gap, so for a near-meet (5 deg at Kerbin
+        /// radius is a ~50 km chord; the launch alignment collapses the seam to ~0-3 deg) it draws a
+        /// disproportionate arc that reads as a spurious extra segment beside the correct trajectory.
+        /// Above 5 deg the gap is comparable to the bridge's own bulge - the moderate-misalignment range
+        /// (5-45 deg) the bridge is designed to smooth - so it still draws. Was 1e-4 rad (~0.006 deg),
+        /// which only skipped a perfectly degenerate seam and let the launch-aligned near-meet bridge.
+        /// </summary>
+        internal const double BridgeMinAngleRadians = 0.08726646259971647; // 5 deg
+
+        /// <summary>
+        /// Below the 5 deg merge-slice floor (<see cref="BridgeMinAngleRadians"/>) the seam still has a
+        /// small but VISIBLE gap - most often the re-aim launch-aligned ascent, whose forward-drawn end
+        /// LEADS the icon by the rotation over the remaining ascent and so lands a few degrees (tens to
+        /// ~120 km) short of the inertial escape conic, a gap that shrinks to 0 as the icon climbs to the
+        /// handoff. The merge slice cannot fill it (its ~200-370 km bulge is worse than the gap, which is
+        /// why the 5 deg floor mutes it), but a STRAIGHT CHORD can - it links the leg's drawn end straight
+        /// to the conic's near endpoint with zero bulge. So in (this, 5 deg] a chord bridge draws instead
+        /// of the merge slice. BELOW this floor the leg already meets the conic within a few km (an
+        /// anchored leg, a closed rotation gap), so neither bridge draws - a sub-this chord would be a
+        /// degenerate near-zero-length line. 0.5 deg at Kerbin escape radius (~1370 km) is a ~12 km chord.
+        /// </summary>
+        internal const double BridgeChordMinAngleRadians = 0.008726646259971648; // 0.5 deg
 
         /// <summary>
         /// PURE: angle (radians) between two body-relative rays, used by the decide-side bridge gate.
@@ -1144,6 +1195,29 @@ namespace Parsek.Display
             double cross = Vector3d.Cross(an, bn).magnitude;
             double dot = Vector3d.Dot(an, bn);
             return System.Math.Atan2(cross, dot);
+        }
+
+        /// <summary>How the decide-side gate treats a seam given its leg-to-conic angle.</summary>
+        internal enum SeamBridgeKind { SkipAngleTooLarge, SkipMeetsConic, Chord, MergeSlice }
+
+        /// <summary>
+        /// PURE four-band seam-bridge classifier by leg-to-conic angle (launch-&gt;escape seam render):
+        /// (a) infinite / &gt; <see cref="BridgeMaxAngleRadians"/> (45 deg) -&gt; SkipAngleTooLarge (honest
+        /// gap; the merge slice would draw a wild spiral); (b) (5 deg, 45 deg] -&gt; MergeSlice (the
+        /// moderate-misalignment smoother); (c) (<see cref="BridgeChordMinAngleRadians"/> 0.5 deg, 5 deg]
+        /// -&gt; Chord (a small but visible gap the merge slice mutes itself on - a zero-bulge straight
+        /// chord closes it); (d) &lt;= 0.5 deg -&gt; SkipMeetsConic (the leg already meets the conic within
+        /// a few km; a chord would be degenerate). xUnit-testable.
+        /// </summary>
+        internal static SeamBridgeKind ClassifySeamBridgeByAngle(double angleRad)
+        {
+            if (double.IsInfinity(angleRad) || angleRad > BridgeMaxAngleRadians)
+                return SeamBridgeKind.SkipAngleTooLarge;
+            if (angleRad <= BridgeChordMinAngleRadians)
+                return SeamBridgeKind.SkipMeetsConic;
+            if (angleRad <= BridgeMinAngleRadians)
+                return SeamBridgeKind.Chord;
+            return SeamBridgeKind.MergeSlice;
         }
 
         /// <summary>
@@ -1223,6 +1297,30 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// PURE small-gap CHORD builder (launch-&gt;escape seam render): a STRAIGHT line from the leg's
+        /// drawn end (<paramref name="endARel"/>, scaled body-relative) to the conic's near endpoint
+        /// (<paramref name="conicNearRel"/>, the conic's first sample in body-LOCAL metres, scaled by
+        /// <paramref name="arcScale"/>). Used instead of <see cref="TryBuildSeamBridgeLocalPoints"/>'s
+        /// conic-merge slice when the seam gap is small (a few degrees): the merge slice's fixed
+        /// ~200-370 km off-chord bulge would dwarf the gap, but a chord just closes it with zero bulge.
+        /// outPoints[0] == endARel (leg end), outPoints[mergeCount] == the conic near endpoint, linearly
+        /// interpolated between. No rotation, no radial blend, no conic clip (the chord ends exactly where
+        /// the conic begins). xUnit-testable (no Unity ECalls).
+        /// </summary>
+        internal static bool TryBuildSeamBridgeChordLocalPoints(
+            Vector3d endARel, Vector3d conicNearRel, double arcScale, int mergeCount, Vector3d[] outPoints)
+        {
+            if (outPoints == null || mergeCount < 1 || outPoints.Length < mergeCount + 1) return false;
+            Vector3d b0 = conicNearRel * arcScale;
+            for (int i = 0; i <= mergeCount; i++)
+            {
+                double w = (double)i / mergeCount;
+                outPoints[i] = endARel * (1.0 - w) + b0 * w;
+            }
+            return true;
+        }
+
+        /// <summary>
         /// PURE bridge-target selector: among the cached forward arcs of one recording, the index of
         /// the arc that CONTINUES the body-fixed head leg - same body, starting at/just after the
         /// leg's endUT (1 s shared-boundary tolerance) and within
@@ -1273,6 +1371,76 @@ namespace Parsek.Display
             return atLegStart
                 ? segEndUT >= legSeamUT - maxSeamGapSeconds && segEndUT <= legSeamUT + 1.0
                 : segStartUT >= legSeamUT - 1.0 && segStartUT <= legSeamUT + maxSeamGapSeconds;
+        }
+
+        /// <summary>
+        /// One bridge-eligible leg's UT span + body, for the pure intervening-leg predicate. A flat
+        /// projection of <c>BridgeLegCandidate</c> so the rule is xUnit-testable without the private
+        /// Driver scratch type.
+        /// </summary>
+        internal struct BridgeLegSpan
+        {
+            public double startUT;
+            public double endUT;
+            public string bodyName;
+        }
+
+        /// <summary>
+        /// PURE intervening-ascent-leg rule (launch-escape-seam render fix): once an adjacent conic has
+        /// been chosen for a candidate leg's seam, is there ANOTHER body-fixed leg in the same chain run
+        /// (same body) that CONTINUES from this leg's seam BEFORE the conic - i.e. the conic is NOT this
+        /// leg's immediate next/prev segment? A launch records across two consecutive body-fixed legs
+        /// (pad ascent -> continuation ascent) feeding one escape conic; the pad-ascent leg's end is
+        /// adjacent to the conic only in UT, but the CONTINUATION leg sits between them, so the pad
+        /// leg's bridge would shortcut over it. Only the leg IMMEDIATELY adjacent to the conic may bridge.
+        ///
+        /// <para>END side (<paramref name="atLegStart"/>=false): the conic STARTS at <paramref name="conicSeamUT"/>
+        /// (its startUT); skip this bridge when another body-fixed leg STARTS at/after this leg's
+        /// <paramref name="legSeamUT"/> (the leg-end, shared-boundary slack) and STRICTLY before the conic
+        /// start. A launch's continuation leg starts exactly at the pad leg's end and ends before the
+        /// conic, so its start lands in <c>[legEnd - tol, conicStart - tol)</c> - it intervenes. START side
+        /// (true): the conic ENDS at <paramref name="conicSeamUT"/> (its endUT); skip when another body-fixed
+        /// leg ENDS at/before this leg's start (shared slack) and strictly after the conic end - i.e. its end
+        /// lands in <c>(conicEnd + tol, thisLegStart + tol]</c>.</para>
+        ///
+        /// <para>The candidate itself (<paramref name="selfIndex"/>) is excluded; only same-body legs
+        /// count (a different body's leg cannot be a continuation across an SOI seam here). The boundary
+        /// tolerance <paramref name="seamTolSeconds"/> mirrors the 1 s shared-seam slack so a leg whose
+        /// start coincides with this leg's end (a true continuation handoff) still counts as intervening.
+        /// xUnit-testable (no Unity ECalls).</para>
+        /// </summary>
+        internal static bool HasInterveningContinuationLeg(
+            BridgeLegSpan[] legs, int selfIndex, string candBodyName,
+            double legSeamUT, double conicSeamUT, bool atLegStart, double seamTolSeconds,
+            out int interveningIndex, out double interveningSeamUT)
+        {
+            interveningIndex = -1;
+            interveningSeamUT = double.NaN;
+            if (legs == null || string.IsNullOrEmpty(candBodyName)) return false;
+            for (int i = 0; i < legs.Length; i++)
+            {
+                if (i == selfIndex) continue;
+                var other = legs[i];
+                if (!string.Equals(other.bodyName, candBodyName, StringComparison.Ordinal)) continue;
+                // The other leg's seam that attaches it to the chain at the conic-facing end: its START on
+                // the end side (it continues forward from this leg's end toward the conic), its END on the
+                // start side (it feeds backward from this leg's start toward the conic behind it).
+                double otherSeam = atLegStart ? other.endUT : other.startUT;
+                bool intervenes = atLegStart
+                    // start side: another leg ENDS at/before this leg's start (shared slack) yet strictly
+                    // after the conic that ends behind it - it sits between the conic and this leg.
+                    ? otherSeam <= legSeamUT + seamTolSeconds && otherSeam > conicSeamUT + seamTolSeconds
+                    // end side: another leg STARTS at/after this leg's end (shared slack) yet strictly
+                    // before the conic that starts ahead of it - it sits between this leg and the conic.
+                    : otherSeam >= legSeamUT - seamTolSeconds && otherSeam < conicSeamUT - seamTolSeconds;
+                if (intervenes)
+                {
+                    interveningIndex = i;
+                    interveningSeamUT = otherSeam;
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>
@@ -2307,6 +2475,40 @@ namespace Parsek.Display
             return PolylineStaticSkipReason.None;
         }
 
+        /// <summary>
+        /// Pure per-recording WALK-INCLUSION decision for the Driver's renderHidden gate
+        /// (launch-&gt;escape seam render fix). After the static skip + renderHidden resolve, the Driver
+        /// must decide whether to walk this recording at all and, if so, which heads contribute legs.
+        ///
+        /// The renderHidden flag is the PRIMARY head's "loopUT is outside this member's window" verdict
+        /// (the continuing through-line instance N is at a downstream orbital phase). The OLD gate skipped
+        /// the whole recording whenever the primary was hidden, which dropped a launch recording whose
+        /// boundary-overlap SECONDARY (the early-launching instance N+1's in-SOI ascent) was live in its
+        /// own window - so the secondary's forward ascent polyline + escape conic never drew.
+        ///
+        /// Decision table (skip / drawPrimaryLegs / drawSecondaryLegs):
+        /// - primaryRenders &amp;&amp; !hasSecondary  -&gt; walk, primary only (the common case, byte-identical)
+        /// - primaryRenders &amp;&amp;  hasSecondary  -&gt; walk, primary + secondary. REACHED in the single-recording
+        ///   validated case (review H1): the launch member's window is the whole recording, so during the
+        ///   borrow window the primary (instance N near the destination) is still in-window AND the
+        ///   secondary (N+1 ascent) is live, so BOTH forward passes run for the SAME recording in one frame
+        ///   - which is why the forward-arc cache is namespaced per primary/secondary (ForwardArcDictKey).
+        /// - !primaryRenders &amp;&amp;  hasSecondary -&gt; walk, secondary ONLY (the fix: launch ascent renders while
+        ///   the primary is at the destination)
+        /// - !primaryRenders &amp;&amp; !hasSecondary -&gt; SKIP (the old renderHidden skip, unchanged)
+        ///
+        /// Inert for every non-launch-hold member / aligned loop: hasSecondary is always false there, so the
+        /// outcome collapses to (walk iff primaryRenders), exactly the old gate. Pure; unit-tested.
+        /// </summary>
+        internal static void DecidePolylineWalkInclusion(
+            bool primaryRenders, bool hasSecondary,
+            out bool skip, out bool drawPrimaryLegs, out bool drawSecondaryLegs)
+        {
+            skip = !primaryRenders && !hasSecondary;
+            drawPrimaryLegs = !skip && primaryRenders;
+            drawSecondaryLegs = !skip && hasSecondary;
+        }
+
         // ------------------------------------------------------------------
         // Per-leg draw mechanics (Phase 8b.0 extraction)
         //
@@ -2716,6 +2918,14 @@ namespace Parsek.Display
                 new Dictionary<string, CelestialBody>(StringComparer.Ordinal);
             private GameScenes bodyMapScene = (GameScenes)(-1);
 
+            // SEAM-RENDER OBSERVABILITY 3 (docs/dev/design-reaim-launch-hold-seam.md): logging-only latch
+            // tracking the last secondary-cycle for which the boundary-overlap second-head ascent leg was
+            // first drawn, per recording. Used SOLELY to emit the per-cycle "first-draw" line once (when the
+            // additive secondary leg first enqueues this cycle). Does NOT gate or alter any draw - the leg is
+            // enqueued by the existing per-leg logic; this only decides whether to LOG the first-draw line.
+            private readonly Dictionary<string, long> boundarySecondaryFirstDrawCycle =
+                new Dictionary<string, long>(StringComparer.Ordinal);
+
             // ----------------------------------------------------------------
             // Pan-stability draw split (FIX 1)
             //
@@ -2798,6 +3008,10 @@ namespace Parsek.Display
                 // applied ONLY when this bridge actually DRAWS (review MINOR-2: a decide-time clip
                 // with a failed bridge draw left a one-frame hole in the arc). -1 = no clip.
                 public int clipArcPendingIndex;
+                // SMALL-GAP CHORD (launch->escape seam render): when true, the bridge is a STRAIGHT chord
+                // from the leg's drawn end to the conic's near endpoint (no merge-slice, no bulge, no conic
+                // clip), drawn for a sub-5 deg gap the merge slice mutes (BridgeChordMinAngleRadians,5deg].
+                public bool chord;
             }
             private readonly List<PendingBridgeDraw> pendingBridges = new List<PendingBridgeDraw>();
             private int pendingBridgeFrame = -1;
@@ -2814,6 +3028,11 @@ namespace Parsek.Display
                 public string bodyName;
             }
             private readonly List<BridgeLegCandidate> bridgeLegScratch = new List<BridgeLegCandidate>();
+
+            // Flat UT-span projection of bridgeLegScratch (body + start/end UT) for the pure
+            // intervening-continuation-leg predicate, rebuilt once per DecideSeamBridges call. Reusable
+            // per-Driver buffer (single-threaded LateUpdate decide pass).
+            private readonly List<BridgeLegSpan> bridgeLegSpanScratch = new List<BridgeLegSpan>();
 
             // Reusable scratches for the bridge geometry (fixed size: merge count + 1): the arc-side
             // sample slice (lead-in forward / tail reversed) and the unwound output points.
@@ -3114,14 +3333,40 @@ namespace Parsek.Display
                     // loop member, liveUT otherwise); the per-leg gate below
                     // uses it so the line follows the ghost instead of painting
                     // the whole recorded path at once.
-                    double headUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                    // Dual-clock head (docs/dev/plan-launch-boundary-overlap.md 4.1): the PRIMARY head UT (the
+                    // continuing instance N, byte-identical to before) PLUS the optional boundary-overlap SECONDARY
+                    // head UT (the early-launching instance N+1's in-SOI ascent during the borrow window of a
+                    // zero-slack re-aim launch loop). hasSecondaryHead is false for every non-launch-hold member and
+                    // every already-aligned loop, so the second-head pass below is dead for them (byte-identical).
+                    double headUT = GhostPlaybackLogic.ResolveTrackingStationSampleFrame(
                         recordingIndex,
                         rec.StartUT,
                         rec.EndUT,
                         currentUT,
                         loopUnits,
-                        out bool renderHidden);
-                    if (renderHidden)
+                        out bool renderHidden,
+                        out bool hasSecondaryHead,
+                        out double secondaryHeadUT,
+                        out long secondaryHeadCycle);
+                    // PRIMARY-HIDDEN-BUT-SECONDARY-LIVE (launch->escape seam render fix): the primary head can be
+                    // hidden (its loopUT is OUTSIDE this member's window - the continuing through-line instance N is
+                    // months downstream near the destination, an orbital phase with no in-window non-orbital leg)
+                    // while a boundary-overlap SECONDARY is live in this member's own window (the early-launching
+                    // instance N+1's in-SOI ascent during the borrow window of a zero-slack re-aim launch loop). The
+                    // OLD gate skipped the WHOLE recording on renderHidden, which dropped the launch recording before
+                    // the second-head pass below could ever run - the secondary's forward ascent polyline + forward
+                    // escape conic never drew. The secondary is NOT keyed on the primary's window: it has its own
+                    // in-window leg (its proto-vessel icon + escape conic already render via the SEPARATE
+                    // RunOverlapPerInstanceSweep map-presence walk, which has no renderHidden gate). So skip the whole
+                    // recording ONLY when the primary is hidden AND there is no live secondary either. When the
+                    // primary is hidden but the secondary is live, fall through with primaryRenders=false: the primary
+                    // leg loop + primary forward pass are gated off (the primary genuinely has nothing in-window) and
+                    // only the secondary second-head + secondary forward pass run. Inert for every non-launch-hold
+                    // member / aligned loop (hasSecondaryHead is always false there, so this is the old skip exactly).
+                    DecidePolylineWalkInclusion(
+                        primaryRenders: !renderHidden, hasSecondary: hasSecondaryHead,
+                        out bool skipRecording, out bool primaryRenders, out _);
+                    if (skipRecording)
                     {
                         frameSkippedHidden++;
                         continue;
@@ -3151,6 +3396,18 @@ namespace Parsek.Display
                         Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(ghostPid, drawFrame);
 
                     bool anyDrawn = false;
+                    // Disjoint-leg guard (plan 4.2): the leg index the PRIMARY head landed on this frame (-1 when
+                    // none). The boundary-overlap second-head pass below skips this leg so the SAME leg is never
+                    // enqueued twice in one frame (it would be a no-op redraw anyway, but the guard keeps the
+                    // secondary's head strictly the disjoint in-SOI leg the primary - far downstream - is not on).
+                    int primaryDrawnLegIndex = -1;
+                    // PRIMARY leg loop runs only when the primary head is in-window (primaryRenders). When the
+                    // primary is hidden but a boundary-overlap secondary is live, this is skipped (the primary has
+                    // no in-window non-orbital leg - it is the downstream through-line at an orbital phase) and only
+                    // the secondary second-head + secondary forward pass below run. primaryRenders is always true for
+                    // every non-launch-hold member / aligned loop (renderHidden false there), so this is unchanged.
+                    if (primaryRenders)
+                    {
                     for (int li = 0; li < set.legs.Length; li++)
                     {
                         var leg = set.legs[li];
@@ -3213,6 +3470,91 @@ namespace Parsek.Display
                             ghostPid = ghostPid
                         });
                         anyDrawn = true;
+                        primaryDrawnLegIndex = li;
+                    }
+                    }
+
+                    // BOUNDARY-OVERLAP second head (docs/dev/plan-launch-boundary-overlap.md 4.1/4.2): the
+                    // early-launching instance N+1's in-SOI ascent leg, drawn ADDITIVELY beside the primary leg
+                    // during the borrow window. The primary head (instance N, far downstream / near the destination)
+                    // and the secondary head (instance N+1, in-SOI ascent) select DISJOINT legs because they are
+                    // months apart in recorded-span phase, so the two heads draw two different legs at two different
+                    // places. The secondary's leg carries the SECONDARY ghost pid for symmetry with the primary's
+                    // owned-leg path, but the leg is NON-owned (ownedByTreatment=false below), so the pid is INERT
+                    // here - only TryDrawOwnedLeg consumes PendingLegDraw.ghostPid; TryDrawLeg ignores it. The
+                    // secondary's own proto orbit line is hidden by the map-presence path (its overlap-instance
+                    // ProtoVessel), NOT by this leg's pid. The leg is EXCLUDED from anyDrawn /
+                    // drewNonOrbitalLegRecordings (the primary owns the ownership publish). Same-leg defensive
+                    // guard: if both heads land in the same
+                    // leg (impossible for an interplanetary transfer - the heliocentric tof is months), draw only the
+                    // primary's leg. Inert (hasSecondaryHead false) for every non-launch-hold member / aligned loop.
+                    // Resolved once for BOTH the secondary second-head leg pass and the secondary forward pass
+                    // below (0 when no overlap-instance ghost exists this frame, which only happens before the
+                    // map-presence sweep creates it - the leg still draws, keyed pid 0, no proto to hide).
+                    uint secondaryGhostPid = hasSecondaryHead
+                        ? GhostMapPresence.GetNewestOverlapInstancePidForRecording(recordingIndex)
+                        : 0u;
+                    if (hasSecondaryHead)
+                    {
+                        for (int li = 0; li < set.legs.Length; li++)
+                        {
+                            if (li == primaryDrawnLegIndex)
+                                continue; // same-leg defensive guard: never enqueue the primary's leg twice
+                            var secLeg = set.legs[li];
+                            if (!ShouldDrawLegAtHeadUT(secLeg.startUT, secLeg.endUT, secondaryHeadUT))
+                                continue;
+                            CelestialBody secBody = ResolveBodyByName(scene, secLeg.bodyName);
+                            if (secBody == null)
+                            {
+                                frameSkippedNoBody++;
+                                continue;
+                            }
+                            if (!WillLegDraw(secLeg.PointCount, true))
+                                continue;
+                            // Additive, NON-ownership leg (mirrors the forward-additive mechanism): the
+                            // boundary-overlap secondary leg is NOT owned-by-treatment (it is the raw in-SOI ascent
+                            // leg the Driver draws directly) and does NOT publish ownership. It carries the secondary
+                            // ghost pid for symmetry, but TryDrawLeg ignores ghostPid on this NON-owned path (only
+                            // TryDrawOwnedLeg consumes it); the secondary's proto orbit line is hidden by the
+                            // map-presence path, not by this field.
+                            pendingDraws.Add(new PendingLegDraw
+                            {
+                                recordingId = rec.RecordingId,
+                                legIndex = li,
+                                body = secBody,
+                                rec = rec,
+                                ownedByTreatment = false,
+                                ghostPid = secondaryGhostPid,
+                                forward = false,
+                                requireConicAnchor = false
+                            });
+                            ParsekLog.VerboseRateLimited(DriverTag,
+                                "polyline-boundary-secondary." + rec.RecordingId,
+                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "Polyline boundary-overlap second head: rec={0} secondaryHeadUT={1:F1} secondaryCycle={2} " +
+                                    "drewLeg={3} primaryLeg={4} secondaryPid={5}",
+                                    rec.RecordingId, secondaryHeadUT, secondaryHeadCycle, li, primaryDrawnLegIndex, secondaryGhostPid),
+                                2.0);
+
+                            // SEAM-RENDER OBSERVABILITY 3 (docs/dev/design-reaim-launch-hold-seam.md): the
+                            // ascent LINE's first-draw this cycle. Shows whether the secondary's body-fixed
+                            // ascent polyline appears AT the clock launch (observability 1's currentUT) even
+                            // while the icon/conic map-presence (observability 2) lags behind a pre-Segment gap.
+                            // Emitted once per (recording, secondaryCycle) via the logging-only latch (the leg
+                            // was already enqueued above; this only decides whether to LOG the first draw).
+                            if (!boundarySecondaryFirstDrawCycle.TryGetValue(rec.RecordingId, out long loggedCycle)
+                                || loggedCycle != secondaryHeadCycle)
+                            {
+                                boundarySecondaryFirstDrawCycle[rec.RecordingId] = secondaryHeadCycle;
+                                ParsekLog.VerboseRateLimited(DriverTag,
+                                    "boundary-overlap-secondary-polyline-first-draw." + rec.RecordingId,
+                                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                        "boundary-overlap secondary polyline first-draw: currentUT={0:R} headUT={1:R} " +
+                                        "secondaryLoopUT={2:R} rec={3} secondaryCycle={4} leg={5}",
+                                        currentUT, secondaryHeadUT, secondaryHeadUT, rec.RecordingId, secondaryHeadCycle, li),
+                                    2.0);
+                            }
+                        }
                     }
 
                     // Diagnostic (multi-leg / re-aim recordings): the head's position vs the leg windows,
@@ -3324,10 +3666,36 @@ namespace Parsek.Display
                     // exactly as today and the ownership contract is unchanged (the CRITICAL Step 3
                     // prerequisite, safest option (a)). Gated on the SAME visibility the rest of the loop
                     // resolved (renderHidden already continued above) plus the Director's gap-hold.
-                    DecideForwardWindowForRecording(
-                        scene, recordingIndex, rec, set, headUT, currentUT, loopUnits,
-                        ghostPid, drawFrame, surface, committed, suppressed,
-                        ref frameForwardLegs, ref frameForwardArcs, ref frameForwardSkippedGapHold);
+                    //
+                    // PRIMARY forward pass runs only when the primary is in-window. When the primary is hidden
+                    // (downstream through-line at an orbital phase) but a secondary is live, the primary has no
+                    // forward trajectory to draw here - the secondary forward pass below carries the launch
+                    // ascent + escape conic.
+                    if (primaryRenders)
+                    {
+                        DecideForwardWindowForRecording(
+                            scene, recordingIndex, rec, set, headUT, currentUT, loopUnits,
+                            ghostPid, drawFrame, surface, committed, suppressed,
+                            ref frameForwardLegs, ref frameForwardArcs, ref frameForwardSkippedGapHold);
+                    }
+
+                    // ---- BOUNDARY-OVERLAP SECONDARY forward pass (launch->escape seam render fix) ----
+                    // The early-launching instance N+1's FORWARD trajectory: the ascent polyline AHEAD of its
+                    // icon + the escape conic ahead, drawn additively at secondaryHeadUT. Without this, only the
+                    // single in-window ascent leg (the second-head pass above) drew - the takeoff/ascent
+                    // polyline and the escape conic AHEAD of the icon never rendered after launch (the playtest
+                    // bug). Keyed on the secondary ghost pid (so its forward legs/arcs publish under the
+                    // secondary, and the bridges/run window resolve the secondary's phase). The chain-dedupe +
+                    // gap-hold are bypassed for the secondary (see DecideForwardWindowForRecording). Inert when
+                    // hasSecondaryHead is false (every non-launch-hold member / aligned loop).
+                    if (hasSecondaryHead)
+                    {
+                        DecideForwardWindowForRecording(
+                            scene, recordingIndex, rec, set, secondaryHeadUT, currentUT, loopUnits,
+                            secondaryGhostPid, drawFrame, surface, committed, suppressed,
+                            ref frameForwardLegs, ref frameForwardArcs, ref frameForwardSkippedGapHold,
+                            boundaryOverlapSecondary: true);
+                    }
                 }
 
                 // Pan-stability (FIX 1): hand the decided legs to the onPreCull draw pass. Stamp the
@@ -3725,10 +4093,23 @@ namespace Parsek.Display
                 // Leg endpoint in scaled space, body-relative (the leg's points are absolute scaled).
                 int pi = bridge.atLegStart ? 0 : m - 1;
                 Vector3d legEndRel = (Vector3d)(leg.scratchScaledSpace[pi] - center);
-                if (!TryBuildSeamBridgeLocalPoints(
+                double seamAngleRad;
+                if (bridge.chord)
+                {
+                    // SMALL-GAP CHORD (launch->escape seam render): a straight line from the leg's drawn
+                    // end to the conic's NEAR endpoint (bridgeArcSliceScratch[0] is the conic sample
+                    // nearest the leg for either side, after the slice fill above). No rotation, no clip.
+                    if (!TryBuildSeamBridgeChordLocalPoints(
+                            legEndRel, bridgeArcSliceScratch[0], ScaledSpace.InverseScaleFactor,
+                            BridgeMergeSampleCount, bridgePointScratch))
+                        return false;
+                    seamAngleRad = SeamBridgeAngleRad(
+                        legEndRel, bridgeArcSliceScratch[0] * ScaledSpace.InverseScaleFactor);
+                }
+                else if (!TryBuildSeamBridgeLocalPoints(
                         legEndRel, bridgeArcSliceScratch, ScaledSpace.InverseScaleFactor,
                         BridgeMergeSampleCount, BridgeMaxAngleRadians, bridgePointScratch,
-                        out double seamAngleRad))
+                        out seamAngleRad))
                     return false;
 
                 string lineKey = string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -3777,7 +4158,7 @@ namespace Parsek.Display
                         "Seam bridge drawn: rec={0} leg={1} side={2} src={3} angleDeg={4:F2} body={5} " +
                         "merge={6} chordDevKm={7:F1} sliceSpanDeg={8:F2}",
                         bridge.legRecordingId, bridge.legIndex, bridge.atLegStart ? "start" : "end",
-                        bridge.arcIndex >= 0 ? "cached-arc" : "sampled-conic",
+                        bridge.chord ? "chord" : (bridge.arcIndex >= 0 ? "cached-arc" : "sampled-conic"),
                         seamAngleRad * (180.0 / System.Math.PI), bodyName ?? "?",
                         BridgeMergeSampleCount,
                         MaxChordDeviation(bridgePointScratch, BridgeMergeSampleCount + 1)
@@ -3969,7 +4350,8 @@ namespace Parsek.Display
                 double headUT, double currentUT, GhostPlaybackLogic.LoopUnitSet loopUnits,
                 uint ghostPid, int drawFrame, BodySurfaceProvider surface,
                 IReadOnlyList<Recording> committed, HashSet<string> suppressedIds,
-                ref int frameForwardLegs, ref int frameForwardArcs, ref int frameForwardSkippedGapHold)
+                ref int frameForwardLegs, ref int frameForwardArcs, ref int frameForwardSkippedGapHold,
+                bool boundaryOverlapSecondary = false)
             {
                 if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return;
 
@@ -3979,7 +4361,14 @@ namespace Parsek.Display
                 // renderHidden). A later visible member of the same chain (historical non-loop chains,
                 // where every member passes the renderHidden gate) skips, which also prevents
                 // double-enqueueing the same run legs/arcs.
-                if (rec.IsChainRecording && !chainRunProcessedThisFrame.Add(rec.ChainId))
+                //
+                // BOUNDARY-OVERLAP SECONDARY (launch->escape seam render fix): the secondary forward pass runs
+                // for the SAME chain as the primary but at the EARLY-LAUNCH instance's headUT (a different
+                // recorded-span phase), so it must NOT share the primary's chain-dedupe slot - it is a distinct
+                // logical run. Skip the primary dedupe set entirely for the secondary; it is called at most once
+                // per recording per frame from the walk, so it cannot double-run on its own.
+                if (!boundaryOverlapSecondary
+                    && rec.IsChainRecording && !chainRunProcessedThisFrame.Add(rec.ChainId))
                     return;
 
                 // GAP-HOLD gate: a ghost-bearing recording the Director is NOT tracking this frame is held
@@ -3988,7 +4377,15 @@ namespace Parsek.Display
                 // visibility is already governed by the renderHidden / static-skip gates above, so it falls
                 // through. Reusing the same freshness predicate the icon-drive / line patches read keeps the
                 // forward pass consistent with the current-element decision.
-                if (ghostPid != 0
+                //
+                // The BOUNDARY-OVERLAP SECONDARY bypasses the gap-hold gate: its overlap-instance map ghost
+                // (escape-conic ProtoVessel) is driven by the SEPARATE map-presence loop-shift path
+                // (RunOverlapPerInstanceSweep), NOT the Director's shadow render, so IsDirectorTracking is
+                // false for it even when it is fully visible. Applying the gate would wrongly suppress the
+                // secondary's forward ascent + escape conic every frame. The secondary's visibility is already
+                // governed by the DecideBoundaryOverlapSecondaryRender in-window decision at the call site.
+                if (!boundaryOverlapSecondary
+                    && ghostPid != 0
                     && !Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(ghostPid, drawFrame))
                 {
                     frameForwardSkippedGapHold++;
@@ -4215,10 +4612,14 @@ namespace Parsek.Display
                         // cached arc set. The selected indices fully determine the sampled geometry for a
                         // given re-aim window.
                         string cacheKey = BuildForwardArcKey(arcIndices, chainRunMemberReaimScratch[mi]);
+                        // H1: the boundary-overlap secondary forward pass writes/reads under a namespaced key
+                        // so it never overwrites the primary's same-recording arcs within one frame. The
+                        // PendingForwardArcDraw stores the dictKey so the draw pass reads the right arc set.
+                        string dictKey = ForwardArcDictKey(member.rec.RecordingId, boundaryOverlapSecondary);
                         RefreshForwardArcs(
-                            scene, member.rec.RecordingId, memberCoalesced, arcIndices, cacheKey);
+                            scene, member.rec.RecordingId, memberCoalesced, arcIndices, cacheKey, dictKey);
 
-                        if (forwardArcCache.TryGetValue(member.rec.RecordingId, out var fset)
+                        if (forwardArcCache.TryGetValue(dictKey, out var fset)
                             && fset.arcs != null)
                         {
                             for (int a = 0; a < fset.arcs.Length; a++)
@@ -4226,7 +4627,7 @@ namespace Parsek.Display
                                 if (fset.arcs[a].vectorLine == null) continue;
                                 pendingForwardArcs.Add(new PendingForwardArcDraw
                                 {
-                                    recordingId = member.rec.RecordingId,
+                                    recordingId = dictKey,
                                     arcIndex = a,
                                     drawEndIndex = -1,
                                 });
@@ -4275,6 +4676,20 @@ namespace Parsek.Display
                 GameScenes scene, BodySurfaceProvider surface, int drawFrame)
             {
                 int armed = 0;
+                // Flat UT-span projection of the bridge candidates, index-aligned with bridgeLegScratch,
+                // for the intervening-continuation-leg rule (launch-escape-seam fix). Built once.
+                bridgeLegSpanScratch.Clear();
+                for (int ci = 0; ci < bridgeLegScratch.Count; ci++)
+                {
+                    var c = bridgeLegScratch[ci];
+                    bridgeLegSpanScratch.Add(new BridgeLegSpan
+                    {
+                        startUT = c.startUT,
+                        endUT = c.endUT,
+                        bodyName = c.bodyName,
+                    });
+                }
+                BridgeLegSpan[] bridgeLegSpans = bridgeLegSpanScratch.ToArray();
                 for (int ci = 0; ci < bridgeLegScratch.Count; ci++)
                 {
                     var cand = bridgeLegScratch[ci];
@@ -4330,6 +4745,36 @@ namespace Parsek.Display
                         }
                         if (segRecordingId == null) continue;
 
+                        // 1b. Intervening-ascent-leg skip (launch-escape-seam fix): a launch records
+                        // across two consecutive body-fixed legs (pad ascent -> continuation ascent)
+                        // feeding ONE escape conic. The pad-ascent leg's end is adjacent to that conic
+                        // only in UT - the continuation leg sits between them - so a pad-leg->conic bridge
+                        // would shortcut OVER the continuation leg (the confirmed ~26.7 deg bug). Only the
+                        // body-fixed leg IMMEDIATELY adjacent to the conic (no intervening same-body leg
+                        // between this leg's seam and the conic's seam) may bridge to it. The continuation
+                        // leg draws its own leg->conic handoff, resolved by the near-meet (5 deg) gate.
+                        double conicSeamUT = atLegStart ? seg.endUT : seg.startUT;
+                        if (HasInterveningContinuationLeg(
+                                bridgeLegSpans, ci, cand.bodyName, seamUT, conicSeamUT, atLegStart,
+                                BridgeSeamSharedBoundaryToleranceSeconds,
+                                out int interveningLegIdx, out double interveningLegSeamUT))
+                        {
+                            string interveningRecId = interveningLegIdx >= 0
+                                && interveningLegIdx < bridgeLegScratch.Count
+                                ? bridgeLegScratch[interveningLegIdx].recordingId : "?";
+                            ParsekLog.VerboseRateLimited(DriverTag,
+                                "bridge-interveningleg." + cand.recordingId + "." + cand.legIndex,
+                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "Seam bridge skipped (intermediate ascent leg - continuation leg {0} " +
+                                    "precedes the conic): rec={1} leg={2} side={3} angleDeg=n/a " +
+                                    "interveningLegStartUT={4:F1} conicStartUT={5:F1}",
+                                    interveningRecId, cand.recordingId, cand.legIndex,
+                                    atLegStart ? "start" : "end",
+                                    interveningLegSeamUT, conicSeamUT),
+                                5.0);
+                            continue;
+                        }
+
                         // 2. Conic-side geometry: prefer the matching cached forward arc (clippable);
                         //    fall back to on-demand sampling (the stock-drawn current element).
                         Vector3d seamRel, travelDir;
@@ -4376,11 +4821,19 @@ namespace Parsek.Display
                             leg.lats[pi], leg.lons[pi], leg.alts[pi]) - body.position;
 
                         // 4. Gates: angle window + the signed-gap (overshoot) rule.
+                        // Three bands: (a) > max -> no bridge (honest gap); (b) (5deg, max] -> the conic
+                        // merge slice (the existing moderate-misalignment smoother); (c) (chord-floor,
+                        // 5deg] -> a STRAIGHT CHORD (launch->escape seam render): the merge slice's fixed
+                        // ~200-370 km bulge mutes itself below 5deg, but the launch-aligned ascent's
+                        // forward-drawn end still lands a few degrees short of the inertial escape conic - a
+                        // small but visible gap a zero-bulge chord can close; (d) <= chord-floor -> no
+                        // bridge (the leg already meets the conic within a few km - anchored / closed gap -
+                        // so a chord would be a degenerate near-zero-length line).
                         double angleRad = SeamBridgeAngleRad(legRel, seamRel);
-                        if (double.IsInfinity(angleRad) || angleRad <= BridgeMinAngleRadians
-                            || angleRad > BridgeMaxAngleRadians)
+                        SeamBridgeKind kind = ClassifySeamBridgeByAngle(angleRad);
+                        if (kind == SeamBridgeKind.SkipAngleTooLarge)
                         {
-                            if (angleRad > BridgeMaxAngleRadians && !double.IsInfinity(angleRad))
+                            if (!double.IsInfinity(angleRad))
                                 ParsekLog.VerboseRateLimited(DriverTag,
                                     "bridge-angle." + cand.recordingId + "." + cand.legIndex,
                                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -4392,6 +4845,23 @@ namespace Parsek.Display
                                     5.0);
                             continue;
                         }
+                        if (kind == SeamBridgeKind.SkipMeetsConic)
+                        {
+                            // Anchored / exact meet: the leg endpoint already sits on the conic. Drawing
+                            // anything here would be a degenerate near-zero-length line.
+                            ParsekLog.VerboseRateLimited(DriverTag,
+                                "bridge-nearmeet." + cand.recordingId + "." + cand.legIndex,
+                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "Seam bridge skipped (leg already meets conic): rec={0} leg={1} " +
+                                    "side={2} angleDeg={3:F2} floor={4:F2}",
+                                    cand.recordingId, cand.legIndex, atLegStart ? "start" : "end",
+                                    angleRad * (180.0 / System.Math.PI),
+                                    BridgeChordMinAngleRadians * (180.0 / System.Math.PI)),
+                                5.0);
+                            continue;
+                        }
+                        // Chord (small visible gap, zero-bulge straight connector) or the conic merge slice.
+                        bool chord = kind == SeamBridgeKind.Chord;
                         bool gapAhead = atLegStart
                             ? IsSeamGapAhead(seamRel, legRel, travelDir)  // prev=conic end, next=leg start
                             : IsSeamGapAhead(legRel, seamRel, travelDir); // prev=leg end, next=conic start
@@ -4412,8 +4882,11 @@ namespace Parsek.Display
                         // APPLIED only when the bridge actually draws (review MINOR-2): bridges draw
                         // BEFORE arcs in the onPreCull pass, and a failed bridge leaves its arc
                         // unclipped so no one-frame hole opens at the merge sample.
+                        // A chord ends exactly where the conic begins (its near endpoint), so the conic
+                        // draws in full - no merge-sample clip. Only the merge slice REPLACES the conic's
+                        // lead-in and therefore needs the clip.
                         int clipIdx = -1;
-                        if (cachedArcIdx >= 0)
+                        if (!chord && cachedArcIdx >= 0)
                         {
                             for (int p = 0; p < pendingForwardArcs.Count; p++)
                             {
@@ -4436,6 +4909,7 @@ namespace Parsek.Display
                             sampleKeyRecordingId = segRecordingId,
                             sampleSegment = seg,
                             clipArcPendingIndex = clipIdx,
+                            chord = chord,
                         });
                         pendingBridgeFrame = drawFrame;
                         armed++;
@@ -4457,12 +4931,17 @@ namespace Parsek.Display
             /// </summary>
             private void RefreshForwardArcs(
                 GameScenes scene, string recordingId, List<OrbitSegment> segments,
-                List<int> arcIndices, string cacheKey)
+                List<int> arcIndices, string cacheKey, string dictKey)
             {
                 if (string.IsNullOrEmpty(recordingId) || segments == null || arcIndices == null)
                     return;
 
-                if (forwardArcCache.TryGetValue(recordingId, out var existing)
+                // dictKey is the forwardArcCache dictionary key (== recordingId for the primary pass; a
+                // namespaced key for the boundary-overlap secondary, review H1). recordingId stays the
+                // geometry/VectorLine-name/log identity. Defensive: treat a null dictKey as the recording id.
+                if (string.IsNullOrEmpty(dictKey)) dictKey = recordingId;
+
+                if (forwardArcCache.TryGetValue(dictKey, out var existing)
                     && string.Equals(existing.cacheKey, cacheKey, StringComparison.Ordinal))
                 {
                     // Cache hit: same element / body / re-aim window. Rotating-frame staleness
@@ -4482,7 +4961,7 @@ namespace Parsek.Display
                             else faults++;
                         }
                         existing.captureInverseRotAngle = liveRot;
-                        forwardArcCache[recordingId] = existing;
+                        forwardArcCache[dictKey] = existing;
                         ParsekLog.VerboseRateLimited(DriverTag, "fwd-arc-rot-resample." + recordingId,
                             string.Format(System.Globalization.CultureInfo.InvariantCulture,
                                 "Forward-arc rotating-frame resample: rec={0} arcs={1} faults={2}",
@@ -4493,7 +4972,7 @@ namespace Parsek.Display
                 }
 
                 // Key changed: destroy the prior arc lines before rebuilding.
-                if (forwardArcCache.TryGetValue(recordingId, out var stale))
+                if (forwardArcCache.TryGetValue(dictKey, out var stale))
                     DestroyForwardArcLines(stale.arcs);
 
                 var arcs = new List<ForwardArc>(arcIndices.Count);
@@ -4552,7 +5031,9 @@ namespace Parsek.Display
                         endUT = seg.endUT,
                         bodyRelOffsets = rel,
                         scratchScaledSpace = new Vector3[cnt],
-                        vectorLine = BuildForwardArcVectorLine(recordingId, sampled, cnt),
+                        // Name on dictKey so the secondary's VectorLines do not collide with the primary's
+                        // (same recording id, two coexisting arc sets within one frame, review H1).
+                        vectorLine = BuildForwardArcVectorLine(dictKey, sampled, cnt),
                         lastDrawnFrame = -1,
                         lineMode = MapLineUses3D() ? 1 : 2,
                         sourceSegment = seg,
@@ -4562,7 +5043,7 @@ namespace Parsek.Display
                     sampled++;
                 }
 
-                forwardArcCache[recordingId] = new ForwardArcSet
+                forwardArcCache[dictKey] = new ForwardArcSet
                 {
                     arcs = arcs.ToArray(),
                     cacheKey = cacheKey,

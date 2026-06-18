@@ -1136,6 +1136,119 @@ namespace Parsek.Tests
                 l.Contains("excluded") && l.Contains("below-surface orbit segments"));
         }
 
+        // --- DecidePolylineWalkInclusion: the renderHidden gate decision table
+        //     (launch->escape seam render fix). This is the pure seam the Driver's per-recording
+        //     inclusion gate routes through; the playtest bug was the OLD gate skipping the whole
+        //     launch recording on a hidden PRIMARY even though a boundary-overlap SECONDARY was live.
+
+        [Fact]
+        public void WalkInclusion_PrimaryRendersNoSecondary_WalkPrimaryOnly()
+        {
+            // The common case (every non-launch-hold member / aligned loop): primary in-window, no
+            // secondary -> walk, draw the primary legs only. Byte-identical to the pre-fix gate.
+            GhostTrajectoryPolylineRenderer.DecidePolylineWalkInclusion(
+                primaryRenders: true, hasSecondary: false,
+                out bool skip, out bool drawPrimary, out bool drawSecondary);
+
+            Assert.False(skip);
+            Assert.True(drawPrimary);
+            Assert.False(drawSecondary);
+        }
+
+        [Fact]
+        public void WalkInclusion_PrimaryHiddenNoSecondary_Skip()
+        {
+            // The old renderHidden skip, unchanged: primary hidden (downstream orbital phase, no
+            // in-window leg) and no live secondary -> skip the whole recording.
+            GhostTrajectoryPolylineRenderer.DecidePolylineWalkInclusion(
+                primaryRenders: false, hasSecondary: false,
+                out bool skip, out bool drawPrimary, out bool drawSecondary);
+
+            Assert.True(skip);
+            Assert.False(drawPrimary);
+            Assert.False(drawSecondary);
+        }
+
+        [Fact]
+        public void WalkInclusion_PrimaryHiddenSecondaryLive_WalkSecondaryOnly()
+        {
+            // THE FIX: the launch recording's primary head is hidden (instance N is at the destination,
+            // an orbital phase outside the launch member's window) but the boundary-overlap secondary
+            // (instance N+1's in-SOI ascent) is live in this member's own window. The OLD gate skipped
+            // here, dropping the recording before the second-head + secondary-forward passes could run,
+            // so the launch ascent polyline + escape conic ahead of the icon never drew. The new gate
+            // WALKS the recording with the primary legs gated off and the secondary drawing.
+            GhostTrajectoryPolylineRenderer.DecidePolylineWalkInclusion(
+                primaryRenders: false, hasSecondary: true,
+                out bool skip, out bool drawPrimary, out bool drawSecondary);
+
+            Assert.False(skip);
+            Assert.False(drawPrimary); // primary genuinely has nothing in-window this frame
+            Assert.True(drawSecondary); // the early-launch ascent renders
+        }
+
+        [Fact]
+        public void WalkInclusion_PrimaryRendersSecondaryLive_WalkBoth()
+        {
+            // REACHED in the single-recording validated case (review H1): when the launch member's window
+            // is the whole recording, during the borrow window the primary (instance N near the
+            // destination) is still in-window (primaryRenders=true) AND the secondary (N+1 ascent) is live,
+            // so BOTH passes run for the same recording in one frame. That is exactly why the forward-arc
+            // cache had to be namespaced per (recording, primary/secondary) - see ForwardArcDictKey_*.
+            GhostTrajectoryPolylineRenderer.DecidePolylineWalkInclusion(
+                primaryRenders: true, hasSecondary: true,
+                out bool skip, out bool drawPrimary, out bool drawSecondary);
+
+            Assert.False(skip);
+            Assert.True(drawPrimary);
+            Assert.True(drawSecondary);
+        }
+
+        // === Review H1: forward-arc cache namespace (primary vs boundary-overlap secondary) ===========
+        // During the borrow window the Driver runs the forward pass twice for the SAME recording in one
+        // frame (primary head + early-launch secondary head). The two heads select disjoint arc sets, so a
+        // single recording-id cache key made the second pass overwrite the first (the primary's forward
+        // conic then vanished). ForwardArcDictKey namespaces the secondary so both coexist.
+
+        [Fact]
+        public void ForwardArcDictKey_Primary_IsRecordingIdVerbatim()
+        {
+            // The primary pass keeps the recording id verbatim, so every non-launch-hold member / aligned
+            // loop is byte-identical to the pre-fix cache key.
+            Assert.Equal("rec-abc", GhostTrajectoryPolylineRenderer.ForwardArcDictKey("rec-abc", false));
+        }
+
+        [Fact]
+        public void ForwardArcDictKey_Secondary_IsDistinctFromPrimary()
+        {
+            string primary = GhostTrajectoryPolylineRenderer.ForwardArcDictKey("rec-abc", false);
+            string secondary = GhostTrajectoryPolylineRenderer.ForwardArcDictKey("rec-abc", true);
+            Assert.NotEqual(primary, secondary);
+            // The secondary key must START with the recording id (so it is recognizably the same recording)
+            // but differ, so the two ForwardArcSet entries coexist in the cache within one frame.
+            Assert.StartsWith("rec-abc", secondary);
+        }
+
+        [Fact]
+        public void ForwardArcDictKey_DistinctRecordings_SecondaryKeysNeverCollide()
+        {
+            // The secondary suffix must not let one recording's secondary key equal another recording's
+            // primary key (the control-char suffix guarantees this even for prefix-related ids).
+            string secAbc = GhostTrajectoryPolylineRenderer.ForwardArcDictKey("abc", true);
+            Assert.NotEqual("abc", secAbc);
+            Assert.NotEqual(
+                GhostTrajectoryPolylineRenderer.ForwardArcDictKey("abc", true),
+                GhostTrajectoryPolylineRenderer.ForwardArcDictKey("abcd", false));
+        }
+
+        [Fact]
+        public void ForwardArcDictKey_NullOrEmpty_PassesThrough()
+        {
+            // A null/empty recording id is never namespaced (the create early-returns on it anyway).
+            Assert.Null(GhostTrajectoryPolylineRenderer.ForwardArcDictKey(null, true));
+            Assert.Equal("", GhostTrajectoryPolylineRenderer.ForwardArcDictKey("", true));
+        }
+
         // Adds an Absolute (ref=0) Duna section with `count` frames evenly spaced
         // across [startUT, endUT], descending in altitude through the tail.
         private static void AddAbsoluteDunaSection(
@@ -1898,6 +2011,82 @@ namespace Parsek.Tests
                 "bridge end must land on B's merge sample (off by " + (outPts[merge] - arc[merge]).magnitude + " m)");
         }
 
+        // === Small-gap CHORD bridge (launch->escape seam render) ===
+        // The sub-5-deg launch-aligned ascent->escape gap is filled by a STRAIGHT chord, not the merge
+        // slice (whose ~200-370km bulge dwarfs the gap). These pin the pure chord builder + the four-band
+        // angle classifier that routes a seam to skip / chord / merge-slice.
+
+        [Fact]
+        public void SeamBridgeChord_EndpointsExactAndStraight()
+        {
+            Vector3d endA = new Vector3d(700000.0, 0.0, 0.0);
+            Vector3d conicNear = new Vector3d(690000.0, 60000.0, 0.0); // ~5 deg away, slightly nearer
+            const int merge = 60;
+            var outPts = new Vector3d[merge + 1];
+
+            bool ok = GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeChordLocalPoints(
+                endA, conicNear, arcScale: 1.0, mergeCount: merge, outPoints: outPts);
+
+            Assert.True(ok);
+            Assert.True((outPts[0] - endA).magnitude < 1e-6, "chord must start exactly on the leg end");
+            Assert.True((outPts[merge] - conicNear).magnitude < 1e-6, "chord must end exactly on the conic near point");
+            // A straight chord has zero perpendicular deviation from its endpoint-to-endpoint line.
+            Assert.True(GhostTrajectoryPolylineRenderer.MaxChordDeviation(outPts, merge + 1) < 1e-6,
+                "the chord must be perfectly straight (no bulge)");
+            Assert.True((outPts[merge / 2] - (endA + conicNear) * 0.5).magnitude < 1e-6,
+                "the midpoint must be the average of the two endpoints");
+        }
+
+        [Fact]
+        public void SeamBridgeChord_AppliesArcScale()
+        {
+            // The conic near point arrives in body-LOCAL metres; arcScale converts it to the leg's space.
+            Vector3d endA = new Vector3d(70.0, 0.0, 0.0);
+            Vector3d conicNearLocal = new Vector3d(690000.0, 60000.0, 0.0);
+            const int merge = 60;
+            var outPts = new Vector3d[merge + 1];
+            Assert.True(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeChordLocalPoints(
+                endA, conicNearLocal, arcScale: 1e-4, mergeCount: merge, outPoints: outPts));
+            Assert.True((outPts[merge] - conicNearLocal * 1e-4).magnitude < 1e-9,
+                "the chord end must apply arcScale to the conic near point");
+        }
+
+        [Fact]
+        public void SeamBridgeChord_DegenerateInputs_ReturnFalse()
+        {
+            Vector3d a = new Vector3d(700000.0, 0, 0), b = new Vector3d(690000, 60000, 0);
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeChordLocalPoints(a, b, 1.0, 60, null));
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeChordLocalPoints(a, b, 1.0, 0, new Vector3d[61]));
+            Assert.False(GhostTrajectoryPolylineRenderer.TryBuildSeamBridgeChordLocalPoints(a, b, 1.0, 60, new Vector3d[10]));
+        }
+
+        [Fact]
+        public void ClassifySeamBridgeByAngle_FourBands()
+        {
+            double deg = System.Math.PI / 180.0;
+            // > 45 deg or infinite -> honest gap, no bridge.
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.SkipAngleTooLarge,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(double.PositiveInfinity));
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.SkipAngleTooLarge,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(60.0 * deg));
+            // (5, 45] -> the conic merge slice (existing moderate-misalignment smoother).
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.MergeSlice,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(20.0 * deg));
+            // (0.5, 5] -> the new straight chord (the launch->escape gap lives here, ~0.5-4.6 deg).
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.Chord,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(4.6 * deg));
+            // <= 0.5 deg -> the leg already meets the conic; no (degenerate) bridge.
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.SkipMeetsConic,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(0.2 * deg));
+            // Boundaries: 5 deg -> chord (inclusive), 45 deg -> merge slice (inclusive), 0.5 deg -> meets.
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.Chord,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians));
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.MergeSlice,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians));
+            Assert.Equal(GhostTrajectoryPolylineRenderer.SeamBridgeKind.SkipMeetsConic,
+                GhostTrajectoryPolylineRenderer.ClassifySeamBridgeByAngle(GhostTrajectoryPolylineRenderer.BridgeChordMinAngleRadians));
+        }
+
         [Fact]
         public void SeamBridge_ZeroAngle_DegeneratesToArcLeadIn()
         {
@@ -1965,6 +2154,60 @@ namespace Parsek.Tests
                 GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(Vector3d.zero, x)));
         }
 
+        // Min-angle gate (re-aim launch-aligned-ascent render-polish fix): the now-common case where the
+        // body-fixed launch ascent ALREADY MEETS the inertial escape conic (a few-km positional gap, a
+        // tiny seam angle) must SKIP the bridge - the fixed ~74 deg conic merge slice would bulge a
+        // disproportionate ~200-370 km off such a near-meet, reading as a spurious extra segment. The
+        // gate in DecideSeamBridges is exactly `angleRad <= BridgeMinAngleRadians`; this exercises that
+        // decision through the same pure SeamBridgeAngleRad the gate calls, at Kerbin geometry.
+        [Fact]
+        public void SeamBridge_MinAngleGate_NearMeetSkips_RealGapBridges()
+        {
+            // Threshold pinned at 5 deg.
+            Assert.Equal(5.0 * System.Math.PI / 180.0,
+                GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians, 9);
+            // ...and comfortably below the 45 deg max (the gate window is non-empty).
+            Assert.True(GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians
+                < GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians);
+
+            // Leg endpoint near Kerbin's surface (radius ~670 km from centre).
+            const double r = 670000.0;
+            Vector3d legRel = new Vector3d(r, 0.0, 0.0);
+
+            // NEAR-MEET: the launch-aligned ascent end and the conic seam are 4.59 deg apart (the largest
+            // redundant launch bridge from the aa48920e playtest; a ~54 km chord). Gate condition true ->
+            // bridge SKIPPED (the leg meets the conic; no disproportionate bridge).
+            Vector3d seamNearMeet = RotZ(legRel, 4.59 * System.Math.PI / 180.0);
+            double nearMeetAngle = GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(legRel, seamNearMeet);
+            Assert.True(nearMeetAngle <= GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians,
+                "a near-aligned launch handoff (4.59 deg) must fall at/below the min gate and skip the bridge");
+
+            // Also the aligned-seam ~0-3 deg population the design doc reports collapses to: skips.
+            Vector3d seamAligned = RotZ(legRel, 0.31 * System.Math.PI / 180.0);
+            Assert.True(
+                GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(legRel, seamAligned)
+                    <= GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians,
+                "a 0.31 deg aligned-seam handoff must skip the bridge");
+
+            // REAL GAP: a genuine moderate misalignment (the 26.77 deg 8538d9e1 case, a ~310 km chord -
+            // comparable to the bridge's own bulge, within the designed 5-45 deg range). Gate condition
+            // false -> bridge STILL DRAWS (it smooths a real visible gap; not re-opened by this fix).
+            Vector3d seamRealGap = RotZ(legRel, 26.77 * System.Math.PI / 180.0);
+            double realGapAngle = GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(legRel, seamRealGap);
+            Assert.True(realGapAngle > GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians,
+                "a 26.77 deg moderate-misalignment gap must stay above the min gate and still bridge");
+            Assert.True(realGapAngle <= GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians,
+                "26.77 deg is within the 45 deg max, so the bridge is not skipped as too-large either");
+
+            // A mid-range designed bridge (10 deg) also still draws: this fix does not narrow the 5-45
+            // deg range other missions / same-parent loops rely on.
+            Assert.True(
+                GhostTrajectoryPolylineRenderer.SeamBridgeAngleRad(
+                    legRel, RotZ(legRel, 10.0 * System.Math.PI / 180.0))
+                    > GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians,
+                "a 10 deg moderate-misalignment gap must still bridge");
+        }
+
         // The adjacency rule, both sides (playtest 7): a conic neighbours a leg seam when it shares
         // the body and ends (start-side) / starts (end-side) within [seam - maxGap, seam + 1s].
         [Fact]
@@ -1991,6 +2234,140 @@ namespace Parsek.Tests
             // Other body never neighbours.
             Assert.False(GhostTrajectoryPolylineRenderer.IsBridgeAdjacentConic(
                 "Ike", 100.0, 496.0, "Duna", 500.0, true, 120.0));
+        }
+
+        // Intervening-ascent-leg rule (launch-escape-seam render fix): a launch records across two
+        // consecutive body-fixed legs (pad ascent -> continuation ascent) feeding ONE escape conic.
+        // Only the body-fixed leg IMMEDIATELY adjacent to the conic may bridge to it; the earlier leg's
+        // end is adjacent only in UT (the continuation leg sits between it and the conic), so its bridge
+        // would shortcut over the continuation - it must skip.
+        [Fact]
+        public void HasInterveningContinuationLeg_LaunchAscentChain_PadLegSkips_ContinuationBridges()
+        {
+            // Chain: pad ascent [0, 70] (idx 0), continuation ascent [70, 200] (idx 1); escape conic
+            // starts at 200. Both legs are "Kerbin" body-fixed bridge candidates.
+            var legs = new[]
+            {
+                new GhostTrajectoryPolylineRenderer.BridgeLegSpan
+                    { startUT = 0.0, endUT = 70.0, bodyName = "Kerbin" },   // pad ascent
+                new GhostTrajectoryPolylineRenderer.BridgeLegSpan
+                    { startUT = 70.0, endUT = 200.0, bodyName = "Kerbin" }, // continuation ascent
+            };
+            const double conicStartUT = 200.0;
+
+            // PAD leg (idx 0) END side: seam = 70, conic starts at 200. The continuation leg (idx 1)
+            // STARTS at 70 and ends before the conic -> it intervenes -> the pad leg's bridge SKIPS.
+            Assert.True(GhostTrajectoryPolylineRenderer.HasInterveningContinuationLeg(
+                legs, selfIndex: 0, candBodyName: "Kerbin",
+                legSeamUT: 70.0, conicSeamUT: conicStartUT, atLegStart: false,
+                seamTolSeconds: GhostTrajectoryPolylineRenderer.BridgeSeamSharedBoundaryToleranceSeconds,
+                out int padIntervening, out double padInterveningSeam));
+            Assert.Equal(1, padIntervening);
+            Assert.Equal(70.0, padInterveningSeam, 6);
+
+            // CONTINUATION leg (idx 1) END side: seam = 200, conic starts at 200. No other Kerbin leg
+            // starts in (200, 200) -> the only other leg starts at 0, far before -> NOT intervening ->
+            // the continuation leg's bridge still DRAWS (and the near-meet gate resolves it).
+            Assert.False(GhostTrajectoryPolylineRenderer.HasInterveningContinuationLeg(
+                legs, selfIndex: 1, candBodyName: "Kerbin",
+                legSeamUT: 200.0, conicSeamUT: conicStartUT, atLegStart: false,
+                seamTolSeconds: GhostTrajectoryPolylineRenderer.BridgeSeamSharedBoundaryToleranceSeconds,
+                out int contIntervening, out _));
+            Assert.Equal(-1, contIntervening);
+        }
+
+        // A single body-fixed leg immediately followed by a conic (no intervening same-body leg) must
+        // NOT be flagged - the conic IS its immediate next segment, so the legitimate leg->conic bridge
+        // is preserved.
+        [Fact]
+        public void HasInterveningContinuationLeg_SingleLegThenConic_DoesNotSkip()
+        {
+            var legs = new[]
+            {
+                new GhostTrajectoryPolylineRenderer.BridgeLegSpan
+                    { startUT = 0.0, endUT = 100.0, bodyName = "Kerbin" },
+            };
+            Assert.False(GhostTrajectoryPolylineRenderer.HasInterveningContinuationLeg(
+                legs, selfIndex: 0, candBodyName: "Kerbin",
+                legSeamUT: 100.0, conicSeamUT: 100.0, atLegStart: false,
+                seamTolSeconds: GhostTrajectoryPolylineRenderer.BridgeSeamSharedBoundaryToleranceSeconds,
+                out int intervening, out _));
+            Assert.Equal(-1, intervening);
+        }
+
+        // A different-body leg between this leg's end and the conic is NOT a continuation here (an SOI
+        // seam, not a same-body chain) and must not suppress the bridge.
+        [Fact]
+        public void HasInterveningContinuationLeg_DifferentBodyLeg_DoesNotSkip()
+        {
+            var legs = new[]
+            {
+                new GhostTrajectoryPolylineRenderer.BridgeLegSpan
+                    { startUT = 0.0, endUT = 70.0, bodyName = "Kerbin" },
+                new GhostTrajectoryPolylineRenderer.BridgeLegSpan
+                    { startUT = 70.0, endUT = 200.0, bodyName = "Mun" }, // different body
+            };
+            Assert.False(GhostTrajectoryPolylineRenderer.HasInterveningContinuationLeg(
+                legs, selfIndex: 0, candBodyName: "Kerbin",
+                legSeamUT: 70.0, conicSeamUT: 200.0, atLegStart: false,
+                seamTolSeconds: GhostTrajectoryPolylineRenderer.BridgeSeamSharedBoundaryToleranceSeconds,
+                out int intervening, out _));
+            Assert.Equal(-1, intervening);
+        }
+
+        // START-side symmetry: a conic feeding into a leg that is preceded by ANOTHER body-fixed leg
+        // (which sits between the conic and this leg) must skip; the immediately-adjacent leg bridges.
+        [Fact]
+        public void HasInterveningContinuationLeg_StartSide_PrecedingLegSkips()
+        {
+            // Conic ends at 100; leg A [100, 200] descends from the conic; leg B [200, 300] continues
+            // after A. Both "Duna" body-fixed.
+            var legs = new[]
+            {
+                new GhostTrajectoryPolylineRenderer.BridgeLegSpan
+                    { startUT = 100.0, endUT = 200.0, bodyName = "Duna" }, // immediately after conic
+                new GhostTrajectoryPolylineRenderer.BridgeLegSpan
+                    { startUT = 200.0, endUT = 300.0, bodyName = "Duna" }, // further along
+            };
+            const double conicEndUT = 100.0;
+
+            // Leg B (idx 1) START side: seam = 200, conic ends at 100. Leg A (idx 0) ENDS at 200 and
+            // starts after the conic -> A sits between the conic and B -> B's start-side bridge SKIPS.
+            Assert.True(GhostTrajectoryPolylineRenderer.HasInterveningContinuationLeg(
+                legs, selfIndex: 1, candBodyName: "Duna",
+                legSeamUT: 200.0, conicSeamUT: conicEndUT, atLegStart: true,
+                seamTolSeconds: GhostTrajectoryPolylineRenderer.BridgeSeamSharedBoundaryToleranceSeconds,
+                out int bIntervening, out double bInterveningSeam));
+            Assert.Equal(0, bIntervening);
+            Assert.Equal(200.0, bInterveningSeam, 6);
+
+            // Leg A (idx 0) START side: seam = 100, conic ends at 100. No other Duna leg ends in
+            // (100, 100) -> A is the immediate successor of the conic -> A's bridge still DRAWS.
+            Assert.False(GhostTrajectoryPolylineRenderer.HasInterveningContinuationLeg(
+                legs, selfIndex: 0, candBodyName: "Duna",
+                legSeamUT: 100.0, conicSeamUT: conicEndUT, atLegStart: true,
+                seamTolSeconds: GhostTrajectoryPolylineRenderer.BridgeSeamSharedBoundaryToleranceSeconds,
+                out int aIntervening, out _));
+            Assert.Equal(-1, aIntervening);
+        }
+
+        // Null / empty inputs are tolerated (no intervening leg found).
+        [Fact]
+        public void HasInterveningContinuationLeg_NullOrEmpty_ReturnsFalse()
+        {
+            Assert.False(GhostTrajectoryPolylineRenderer.HasInterveningContinuationLeg(
+                null, 0, "Kerbin", 70.0, 200.0, false, 1.0, out int i1, out _));
+            Assert.Equal(-1, i1);
+            Assert.False(GhostTrajectoryPolylineRenderer.HasInterveningContinuationLeg(
+                new GhostTrajectoryPolylineRenderer.BridgeLegSpan[0], 0, "Kerbin",
+                70.0, 200.0, false, 1.0, out int i2, out _));
+            Assert.Equal(-1, i2);
+            // Empty body name -> no body to match.
+            Assert.False(GhostTrajectoryPolylineRenderer.HasInterveningContinuationLeg(
+                new[] { new GhostTrajectoryPolylineRenderer.BridgeLegSpan
+                    { startUT = 70.0, endUT = 200.0, bodyName = "Kerbin" } },
+                -1, "", 0.0, 200.0, false, 1.0, out int i3, out _));
+            Assert.Equal(-1, i3);
         }
 
         // The signed-gap (overshoot) rule (playtest 7, maintainer rule): bridge only when the previous
