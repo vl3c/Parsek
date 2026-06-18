@@ -60,6 +60,7 @@ All notable changes to Parsek are documented here.
 - Looped missions that dock with a station orbiting another body (such as a Mun depot) no longer relaunch only once every year or two: the per-loop loiter re-timer now engages on the parking orbit around the destination body, collapsing the cadence back to roughly weeks, and the Missions window's loop period now shows the cadence as a range instead of a single mean.
 - Looped two-burn-departure missions (such as a Duna run that coasts in a solar parking orbit before the transfer burn) now keep the parking-orbit loiter drawn next to the launch planet on every loop, not just the first. When the recorded flight is longer than its transfer window the loiter used to jump a growing angle (roughly 142 degrees per loop) away from where the ghost actually leaves the planet, because it was re-phased on the transfer-window clock instead of the loop's real relaunch clock.
 - Looped re-aim launches no longer draw a spurious extra connector beside the trajectory now that the ascent meets the escape: when the aligned launch line already reaches the escape orbit, the short connector that used to bridge the old gap is no longer drawn.
+- A launch recorded as two back-to-back ascent legs (pad climb then continuation to orbit) no longer draws a stray curved connector from the first leg straight to the escape orbit, shortcutting over the continuation leg; only the ascent leg that actually meets the escape orbit connects to it.
 
 ---
 
