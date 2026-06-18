@@ -130,6 +130,21 @@ namespace Parsek.Tests.Logistics
         // as the single-stop fixtures pass UndockUT as segmentEndUT). Everything
         // at/after 3000 (the post-terminal tail + payloadB) is excluded; the
         // intermediate-undock survivor (StartUT 1500 < 3000) stays rendered.
+        // NOTE (A4 review nit a): this fixture passes the TERMINAL UNDOCK UT (3000)
+        // as segmentEndUT, whereas PRODUCTION passes the last stop's DOCK UT
+        // (RouteBuilder -> ComputeExcludedIntervalKeys with
+        // lastAnalysisStop.ConnectionWindow.DockUT, i.e. dockedB's start = 2500).
+        // Hand-verified these yield the IDENTICAL excluded set here: Missions
+        // composition folds the transport into one through-line split only at
+        // undocks, so the only selectable boundaries are launch [1000..1500],
+        // launch/seg1 [1500..3000] (the dockedB combined leg's interval, which
+        // STARTS at 1500 < both 2500 and 3000 so it is KEPT under either
+        // segmentEndUT), and launch/seg2 [3000..3500] (excluded under both, since
+        // 3000 >= 3000 and 3000 >= 2500) plus the peels payloadA/payloadB. So this
+        // is a valid NO-SPAWN model (the post-last-dock tail + terminal peel are
+        // non-members either way) but NOT a faithful dock-TRIM model: a real route
+        // trims at the dock instant 2500, not the undock 3000 - the difference is
+        // invisible because no selectable interval starts inside (2500, 3000).
         private const double MultiStopSegmentEndUT = 3000.0;
         private const double MultiStopRootLaunchUT = 1000.0;
 
@@ -574,6 +589,7 @@ namespace Parsek.Tests.Logistics
             var committed = new List<Recording>(tree.Recordings.Values);
             int idxLaunch = committed.FindIndex(r => r.RecordingId == "launch");
             int idxMidA2B = committed.FindIndex(r => r.RecordingId == "midA2B");
+            int idxPayloadA = committed.FindIndex(r => r.RecordingId == "payloadA");
             int idxDockedB = committed.FindIndex(r => r.RecordingId == "dockedB");
             int idxTail = committed.FindIndex(r => r.RecordingId == "tail");
             int idxPayloadB = committed.FindIndex(r => r.RecordingId == "payloadB");
@@ -611,6 +627,16 @@ namespace Parsek.Tests.Logistics
                 "intermediate-undock survivor (transport continues depot A -> depot B) must STAY a member");
             Assert.True(set.IsMember(idxDockedB),
                 "depot-B docked combined leg (folded into the kept through-line up to the last dock) must be a member");
+
+            // (A4 review nit c) The intermediate depot-A peel (payloadA, the cargo
+            // the transport dropped at depot A, [1500..1800]) is INTENTIONALLY a
+            // KEPT member: the route renders the whole [launch .. last dock] window,
+            // so everything that peeled BEFORE the last dock (StartUT 1500 < the
+            // span boundary, and payloadA roots at the INTERMEDIATE undock, NOT the
+            // terminal undock whose children are trimmed) stays in the loop unit.
+            // It is a member (loops, never spawns), NOT a post-last-dock non-member.
+            Assert.True(set.IsMember(idxPayloadA),
+                "intermediate depot-A peel (payloadA [1500..1800]) is intentionally a KEPT member - it dropped before the last dock");
 
             // (b) post-last-dock recordings are NON-members (excluded entirely ->
             //     never become a unit member, never spawn).

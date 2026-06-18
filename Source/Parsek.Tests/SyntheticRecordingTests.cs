@@ -6251,6 +6251,11 @@ namespace Parsek.Tests
             // create path can be eyeballed in-game.
             writer.AddTree(DrillHarvestRouteTree(baseUT));
 
+            // M4a synthetic multi-stop delivery tree (TWO dock-merged children,
+            // one delivery window each) so the multi-window analysis / N-stop
+            // route build / per-window firing path can be eyeballed in-game.
+            writer.AddTree(MultiStopDeliveryRouteTree(baseUT));
+
             // Add real recordings from the default career (if available)
             var realRecordingNodes = AddRealCareerRecordings(writer, kspRoot);
 
@@ -6503,6 +6508,12 @@ namespace Parsek.Tests
                     Assert.Contains("ROUTE_RUN_MANIFEST", content);
                     Assert.Contains("ROUTE_HARVEST_WINDOWS", content);
                     Assert.Contains("ROUTE_CONNECTION_WINDOWS", content);
+
+                    // M4a multi-stop delivery tree: two dock-merged children, one
+                    // delivery window each (the multi-window route inject path).
+                    Assert.Contains("treeName = Mun Two-Base Supply Run", content);
+                    Assert.Contains("vesselName = Mun Two-Base Supply Run Docked A", content);
+                    Assert.Contains("vesselName = Mun Two-Base Supply Run Docked B", content);
 
                     // The frozen real-career fixture is injected only after it has
                     // been rebaked to the current reset schema. Until then, the
@@ -7857,6 +7868,322 @@ namespace Parsek.Tests
                 MergeCause = "DOCK",
                 ParentRecordingIds = new List<string> { rootId },
                 ChildRecordingIds = new List<string> { mergedId }
+            });
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            return node;
+        }
+
+        /// <summary>
+        /// M4a (Phase A5) synthetic MULTI-STOP DELIVERY route tree so the
+        /// end-to-end inject path exercises a TWO-WINDOW delivery route (plan
+        /// `docs/dev/plan-logistics-m4-shape-generality.md` Phase A5, gameplay
+        /// grounding 5.1: KSC launch -> Base A deliver -> continue -> Base B
+        /// deliver -> tail home). A multi-window route is several dock-merged child
+        /// recordings across one tree, ONE <see cref="RouteConnectionWindow"/> each
+        /// (plan §2 finding), so this mirrors the single-window
+        /// <see cref="DrillHarvestRouteTree"/> shape but with TWO dock-merge
+        /// branch points, each child carrying its own delivery window.
+        ///
+        /// <para>The transport launches from KSC with both deliveries aboard (LF
+        /// for Base A, Monopropellant for Base B), docks at Base A and delivers
+        /// 150 LF, undocks and continues, docks at Base B and delivers 200 MP,
+        /// then undocks and flies the tail home. The analysis path now accepts +
+        /// orders both windows (A1), RouteBuilder builds two stops (A2), and the
+        /// orchestrator fires delivery at each recorded dock phase (A3); the render
+        /// end-trims at the last dock and never spawns a real vessel (A4). This row
+        /// makes the whole multi-stop pipeline eyeballable from a fresh inject.</para>
+        /// </summary>
+        internal static ConfigNode MultiStopDeliveryRouteTree(double baseUT = 0)
+        {
+            double tLaunch = baseUT + 500;
+            double tDockA = tLaunch + 500;   // dock at Base A
+            double tUndockA = tDockA + 100;  // undock from Base A, continue to B
+            double tDockB = tUndockA + 400;  // dock at Base B (the LAST dock)
+            double tUndockB = tDockB + 100;  // undock from Base B, fly home
+            double tEnd = tUndockB + 200;
+            const string treeId = "tree-multistop-delivery-m4";
+            const string rootId = "m4-ms-launch";
+            const string dockedAId = "m4-ms-dockedA";
+            const string midId = "m4-ms-midA2B";
+            const string dockedBId = "m4-ms-dockedB";
+            const string tailId = "m4-ms-tail";
+            const uint transportPartPid = 94001;
+            const uint baseAVesselPid = 9500;
+            const uint baseAPartPid = 95001;
+            const uint baseBVesselPid = 9600;
+            const uint baseBPartPid = 96001;
+            const double munLat = 0.3;
+            const double munLonA = 60.0;
+            const double munLonB = 61.0;
+            const double munAlt = 8.0;
+
+            Dictionary<string, ResourceAmount> Lf(double amount) =>
+                new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = amount, maxAmount = 600.0 }
+                };
+
+            // Transport carries 150 LF (for Base A) + 200 MP (for Base B) at launch.
+            Dictionary<string, ResourceAmount> TransportAtLaunch() =>
+                new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 150.0, maxAmount = 600.0 },
+                    ["MonoPropellant"] = new ResourceAmount { amount = 200.0, maxAmount = 400.0 }
+                };
+
+            // Aboard the transport between A and B: LF delivered, MP still aboard.
+            Dictionary<string, ResourceAmount> TransportAfterA() =>
+                new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 0.0, maxAmount = 600.0 },
+                    ["MonoPropellant"] = new ResourceAmount { amount = 200.0, maxAmount = 400.0 }
+                };
+
+            // Aboard the transport after B: both delivered.
+            Dictionary<string, ResourceAmount> TransportEmpty() =>
+                new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 0.0, maxAmount = 600.0 },
+                    ["MonoPropellant"] = new ResourceAmount { amount = 0.0, maxAmount = 400.0 }
+                };
+
+            Dictionary<string, ResourceAmount> Mp(double amount) =>
+                new Dictionary<string, ResourceAmount>
+                {
+                    ["MonoPropellant"] = new ResourceAmount { amount = amount, maxAmount = 400.0 }
+                };
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Mun Two-Base Supply Run",
+                RootRecordingId = rootId
+            };
+
+            // Root: KSC launch -> approach Base A. Carries the full launch manifest.
+            tree.Recordings[rootId] = new Recording
+            {
+                RecordingId = rootId,
+                TreeId = treeId,
+                VesselName = "Mun Two-Base Supply Run",
+                VesselPersistentId = 9401,
+                ChildBranchPointId = "m4-ms-dockA-bp",
+                ExplicitStartUT = tLaunch,
+                ExplicitEndUT = tDockA,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid },
+                    StartTransportResources = TransportAtLaunch(),
+                    EndTransportResources = TransportAtLaunch(),
+                    EndCaptured = true
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Mun Two-Base Supply Run", pid: 9401)
+                    .AsLanded(munLat, munLonA - 0.05, munAlt)
+                    .Build()
+            };
+
+            // Dock-A merged child: deliver 150 LF to Base A (DOCK with 150 LF aboard,
+            // UNDOCK with 0). Carries delivery window A.
+            tree.Recordings[dockedAId] = new Recording
+            {
+                RecordingId = dockedAId,
+                TreeId = treeId,
+                VesselName = "Mun Two-Base Supply Run Docked A",
+                VesselPersistentId = 9402,
+                ParentBranchPointId = "m4-ms-dockA-bp",
+                ChildBranchPointId = "m4-ms-undockA-bp",
+                ExplicitStartUT = tDockA,
+                ExplicitEndUT = tUndockA,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid, baseAPartPid },
+                    StartTransportResources = TransportAtLaunch(),
+                    EndTransportResources = TransportAtLaunch(),
+                    EndCaptured = true
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "m4-ms-delivery-A",
+                        DockUT = tDockA,
+                        UndockUT = tUndockA,
+                        TransferTargetVesselPid = baseAVesselPid,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        TransportPartPersistentIds = new List<uint> { transportPartPid },
+                        EndpointPartPersistentIds = new List<uint> { baseAPartPid },
+                        DockTransportResources = Lf(150.0),
+                        UndockTransportResources = Lf(0.0),
+                        DockEndpointResources = Lf(0.0),
+                        UndockEndpointResources = Lf(150.0),
+                        EndpointAtDock = new RouteEndpoint
+                        {
+                            VesselPersistentId = baseAVesselPid,
+                            BodyName = "Mun",
+                            Latitude = munLat,
+                            Longitude = munLonA,
+                            Altitude = munAlt,
+                            IsSurface = true
+                        },
+                        TransferEndpointSituation = 1 // Vessel.Situations.LANDED
+                    }
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Mun Two-Base Supply Run Docked A", pid: 9402)
+                    .AsLanded(munLat, munLonA, munAlt)
+                    .Build()
+            };
+
+            // Mid leg: undock from Base A and continue to Base B. The transport keeps
+            // the 200 MP destined for Base B.
+            tree.Recordings[midId] = new Recording
+            {
+                RecordingId = midId,
+                TreeId = treeId,
+                VesselName = "Mun Two-Base Supply Run",
+                VesselPersistentId = 9403,
+                ParentBranchPointId = "m4-ms-undockA-bp",
+                ChildBranchPointId = "m4-ms-dockB-bp",
+                ExplicitStartUT = tUndockA,
+                ExplicitEndUT = tDockB,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid },
+                    StartTransportResources = TransportAfterA(),
+                    EndTransportResources = TransportAfterA(),
+                    EndCaptured = true
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Mun Two-Base Supply Run", pid: 9403)
+                    .AsLanded(munLat, munLonB - 0.05, munAlt)
+                    .Build()
+            };
+
+            // Dock-B merged child (the LAST dock): deliver 200 MP to Base B (DOCK with
+            // 200 MP aboard, UNDOCK with 0). Carries delivery window B.
+            tree.Recordings[dockedBId] = new Recording
+            {
+                RecordingId = dockedBId,
+                TreeId = treeId,
+                VesselName = "Mun Two-Base Supply Run Docked B",
+                VesselPersistentId = 9404,
+                ParentBranchPointId = "m4-ms-dockB-bp",
+                ChildBranchPointId = "m4-ms-undockB-bp",
+                ExplicitStartUT = tDockB,
+                ExplicitEndUT = tUndockB,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid, baseBPartPid },
+                    StartTransportResources = TransportAfterA(),
+                    EndTransportResources = TransportAfterA(),
+                    EndCaptured = true
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "m4-ms-delivery-B",
+                        DockUT = tDockB,
+                        UndockUT = tUndockB,
+                        TransferTargetVesselPid = baseBVesselPid,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        TransportPartPersistentIds = new List<uint> { transportPartPid },
+                        EndpointPartPersistentIds = new List<uint> { baseBPartPid },
+                        DockTransportResources = Mp(200.0),
+                        UndockTransportResources = Mp(0.0),
+                        DockEndpointResources = Mp(0.0),
+                        UndockEndpointResources = Mp(200.0),
+                        EndpointAtDock = new RouteEndpoint
+                        {
+                            VesselPersistentId = baseBVesselPid,
+                            BodyName = "Mun",
+                            Latitude = munLat,
+                            Longitude = munLonB,
+                            Altitude = munAlt,
+                            IsSurface = true
+                        },
+                        TransferEndpointSituation = 1 // Vessel.Situations.LANDED
+                    }
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Mun Two-Base Supply Run Docked B", pid: 9404)
+                    .AsLanded(munLat, munLonB, munAlt)
+                    .Build()
+            };
+
+            // Tail: undock from Base B and fly home (the post-last-dock tail the
+            // route render end-trims away; it never spawns a real vessel).
+            tree.Recordings[tailId] = new Recording
+            {
+                RecordingId = tailId,
+                TreeId = treeId,
+                VesselName = "Mun Two-Base Supply Run",
+                VesselPersistentId = 9405,
+                ParentBranchPointId = "m4-ms-undockB-bp",
+                ExplicitStartUT = tUndockB,
+                ExplicitEndUT = tEnd,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid },
+                    StartTransportResources = TransportEmpty(),
+                    EndTransportResources = TransportEmpty(),
+                    EndCaptured = true
+                },
+                TerminalStateValue = TerminalState.Landed,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Mun",
+                    latitude = munLat,
+                    longitude = munLonB - 0.1,
+                    altitude = munAlt,
+                    situation = SurfaceSituation.Landed
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Mun Two-Base Supply Run", pid: 9405)
+                    .AsLanded(munLat, munLonB - 0.1, munAlt)
+                    .Build()
+            };
+
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "m4-ms-dockA-bp",
+                UT = tDockA,
+                Type = BranchPointType.Dock,
+                TargetVesselPersistentId = baseAVesselPid,
+                MergeCause = "DOCK",
+                ParentRecordingIds = new List<string> { rootId },
+                ChildRecordingIds = new List<string> { dockedAId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "m4-ms-undockA-bp",
+                UT = tUndockA,
+                Type = BranchPointType.Undock,
+                SplitCause = "UNDOCK",
+                ParentRecordingIds = new List<string> { dockedAId },
+                ChildRecordingIds = new List<string> { midId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "m4-ms-dockB-bp",
+                UT = tDockB,
+                Type = BranchPointType.Dock,
+                TargetVesselPersistentId = baseBVesselPid,
+                MergeCause = "DOCK",
+                ParentRecordingIds = new List<string> { midId },
+                ChildRecordingIds = new List<string> { dockedBId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "m4-ms-undockB-bp",
+                UT = tUndockB,
+                Type = BranchPointType.Undock,
+                SplitCause = "UNDOCK",
+                ParentRecordingIds = new List<string> { dockedBId },
+                ChildRecordingIds = new List<string> { tailId }
             });
 
             var node = new ConfigNode("RECORDING_TREE");
