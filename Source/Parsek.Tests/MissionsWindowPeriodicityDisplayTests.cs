@@ -479,13 +479,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputeNextRelaunchUT_LaunchAlignmentEngaged_CappedLoop_TargetsRealLaunch()
+        public void ComputeNextRelaunchUT_BoundaryOverlapEngaged_ReportsLNMinusRawDelta()
         {
-            // A CAPPED loop (delta_N > slack_{N-1}): a tight cut (small slack) so the raw delta exceeds it and
-            // the capped advance bites. The returned time must STILL agree with the clock's real launch (both
-            // use the SAME ComputeCappedLaunchAdvanceSeconds), as the ACTUAL launch instant (no lead subtracted
-            // here). cadence==span 200000, cut 8000 so compressedSpan 192000, slack ~ 8000 - W << the raw deltas
-            // (which reach ~21000).
+            // A formerly-CAPPED loop (delta_N > slack_{N-1}) now ENGAGES the boundary-overlap launch render
+            // (docs/dev/plan-launch-boundary-overlap.md): the launch realigns FULLY (the seam closes), so the
+            // ghost lifts off at L_N - rawDelta_N (the FULL uncapped delta), NOT the old L_N - capped_delta_N
+            // (which pointed a few hours too LATE). ComputeNextRelaunchUT now reads
+            // ComputeBoundaryOverlapAdvanceSeconds, so it points at the EARLIER real launch the secondary ghost
+            // lifts off at. The early launch is carried by the SECONDARY now (the primary clock stays on the
+            // continuing instance and does NOT snap to spanStart in the borrow window), so FindRealLaunchUT no
+            // longer finds a primary snap for the engaged window - assert the analytic L_N - rawDelta instead.
+            // cadence==span 200000, cut 8000 so compressedSpan 192000, slack ~ 8000 - W << the raw deltas
+            // (which reach ~21000) -> the cap would bite -> boundary overlap engages.
             const double anchor = 1000, s0 = 0, s1 = 200000, cad = 200000, tSid = 21549.425;
             const double w0 = 1000, tAlign = 21549.425, soiExit = 40000, holdAt = 150000;
             var cuts = new System.Collections.Generic.List<GhostPlaybackLogic.LoopCut>
@@ -502,21 +507,27 @@ namespace Parsek.Tests
                 arrivalAlignPeriodSeconds: tAlign, arrivalAmberReason: null,
                 launchBodyRotationPeriodSeconds: tSid, launchHoldEngaged: true, recordedSoiExitUT: soiExit);
 
-            // The advance for window 1 is capped (raw delta_1 ~7055 vs slack ~7000) - confirm the cap bit so the
-            // test genuinely exercises the capped path.
+            // Confirm the boundary overlap ENGAGES for window 1: the raw delta exceeds the cap, so the gated
+            // helper returns the FULL raw delta (strictly greater than the cap).
             double raw1 = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(anchor, s0, 1L, cad, tSid);
             double cap1 = GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(
                 anchor, s0, s1, cad, 1L, tSid, cuts, w0, tAlign);
+            double boundary1 = GhostPlaybackLogic.ComputeBoundaryOverlapAdvanceSeconds(
+                anchor, s0, s1, cad, 1L, tSid, cuts, w0, tAlign);
             Assert.True(cap1 < raw1, $"expected the cap to bite for window 1 (raw {raw1} cap {cap1})");
+            Assert.Equal(raw1, boundary1, 1e-6); // engaged -> full raw delta
 
-            const double step = 1.0;
-            double realLaunch1 = FindRealLaunchUT(unit, scanFrom: anchor, scanTo: anchor + cad, step: step,
-                tSid: tSid, soiExit: soiExit, cuts: cuts, w0: w0, holdAt: holdAt, tAlign: tAlign,
-                spanStart: s0, spanEnd: s1, cadence: cad, anchor: anchor);
-            Assert.True(realLaunch1 > anchor, "expected a region-B early launch for the capped instance 1");
-
-            double next = ComputeNextRelaunchUT(unit, realLaunch1 - 100.0);
-            Assert.Equal(realLaunch1, next, step + 0.5);
+            // L_1 = anchor + 1*cadence; the real launch the secondary lifts off at is L_1 - rawDelta_1.
+            double l1 = anchor + 1 * cad;
+            double realLaunch1 = l1 - raw1;
+            // now comfortably before that launch (and after L_0's advanced launch so it does not report window 0).
+            double now = realLaunch1 - 100.0;
+            double next = ComputeNextRelaunchUT(unit, now);
+            Assert.Equal(realLaunch1, next, 1e-3);
+            // Strictly EARLIER than the old capped display would have pointed (L_1 - cap_1), proving the warp-to
+            // now lands on the realigned launch instead of the cap-truncated one.
+            Assert.True(next < l1 - cap1 - 1.0,
+                $"engaged-loop warp-to {next} must precede the old capped target {l1 - cap1}");
         }
 
         // Scans the actual span clock for the region-B early-launch UT: the loopUT snaps DOWN from spanEnd back

@@ -579,7 +579,9 @@ namespace Parsek
                                     var lic = CultureInfo.InvariantCulture;
                                     ParsekLog.Info("Reaim",
                                         $"MissionLoopUnit: mission='{mission.Name}' LAUNCH HOLD engaged to " +
-                                        $"{plan.LaunchBody} rotation (PadAlignLaunch declined -> per-loop launch advance / SOI-exit repay): " +
+                                        $"{plan.LaunchBody} rotation (PadAlignLaunch declined -> per-loop launch advance / SOI-exit repay; " +
+                                        $"the boundary-overlap launch render closes the launch->escape seam on EVERY loop, including the " +
+                                        $"zero-slack loops the cap previously left open, via a secondary in-SOI ghost): " +
                                         $"siderealDay={launchRotationPeriod.ToString("F1", lic)}s " +
                                         $"soiExit={launchHoldSoiExitUT.ToString("R", lic)} " +
                                         $"phaseAnchor={phaseAnchorUT.ToString("R", lic)} " +

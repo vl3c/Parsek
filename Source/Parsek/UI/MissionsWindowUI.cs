@@ -1517,31 +1517,33 @@ namespace Parsek
             if (next < nowUT - 1e-6)
                 next += interval;
 
-            // Per-loop launch alignment (borrow-at-launch / repay-at-SOI-exit): when the unit's launch
-            // alignment is engaged the ghost launches delta_N EARLIER than the nominal window L_N (the
-            // launch-body rotates back under the recorded path), so the actual launch instant the engine
-            // RENDERS is L_N - min(delta_N, slack_{N-1}) - the SAME CAPPED advance the span clock applies in
-            // region B (ComputeCappedLaunchAdvanceSeconds, capped to the LAUNCHING cycle's slack, NOT the
-            // uncapped delta_N the old display used, which pointed a few hours too early when delta_N > slack).
-            // This returns the ACTUAL launch instant L_N - capped_delta_N: subtract the capped advance for
-            // window n; if that advanced launch already passed, fall forward to window n+1's advanced launch.
-            // The 15 s warp lead is NOT applied here - it is applied ONCE at the warp site by
-            // TimeJumpManager.ApplyJumpLead(relaunchUT, ...) in ShowMissionWarpToWindowConfirmation, so the
-            // warp lands the player on the pad just before lift-off (applying it here too would double-lead the
-            // warp ~30 s early). No-op when the launch alignment is not engaged (a degenerate T_sid yields
-            // delta_N == 0). PhaseAnchorUT / cadence / the window index are untouched (targeting is unchanged) -
-            // only the displayed launch time shifts.
+            // Per-loop launch alignment (borrow-at-launch / repay-at-SOI-exit + boundary-overlap launch render):
+            // when the unit's launch alignment is engaged the ghost launches delta_N EARLIER than the nominal
+            // window L_N (the launch-body rotates back under the recorded path), so the actual launch instant the
+            // engine RENDERS is L_N - ComputeBoundaryOverlapAdvanceSeconds(...): on an already-aligned (slack>0)
+            // loop this equals the OLD capped advance (no change); on a zero-slack residual-seam loop the boundary
+            // overlap uses the FULL raw delta (uncapped) - the launch realigns fully and the secondary renders, so
+            // the navigable warp-to must point at the EARLIER (uncapped) launch the ghost actually lifts off at.
+            // Using the capped advance here would point a few hours too LATE on the engaged loops (the cap-truncated
+            // launch the engine no longer uses). This returns the ACTUAL launch instant L_N - boundaryOverlapAdvance:
+            // subtract the advance for window n; if that advanced launch already passed, fall forward to window n+1's
+            // advanced launch. The 15 s warp lead is NOT applied here - it is applied ONCE at the warp site by
+            // TimeJumpManager.ApplyJumpLead(relaunchUT, ...) in ShowMissionWarpToWindowConfirmation, so the warp lands
+            // the player on the pad just before lift-off (applying it here too would double-lead the warp ~30 s
+            // early). No-op when the launch alignment is not engaged (a degenerate T_sid yields delta_N == 0).
+            // PhaseAnchorUT / cadence / the window index are untouched (targeting is unchanged) - only the displayed
+            // launch time shifts.
             if (unit.LaunchHoldEngaged)
             {
                 long win = (long)System.Math.Round((next - anchor) / interval);
-                double delta = GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(
+                double delta = GhostPlaybackLogic.ComputeBoundaryOverlapAdvanceSeconds(
                     anchor, unit.SpanStartUT, unit.SpanEndUT, interval, win,
                     unit.LaunchBodyRotationPeriodSeconds, unit.LoiterCuts,
                     unit.ArrivalHoldSeconds, unit.ArrivalAlignPeriodSeconds);
                 next = next - delta;
                 if (next < nowUT - 1e-6)
                 {
-                    double deltaNext = GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(
+                    double deltaNext = GhostPlaybackLogic.ComputeBoundaryOverlapAdvanceSeconds(
                         anchor, unit.SpanStartUT, unit.SpanEndUT, interval, win + 1,
                         unit.LaunchBodyRotationPeriodSeconds, unit.LoiterCuts,
                         unit.ArrivalHoldSeconds, unit.ArrivalAlignPeriodSeconds);

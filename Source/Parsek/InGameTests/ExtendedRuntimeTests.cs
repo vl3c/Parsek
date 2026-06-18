@@ -490,6 +490,167 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(badBodies.Count == 0,
                 $"Unresolvable ghost body names: {string.Join(", ", badBodies)}");
         }
+
+        // ───────────────────────────────────────────────────────────────
+        //  Boundary-overlap launch render (docs/dev/plan-launch-boundary-overlap.md)
+        // ───────────────────────────────────────────────────────────────
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "Any boundary-overlap secondary ghost is audio-muted, flagged, and never bound by the watch camera")]
+        public void BoundaryOverlapSecondary_IsMutedFlaggedAndUnwatched()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            var loopUnits = flight.Engine.CurrentLoopUnits;
+            if (loopUnits == null || loopUnits.Count == 0)
+                InGameAssert.Skip("No Mission loop units active (load a zero-slack re-aim launch loop to exercise this)");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            int watchedIndex = flight.WatchMode != null ? flight.WatchMode.WatchedRecordingIndex : -1;
+            int secondariesFound = 0;
+            int violations = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (!flight.Engine.TryGetOverlapGhosts(i, out var overlaps) || overlaps == null)
+                    continue;
+                for (int k = 0; k < overlaps.Count; k++)
+                {
+                    var s = overlaps[k];
+                    if (s == null || !s.isBoundaryOverlapSecondary)
+                        continue;
+                    secondariesFound++;
+                    // Invariant 3: the secondary borrows the overlap STORAGE; it must be audio-muted (overlap
+                    // ghosts get no audio).
+                    if (!s.audioMuted)
+                    {
+                        violations++;
+                        ParsekLog.Warn("TestRunner",
+                            $"Boundary-overlap secondary #{i} cycle={s.loopCycleIndex} is NOT audio-muted");
+                    }
+                    // Invariant 4: the watch camera must NEVER bind a boundary-overlap secondary. The camera
+                    // follows the long-lived primary through-line; the secondary lives only in overlap storage.
+                    if (watchedIndex == i && flight.WatchMode != null
+                        && flight.WatchMode.WatchedLoopCycleIndex == s.loopCycleIndex)
+                    {
+                        violations++;
+                        ParsekLog.Warn("TestRunner",
+                            $"Watch camera bound the boundary-overlap secondary #{i} cycle={s.loopCycleIndex} (invariant 4 violation)");
+                    }
+                }
+            }
+
+            if (secondariesFound == 0)
+                InGameAssert.Skip("No boundary-overlap secondary ghost active this frame (warp through a zero-slack loop's borrow window)");
+
+            ParsekLog.Info("TestRunner",
+                $"Boundary-overlap secondary: {secondariesFound} found, {violations} invariant violation(s)");
+            InGameAssert.AreEqual(0, violations,
+                $"{violations} boundary-overlap secondary invariant violation(s) (muted/flagged/unwatched)");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "At most ONE boundary-overlap secondary ghost per recording index (the borrowed overlap storage holds one)")]
+        public void BoundaryOverlapSecondary_AtMostOnePerRecording()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            int checkedRecordings = 0;
+            int violations = 0;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (!flight.Engine.TryGetOverlapGhosts(i, out var overlaps) || overlaps == null)
+                    continue;
+                int secCount = 0;
+                for (int k = 0; k < overlaps.Count; k++)
+                    if (overlaps[k] != null && overlaps[k].isBoundaryOverlapSecondary)
+                        secCount++;
+                if (secCount == 0)
+                    continue;
+                checkedRecordings++;
+                if (secCount > 1)
+                {
+                    violations++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Recording #{i} has {secCount} boundary-overlap secondaries (expected at most 1)");
+                }
+            }
+
+            if (checkedRecordings == 0)
+                InGameAssert.Skip("No boundary-overlap secondary ghost active this frame");
+
+            InGameAssert.AreEqual(0, violations,
+                $"{violations} recording(s) have more than one boundary-overlap secondary");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "A launch-hold re-aim member's map presence carries the boundary-overlap secondary as an overlap instance when its second head is live")]
+        public void BoundaryOverlapSecondary_MapInstanceMatchesSecondHead()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            var loopUnits = flight.Engine.CurrentLoopUnits;
+            if (loopUnits == null || loopUnits.Count == 0)
+                InGameAssert.Skip("No Mission loop units active");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            double currentUT = Planetarium.GetUniversalTime();
+            int checkedMembers = 0;
+            int mismatches = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (!loopUnits.TryGetUnitForMember(i, out var unit) || !unit.LaunchHoldEngaged)
+                    continue;
+                var rec = committed[i];
+                double memberStartUT = unit.MemberStartUT(i, rec.StartUT);
+                double memberEndUT = unit.MemberEndUT(i, rec.EndUT);
+                var decision = GhostPlaybackLogic.DecideBoundaryOverlapSecondaryRender(
+                    currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                    memberStartUT, memberEndUT, out double _, out long _,
+                    unit.RelaunchSchedule, unit.LoiterCuts,
+                    unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+                bool secondLive = decision == GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render;
+                if (!secondLive)
+                    continue;
+                checkedMembers++;
+                // When the second head is live the map sweep must carry an overlap instance for this index
+                // (the secondary's icon + escape conic). Throttled by MaxSpawnsPerFrame, so allow it to be one
+                // frame behind, but never absent for more than a transient.
+                int mapInstances = GhostMapPresence.GetOverlapInstanceCount(i);
+                if (mapInstances < 1)
+                {
+                    // Re-check next-frame transient leniency is not available in a one-shot test; log + warn-only
+                    // (the create can be deferred to the very frame the test ran). Treat 0 as a soft miss.
+                    ParsekLog.Warn("TestRunner",
+                        $"Launch-hold member #{i} has a live boundary-overlap second head but 0 map instances " +
+                        "(create may be deferred this frame - re-run if transient)");
+                    mismatches++;
+                }
+            }
+
+            if (checkedMembers == 0)
+                InGameAssert.Skip("No launch-hold member has a live boundary-overlap second head this frame");
+
+            ParsekLog.Info("TestRunner",
+                $"Boundary-overlap map instance: {checkedMembers - mismatches}/{checkedMembers} members carry the secondary instance");
+            InGameAssert.AreEqual(0, mismatches,
+                $"{mismatches} launch-hold member(s) have a live second head but no boundary-overlap map instance");
+        }
     }
 
     // ════════════════════════════════════════════════════════════════

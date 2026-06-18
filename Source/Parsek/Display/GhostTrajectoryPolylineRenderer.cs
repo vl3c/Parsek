@@ -3121,15 +3121,26 @@ namespace Parsek.Display
                     // loop member, liveUT otherwise); the per-leg gate below
                     // uses it so the line follows the ghost instead of painting
                     // the whole recorded path at once.
-                    double headUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                    // Dual-clock head (docs/dev/plan-launch-boundary-overlap.md 4.1): the PRIMARY head UT (the
+                    // continuing instance N, byte-identical to before) PLUS the optional boundary-overlap SECONDARY
+                    // head UT (the early-launching instance N+1's in-SOI ascent during the borrow window of a
+                    // zero-slack re-aim launch loop). hasSecondaryHead is false for every non-launch-hold member and
+                    // every already-aligned loop, so the second-head pass below is dead for them (byte-identical).
+                    double headUT = GhostPlaybackLogic.ResolveTrackingStationSampleFrame(
                         recordingIndex,
                         rec.StartUT,
                         rec.EndUT,
                         currentUT,
                         loopUnits,
-                        out bool renderHidden);
+                        out bool renderHidden,
+                        out bool hasSecondaryHead,
+                        out double secondaryHeadUT,
+                        out long secondaryHeadCycle);
                     if (renderHidden)
                     {
+                        // The primary is hidden this cycle. A boundary-overlap secondary cannot render without its
+                        // own in-window leg either (the secondary is a member of the SAME recording), so skip the
+                        // whole recording - matching the marker-pass hide.
                         frameSkippedHidden++;
                         continue;
                     }
@@ -3158,6 +3169,11 @@ namespace Parsek.Display
                         Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(ghostPid, drawFrame);
 
                     bool anyDrawn = false;
+                    // Disjoint-leg guard (plan 4.2): the leg index the PRIMARY head landed on this frame (-1 when
+                    // none). The boundary-overlap second-head pass below skips this leg so the SAME leg is never
+                    // enqueued twice in one frame (it would be a no-op redraw anyway, but the guard keeps the
+                    // secondary's head strictly the disjoint in-SOI leg the primary - far downstream - is not on).
+                    int primaryDrawnLegIndex = -1;
                     for (int li = 0; li < set.legs.Length; li++)
                     {
                         var leg = set.legs[li];
@@ -3220,6 +3236,60 @@ namespace Parsek.Display
                             ghostPid = ghostPid
                         });
                         anyDrawn = true;
+                        primaryDrawnLegIndex = li;
+                    }
+
+                    // BOUNDARY-OVERLAP second head (docs/dev/plan-launch-boundary-overlap.md 4.1/4.2): the
+                    // early-launching instance N+1's in-SOI ascent leg, drawn ADDITIVELY beside the primary leg
+                    // during the borrow window. The primary head (instance N, far downstream / near the destination)
+                    // and the secondary head (instance N+1, in-SOI ascent) select DISJOINT legs because they are
+                    // months apart in recorded-span phase, so the two heads draw two different legs at two different
+                    // places. The secondary's leg is enqueued keyed on the SECONDARY ghost pid (its proto orbit line
+                    // is hidden when its leg draws) and is EXCLUDED from anyDrawn / drewNonOrbitalLegRecordings (the
+                    // primary owns the ownership publish). Same-leg defensive guard: if both heads land in the same
+                    // leg (impossible for an interplanetary transfer - the heliocentric tof is months), draw only the
+                    // primary's leg. Inert (hasSecondaryHead false) for every non-launch-hold member / aligned loop.
+                    if (hasSecondaryHead)
+                    {
+                        uint secondaryGhostPid = GhostMapPresence.GetNewestOverlapInstancePidForRecording(recordingIndex);
+                        for (int li = 0; li < set.legs.Length; li++)
+                        {
+                            if (li == primaryDrawnLegIndex)
+                                continue; // same-leg defensive guard: never enqueue the primary's leg twice
+                            var secLeg = set.legs[li];
+                            if (!ShouldDrawLegAtHeadUT(secLeg.startUT, secLeg.endUT, secondaryHeadUT))
+                                continue;
+                            CelestialBody secBody = ResolveBodyByName(scene, secLeg.bodyName);
+                            if (secBody == null)
+                            {
+                                frameSkippedNoBody++;
+                                continue;
+                            }
+                            if (!WillLegDraw(secLeg.PointCount, true))
+                                continue;
+                            // Additive, NON-ownership leg (mirrors the forward-additive mechanism): the
+                            // boundary-overlap secondary leg is NOT owned-by-treatment (it is the raw in-SOI ascent
+                            // leg the Driver draws directly) and does NOT publish ownership. Keyed on the secondary
+                            // ghost pid so its own proto orbit line is hidden when this leg draws.
+                            pendingDraws.Add(new PendingLegDraw
+                            {
+                                recordingId = rec.RecordingId,
+                                legIndex = li,
+                                body = secBody,
+                                rec = rec,
+                                ownedByTreatment = false,
+                                ghostPid = secondaryGhostPid,
+                                forward = false,
+                                requireConicAnchor = false
+                            });
+                            ParsekLog.VerboseRateLimited(DriverTag,
+                                "polyline-boundary-secondary." + rec.RecordingId,
+                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "Polyline boundary-overlap second head: rec={0} secondaryHeadUT={1:F1} secondaryCycle={2} " +
+                                    "drewLeg={3} primaryLeg={4} secondaryPid={5}",
+                                    rec.RecordingId, secondaryHeadUT, secondaryHeadCycle, li, primaryDrawnLegIndex, secondaryGhostPid),
+                                2.0);
+                        }
                     }
 
                     // Diagnostic (multi-leg / re-aim recordings): the head's position vs the leg windows,

@@ -2440,12 +2440,35 @@ namespace Parsek
                 return;
             }
 
-            // The shared clock never produces overlap cycles (one cycle live), so a unit member
-            // should never carry overlap ghosts. Clear any stale ones left over from a prior
-            // standalone overlap-loop life (e.g. the member was just toggled into the unit
-            // mid-flight). Mirror the standalone path (~1031): Remove(i) after destroying so the
-            // (now empty) dict entry does not keep ContainsKey(i) true and rerun this every frame.
-            if (overlapGhosts.ContainsKey(i))
+            // BOUNDARY-OVERLAP secondary decision (docs/dev/plan-launch-boundary-overlap.md 3.1/3.2): resolve
+            // whether this member carries a live boundary-overlap secondary (the early-launching NEXT instance
+            // N+1) this frame, BEFORE the overlap teardown below so the teardown can be GATED on it. On an
+            // already-aligned (slack>0) loop / a not-engaged member this is NoSecondary, so the teardown below is
+            // byte-identical to today (unconditional clear). The secondary is dispatched AFTER the primary render.
+            var boundarySecondaryDecision = GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.NoSecondary;
+            double boundarySecondaryLoopUT = unit.SpanStartUT;
+            long boundarySecondaryCycle = 0;
+            if (unit.LaunchHoldEngaged)
+            {
+                boundarySecondaryDecision = GhostPlaybackLogic.DecideBoundaryOverlapSecondaryRender(
+                    ctx.currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                    memberStartUT, memberEndUT, out boundarySecondaryLoopUT, out boundarySecondaryCycle,
+                    unit.RelaunchSchedule, unit.LoiterCuts,
+                    unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+            }
+            bool boundarySecondaryLive =
+                boundarySecondaryDecision == GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render;
+
+            // The shared clock never produces self-overlap cycles (one cycle live), so a unit member should never
+            // carry SELF-overlap ghosts. Clear any stale ones left over from a prior standalone overlap-loop life
+            // (e.g. the member was just toggled into the unit mid-flight). Mirror the standalone path (~1031):
+            // Remove(i) after destroying so the (now empty) dict entry does not keep ContainsKey(i) true and rerun
+            // this every frame. GATED on the boundary-overlap secondary (plan 3.2): when a live secondary occupies
+            // overlapGhosts[i] this frame, do NOT tear it down (it would thrash every frame across the borrow
+            // window); UpdateBoundaryOverlapSecondary below owns that storage. The secondary path NEVER calls
+            // UpdateOverlapPlayback / the expiry block, so it never confuses the self-overlap machinery.
+            if (!boundarySecondaryLive && overlapGhosts.ContainsKey(i))
             {
                 DestroyAllOverlapGhosts(i);
                 overlapGhosts.Remove(i);
@@ -2493,6 +2516,210 @@ namespace Parsek
                     // its fresh state object; stamp it now so the next frame derotates.
                     state.bodyFixedShiftSeconds = bodyFixedShift;
                 }
+            }
+
+            // (7) BOUNDARY-OVERLAP secondary (docs/dev/plan-launch-boundary-overlap.md 3.1/3.3): when this member
+            // carries a live boundary-overlap secondary this frame (the early-launching NEXT instance N+1, during
+            // the borrow window of a zero-slack re-aim launch loop), position ONE secondary ghost in
+            // overlapGhosts[i] at its own loopUT via a dedicated positioner. The previous (primary) instance is far
+            // downstream near the destination by now, so the two ghosts render at different places. When no live
+            // secondary, tear any down (the borrow window ended). This is engaged ONLY on the residual-seam loops;
+            // already-aligned loops never reach here with a live secondary (the gate guarantees byte-identical).
+            if (boundarySecondaryLive)
+            {
+                UpdateBoundaryOverlapSecondary(
+                    i, traj, f, syncCtx, suppressGhosts, suppressVisualFx,
+                    boundarySecondaryLoopUT, boundarySecondaryCycle);
+            }
+            else if (overlapGhosts.ContainsKey(i))
+            {
+                // No live secondary this frame but a stale boundary-overlap ghost lingers (e.g. the borrow window
+                // just ended, or warp suppression hid the primary above and returned early on a prior frame): tear
+                // it down. Mirror the standalone clear so the empty entry does not rerun every frame.
+                DestroyAllOverlapGhosts(i);
+                overlapGhosts.Remove(i);
+            }
+        }
+
+        /// <summary>
+        /// Positions the BOUNDARY-OVERLAP secondary ghost (the early-launching NEXT instance N+1) for unit member
+        /// <paramref name="index"/> at <paramref name="secondaryLoopUT"/> (docs/dev/plan-launch-boundary-overlap.md
+        /// 3.3). A thin adapter that BORROWS the <c>overlapGhosts[index]</c> storage but is NEVER the self-overlap
+        /// expiry path: it spawns exactly one secondary (rebuilt on a secondary-cycle change), stamps
+        /// <see cref="GhostPlaybackState.isBoundaryOverlapSecondary"/> (so the watch camera excludes it), and
+        /// positions it through the same in-range positioning pipeline the overlap primary uses
+        /// (ResolvePlaybackDistance -> ApplyZoneRendering -> PositionLoopAtPlaybackUT -> EmitPostPositionUpdate ->
+        /// ApplyFrameVisuals). It does NOT run the expiry block (no <see cref="OnOverlapCameraAction"/> /
+        /// <see cref="OnOverlapExpired"/>): the secondary never expires that way - it is destroyed by HasSecondary
+        /// going false at the boundary, where it has already become the next primary. The secondary's audio is muted
+        /// (overlap ghosts get no audio) via the OverlapPrimaryEnter demoted-shell lifecycle. At high warp the moving
+        /// secondary mesh is hidden (the same warp gate the moving overlap meshes use).
+        /// </summary>
+        private void UpdateBoundaryOverlapSecondary(
+            int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags, FrameContext ctx,
+            bool suppressGhosts, bool suppressVisualFx,
+            double secondaryLoopUT, long secondaryCycle)
+        {
+            // Warp suppression: the secondary is the in-SOI launching ghost (moving), so hide its MESH at high warp
+            // (mirrors the moving overlap-mesh gate). Destroy it so it re-spawns cleanly when warp drops.
+            if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(ctx.warpRate, traj, secondaryLoopUT))
+            {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT, "boundary-overlap-secondary-warp-hidden");
+                DestroyAllOverlapGhosts(index);
+                return;
+            }
+
+            if (!overlapGhosts.TryGetValue(index, out List<GhostPlaybackState> overlaps))
+            {
+                overlaps = new List<GhostPlaybackState>();
+                overlapGhosts[index] = overlaps;
+            }
+
+            // Exactly one secondary, keyed by the secondary cycle. Rebuild on a cycle change (the borrow window's
+            // instance advanced to the next N+1). Any leftover entry that is not the current secondary cycle is
+            // cleared first so the storage holds at most one boundary-overlap ghost.
+            GhostPlaybackState sec = null;
+            if (overlaps.Count > 0 && overlaps[0] != null
+                && overlaps[0].isBoundaryOverlapSecondary
+                && overlaps[0].loopCycleIndex == secondaryCycle)
+            {
+                sec = overlaps[0];
+            }
+            if (sec == null)
+            {
+                DestroyAllOverlapGhosts(index);
+                sec = SpawnBoundaryOverlapSecondary(index, traj, flags, secondaryLoopUT, secondaryCycle);
+                if (sec == null)
+                {
+                    // Visual build failed / deferred this frame; nothing to position yet.
+                    return;
+                }
+                overlaps.Add(sec);
+            }
+
+            PositionBoundaryOverlapSecondaryAt(index, traj, ctx, sec, secondaryLoopUT, suppressVisualFx);
+        }
+
+        /// <summary>
+        /// Spawns the boundary-overlap secondary shell for unit member <paramref name="index"/> at
+        /// <paramref name="secondaryLoopUT"/> (docs/dev/plan-launch-boundary-overlap.md 3.3). Reuses
+        /// <see cref="CreatePendingSpawnState"/> with the OverlapPrimaryEnter demoted-shell lifecycle (no
+        /// ghost-created / camera side effects), mutes the audio (overlap ghosts get no audio), stamps the
+        /// <see cref="GhostPlaybackState.isBoundaryOverlapSecondary"/> flag, and loads the visuals. Returns the
+        /// state, or null if the visual build failed / is still pending this frame (the caller positions next frame).
+        /// </summary>
+        private GhostPlaybackState SpawnBoundaryOverlapSecondary(
+            int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
+            double secondaryLoopUT, long secondaryCycle)
+        {
+            GhostPlaybackState sec = CreatePendingSpawnState(
+                traj, secondaryLoopUT, PendingSpawnLifecycle.OverlapPrimaryEnter, flags);
+            // Demote to a shell with no lifecycle side effects (mirror the demoted-overlap path): the secondary must
+            // fire no ghost-created / camera-retarget events. CreatePendingSpawnState sets the lifecycle to
+            // OverlapPrimaryEnter; null it so EnsureGhostVisualsLoaded does not fire a spawn event.
+            sec.pendingSpawnLifecycle = PendingSpawnLifecycle.None;
+            sec.pendingSpawnFlags = default(TrajectoryPlaybackFlags);
+            sec.loopCycleIndex = secondaryCycle;
+            sec.isBoundaryOverlapSecondary = true;
+
+            GhostVisualLoadStatus status = EnsureGhostVisualsLoaded(
+                index, traj, sec, secondaryLoopUT, "boundary-overlap secondary first spawn",
+                resetCompletedEventDedup: false);
+            if (sec.ghost != null)
+                GhostPlaybackLogic.MuteAllAudio(sec); // boundary-overlap secondary gets no audio
+            if (status == GhostVisualLoadStatus.Failed)
+            {
+                CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
+                DestroyOverlapGhostState(sec);
+                ParsekLog.Warn("Engine",
+                    $"Boundary-overlap secondary: SpawnGhost failed for #{index} cycle={secondaryCycle}");
+                return null;
+            }
+            if (status == GhostVisualLoadStatus.Pending)
+            {
+                // Build deferred (time-sliced over frames); position next frame when ready. Keep the shell so the
+                // caller's cycle-match check reuses it.
+                ParsekLog.VerboseRateLimited(
+                    "Engine", "boundary-overlap-secondary-pending-" + index.ToString(CultureInfo.InvariantCulture),
+                    $"Boundary-overlap secondary build pending for #{index} cycle={secondaryCycle} - position deferred",
+                    5.0);
+                return sec;
+            }
+            ParsekLog.VerboseRateLimited(
+                "Engine", "boundary-overlap-secondary-spawn-" + index.ToString(CultureInfo.InvariantCulture),
+                $"Boundary-overlap secondary spawned for #{index} cycle={secondaryCycle} loopUT={secondaryLoopUT.ToString("F2", CultureInfo.InvariantCulture)} (audio muted)",
+                5.0);
+            return sec;
+        }
+
+        /// <summary>
+        /// Positions the boundary-overlap secondary <paramref name="sec"/> at <paramref name="secondaryLoopUT"/>
+        /// through the same in-range positioning pipeline the overlap primary uses (factored from the overlap
+        /// primary positioning block), NEVER the expiry block. No <see cref="OnOverlapCameraAction"/> /
+        /// <see cref="OnOverlapExpired"/> fire from this path (docs/dev/plan-launch-boundary-overlap.md 3.3).
+        /// </summary>
+        private void PositionBoundaryOverlapSecondaryAt(
+            int index, IPlaybackTrajectory traj, FrameContext ctx, GhostPlaybackState sec,
+            double secondaryLoopUT, bool suppressVisualFx)
+        {
+            if (sec == null)
+                return;
+
+            double distance = ResolvePlaybackDistance(index, traj, sec, secondaryLoopUT, ctx.activeVesselPos);
+            double activeVesselDistance = ResolvePlaybackActiveVesselDistance(
+                index, traj, sec, secondaryLoopUT, ctx.activeVesselPos);
+            CachePlaybackDistances(sec, activeVesselDistance, distance);
+            var zoneResult = positioner.ApplyZoneRendering(
+                index, sec, traj, distance, secondaryLoopUT, ctx.protectedIndex);
+            if (zoneResult.hiddenByZone)
+            {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT,
+                    "boundary-overlap-secondary-hidden-by-zone distance=" + FormatPlaybackDistanceForLog(distance));
+                HandleHiddenGhostVisualState(
+                    index, traj, sec, secondaryLoopUT, ctx.warpRate, distance, overlapGhost: true,
+                    hiddenReason: $"boundary-overlap secondary hidden by distance LOD at {FormatPlaybackDistanceForLog(distance)}");
+                return;
+            }
+
+            if (!HasLoadedGhostVisuals(sec))
+            {
+                if (!TryReserveSpawnSlot(index, "boundary-overlap-secondary-rehydrate"))
+                    return;
+                GhostVisualLoadStatus status = EnsureGhostVisualsLoaded(
+                    index, traj, sec, secondaryLoopUT, "boundary-overlap secondary re-entered visible distance tier");
+                if (status == GhostVisualLoadStatus.Failed || status == GhostVisualLoadStatus.Pending)
+                {
+                    if (status == GhostVisualLoadStatus.Failed)
+                        CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
+                    return;
+                }
+            }
+
+            GhostPlaybackLogic.ApplyDistanceLodFidelity(sec, zoneResult.reduceFidelity);
+            bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
+            sec.anchorRetiredThisFrame = false;
+            GhostRenderTrace.BeginFrame(traj, index, ctx.currentUT, secondaryLoopUT, "boundary-overlap-secondary");
+            bool usedBodyFixed = PositionLoopAtPlaybackUT(
+                index, traj, sec, secondaryLoopUT, effectiveSuppressVisualFx,
+                "GhostPlaybackEngine.PositionBoundaryOverlapSecondaryAt");
+            bool retired = EmitPostPositionUpdate(
+                traj, index, ctx.currentUT, secondaryLoopUT, sec, "boundary-overlap-secondary",
+                usedBodyFixed, rawPlaybackUT: secondaryLoopUT);
+            if (retired)
+            {
+                ApplyFrameVisuals(index, traj, sec, secondaryLoopUT, ctx.warpRate,
+                    skipPartEvents: true, suppressVisualFx: true, allowTransientEffects: false);
+            }
+            else
+            {
+                bool activatedDeferredState = ActivateGhostVisualsIfNeeded(sec);
+                ApplyFrameVisuals(index, traj, sec, secondaryLoopUT, ctx.warpRate,
+                    zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                if (ShouldRestoreDeferredRuntimeFxState(activatedDeferredState, effectiveSuppressVisualFx))
+                    GhostPlaybackLogic.RestoreDeferredRuntimeFxState(sec);
+                TrackGhostAppearance(index, traj, sec, secondaryLoopUT, "boundary-overlap-secondary");
             }
         }
 
@@ -3187,7 +3414,16 @@ namespace Parsek
             {
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
                 GhostPlaybackLogic.RestoreAllRcsEmissions(state);
-                GhostPlaybackLogic.UnmuteAllAudio(state);
+                // Boundary-overlap secondary gets NO audio (plan invariant 3): it borrows the overlap
+                // STORAGE but must never be audible. The spawn-time MuteAllAudio is a one-shot flag, and
+                // this unsuppressed branch runs every visible (within-LOD) frame -- calling UnmuteAllAudio
+                // here would clear audioMuted and let UpdateAudioAtmosphere play the in-SOI ascending
+                // ghost's engine audio. Keep the secondary muted persistently; MuteAllAudio is idempotent
+                // and also covers the deferred-build case (spawn-time mute is guarded by sec.ghost != null).
+                if (state.isBoundaryOverlapSecondary)
+                    GhostPlaybackLogic.MuteAllAudio(state);
+                else
+                    GhostPlaybackLogic.UnmuteAllAudio(state);
 
                 // Engine FX are event-driven and StopAllEngineFx left them dark; nothing
                 // re-applies them per frame. On the suppressed -> unsuppressed transition,
