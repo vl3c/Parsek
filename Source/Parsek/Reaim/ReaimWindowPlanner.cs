@@ -242,5 +242,25 @@ namespace Parsek.Reaim
                    $"tof={s.TofSeconds.ToString("R", ic)} anchor={s.PhaseAnchorUT.ToString("R", ic)} " +
                    $"cadence={s.CadenceSeconds.ToString("R", ic)}";
         }
+
+        /// <summary>
+        /// True when the F2 park-end-anchor BUNDLE is geometrically valid for a window: the cadence-clock
+        /// relaunch time (<see cref="ReaimWindowSchedule.RelaunchUTForWindow"/>, where the body-relative
+        /// escape leg and the LAN-rotated park sit, per PR #1172) and the synodic-clock transfer departure
+        /// (<see cref="ReaimWindowSchedule.DepartureUTForWindow"/>, where the Lambert transfer is aimed)
+        /// COINCIDE. They are equal at window 0 (D0 == D0) and at EVERY window of a span&lt;=synodic mission
+        /// (cadence == synodic), and DIVERGE by k*(cadence - synodic) (&gt;= ~3.6M s for stock Kerbin-&gt;Duna)
+        /// at k&gt;=1 of a span&gt;synodic mission. The park-end r1 anchor is evaluated on the cadence clock but
+        /// the transfer aims on the synodic clock, so when they diverge the override produces a WILD conic
+        /// (playtest window 21: ecc 0.82, park-end r1 192 deg around the Sun). When false the caller falls
+        /// back to the tested Increment-1 launch-body-center path (sane Kerbin-&gt;Duna conic). #1172's park
+        /// LAN re-phase is independent of this gate and applies at every window. Pure (1.0 s tolerance, the
+        /// same UT-equality epsilon used across the resolver). The every-window fix is the deferred
+        /// Approach A (overlap instances, cadence == synodic).
+        /// </summary>
+        internal static bool ParkEndOverrideClocksCoincide(double parkReplayUT, double departureUT)
+        {
+            return Math.Abs(parkReplayUT - departureUT) < 1.0;
+        }
     }
 }
