@@ -672,7 +672,17 @@ namespace Parsek.Logistics
                 ExcludedIntervalKeys = excludedIntervalKeys,
                 CreationTreeRecordingIds = creationTreeRecordingIds,
                 RecordedDockUT = recordedDockUT,
-                DockMemberRecordingId = source.RecordingId,
+                // A2 review fold: the route-span pair (RecordedDockUT /
+                // DockMemberRecordingId) must reference the SAME leaf - the
+                // run-end (last, max-DockUT) dock. RecordedDockUT already uses
+                // lastAnalysisStop; key the member id on the last stop's source
+                // too (falling back to the anchor `source` when the last stop
+                // carries none). For a single-stop route lastAnalysisStop's
+                // source IS `source`, so this is byte-identical; for a
+                // cross-recording multi-stop route it keeps the pair coherent
+                // (A4 end-trim + MissionRouteStructureList resolve the dock
+                // window through DockMemberRecordingId).
+                DockMemberRecordingId = (lastAnalysisStop.SourceRecording ?? source).RecordingId,
                 LoopAnchorUT = loopAnchorUT,
                 LastObservedLoopCycleIndex = -1
             };
@@ -845,6 +855,16 @@ namespace Parsek.Logistics
         {
             if (analysis.Stops != null && analysis.Stops.Count > 0)
                 return analysis.Stops;
+
+            // A2 review fold: greppable trace for the scalar-fallback collapse.
+            // Production AnalyzeWindows always sets a non-empty Stops on an
+            // Eligible result, so this branch is normally test-only; if it ever
+            // fires in production it means an Eligible result reached the builder
+            // with no per-stop list, which would silently build a single anchor
+            // stop. Logging it leaves a trace instead of a silent collapse.
+            ParsekLog.Verbose(Tag,
+                "RouteBuilder: analysis.Stops empty - synthesizing one stop from scalar fields "
+                + "(expected only for scalar-only analysis results / tests).");
 
             return new List<RouteAnalysisStop>
             {
