@@ -1125,6 +1125,14 @@ namespace Parsek.Display
         internal const double BridgeMaxSeamGapSeconds = 120.0;
 
         /// <summary>
+        /// Shared-seam-boundary slack (seconds) for the intervening-continuation-leg rule
+        /// (<see cref="HasInterveningContinuationLeg"/>): a continuation leg whose seam coincides with the
+        /// candidate leg's seam (a true handoff, gap of a second or less) still counts as intervening.
+        /// Mirrors the 1 s shared-boundary tolerance <see cref="IsBridgeAdjacentConic"/> uses.
+        /// </summary>
+        internal const double BridgeSeamSharedBoundaryToleranceSeconds = 1.0;
+
+        /// <summary>
         /// Min seam angle (radians, 5 deg) below which no bridge draws: the leg already MEETS the conic
         /// (an anchored leg calibrated onto the seam, a closed rotation gap, or the now-common re-aim
         /// launch-aligned ascent whose end lands within a few km of the escape conic). The bridge always
@@ -1280,6 +1288,76 @@ namespace Parsek.Display
             return atLegStart
                 ? segEndUT >= legSeamUT - maxSeamGapSeconds && segEndUT <= legSeamUT + 1.0
                 : segStartUT >= legSeamUT - 1.0 && segStartUT <= legSeamUT + maxSeamGapSeconds;
+        }
+
+        /// <summary>
+        /// One bridge-eligible leg's UT span + body, for the pure intervening-leg predicate. A flat
+        /// projection of <c>BridgeLegCandidate</c> so the rule is xUnit-testable without the private
+        /// Driver scratch type.
+        /// </summary>
+        internal struct BridgeLegSpan
+        {
+            public double startUT;
+            public double endUT;
+            public string bodyName;
+        }
+
+        /// <summary>
+        /// PURE intervening-ascent-leg rule (launch-escape-seam render fix): once an adjacent conic has
+        /// been chosen for a candidate leg's seam, is there ANOTHER body-fixed leg in the same chain run
+        /// (same body) that CONTINUES from this leg's seam BEFORE the conic - i.e. the conic is NOT this
+        /// leg's immediate next/prev segment? A launch records across two consecutive body-fixed legs
+        /// (pad ascent -> continuation ascent) feeding one escape conic; the pad-ascent leg's end is
+        /// adjacent to the conic only in UT, but the CONTINUATION leg sits between them, so the pad
+        /// leg's bridge would shortcut over it. Only the leg IMMEDIATELY adjacent to the conic may bridge.
+        ///
+        /// <para>END side (<paramref name="atLegStart"/>=false): the conic STARTS at <paramref name="conicSeamUT"/>
+        /// (its startUT); skip this bridge when another body-fixed leg STARTS at/after this leg's
+        /// <paramref name="legSeamUT"/> (the leg-end, shared-boundary slack) and STRICTLY before the conic
+        /// start. A launch's continuation leg starts exactly at the pad leg's end and ends before the
+        /// conic, so its start lands in <c>[legEnd - tol, conicStart - tol)</c> - it intervenes. START side
+        /// (true): the conic ENDS at <paramref name="conicSeamUT"/> (its endUT); skip when another body-fixed
+        /// leg ENDS at/before this leg's start (shared slack) and strictly after the conic end - i.e. its end
+        /// lands in <c>(conicEnd + tol, thisLegStart + tol]</c>.</para>
+        ///
+        /// <para>The candidate itself (<paramref name="selfIndex"/>) is excluded; only same-body legs
+        /// count (a different body's leg cannot be a continuation across an SOI seam here). The boundary
+        /// tolerance <paramref name="seamTolSeconds"/> mirrors the 1 s shared-seam slack so a leg whose
+        /// start coincides with this leg's end (a true continuation handoff) still counts as intervening.
+        /// xUnit-testable (no Unity ECalls).</para>
+        /// </summary>
+        internal static bool HasInterveningContinuationLeg(
+            BridgeLegSpan[] legs, int selfIndex, string candBodyName,
+            double legSeamUT, double conicSeamUT, bool atLegStart, double seamTolSeconds,
+            out int interveningIndex, out double interveningSeamUT)
+        {
+            interveningIndex = -1;
+            interveningSeamUT = double.NaN;
+            if (legs == null || string.IsNullOrEmpty(candBodyName)) return false;
+            for (int i = 0; i < legs.Length; i++)
+            {
+                if (i == selfIndex) continue;
+                var other = legs[i];
+                if (!string.Equals(other.bodyName, candBodyName, StringComparison.Ordinal)) continue;
+                // The other leg's seam that attaches it to the chain at the conic-facing end: its START on
+                // the end side (it continues forward from this leg's end toward the conic), its END on the
+                // start side (it feeds backward from this leg's start toward the conic behind it).
+                double otherSeam = atLegStart ? other.endUT : other.startUT;
+                bool intervenes = atLegStart
+                    // start side: another leg ENDS at/before this leg's start (shared slack) yet strictly
+                    // after the conic that ends behind it - it sits between the conic and this leg.
+                    ? otherSeam <= legSeamUT + seamTolSeconds && otherSeam > conicSeamUT + seamTolSeconds
+                    // end side: another leg STARTS at/after this leg's end (shared slack) yet strictly
+                    // before the conic that starts ahead of it - it sits between this leg and the conic.
+                    : otherSeam >= legSeamUT - seamTolSeconds && otherSeam < conicSeamUT - seamTolSeconds;
+                if (intervenes)
+                {
+                    interveningIndex = i;
+                    interveningSeamUT = otherSeam;
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>
@@ -2860,6 +2938,11 @@ namespace Parsek.Display
                 public string bodyName;
             }
             private readonly List<BridgeLegCandidate> bridgeLegScratch = new List<BridgeLegCandidate>();
+
+            // Flat UT-span projection of bridgeLegScratch (body + start/end UT) for the pure
+            // intervening-continuation-leg predicate, rebuilt once per DecideSeamBridges call. Reusable
+            // per-Driver buffer (single-threaded LateUpdate decide pass).
+            private readonly List<BridgeLegSpan> bridgeLegSpanScratch = new List<BridgeLegSpan>();
 
             // Reusable scratches for the bridge geometry (fixed size: merge count + 1): the arc-side
             // sample slice (lead-in forward / tail reversed) and the unwound output points.
@@ -4480,6 +4563,20 @@ namespace Parsek.Display
                 GameScenes scene, BodySurfaceProvider surface, int drawFrame)
             {
                 int armed = 0;
+                // Flat UT-span projection of the bridge candidates, index-aligned with bridgeLegScratch,
+                // for the intervening-continuation-leg rule (launch-escape-seam fix). Built once.
+                bridgeLegSpanScratch.Clear();
+                for (int ci = 0; ci < bridgeLegScratch.Count; ci++)
+                {
+                    var c = bridgeLegScratch[ci];
+                    bridgeLegSpanScratch.Add(new BridgeLegSpan
+                    {
+                        startUT = c.startUT,
+                        endUT = c.endUT,
+                        bodyName = c.bodyName,
+                    });
+                }
+                BridgeLegSpan[] bridgeLegSpans = bridgeLegSpanScratch.ToArray();
                 for (int ci = 0; ci < bridgeLegScratch.Count; ci++)
                 {
                     var cand = bridgeLegScratch[ci];
@@ -4534,6 +4631,36 @@ namespace Parsek.Display
                             }
                         }
                         if (segRecordingId == null) continue;
+
+                        // 1b. Intervening-ascent-leg skip (launch-escape-seam fix): a launch records
+                        // across two consecutive body-fixed legs (pad ascent -> continuation ascent)
+                        // feeding ONE escape conic. The pad-ascent leg's end is adjacent to that conic
+                        // only in UT - the continuation leg sits between them - so a pad-leg->conic bridge
+                        // would shortcut OVER the continuation leg (the confirmed ~26.7 deg bug). Only the
+                        // body-fixed leg IMMEDIATELY adjacent to the conic (no intervening same-body leg
+                        // between this leg's seam and the conic's seam) may bridge to it. The continuation
+                        // leg draws its own leg->conic handoff, resolved by the near-meet (5 deg) gate.
+                        double conicSeamUT = atLegStart ? seg.endUT : seg.startUT;
+                        if (HasInterveningContinuationLeg(
+                                bridgeLegSpans, ci, cand.bodyName, seamUT, conicSeamUT, atLegStart,
+                                BridgeSeamSharedBoundaryToleranceSeconds,
+                                out int interveningLegIdx, out double interveningLegSeamUT))
+                        {
+                            string interveningRecId = interveningLegIdx >= 0
+                                && interveningLegIdx < bridgeLegScratch.Count
+                                ? bridgeLegScratch[interveningLegIdx].recordingId : "?";
+                            ParsekLog.VerboseRateLimited(DriverTag,
+                                "bridge-interveningleg." + cand.recordingId + "." + cand.legIndex,
+                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "Seam bridge skipped (intermediate ascent leg - continuation leg {0} " +
+                                    "precedes the conic): rec={1} leg={2} side={3} angleDeg=n/a " +
+                                    "interveningLegStartUT={4:F1} conicStartUT={5:F1}",
+                                    interveningRecId, cand.recordingId, cand.legIndex,
+                                    atLegStart ? "start" : "end",
+                                    interveningLegSeamUT, conicSeamUT),
+                                5.0);
+                            continue;
+                        }
 
                         // 2. Conic-side geometry: prefer the matching cached forward arc (clippable);
                         //    fall back to on-demand sampling (the stock-drawn current element).
