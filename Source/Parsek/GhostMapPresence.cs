@@ -11840,7 +11840,32 @@ namespace Parsek
             double loopEpochShiftSeconds = currentUT - secondaryUT;
             Vessel inst = CreateOverlapInstanceVessel(
                 recIdx, rec, secondaryCycle, secondaryUT, loopEpochShiftSeconds,
+                out TrackingStationGhostSource diagSource, out OrbitSegment diagSegment,
                 liveLaunchMatchedAnchorOfActiveMember: false);
+
+            // SEAM-RENDER OBSERVABILITY 2 (docs/dev/design-reaim-launch-hold-seam.md): the secondary's MAP
+            // presence (icon + escape conic) first-create truth, INCLUDING the create-returned-null /
+            // no-accepted-source case (the leading-hypothesis smoking gun). created=false + source=none means
+            // the post-ascent in-SOI escape window has NO accepted Segment yet, so the icon/conic only
+            // materializes once the secondaryLoopUT reaches the recorded escape Segment - that lag (the few
+            // minutes the prompt reports) is lagFromSpanStartSec = secondaryLoopUT - spanStart at the moment of
+            // create. segmentUT names the covering Segment span when one resolved. Rate-limited per
+            // (recIdx, secondaryCycle) so each borrow window's first-create truth is captured exactly once;
+            // logging-only, no control-flow effect (created is read from the create result, not a new gate).
+            string segUtStr = (diagSource == TrackingStationGhostSource.Segment
+                               || diagSource == TrackingStationGhostSource.EndpointTail)
+                ? string.Format(ic, "{0:F1}-{1:F1}", diagSegment.startUT, diagSegment.endUT)
+                : "n/a";
+            double lagFromSpanStart = secondaryUT - unit.SpanStartUT;
+            ParsekLog.VerboseRateLimited(Tag,
+                string.Format(ic, "boundary-overlap-secondary-map-presence-{0}-{1}", recIdx, secondaryCycle),
+                string.Format(ic,
+                    "boundary-overlap secondary map-presence: created={0} currentUT={1:R} secondaryLoopUT={2:R} " +
+                    "source={3} segmentUT={4} lagFromSpanStartSec={5:R} rec=#{6} \"{7}\" cycle={8}",
+                    inst != null, currentUT, secondaryUT, diagSource, segUtStr, lagFromSpanStart,
+                    recIdx, rec.VesselName ?? "(null)", secondaryCycle),
+                2.0);
+
             if (inst != null)
             {
                 frameSpawnCount++;
@@ -11986,6 +12011,23 @@ namespace Parsek
             int recIdx, Recording rec, long cycle, double effUT, double loopEpochShiftSeconds,
             bool liveLaunchMatchedAnchorOfActiveMember = false)
         {
+            // Diagnostic-only overload-style wrapper: the boundary-overlap secondary create
+            // (TryEnsureBoundaryOverlapSecondaryInstance) reads back the resolved source / covering
+            // segment to emit observability 2 (the map-presence pre-Segment gap). The regular overlap
+            // sweep does not need them, so it routes through this thin wrapper that discards them.
+            return CreateOverlapInstanceVessel(
+                recIdx, rec, cycle, effUT, loopEpochShiftSeconds,
+                out _, out _, liveLaunchMatchedAnchorOfActiveMember);
+        }
+
+        private static Vessel CreateOverlapInstanceVessel(
+            int recIdx, Recording rec, long cycle, double effUT, double loopEpochShiftSeconds,
+            out TrackingStationGhostSource diagSource, out OrbitSegment diagSegment,
+            bool liveLaunchMatchedAnchorOfActiveMember = false)
+        {
+            diagSource = TrackingStationGhostSource.None;
+            diagSegment = default(OrbitSegment);
+
             if (overlapInstanceVessels.ContainsKey((recIdx, cycle)))
                 return overlapInstanceVessels[(recIdx, cycle)];
 
@@ -12007,6 +12049,12 @@ namespace Parsek
                 // A live overlap instance always has a non-zero epoch shift, so it is "in window".
                 loopMemberInWindow: true,
                 liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
+
+            // Read-back-only: expose the resolved source + covering segment to the boundary-overlap
+            // secondary diagnostic. No control-flow effect (the create decisions below read `source` /
+            // `segment` directly, exactly as before).
+            diagSource = source;
+            diagSegment = segment;
 
             if (!IsMapCreateAcceptedSource(source))
             {

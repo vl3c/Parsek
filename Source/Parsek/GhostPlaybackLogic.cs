@@ -8009,6 +8009,20 @@ namespace Parsek
                             $"launch instant: secondary instance N={secondaryCycleIndex.ToString(lic)} launches at " +
                             $"UT={actualLaunchUT.ToString("R", lic)} (nominal L_N={nominalLNext.ToString("R", lic)} " +
                             $"advance={advNext.ToString("R", lic)}s)");
+
+                        // SEAM-RENDER OBSERVABILITY 1 (docs/dev/design-reaim-launch-hold-seam.md): the AUTHORITATIVE
+                        // "the launch should be visible NOW" timestamp - the live UT at which the secondary first
+                        // resolves its loopUT at/just past spanStart (its computed launch instant). The next playtest
+                        // compares this against when the secondary's icon/conic and polyline ascent actually appear:
+                        // a few-minutes lag between this currentUT and the map-presence first-create (observability 2)
+                        // measures the pre-Segment gap exactly. secondaryLoopUT near spanStart == on the pad.
+                        // Rate-limited per mission identity (its own key); logging-only, no control-flow effect.
+                        ParsekLog.VerboseRateLimited(
+                            "Reaim",
+                            $"boundary-overlap-secondary-clock-launch.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
+                            $"boundary-overlap secondary clock-launch: secondaryCycle={secondaryCycleIndex.ToString(lic)} " +
+                            $"currentUT={currentUT.ToString("R", lic)} secondaryLoopUT={secondaryLoopUT.ToString("R", lic)} " +
+                            $"spanStart={spanStartUT.ToString("R", lic)}");
                     }
                 }
             }

@@ -170,3 +170,23 @@ The resolver computes `windowIndex` from `TryComputeSpanLoopUT(..., schedule:nul
 - **spanStartUT == first body-fixed ascent sample.** The alignment is pinned to the instant the clock maps to `spanStartUT`. If aa48920e has pre-launch pad-sit idle frames before the first ascent sample, the target should be the first ascent point. Confirm in the s15 playtest.
 - **Cross-SOI heliocentric-transfer encounter seam.** This design closes the body-fixed-ascent vs inertial-escape ROTATION seam only; it does not address the separate cross-SOI transfer encounter seam (the deferred patched-conic-chain rework). Confirm whether that residual is now the dominant remaining artifact.
 - **No alignment-off setting.** Like PadAlignLaunch (no toggle), the launch alignment runs whenever re-aim is engaged AND `!pad.Applied` AND a valid SOI-exit boundary exists. Deferred.
+
+---
+
+## 9. Seam-render observability (the "visible launch is a few minutes off the countdown T-0" investigation)
+
+With boundary-overlap engaged (zero-slack loops, e.g. s15 / Kerbal X #2 / aa48920e) the alignment is correct (`residualDeg ~ 0`) and the Missions warp-to / next-launch UT equals the clock launch instant, yet the VISIBLE launch (the secondary ghost icon + escape conic + ascent polyline appearing) is reported a few minutes off the countdown's T-0. Four rate-limited diagnostic lines (logging-only, ZERO behavior change) let the next playtest measure the gap exactly. Leading hypothesis: the secondary's MAP presence (icon + escape conic) is created via `CreateOverlapInstanceVessel`, which needs an accepted `OrbitSegment` source; the first recorded Kerbin `OrbitSegment` starts ~274 s (~4.6 min) AFTER `spanStart`, so the pre-Segment ascent window has no Segment and the icon/conic materializes that late even though the body-fixed ascent polyline can draw from `spanStart`.
+
+Grep handles (all `[Parsek][VERBOSE]`, rate-limited per the keys noted):
+
+1. **Secondary clock-launch** (the authoritative "the launch should be visible NOW" timestamp). Tag `Reaim`, `GhostPlaybackLogic.ComputeSpanLoopFrame` (in the `hasSecondary` diagnostics block), key `boundary-overlap-secondary-clock-launch.<phaseAnchorUT>.<spanStartUT>`:
+   `boundary-overlap secondary clock-launch: secondaryCycle=<N+1> currentUT=<live> secondaryLoopUT=<loopUT> spanStart=<spanStart>`
+2. **Secondary map-presence first-create** (the icon/conic create truth, INCLUDING the create-returned-null / no-accepted-source smoking-gun case). Tag `GhostMap`, `GhostMapPresence.TryEnsureBoundaryOverlapSecondaryInstance` (after `CreateOverlapInstanceVessel`), key `boundary-overlap-secondary-map-presence-<recIdx>-<secondaryCycle>`:
+   `boundary-overlap secondary map-presence: created=<bool> currentUT=<live> secondaryLoopUT=<loopUT> source=<Segment|StateVector|None|...> segmentUT=<a-b or n/a> lagFromSpanStartSec=<secondaryLoopUT - spanStart> rec=#<i> "<name>" cycle=<N+1>`
+   `created=false source=None` with a large `lagFromSpanStartSec` is the smoking gun (pre-Segment gap). `segmentUT` names the covering Segment span when one resolved.
+3. **Secondary polyline first-draw** (whether the ascent LINE appears at the clock launch while the icon/conic lags). Tag `GhostMap`, `GhostTrajectoryPolylineRenderer.Driver` (second-head pass), key `boundary-overlap-secondary-polyline-first-draw.<recordingId>`:
+   `boundary-overlap secondary polyline first-draw: currentUT=<live> headUT=<secondary head UT> secondaryLoopUT=<loopUT> rec=<id> secondaryCycle=<N+1> leg=<li>`
+4. **Missions T-minus cell target** (confirms the displayed countdown targets the same advanced launch UT as `ComputeNextRelaunchUT` / the warp). Tag `Mission`, `MissionsWindowUI.BuildMissionPeriodicityDisplay` (after the unit is resolved), key `missions-tminus-cell.<phaseAnchorUT>.<spanStartUT>`:
+   `missions T-minus cell: targetUT=<nextRelaunchUT> now=<now> tMinusSec=<target-now>`
+
+Reading the gap: compare (1) `currentUT` (launch should be visible) against (2) `currentUT` at the first `created=true` (icon/conic actually appears) and (3) `currentUT` at the first polyline draw (ascent line appears). If (3) ~ (1) but (2) lags by minutes with `created=false source=None` lines in between, the pre-Segment map-presence gap is confirmed. (4) rules out a countdown-vs-warp mismatch.

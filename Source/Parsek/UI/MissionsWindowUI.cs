@@ -1323,6 +1323,25 @@ namespace Parsek
                 $"now={nowUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}",
                 3.0);
 
+            // SEAM-RENDER OBSERVABILITY 4 (docs/dev/design-reaim-launch-hold-seam.md): the displayed T-minus
+            // countdown target, so the next playtest can confirm the countdown targets the SAME advanced launch
+            // UT as ComputeNextRelaunchUT / the warp (ruling out a countdown-vs-warp mismatch as the source of
+            // the few-minutes offset). targetUT is result.NextRelaunchUT (the same value BuildTMinusCellText
+            // counts down to, == L_N - ComputeBoundaryOverlapAdvanceSeconds for an engaged loop). Gated on the
+            // launch-hold unit (the seam regime) and keyed per mission identity (phaseAnchorUT + spanStartUT,
+            // matching the clock's per-loop keys) so the key set stays bounded by mission count. Logging-only.
+            if (result.UnitBuilt && unit.LaunchHoldEngaged)
+            {
+                var mic = System.Globalization.CultureInfo.InvariantCulture;
+                double tMinusSec = result.NextRelaunchUT - nowUT;
+                ParsekLog.VerboseRateLimited(
+                    "Mission",
+                    $"missions-tminus-cell.{unit.PhaseAnchorUT.ToString("R", mic)}.{unit.SpanStartUT.ToString("R", mic)}",
+                    $"missions T-minus cell: targetUT={result.NextRelaunchUT.ToString("R", mic)} " +
+                    $"now={nowUT.ToString("R", mic)} tMinusSec={tMinusSec.ToString("R", mic)}",
+                    3.0);
+            }
+
             return result;
         }
 

@@ -2723,6 +2723,14 @@ namespace Parsek.Display
                 new Dictionary<string, CelestialBody>(StringComparer.Ordinal);
             private GameScenes bodyMapScene = (GameScenes)(-1);
 
+            // SEAM-RENDER OBSERVABILITY 3 (docs/dev/design-reaim-launch-hold-seam.md): logging-only latch
+            // tracking the last secondary-cycle for which the boundary-overlap second-head ascent leg was
+            // first drawn, per recording. Used SOLELY to emit the per-cycle "first-draw" line once (when the
+            // additive secondary leg first enqueues this cycle). Does NOT gate or alter any draw - the leg is
+            // enqueued by the existing per-leg logic; this only decides whether to LOG the first-draw line.
+            private readonly Dictionary<string, long> boundarySecondaryFirstDrawCycle =
+                new Dictionary<string, long>(StringComparer.Ordinal);
+
             // ----------------------------------------------------------------
             // Pan-stability draw split (FIX 1)
             //
@@ -3289,6 +3297,25 @@ namespace Parsek.Display
                                     "drewLeg={3} primaryLeg={4} secondaryPid={5}",
                                     rec.RecordingId, secondaryHeadUT, secondaryHeadCycle, li, primaryDrawnLegIndex, secondaryGhostPid),
                                 2.0);
+
+                            // SEAM-RENDER OBSERVABILITY 3 (docs/dev/design-reaim-launch-hold-seam.md): the
+                            // ascent LINE's first-draw this cycle. Shows whether the secondary's body-fixed
+                            // ascent polyline appears AT the clock launch (observability 1's currentUT) even
+                            // while the icon/conic map-presence (observability 2) lags behind a pre-Segment gap.
+                            // Emitted once per (recording, secondaryCycle) via the logging-only latch (the leg
+                            // was already enqueued above; this only decides whether to LOG the first draw).
+                            if (!boundarySecondaryFirstDrawCycle.TryGetValue(rec.RecordingId, out long loggedCycle)
+                                || loggedCycle != secondaryHeadCycle)
+                            {
+                                boundarySecondaryFirstDrawCycle[rec.RecordingId] = secondaryHeadCycle;
+                                ParsekLog.VerboseRateLimited(DriverTag,
+                                    "boundary-overlap-secondary-polyline-first-draw." + rec.RecordingId,
+                                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                        "boundary-overlap secondary polyline first-draw: currentUT={0:R} headUT={1:R} " +
+                                        "secondaryLoopUT={2:R} rec={3} secondaryCycle={4} leg={5}",
+                                        currentUT, secondaryHeadUT, secondaryHeadUT, rec.RecordingId, secondaryHeadCycle, li),
+                                    2.0);
+                            }
                         }
                     }
 
