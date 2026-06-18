@@ -925,6 +925,19 @@ namespace Parsek
         private static readonly Dictionary<(int recIdx, long cycle), Vessel> overlapInstanceVessels =
             new Dictionary<(int, long), Vessel>();
 
+        // BOUNDARY-OVERLAP secondary instance pids (launch->escape seam render, review M1). The
+        // launch->escape boundary-overlap secondary (the early-launching N+1 instance) is stored in
+        // overlapInstanceVessels like any per-instance map ghost, but it must NOT shadow the launch
+        // recording's identity for the vesselsByRecordingIndex-reader fall-through (watch-camera focus,
+        // TS-Fly, UI marker suppression): a launch-hold member is NON-overlap, so its ONLY
+        // overlapInstanceVessels entries ARE boundary-secondaries, and when its primary is renderHidden (the
+        // chain case, no vesselsByRecordingIndex entry) GetGhostVesselPidForRecording would otherwise fall
+        // through to the secondary's pid. Membership here lets that fall-through skip the secondary and report
+        // pid 0 (no ghost) instead. The polyline's DIRECT GetNewestOverlapInstancePidForRecording call (which
+        // WANTS the secondary pid for the second-head leg) passes excludeBoundarySecondary:false, so it is
+        // unaffected.
+        private static readonly HashSet<uint> boundaryOverlapSecondaryPids = new HashSet<uint>();
+
         private static readonly Dictionary<int, IPlaybackTrajectory> trackingStationStateVectorOrbitTrajectories =
             new Dictionary<int, IPlaybackTrajectory>();
 
@@ -3750,6 +3763,7 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             overlapInstanceVessels.Clear();
+            boundaryOverlapSecondaryPids.Clear(); // M1
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
@@ -9810,7 +9824,9 @@ namespace Parsek
             // vesselsByRecordingIndex. Fall through to the newest live instance so watch-camera
             // focus / TS-Fly / UI marker suppression / polyline owner resolution see a ghost
             // (matching the legacy "one icon == newest cycle" behavior) instead of "no ghost".
-            return GetNewestOverlapInstancePidForRecording(recordingIndex) != 0;
+            // M1: EXCLUDE the boundary-overlap secondary so a launch-hold member whose primary is
+            // renderHidden reports "no ghost" rather than the secondary's identity.
+            return GetNewestOverlapInstancePidForRecording(recordingIndex, excludeBoundarySecondary: true) != 0;
         }
 
         /// <summary>
@@ -9824,7 +9840,9 @@ namespace Parsek
             // Overlap recordings: fall through to the NEWEST live overlap instance's pid (the cycle
             // the legacy single-icon path represented). FindRecordingIndexByVesselPid still works for
             // EVERY instance (vesselPidToRecordingIndex is populated per instance).
-            return GetNewestOverlapInstancePidForRecording(recordingIndex);
+            // M1: EXCLUDE the boundary-overlap secondary so it never shadows the launch recording's pid
+            // (the chain case where the launch member's primary has no vesselsByRecordingIndex entry).
+            return GetNewestOverlapInstancePidForRecording(recordingIndex, excludeBoundarySecondary: true);
         }
 
         // ---- Phase 8e S0 Instrument 1: coverage-closure accounting (PURELY ADDITIVE) ----
@@ -10317,6 +10335,7 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             overlapInstanceVessels.Clear();
+            boundaryOverlapSecondaryPids.Clear(); // M1
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
             ResetCoverageSetsForTesting();
@@ -10390,6 +10409,7 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             overlapInstanceVessels.Clear();
+            boundaryOverlapSecondaryPids.Clear(); // M1
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
@@ -11724,7 +11744,25 @@ namespace Parsek
                     LogOverlapGateDecision(i, rec, committed, loopUnits, gateOn, shouldDrive);
 
                     if (!shouldDrive)
+                    {
+                        // BOUNDARY-OVERLAP secondary (docs/dev/plan-launch-boundary-overlap.md 5.1): a launch-hold
+                        // re-aim unit member is NON-overlap (ShouldDriveOverlapPerInstance is false), so its PRIMARY
+                        // map vessel lives in vesselsByRecordingIndex via the per-index create path. During the
+                        // borrow window of a zero-slack loop the early-launching NEXT instance N+1 needs its own map
+                        // ProtoVessel (icon + escape conic). Create it INSIDE this sweep so the reaper below spares
+                        // it (register the index in drivenThisFrame) and tears it down automatically the frame the
+                        // borrow window ends. This reuses the create/seed/reap plumbing verbatim - the secondary's
+                        // in-SOI escape conic resolves to a Segment source (verified for aa48920e), so it is
+                        // loop-shift driven exactly like an overlap instance. Inert (NoSecondary) for every
+                        // non-launch-hold member and every already-aligned loop.
+                        if (TryEnsureBoundaryOverlapSecondaryInstance(
+                                i, rec, currentUT, committed, loopUnits, ref frameSpawnCount))
+                        {
+                            if (drivenThisFrame == null) drivenThisFrame = new HashSet<int>();
+                            drivenThisFrame.Add(i);
+                        }
                         continue;
+                    }
                     EnsureOverlapInstances(i, rec, currentUT, committed, loopUnits, ref frameSpawnCount);
                     if (drivenThisFrame == null) drivenThisFrame = new HashSet<int>();
                     drivenThisFrame.Add(i);
@@ -11744,6 +11782,151 @@ namespace Parsek
                     DestroyAllOverlapInstancesForRecording(idx, "overlap-no-longer-per-instance");
                 }
             }
+        }
+
+        /// <summary>
+        /// BOUNDARY-OVERLAP secondary map presence (docs/dev/plan-launch-boundary-overlap.md 5.1): when committed
+        /// recording <paramref name="recIdx"/> is a launch-hold re-aim unit member that carries a live
+        /// boundary-overlap secondary this frame (the early-launching NEXT instance N+1, during the borrow window of
+        /// a zero-slack loop), ensure ONE <see cref="overlapInstanceVessels"/> entry keyed (recIdx, secondaryCycle)
+        /// seeded at the secondary's loop-mapped sample UT, and reap any stale secondary cycle for this index. Reuses
+        /// <see cref="CreateOverlapInstanceVessel"/> (so the in-SOI escape conic resolves to a Segment source and is
+        /// loop-shift driven exactly like an overlap instance). Returns true when this index has a live
+        /// boundary-overlap secondary this frame (so the caller registers it in <c>drivenThisFrame</c> and the
+        /// reaper spares it); false otherwise (NoSecondary -> nothing created, any stale secondary already reaped).
+        /// Inert for every non-member, every non-launch-hold member, and every already-aligned loop. Single-ownership
+        /// is preserved: the PRIMARY stays in <see cref="vesselsByRecordingIndex"/>; the secondary lives ONLY here.
+        /// </summary>
+        private static bool TryEnsureBoundaryOverlapSecondaryInstance(
+            int recIdx, Recording rec, double currentUT,
+            IReadOnlyList<Recording> committed,
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
+            ref int frameSpawnCount)
+        {
+            if (rec == null || loopUnits == null || loopUnits.Count == 0)
+                return false;
+            if (!loopUnits.TryGetUnitForMember(recIdx, out GhostPlaybackLogic.LoopUnit unit))
+                return false;
+            if (!unit.LaunchHoldEngaged)
+                return false;
+
+            // Resolve the dual-clock frame for THIS member: primary sample UT + the optional boundary-overlap
+            // secondary in this member's window. The PRIMARY is handled by the per-index create path (this method
+            // only owns the secondary). NoSecondary -> reap any stale secondary for this index and return false.
+            double memberStartUT = unit.MemberStartUT(recIdx, rec.StartUT);
+            double memberEndUT = unit.MemberEndUT(recIdx, rec.EndUT);
+            GhostPlaybackLogic.BoundaryOverlapSecondaryDecision decision =
+                GhostPlaybackLogic.DecideBoundaryOverlapSecondaryRender(
+                    currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                    memberStartUT, memberEndUT, out double secondaryUT, out long secondaryCycle,
+                    unit.RelaunchSchedule, unit.LoiterCuts,
+                    unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+
+            if (decision != GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render)
+            {
+                // No live secondary this frame: reap any stale boundary-secondary instance for this index. (The
+                // outer reaper would also catch it via drivenThisFrame, but tear it down here so a NoSecondary frame
+                // does not leave a lingering icon for one extra frame.)
+                ReapBoundaryOverlapSecondaryInstances(recIdx, secondaryCycle: long.MinValue,
+                    reason: "boundary-overlap-secondary-window-ended");
+                return false;
+            }
+
+            // Reap any stale secondary cycle for this index (the borrow window's instance advanced to the next
+            // N+1), keeping only the current secondaryCycle.
+            ReapBoundaryOverlapSecondaryInstances(recIdx, secondaryCycle,
+                reason: "boundary-overlap-secondary-cycle-advanced");
+
+            // Already live for this cycle: nothing to create, but report the live secondary so the reaper spares it.
+            if (overlapInstanceVessels.ContainsKey((recIdx, secondaryCycle)))
+                return true;
+
+            // Respect the shared per-frame spawn throttle exactly like EnsureOverlapInstances.
+            if (GhostPlaybackLogic.ShouldThrottleSpawn(frameSpawnCount, GhostPlayback.MaxSpawnsPerFrame))
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    string.Format(ic, "boundary-overlap-secondary-throttle-{0}", recIdx),
+                    string.Format(ic,
+                        "Boundary-overlap secondary create throttled rec=#{0} \"{1}\" cycle={2} " +
+                        "(used {3}/{4} spawns this frame)",
+                        recIdx, rec.VesselName ?? "(null)", secondaryCycle,
+                        frameSpawnCount, GhostPlayback.MaxSpawnsPerFrame),
+                    1.0);
+                // Still report the secondary live so the reaper does not destroy a (deferred) create next frame.
+                return true;
+            }
+
+            double loopEpochShiftSeconds = currentUT - secondaryUT;
+            Vessel inst = CreateOverlapInstanceVessel(
+                recIdx, rec, secondaryCycle, secondaryUT, loopEpochShiftSeconds,
+                out TrackingStationGhostSource diagSource, out OrbitSegment diagSegment,
+                liveLaunchMatchedAnchorOfActiveMember: false);
+
+            // SEAM-RENDER OBSERVABILITY 2 (docs/dev/design-reaim-launch-hold-seam.md): the secondary's MAP
+            // presence (icon + escape conic) first-create truth, INCLUDING the create-returned-null /
+            // no-accepted-source case (the leading-hypothesis smoking gun). created=false + source=none means
+            // the post-ascent in-SOI escape window has NO accepted Segment yet, so the icon/conic only
+            // materializes once the secondaryLoopUT reaches the recorded escape Segment - that lag (the few
+            // minutes the prompt reports) is lagFromSpanStartSec = secondaryLoopUT - spanStart at the moment of
+            // create. segmentUT names the covering Segment span when one resolved. Rate-limited per
+            // (recIdx, secondaryCycle) so each borrow window's first-create truth is captured exactly once;
+            // logging-only, no control-flow effect (created is read from the create result, not a new gate).
+            string segUtStr = (diagSource == TrackingStationGhostSource.Segment
+                               || diagSource == TrackingStationGhostSource.EndpointTail)
+                ? string.Format(ic, "{0:F1}-{1:F1}", diagSegment.startUT, diagSegment.endUT)
+                : "n/a";
+            double lagFromSpanStart = secondaryUT - unit.SpanStartUT;
+            ParsekLog.VerboseRateLimited(Tag,
+                string.Format(ic, "boundary-overlap-secondary-map-presence-{0}-{1}", recIdx, secondaryCycle),
+                string.Format(ic,
+                    "boundary-overlap secondary map-presence: created={0} currentUT={1:R} secondaryLoopUT={2:R} " +
+                    "source={3} segmentUT={4} lagFromSpanStartSec={5:R} rec=#{6} \"{7}\" cycle={8}",
+                    inst != null, currentUT, secondaryUT, diagSource, segUtStr, lagFromSpanStart,
+                    recIdx, rec.VesselName ?? "(null)", secondaryCycle),
+                2.0);
+
+            if (inst != null)
+            {
+                // M1: tag this pid so the vesselsByRecordingIndex-reader fall-through
+                // (GetGhostVesselPidForRecording / HasGhostVesselForRecording) does not let the secondary
+                // shadow the launch recording's identity. Dropped on reap in RemoveOverlapInstance.
+                boundaryOverlapSecondaryPids.Add(inst.persistentId);
+                frameSpawnCount++;
+                ParsekLog.VerboseRateLimited(Tag,
+                    string.Format(ic, "boundary-overlap-secondary-create-{0}", recIdx),
+                    string.Format(ic,
+                        "Created boundary-overlap secondary map vessel rec=#{0} \"{1}\" cycle={2} " +
+                        "secondaryUT={3:F1} loopShift={4:F1}",
+                        recIdx, rec.VesselName ?? "(null)", secondaryCycle, secondaryUT, loopEpochShiftSeconds),
+                    2.0);
+            }
+            // Report live even if the create deferred (no Segment yet): the reaper must not tear down a pending one.
+            return true;
+        }
+
+        /// <summary>
+        /// Reaps boundary-overlap secondary instances for <paramref name="recIdx"/>, destroying every per-instance
+        /// vessel for this index whose cycle is NOT <paramref name="secondaryCycle"/> (pass <c>long.MinValue</c> to
+        /// reap all). Only touches entries whose cycle differs from the live secondary cycle, so it never destroys a
+        /// genuine self-overlap instance (a launch-hold unit member never has self-overlap instances anyway). The
+        /// primary in <see cref="vesselsByRecordingIndex"/> is untouched.
+        /// </summary>
+        private static void ReapBoundaryOverlapSecondaryInstances(int recIdx, long secondaryCycle, string reason)
+        {
+            List<long> stale = null;
+            foreach (var kvp in overlapInstanceVessels)
+            {
+                if (kvp.Key.recIdx == recIdx && kvp.Key.cycle != secondaryCycle)
+                {
+                    if (stale == null) stale = new List<long>();
+                    stale.Add(kvp.Key.cycle);
+                }
+            }
+            if (stale == null)
+                return;
+            for (int i = 0; i < stale.Count; i++)
+                RemoveOverlapInstance(recIdx, stale[i], reason);
         }
 
         /// <summary>
@@ -11852,6 +12035,23 @@ namespace Parsek
             int recIdx, Recording rec, long cycle, double effUT, double loopEpochShiftSeconds,
             bool liveLaunchMatchedAnchorOfActiveMember = false)
         {
+            // Diagnostic-only overload-style wrapper: the boundary-overlap secondary create
+            // (TryEnsureBoundaryOverlapSecondaryInstance) reads back the resolved source / covering
+            // segment to emit observability 2 (the map-presence pre-Segment gap). The regular overlap
+            // sweep does not need them, so it routes through this thin wrapper that discards them.
+            return CreateOverlapInstanceVessel(
+                recIdx, rec, cycle, effUT, loopEpochShiftSeconds,
+                out _, out _, liveLaunchMatchedAnchorOfActiveMember);
+        }
+
+        private static Vessel CreateOverlapInstanceVessel(
+            int recIdx, Recording rec, long cycle, double effUT, double loopEpochShiftSeconds,
+            out TrackingStationGhostSource diagSource, out OrbitSegment diagSegment,
+            bool liveLaunchMatchedAnchorOfActiveMember = false)
+        {
+            diagSource = TrackingStationGhostSource.None;
+            diagSegment = default(OrbitSegment);
+
             if (overlapInstanceVessels.ContainsKey((recIdx, cycle)))
                 return overlapInstanceVessels[(recIdx, cycle)];
 
@@ -11873,6 +12073,12 @@ namespace Parsek
                 // A live overlap instance always has a non-zero epoch shift, so it is "in window".
                 loopMemberInWindow: true,
                 liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
+
+            // Read-back-only: expose the resolved source + covering segment to the boundary-overlap
+            // secondary diagnostic. No control-flow effect (the create decisions below read `source` /
+            // `segment` directly, exactly as before).
+            diagSource = source;
+            diagSegment = segment;
 
             if (!IsMapCreateAcceptedSource(source))
             {
@@ -11998,6 +12204,7 @@ namespace Parsek
 
             if (ghostPid != 0)
             {
+                boundaryOverlapSecondaryPids.Remove(ghostPid); // M1: no-op for genuine self-overlap instances
                 ghostMapVesselPids.Remove(ghostPid);
                 ghostsWithSuppressedIcon.Remove(ghostPid);
                 ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
@@ -12066,7 +12273,8 @@ namespace Parsek
         /// watch-camera focus, TS-Fly, UI marker suppression, and the polyline owner resolve get the
         /// newest instance's pid (matching the legacy "one icon == newest cycle" behavior) instead of 0.
         /// </summary>
-        internal static uint GetNewestOverlapInstancePidForRecording(int recIdx)
+        internal static uint GetNewestOverlapInstancePidForRecording(
+            int recIdx, bool excludeBoundarySecondary = false)
         {
             uint newestPid = 0;
             long newestCycle = long.MinValue;
@@ -12075,6 +12283,11 @@ namespace Parsek
                 if (kvp.Key.recIdx != recIdx)
                     continue;
                 if (kvp.Value == null)
+                    continue;
+                // M1: the vesselsByRecordingIndex-reader fall-through excludes the boundary-overlap secondary
+                // so it never shadows the launch recording's identity (the polyline's second-head resolution
+                // passes false and still gets it). No-op for genuine self-overlap instances (not in the set).
+                if (excludeBoundarySecondary && boundaryOverlapSecondaryPids.Contains(kvp.Value.persistentId))
                     continue;
                 if (kvp.Key.cycle > newestCycle)
                 {
@@ -12176,6 +12389,41 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Launch-&gt;escape seam render: resolve whether a launch-hold re-aim member has a LIVE
+        /// boundary-overlap SECONDARY head this frame whose in-SOI ASCENT icon must be drawn as an
+        /// ADDITIVE non-proto polyline marker (the early-launching instance N+1's ascent during the
+        /// borrow window of a zero-slack re-aim launch loop). The secondary's own proto icon + escape
+        /// conic come from the map-presence sweep ONCE its escape <c>OrbitSegment</c> materializes;
+        /// this only covers the PRE-SEGMENT ascent gap, where no proto can exist (an atmospheric ascent
+        /// has no orbit, so <c>ResolveMapPresenceGhostSource</c> returns None and the create defers).
+        /// The caller rides this UT on the SHARED polyline via <c>DrawOneOverlapInstanceMarker</c> /
+        /// <c>DrawOneTsOverlapInstanceMarker</c>, which self-gates per cycle (a live non-suppressed
+        /// proto icon for the cycle skips the marker, so there is no double once the Segment exists).
+        ///
+        /// Returns false - with <paramref name="secondaryUT"/>/<paramref name="secondaryCycle"/>
+        /// defaulted - for every non-map surface, debris recording, null recording, and any member
+        /// without a live secondary head this frame (every non-launch-hold member and every ALIGNED
+        /// loop, where <c>ResolveTrackingStationSampleFrame</c> reports <c>hasSecondary=false</c>), so
+        /// the caller's additive marker draw stays inert there. Map-surface only because the secondary
+        /// head needs the live UT + the shared map polyline to ride (flight view passes currentUT=0 and
+        /// has no map polyline).
+        /// </summary>
+        internal static bool TryResolveBoundaryOverlapSecondaryMarker(
+            bool isMapSurface, Recording rec, int recIdx, double liveUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
+            out double secondaryUT, out long secondaryCycle)
+        {
+            secondaryUT = liveUT;
+            secondaryCycle = 0;
+            if (!isMapSurface || rec == null || rec.IsDebris)
+                return false;
+            GhostPlaybackLogic.ResolveTrackingStationSampleFrame(
+                recIdx, rec.StartUT, rec.EndUT, liveUT, loopUnits,
+                out _, out bool hasSecondary, out secondaryUT, out secondaryCycle);
+            return hasSecondary;
         }
 
         /// <summary>

@@ -55,10 +55,27 @@ namespace Parsek.Reaim
             }
 
             /// <summary>The absolute heliocentric-departure UT for window index <paramref name="k"/>
-            /// (k &gt;= 0): D0 + k * synodic. Pure.</summary>
+            /// (k &gt;= 0): D0 + k * synodic. This is the SYNODIC-clock departure - the time the transfer
+            /// geometry is solved for (the launch + target bodies return to the recorded relative
+            /// configuration every synodic period, so a congruent transfer exists here). Pure.</summary>
             internal double DepartureUTForWindow(long k)
             {
                 return FirstDepartureUT + k * SynodicPeriodSeconds;
+            }
+
+            /// <summary>The absolute UT at which the loop ENGINE actually relaunches the ghost for window
+            /// <paramref name="k"/> (k &gt;= 0): D0 + k * cadence. This is the CADENCE-clock replay time -
+            /// the live instant the ghost replays its recorded departure (the span clock resolves
+            /// loopUT = spanStart at currentUT = D0 + k*cadence). It coincides with
+            /// <see cref="DepartureUTForWindow"/> when cadence == synodic (the normal case, synodic &gt;
+            /// span), and DIVERGES by k*(span - synodic) when the recorded span exceeds the synodic (a
+            /// mission longer than its own transfer window). The body-relative escape leg renders at the
+            /// launch body's LIVE position (KSP Orbit.getPositionAtUT adds referenceBody.position), so a
+            /// launch-body-co-orbital heliocentric PARK must be re-phased to THIS time - not the synodic
+            /// departure - to sit next to the live launch body. Pure.</summary>
+            internal double RelaunchUTForWindow(long k)
+            {
+                return FirstDepartureUT + k * CadenceSeconds;
             }
         }
 
@@ -224,6 +241,26 @@ namespace Parsek.Reaim
             return $"D0={s.FirstDepartureUT.ToString("R", ic)} synodic={s.SynodicPeriodSeconds.ToString("R", ic)} " +
                    $"tof={s.TofSeconds.ToString("R", ic)} anchor={s.PhaseAnchorUT.ToString("R", ic)} " +
                    $"cadence={s.CadenceSeconds.ToString("R", ic)}";
+        }
+
+        /// <summary>
+        /// True when the F2 park-end-anchor BUNDLE is geometrically valid for a window: the cadence-clock
+        /// relaunch time (<see cref="ReaimWindowSchedule.RelaunchUTForWindow"/>, where the body-relative
+        /// escape leg and the LAN-rotated park sit, per PR #1172) and the synodic-clock transfer departure
+        /// (<see cref="ReaimWindowSchedule.DepartureUTForWindow"/>, where the Lambert transfer is aimed)
+        /// COINCIDE. They are equal at window 0 (D0 == D0) and at EVERY window of a span&lt;=synodic mission
+        /// (cadence == synodic), and DIVERGE by k*(cadence - synodic) (&gt;= ~3.6M s for stock Kerbin-&gt;Duna)
+        /// at k&gt;=1 of a span&gt;synodic mission. The park-end r1 anchor is evaluated on the cadence clock but
+        /// the transfer aims on the synodic clock, so when they diverge the override produces a WILD conic
+        /// (playtest window 21: ecc 0.82, park-end r1 192 deg around the Sun). When false the caller falls
+        /// back to the tested Increment-1 launch-body-center path (sane Kerbin-&gt;Duna conic). #1172's park
+        /// LAN re-phase is independent of this gate and applies at every window. Pure (1.0 s tolerance, the
+        /// same UT-equality epsilon used across the resolver). The every-window fix is the deferred
+        /// Approach A (overlap instances, cadence == synodic).
+        /// </summary>
+        internal static bool ParkEndOverrideClocksCoincide(double parkReplayUT, double departureUT)
+        {
+            return Math.Abs(parkReplayUT - departureUT) < 1.0;
         }
     }
 }

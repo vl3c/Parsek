@@ -495,6 +495,22 @@ namespace Parsek
                     continue; // per-instance markers drew (or all skipped) — bypass effUT + 8c gate + tail
                 }
 
+                // ---- Boundary-overlap secondary marker (launch->escape seam render), TS port ----
+                // Mirror of the flight-map DrawMapMarkers branch: draw the early-launching instance N+1's
+                // in-SOI ASCENT icon riding the shared polyline during the borrow window of a zero-slack
+                // re-aim launch loop, covering the pre-Segment gap where the secondary's proto icon cannot
+                // exist yet (an atmospheric ascent has no orbit Segment to seed a map vessel). TS is always
+                // a map surface. NO continue: the primary marker still draws below. Inert for every
+                // non-launch-hold member / aligned loop (no live secondary head).
+                if (GhostMapPresence.TryResolveBoundaryOverlapSecondaryMarker(
+                        true, rec, i, currentUT, loopUnits,
+                        out double tsBoundarySecondaryUT, out long tsBoundarySecondaryCycle)
+                    && DrawOneTsOverlapInstanceMarker(
+                        i, committed, rec, tsBoundarySecondaryUT, tsBoundarySecondaryCycle))
+                {
+                    summary.Drawn++;
+                }
+
                 // Phase F: substitute the shared Mission span-clock loopUT for the live UT when this
                 // committed index is a loop-unit member. A member outside its loop window this cycle
                 // is skipped (no marker). Inert (effUT == currentUT, renderHidden false) for

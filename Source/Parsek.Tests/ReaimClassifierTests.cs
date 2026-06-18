@@ -17,8 +17,11 @@ namespace Parsek.Tests
         {
             public readonly Dictionary<string, string> Parent = new Dictionary<string, string>();
             public readonly Dictionary<string, double> Mu = new Dictionary<string, double>();
+            // Orbit period about the reference body, in seconds (for the heliocentric-parking
+            // admissibility gate, which derives the launch body's heliocentric sma via Kepler's 3rd law).
+            public readonly Dictionary<string, double> Orbit = new Dictionary<string, double>();
             public double RotationPeriod(string b) => double.NaN;
-            public double OrbitPeriod(string b) => double.NaN;
+            public double OrbitPeriod(string b) => Orbit.TryGetValue(b ?? "", out double v) ? v : double.NaN;
             public string ReferenceBodyName(string b) => Parent.TryGetValue(b ?? "", out var v) ? v : null;
             public double SoiRadius(string b) => double.NaN;
             public double OrbitalVelocity(string b) => double.NaN;
@@ -42,6 +45,9 @@ namespace Parsek.Tests
             f.Mu["Mun"] = 6.5138398e10;
             f.Mu["Duna"] = 3.0136321e11;
             f.Mu["Sun"] = 1.1723328e18;
+            // Stock Kerbin orbit period about the Sun (heliocentric sma 13,599,840,256 m); the
+            // admissibility gate reads this to bound a heliocentric park to the launch body's own orbit.
+            f.Orbit["Kerbin"] = 9203544.6;
             return f;
         }
 
@@ -392,6 +398,220 @@ namespace Parsek.Tests
             Assert.False(ReaimClassifier.Classify(null, StockParents()).Supported);
             Assert.False(ReaimClassifier.Classify(new List<OrbitSegment>(), StockParents()).Supported);
             Assert.False(ReaimClassifier.Classify(new List<OrbitSegment> { Seg("Kerbin", 0, 1) }, null).Supported);
+        }
+
+        // ---- Heliocentric-parking (two-burn) departure: s15 Kerbal X #2 ----
+        // The transfer departs from a near-circular SOLAR parking orbit co-orbital with Kerbin (the player
+        // escaped into ~Kerbin's own solar orbit, phased there ~1.4 revolutions, then burned for Duna).
+        // This used to decline as "transfer departs from a heliocentric parking orbit"; it now engages.
+
+        private static OrbitSegment SegAE(string body, double start, double end, double a, double ecc)
+        {
+            return new OrbitSegment
+            {
+                bodyName = body, startUT = start, endUT = end, semiMajorAxis = a, eccentricity = ecc
+            };
+        }
+
+        // The s15 Kerbal X #2 transfer member, mirrored: Kerbin LKO -> 3 same-orbit solar park sub-coasts
+        // (sma 1.4072e10 ~ Kerbin's 1.36e10, ecc 0.0327, ~1.4 rev total) -> trans-Duna burn (sma 1.7909e10,
+        // ~0.68 rev) ending at the Duna SOI -> Duna hyperbola. Sun period at the park sma ~9.69e6 s.
+        private static List<OrbitSegment> S15ParkingDepartureChain()
+        {
+            return new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 1.37e6, 0.0),         // LKO parking
+                SegAE("Sun", 5000, 9000000, 1.4072e10, 0.0327),  // solar park sub-coast 1
+                SegAE("Sun", 9000006, 13000000, 1.4072e10, 0.0327), // sub-coast 2 (6 s warp gap, same orbit)
+                SegAE("Sun", 13000036, 13560000, 1.4072e10, 0.0327),// sub-coast 3 (36 s gap, same orbit)
+                SegAE("Sun", 13560000, 22944036, 1.7909e10, 0.192), // trans-Duna transfer (ends at Duna SOI)
+                SegAE("Duna", 22944036, 22949036, -1.88e5, 3.60),   // arrival hyperbola
+            };
+        }
+
+        [Fact]
+        public void Classify_HeliocentricParkingDeparture_Engaged()
+        {
+            // s15 Kerbal X #2: a >=1-rev near-circular solar park co-orbital with Kerbin is now re-aimable.
+            // RecordedDepartureUT is the trans-Duna BURN (the transfer-coast start), NOT the park start, so
+            // the tof excludes the ~1.4-rev park (the park is re-timed by the loiter cut, not Lambert'd).
+            var plan = ReaimClassifier.Classify(S15ParkingDepartureChain(), StockParents());
+            Assert.True(plan.Supported, plan.Reason);
+            Assert.Equal("Kerbin", plan.LaunchBody);
+            Assert.Equal("Sun", plan.CommonAncestor);
+            Assert.Equal("Duna", plan.TargetBody);
+            Assert.True(plan.DepartedFromHeliocentricPark);
+            Assert.Equal(13560000.0, plan.RecordedDepartureUT, 3);          // the trans-Duna burn, not the park
+            Assert.Equal(22944036.0, plan.RecordedArrivalUT, 3);
+            Assert.Equal(9384036.0, plan.RecordedTransferTofSeconds, 3);    // transfer leg only (no park)
+            // The SOI exit (the launch-body->Sun handoff = the first heliocentric segment start, 5000) is
+            // BEFORE the trans-Duna departure burn (13560000): the launch alignment repays delta_N here, not
+            // at the departure burn (the park + burn are inertial / rotation-independent and lie after the exit).
+            Assert.Equal(5000.0, plan.RecordedSoiExitUT, 3);
+            Assert.True(plan.RecordedSoiExitUT < plan.RecordedDepartureUT);
+        }
+
+        [Fact]
+        public void Classify_MultiRevPark_Declined_DeferredScope()
+        {
+            // A >1-rev (here ~2.6 rev) solar park would fire the launch-side cutBeforeDeparture composition,
+            // unvalidated on a heliocentric park -> declined (empty-cut-only scope, Open Q3 2026-06-15).
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 1.37e6, 0.0),
+                SegAE("Sun", 5000, 25000000, 1.4072e10, 0.0327),    // ~2.58 rev solar park (wholeRevs=2)
+                SegAE("Sun", 25000000, 34384036, 1.7909e10, 0.192), // transfer
+                SegAE("Duna", 34384036, 34389036, -1.88e5, 3.60),
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.False(plan.Supported);
+            Assert.Contains("heliocentric parking", plan.Reason);
+        }
+
+        [Fact]
+        public void Classify_EccentricPark_FailsAdmissibility_Declined()
+        {
+            // A >=1-rev park co-orbital in sma but ECCENTRIC (ecc 0.5 > 0.1): its burn point is far from
+            // the launch body, so r1 = launchBody is invalid -> declined (fail-closed, the graft).
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 1.37e6, 0.0),
+                SegAE("Sun", 5000, 13560000, 1.4072e10, 0.5),       // 1-rev but eccentric
+                SegAE("Sun", 13560000, 22944036, 1.7909e10, 0.192),
+                SegAE("Duna", 22944036, 22949036, -1.88e5, 3.60),
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.False(plan.Supported);
+            Assert.Contains("heliocentric parking", plan.Reason);
+        }
+
+        [Fact]
+        public void Classify_WideSmaPark_FailsAdmissibility_Declined()
+        {
+            // A >=1-rev near-circular park NOT co-orbital with the launch body (sma 2.0e10, ~47% off
+            // Kerbin's 1.36e10): the burn point is far from the launch body -> declined (fail-closed).
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 1.37e6, 0.0),
+                SegAE("Sun", 5000, 25000000, 2.0e10, 0.0327),       // 1-rev but a different solar orbit
+                SegAE("Sun", 25000000, 34384036, 1.7909e10, 0.192),
+                SegAE("Duna", 34384036, 34389036, -1.88e5, 3.60),
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.False(plan.Supported);
+            Assert.Contains("heliocentric parking", plan.Reason);
+        }
+
+        [Fact]
+        public void Classify_TwoSolarParks_EarlierMultiRev_Declined()
+        {
+            // An admissible ~1-rev co-orbital park (the transfer's immediate predecessor) preceded by a
+            // DISTINCT earlier multi-rev solar park on a different orbit. ComputeCuts would excise whole
+            // periods from the earlier park (firing the unvalidated heliocentric cutBeforeDeparture), so the
+            // empty-cut scope must DECLINE even though the immediate predecessor alone looks admissible.
+            // Pins the all-common-ancestor-runs scan (not just the predecessor run).
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 1.37e6, 0.0),
+                SegAE("Sun", 5000, 25000000, 1.0e10, 0.03),          // parkA: ~4.3 rev, different solar orbit
+                SegAE("Sun", 25000000, 38560000, 1.4072e10, 0.0327), // parkB: ~1.4 rev, co-orbital (admissible alone)
+                SegAE("Sun", 38560000, 47944036, 1.7909e10, 0.192),  // transfer
+                SegAE("Duna", 47944036, 47949036, -1.88e5, 3.60),
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.False(plan.Supported);
+            Assert.Contains("heliocentric parking", plan.Reason);
+        }
+
+        [Fact]
+        public void Classify_ParkEccentricAtBurnPoint_Declined()
+        {
+            // A same-sma solar park run near-circular at the START but ECCENTRIC at the burn point
+            // (DetectRuns merges on sma only, not ecc). The departure orbit r1 approximates is the burn
+            // point, so admissibility reads the LAST park segment's ecc, not just the run anchor's.
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 100, 5000, 1.37e6, 0.0),
+                SegAE("Sun", 5000, 9000000, 1.4072e10, 0.0327),      // circular first sub-coast (anchor)
+                SegAE("Sun", 9000006, 13560000, 1.4072e10, 0.6),     // SAME sma, eccentric burn point
+                SegAE("Sun", 13560000, 22944036, 1.7909e10, 0.192),  // transfer
+                SegAE("Duna", 22944036, 22949036, -1.88e5, 3.60),
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.False(plan.Supported);
+            Assert.Contains("heliocentric parking", plan.Reason);
+        }
+
+        [Fact]
+        public void IsHeliocentricParkingDeparture_OneRevCoOrbitalPark_True()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Sun", 0, 13560000, 1.4072e10, 0.0327),       // ~1.4-rev co-orbital near-circular park
+                SegAE("Sun", 13560000, 22944036, 1.7909e10, 0.192), // transfer
+            };
+            Assert.True(ReaimClassifier.IsHeliocentricParkingDeparture(segs, 1, "Kerbin", "Sun", StockParents()));
+        }
+
+        [Fact]
+        public void IsHeliocentricParkingDeparture_SubPeriodPark_False()
+        {
+            // Park < 1 full solar revolution = a real mid-course-correction arc, not a closed park.
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Sun", 0, 5000000, 1.4072e10, 0.0327),        // ~0.52 rev (sub-period)
+                SegAE("Sun", 5000000, 14384036, 1.7909e10, 0.192),
+            };
+            Assert.False(ReaimClassifier.IsHeliocentricParkingDeparture(segs, 1, "Kerbin", "Sun", StockParents()));
+        }
+
+        [Fact]
+        public void IsHeliocentricParkingDeparture_MultiRevPark_False()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Sun", 0, 25000000, 1.4072e10, 0.0327),       // ~2.58 rev (cut would be non-empty)
+                SegAE("Sun", 25000000, 34384036, 1.7909e10, 0.192),
+            };
+            Assert.False(ReaimClassifier.IsHeliocentricParkingDeparture(segs, 1, "Kerbin", "Sun", StockParents()));
+        }
+
+        [Fact]
+        public void IsHeliocentricParkingDeparture_NonSunPredecessor_False()
+        {
+            // The transfer's predecessor is the launch body (a direct departure), not a solar park.
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Kerbin", 0, 5000, 700000, 0.0),
+                SegAE("Sun", 5000, 14384036, 1.7909e10, 0.192),
+            };
+            Assert.False(ReaimClassifier.IsHeliocentricParkingDeparture(segs, 1, "Kerbin", "Sun", StockParents()));
+        }
+
+        [Fact]
+        public void IsHeliocentricParkingDeparture_NoLaunchBodyOrbitPeriod_FailsClosed()
+        {
+            // Without the launch body's orbit period the admissibility gate cannot establish co-orbitality
+            // -> fail closed (false), even for an otherwise-admissible 1-rev near-circular park.
+            var noOrbit = new Bodies();
+            noOrbit.Parent["Sun"] = null;
+            noOrbit.Parent["Kerbin"] = "Sun";
+            noOrbit.Mu["Sun"] = 1.1723328e18;
+            noOrbit.Mu["Kerbin"] = 3.5316e12;            // note: NO Orbit["Kerbin"]
+            var segs = new List<OrbitSegment>
+            {
+                SegAE("Sun", 0, 13560000, 1.4072e10, 0.0327),
+                SegAE("Sun", 13560000, 22944036, 1.7909e10, 0.192),
+            };
+            Assert.False(ReaimClassifier.IsHeliocentricParkingDeparture(segs, 1, "Kerbin", "Sun", noOrbit));
+        }
+
+        [Fact]
+        public void HeliocentricSemiMajorAxis_Kerbin_RecoversStockSma()
+        {
+            // Kepler's 3rd law round-trip: stock Kerbin orbit period -> sma ~13.6e9 m.
+            double a = ReaimClassifier.HeliocentricSemiMajorAxis("Kerbin", "Sun", StockParents());
+            Assert.InRange(a, 1.358e10, 1.362e10);
         }
     }
 }

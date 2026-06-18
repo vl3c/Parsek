@@ -300,5 +300,531 @@ namespace Parsek.Tests
             Assert.Equal("Sun", segs[1].bodyName);
             Assert.Equal(600.0, segs[1].startUT, 3);
         }
+
+        // ---- Heliocentric-park LAN re-phase (Increment 1: departure-side render) ----
+
+        [Fact]
+        public void RotateLanForParkRephase_AdvancesAndWrapsLan()
+        {
+            // LAN 30 + 90 -> 120 (no wrap).
+            Assert.Equal(120.0, ReaimSegmentAssembler.RotateLanForParkRephase(
+                Seg("Sun", 0, 0, 0), 90.0).longitudeOfAscendingNode, 6);
+            // LAN 30 + 350 -> 380 -> wrap to 20.
+            Assert.Equal(20.0, ReaimSegmentAssembler.RotateLanForParkRephase(
+                Seg("Sun", 0, 0, 0), 350.0).longitudeOfAscendingNode, 6);
+            // LAN 30 + 768.5 (the window-0 s15 magnitude) -> 798.5 -> wrap to 78.5 (2 full turns out).
+            Assert.Equal(78.5, ReaimSegmentAssembler.RotateLanForParkRephase(
+                Seg("Sun", 0, 0, 0), 768.5).longitudeOfAscendingNode, 6);
+            // Negative delta wraps into [0,360): LAN 30 - 90 -> -60 -> 300.
+            Assert.Equal(300.0, ReaimSegmentAssembler.RotateLanForParkRephase(
+                Seg("Sun", 0, 0, 0), -90.0).longitudeOfAscendingNode, 6);
+            // Zero delta is the identity (byte-identical default path).
+            Assert.Equal(30.0, ReaimSegmentAssembler.RotateLanForParkRephase(
+                Seg("Sun", 0, 0, 0), 0.0).longitudeOfAscendingNode, 6);
+            // Only LAN moves; shape/body untouched.
+            var rot = ReaimSegmentAssembler.RotateLanForParkRephase(Seg("Sun", 0, 0, 0, sma: 1.4e10), 90.0);
+            Assert.Equal(1.4e10, rot.semiMajorAxis, 0);
+            Assert.Equal(5.0, rot.inclination, 6);
+            Assert.Equal(45.0, rot.argumentOfPeriapsis, 6);
+        }
+
+        [Fact]
+        public void ComputeParkDeltaLonDegrees_IsOmegaTimesWindowOffset()
+        {
+            // omega_parent = 360 / period. Delta_lon = omega * (D_c - RecDep).
+            // period = 9,203,545 s (Kerbin), D_c - RecDep = +19,645,697 s (one synodic) -> ~768.49 deg.
+            double dLon = ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(
+                departureUTForWindow: 2580716597.0, recordedDepartureUT: 2561070900.0,
+                launchBodyOrbitPeriodSeconds: 9203545.0);
+            Assert.Equal(360.0 * (2580716597.0 - 2561070900.0) / 9203545.0, dLon, 4);
+            Assert.True(dLon > 768.0 && dLon < 769.0);
+            // Degenerate period -> NaN (fail-closed signal).
+            Assert.True(double.IsNaN(ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(1.0, 0.0, 0.0)));
+            Assert.True(double.IsNaN(ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(1.0, 0.0, double.NaN)));
+            Assert.True(double.IsNaN(ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(1.0, 0.0, double.PositiveInfinity)));
+            Assert.True(double.IsNaN(ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(double.NaN, 0.0, 100.0)));
+        }
+
+        [Fact]
+        public void FindHeliocentricParkInclination_FindsLatestParkBeforeBurn()
+        {
+            // s15 shape: Kerbin escape -> Sun PARK [600,1500] -> Sun TRANSFER [1500,3000] -> Duna.
+            // The park is the Sun coast ENDING at/before the burn (recordedDepartureUT=1500). The in-window
+            // transfer (endUT 3000 > 1500) is NOT the park.
+            var park = Seg("Sun", 600, 1500, 1000, sma: 1.4e10);
+            park.inclination = 1.3;
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                park,
+                Seg("Sun", 1500, 3000, 2000, sma: 1.79e10), // in-window transfer, not the park
+                Seg("Duna", 3000, 5000, 3500),
+            };
+            Assert.Equal(1.3, ReaimSegmentAssembler.FindHeliocentricParkInclination(member, "Sun", 1500.0), 6);
+
+            // Two solar parks before the burn -> the LATEST-ending one's inclination.
+            var early = Seg("Sun", 600, 1000, 700, sma: 1.4e10); early.inclination = 1.0;
+            var late = Seg("Sun", 1000, 1500, 1100, sma: 1.4e10); late.inclination = 2.5;
+            var twoParks = new List<OrbitSegment> { Seg("Kerbin", 100, 600, 300), early, late };
+            Assert.Equal(2.5, ReaimSegmentAssembler.FindHeliocentricParkInclination(twoParks, "Sun", 1500.0), 6);
+
+            // No solar park (direct transfer: only Kerbin + in-window Sun + Duna) -> NaN.
+            var direct = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 1500, 800),
+                Seg("Sun", 1500, 3000, 2000, sma: 1.79e10),
+                Seg("Duna", 3000, 5000, 3500),
+            };
+            Assert.True(double.IsNaN(ReaimSegmentAssembler.FindHeliocentricParkInclination(direct, "Sun", 1500.0)));
+
+            // A predicted Sun coast before the burn does not count (NaN).
+            var predictedPark = new List<OrbitSegment> { Seg("Sun", 600, 1500, 1000, sma: 1.4e10, predicted: true) };
+            Assert.True(double.IsNaN(ReaimSegmentAssembler.FindHeliocentricParkInclination(predictedPark, "Sun", 1500.0)));
+        }
+
+        [Fact]
+        public void TryComputeParkRephase_FailsClosedOnNonEquatorialOrDegenerate()
+        {
+            // Near-equatorial co-orbital park -> rephase with the computed angle.
+            Assert.True(ReaimSegmentAssembler.TryComputeParkRephase(
+                parkInclinationDeg: 1.3, departureUTForWindow: 2580716597.0,
+                recordedDepartureUT: 2561070900.0, launchBodyOrbitPeriodSeconds: 9203545.0,
+                out double dLon));
+            Assert.True(dLon > 768.0 && dLon < 769.0);
+
+            // At the guard threshold (15 deg) it still engages; just over it fails closed.
+            Assert.True(ReaimSegmentAssembler.TryComputeParkRephase(
+                ReaimSegmentAssembler.ParkRephaseMaxInclinationDeg, 100.0, 0.0, 9203545.0, out _));
+            Assert.False(ReaimSegmentAssembler.TryComputeParkRephase(
+                ReaimSegmentAssembler.ParkRephaseMaxInclinationDeg + 0.1, 100.0, 0.0, 9203545.0, out double offDeg));
+            Assert.Equal(0.0, offDeg, 6);
+
+            // NaN inclination (no park found) -> fail closed.
+            Assert.False(ReaimSegmentAssembler.TryComputeParkRephase(
+                double.NaN, 100.0, 0.0, 9203545.0, out _));
+            // Degenerate launch-body period -> fail closed.
+            Assert.False(ReaimSegmentAssembler.TryComputeParkRephase(
+                1.0, 100.0, 0.0, 0.0, out _));
+        }
+
+        [Fact]
+        public void ReplaceHeliocentricLeg_RotatesOnlyTheSunParkBeforeBurn()
+        {
+            // s15 shape with a re-aimed transfer. parkDeltaLonDeg=90 rotates ONLY the Sun PARK [600,1500]
+            // (before the burn); the in-window transfer (the replacement), the body-relative Kerbin/Duna
+            // legs are untouched.
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),                       // escape (LAN 30) - kept
+                Seg("Sun", 600, 1500, 1000, sma: 1.4e10),           // PARK (LAN 30) - rotated
+                Seg("Sun", 1500, 3000, 2000, sma: 1.79e10),         // in-window transfer - replaced
+                Seg("Duna", 3000, 5000, 3500),                      // capture (LAN 30) - kept
+            };
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);        // synthesized replacement (LAN 30)
+
+            var segs = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", recordedDepartureUT: 1500.0, recordedArrivalUT: 3000.0,
+                transferRenderStartUT: double.NaN, transferRenderEndUT: double.NaN, parkDeltaLonDeg: 90.0);
+
+            Assert.NotNull(segs);
+            Assert.Equal(4, segs.Count);
+            // Kerbin escape: kept, NOT rotated.
+            Assert.Equal("Kerbin", segs[0].bodyName);
+            Assert.Equal(30.0, segs[0].longitudeOfAscendingNode, 6);
+            // Sun PARK [600,1500]: rotated 30 -> 120.
+            Assert.Equal("Sun", segs[1].bodyName);
+            Assert.Equal(600.0, segs[1].startUT, 3);
+            Assert.Equal(1.4e10, segs[1].semiMajorAxis, 0);
+            Assert.Equal(120.0, segs[1].longitudeOfAscendingNode, 6);
+            // Sun TRANSFER (the re-aimed replacement at [1500,3000]): NOT rotated (LAN 30, sma 2e10).
+            Assert.Equal("Sun", segs[2].bodyName);
+            Assert.Equal(1500.0, segs[2].startUT, 3);
+            Assert.Equal(2.0e10, segs[2].semiMajorAxis, 0);
+            Assert.Equal(30.0, segs[2].longitudeOfAscendingNode, 6);
+            // Duna capture: kept, NOT rotated.
+            Assert.Equal("Duna", segs[3].bodyName);
+            Assert.Equal(30.0, segs[3].longitudeOfAscendingNode, 6);
+        }
+
+        [Fact]
+        public void FindHeliocentricParkSegment_ReturnsLatestParkBeforeBurn_NullForDirect()
+        {
+            // Same shape as FindHeliocentricParkInclination_FindsLatestParkBeforeBurn but on the whole-segment
+            // accessor (the r1 departure-anchor source): the latest non-predicted Sun coast ENDING at/before
+            // the burn (recordedDepartureUT). The in-window transfer (endUT 3000 > 1500) is NOT the park.
+            var park = Seg("Sun", 600, 1500, 1000, sma: 1.4e10);
+            park.inclination = 1.3;
+            park.longitudeOfAscendingNode = 200.0;
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                park,
+                Seg("Sun", 1500, 3000, 2000, sma: 1.79e10), // in-window transfer, not the park
+                Seg("Duna", 3000, 5000, 3500),
+            };
+            OrbitSegment? found = ReaimSegmentAssembler.FindHeliocentricParkSegment(member, "Sun", 1500.0);
+            Assert.True(found.HasValue);
+            Assert.Equal(1.3, found.Value.inclination, 6);
+            Assert.Equal(1.4e10, found.Value.semiMajorAxis, 0);   // the WHOLE park segment, not just inc
+            Assert.Equal(200.0, found.Value.longitudeOfAscendingNode, 6);
+            Assert.Equal(600.0, found.Value.startUT, 3);
+            Assert.Equal(1500.0, found.Value.endUT, 3);
+
+            // Two solar parks before the burn -> the LATEST-ending one.
+            var early = Seg("Sun", 600, 1000, 700, sma: 1.4e10); early.inclination = 1.0;
+            var late = Seg("Sun", 1000, 1500, 1100, sma: 1.5e10); late.inclination = 2.5;
+            var twoParks = new List<OrbitSegment> { Seg("Kerbin", 100, 600, 300), early, late };
+            OrbitSegment? latest = ReaimSegmentAssembler.FindHeliocentricParkSegment(twoParks, "Sun", 1500.0);
+            Assert.True(latest.HasValue);
+            Assert.Equal(2.5, latest.Value.inclination, 6);
+            Assert.Equal(1.5e10, latest.Value.semiMajorAxis, 0);
+
+            // Direct transfer (no pre-burn Sun coast) -> null.
+            var direct = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 1500, 800),
+                Seg("Sun", 1500, 3000, 2000, sma: 1.79e10),
+                Seg("Duna", 3000, 5000, 3500),
+            };
+            Assert.False(ReaimSegmentAssembler.FindHeliocentricParkSegment(direct, "Sun", 1500.0).HasValue);
+
+            // A predicted Sun coast before the burn does not count -> null.
+            var predictedPark = new List<OrbitSegment> { Seg("Sun", 600, 1500, 1000, sma: 1.4e10, predicted: true) };
+            Assert.False(ReaimSegmentAssembler.FindHeliocentricParkSegment(predictedPark, "Sun", 1500.0).HasValue);
+        }
+
+        [Fact]
+        public void FindHeliocentricParkInclination_DelegatesToFindHeliocentricParkSegment()
+        {
+            // The inc accessor must return EXACTLY the segment accessor's inclination (single source) so the
+            // near-equatorial guard and the r1 departure-anchor source can never disagree on which seg is
+            // "the park". When there is no park, both return the no-data sentinel (NaN / null).
+            var park = Seg("Sun", 600, 1500, 1000, sma: 1.4e10);
+            park.inclination = 3.7;
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                park,
+                Seg("Sun", 1500, 3000, 2000, sma: 1.79e10),
+                Seg("Duna", 3000, 5000, 3500),
+            };
+            OrbitSegment? seg = ReaimSegmentAssembler.FindHeliocentricParkSegment(member, "Sun", 1500.0);
+            double inc = ReaimSegmentAssembler.FindHeliocentricParkInclination(member, "Sun", 1500.0);
+            Assert.True(seg.HasValue);
+            Assert.Equal(seg.Value.inclination, inc, 9); // delegated, not a separately-computed value
+
+            var direct = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 1500, 800),
+                Seg("Sun", 1500, 3000, 2000, sma: 1.79e10),
+            };
+            Assert.False(ReaimSegmentAssembler.FindHeliocentricParkSegment(direct, "Sun", 1500.0).HasValue);
+            Assert.True(double.IsNaN(ReaimSegmentAssembler.FindHeliocentricParkInclination(direct, "Sun", 1500.0)));
+        }
+
+        [Fact]
+        public void RotateLanForParkRephase_OnlyLanTurns_AllOtherElementsAndUTsUnchanged()
+        {
+            // The r1 derivation evaluates the LAN-rotated park; that is only correct if RotateLanForParkRephase
+            // is a SHAPE-IDENTICAL rotation (recorded data untouched, only the inertial longitude turns). Pin
+            // that inc/ecc/sma/argPe/mEp/epoch/startUT/endUT/bodyName/isPredicted are all unchanged and ONLY
+            // LAN turns by deltaLonDeg mod 360.
+            var seg = new OrbitSegment
+            {
+                bodyName = "Sun", startUT = 600.0, endUT = 1500.0, epoch = 1000.0,
+                inclination = 1.3, eccentricity = 0.03, semiMajorAxis = 1.4e10,
+                longitudeOfAscendingNode = 200.0, argumentOfPeriapsis = 47.0, meanAnomalyAtEpoch = 2.71,
+                isPredicted = false
+            };
+            const double delta = 768.5; // > 360, exercises the wrap
+            var rot = ReaimSegmentAssembler.RotateLanForParkRephase(seg, delta);
+
+            // ONLY LAN moves, wrapped into [0,360): 200 + 768.5 = 968.5 -> 968.5 - 720 = 248.5.
+            double expectedLan = (200.0 + delta) % 360.0;
+            Assert.Equal(expectedLan, rot.longitudeOfAscendingNode, 6);
+            Assert.NotEqual(seg.longitudeOfAscendingNode, rot.longitudeOfAscendingNode);
+
+            // Every other element + UT + body + flag unchanged.
+            Assert.Equal(seg.inclination, rot.inclination, 9);
+            Assert.Equal(seg.eccentricity, rot.eccentricity, 9);
+            Assert.Equal(seg.semiMajorAxis, rot.semiMajorAxis, 0);
+            Assert.Equal(seg.argumentOfPeriapsis, rot.argumentOfPeriapsis, 9);
+            Assert.Equal(seg.meanAnomalyAtEpoch, rot.meanAnomalyAtEpoch, 9);
+            Assert.Equal(seg.epoch, rot.epoch, 6);
+            Assert.Equal(seg.startUT, rot.startUT, 6);
+            Assert.Equal(seg.endUT, rot.endUT, 6);
+            Assert.Equal(seg.bodyName, rot.bodyName);
+            Assert.Equal(seg.isPredicted, rot.isPredicted);
+        }
+
+        // ---- DecideDepartureAnchor (the pure override-vs-no-override decision; r1 source gate) ----
+
+        [Fact]
+        public void DecideDepartureAnchor_DirectTransfer_LaunchCenterNoEval()
+        {
+            // departedFromHeliocentricPark == false => the launch-center mode, byte-identical to main:
+            // no override, no park rotation, no eval.
+            var d = ReaimSegmentAssembler.DecideDepartureAnchor(
+                departedFromHeliocentricPark: false, parkInclinationDeg: double.NaN,
+                parkReplayUT: 2580716597.0, recordedDepartureUT: 2561070900.0,
+                launchBodyOrbitPeriodSeconds: 9203545.0);
+            Assert.Equal(ReaimSegmentAssembler.DepartureAnchorMode.LaunchCenter, d.Mode);
+            Assert.Equal(0.0, d.ParkDeltaLonDeg, 9);
+            Assert.True(double.IsNaN(d.ParkEvalUT));
+        }
+
+        [Fact]
+        public void DecideDepartureAnchor_ParkingDeparture_RephaseOk_OverrideAtRecordedDepartureUT()
+        {
+            // parking departure + a near-equatorial park => ParkEndOverride, with the rephase angle and the
+            // eval UT pinned to RecordedDepartureUT (BLOCKER 1: r1 is the park-end the icon abuts, which
+            // renders at the RECORDED burn UT, NOT the future synodic departure D0 = parkReplayUT).
+            const double recDep = 2561070900.0;
+            const double replayUT = 2580716597.0; // D0 = recDep + one synodic; must NOT be the eval UT
+            var d = ReaimSegmentAssembler.DecideDepartureAnchor(
+                departedFromHeliocentricPark: true, parkInclinationDeg: 1.3,
+                parkReplayUT: replayUT, recordedDepartureUT: recDep,
+                launchBodyOrbitPeriodSeconds: 9203545.0);
+            Assert.Equal(ReaimSegmentAssembler.DepartureAnchorMode.ParkEndOverride, d.Mode);
+            // The rephase angle is the same value TryComputeParkRephase yields for these inputs.
+            ReaimSegmentAssembler.TryComputeParkRephase(1.3, replayUT, recDep, 9203545.0, out double expectedDelta);
+            Assert.Equal(expectedDelta, d.ParkDeltaLonDeg, 9);
+            // BLOCKER 1: the eval UT is the RECORDED departure, never D0/parkReplayUT.
+            Assert.Equal(recDep, d.ParkEvalUT, 3);
+            Assert.NotEqual(replayUT, d.ParkEvalUT);
+        }
+
+        [Fact]
+        public void DecideDepartureAnchor_ParkingDeparture_RephaseDeclined_DeclineNotLaunchCenter()
+        {
+            // parking departure + a NON-equatorial park (> the guard) => DeclineToFaithful, NOT LaunchCenter.
+            // A parking departure must never fall back to the launch-center r1 (that would render the original
+            // seam disguised as a fix).
+            var nonEquatorial = ReaimSegmentAssembler.DecideDepartureAnchor(
+                departedFromHeliocentricPark: true,
+                parkInclinationDeg: ReaimSegmentAssembler.ParkRephaseMaxInclinationDeg + 0.1,
+                parkReplayUT: 2580716597.0, recordedDepartureUT: 2561070900.0,
+                launchBodyOrbitPeriodSeconds: 9203545.0);
+            Assert.Equal(ReaimSegmentAssembler.DepartureAnchorMode.DeclineToFaithful, nonEquatorial.Mode);
+            Assert.NotEqual(ReaimSegmentAssembler.DepartureAnchorMode.LaunchCenter, nonEquatorial.Mode);
+            Assert.Equal(0.0, nonEquatorial.ParkDeltaLonDeg, 9);
+            Assert.True(double.IsNaN(nonEquatorial.ParkEvalUT));
+
+            // NaN inclination (no park found) -> also DeclineToFaithful, never LaunchCenter.
+            var noPark = ReaimSegmentAssembler.DecideDepartureAnchor(
+                departedFromHeliocentricPark: true, parkInclinationDeg: double.NaN,
+                parkReplayUT: 2580716597.0, recordedDepartureUT: 2561070900.0,
+                launchBodyOrbitPeriodSeconds: 9203545.0);
+            Assert.Equal(ReaimSegmentAssembler.DepartureAnchorMode.DeclineToFaithful, noPark.Mode);
+
+            // Degenerate launch-body period -> DeclineToFaithful.
+            var degenPeriod = ReaimSegmentAssembler.DecideDepartureAnchor(
+                departedFromHeliocentricPark: true, parkInclinationDeg: 1.3,
+                parkReplayUT: 2580716597.0, recordedDepartureUT: 2561070900.0,
+                launchBodyOrbitPeriodSeconds: 0.0);
+            Assert.Equal(ReaimSegmentAssembler.DepartureAnchorMode.DeclineToFaithful, degenPeriod.Mode);
+        }
+
+        [Fact]
+        public void ReplaceHeliocentricLeg_ZeroParkDelta_LeavesParkVerbatim()
+        {
+            // The regression fence: parkDeltaLonDeg=0 (direct transfer / Increment-1-disabled) leaves the
+            // Sun park's LAN byte-identical to the recorded value (no rotation).
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                Seg("Sun", 600, 1500, 1000, sma: 1.4e10),
+                Seg("Sun", 1500, 3000, 2000, sma: 1.79e10),
+                Seg("Duna", 3000, 5000, 3500),
+            };
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);
+
+            // Default (no parkDeltaLonDeg arg) and explicit 0 are identical.
+            var segsDefault = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", 1500.0, 3000.0, double.NaN, double.NaN);
+            var segsZero = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", 1500.0, 3000.0, double.NaN, double.NaN, parkDeltaLonDeg: 0.0);
+
+            Assert.Equal(30.0, segsDefault[1].longitudeOfAscendingNode, 6); // park LAN unchanged
+            Assert.Equal(30.0, segsZero[1].longitudeOfAscendingNode, 6);
+            Assert.Equal("Sun", segsDefault[1].bodyName);
+            Assert.Equal(1.4e10, segsDefault[1].semiMajorAxis, 0);
+        }
+
+        // ---- Capture-leg re-time (F2: parking-departure transfer arrives earlier than recorded) ----
+
+        [Fact]
+        public void ReplaceHeliocentricLeg_CaptureRetime_ShiftsOnlyTargetCaptureLeg_Earlier()
+        {
+            // Kerbin park -> Sun transfer [600,2600] -> Duna capture [2600,5000]. The re-aimed transfer now
+            // arrives 500s EARLIER, so the recorded Duna capture leg must shift back by -500 (startUT/endUT/
+            // epoch together). The transfer + launch legs are untouched.
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                Seg("Sun", 600, 2600, 1000, sma: 1.0e9),
+                Seg("Duna", 2600, 5000, 3000),
+            };
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);
+
+            const double captureShift = -500.0;
+            // Render end trims to the new (earlier) arrival 2100 so the transfer ends where the capture begins.
+            var segs = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", recordedDepartureUT: 600.0, recordedArrivalUT: 2600.0,
+                transferRenderStartUT: 600.0, transferRenderEndUT: 2100.0, parkDeltaLonDeg: 0.0,
+                captureRetimeShiftSeconds: captureShift, targetBody: "Duna");
+
+            Assert.NotNull(segs);
+            Assert.Equal(3, segs.Count);
+            // Kerbin launch leg untouched.
+            Assert.Equal("Kerbin", segs[0].bodyName);
+            Assert.Equal(100.0, segs[0].startUT, 3);
+            Assert.Equal(600.0, segs[0].endUT, 3);
+            // Sun transfer ends at the new arrival (2100), NOT the recorded 2600.
+            Assert.Equal("Sun", segs[1].bodyName);
+            Assert.Equal(600.0, segs[1].startUT, 3);
+            Assert.Equal(2100.0, segs[1].endUT, 3);
+            // Duna capture leg shifted EARLIER by 500: [2600,5000]@epoch3000 -> [2100,4500]@epoch2500.
+            Assert.Equal("Duna", segs[2].bodyName);
+            Assert.Equal(2100.0, segs[2].startUT, 3); // == transfer endUT: the seam closes
+            Assert.Equal(4500.0, segs[2].endUT, 3);
+            Assert.Equal(2500.0, segs[2].epoch, 3);   // epoch moved with the UTs (phase preserved)
+            // The list stays sorted by startUT.
+            for (int i = 1; i < segs.Count; i++)
+                Assert.True(segs[i].startUT >= segs[i - 1].startUT, "result must stay sorted by startUT");
+        }
+
+        [Fact]
+        public void ReplaceHeliocentricLeg_CaptureRetime_ZeroOrNull_LeavesCaptureVerbatim()
+        {
+            // The regression fence (mirror of ZeroParkDelta_LeavesParkVerbatim): captureRetimeShiftSeconds=0
+            // OR targetBody=null leaves the Duna capture leg byte-identical (no shift) - the direct-transfer
+            // path that passes the defaults.
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                Seg("Sun", 600, 2600, 1000, sma: 1.0e9),
+                Seg("Duna", 2600, 5000, 3000),
+            };
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);
+
+            // Default (no capture args), explicit 0/null, and a non-zero shift with a NULL targetBody are all
+            // no-ops on the capture leg.
+            var segsDefault = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", 600.0, 2600.0, double.NaN, double.NaN);
+            var segsZero = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", 600.0, 2600.0, double.NaN, double.NaN, parkDeltaLonDeg: 0.0,
+                captureRetimeShiftSeconds: 0.0, targetBody: "Duna");
+            var segsNullBody = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", 600.0, 2600.0, double.NaN, double.NaN, parkDeltaLonDeg: 0.0,
+                captureRetimeShiftSeconds: -500.0, targetBody: null);
+
+            foreach (var segs in new[] { segsDefault, segsZero, segsNullBody })
+            {
+                Assert.NotNull(segs);
+                // Duna capture leg untouched: [2600,5000]@epoch3000.
+                var duna = segs[segs.Count - 1];
+                Assert.Equal("Duna", duna.bodyName);
+                Assert.Equal(2600.0, duna.startUT, 3);
+                Assert.Equal(5000.0, duna.endUT, 3);
+                Assert.Equal(3000.0, duna.epoch, 3);
+            }
+        }
+
+        [Fact]
+        public void ReplaceHeliocentricLeg_RenderEndPastArrival_FullSpanRender_NoGap()
+        {
+            // Review FIX #1 (the latent gap, exercised directly at the assembler boundary): if the caller ever
+            // passed a renderEnd PAST the recorded arrival while KEEPING the capture leg at its recorded UT
+            // (captureShift 0 - the coupled-clamp outcome when usedTof > recordedTof), the render clamp must
+            // degrade to the FULL recorded span and the capture must stay put, leaving NO gap between the
+            // transfer end and the capture start. (The resolver's FIX #1 clamp guarantees this pairing; this
+            // pins the assembler half: renderEnd > recordedArrival => full span, and captureShift 0 => capture
+            // unmoved.)
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                Seg("Sun", 600, 2600, 1000, sma: 1.0e9),
+                Seg("Duna", 2600, 5000, 3000),
+            };
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);
+
+            // renderEnd 3000 > recordedArrival 2600 (the would-be forward over-run), captureShift 0 (the coupled
+            // clamp's outcome): the transfer must render the FULL [600,2600] span and the capture stay at 2600.
+            var segs = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", recordedDepartureUT: 600.0, recordedArrivalUT: 2600.0,
+                transferRenderStartUT: 600.0, transferRenderEndUT: 3000.0, parkDeltaLonDeg: 0.0,
+                captureRetimeShiftSeconds: 0.0, targetBody: "Duna");
+
+            Assert.NotNull(segs);
+            Assert.Equal(3, segs.Count);
+            // Transfer rendered over the FULL recorded span (the invalid renderEnd was clamped away).
+            Assert.Equal("Sun", segs[1].bodyName);
+            Assert.Equal(600.0, segs[1].startUT, 3);
+            Assert.Equal(2600.0, segs[1].endUT, 3);   // full span, NOT the over-run 3000
+            // Capture leg stayed at its recorded UT (captureShift 0), so transferEnd == captureStart: NO gap.
+            Assert.Equal("Duna", segs[2].bodyName);
+            Assert.Equal(2600.0, segs[2].startUT, 3);
+            Assert.Equal(segs[1].endUT, segs[2].startUT, 3); // seam closed, no forward gap
+        }
+
+        // ---- ShiftCapturePartEvents (FIX #2: re-time in-capture PartEvents with the capture leg) ----
+
+        private static PartEvent Pe(double ut, uint pid = 7, PartEventType type = PartEventType.Decoupled)
+        {
+            return new PartEvent { ut = ut, partPersistentId = pid, eventType = type, partName = "p", value = 0f, moduleIndex = 0 };
+        }
+
+        [Fact]
+        public void ShiftCapturePartEvents_ShiftsOnlyInCaptureEvents_PreCaptureUntouched()
+        {
+            // Transfer window [600,2600]; the recorded arrival is 2600. Events before 2600 (launch / park /
+            // transfer phase) stay put; events at/after 2600 (the capture phase) shift EARLIER by -500 with the
+            // capture leg, so a capture-burn / decouple stays aligned with its (shifted) segment.
+            var events = new List<PartEvent>
+            {
+                Pe(300.0),   // park/launch phase - untouched
+                Pe(1500.0),  // transfer phase - untouched
+                Pe(2600.0),  // at the recorded arrival (boundary) - in-capture, shifts
+                Pe(3200.0),  // capture phase - shifts
+            };
+
+            var shifted = ReaimSegmentAssembler.ShiftCapturePartEvents(events, recordedArrivalUT: 2600.0, captureShiftSeconds: -500.0);
+
+            Assert.NotNull(shifted);
+            Assert.Equal(4, shifted.Count);
+            Assert.Equal(300.0, shifted[0].ut, 3);    // pre-capture untouched
+            Assert.Equal(1500.0, shifted[1].ut, 3);   // pre-capture untouched
+            Assert.Equal(2100.0, shifted[2].ut, 3);   // 2600 - 500 (boundary event shifts)
+            Assert.Equal(2700.0, shifted[3].ut, 3);   // 3200 - 500
+            // Input list is not mutated (a NEW list is returned).
+            Assert.Equal(2600.0, events[2].ut, 3);
+            Assert.Equal(3200.0, events[3].ut, 3);
+            // Non-ut fields preserved.
+            Assert.Equal((uint)7, shifted[3].partPersistentId);
+            Assert.Equal(PartEventType.Decoupled, shifted[3].eventType);
+        }
+
+        [Fact]
+        public void ShiftCapturePartEvents_ZeroShift_ReturnsContentCopy_Unmodified()
+        {
+            // captureShift 0 (direct path / no shift) is a no-op: every event keeps its recorded UT.
+            var events = new List<PartEvent> { Pe(300.0), Pe(2600.0), Pe(3200.0) };
+            var same = ReaimSegmentAssembler.ShiftCapturePartEvents(events, recordedArrivalUT: 2600.0, captureShiftSeconds: 0.0);
+            Assert.NotNull(same);
+            Assert.Equal(3, same.Count);
+            Assert.Equal(300.0, same[0].ut, 3);
+            Assert.Equal(2600.0, same[1].ut, 3);
+            Assert.Equal(3200.0, same[2].ut, 3);
+        }
+
+        [Fact]
+        public void ShiftCapturePartEvents_NullOrEmpty_HandledCleanly()
+        {
+            Assert.Null(ReaimSegmentAssembler.ShiftCapturePartEvents(null, 2600.0, -500.0));
+            var empty = ReaimSegmentAssembler.ShiftCapturePartEvents(new List<PartEvent>(), 2600.0, -500.0);
+            Assert.NotNull(empty);
+            Assert.Empty(empty);
+        }
     }
 }

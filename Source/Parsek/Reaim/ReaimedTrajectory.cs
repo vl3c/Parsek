@@ -18,18 +18,27 @@ namespace Parsek.Reaim
     // phase, and re-timing the surface ascent/landing tracks onto the synthesized spans is a deferred
     // refinement.
     //
-    // PartEvents ARE delegated, though (this was the review-M1 concern, now obsolete): the assembled
-    // segments are placed on the RECORDED-span clock - ReaimSegmentAssembler.ShiftInTime shifts the
-    // transfer epoch into recorded time so it lines up with the recorded escape/capture legs - so a
-    // recorded-UT engine/staging event resolves coherently against the right span again. And the ghost MUST
-    // see the real engine events: the engine-FX/audio orphan auto-start fires whenever a recording reports
-    // ZERO engine events (assuming a debris booster firing continuously), so empty PartEvents made it
-    // misfire on the MAIN ship and loop every engine through the coast (the "engine sounds on the transfer
-    // segment" playtest bug). FlagEvents stay empty (a surface-planted flag is not part of the transfer replay).
+    // PartEvents ARE delegated (this was the review-M1 concern, now obsolete): the assembled segments are
+    // placed on the RECORDED-span clock - ReaimSegmentAssembler.ShiftInTime shifts the transfer epoch into
+    // recorded time so it lines up with the recorded escape/capture legs - so a recorded-UT engine/staging
+    // event resolves coherently against the right span. And the ghost MUST see the real engine events: the
+    // engine-FX/audio orphan auto-start fires whenever a recording reports ZERO engine events (assuming a
+    // debris booster firing continuously), so empty PartEvents made it misfire on the MAIN ship and loop
+    // every engine through the coast (the "engine sounds on the transfer segment" playtest bug).
+    //
+    // ONE EXCEPTION - the parking-departure F2 capture re-time (review FIX #2): when the F2 path shifts the
+    // capture leg EARLIER (the Hohmann tof is shorter than the recorded tof), the resolver re-times the
+    // in-capture PartEvents (ut >= RecordedArrivalUT) by the SAME shift via ReaimSegmentAssembler
+    // .ShiftCapturePartEvents and passes them through the (inner, segments, retimedPartEvents) overload, so a
+    // capture-phase event still aligns with the shifted capture OrbitSegment. PRE-capture events
+    // (transfer / launch / park) are unchanged. Direct transfers + non-shifted windows pass null and keep the
+    // plain delegated list (byte-identical). FlagEvents stay empty (a surface-planted flag is not part of the
+    // transfer replay).
     internal sealed class ReaimedTrajectory : IPlaybackTrajectory
     {
         private readonly IPlaybackTrajectory inner;
         private readonly List<OrbitSegment> segments;
+        private readonly List<PartEvent> partEventsOverride; // re-timed in-capture events (FIX #2), or null => delegate
         private readonly double spanStartUT;
         private readonly double spanEndUT;
         private static readonly List<TrajectoryPoint> EmptyPoints = new List<TrajectoryPoint>();
@@ -39,12 +48,29 @@ namespace Parsek.Reaim
         /// <summary>
         /// Wraps <paramref name="inner"/> (the recorded trajectory) with the per-window
         /// <paramref name="assembledSegments"/> (absolute-UT, from ReaimSegmentAssembler). The span is
-        /// derived from the assembled list's first start / last end.
+        /// derived from the assembled list's first start / last end. PartEvents are delegated to
+        /// <paramref name="inner"/> at their recorded UTs.
         /// </summary>
         internal ReaimedTrajectory(IPlaybackTrajectory inner, List<OrbitSegment> assembledSegments)
+            : this(inner, assembledSegments, null)
+        {
+        }
+
+        /// <summary>
+        /// Re-aim adapter overload that ALSO substitutes the PartEvents list (review FIX #2). When the
+        /// parking-departure F2 path shifts the capture leg earlier (the Hohmann tof is shorter than the
+        /// recorded tof), the resolver re-times the in-capture PartEvents by the SAME shift and passes them
+        /// as <paramref name="retimedPartEvents"/> so a capture-phase event (capture-burn / staging /
+        /// decouple) stays aligned with the shifted capture OrbitSegment - the engine consumes PartEvents for
+        /// FX, so an unshifted event would fire off the shifted geometry. Null (the other constructor) keeps
+        /// the delegated recorded-UT events (direct path / no shift).
+        /// </summary>
+        internal ReaimedTrajectory(
+            IPlaybackTrajectory inner, List<OrbitSegment> assembledSegments, List<PartEvent> retimedPartEvents)
         {
             this.inner = inner;
             this.segments = assembledSegments ?? new List<OrbitSegment>();
+            this.partEventsOverride = retimedPartEvents;
             if (this.segments.Count > 0)
             {
                 spanStartUT = this.segments[0].startUT;
@@ -62,7 +88,8 @@ namespace Parsek.Reaim
         public bool HasOrbitSegments => segments.Count > 0;
         public List<TrajectoryPoint> Points => EmptyPoints;
         public List<TrackSection> TrackSections => EmptySections;
-        public List<PartEvent> PartEvents => inner != null ? inner.PartEvents : EmptyPartEventsFallback;
+        public List<PartEvent> PartEvents => partEventsOverride
+            ?? (inner != null ? inner.PartEvents : EmptyPartEventsFallback);
         public List<FlagEvent> FlagEvents => EmptyFlagEvents;
         private static readonly List<PartEvent> EmptyPartEventsFallback = new List<PartEvent>();
         public double StartUT => spanStartUT;
