@@ -629,17 +629,42 @@ namespace Parsek.Logistics
                 return;
             }
 
-            // M4a A3 (Horn A): a multi-stop DELIVERY route fires N windows under
-            // ONE cycleId, each at its OWN recorded dock phase via the loop clock.
-            // The dispatch half fires once (cycle open), each window's delivery
-            // (+pickup) fires at its own RecordedDockUT, and CompletedCycles bumps
-            // once per completed cycle (after the last window). A single-stop route
-            // keeps the byte-identical scalar path below.
+            // M4a A3 (Horn A, BLOCKER-1 fix): a multi-stop DELIVERY route fires N
+            // windows under ONE cycleId, each at its OWN recorded dock phase via the
+            // loop clock. The dispatch half fires once (cycle open), each window's
+            // delivery (+pickup) fires at its own RecordedDockUT, and CompletedCycles
+            // bumps once per completed cycle. A single-stop route keeps the
+            // byte-identical scalar path below.
+            //
+            // Catch-up loop (BLOCKER-1): ProcessMultiStopCrossings processes EXACTLY
+            // ONE dock-cycle per pass - the LOWEST owed cycle (cMin). Processing one
+            // cycle at a time, in ascending order, with Completed/Skipped bumped
+            // exactly once when cMin's last dock is reached, is what keeps the
+            // invariant Completed+Skipped == cMin (so cycleId = cycle-{C+S} is
+            // genuinely UNIQUE per cycle and the per-window replay guards never
+            // collide across cycles). When a tick straddles >1 owed cycle (a gap tick
+            // with a prior owed window, or a long warp), the pass returns
+            // stillDue=true and this loop re-invokes the helper - the next pass sees
+            // the bumped C+S baseline and a fresh cycleId for cMin+1. Bounded by the
+            // same MaxCatchUpCyclesPerTick cap as the legacy catch-up loop.
             if (route.Stops != null && route.Stops.Count > 1)
             {
-                ProcessMultiStopCrossings(
-                    route, currentUT, env, unit, loopUT, cycleIndex, isInInterCycleTail,
-                    ref dispatched, ref transitioned, ref skipped);
+                int passes = 0;
+                bool stillDue = true;
+                while (stillDue && passes < MaxCatchUpCyclesPerTick)
+                {
+                    ProcessMultiStopCrossings(
+                        route, currentUT, env, unit, loopUT, cycleIndex, isInInterCycleTail,
+                        ref dispatched, ref transitioned, ref skipped, out stillDue);
+                    passes++;
+                }
+                if (stillDue)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"LoopRoute(multi): route {ShortIdForLog(route)} hit max catch-up " +
+                        $"passes ({MaxCatchUpCyclesPerTick.ToString(IC)}) at ut={currentUT.ToString("R", IC)} " +
+                        "- deferring remaining owed cycles to next tick");
+                }
                 return;
             }
 
@@ -802,12 +827,34 @@ namespace Parsek.Logistics
         /// dispatch half is gated by <see cref="IsDispatchAlreadyInLedger"/> on the
         /// cycle's first-window stop index, so the second tick (window B's) does NOT
         /// re-dispatch.</para>
+        ///
+        /// <para><b>BLOCKER-1: one dock-cycle per pass.</b> This helper processes
+        /// EXACTLY ONE dock-cycle per invocation - the LOWEST owed cycle
+        /// <c>cMin</c> across the stops. When a tick straddles more than one owed
+        /// cycle (a gap tick with a prior owed window, or a long warp jump), only
+        /// <c>cMin</c>'s windows fire this pass; the dispatch/funds charge fires
+        /// once for <c>cMin</c>, and Completed/Skipped is bumped exactly once when
+        /// <c>cMin</c>'s last dock is reached. That bump advances the
+        /// <c>cycle-{C+S}</c> baseline so the NEXT pass computes a FRESH cycleId for
+        /// <c>cMin+1</c>. The caller (<see cref="ProcessLoopRoute"/>) re-invokes
+        /// while <paramref name="stillDue"/> is true so multiple owed cycles in one
+        /// tick are processed in ascending order. The invariant <c>C+S == cMin</c>
+        /// holds at the start of every pass, which is what makes the per-window
+        /// replay guard keys (<c>RouteId, cycleId, stopIndex</c>) genuinely unique
+        /// per cycle - closing the gap-tick guard collision that dropped a whole
+        /// cycle's dispatch + a delivery under a frozen single cycleId.</para>
         /// </summary>
+        /// <param name="stillDue">On return, true when the route has at least one
+        /// owed window of a LATER cycle than the one just processed (so the caller's
+        /// catch-up loop should re-invoke). False when no window is owed (terminal:
+        /// either nothing was due this pass, or the highest passed dock cycle was
+        /// just processed).</param>
         private static void ProcessMultiStopCrossings(
             Route route, double currentUT, IRouteRuntimeEnvironment env,
             GhostPlaybackLogic.LoopUnit unit, double loopUT, long cycleIndex, bool isInInterCycleTail,
-            ref int dispatched, ref int transitioned, ref int skipped)
+            ref int dispatched, ref int transitioned, ref int skipped, out bool stillDue)
         {
+            stillDue = false;
             int stopCount = route.Stops.Count;
 
             // The dispatch/debit rows of a multi-stop cycle carry a CYCLE-STABLE
@@ -819,16 +866,6 @@ namespace Parsek.Logistics
             // guarded by IsDispatchAlreadyInLedger on (cycleId, this carrier index).
             const int dispatchCarrierStopIndex = 0;
 
-            // Resolve, in DockUT order (RouteBuilder built Stops ascending by
-            // DockUT, A1/A2), which windows are DUE this tick and the cycle each
-            // belongs to. A window is due when its dock phase has been reached for a
-            // cycle index strictly greater than its own LastFiredCycleIndex.
-            //
-            // The "cycle being processed" is the MAX dockCycleIndex among due
-            // windows (the cycle the ghost is currently in / has passed); all due
-            // windows of that cycle share one cycleId.
-            long cycleK = long.MinValue;
-            int dueCount = 0;
             // max dock UT across the route's stops (the cycle's LAST dock).
             double maxDockUT = double.NegativeInfinity;
             for (int i = 0; i < stopCount; i++)
@@ -837,10 +874,17 @@ namespace Parsek.Logistics
                 if (s.RecordedDockUT > maxDockUT) maxDockUT = s.RecordedDockUT;
             }
 
-            // Per-stop due decision (read-only first pass; the actual fire + snap
-            // happens after eligibility so a blocked cycle fires nothing).
-            var dueStopIndex = new List<int>(stopCount);
-            var dueStopDockCycle = new List<long>(stopCount);
+            // BLOCKER-1: scan every stop's owed dock-cycle and find the LOWEST owed
+            // cycle cMin. A window is owed when its dock phase has been reached for a
+            // cycle index strictly greater than its own LastFiredCycleIndex
+            // (RouteLoopClock.IsDockCrossing). We process ONLY cMin this pass: each
+            // stop is "due this pass" iff its owed dock-cycle equals cMin AND its dock
+            // phase is reached for cMin (sDockCycle == cMin). A later-cycle owed
+            // window (sDockCycle > cMin, e.g. an earlier stop already in cMin+1)
+            // sets stillDue so the caller re-invokes after the C+S bump advances the
+            // cycleId. Stops are walked in DockUT-ascending order (RouteBuilder A1/A2).
+            long cMin = long.MaxValue;
+            bool anyOwed = false;
             for (int i = 0; i < stopCount; i++)
             {
                 RouteStop s = route.Stops[i];
@@ -849,16 +893,12 @@ namespace Parsek.Logistics
                     s.LastFiredCycleIndex, out long sDockCycle);
                 if (!windowCrossing)
                     continue;
-                dueStopIndex.Add(i);
-                dueStopDockCycle.Add(sDockCycle);
-                dueCount++;
-                if (sDockCycle > cycleK)
-                {
-                    cycleK = sDockCycle;
-                }
+                anyOwed = true;
+                if (sDockCycle < cMin)
+                    cMin = sDockCycle;
             }
 
-            if (dueCount == 0)
+            if (!anyOwed)
             {
                 skipped++;
                 ParsekLog.VerboseRateLimited(Tag, "loop-noncross-multi-" + route.Id,
@@ -871,27 +911,64 @@ namespace Parsek.Logistics
                 return;
             }
 
-            // The cycle's id (stable across all its windows: neither half bumps
-            // Completed/Skipped until the cycle completes / is skipped below).
+            // Collect the windows belonging to cMin (the only cycle fired this pass).
+            // A window belongs to cMin when its dock phase has been reached for
+            // EXACTLY cMin (its own owed dock-cycle == cMin). dueCount > 0 always
+            // here (cMin is the min of a non-empty owed set), and every cMin window
+            // has sDockCycle == cMin so all share ONE cycleId.
+            var dueStopIndex = new List<int>(stopCount);
+            int laterOwed = 0;
+            for (int i = 0; i < stopCount; i++)
+            {
+                RouteStop s = route.Stops[i];
+                bool windowCrossing = RouteLoopClock.IsDockCrossing(
+                    unit, loopUT, cycleIndex, s.RecordedDockUT,
+                    s.LastFiredCycleIndex, out long sDockCycle);
+                if (!windowCrossing)
+                    continue;
+                if (sDockCycle == cMin)
+                    dueStopIndex.Add(i);
+                else
+                    laterOwed++; // a window of cMin+1.. (processed on a later pass)
+            }
+            int dueCount = dueStopIndex.Count;
+
+            // The cycle's id. INVARIANT (BLOCKER-1): we process cycles in ascending
+            // order and bump Completed/Skipped exactly once per cycle as each
+            // completes / is skipped, so at the start of this pass
+            // CompletedCycles + SkippedCycles == cMin. The cycleId is therefore
+            // genuinely unique per cycle and the per-window guard keys never collide
+            // across cycles.
             string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
 
+            // True when this tick's loop phase has reached/passed the cycle's LAST
+            // dock for CMIN: the cycle is complete this pass. Because we fire only
+            // cMin per pass, a tick deep in a later cycle still completes cMin here
+            // (its last dock is long past), then the caller re-invokes for cMin+1.
+            // A tick that lands in cMin's own (dockA, dockB) gap leaves this false
+            // and strands cMin's window B for the next TICK (stillDue stays false -
+            // there is no LATER owed cycle, only cMin's own un-reached window).
+            bool cycleLastDockReached = loopUT >= maxDockUT
+                ? true
+                // The last dock is reached for cMin when the highest cMin-window dock
+                // phase has been crossed. For the in-gap case all cMin windows whose
+                // dock is reached are due; cMin's last dock is reached iff the
+                // highest-DockUT stop's owed dock-cycle is also cMin (it is due).
+                : IsMaxDockStopDue(route, dueStopIndex, maxDockUT);
+
             ParsekLog.Verbose(Tag,
-                $"LoopRoute(multi): route {ShortIdForLog(route)} DUE windows={dueCount.ToString(IC)} " +
-                $"cycle={cycleId} cycleK={cycleK.ToString(IC)} dispatchCarrierStop={dispatchCarrierStopIndex.ToString(IC)} " +
+                $"LoopRoute(multi): route {ShortIdForLog(route)} cMin={cMin.ToString(IC)} " +
+                $"DUE windows={dueCount.ToString(IC)} laterOwed={laterOwed.ToString(IC)} " +
+                $"cycle={cycleId} dispatchCarrierStop={dispatchCarrierStopIndex.ToString(IC)} " +
                 $"loopUT={loopUT.ToString("R", IC)} maxDockUT={maxDockUT.ToString("R", IC)} " +
+                $"lastDockReached={(cycleLastDockReached ? "1" : "0")} " +
                 $"lastObserved={route.LastObservedLoopCycleIndex.ToString(IC)} at ut={currentUT.ToString("R", IC)}");
 
-            // True when this tick's loop phase has reached/passed the cycle's LAST
-            // dock: the cycle is complete this tick (defer the route-level snap +
-            // the CompletedCycles bump until here so a tick between dock A and dock B
-            // does not consume the cycle and strand window B).
-            bool cycleLastDockReached = loopUT >= maxDockUT;
-
-            // Has THIS cycle's dispatch already fired (a prior tick of the same
-            // cycle, or a save/reload)? The dispatch/debit rows carry the
-            // cycle-STABLE carrier stop index (stop 0), so this is true on the
-            // SECOND tick of a multi-tick cycle (window B) AND on a partial-cycle
-            // resume - the carrier index never drifts to a later due window.
+            // Has CMIN's dispatch already fired (a prior tick of the same cycle, or a
+            // save/reload)? The dispatch/debit rows carry the cycle-STABLE carrier
+            // stop index (stop 0), so this is true on the SECOND tick of a multi-tick
+            // cycle (window B) AND on a partial-cycle resume - the carrier index never
+            // drifts to a later due window.
             bool dispatchAlready = IsDispatchAlreadyInLedger(route.Id, cycleId, dispatchCarrierStopIndex);
 
             // Eligibility gates the cycle at DISPATCH only (OQ4: all-or-nothing is
@@ -907,27 +984,38 @@ namespace Parsek.Logistics
 
                 if (!elig.Eligible)
                 {
-                    // Blocked cycle (NOT yet committed): emit NOTHING for any window.
-                    // Flush any prior dispatched cycle's owed recovery credit (the
-                    // blocked crossing IS the next crossing for it). Bump SkippedCycles
-                    // ONCE, snap EVERY stop + the route marker forward to cycleK so
-                    // the blocked cycle does not re-fire, and record the hold.
+                    // Blocked cycle cMin (NOT yet committed): emit NOTHING for any
+                    // window. Flush any prior dispatched cycle's owed recovery credit
+                    // (the blocked crossing IS the next crossing for it). Bump
+                    // SkippedCycles ONCE (preserving C+S == cMin -> C+S becomes cMin+1
+                    // for the next pass), snap every stop whose owed dock-cycle is cMin
+                    // forward to cMin so the blocked cycle does not re-fire, and record
+                    // the hold. A blocked cycle ALWAYS completes the cMin slot (it is
+                    // counted), so stillDue follows from a LATER owed window only.
                     EmitPendingRecoveryCredit(route, currentUT, env);
                     route.SkippedCycles += 1;
                     for (int j = 0; j < stopCount; j++)
                     {
-                        if (route.Stops[j].LastFiredCycleIndex < cycleK)
-                            route.Stops[j].LastFiredCycleIndex = cycleK;
+                        if (route.Stops[j].LastFiredCycleIndex < cMin
+                            && RouteLoopClock.IsDockCrossing(
+                                unit, loopUT, cycleIndex, route.Stops[j].RecordedDockUT,
+                                route.Stops[j].LastFiredCycleIndex, out long jDockCycle)
+                            && jDockCycle == cMin)
+                        {
+                            route.Stops[j].LastFiredCycleIndex = cMin;
+                        }
                     }
-                    route.LastObservedLoopCycleIndex = cycleK;
+                    if (route.LastObservedLoopCycleIndex < cMin)
+                        route.LastObservedLoopCycleIndex = cMin;
                     route.RecordHold(elig.Kind, elig.Reason, elig.Shortfall, currentUT);
                     skipped++;
+                    stillDue = laterOwed > 0;
                     ParsekLog.Info(Tag,
-                        $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} " +
+                        $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
                         $"BLOCKED kind={elig.Kind} reason={elig.Reason ?? "<none>"} " +
                         $"shortfall={elig.Shortfall.ToString("R", IC)} — emitted nothing for {dueCount.ToString(IC)} " +
-                        $"due window(s), snapped stops+lastObserved={cycleK.ToString(IC)} " +
-                        $"skippedCycles={route.SkippedCycles.ToString(IC)}");
+                        $"cMin window(s), snapped due stops+lastObserved={cMin.ToString(IC)} " +
+                        $"skippedCycles={route.SkippedCycles.ToString(IC)} stillDue={(stillDue ? "1" : "0")}");
                     return;
                 }
 
@@ -953,8 +1041,9 @@ namespace Parsek.Logistics
                 }
                 dispatched++;
                 ParsekLog.Info(Tag,
-                    $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} dispatch fired " +
-                    $"(carrierStopIndex={dispatchCarrierStopIndex.ToString(IC)}) at ut={currentUT.ToString("R", IC)}");
+                    $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
+                    $"dispatch fired (carrierStopIndex={dispatchCarrierStopIndex.ToString(IC)}) " +
+                    $"at ut={currentUT.ToString("R", IC)}");
             }
             else
             {
@@ -965,20 +1054,19 @@ namespace Parsek.Logistics
                 route.ClearHold("crossing-eligible");
                 EmitPendingRecoveryCredit(route, currentUT, env);
                 ParsekLog.Verbose(Tag,
-                    $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} dispatch " +
-                    $"already in ledger (committed) - firing only the due window(s), no re-gate");
+                    $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
+                    $"dispatch already in ledger (committed) - firing only the due window(s), no re-gate");
             }
 
-            // Fire each DUE window's pickup (+ delivery), in DockUT order. Each
-            // window carries its OWN stop index (drives ResolveCycleStop +
+            // Fire each DUE window of cMin's pickup (+ delivery), in DockUT order.
+            // Each window carries its OWN stop index (drives ResolveCycleStop +
             // RouteHas*Manifest via PendingStopIndex, the Sequence stride, and the
             // per-window delivery ELS guard). No window bumps CompletedCycles — the
-            // once-per-cycle bump fires after the loop when the last dock is reached.
+            // once-per-cycle bump fires below when the last dock is reached.
             int firedWindows = 0;
             for (int d = 0; d < dueStopIndex.Count; d++)
             {
                 int stopIdx = dueStopIndex[d];
-                long sDockCycle = dueStopDockCycle[d];
 
                 // Drive PendingStopIndex so ResolveCycleStop / RouteHasDeliveryManifest /
                 // RouteHasPickupManifest resolve THIS window's stop (C5 - the helpers
@@ -988,9 +1076,10 @@ namespace Parsek.Logistics
                 EmitMultiStopWindow(route, currentUT, env, cycleId, stopIdx,
                     out bool windowEmitted);
 
-                // Snap THIS stop's fire index forward (fire-once across reload).
-                if (route.Stops[stopIdx].LastFiredCycleIndex < sDockCycle)
-                    route.Stops[stopIdx].LastFiredCycleIndex = sDockCycle;
+                // Snap THIS stop's fire index forward to cMin (fire-once across
+                // reload). Every due window of this pass belongs to cMin.
+                if (route.Stops[stopIdx].LastFiredCycleIndex < cMin)
+                    route.Stops[stopIdx].LastFiredCycleIndex = cMin;
 
                 if (windowEmitted)
                     firedWindows++;
@@ -1001,29 +1090,70 @@ namespace Parsek.Logistics
             // a later non-loop read never sees a stale value.
             route.PendingStopIndex = -1;
 
-            // Deferred route-level cycle-completion snap (OQ3): only advance the
-            // route marker + count the cycle ONCE the LAST dock has been reached.
-            // Until then later ticks keep firing the remaining windows of this cycle.
-            // The CompletedCycles bump lives HERE (not in any per-window applier) so
-            // it fires exactly once per multi-stop cycle regardless of which half(s)
-            // the windows emitted.
+            // Deferred route-level cycle-completion snap (OQ3) + the once-per-cycle
+            // Completed bump (BLOCKER-1): advance the route marker + COUNT cMin ONLY
+            // when cMin's last dock has been reached this pass. The CompletedCycles
+            // bump lives HERE (not in any per-window applier) so it fires exactly once
+            // per multi-stop cycle regardless of which half(s) the windows emitted,
+            // and it advances C+S to cMin+1 so the next catch-up pass computes a fresh
+            // cycleId.
             if (cycleLastDockReached)
             {
                 route.CompletedCycles += 1;
-                route.LastObservedLoopCycleIndex = cycleK;
+                if (route.LastObservedLoopCycleIndex < cMin)
+                    route.LastObservedLoopCycleIndex = cMin;
+                // A LATER owed cycle remains -> ask the caller to re-invoke. (cMin's
+                // own un-fired windows are all reached this pass, so the only
+                // remaining work is cMin+1's windows.)
+                stillDue = laterOwed > 0;
                 ParsekLog.Info(Tag,
-                    $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} " +
+                    $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
                     $"last dock reached — firedWindows={firedWindows.ToString(IC)} " +
-                    $"snapped lastObserved={cycleK.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)}");
+                    $"snapped lastObserved={cMin.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)} " +
+                    $"stillDue={(stillDue ? "1" : "0")}");
             }
             else
             {
+                // cMin's last dock NOT yet reached this tick (the ghost is between
+                // cMin's dock A and dock B): the cycle is NOT counted, the route
+                // marker is held, and there is no LATER owed cycle (a window of cMin+1
+                // cannot be due before cMin's last dock). stillDue stays false: cMin's
+                // remaining windows fire on a future TICK, not a same-tick re-pass.
+                stillDue = false;
                 ParsekLog.Info(Tag,
-                    $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} " +
+                    $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
                     $"partial — firedWindows={firedWindows.ToString(IC)} (more windows pending this cycle); " +
                     $"lastObserved held at {route.LastObservedLoopCycleIndex.ToString(IC)} " +
                     $"completedCycles={route.CompletedCycles.ToString(IC)}");
             }
+        }
+
+        /// <summary>
+        /// (M4a A3 / BLOCKER-1) True when the stop carrying the route's LAST dock
+        /// (max <c>RecordedDockUT</c>) is among the windows due THIS pass
+        /// (<paramref name="dueStopIndex"/>). Used only on the in-gap branch
+        /// (<c>loopUT &lt; maxDockUT</c> is false on the fast path): a cycle's last
+        /// dock is reached this pass iff the max-DockUT stop's owed dock-cycle is the
+        /// cycle being processed (so it is due). When the last-dock stop is NOT due
+        /// this pass (a true mid-cycle gap tick), the cycle is left open and its
+        /// remaining windows fire on a future tick. Pure.
+        /// </summary>
+        private static bool IsMaxDockStopDue(
+            Route route, List<int> dueStopIndex, double maxDockUT)
+        {
+            // Find the stop index that carries the max dock UT.
+            int maxStopIdx = -1;
+            for (int i = 0; i < route.Stops.Count; i++)
+            {
+                if (route.Stops[i].RecordedDockUT == maxDockUT)
+                {
+                    maxStopIdx = i;
+                    break;
+                }
+            }
+            if (maxStopIdx < 0)
+                return false;
+            return dueStopIndex.Contains(maxStopIdx);
         }
 
         /// <summary>
@@ -1081,7 +1211,6 @@ namespace Parsek.Logistics
         /// recorded dock PHASE (one delivery == one dock crossing). Built for the
         /// Logistics window's "Next delivery" countdown; the window THROTTLES the
         /// call (the <see cref="ResolveLoopUnit"/> build is not free) and never sees
-        /// a <see cref="GhostPlaybackLogic.LoopUnit"/> or the raw committed lists, so
         /// a <see cref="GhostPlaybackLogic.LoopUnit"/> or the raw committed lists, so
         /// the ERS/ELS grep gate stays green with no allowlist change (the only raw
         /// read stays behind <see cref="ResolveLoopUnit"/> in this allowlisted file).
@@ -1321,10 +1450,10 @@ namespace Parsek.Logistics
             // the dispatch row up front and emit NOTHING on a replay - the caller
             // still snaps LastObservedLoopCycleIndex forward.
             // M4a A3: EmitLoopCycle is the SINGLE-STOP full-cycle emitter (the
-            // multi-stop cycle runs through EmitMultiStopCycle). Its dispatch row
-            // carries the v0 sentinel stop index -1, so the re-keyed dispatch guard
-            // is checked against -1 (byte-identical to pre-A3: one dispatch per
-            // cycle, stopIndex -1).
+            // multi-stop cycle runs through ProcessMultiStopCrossings /
+            // EmitMultiStopWindow). Its dispatch row carries the v0 sentinel stop
+            // index -1, so the re-keyed dispatch guard is checked against -1
+            // (byte-identical to pre-A3: one dispatch per cycle, stopIndex -1).
             if (IsDispatchAlreadyInLedger(route.Id, cycleId, -1))
             {
                 // Mirror ApplyDelivery's replay branch: bump CompletedCycles so the
@@ -1481,6 +1610,30 @@ namespace Parsek.Logistics
                 return;
             }
 
+            // The stop index this pickup window keys on (same value the row carries
+            // and ResolveCycleStop resolved): PendingStopIndex, falling back to 0.
+            int pickupStopIndex = route.PendingStopIndex >= 0 ? route.PendingStopIndex : 0;
+
+            // C-2 (defense-in-depth): per-window pickup replay backstop. The pickup
+            // half PHYSICALLY debits the source, so a cursor/ledger desync of the
+            // BLOCKER-1 class (a window re-presented under a frozen cycleId) could
+            // otherwise double-debit a refinery/depot. The dispatch ELS guard +
+            // per-stop LastFiredCycleIndex already prevent normal re-presentation;
+            // this row-keyed guard makes a double-debit IMPOSSIBLE even if those are
+            // out-flanked. Symmetric with the delivery guard (STEP 1 of
+            // ApplyDelivery): if THIS (routeId, cycleId, stopIndex) pickup row is
+            // already in the ELS, emit NOTHING (no second physical debit, no second
+            // row). Single-stop / legacy never double-fires (the dispatch backstop),
+            // so this never trips for it - byte-identical there.
+            if (IsPickupAlreadyInLedger(route.Id, cycleId, pickupStopIndex))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PickupHalf: route {ShortIdForLog(route)} cycle={cycleId} " +
+                    $"stop={pickupStopIndex.ToString(IC)} replay detected — already in ledger, " +
+                    "skipping physical debit + row (C-2 backstop)");
+                return;
+            }
+
             Dictionary<string, double> pickupManifest = stop.PickupManifest;
             OriginDebitOutcome pickup = ApplyPickupDebit(stop.Endpoint, pickupManifest, env, route.Id);
 
@@ -1519,8 +1672,8 @@ namespace Parsek.Logistics
             // (actual manifest, requested-on-shortfall, endpoint pid) but ZERO funds
             // and Sequence 2 (after dispatch Seq0 + debit Seq1). Carries BOTH the
             // resource AND the inventory picked-up manifests (D7). Zero actuals in
-            // either dimension serialize as no manifest.
-            int pickupStopIndex = route.PendingStopIndex >= 0 ? route.PendingStopIndex : 0;
+            // either dimension serialize as no manifest. pickupStopIndex was resolved
+            // at the top of this method (the same value the C-2 backstop keyed on).
             var pickedUpAction = new GameAction
             {
                 Type = GameActionType.RouteCargoPickedUp,
@@ -2808,12 +2961,18 @@ namespace Parsek.Logistics
             // so a multi-stop cycle's N delivery rows have a TOTAL (UT, Sequence)
             // order. A single-stop route has ctx.StopIndex 0 -> Sequence 3.
             //
-            // NOTE the pre-A3 delivery Sequence was 0, BUT the ledger walkers do
-            // not assume a contiguous 0..N (RecalculationEngine.SortActions =
-            // OrderBy UT, ThenBy IsEarning, ThenBy Sequence; the dedup equality
-            // keys on ActionId / type-specific fields, NOT Sequence). The single
-            // RouteCargoDelivered per cycle at its own UT is unaffected by the
-            // 0 -> 3 shift; what matters is total ordering, which holds.
+            // NOTE (C-1): single-stop is BEHAVIOUR-identical, not byte-identical.
+            // The single-stop RouteCargoDelivered.Sequence changes 0 -> 3 (the +3
+            // delivery offset of the stride-0 block). This is verified
+            // behaviour-preserving (recalc-walk-order-equivalent): route rows are
+            // non-earning, FundsModule ignores RouteCargoDelivered entirely, and the
+            // ledger walkers do not assume a contiguous 0..N
+            // (RecalculationEngine.SortActions = OrderBy UT, ThenBy IsEarning, ThenBy
+            // Sequence; the dedup equality keys on ActionId / type-specific fields,
+            // NOT Sequence). With one RouteCargoDelivered per cycle at its own UT and
+            // the dispatch-before-delivery guard still holding (dispatch seq 0/1 <
+            // delivery seq 3), the 0 -> 3 shift does not change any walk outcome;
+            // what matters is total ordering, which holds.
             int deliverySeqBase = ctx.StopIndex >= 0 ? ctx.StopIndex * SeqStride : 0;
             var action = new GameAction
             {
@@ -2984,6 +3143,58 @@ namespace Parsek.Logistics
                 // symmetric with the delivery guard and reads the same already-
                 // serialized field; since exactly one dispatch row exists per
                 // cycle, the stopIndex match is effectively per-cycle.
+                if (a.RouteStopIndex != stopIndex) continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// (C-2, defense-in-depth) Per-window ELS idempotency check for the PICKUP
+        /// half. Returns <c>true</c> if any non-tombstoned
+        /// <see cref="GameActionType.RouteCargoPickedUp"/> row already exists for the
+        /// given <c>(routeId, cycleId, stopIndex)</c> triple.
+        ///
+        /// <para><b>Why a pickup-specific backstop.</b> The pickup half
+        /// (<see cref="EmitPickupHalf"/> -&gt; <see cref="ApplyPickupDebit"/>)
+        /// PHYSICALLY debits the source vessel, but unlike the dispatch and delivery
+        /// halves it had NO ledger-level idempotency guard of its own - it relied
+        /// entirely on the per-stop <see cref="RouteStop.LastFiredCycleIndex"/>
+        /// cursor + the dispatch-keyed backstop to never re-present. The BLOCKER-1
+        /// class of cursor/ledger desync (a frozen cycleId firing a window twice
+        /// under two different live cursors) showed that a cursor-only guard can be
+        /// out-flanked. Keying this backstop on the per-window pickup ROW (the same
+        /// (RouteId, cycleId, stopIndex) key the delivery guard uses) means even a
+        /// future cursor desync can never DOUBLE-DEBIT a physical source: a
+        /// second presentation of the same window finds its own
+        /// <c>RouteCargoPickedUp</c> row and skips the debit. Structural mirror of
+        /// <see cref="IsDeliveryAlreadyInLedger"/>.</para>
+        /// </summary>
+        internal static bool IsPickupAlreadyInLedger(string routeId, string cycleId, int stopIndex)
+        {
+            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
+                return false;
+
+            IReadOnlyList<GameAction> els;
+            try
+            {
+                els = EffectiveState.ComputeELS();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"IsPickupAlreadyInLedger: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as not-in-ledger");
+                return false;
+            }
+
+            if (els == null) return false;
+            for (int i = 0; i < els.Count; i++)
+            {
+                GameAction a = els[i];
+                if (a == null) continue;
+                if (a.Type != GameActionType.RouteCargoPickedUp) continue;
+                if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
+                if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
                 if (a.RouteStopIndex != stopIndex) continue;
                 return true;
             }

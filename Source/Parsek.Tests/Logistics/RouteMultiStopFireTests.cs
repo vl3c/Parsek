@@ -528,5 +528,228 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(-1, route.Stops[0].LastFiredCycleIndex);
             Assert.Equal(-1, route.Stops[1].LastFiredCycleIndex);
         }
+
+        // ==================================================================
+        // (BLOCKER-1) Cross-cycle gap-tick desync — the headline regression
+        // ==================================================================
+
+        // THE BLOCKER-1 regression (critical). A tick lands in the (dockA, dockB)
+        // gap of cycle 1 while cycle 0's dockB is STILL OWED (cycle 0 fired only its
+        // window 0). On the pre-fix code the per-stop due pass derived a DIFFERENT
+        // sDockCycle per stop (stop 0 -> 1, stop 1 -> 0) but fired BOTH under the
+        // SAME frozen cycleId = cycle-{C+S}; the deferred bump never fired (loopUT
+        // in the gap), so the cycleId never advanced. A later tick past dock B then
+        // found the gap-tick's row under the frozen cycleId and SILENTLY DROPPED
+        // cycle 1's dispatch + one delivery, and CompletedCycles under-counted
+        // (observed pre-fix: del0=1 del1=1 disp=1 completed=1). The fix processes
+        // ONE dock-cycle per pass (lowest owed cMin first) with the catch-up loop
+        // re-invoking after each C+S bump, so each cycle gets a UNIQUE cycleId.
+        //
+        // TRUTH after the three ticks: 2 complete cycles -> dock A fires twice, dock
+        // B fires twice, 2 dispatches under cycle-0 / cycle-1, CompletedCycles == 2.
+        [Fact]
+        public void Blocker1_GapTickWithPriorOwedWindow_NoDroppedCycleOrDelivery()
+        {
+            var route = Build2StopRoute();
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit()); // span [1000,1400], docks 1150 / 1300
+            InstallRealPathRowEmitter();
+            var env = new EligibleEnv();
+
+            // Tick 1: dock A of cycle 0 (loopUT 1150). Only window 0 fires; cycle 0's
+            // dock B (1300) is NOT reached, so it stays OWED. Cycle NOT complete.
+            RouteOrchestrator.Tick(1150.0, env);
+            Assert.Equal(0, route.CompletedCycles);
+
+            // Tick 2: the (dockA, dockB) GAP of cycle 1. ut = 1600 ->
+            // loopUT = 1000 + (600 - 400) = 1200, between dock A(1150) and dock B(1300).
+            // Cycle 0's dock B (cMin=0) is owed AND its dock phase IS reached this
+            // tick (1200 >= ... no: 1200 < 1300). So cycle 0's dock B is NOT yet
+            // reachable at loopUT 1200 either. cMin=0 dock B stays owed; cycle 1's
+            // dock A (cMin would be 1 for stop 0) is reached. The fix must NOT fire
+            // cycle 1's dock A under cycle 0's id, and must NOT lose anything.
+            RouteOrchestrator.Tick(1600.0, env);
+
+            // Tick 3: past dock B of cycle 1. ut = 1750 ->
+            // loopUT = 1000 + (750 - 400) = 1350 (>= dock B 1300). Both remaining
+            // owed windows (cycle 0 dock B, cycle 1 dock B) become reachable; the
+            // catch-up loop processes cycle 0 then cycle 1 in ascending order.
+            RouteOrchestrator.Tick(1750.0, env);
+
+            var delivered = Delivered();
+            var dispatched = Dispatched();
+
+            // No dropped cycle, no dropped delivery, no under-count.
+            Assert.Equal(2, delivered.Count(d => d.RouteStopIndex == 0)); // dock A x2
+            Assert.Equal(2, delivered.Count(d => d.RouteStopIndex == 1)); // dock B x2
+            Assert.Equal(2, dispatched.Count);                            // one per cycle
+            Assert.Equal(2, route.CompletedCycles);
+
+            // Each cycle fires EXACTLY ONCE per dock, under a UNIQUE cycleId.
+            Assert.Contains(dispatched, d => d.RouteCycleId == "cycle-0");
+            Assert.Contains(dispatched, d => d.RouteCycleId == "cycle-1");
+            // cycle 0's two deliveries are under cycle-0, cycle 1's under cycle-1.
+            Assert.Single(delivered.Where(d => d.RouteStopIndex == 0 && d.RouteCycleId == "cycle-0"));
+            Assert.Single(delivered.Where(d => d.RouteStopIndex == 1 && d.RouteCycleId == "cycle-0"));
+            Assert.Single(delivered.Where(d => d.RouteStopIndex == 0 && d.RouteCycleId == "cycle-1"));
+            Assert.Single(delivered.Where(d => d.RouteStopIndex == 1 && d.RouteCycleId == "cycle-1"));
+        }
+
+        // Variant: a SINGLE gap tick where TWO cycles' windows are simultaneously
+        // owed at DISTINCT dock-cycles - the catch-up loop must process cMin=0
+        // (cycle 0's owed dock B) then cMin=1 (cycle 1's dock A) within ONE Tick,
+        // each under its own UNIQUE cycleId. This is the precise within-tick
+        // multi-owed-cycle path the catch-up loop exists for: at loopUT in cycle 1's
+        // (dockA, dockB) gap, stop 1's recorded dock phase resolves to cycle 0 (still
+        // owed, cursor -1) while stop 0's resolves to cycle 1 (owed, cursor 0).
+        [Fact]
+        public void Blocker1_SingleGapTickTwoOwedCycles_CatchUpProcessesBoth()
+        {
+            // Persisted post-cycle-0-window-0 state: stop 0 fired cycle 0 (dock A),
+            // stop 1 never fired, route marker still -1 (cycle 0 not complete). The
+            // dispatch + window-0 delivery rows for cycle-0 are in the ledger.
+            var route = Build2StopRoute(stop0LastFired: 0, lastObservedLoopCycleIndex: -1);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallRealPathRowEmitter();
+            var env = new EligibleEnv();
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteDispatched, UT = 1150.0, RouteId = route.Id,
+                RouteCycleId = "cycle-0", RouteStopIndex = 0, Sequence = 0,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteCargoDelivered, UT = 1150.0, RouteId = route.Id,
+                RouteCycleId = "cycle-0", RouteStopIndex = 0,
+                Sequence = 0 * RouteOrchestrator.SeqStride + 3,
+            });
+
+            // One gap tick in cycle 1: ut = 1600 -> loopUT = 1000 + (600 - 400) = 1200,
+            // between dock A(1150) and dock B(1300). stop 1's dock phase (1300) is NOT
+            // yet reached at 1200, so it resolves to cycle 0 (cMin=0, still owed);
+            // stop 0's dock A IS reached, resolving to cycle 1 (owed, cursor 0).
+            RouteOrchestrator.Tick(1600.0, env);
+
+            var delivered = Delivered();
+            // cMin=0 pass: cycle 0's owed dock B fires + completes cycle 0.
+            Assert.Single(delivered.Where(d => d.RouteStopIndex == 1 && d.RouteCycleId == "cycle-0"));
+            // cMin=1 pass: cycle 1's dock A fires under a FRESH cycleId (NOT cycle-0).
+            Assert.Single(delivered.Where(d => d.RouteStopIndex == 0 && d.RouteCycleId == "cycle-1"));
+            // Exactly one NEW dispatch (cycle 1, under cycle-1); cycle 0's was pre-seeded.
+            Assert.Equal(2, Dispatched().Count);
+            Assert.Contains(Dispatched(), d => d.RouteCycleId == "cycle-1");
+            // cycle 0 completed (its last dock reached this gap tick); cycle 1 is
+            // PARTIAL (its dock B not reached at loopUT 1200) -> CompletedCycles 0 -> 1.
+            Assert.Equal(1, route.CompletedCycles);
+            Assert.Equal(0, route.LastObservedLoopCycleIndex);
+            // cycle 1's dock B is NOT yet fired (loopUT 1200 < dock B 1300).
+            Assert.Empty(delivered.Where(d => d.RouteStopIndex == 1 && d.RouteCycleId == "cycle-1"));
+        }
+
+        // ==================================================================
+        // (C-2) Pickup replay backstop — no double physical debit
+        // ==================================================================
+
+        // C-2 (defense-in-depth): a multi-stop pickup window must NOT double-debit
+        // its physical source across a simulated reload. Pre-seed the ledger with
+        // the window's RouteCargoPickedUp row (as if it fired + saved), then
+        // re-present the window: the C-2 backstop (IsPickupAlreadyInLedger) must
+        // suppress the SECOND physical debit (PickupDebitApplierForTesting NOT
+        // re-invoked) and emit no second pickup row.
+        [Fact]
+        public void PickupBackstop_NoDoubleDebitAcrossReload()
+        {
+            // A 1-stop PICKUP route (stop 0 picks up at dock A). Single-stop keeps
+            // the byte-identical scalar path; the backstop is path-agnostic.
+            var route = new Route
+            {
+                Id = "route-pickup",
+                Status = RouteStatus.Active,
+                IsKscOrigin = true,
+                BackingMissionTreeId = "tree-1",
+                RecordedDockUT = 1150.0,
+                DockMemberRecordingId = "rec-dock-a",
+                LoopAnchorUT = 1000.0,
+                LastObservedLoopCycleIndex = -1,
+                DispatchInterval = 400.0,
+                TransitDuration = 400.0,
+                Stops = new List<RouteStop>
+                {
+                    new RouteStop
+                    {
+                        Endpoint = new RouteEndpoint { VesselPersistentId = 99u },
+                        PickupManifest = new Dictionary<string, double> { { "Ore", 50.0 } },
+                        SegmentIndexBefore = 0,
+                        RecordedDockUT = 1150.0,
+                        LastFiredCycleIndex = -1,
+                    },
+                },
+                SourceRefs = new List<RouteSourceRef>
+                {
+                    new RouteSourceRef { RecordingId = "rec-dock-a", TreeId = "tree-1", RouteProofHash = "deadbeef" },
+                },
+            };
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit(spanStartUT: 1000.0, spanEndUT: 1200.0,
+                cadenceSeconds: 200.0, phaseAnchorUT: 1000.0));
+
+            int physicalDebits = 0;
+            RouteOrchestrator.PickupDebitApplierForTesting = (endpoint, manifest, env2) =>
+            {
+                physicalDebits++;
+                return new RouteOrchestrator.OriginDebitOutcome
+                {
+                    ActualDebited = new Dictionary<string, double> { { "Ore", 50.0 } },
+                    RequestedOnShortfall = null,
+                    OriginVesselPid = 99u,
+                    Short = false,
+                    Unresolved = false,
+                };
+            };
+            var env = new EligibleEnv();
+
+            // Pre-seed the cycle-0 pickup row + dispatch row as if the window fired
+            // and was saved (the reload state). stopIndex 0.
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteDispatched, UT = 1150.0, RouteId = route.Id,
+                RouteCycleId = "cycle-0", RouteStopIndex = -1, Sequence = 0,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteCargoPickedUp, UT = 1150.0, RouteId = route.Id,
+                RouteCycleId = "cycle-0", RouteStopIndex = 0,
+                Sequence = 0 * RouteOrchestrator.SeqStride + 2,
+            });
+            int pickupRowsBefore = Ledger.Actions.Count(a => a.Type == GameActionType.RouteCargoPickedUp);
+
+            // Re-present the window directly (the C-2 guard lives in EmitPickupHalf,
+            // exercised here through the real per-window emit). PendingStopIndex 0.
+            route.PendingStopIndex = 0;
+            RouteOrchestrator.EmitPickupHalf(route, 1150.0, env, "cycle-0");
+
+            // The physical debit was NOT re-applied (no double-debit of the source).
+            Assert.Equal(0, physicalDebits);
+            // No second pickup row emitted.
+            Assert.Equal(pickupRowsBefore,
+                Ledger.Actions.Count(a => a.Type == GameActionType.RouteCargoPickedUp));
+            Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("C-2 backstop"));
+        }
+
+        // Sanity: the C-2 backstop is genuinely per-window (RouteId, cycleId,
+        // stopIndex). A window-0 pickup row does NOT mark window 1 as already in
+        // the ledger.
+        [Fact]
+        public void PickupBackstop_IsPerWindow_NotPerCycle()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteCargoPickedUp, UT = 1150.0, RouteId = "route-y",
+                RouteCycleId = "cycle-0", RouteStopIndex = 0,
+            });
+            Assert.True(RouteOrchestrator.IsPickupAlreadyInLedger("route-y", "cycle-0", 0));
+            Assert.False(RouteOrchestrator.IsPickupAlreadyInLedger("route-y", "cycle-0", 1));
+        }
     }
 }
