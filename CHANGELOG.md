@@ -104,6 +104,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- Re-aim playback resolver now caches per launch window per mission member instead of one window per member, so two consecutive windows can be held at once for a follow-up that overlaps a looping interplanetary mission with itself. Dark refactor with no caller and no gameplay change; behavior of the existing single-window path is unchanged.
 - Added an in-game ledger ground-truth verification harness: it quicksaves the live career, parses that save independently of Parsek's bookkeeping, runs the career-state reconstruction, and reports any disagreement between the two. This is the closed self-check that catches a reconstruction drifting from your actual funds, science, reputation, or recovered vessels. Run it from the in-game test runner (Ctrl+Shift+T) under the `LedgerGroundTruth` category.
 - Added headless test coverage for the career-state apply boundary (the step that writes your funds, science, reputation, tech tree, and facility levels when Parsek rebuilds career state), so its value and clamp decisions are now verified directly in unit tests rather than only in the live game. No gameplay change.
 - The two scene-exit merge-dialog in-game tests (Space Center exit with Merge to Timeline / Discard) now run automatically under the test runner's `Run All + Isolated`, which captures a flight baseline beforehand and quickloads it after each test. Previously they were manual-only rows you had to run one at a time. No gameplay change.
