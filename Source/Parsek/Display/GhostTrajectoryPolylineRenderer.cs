@@ -2314,6 +2314,37 @@ namespace Parsek.Display
             return PolylineStaticSkipReason.None;
         }
 
+        /// <summary>
+        /// Pure per-recording WALK-INCLUSION decision for the Driver's renderHidden gate
+        /// (launch-&gt;escape seam render fix). After the static skip + renderHidden resolve, the Driver
+        /// must decide whether to walk this recording at all and, if so, which heads contribute legs.
+        ///
+        /// The renderHidden flag is the PRIMARY head's "loopUT is outside this member's window" verdict
+        /// (the continuing through-line instance N is at a downstream orbital phase). The OLD gate skipped
+        /// the whole recording whenever the primary was hidden, which dropped a launch recording whose
+        /// boundary-overlap SECONDARY (the early-launching instance N+1's in-SOI ascent) was live in its
+        /// own window - so the secondary's forward ascent polyline + escape conic never drew.
+        ///
+        /// Decision table (skip / drawPrimaryLegs / drawSecondaryLegs):
+        /// - primaryRenders &amp;&amp; !hasSecondary  -&gt; walk, primary only (the common case, byte-identical)
+        /// - primaryRenders &amp;&amp;  hasSecondary  -&gt; walk, primary + secondary (a slack&gt;0 edge; not reached
+        ///   today because hasSecondary requires the engaged zero-slack loop, but the table is total)
+        /// - !primaryRenders &amp;&amp;  hasSecondary -&gt; walk, secondary ONLY (the fix: launch ascent renders while
+        ///   the primary is at the destination)
+        /// - !primaryRenders &amp;&amp; !hasSecondary -&gt; SKIP (the old renderHidden skip, unchanged)
+        ///
+        /// Inert for every non-launch-hold member / aligned loop: hasSecondary is always false there, so the
+        /// outcome collapses to (walk iff primaryRenders), exactly the old gate. Pure; unit-tested.
+        /// </summary>
+        internal static void DecidePolylineWalkInclusion(
+            bool primaryRenders, bool hasSecondary,
+            out bool skip, out bool drawPrimaryLegs, out bool drawSecondaryLegs)
+        {
+            skip = !primaryRenders && !hasSecondary;
+            drawPrimaryLegs = !skip && primaryRenders;
+            drawSecondaryLegs = !skip && hasSecondary;
+        }
+
         // ------------------------------------------------------------------
         // Per-leg draw mechanics (Phase 8b.0 extraction)
         //
@@ -3144,11 +3175,26 @@ namespace Parsek.Display
                         out bool hasSecondaryHead,
                         out double secondaryHeadUT,
                         out long secondaryHeadCycle);
-                    if (renderHidden)
+                    // PRIMARY-HIDDEN-BUT-SECONDARY-LIVE (launch->escape seam render fix): the primary head can be
+                    // hidden (its loopUT is OUTSIDE this member's window - the continuing through-line instance N is
+                    // months downstream near the destination, an orbital phase with no in-window non-orbital leg)
+                    // while a boundary-overlap SECONDARY is live in this member's own window (the early-launching
+                    // instance N+1's in-SOI ascent during the borrow window of a zero-slack re-aim launch loop). The
+                    // OLD gate skipped the WHOLE recording on renderHidden, which dropped the launch recording before
+                    // the second-head pass below could ever run - the secondary's forward ascent polyline + forward
+                    // escape conic never drew. The secondary is NOT keyed on the primary's window: it has its own
+                    // in-window leg (its proto-vessel icon + escape conic already render via the SEPARATE
+                    // RunOverlapPerInstanceSweep map-presence walk, which has no renderHidden gate). So skip the whole
+                    // recording ONLY when the primary is hidden AND there is no live secondary either. When the
+                    // primary is hidden but the secondary is live, fall through with primaryRenders=false: the primary
+                    // leg loop + primary forward pass are gated off (the primary genuinely has nothing in-window) and
+                    // only the secondary second-head + secondary forward pass run. Inert for every non-launch-hold
+                    // member / aligned loop (hasSecondaryHead is always false there, so this is the old skip exactly).
+                    DecidePolylineWalkInclusion(
+                        primaryRenders: !renderHidden, hasSecondary: hasSecondaryHead,
+                        out bool skipRecording, out bool primaryRenders, out _);
+                    if (skipRecording)
                     {
-                        // The primary is hidden this cycle. A boundary-overlap secondary cannot render without its
-                        // own in-window leg either (the secondary is a member of the SAME recording), so skip the
-                        // whole recording - matching the marker-pass hide.
                         frameSkippedHidden++;
                         continue;
                     }
@@ -3182,6 +3228,13 @@ namespace Parsek.Display
                     // enqueued twice in one frame (it would be a no-op redraw anyway, but the guard keeps the
                     // secondary's head strictly the disjoint in-SOI leg the primary - far downstream - is not on).
                     int primaryDrawnLegIndex = -1;
+                    // PRIMARY leg loop runs only when the primary head is in-window (primaryRenders). When the
+                    // primary is hidden but a boundary-overlap secondary is live, this is skipped (the primary has
+                    // no in-window non-orbital leg - it is the downstream through-line at an orbital phase) and only
+                    // the secondary second-head + secondary forward pass below run. primaryRenders is always true for
+                    // every non-launch-hold member / aligned loop (renderHidden false there), so this is unchanged.
+                    if (primaryRenders)
+                    {
                     for (int li = 0; li < set.legs.Length; li++)
                     {
                         var leg = set.legs[li];
@@ -3246,6 +3299,7 @@ namespace Parsek.Display
                         anyDrawn = true;
                         primaryDrawnLegIndex = li;
                     }
+                    }
 
                     // BOUNDARY-OVERLAP second head (docs/dev/plan-launch-boundary-overlap.md 4.1/4.2): the
                     // early-launching instance N+1's in-SOI ascent leg, drawn ADDITIVELY beside the primary leg
@@ -3257,9 +3311,14 @@ namespace Parsek.Display
                     // primary owns the ownership publish). Same-leg defensive guard: if both heads land in the same
                     // leg (impossible for an interplanetary transfer - the heliocentric tof is months), draw only the
                     // primary's leg. Inert (hasSecondaryHead false) for every non-launch-hold member / aligned loop.
+                    // Resolved once for BOTH the secondary second-head leg pass and the secondary forward pass
+                    // below (0 when no overlap-instance ghost exists this frame, which only happens before the
+                    // map-presence sweep creates it - the leg still draws, keyed pid 0, no proto to hide).
+                    uint secondaryGhostPid = hasSecondaryHead
+                        ? GhostMapPresence.GetNewestOverlapInstancePidForRecording(recordingIndex)
+                        : 0u;
                     if (hasSecondaryHead)
                     {
-                        uint secondaryGhostPid = GhostMapPresence.GetNewestOverlapInstancePidForRecording(recordingIndex);
                         for (int li = 0; li < set.legs.Length; li++)
                         {
                             if (li == primaryDrawnLegIndex)
@@ -3428,10 +3487,36 @@ namespace Parsek.Display
                     // exactly as today and the ownership contract is unchanged (the CRITICAL Step 3
                     // prerequisite, safest option (a)). Gated on the SAME visibility the rest of the loop
                     // resolved (renderHidden already continued above) plus the Director's gap-hold.
-                    DecideForwardWindowForRecording(
-                        scene, recordingIndex, rec, set, headUT, currentUT, loopUnits,
-                        ghostPid, drawFrame, surface, committed, suppressed,
-                        ref frameForwardLegs, ref frameForwardArcs, ref frameForwardSkippedGapHold);
+                    //
+                    // PRIMARY forward pass runs only when the primary is in-window. When the primary is hidden
+                    // (downstream through-line at an orbital phase) but a secondary is live, the primary has no
+                    // forward trajectory to draw here - the secondary forward pass below carries the launch
+                    // ascent + escape conic.
+                    if (primaryRenders)
+                    {
+                        DecideForwardWindowForRecording(
+                            scene, recordingIndex, rec, set, headUT, currentUT, loopUnits,
+                            ghostPid, drawFrame, surface, committed, suppressed,
+                            ref frameForwardLegs, ref frameForwardArcs, ref frameForwardSkippedGapHold);
+                    }
+
+                    // ---- BOUNDARY-OVERLAP SECONDARY forward pass (launch->escape seam render fix) ----
+                    // The early-launching instance N+1's FORWARD trajectory: the ascent polyline AHEAD of its
+                    // icon + the escape conic ahead, drawn additively at secondaryHeadUT. Without this, only the
+                    // single in-window ascent leg (the second-head pass above) drew - the takeoff/ascent
+                    // polyline and the escape conic AHEAD of the icon never rendered after launch (the playtest
+                    // bug). Keyed on the secondary ghost pid (so its forward legs/arcs publish under the
+                    // secondary, and the bridges/run window resolve the secondary's phase). The chain-dedupe +
+                    // gap-hold are bypassed for the secondary (see DecideForwardWindowForRecording). Inert when
+                    // hasSecondaryHead is false (every non-launch-hold member / aligned loop).
+                    if (hasSecondaryHead)
+                    {
+                        DecideForwardWindowForRecording(
+                            scene, recordingIndex, rec, set, secondaryHeadUT, currentUT, loopUnits,
+                            secondaryGhostPid, drawFrame, surface, committed, suppressed,
+                            ref frameForwardLegs, ref frameForwardArcs, ref frameForwardSkippedGapHold,
+                            boundaryOverlapSecondary: true);
+                    }
                 }
 
                 // Pan-stability (FIX 1): hand the decided legs to the onPreCull draw pass. Stamp the
@@ -4073,7 +4158,8 @@ namespace Parsek.Display
                 double headUT, double currentUT, GhostPlaybackLogic.LoopUnitSet loopUnits,
                 uint ghostPid, int drawFrame, BodySurfaceProvider surface,
                 IReadOnlyList<Recording> committed, HashSet<string> suppressedIds,
-                ref int frameForwardLegs, ref int frameForwardArcs, ref int frameForwardSkippedGapHold)
+                ref int frameForwardLegs, ref int frameForwardArcs, ref int frameForwardSkippedGapHold,
+                bool boundaryOverlapSecondary = false)
             {
                 if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return;
 
@@ -4083,7 +4169,14 @@ namespace Parsek.Display
                 // renderHidden). A later visible member of the same chain (historical non-loop chains,
                 // where every member passes the renderHidden gate) skips, which also prevents
                 // double-enqueueing the same run legs/arcs.
-                if (rec.IsChainRecording && !chainRunProcessedThisFrame.Add(rec.ChainId))
+                //
+                // BOUNDARY-OVERLAP SECONDARY (launch->escape seam render fix): the secondary forward pass runs
+                // for the SAME chain as the primary but at the EARLY-LAUNCH instance's headUT (a different
+                // recorded-span phase), so it must NOT share the primary's chain-dedupe slot - it is a distinct
+                // logical run. Skip the primary dedupe set entirely for the secondary; it is called at most once
+                // per recording per frame from the walk, so it cannot double-run on its own.
+                if (!boundaryOverlapSecondary
+                    && rec.IsChainRecording && !chainRunProcessedThisFrame.Add(rec.ChainId))
                     return;
 
                 // GAP-HOLD gate: a ghost-bearing recording the Director is NOT tracking this frame is held
@@ -4092,7 +4185,15 @@ namespace Parsek.Display
                 // visibility is already governed by the renderHidden / static-skip gates above, so it falls
                 // through. Reusing the same freshness predicate the icon-drive / line patches read keeps the
                 // forward pass consistent with the current-element decision.
-                if (ghostPid != 0
+                //
+                // The BOUNDARY-OVERLAP SECONDARY bypasses the gap-hold gate: its overlap-instance map ghost
+                // (escape-conic ProtoVessel) is driven by the SEPARATE map-presence loop-shift path
+                // (RunOverlapPerInstanceSweep), NOT the Director's shadow render, so IsDirectorTracking is
+                // false for it even when it is fully visible. Applying the gate would wrongly suppress the
+                // secondary's forward ascent + escape conic every frame. The secondary's visibility is already
+                // governed by the DecideBoundaryOverlapSecondaryRender in-window decision at the call site.
+                if (!boundaryOverlapSecondary
+                    && ghostPid != 0
                     && !Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(ghostPid, drawFrame))
                 {
                     frameForwardSkippedGapHold++;

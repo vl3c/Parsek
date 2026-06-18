@@ -1136,6 +1136,71 @@ namespace Parsek.Tests
                 l.Contains("excluded") && l.Contains("below-surface orbit segments"));
         }
 
+        // --- DecidePolylineWalkInclusion: the renderHidden gate decision table
+        //     (launch->escape seam render fix). This is the pure seam the Driver's per-recording
+        //     inclusion gate routes through; the playtest bug was the OLD gate skipping the whole
+        //     launch recording on a hidden PRIMARY even though a boundary-overlap SECONDARY was live.
+
+        [Fact]
+        public void WalkInclusion_PrimaryRendersNoSecondary_WalkPrimaryOnly()
+        {
+            // The common case (every non-launch-hold member / aligned loop): primary in-window, no
+            // secondary -> walk, draw the primary legs only. Byte-identical to the pre-fix gate.
+            GhostTrajectoryPolylineRenderer.DecidePolylineWalkInclusion(
+                primaryRenders: true, hasSecondary: false,
+                out bool skip, out bool drawPrimary, out bool drawSecondary);
+
+            Assert.False(skip);
+            Assert.True(drawPrimary);
+            Assert.False(drawSecondary);
+        }
+
+        [Fact]
+        public void WalkInclusion_PrimaryHiddenNoSecondary_Skip()
+        {
+            // The old renderHidden skip, unchanged: primary hidden (downstream orbital phase, no
+            // in-window leg) and no live secondary -> skip the whole recording.
+            GhostTrajectoryPolylineRenderer.DecidePolylineWalkInclusion(
+                primaryRenders: false, hasSecondary: false,
+                out bool skip, out bool drawPrimary, out bool drawSecondary);
+
+            Assert.True(skip);
+            Assert.False(drawPrimary);
+            Assert.False(drawSecondary);
+        }
+
+        [Fact]
+        public void WalkInclusion_PrimaryHiddenSecondaryLive_WalkSecondaryOnly()
+        {
+            // THE FIX: the launch recording's primary head is hidden (instance N is at the destination,
+            // an orbital phase outside the launch member's window) but the boundary-overlap secondary
+            // (instance N+1's in-SOI ascent) is live in this member's own window. The OLD gate skipped
+            // here, dropping the recording before the second-head + secondary-forward passes could run,
+            // so the launch ascent polyline + escape conic ahead of the icon never drew. The new gate
+            // WALKS the recording with the primary legs gated off and the secondary drawing.
+            GhostTrajectoryPolylineRenderer.DecidePolylineWalkInclusion(
+                primaryRenders: false, hasSecondary: true,
+                out bool skip, out bool drawPrimary, out bool drawSecondary);
+
+            Assert.False(skip);
+            Assert.False(drawPrimary); // primary genuinely has nothing in-window this frame
+            Assert.True(drawSecondary); // the early-launch ascent renders
+        }
+
+        [Fact]
+        public void WalkInclusion_PrimaryRendersSecondaryLive_WalkBoth()
+        {
+            // The total-table edge (not reached today, since hasSecondary requires the engaged zero-slack
+            // loop where the primary is hidden during the borrow window): both heads contribute.
+            GhostTrajectoryPolylineRenderer.DecidePolylineWalkInclusion(
+                primaryRenders: true, hasSecondary: true,
+                out bool skip, out bool drawPrimary, out bool drawSecondary);
+
+            Assert.False(skip);
+            Assert.True(drawPrimary);
+            Assert.True(drawSecondary);
+        }
+
         // Adds an Absolute (ref=0) Duna section with `count` frames evenly spaced
         // across [startUT, endUT], descending in altitude through the tail.
         private static void AddAbsoluteDunaSection(
