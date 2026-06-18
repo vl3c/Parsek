@@ -146,7 +146,8 @@ namespace Parsek.Tests.Logistics
             int stopIndex = 0,
             bool isCareer = true,
             bool isKscOrigin = true,
-            double kscFundsCost = 1000.0)
+            double kscFundsCost = 1000.0,
+            bool bumpCompletedCycle = true)
         {
             return new RouteOrchestrator.ApplyDeliveryContext
             {
@@ -162,6 +163,11 @@ namespace Parsek.Tests.Logistics
                 InventoryActualCountReader = writers.ReadInventoryActualCount,
                 FundsDebiter = writers.DebitFunds,
                 LedgerEmitter = writers.EmitAction,
+                // M4a A3 (Horn A): the direct ApplyDeliveryFromPlan tests model a
+                // single complete delivery, so the cycle-complete CompletedCycles
+                // bump fires (the pre-A3 unconditional behaviour). Multi-stop earlier
+                // windows would pass false; no direct-core test exercises that.
+                BumpCompletedCycle = bumpCompletedCycle,
             };
         }
 
