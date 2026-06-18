@@ -647,6 +647,53 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(delivered.Where(d => d.RouteStopIndex == 1 && d.RouteCycleId == "cycle-1"));
         }
 
+        // catches (A3-fix re-review BLOCKER): a multi-stop cycle BLOCKED while the
+        // tick lands in its OWN (dockA, dockB) gap must be ATOMICALLY skipped (OQ4
+        // all-or-nothing-at-dispatch / OQ3 snap-EVERY-stop). The fix's first cut
+        // narrowed the blocked-branch snap to only the windows dock-crossed this
+        // tick, so dock B (not yet dock-crossed in the gap) was left un-snapped;
+        // if the block then CLEARED before the ghost reached dock B, dock B fired
+        // next tick as a SEPARATELY-dispatched delivery under a FRESH cycleId,
+        // splitting one logically-skipped cycle into "dock A skipped" + "dock B
+        // dispatched (funds + origin debit) + delivered" - an unaffordable cycle
+        // the player's resources never supported. The unconditional `< cMin` snap
+        // skips the whole blocked cycle atomically.
+        [Fact]
+        public void InGapBlockedThenUnblocked_WholeCycleSkipped_NoSplitDispatch()
+        {
+            var route = Build2StopRoute(isKscOrigin: false); // non-KSC -> origin gate runs
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit()); // span [1000,1400], docks 1150 / 1300
+            InstallRealPathRowEmitter();
+
+            // Tick 1: in cycle 0's (dockA, dockB) gap (ut 1200 -> loopUT 1200, between
+            // dock A 1150 and dock B 1300), origin BLOCKED. The whole cycle 0 must be
+            // skipped: BOTH stops snapped to 0 (not just dock A), nothing emitted.
+            RouteOrchestrator.Tick(1200.0, new BlockedEnv());
+
+            Assert.Empty(Delivered());
+            Assert.Empty(Dispatched());
+            Assert.Equal(1, route.SkippedCycles);
+            Assert.Equal(0, route.CompletedCycles);
+            // The fix: EVERY stop snapped to the blocked cycle 0, including dock B
+            // whose dock phase was NOT reached this tick (the pre-fix bug left it -1).
+            Assert.Equal(0, route.Stops[0].LastFiredCycleIndex);
+            Assert.Equal(0, route.Stops[1].LastFiredCycleIndex);
+            Assert.Equal(0, route.LastObservedLoopCycleIndex);
+
+            // Tick 2: the block has CLEARED and the ghost has reached dock B of cycle
+            // 0 (ut 1350 -> loopUT 1350 >= dock B 1300, still cycle 0). cycle 0 was
+            // already atomically skipped, so NOTHING fires - no spurious split
+            // dispatch, no orphan dock-B delivery. (cycle 1 would dispatch fresh on a
+            // future cycle-1 tick; this tick is still cycle 0.)
+            RouteOrchestrator.Tick(1350.0, new EligibleEnv());
+
+            Assert.Empty(Delivered());
+            Assert.Empty(Dispatched());
+            Assert.Equal(0, route.CompletedCycles);
+            Assert.Equal(1, route.SkippedCycles); // no NEW skip; cycle 0 already counted
+        }
+
         // ==================================================================
         // (C-2) Pickup replay backstop — no double physical debit
         // ==================================================================

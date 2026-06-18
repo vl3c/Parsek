@@ -933,12 +933,17 @@ namespace Parsek.Logistics
             }
             int dueCount = dueStopIndex.Count;
 
-            // The cycle's id. INVARIANT (BLOCKER-1): we process cycles in ascending
-            // order and bump Completed/Skipped exactly once per cycle as each
-            // completes / is skipped, so at the start of this pass
-            // CompletedCycles + SkippedCycles == cMin. The cycleId is therefore
-            // genuinely unique per cycle and the per-window guard keys never collide
-            // across cycles.
+            // The cycle's id. The SAFETY PROPERTY (BLOCKER-1 fix) is that the
+            // cycleId is unique per FIRED cycle: CompletedCycles + SkippedCycles is
+            // strictly monotonic, bumped exactly once per cycle as each completes /
+            // is skipped, and a partially-fired cycle resumes under its EXISTING
+            // count-id (the per-window guard keys (RouteId, cycleId, stopIndex)
+            // therefore never collide across cycles). NOTE: the stronger equality
+            // C+S == cMin holds only for same-tick, NON-warp ascending catch-up
+            // passes; across a warp that SKIPS span cycles, cMin (a loop-cycle
+            // index) runs ahead of C+S (a fired-cycle COUNT). The fix does NOT rely
+            // on that equality - only on per-fired-cycle id uniqueness + correct
+            // partial-bucket resume, both of which hold under warp.
             string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
 
             // True when this tick's loop phase has reached/passed the cycle's LAST
@@ -987,23 +992,28 @@ namespace Parsek.Logistics
                     // Blocked cycle cMin (NOT yet committed): emit NOTHING for any
                     // window. Flush any prior dispatched cycle's owed recovery credit
                     // (the blocked crossing IS the next crossing for it). Bump
-                    // SkippedCycles ONCE (preserving C+S == cMin -> C+S becomes cMin+1
-                    // for the next pass), snap every stop whose owed dock-cycle is cMin
-                    // forward to cMin so the blocked cycle does not re-fire, and record
-                    // the hold. A blocked cycle ALWAYS completes the cMin slot (it is
-                    // counted), so stillDue follows from a LATER owed window only.
+                    // SkippedCycles ONCE (C+S advances to cMin+1 for the next pass),
+                    // and ATOMICALLY skip the WHOLE blocked cycle by snapping EVERY
+                    // stop not yet fired through cMin forward to cMin (OQ4 all-or-
+                    // nothing-at-dispatch / OQ3 snap-every-stop). The unconditional
+                    // `< cMin` snap is required for correctness, NOT just the windows
+                    // dock-crossed THIS tick: when the block tick lands in cMin's own
+                    // (dockA, dockB) gap, dock B's stop has not dock-crossed yet, but
+                    // it MUST still be marked skipped for cMin - otherwise, if the
+                    // block clears before the ghost reaches dock B, dock B would fire
+                    // next tick as a SEPARATELY-dispatched delivery under a fresh
+                    // cycleId, splitting one logically-skipped cycle into
+                    // "dock A skipped" + "dock B dispatched + delivered" (an
+                    // unaffordable cycle the player's resources never supported).
+                    // Safe with laterOwed: a stop owed at cMin+1 has LastFired == cMin
+                    // (it fired/skipped cMin already), so `cMin < cMin` is false and
+                    // its cMin+1 obligation survives for the next catch-up pass.
                     EmitPendingRecoveryCredit(route, currentUT, env);
                     route.SkippedCycles += 1;
                     for (int j = 0; j < stopCount; j++)
                     {
-                        if (route.Stops[j].LastFiredCycleIndex < cMin
-                            && RouteLoopClock.IsDockCrossing(
-                                unit, loopUT, cycleIndex, route.Stops[j].RecordedDockUT,
-                                route.Stops[j].LastFiredCycleIndex, out long jDockCycle)
-                            && jDockCycle == cMin)
-                        {
+                        if (route.Stops[j].LastFiredCycleIndex < cMin)
                             route.Stops[j].LastFiredCycleIndex = cMin;
-                        }
                     }
                     if (route.LastObservedLoopCycleIndex < cMin)
                         route.LastObservedLoopCycleIndex = cMin;
