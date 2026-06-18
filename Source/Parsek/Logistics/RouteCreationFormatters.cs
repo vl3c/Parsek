@@ -210,7 +210,7 @@ namespace Parsek.Logistics
                 case RouteAnalysisStatus.MissingRouteProof:
                     return "Recording has no route proof - log the dock event to enable a Supply Route.";
                 case RouteAnalysisStatus.MultipleConnectionWindows:
-                    return "Multiple dock windows detected - multi-stop routes are not yet supported in v1.";
+                    return "Two transfers happened at the same recorded time and cannot be ordered. Re-record so each dock happens at a distinct moment.";
                 case RouteAnalysisStatus.NoDeliveryManifest:
                     return "No delivery payload detected - check that cargo actually moved from transport to destination.";
                 case RouteAnalysisStatus.MixedPickupDelivery:
