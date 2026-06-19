@@ -6256,6 +6256,12 @@ namespace Parsek.Tests
             // route build / per-window firing path can be eyeballed in-game.
             writer.AddTree(MultiStopDeliveryRouteTree(baseUT));
 
+            // M4b synthetic multi-ORIGIN consolidation tree (TWO pickup windows
+            // at distinct depots + one station delivery window) so the
+            // multi-origin all-or-nothing source gate / cargo escrow / per-window
+            // source-debit firing path can be eyeballed in-game.
+            writer.AddTree(MultiOriginConsolidationRouteTree(baseUT));
+
             // Add real recordings from the default career (if available)
             var realRecordingNodes = AddRealCareerRecordings(writer, kspRoot);
 
@@ -8183,6 +8189,394 @@ namespace Parsek.Tests
                 Type = BranchPointType.Undock,
                 SplitCause = "UNDOCK",
                 ParentRecordingIds = new List<string> { dockedBId },
+                ChildRecordingIds = new List<string> { tailId }
+            });
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            return node;
+        }
+
+        /// <summary>
+        /// M4b synthetic MULTI-ORIGIN consolidation tree (gameplay grounding 5.3):
+        /// a transport launches, docks at Depot A and LOADS 100 ore (a pickup
+        /// window), undocks, docks at Depot B and LOADS 200 ore, undocks, docks at
+        /// the orbital station and DELIVERS the consolidated 300 ore (the LAST
+        /// dock), undocks. Two PICKUP windows (sign-flip of delivery: the endpoint
+        /// LOSES cargo, the transport GAINS it - <c>endpointLoss = DockEndpoint -
+        /// UndockEndpoint</c>, <c>transportGain = UndockTransport - DockTransport</c>)
+        /// + one DELIVERY window, so the inject path exercises a multi-origin route
+        /// end-to-end (N loaded windows + the all-or-nothing source gate + the
+        /// per-window source debit firing become eyeballable in-game). Flow closes:
+        /// launched 0 + loaded (100 + 200) + harvested 0 - delivered 300 - residual 0
+        /// = 0. Uses Ore so the consolidation reads naturally; Ore is a stock-defined
+        /// routable resource. Mirrors how <see cref="MultiStopDeliveryRouteTree"/>
+        /// was built (run manifests on every active-stop leg; a tail the route render
+        /// end-trims away).
+        /// </summary>
+        internal static ConfigNode MultiOriginConsolidationRouteTree(double baseUT = 0)
+        {
+            double tLaunch = baseUT + 500;
+            double tDockA = tLaunch + 400;    // load at Depot A
+            double tUndockA = tDockA + 100;   // undock from Depot A, continue to B
+            double tDockB = tUndockA + 400;   // load at Depot B
+            double tUndockB = tDockB + 100;   // undock from Depot B, continue to station
+            double tDockS = tUndockB + 400;   // deliver at the station (the LAST dock)
+            double tUndockS = tDockS + 100;   // undock from the station, fly home
+            double tEnd = tUndockS + 200;
+            const string treeId = "tree-multiorigin-consolidation-m4";
+            const string rootId = "m4-mo-launch";
+            const string dockedAId = "m4-mo-dockedA";
+            const string midA2BId = "m4-mo-midA2B";
+            const string dockedBId = "m4-mo-dockedB";
+            const string midB2SId = "m4-mo-midB2S";
+            const string dockedSId = "m4-mo-dockedStation";
+            const string tailId = "m4-mo-tail";
+            const uint transportPartPid = 97001;
+            const uint depotAVesselPid = 9700;
+            const uint depotAPartPid = 97011;
+            const uint depotBVesselPid = 9710;
+            const uint depotBPartPid = 97021;
+            const uint stationVesselPid = 9720;
+            const uint stationPartPid = 97031;
+            const double munLat = 0.2;
+            const double munLonA = 70.0;
+            const double munLonB = 71.0;
+            const double stationAlt = 90000.0;
+            const double munRadius = 200000.0;          // Mun radius (m)
+            const double stationSma = munRadius + stationAlt; // circular Mun parking orbit SMA
+
+            Dictionary<string, ResourceAmount> Ore(double amount) =>
+                new Dictionary<string, ResourceAmount>
+                {
+                    ["Ore"] = new ResourceAmount { amount = amount, maxAmount = 600.0 }
+                };
+
+            // Transport Ore aboard at each leg: empty at launch, +100 after A,
+            // +300 after B, 0 after the station delivery.
+            Dictionary<string, ResourceAmount> TransportEmpty() => Ore(0.0);
+            Dictionary<string, ResourceAmount> TransportAfterA() => Ore(100.0);
+            Dictionary<string, ResourceAmount> TransportAfterB() => Ore(300.0);
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Mun Two-Depot Consolidation Run",
+                RootRecordingId = rootId
+            };
+
+            // Root: launch -> approach Depot A. Transport empty (loads en route).
+            tree.Recordings[rootId] = new Recording
+            {
+                RecordingId = rootId,
+                TreeId = treeId,
+                VesselName = "Mun Two-Depot Consolidation Run",
+                VesselPersistentId = 9701,
+                ChildBranchPointId = "m4-mo-dockA-bp",
+                ExplicitStartUT = tLaunch,
+                ExplicitEndUT = tDockA,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid },
+                    StartTransportResources = TransportEmpty(),
+                    EndTransportResources = TransportEmpty(),
+                    EndCaptured = true
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Mun Two-Depot Consolidation Run", pid: 9701)
+                    .AsLanded(munLat, munLonA - 0.05, 8.0)
+                    .Build()
+            };
+
+            // Dock-A merged child: LOAD 100 Ore from Depot A (DOCK with 0 aboard,
+            // UNDOCK with 100; the endpoint loses 100). Carries pickup window A.
+            tree.Recordings[dockedAId] = new Recording
+            {
+                RecordingId = dockedAId,
+                TreeId = treeId,
+                VesselName = "Mun Two-Depot Consolidation Run Docked A",
+                VesselPersistentId = 9702,
+                ParentBranchPointId = "m4-mo-dockA-bp",
+                ChildBranchPointId = "m4-mo-undockA-bp",
+                ExplicitStartUT = tDockA,
+                ExplicitEndUT = tUndockA,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid, depotAPartPid },
+                    StartTransportResources = TransportEmpty(),
+                    EndTransportResources = TransportEmpty(),
+                    EndCaptured = true
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "m4-mo-pickup-A",
+                        DockUT = tDockA,
+                        UndockUT = tUndockA,
+                        TransferTargetVesselPid = depotAVesselPid,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        TransportPartPersistentIds = new List<uint> { transportPartPid },
+                        EndpointPartPersistentIds = new List<uint> { depotAPartPid },
+                        // Pickup: transport gains 100 (Dock 0 -> Undock 100); endpoint
+                        // loses 100 (Dock 100 -> Undock 0).
+                        DockTransportResources = Ore(0.0),
+                        UndockTransportResources = Ore(100.0),
+                        DockEndpointResources = Ore(100.0),
+                        UndockEndpointResources = Ore(0.0),
+                        EndpointAtDock = new RouteEndpoint
+                        {
+                            VesselPersistentId = depotAVesselPid,
+                            BodyName = "Mun",
+                            Latitude = munLat,
+                            Longitude = munLonA,
+                            Altitude = 8.0,
+                            IsSurface = true
+                        },
+                        TransferEndpointSituation = 1 // Vessel.Situations.LANDED
+                    }
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Mun Two-Depot Consolidation Run Docked A", pid: 9702)
+                    .AsLanded(munLat, munLonA, 8.0)
+                    .Build()
+            };
+
+            // Mid leg A->B: undock from Depot A with 100 Ore aboard, continue to B.
+            tree.Recordings[midA2BId] = new Recording
+            {
+                RecordingId = midA2BId,
+                TreeId = treeId,
+                VesselName = "Mun Two-Depot Consolidation Run",
+                VesselPersistentId = 9703,
+                ParentBranchPointId = "m4-mo-undockA-bp",
+                ChildBranchPointId = "m4-mo-dockB-bp",
+                ExplicitStartUT = tUndockA,
+                ExplicitEndUT = tDockB,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid },
+                    StartTransportResources = TransportAfterA(),
+                    EndTransportResources = TransportAfterA(),
+                    EndCaptured = true
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Mun Two-Depot Consolidation Run", pid: 9703)
+                    .AsLanded(munLat, munLonB - 0.05, 8.0)
+                    .Build()
+            };
+
+            // Dock-B merged child: LOAD 200 Ore from Depot B (transport 100 -> 300;
+            // endpoint loses 200). Carries pickup window B.
+            tree.Recordings[dockedBId] = new Recording
+            {
+                RecordingId = dockedBId,
+                TreeId = treeId,
+                VesselName = "Mun Two-Depot Consolidation Run Docked B",
+                VesselPersistentId = 9704,
+                ParentBranchPointId = "m4-mo-dockB-bp",
+                ChildBranchPointId = "m4-mo-undockB-bp",
+                ExplicitStartUT = tDockB,
+                ExplicitEndUT = tUndockB,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid, depotBPartPid },
+                    StartTransportResources = TransportAfterA(),
+                    EndTransportResources = TransportAfterA(),
+                    EndCaptured = true
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "m4-mo-pickup-B",
+                        DockUT = tDockB,
+                        UndockUT = tUndockB,
+                        TransferTargetVesselPid = depotBVesselPid,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        TransportPartPersistentIds = new List<uint> { transportPartPid },
+                        EndpointPartPersistentIds = new List<uint> { depotBPartPid },
+                        // Pickup: transport gains 200 (Dock 100 -> Undock 300); endpoint
+                        // loses 200 (Dock 200 -> Undock 0).
+                        DockTransportResources = Ore(100.0),
+                        UndockTransportResources = Ore(300.0),
+                        DockEndpointResources = Ore(200.0),
+                        UndockEndpointResources = Ore(0.0),
+                        EndpointAtDock = new RouteEndpoint
+                        {
+                            VesselPersistentId = depotBVesselPid,
+                            BodyName = "Mun",
+                            Latitude = munLat,
+                            Longitude = munLonB,
+                            Altitude = 8.0,
+                            IsSurface = true
+                        },
+                        TransferEndpointSituation = 1 // Vessel.Situations.LANDED
+                    }
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Mun Two-Depot Consolidation Run Docked B", pid: 9704)
+                    .AsLanded(munLat, munLonB, 8.0)
+                    .Build()
+            };
+
+            // Mid leg B->station: undock from Depot B with 300 Ore aboard, fly to the
+            // orbital station.
+            tree.Recordings[midB2SId] = new Recording
+            {
+                RecordingId = midB2SId,
+                TreeId = treeId,
+                VesselName = "Mun Two-Depot Consolidation Run",
+                VesselPersistentId = 9705,
+                ParentBranchPointId = "m4-mo-undockB-bp",
+                ChildBranchPointId = "m4-mo-dockS-bp",
+                ExplicitStartUT = tUndockB,
+                ExplicitEndUT = tDockS,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid },
+                    StartTransportResources = TransportAfterB(),
+                    EndTransportResources = TransportAfterB(),
+                    EndCaptured = true
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Mun Two-Depot Consolidation Run", pid: 9705)
+                    .AsOrbiting(stationSma, 0.0, 0.0, refBody: 1)
+                    .Build()
+            };
+
+            // Dock-station merged child (the LAST dock): DELIVER the consolidated 300
+            // Ore (DOCK 300 aboard -> UNDOCK 0; the station gains 300). Carries the
+            // delivery window.
+            tree.Recordings[dockedSId] = new Recording
+            {
+                RecordingId = dockedSId,
+                TreeId = treeId,
+                VesselName = "Mun Two-Depot Consolidation Run Docked Station",
+                VesselPersistentId = 9706,
+                ParentBranchPointId = "m4-mo-dockS-bp",
+                ChildBranchPointId = "m4-mo-undockS-bp",
+                ExplicitStartUT = tDockS,
+                ExplicitEndUT = tUndockS,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid, stationPartPid },
+                    StartTransportResources = TransportAfterB(),
+                    EndTransportResources = TransportAfterB(),
+                    EndCaptured = true
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "m4-mo-delivery-station",
+                        DockUT = tDockS,
+                        UndockUT = tUndockS,
+                        TransferTargetVesselPid = stationVesselPid,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        TransportPartPersistentIds = new List<uint> { transportPartPid },
+                        EndpointPartPersistentIds = new List<uint> { stationPartPid },
+                        // Delivery: transport loses 300 (Dock 300 -> Undock 0); endpoint
+                        // gains 300 (Dock 0 -> Undock 300).
+                        DockTransportResources = Ore(300.0),
+                        UndockTransportResources = Ore(0.0),
+                        DockEndpointResources = Ore(0.0),
+                        UndockEndpointResources = Ore(300.0),
+                        EndpointAtDock = new RouteEndpoint
+                        {
+                            VesselPersistentId = stationVesselPid,
+                            BodyName = "Mun",
+                            Altitude = stationAlt,
+                            IsSurface = false
+                        },
+                        TransferEndpointSituation = 3 // Vessel.Situations.ORBITING
+                    }
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Mun Two-Depot Consolidation Run Docked Station", pid: 9706)
+                    .AsOrbiting(stationSma, 0.0, 0.0, refBody: 1)
+                    .Build()
+            };
+
+            // Tail: undock from the station empty and fly home (the post-last-dock
+            // tail the route render end-trims away; never spawns a real vessel).
+            tree.Recordings[tailId] = new Recording
+            {
+                RecordingId = tailId,
+                TreeId = treeId,
+                VesselName = "Mun Two-Depot Consolidation Run",
+                VesselPersistentId = 9707,
+                ParentBranchPointId = "m4-mo-undockS-bp",
+                ExplicitStartUT = tUndockS,
+                ExplicitEndUT = tEnd,
+                RecordingGroups = new List<string> { "Synthetic" },
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { transportPartPid },
+                    StartTransportResources = TransportEmpty(),
+                    EndTransportResources = TransportEmpty(),
+                    EndCaptured = true
+                },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Mun Two-Depot Consolidation Run", pid: 9707)
+                    .AsOrbiting(stationSma, 0.0, 0.0, refBody: 1)
+                    .Build()
+            };
+
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "m4-mo-dockA-bp",
+                UT = tDockA,
+                Type = BranchPointType.Dock,
+                TargetVesselPersistentId = depotAVesselPid,
+                MergeCause = "DOCK",
+                ParentRecordingIds = new List<string> { rootId },
+                ChildRecordingIds = new List<string> { dockedAId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "m4-mo-undockA-bp",
+                UT = tUndockA,
+                Type = BranchPointType.Undock,
+                SplitCause = "UNDOCK",
+                ParentRecordingIds = new List<string> { dockedAId },
+                ChildRecordingIds = new List<string> { midA2BId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "m4-mo-dockB-bp",
+                UT = tDockB,
+                Type = BranchPointType.Dock,
+                TargetVesselPersistentId = depotBVesselPid,
+                MergeCause = "DOCK",
+                ParentRecordingIds = new List<string> { midA2BId },
+                ChildRecordingIds = new List<string> { dockedBId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "m4-mo-undockB-bp",
+                UT = tUndockB,
+                Type = BranchPointType.Undock,
+                SplitCause = "UNDOCK",
+                ParentRecordingIds = new List<string> { dockedBId },
+                ChildRecordingIds = new List<string> { midB2SId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "m4-mo-dockS-bp",
+                UT = tDockS,
+                Type = BranchPointType.Dock,
+                TargetVesselPersistentId = stationVesselPid,
+                MergeCause = "DOCK",
+                ParentRecordingIds = new List<string> { midB2SId },
+                ChildRecordingIds = new List<string> { dockedSId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "m4-mo-undockS-bp",
+                UT = tUndockS,
+                Type = BranchPointType.Undock,
+                SplitCause = "UNDOCK",
+                ParentRecordingIds = new List<string> { dockedSId },
                 ChildRecordingIds = new List<string> { tailId }
             });
 
