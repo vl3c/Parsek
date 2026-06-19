@@ -13,6 +13,43 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Dev - Logistics in-game tests: auto-spawn unloaded vessel (no manual second craft)
+
+The 7 logistics FLIGHT in-game tests (origin-debit / pickup / multi-stop delivery,
+`InGameTests/Logistics*RuntimeTests.cs`) need a live FLIGHT active vessel. The
+LOADED-path tests use the ActiveVessel directly - a fueled PRELAUNCH pad rocket
+satisfies them after `WaitForActiveVesselUnpack` (they check `loaded && !packed` +
+an LF tank; no test rejects PRELAUNCH on `vessel.situation`, so no relaxation was
+needed). The UNLOADED-path tests need a SEPARATE on-rails (unloaded) vessel with
+LiquidFuel and used to SKIP whenever the save had none, forcing the player to
+hand-place a second vessel.
+
+Maintainer-chosen design: "use my pad rocket + auto-spawn the rest". New shared
+fixture `InGameTests/Helpers/UnloadedFuelVesselFixture.cs`:
+`EnsureUnloadedLiquidFuelVessel(minStoredLf, minFreeCapacity, result)` (coroutine)
+(a) reuses any suitable pre-existing unloaded vessel (fast path, behavior-identical
+for saves that already have one); else (b) snapshots the ActiveVessel via
+`VesselSpawner.TryBackupSnapshot`, rewrites its LiquidFuel RESOURCE amounts via the
+pure `AdjustSnapshotLiquidFuel` (>= minStoredLf stored, >= minFreeCapacity free,
+flowState forced True) and spawns a FRESH-identity copy (preserveIdentity:false ->
+regenerated pid, no collision) into a high (~250 km) parking ORBIT far from the
+active vessel via `VesselSpawner.SpawnAtPosition(..., orbitOverride)` so KSP keeps
+it on-rails / unloaded; (c) waits a bounded number of frames for the spawn to
+register in `FlightGlobals.Vessels` AND settle unloaded, resolving by the returned
+pid; (d) on any failure leaves `result.Vessel == null` so the caller falls back to
+the existing `InGameAssert.Skip` (never worse than before). Cleanup: a SPAWNED
+vessel is removed via `Vessel.Die()` + protoVessels drop in the test's finally
+(`UnloadedFuelVesselFixture.Cleanup`); the batch baseline restore is the backstop.
+Rewired tests: `OriginDebit_UnloadedOriginVessel_WritesProtoSnapshot`,
+`OriginDebit_UnloadedDebit_SurvivesKspSaveRoundTrip`,
+`MultiStop_UnloadedEndpoint_DeliversAtBothDocks`,
+`PickupDebit_UnloadedEndpointVessel_WritesProtoSnapshot` (the per-suite
+`TryFindUnloaded*` finders were folded into the fixture). The
+inventory-pickup tests are unchanged (no unloaded variant; an unloaded inventory
+fixture would need a stored cargo part the pad rocket may lack). Pure piece unit-
+tested in `Source/Parsek.Tests/UnloadedFuelVesselFixtureTests.cs`. Test-infra only
+(no user-facing CHANGELOG line). LIVE validation via Ctrl+Shift+T is pending.
+
 ## Changed - Recordings tab loop/period restricted to player-viewable recordings
 
 The Recordings window/tab now shows the per-row **Loop** checkbox and **Period** cell only for recordings the player can actually watch as a flying ghost — a takeoff / landing (launch site, Prelaunch start, or `SegmentPhase` atmo/approach/surface), a docking segment, or a valid relative track approaching a base or station (a `ReferenceFrame.Relative` `TrackSection` with a resolvable anchor). Pure orbital coasts (a map line only, no watchable flight phase) and debris no longer get a loop toggle. The header / group / chain aggregate Loop toggles and the bulk-write exclude the same non-loopable rows so they stay consistent with which rows show a toggle.

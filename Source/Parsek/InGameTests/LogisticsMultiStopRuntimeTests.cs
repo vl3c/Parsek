@@ -54,8 +54,15 @@ namespace Parsek.InGameTests
         private const string LiquidFuelName = "LiquidFuel";
         private const double DeliveryAmountA = 5.0;
         private const double DeliveryAmountB = 4.0;
-        private const double MinTankHeadroom = 0.1;
         private const double ResourceTolerance = 0.01;
+
+        // Auto-spawn fixture floors for the unloaded-endpoint delivery test: the
+        // spawned copy must hold debitable LiquidFuel (so it resolves + survives a
+        // save) AND carry free LiquidFuel capacity so a delivery onto it can rise.
+        // The free-capacity floor covers the SUM of both delivery windows with
+        // margin so KSP's apply-time clamp does not zero the increase.
+        private const double FixtureMinStoredLf = DeliveryAmountA + DeliveryAmountB + 5.0;
+        private const double FixtureMinFreeCapacity = (DeliveryAmountA + DeliveryAmountB) * 2.0;
         private const string TestSaveSlotPrefix = "parsek_multistop_ingame_test_";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
@@ -219,68 +226,87 @@ namespace Parsek.InGameTests
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = IsolatedOnlyBatchSkipReason,
-            Description = "A 2-stop DELIVERY route whose stops resolve to an UNLOADED on-rails vessel delivers at BOTH recorded dock phases through the production unloaded writer (ProtoPartResourceSnapshot.amount): the proto LiquidFuel total rises by the SUM of both windows and TWO RouteCargoDelivered rows land. Sources an existing unloaded vessel from the save (no spawn) and skips with a named reason when none exists")]
+            Description = "A 2-stop DELIVERY route whose stops resolve to an UNLOADED on-rails vessel delivers at BOTH recorded dock phases through the production unloaded writer (ProtoPartResourceSnapshot.amount): the proto LiquidFuel total rises by the SUM of both windows and TWO RouteCargoDelivered rows land. Auto-spawns an unloaded LiquidFuel vessel (fresh-identity pad-rocket copy with tank headroom in a parking orbit) when the save lacks one, reuses an existing one when present, and skips only when neither can be provided")]
         public IEnumerator MultiStop_UnloadedEndpoint_DeliversAtBothDocks()
         {
-            // Post-restore unpack wait (yields BEFORE any seam/mutation).
+            // Post-restore unpack wait (yields BEFORE any seam/mutation; the
+            // fixture also snapshots the active vessel, which must be unpacked).
             IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
             while (unpackWait.MoveNext())
                 yield return unpackWait.Current;
 
-            if (!TryFindUnloadedVesselWithHeadroom(out Vessel endpointVessel,
-                    out double rawBefore))
-                InGameAssert.Skip(
-                    "PRECONDITION: no unloaded non-ghost vessel with a LiquidFuel tank that has spare " +
-                    $"capacity (>= {MinTankHeadroom.ToString("R", IC)}) in this save. The unloaded-endpoint " +
-                    "fixture sources an EXISTING on-rails vessel (plan finding 6: spawn-based fixtures are " +
-                    "unproven ground); load a save with a distant vessel that has an LF tank with headroom");
+            // Auto-spawn (or reuse) an unloaded LiquidFuel vessel WITH headroom so a
+            // delivery onto it can rise; null fixture => fall back to Skip.
+            var fixture = new UnloadedFuelVesselFixture.EnsureResult();
+            IEnumerator ensure = UnloadedFuelVesselFixture.EnsureUnloadedLiquidFuelVessel(
+                FixtureMinStoredLf, FixtureMinFreeCapacity, fixture);
+            while (ensure.MoveNext())
+                yield return ensure.Current;
 
-            string treeId = "ingame-ms-proto-tree-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            string routeId = "ingame-ms-proto-id-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            try
+            {
+                if (fixture.Vessel == null)
+                    InGameAssert.Skip(
+                        "PRECONDITION: could not provide an unloaded non-ghost vessel with a LiquidFuel tank " +
+                        $"holding >= {FixtureMinStoredLf.ToString("R", IC)} LF and >= " +
+                        $"{FixtureMinFreeCapacity.ToString("R", IC)} free capacity - no suitable pre-existing " +
+                        "on-rails vessel AND the auto-spawn from the active pad rocket did not settle unloaded " +
+                        "(see the TestHelper log lines). Provide a fueled PRELAUNCH pad rocket to run this test");
+                Vessel endpointVessel = fixture.Vessel;
 
-            List<Route> preExistingRoutes = SnapshotRoutes();
-            List<KeyValuePair<ProtoPartResourceSnapshot, double>> protoSnapshot =
-                SnapshotProtoLiquidFuel(endpointVessel);
-            int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                string treeId = "ingame-ms-proto-tree-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                string routeId = "ingame-ms-proto-id-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
-            RunMultiStopCrossing(
-                label: "MultiStop_Unloaded",
-                treeId: treeId,
-                routeId: routeId,
-                endpointVessel: endpointVessel,
-                tickUT: TickUtBothDocks,
-                preExistingRoutes: preExistingRoutes,
-                restoreEndpointState: () => RestoreProtoLiquidFuel(protoSnapshot),
-                assertions: capturedLog =>
-                {
-                    InGameAssert.IsTrue(RouteStore.TryGetRoute(routeId, out Route postTick),
-                        "Multi-stop route disappeared from store during Tick");
-                    InGameAssert.AreEqual(1, postTick.CompletedCycles,
-                        "CompletedCycles should be exactly 1 after a single two-window cycle");
+                List<Route> preExistingRoutes = SnapshotRoutes();
+                List<KeyValuePair<ProtoPartResourceSnapshot, double>> protoSnapshot =
+                    SnapshotProtoLiquidFuel(endpointVessel);
+                double rawBefore = SumProtoLiquidFuelRaw(endpointVessel);
+                int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
 
-                    // The proto LiquidFuel total rose; clamp tolerance lets KSP's own
-                    // capacity clamp trim the fill, so assert STRICTLY UP rather than
-                    // an exact sum (the unloaded vessel's spare capacity is unknown).
-                    double rawAfter = SumProtoLiquidFuelRaw(endpointVessel);
-                    InGameAssert.IsTrue(rawAfter > rawBefore + ResourceTolerance,
-                        $"Unloaded endpoint LiquidFuel total should INCREASE after the two-window delivery " +
-                        $"(before={rawBefore.ToString("R", IC)} after={rawAfter.ToString("R", IC)})");
+                RunMultiStopCrossing(
+                    label: "MultiStop_Unloaded",
+                    treeId: treeId,
+                    routeId: routeId,
+                    endpointVessel: endpointVessel,
+                    tickUT: TickUtBothDocks,
+                    preExistingRoutes: preExistingRoutes,
+                    restoreEndpointState: () => RestoreProtoLiquidFuel(protoSnapshot),
+                    assertions: capturedLog =>
+                    {
+                        InGameAssert.IsTrue(RouteStore.TryGetRoute(routeId, out Route postTick),
+                            "Multi-stop route disappeared from store during Tick");
+                        InGameAssert.AreEqual(1, postTick.CompletedCycles,
+                            "CompletedCycles should be exactly 1 after a single two-window cycle");
 
-                    CountNewRouteRows(beforeLedgerCount, routeId,
-                        out int dispatchedCount, out int deliveredCount, out var deliveredStopIndices);
-                    InGameAssert.AreEqual(1, dispatchedCount,
-                        "Expected exactly one RouteDispatched row (dispatch fires once per cycle)");
-                    InGameAssert.AreEqual(2, deliveredCount,
-                        "Expected exactly TWO RouteCargoDelivered rows (one per window)");
-                    InGameAssert.IsTrue(deliveredStopIndices.Contains(0) && deliveredStopIndices.Contains(1),
-                        "The two delivery rows must carry DISTINCT stop indices 0 and 1");
+                        // The proto LiquidFuel total rose; clamp tolerance lets KSP's own
+                        // capacity clamp trim the fill, so assert STRICTLY UP rather than
+                        // an exact sum (the unloaded vessel's spare capacity is unknown).
+                        double rawAfter = SumProtoLiquidFuelRaw(endpointVessel);
+                        InGameAssert.IsTrue(rawAfter > rawBefore + ResourceTolerance,
+                            $"Unloaded endpoint LiquidFuel total should INCREASE after the two-window delivery " +
+                            $"(before={rawBefore.ToString("R", IC)} after={rawAfter.ToString("R", IC)})");
 
-                    ParsekLog.Info("TestRunner",
-                        $"MultiStop_Unloaded: PASS routeId={routeId} endpoint={endpointVessel.vesselName} " +
-                        $"pid={endpointVessel.persistentId.ToString(IC)} " +
-                        $"rawBefore={rawBefore.ToString("R", IC)} rawAfter={rawAfter.ToString("R", IC)} " +
-                        $"deliveredRows={deliveredCount.ToString(IC)}");
-                });
+                        CountNewRouteRows(beforeLedgerCount, routeId,
+                            out int dispatchedCount, out int deliveredCount, out var deliveredStopIndices);
+                        InGameAssert.AreEqual(1, dispatchedCount,
+                            "Expected exactly one RouteDispatched row (dispatch fires once per cycle)");
+                        InGameAssert.AreEqual(2, deliveredCount,
+                            "Expected exactly TWO RouteCargoDelivered rows (one per window)");
+                        InGameAssert.IsTrue(deliveredStopIndices.Contains(0) && deliveredStopIndices.Contains(1),
+                            "The two delivery rows must carry DISTINCT stop indices 0 and 1");
+
+                        ParsekLog.Info("TestRunner",
+                            $"MultiStop_Unloaded: PASS routeId={routeId} endpoint={endpointVessel.vesselName} " +
+                            $"pid={endpointVessel.persistentId.ToString(IC)} " +
+                            $"rawBefore={rawBefore.ToString("R", IC)} rawAfter={rawAfter.ToString("R", IC)} " +
+                            $"deliveredRows={deliveredCount.ToString(IC)}");
+                    });
+            }
+            finally
+            {
+                // Remove the auto-spawned fixture vessel (no-op for a reused one).
+                UnloadedFuelVesselFixture.Cleanup(fixture);
+            }
             yield break;
         }
 
@@ -896,55 +922,6 @@ namespace Parsek.InGameTests
                 }
             }
             return total;
-        }
-
-        /// <summary>
-        /// Finds an existing UNLOADED, non-ghost, non-active vessel with a
-        /// LiquidFuel tank that has spare CAPACITY (so a delivery onto it can rise).
-        /// Mirrors the M1/M3 unloaded fixtures (plan finding 6: spawn-based fixtures
-        /// are unproven ground). <paramref name="rawBefore"/> is the unconditional
-        /// proto LiquidFuel total (the basis the delivery raises).
-        /// </summary>
-        private static bool TryFindUnloadedVesselWithHeadroom(out Vessel candidate, out double rawBefore)
-        {
-            candidate = null;
-            rawBefore = 0.0;
-            List<Vessel> vessels = FlightGlobals.Vessels;
-            if (vessels == null) return false;
-            HashSet<uint> ghostPids = GhostMapPresence.ghostMapVesselPids;
-            Vessel active = FlightGlobals.ActiveVessel;
-
-            for (int i = 0; i < vessels.Count; i++)
-            {
-                Vessel v = vessels[i];
-                if (v == null || v.loaded) continue;
-                if (active != null && ReferenceEquals(v, active)) continue;
-                if (ghostPids != null && ghostPids.Contains(v.persistentId)) continue;
-                if (v.protoVessel == null || v.protoVessel.protoPartSnapshots == null) continue;
-
-                double stored = 0.0;
-                double capacity = 0.0;
-                ProtoVessel pv = v.protoVessel;
-                for (int p = 0; p < pv.protoPartSnapshots.Count; p++)
-                {
-                    ProtoPartSnapshot pps = pv.protoPartSnapshots[p];
-                    if (pps == null || pps.resources == null) continue;
-                    for (int r = 0; r < pps.resources.Count; r++)
-                    {
-                        ProtoPartResourceSnapshot prs = pps.resources[r];
-                        if (prs == null) continue;
-                        if (!string.Equals(prs.resourceName, LiquidFuelName, StringComparison.Ordinal)) continue;
-                        stored += prs.amount;
-                        capacity += prs.maxAmount;
-                    }
-                }
-                if (capacity - stored < MinTankHeadroom) continue;
-
-                candidate = v;
-                rawBefore = stored;
-                return true;
-            }
-            return false;
         }
 
         // ==================================================================
