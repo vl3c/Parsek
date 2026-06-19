@@ -1212,7 +1212,9 @@ namespace Parsek
             // shows the synodic cadence + a "(<target> transfer)" basis and the T- cell counts down to
             // the next window (NextRelaunchUT is already the uniform synodic anchor + n*cadence).
             public bool IsReaim;
-            public double ReaimSynodicSeconds;   // the synodic relaunch cadence (NaN when not re-aim)
+            public double ReaimSynodicSeconds;   // the relaunch cadence (CadenceSeconds = smallest whole
+                                                 // synodic multiple >= span; NaN when not re-aim). Matches
+                                                 // the T-minus countdown so the two cells agree.
             public string ReaimTargetBody;        // the interplanetary destination (null when not re-aim)
         }
 
@@ -1305,8 +1307,14 @@ namespace Parsek
             // periodicity Solve cannot represent (it reports UnsupportedCrossParent). Surface it so the
             // cells show the ~synodic cadence + a window countdown instead of "not aligned".
             result.IsReaim = result.UnitBuilt && unit.IsReaim;
+            // Show the ACTUAL relaunch cadence (CadenceSeconds = the smallest whole synodic multiple >=
+            // span), NOT the bare 1*synodic period: the cadence is what the engine relaunches on and what
+            // ComputeNextRelaunchUT counts the T-minus down to, so pointing the period cell at the synodic
+            // period (1.05y) while the countdown uses the cadence (e.g. 2.1y for span>synodic) would make
+            // the two cells DISAGREE by the multiple. For a normal mission cadence == synodic, so the cell
+            // is unchanged.
             result.ReaimSynodicSeconds = result.IsReaim
-                ? unit.ReaimSchedule.Value.SynodicPeriodSeconds
+                ? unit.CadenceSeconds
                 : double.NaN;
             result.ReaimTargetBody = result.IsReaim ? unit.ReaimPlan.Value.TargetBody : null;
             // M4c arrival amber: carried by the unit the builder produced (same inputs as the

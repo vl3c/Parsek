@@ -889,5 +889,6 @@ namespace Parsek.Tests
                     BP("bpc", BranchPointType.Breakup, new[] { "b" }, new[] { "c" })
                 });
         }
+
     }
 }
