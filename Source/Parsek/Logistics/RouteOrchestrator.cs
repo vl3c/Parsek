@@ -443,6 +443,43 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// Round-trip linking alternation advance (M4c Phase C1, plan D12 / OQ8).
+        /// Called at the moment a chain-linked route's cycle DISPATCHES (the
+        /// once-per-cycle dispatch emit), gated on a non-null
+        /// <see cref="Route.LinkedRouteId"/>. Sets
+        /// <see cref="Route.LastConsumedPartnerCycle"/> to the partner's CURRENT
+        /// <see cref="Route.CompletedCycles"/> so the partner gate
+        /// (<see cref="RouteDispatchEvaluator.PartnerConstraintSatisfied"/>) holds
+        /// this route until the partner completes ANOTHER cycle (strict A-&gt;B-&gt;A
+        /// alternation). The invariant: after this route dispatches consuming
+        /// partner-completion <c>K</c>, the route holds until the partner reaches
+        /// completion <c>K+1</c>.
+        ///
+        /// <para>An unlinked route, an unresolved partner, or a non-advancing
+        /// (Paused / Broken) partner is a no-op - those are the same routes the
+        /// partner gate bypasses, and a no-op here keeps the cursor at its
+        /// already-correct value. Idempotent / monotone: it only ever assigns the
+        /// partner's current completion count, never decrements.</para>
+        /// </summary>
+        internal static void AdvancePartnerAlternationOnDispatch(Route route, double currentUT)
+        {
+            if (route == null || string.IsNullOrEmpty(route.LinkedRouteId))
+                return;
+            if (!RouteStore.TryGetRoute(route.LinkedRouteId, out Route partner) || partner == null)
+                return;
+
+            int prev = route.LastConsumedPartnerCycle;
+            if (route.LastConsumedPartnerCycle == partner.CompletedCycles)
+                return; // already consumed this partner cycle (e.g. seed re-dispatch before partner advances)
+
+            route.LastConsumedPartnerCycle = partner.CompletedCycles;
+            ParsekLog.Verbose(Tag,
+                $"PartnerGate: route {ShortIdForLog(route)} dispatched - consumed partner={ShortIdForLog(partner)} " +
+                $"cycle lastConsumed {prev.ToString(IC)} -> {route.LastConsumedPartnerCycle.ToString(IC)} " +
+                $"at ut={currentUT.ToString("R", IC)}");
+        }
+
+        /// <summary>
         /// Per-route catch-up loop. Re-evaluates the route until a terminal
         /// outcome lands (Skip / Dispatch / Wait* / EndpointLost /
         /// InTransitComplete). Dispatch transitions the route to InTransit and
@@ -782,6 +819,13 @@ namespace Parsek.Logistics
             route.LastObservedLoopCycleIndex = dockCycleIndex;
             if (emitted)
             {
+                // M4c Phase C1 (plan D12 / OQ8): a fresh dispatch consumes the
+                // partner's current cycle so the route holds WaitingForPartner until
+                // the partner completes ANOTHER cycle (strict A->B->A alternation).
+                // Advance ONLY on a genuine fire (emitted true), NOT on the
+                // ELS-replay backstop below (a replay re-presents an already-consumed
+                // cycle - re-advancing would skip a partner cycle).
+                AdvancePartnerAlternationOnDispatch(route, currentUT);
                 dispatched++;
                 transitioned++;
                 ParsekLog.Info(Tag,
@@ -1057,6 +1101,12 @@ namespace Parsek.Logistics
                         $"LoopRoute(multi): route {ShortIdForLog(route)} armed pending recovery credit " +
                         $"cycle={cycleId} dispatchUT={currentUT.ToString("R", IC)}");
                 }
+                // M4c Phase C1 (plan D12 / OQ8): the cycle's once-per-cycle dispatch
+                // just fired (this is the !dispatchAlready first-commit branch), so
+                // consume the partner's current cycle. A dispatchAlready resume (the
+                // else branch below) does NOT re-advance - the cycle's dispatch was
+                // already counted on its first tick.
+                AdvancePartnerAlternationOnDispatch(route, currentUT);
                 dispatched++;
                 ParsekLog.Info(Tag,
                     $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +

@@ -341,6 +341,43 @@ namespace Parsek.Tests.Logistics
                     RouteStatus.Active, "not enough funds at KSC for this dispatch"));
         }
 
+        private const RouteDispatchEvaluator.EligibilityFailureKind WaitingForPartner =
+            RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner;
+
+        // M4c Phase C1 (plan D12 / OQ8): the round-trip linking hold names the
+        // linked partner. catches: the WaitingForPartner kind rendering the generic
+        // fallback instead of a partner-named "waiting for the linked route" clause.
+        [Fact]
+        public void DescribeHold_WaitingForPartner_NamesPartner()
+        {
+            Assert.Equal(
+                "waiting for the linked route 'Return Run' to complete its run",
+                LogisticsHoldPresentation.DescribeHold(WaitingForPartner, "partner:Return Run", 0.0));
+        }
+
+        // catches: a WaitingForPartner hold with a missing / malformed partner token
+        // rendering blank instead of the generic linked-route clause.
+        [Fact]
+        public void DescribeHold_WaitingForPartner_NoToken_GenericClause()
+        {
+            Assert.Equal(
+                "waiting for the linked route to complete its run",
+                LogisticsHoldPresentation.DescribeHold(WaitingForPartner, "partner:", 0.0));
+            Assert.Equal(
+                "waiting for the linked route to complete its run",
+                LogisticsHoldPresentation.DescribeHold(WaitingForPartner, null, 0.0));
+        }
+
+        // catches: a WaitingForPartner hold being suppressed from display on an
+        // Active route (the route stays GhostDriving while waiting, so the hold MUST
+        // show to answer "why isn't this delivering").
+        [Fact]
+        public void ShouldDisplayHold_WaitingForPartner_ShowsOnActive()
+        {
+            Assert.True(LogisticsHoldPresentation.ShouldDisplayHold(
+                RouteStatus.Active, WaitingForPartner));
+        }
+
         // ------------------------------------------------------------------
         // Plain-ASCII guard (no em dashes, no special Unicode)
         // ------------------------------------------------------------------
@@ -369,6 +406,9 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, "stop-0-no-surface-candidate", 0.0),
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, "endpoint-destroyed-at-delivery:unknown", 0.0),
                 LogisticsHoldPresentation.DescribeHold(SourcesStale, "sources-stale", 0.0),
+                LogisticsHoldPresentation.DescribeHold(WaitingForPartner, "partner:Return Run", 0.0),
+                LogisticsHoldPresentation.DescribeHold(WaitingForPartner, "partner:", 0.0),
+                LogisticsHoldPresentation.DescribeHold(WaitingForPartner, null, 0.0),
                 LogisticsHoldPresentation.DescribeHold(
                     (RouteDispatchEvaluator.EligibilityFailureKind)999, "tok", 0.0),
                 LogisticsHoldPresentation.FormatHoldDetailLine("origin is out of LiquidFuel", 120.0),

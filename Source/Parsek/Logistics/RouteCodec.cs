@@ -111,6 +111,13 @@ namespace Parsek.Logistics
 
             if (!string.IsNullOrEmpty(route.LinkedRouteId))
                 node.AddValue("linkedRouteId", route.LinkedRouteId);
+            // Sparse round-trip linking alternation cursor (M4c Phase C1): 0 (the
+            // default for every unlinked / pre-M4c route) writes NOTHING, so the
+            // route round-trips byte-identically. Only a linked route that has
+            // consumed a partner cycle lands a value (mirrors the dispatchPriority /
+            // lastObservedLoopCycleIndex sparse convention).
+            if (route.LastConsumedPartnerCycle != 0)
+                node.AddValue("lastConsumedPartnerCycle", route.LastConsumedPartnerCycle.ToString(ic));
 
             // --- Status ---
             node.AddValue("status", route.Status.ToString());
@@ -279,6 +286,10 @@ namespace Parsek.Logistics
             route.LinkedRouteId = node.GetValue("linkedRouteId");
             if (string.IsNullOrEmpty(route.LinkedRouteId))
                 route.LinkedRouteId = null;
+            // Sparse round-trip linking alternation cursor (M4c Phase C1): absent ->
+            // the 0 default (no partner cycle consumed yet). No clamp needed; the
+            // field is a monotonic counter advanced only on dispatch.
+            TryParseInt(node.GetValue("lastConsumedPartnerCycle"), ic, 0, out route.LastConsumedPartnerCycle);
 
             string statusStr = node.GetValue("status");
             route.Status = ParseStatusOrWarn(statusStr, route.Id);

@@ -73,6 +73,18 @@ namespace Parsek
                 case RouteDispatchEvaluator.EligibilityFailureKind.SourcesStale:
                     return "route source recordings are unavailable right now";
 
+                case RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner:
+                {
+                    // Round-trip linking (M4c Phase C1): the gate token is
+                    // "partner:<partnerName-or-id>". Name the linked route so the
+                    // player knows which run this one is waiting on. The route keeps
+                    // flying its loop (GhostDriving) while it waits.
+                    string partner = StripPrefix(detail, "partner:");
+                    return string.IsNullOrEmpty(partner)
+                        ? "waiting for the linked route to complete its run"
+                        : "waiting for the linked route '" + partner + "' to complete its run";
+                }
+
                 default:
                     return Fallback(kind, detail);
             }

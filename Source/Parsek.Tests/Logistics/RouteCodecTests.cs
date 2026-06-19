@@ -573,6 +573,60 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(3, raisedLoaded.DispatchPriority);
         }
 
+        // M4c Phase C1 (plan D12 / OQ8): the round-trip linking alternation cursor
+        // round-trips, and its 0 default is sparse (omitted) so an unlinked / pre-M4c
+        // route writes NOTHING new and is byte-identical.
+        // catches: LastConsumedPartnerCycle not persisting (alternation state lost
+        // across save/reload), or the sparse 0 default being written and bloating an
+        // unlinked route's save.
+        [Fact]
+        public void RoundTrip_LastConsumedPartnerCycle_SparseDefaultZero()
+        {
+            var leanStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+
+            // Unlinked route at the 0 default: writes NO lastConsumedPartnerCycle
+            // value AND no linkedRouteId -> byte-identical to a pre-M4c route.
+            var defaultRoute = new RouteFixtureBuilder()
+                .WithId("partner-default-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .Build();
+            var defNode = new ConfigNode("ROUTE");
+            defaultRoute.SerializeInto(defNode);
+            Assert.False(defNode.HasValue("lastConsumedPartnerCycle"),
+                "lastConsumedPartnerCycle must be omitted when 0 (the default)");
+            Assert.False(defNode.HasValue("linkedRouteId"),
+                "an unlinked route writes no linkedRouteId");
+            Route defLoaded = Route.DeserializeFrom(defNode);
+            Assert.NotNull(defLoaded);
+            Assert.Equal(0, defLoaded.LastConsumedPartnerCycle);
+            Assert.Null(defLoaded.LinkedRouteId);
+
+            // A linked route mid-alternation round-trips both the link and the cursor.
+            var linkedRoute = new RouteFixtureBuilder()
+                .WithId("partner-linked-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .WithLinkedRouteId("partner-other-route")
+                .WithLastConsumedPartnerCycle(5)
+                .Build();
+            var linkedNode = new ConfigNode("ROUTE");
+            linkedRoute.SerializeInto(linkedNode);
+            Assert.True(linkedNode.HasValue("lastConsumedPartnerCycle"),
+                "lastConsumedPartnerCycle must be written when non-zero");
+            Route linkedLoaded = Route.DeserializeFrom(linkedNode);
+            Assert.NotNull(linkedLoaded);
+            Assert.Equal("partner-other-route", linkedLoaded.LinkedRouteId);
+            Assert.Equal(5, linkedLoaded.LastConsumedPartnerCycle);
+        }
+
         // catches: a hand-edited save with a negative dispatch priority landing a
         // sub-floor value instead of being clamped up to 0 on load.
         [Fact]
