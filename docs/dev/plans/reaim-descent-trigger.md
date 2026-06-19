@@ -54,11 +54,13 @@ engine path is NOT yet wired (the user tests in the Tracking Station). Multi-rec
 separate member) are also a follow-up — v1 assumes the single through-line member = `ownerIndex`.**
 
 ### LoopUnit fields (sentinel = identity; GhostPlaybackLogic.cs)
-`DescentMemberIndex` (-1), `RecordedDeorbitUT` (NaN, = `destTrim.RecordedDeorbitUT` = selected destination
-surface-section start), `DescentEndUT` (NaN, = `spanEndUT` for v1 single-member), `DestinationBodyRotation
-PeriodSeconds` (NaN, = `destTrim.AlignPeriodSeconds` = T_rot), `LoiterPeriodSeconds` (NaN, =
-`destTrim.DestinationPeriodSeconds` = T_park), `CaptureShiftSeconds` (NaN). `HasDescentTrigger` gates the
-resolver. No latch (the stateless cycle-N derivation replaced it).
+**(field SOURCING below is SUPERSEDED by the Multi-member rework section — see it for the as-shipped values.)**
+`DescentMemberIndex` (-1), `RecordedDeorbitUT`, `DescentEndUT`, `DestinationBodyRotationPeriodSeconds` (T_rot),
+`LoiterPeriodSeconds` (T_park), `CaptureShiftSeconds`. `HasDescentTrigger` gates the resolver. No latch (the
+stateless cycle-N derivation replaced it). The single `DescentMemberIndex` and the `destTrim`-sourced
+deorbit/period this section originally proposed were both replaced (the builder re-derives deorbit from the
+transfer seam and T_park from the parking `LoiterRun`; the `DestinationLoiterTrimResult` no longer carries
+deorbit/period).
 
 ### Invariants — HELD
 - Byte-identical-off: no-op unless `HasDescentTrigger && i == DescentMemberIndex && decision == Render`.

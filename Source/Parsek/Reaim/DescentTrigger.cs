@@ -297,6 +297,13 @@ namespace Parsek.Reaim
                 recordedDeorbitUT, descentEndUT, rotationPeriod, parkingPeriod, captureShiftSeconds,
                 loiterCuts, out double sharedHead);
 
+            // Doubly-inclusive epsilon window, matching the normal-path IsLoopUTInMemberWindow contract. At an
+            // exact-abutting or slightly-overlapping chain seam (real recordings can overlap ~0.02 s) the head can
+            // momentarily satisfy two adjacent members at once, rendering both for one frame. That is accepted:
+            // the members are a continuous chain so both draw the SAME world position (same head UT, abutting
+            // recordings), so it reads as one ghost, not two; a clean per-member tiling would need each member to
+            // know its neighbours' windows, which this per-member seam deliberately does not. The builder declines
+            // to engage on a REAL gap (review B1), so the only residual is this harmless same-position seam frame.
             if (phase == DescentHeadPhase.Descent
                 && sharedHead >= memberStartUT - LoopTiming.BoundaryEpsilon
                 && sharedHead <= memberEndUT + LoopTiming.BoundaryEpsilon)

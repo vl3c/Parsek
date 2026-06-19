@@ -400,18 +400,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Dispatch_ContiguousHandoffNoGapNoOverlap()
+        public void Dispatch_ContiguousClip_ExactlyOneMemberCoversEveryInstant()
         {
-            // Sweep the clip; at every instant EXACTLY ONE of the three contiguous members renders (the clock is
-            // monotone and the windows abut), so the chain plays seamlessly with no tear and no double icon.
+            // FULL COVERAGE (review m1): sweep the whole clip at non-boundary samples (37 s never lands exactly on
+            // a window seam) and assert EXACTLY ONE of the three contiguous members renders at every instant -
+            // catching both a coverage HOLE (rendering 0 = blackout) and an off-seam double (rendering 2). The
+            // chain plays seamlessly with no tear. (Exact-seam double is covered separately below.)
             for (double t = TriggerUT(0); t <= TriggerUT(0) + (DescentEnd - Deorbit); t += 37.0)
             {
                 int rendering = 0;
                 if (ResolveMember(t, W1Start, W1End, out _, out _)) rendering++;
                 if (ResolveMember(t, W1End, W2End, out _, out _)) rendering++;
                 if (ResolveMember(t, W2End, W3End, out _, out _)) rendering++;
-                Assert.True(rendering <= 1, $"more than one member rendered at t={t}");
+                Assert.True(rendering == 1, $"expected exactly one member at t={t}, got {rendering}");
             }
+        }
+
+        [Fact]
+        public void Dispatch_ExactSeam_RendersAtLeastOne_DoubleIsAcceptedSamePosition()
+        {
+            // At an EXACT shared seam (head == W1End) the doubly-inclusive epsilon lets BOTH adjacent members
+            // match - an accepted, harmless same-position frame (review m2). The invariant that matters is NO
+            // BLACKOUT: at least one renders, and both return the same head value (same world position).
+            double tSeam = TriggerUT(0) + (W1End - Deorbit);
+            bool a = ResolveMember(tSeam, W1Start, W1End, out double ha, out _);
+            bool b = ResolveMember(tSeam, W1End, W2End, out double hb, out _);
+            Assert.True(a || b, "the seam must be covered by at least one member (no blackout)");
+            if (a && b) Assert.Equal(ha, hb, 6); // both at the same head -> same position -> reads as one icon
+        }
+
+        [Fact]
+        public void Dispatch_RealGap_HidesDuringTheGap()
+        {
+            // If the member windows are NON-contiguous (the builder declines to engage on this, review B1, but the
+            // dispatch must still fail safe), the shared head in the gap renders NO member - a hidden frame, never
+            // a wrong-position render. Windows: [W1Start,W1End], GAP, [W1End+300, W3End].
+            double t = TriggerUT(0) + (W1End + 150.0 - Deorbit); // head = W1End + 150, inside the 300 s gap
+            Assert.False(ResolveMember(t, W1Start, W1End, out _, out _));
+            Assert.False(ResolveMember(t, W1End + 300.0, W3End, out _, out _));
         }
 
         [Fact]
@@ -430,6 +456,107 @@ namespace Parsek.Tests
             Assert.Equal(DescentTrigger.DescentHeadPhase.Inert,
                 DescentTrigger.ComputeDescentMemberHead(TriggerUT(0), 0, Pa, Cad, SpanStart, Deorbit, DescentEnd,
                     DunaTrot, Tpark, double.NaN, null, out _)); // NaN capture shift
+        }
+
+        // --- Resolver integration: GhostPlaybackLogic.ResolveTrackingStationSampleUT / …Frame (review M1) ---
+        //
+        // Builds a re-aim LoopUnit (IsReaim true) with a 3-member descent set {49,50,51} partitioning
+        // [Deorbit, DescentEnd], plus a non-descent owner member 0. Drives the actual resolver seam — the
+        // per-phase renderHidden/UT, the SpanClockUnresolved early-out, byte-identical-off for a sibling member,
+        // and the R6 secondary suppression — none of which the pure-helper tests exercise.
+        private static GhostPlaybackLogic.LoopUnitSet BuildDescentUnit(bool engage)
+        {
+            var windows = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>
+            {
+                { 0, new GhostPlaybackLogic.LoopUnit.MemberWindow(0.0, 500.0) },        // owner (non-descent)
+                { 49, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1Start, W1End) },
+                { 50, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1End, W2End) },
+                { 51, new GhostPlaybackLogic.LoopUnit.MemberWindow(W2End, W3End) },
+            };
+            var plan = new Parsek.Reaim.ReaimMissionPlan { Supported = true };
+            var sched = new Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule { Valid = true };
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                0, new[] { 0, 49, 50, 51 }, SpanStart, DescentEnd, Cad, Pa, Cad, windows, null, plan, sched,
+                loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
+                arrivalAlignPeriodSeconds: double.NaN, arrivalAmberReason: null,
+                launchBodyRotationPeriodSeconds: double.NaN, launchHoldEngaged: false,
+                recordedSoiExitUT: double.NaN,
+                descentMemberIndices: engage ? new[] { 49, 50, 51 } : null,
+                recordedDeorbitUT: engage ? Deorbit : double.NaN,
+                descentEndUT: engage ? DescentEnd : double.NaN,
+                destinationBodyRotationPeriodSeconds: engage ? DunaTrot : double.NaN,
+                loiterPeriodSeconds: engage ? Tpark : double.NaN,
+                captureShiftSeconds: engage ? CapShift : double.NaN);
+            return new GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
+                new Dictionary<int, int> { { 0, 0 }, { 49, 0 }, { 50, 0 }, { 51, 0 } });
+        }
+
+        private static double Resolve(int i, double wStart, double wEnd, double liveUT, GhostPlaybackLogic.LoopUnitSet units, out bool hidden)
+            => GhostPlaybackLogic.ResolveTrackingStationSampleUT(i, wStart, wEnd, liveUT, units, out hidden);
+
+        [Fact]
+        public void Resolver_DescentMember_RendersOnlyItsOwnSlice()
+        {
+            var units = BuildDescentUnit(engage: true);
+            double t = TriggerUT(0) + 400.0; // shared head = Deorbit + 400 -> in member 49's window only
+
+            double u49 = Resolve(49, W1Start, W1End, t, units, out bool h49);
+            Assert.False(h49);
+            Assert.Equal(Deorbit + 400.0, u49, 3);
+
+            Resolve(50, W1End, W2End, t, units, out bool h50);
+            Resolve(51, W2End, W3End, t, units, out bool h51);
+            Assert.True(h50, "member 50 hidden outside its slice");
+            Assert.True(h51, "member 51 hidden outside its slice");
+        }
+
+        [Fact]
+        public void Resolver_DescentMember_HiddenInInertLoiterDone()
+        {
+            var units = BuildDescentUnit(engage: true);
+            Resolve(49, W1Start, W1End, EntryUT(0) - 100.0, units, out bool inert);   // Inert
+            Resolve(49, W1Start, W1End, EntryUT(0) + 100.0, units, out bool loiter);  // Loiter
+            Resolve(49, W1Start, W1End, TriggerUT(0) + (DescentEnd - Deorbit) + 50.0, units, out bool done); // Done
+            Assert.True(inert, "descent member hidden during Inert (never rides the raw loop clock)");
+            Assert.True(loiter, "descent member hidden during Loiter (transfer member owns the conic icon)");
+            Assert.True(done, "descent member hidden after the clip ends");
+        }
+
+        [Fact]
+        public void Resolver_NonDescentMember_ByteIdenticalWithTriggerOnOrOff()
+        {
+            var on = BuildDescentUnit(engage: true);
+            var off = BuildDescentUnit(engage: false);
+            // The owner member 0 is NOT in the descent set, so the override must never touch it: its result is
+            // identical whether the unit carries a descent trigger or not, across launch / hidden / inter-cycle.
+            foreach (double t in new[] { Pa + 100.0, Pa + 700.0, Pa + 40_000_000.0, Pa - 50.0 })
+            {
+                double uOn = Resolve(0, 0.0, 500.0, t, on, out bool hOn);
+                double uOff = Resolve(0, 0.0, 500.0, t, off, out bool hOff);
+                Assert.Equal(hOff, hOn);
+                if (!hOff && !double.IsNaN(uOff)) Assert.Equal(uOff, uOn, 6);
+            }
+        }
+
+        [Fact]
+        public void Resolver_Frame_DescentMember_SuppressesSecondary()
+        {
+            var units = BuildDescentUnit(engage: true);
+            double t = TriggerUT(0) + 400.0;
+            GhostPlaybackLogic.ResolveTrackingStationSampleFrame(
+                49, W1Start, W1End, t, units, out bool _, out bool hasSecondary, out double _, out long _);
+            Assert.False(hasSecondary, "a descent member must not emit an un-remapped boundary-overlap secondary (R6)");
+        }
+
+        [Fact]
+        public void Resolver_DescentMember_ReArmsAtCycle1()
+        {
+            var units = BuildDescentUnit(engage: true);
+            double t = TriggerUT(1) + 400.0; // cycle 1, shared head = Deorbit + 400 -> member 49 again
+            double u49 = Resolve(49, W1Start, W1End, t, units, out bool h49);
+            Assert.False(h49);
+            Assert.Equal(Deorbit + 400.0, u49, 3);
         }
     }
 }
