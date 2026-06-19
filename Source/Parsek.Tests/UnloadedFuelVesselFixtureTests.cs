@@ -250,6 +250,32 @@ namespace Parsek.Tests
             Assert.True(stored < 2.0 * pickup, $"source must NOT cover two pickups (stored={stored} 2x={2.0 * pickup})");
         }
 
+        [Fact]
+        public void AdjustSnapshotLiquidFuel_Cap_MultiTank_TotalEqualsCap_ZeroesOtherTanks()
+        {
+            // The live-playtest bug (2026-06-19): the donor (stock Kerbal X) has
+            // MULTIPLE LiquidFuel tanks. Capping only the FIRST left the vessel TOTAL
+            // (which the production probe SUMS across all tanks) at ~7925 LF, so the
+            // escrow competing-route test skipped ("7925 LF >= 2x the pickup"). The cap
+            // must bound the TOTAL: first tank == cap, every OTHER LF tank zeroed.
+            const double cap = 5.0;
+            var lf1 = Resource(LiquidFuelName, 4000.0, 4000.0);
+            var lf2 = Resource(LiquidFuelName, 3925.0, 4000.0);
+            var ox = Resource("Oxidizer", 1000.0, 1000.0); // non-LF: must be untouched
+            var vessel = Vessel(Part(lf1, ox), Part(lf2));
+
+            bool ok = UnloadedFuelVesselFixture.AdjustSnapshotLiquidFuel(
+                vessel, minStoredLf: cap, minFreeCapacity: 1.0, out _, capStoredLf: cap);
+
+            Assert.True(ok);
+            // TOTAL stored LF across BOTH tanks == cap (first carries it, second zeroed).
+            Assert.Equal(cap, Amount(lf1) + Amount(lf2), 6);
+            Assert.Equal(cap, Amount(lf1), 6);
+            Assert.Equal(0.0, Amount(lf2), 6);
+            // Oxidizer untouched (the cap only zeroes LiquidFuel tanks).
+            Assert.Equal(1000.0, Amount(ox), 6);
+        }
+
         // ==================================================================
         // IsReuseExcluded: a second multi-source provisioning call must NOT reuse
         // an already-provisioned depot's pid (distinct-depot fix).

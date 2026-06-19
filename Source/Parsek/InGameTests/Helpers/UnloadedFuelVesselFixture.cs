@@ -393,6 +393,13 @@ namespace Parsek.InGameTests.Helpers
                 return false;
             }
 
+            // The production probe sums stored LiquidFuel across ALL deliverable
+            // tanks, so a multi-tank donor (e.g. the stock Kerbal X) is only bounded
+            // if EVERY LF tank is shaped: the FIRST carries the target/cap, and for
+            // the cap case every OTHER LF tank is zeroed so the vessel TOTAL == cap.
+            // (Shaping only the first tank left the live-spawned source at the donor's
+            // full ~7925 LF and skipped the escrow competing-route test - playtest bug.)
+            bool foundFirst = false;
             for (int i = 0; i < parts.Length; i++)
             {
                 ConfigNode part = parts[i];
@@ -406,42 +413,61 @@ namespace Parsek.InGameTests.Helpers
                     if (!string.Equals(res.GetValue("name"), LiquidFuelName, StringComparison.Ordinal))
                         continue;
 
-                    double newAmount;
-                    double newMax;
-                    if (capped)
+                    if (!foundFirst)
                     {
-                        // EXACT cap: store exactly capAmount in a tank just big enough
-                        // for it + the requested free capacity. The donor's large
-                        // capacity is deliberately NOT preserved so a shared source
-                        // covers one pickup but not two.
-                        newAmount = capAmount;
-                        newMax = newAmount + minFreeCapacity;
+                        foundFirst = true;
+                        double newAmount;
+                        double newMax;
+                        if (capped)
+                        {
+                            // EXACT cap: store exactly capAmount in a tank just big enough
+                            // for it + the requested free capacity. The donor's large
+                            // capacity is deliberately NOT preserved so a shared source
+                            // covers one pickup but not two.
+                            newAmount = capAmount;
+                            newMax = newAmount + minFreeCapacity;
+                        }
+                        else
+                        {
+                            // Target: amount >= minStoredLf, maxAmount - amount >= minFreeCapacity.
+                            newAmount = minStoredLf;
+                            newMax = newAmount + minFreeCapacity;
+
+                            // Preserve a larger existing tank capacity if it already exceeds
+                            // the requested totals (keeps the tank shape realistic), but never
+                            // below the requested free capacity.
+                            double existingMax = ParseDouble(res.GetValue("maxAmount"));
+                            if (existingMax > newMax) newMax = existingMax;
+                            if (newMax - newAmount < minFreeCapacity) newMax = newAmount + minFreeCapacity;
+                        }
+
+                        res.SetValue("amount", newAmount.ToString("R", IC), true);
+                        res.SetValue("maxAmount", newMax.ToString("R", IC), true);
+                        // A freshly-shaped tank must be flowing so the production probe /
+                        // writer can read + mutate it (flowState true, not NO_FLOW-locked).
+                        res.SetValue("flowState", "True", true);
+
+                        // Non-cap path: the first tank suffices (total is naturally
+                        // >= minStoredLf); leave the donor's other tanks untouched.
+                        if (!capped)
+                            return true;
                     }
-                    else
+                    else if (capped)
                     {
-                        // Target: amount >= minStoredLf, maxAmount - amount >= minFreeCapacity.
-                        newAmount = minStoredLf;
-                        newMax = newAmount + minFreeCapacity;
-
-                        // Preserve a larger existing tank capacity if it already exceeds
-                        // the requested totals (keeps the tank shape realistic), but never
-                        // below the requested free capacity.
-                        double existingMax = ParseDouble(res.GetValue("maxAmount"));
-                        if (existingMax > newMax) newMax = existingMax;
-                        if (newMax - newAmount < minFreeCapacity) newMax = newAmount + minFreeCapacity;
+                        // Zero every OTHER LF tank so the vessel TOTAL stored LF == cap
+                        // (keep it flowing/empty; the Oxidizer in these tanks is untouched).
+                        res.SetValue("amount", "0", true);
+                        res.SetValue("flowState", "True", true);
                     }
-
-                    res.SetValue("amount", newAmount.ToString("R", IC), true);
-                    res.SetValue("maxAmount", newMax.ToString("R", IC), true);
-                    // A freshly-shaped tank must be flowing so the production probe /
-                    // writer can read + mutate it (flowState true, not NO_FLOW-locked).
-                    res.SetValue("flowState", "True", true);
-                    return true;
                 }
             }
 
-            reason = "no-liquidfuel-resource";
-            return false;
+            if (!foundFirst)
+            {
+                reason = "no-liquidfuel-resource";
+                return false;
+            }
+            return true;
         }
 
         // ==================================================================
