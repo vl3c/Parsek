@@ -783,6 +783,28 @@ namespace Parsek.InGameTests
             InGameAssert.IsGreaterThan(kerbin.Radius, 0, "Kerbin radius should be positive");
         }
 
+        [InGameTest(Category = "StockWarpLimits", Scene = GameScenes.FLIGHT,
+            Description = "Stock warp altitude limits were snapshotted before any warp-mod override")]
+        public void StockWarpLimitsCaptured()
+        {
+            // Proves the PSystemSpawn capture actually ran (the timing premise the BetterTimeWarp
+            // support relies on) AND that the cache is keyed by the same body.name that
+            // ComputeApproachAltitude looks up — the two silent-failure modes xUnit cannot catch.
+            InGameAssert.IsTrue(StockWarpAltitudeLimits.HasCaptured,
+                "StockWarpAltitudeLimits.HasCaptured should be true in flight (PSystemSpawn capture ran before MainMenu)");
+
+            var kerbin = FlightGlobals.GetBodyByName("Kerbin");
+            InGameAssert.IsNotNull(kerbin, "Kerbin should exist in FlightGlobals");
+
+            bool ok = StockWarpAltitudeLimits.TryGetStockLimit(kerbin.name, 4, out float limit);
+            InGameAssert.IsTrue(ok,
+                "Kerbin's stock warp altitude limit [4] should be retrievable by body name (lookup key matches capture key)");
+            InGameAssert.IsGreaterThan(limit, 0,
+                "Kerbin's stock warp altitude limit [4] should be positive (snapshot holds the pre-override stock value)");
+            ParsekLog.Verbose("TestRunner",
+                $"StockWarpLimits: Kerbin stock timeWarpAltitudeLimits[4]={limit}");
+        }
+
         [InGameTest(Category = "KSP", Description = "PartLoader has loaded parts")]
         public void PartLoaderHasParts()
         {

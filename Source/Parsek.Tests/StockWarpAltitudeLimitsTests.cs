@@ -112,11 +112,72 @@ namespace Parsek.Tests
                 new KeyValuePair<string, float[]>("Mun", live),
             }, "test");
 
-            // Simulate a warp mod overwriting the live array AFTER capture.
+            // Simulate an in-place edit of the live array AFTER capture.
             live[4] = 0f;
 
             Assert.True(StockWarpAltitudeLimits.TryGetStockLimit("Mun", 4, out var mun));
             Assert.Equal(60000f, mun);
+        }
+
+        [Fact]
+        public void Capture_IsWriteOnce_SecondCaptureCannotClobberSnapshot()
+        {
+            // BetterTimeWarp overrides the live arrays at MainMenu, after our PSystemReady capture.
+            // If OnPSystemReady re-fires (Kopernicus PSystem rebuild), the second capture reads the
+            // now-zeroed live arrays — it must NOT overwrite the genuine stock snapshot.
+            StockWarpAltitudeLimits.Capture(new[]
+            {
+                new KeyValuePair<string, float[]>("Mun", new[] { 0f, 0f, 0f, 0f, 60000f, 0f, 0f, 0f }),
+            }, "first");
+
+            int n = StockWarpAltitudeLimits.Capture(new[]
+            {
+                new KeyValuePair<string, float[]>("Mun", new[] { 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f }),
+            }, "second-rezeroed-by-mod");
+
+            Assert.Equal(0, n);
+            Assert.True(StockWarpAltitudeLimits.TryGetStockLimit("Mun", 4, out var mun));
+            Assert.Equal(60000f, mun); // preserved, not clobbered with the zeroed value
+        }
+
+        [Fact]
+        public void Capture_SnapshotSurvivesReferenceReassignment()
+        {
+            // BetterTimeWarp does `body.timeWarpAltitudeLimits = new float[]{...}` — it REASSIGNS the
+            // reference rather than mutating in place. The clone-on-capture must defend against that.
+            var live = new[] { 0f, 0f, 0f, 0f, 60000f, 0f, 0f, 0f };
+            StockWarpAltitudeLimits.Capture(new[]
+            {
+                new KeyValuePair<string, float[]>("Mun", live),
+            }, "test");
+
+            live = new[] { 0f, 0f, 0f, 0f, 0f, 0f, 100000f, 2000000f }; // BTW-style reassignment
+
+            Assert.True(StockWarpAltitudeLimits.TryGetStockLimit("Mun", 4, out var mun));
+            Assert.Equal(60000f, mun);
+        }
+
+        [Fact]
+        public void Capture_AllInvalid_ReturnsZero_AndDoesNotMarkCaptured()
+        {
+            int n = StockWarpAltitudeLimits.Capture(new[]
+            {
+                new KeyValuePair<string, float[]>("", new[] { 1f, 2f }),
+                new KeyValuePair<string, float[]>("Ike", null),
+            }, "test");
+
+            Assert.Equal(0, n);
+            Assert.False(StockWarpAltitudeLimits.HasCaptured);
+        }
+
+        [Fact]
+        public void Select_NegativeStock_FallsThroughToLive()
+        {
+            // A negative limit means "unavailable" per the contract — must not be returned.
+            double alt = FlightRecorder.SelectApproachAltitude(
+                stockLimit: -5f, liveLimit: 45000f, bodyRadius: 200000.0, out var source);
+            Assert.Equal(45000.0, alt);
+            Assert.Equal("live", source);
         }
 
         [Fact]
