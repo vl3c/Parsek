@@ -32,13 +32,19 @@ namespace Parsek.Logistics
     /// loaded-en-route) and must not double-count a resource. See
     /// <see cref="LiveRouteRuntimeEnvironment.OriginHasCargo"/> for the live wiring.</para>
     ///
-    /// <para><b>B2 escrow-net seam:</b> the per-pid stored-amount reader
+    /// <para><b>B2 escrow net (WIRED):</b> the per-pid stored-amount reader
     /// (<see cref="PickupSourceGroup.StoredResourceReader"/>) reads LIVE stored
-    /// amounts only in B1. B2 will subtract the amount this route has already
-    /// RESERVED against <c>(routeId, pid)</c> from the reader's return value (in
-    /// pure RAM, never via ELS) so a competing higher-priority route in the same
-    /// tick sees the reservation. The grouping / summing / first-short logic here
-    /// is unchanged by that net; only the reader's value shifts.</para>
+    /// amounts NET of the cargo escrow. The caller (
+    /// <see cref="LiveRouteRuntimeEnvironment.OriginHasCargo"/>) wraps the live
+    /// reader to subtract the sum of reservations held by EVERY OTHER route on that
+    /// <c>(pid, resource)</c> - via <see cref="RouteStore.OtherRoutesReservedFor"/>,
+    /// pure RAM, never via ELS. A route does NOT subtract its OWN reservation (it
+    /// owns what it reserved); subtracting only OTHER routes' reservations is the
+    /// competing-route protection - route A reserves 100 from depot X at dispatch,
+    /// and route B gating X before A's physical debit sees X reduced by A's 100 and
+    /// cannot double-claim it. The grouping / summing / first-short logic here is
+    /// unchanged by that net; only the reader's value shifts (and the net is a
+    /// no-op until something reserves, which lands in B3).</para>
     ///
     /// No KSP statics, no logging, no mutation - the caller owns side effects and
     /// resolves endpoints / captures the loaded-gate / builds the readers.

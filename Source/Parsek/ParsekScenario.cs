@@ -4197,6 +4197,14 @@ namespace Parsek
             GameEvents.onVesselTerminated.Add(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
             GameEvents.onVesselSwitching.Add(OnVesselSwitching);
+            // M4b Phase B2 (plan D11 / OQ7): clear the RAM-only cargo escrow on any
+            // within-game scene change. The in-cycle reservation is a within-tick /
+            // dispatch-to-window-phase guard recomputed from pending route state on
+            // the next RouteOrchestrator.Tick, so it need not survive a scene change;
+            // dropping it here avoids a stale craft-baked-pid reservation mis-gating
+            // a competing route after the scene reloads. Idempotent (Remove then Add).
+            GameEvents.onGameSceneSwitchRequested.Remove(OnGameSceneSwitchClearEscrow);
+            GameEvents.onGameSceneSwitchRequested.Add(OnGameSceneSwitchClearEscrow);
             // #434: subscribe idempotently so revert detection is armed from first OnLoad.
             RevertDetector.Subscribe();
             // Re-fly Esc-menu button gate: Apply() on every onFlightReady so a
@@ -8319,6 +8327,13 @@ namespace Parsek
                 // later save's recordings start out historical (dormant) rather than
                 // inheriting a stale "in replay scope" mark from a previous game.
                 PlaybackScopeTracker.Reset();
+                // M4b Phase B2 (plan D11 / OQ7): drop the RAM-only cargo escrow on
+                // game unload, mirroring the other RAM-cache resets here. The
+                // reservation is recomputed from pending route state on the next
+                // RouteOrchestrator.Tick of a freshly loaded game, so it must not
+                // survive into a different save's logistics state. DROP-not-revert
+                // (no ledger row to reverse).
+                RouteStore.ClearAllEscrow("main-menu-transition");
                 ParsekLog.Info("Scenario",
                     "Main menu transition — reset initialLoadDone to prevent stale data leak");
             }
@@ -8351,6 +8366,21 @@ namespace Parsek
                 $"will skip revert strip/cleanup (frame={vesselSwitchPendingFrame})");
         }
 
+        /// <summary>
+        /// M4b Phase B2 (plan D11 / OQ7): drop the RAM-only cargo escrow on any
+        /// within-game scene change. The in-cycle reservation is recomputed from
+        /// pending route state on the next <see cref="RouteOrchestrator.Tick(double)"/>,
+        /// so it need not survive a scene change; clearing it here prevents a stale
+        /// craft-baked-pid reservation from mis-gating a competing route after the
+        /// scene reloads. Static so it can also fire from the disposed-instance edge
+        /// safely. DROP-not-revert (no ledger row to reverse).
+        /// </summary>
+        private static void OnGameSceneSwitchClearEscrow(
+            GameEvents.FromToAction<GameScenes, GameScenes> action)
+        {
+            RouteStore.ClearAllEscrow($"scene-switch {action.from}->{action.to}");
+        }
+
         public void OnDestroy()
         {
             stateRecorder?.Unsubscribe();
@@ -8358,6 +8388,9 @@ namespace Parsek
             GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
+            // M4b Phase B2: drop the scene-switch escrow-clear subscription on
+            // scenario teardown so a re-loaded scenario re-subscribes cleanly.
+            GameEvents.onGameSceneSwitchRequested.Remove(OnGameSceneSwitchClearEscrow);
             // #434: RevertDetector subscriptions are idempotent and persist for the
             // lifetime of the game session; tearing them down here so a scenario-module
             // shutdown doesn't leak dangling delegates if the session ends mid-flight.

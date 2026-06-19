@@ -273,14 +273,44 @@ namespace Parsek.Logistics
                 else
                 {
                     // Capture the loaded-gate ONCE for THIS vessel and bake it into
-                    // both readers (B2 will net escrow inside the resource reader).
+                    // both readers.
                     bool isLoaded = vessel.loaded && !vessel.packed;
                     var probe = new LiveOriginCargoProbe(vessel, isLoaded);
                     var inventoryWriter = new LiveInventoryPickupWriter(vessel, isLoaded);
+
+                    // M4b Phase B2 escrow NET (plan D11): the amount THIS route may
+                    // rely on = live stored MINUS the sum of reservations held by
+                    // OTHER routes on this pid+resource (a route never subtracts its
+                    // OWN reservation - it owns what it reserved). This is the
+                    // competing-route protection: a higher-priority route that
+                    // reserved from this source at dispatch (before its physical
+                    // debit) reduces what every OTHER route sees, so two routes
+                    // cannot double-claim the same tank. Pure RAM (RouteStore reads
+                    // only its escrow dict, never ERS/ELS), so the grep gate stays
+                    // green. NET is a no-op until something reserves (B3): in B2 the
+                    // escrow is always empty in production, so this is
+                    // byte-behaviour-identical to B1.
+                    uint sourcePid = vessel.persistentId;
+                    string routeId = route.Id;
+                    Func<string, double> liveReader = probe.ProbeResourceStored;
+                    Func<string, double> nettedReader = name =>
+                    {
+                        double live = liveReader(name);
+                        double reservedByOthers =
+                            RouteStore.OtherRoutesReservedFor(routeId, sourcePid, name);
+                        double available = live - reservedByOthers;
+                        return available > 0.0 ? available : 0.0;
+                    };
+
+                    // Inventory escrow is the B3 seam (plan D11: "inventory escrow
+                    // only if a multi-window inventory consolidation opens the gap").
+                    // The resource escrow is the primary deliverable; the inventory
+                    // counter passes through unmodified so the symmetry is one
+                    // analogous wrap away if B3 needs it.
                     result = RoutePickupSourceGate.PickupSourceResolution.Ok(
-                        vessel.persistentId,
+                        sourcePid,
                         vessel.vesselName,
-                        probe.ProbeResourceStored,
+                        nettedReader,
                         inventoryWriter.CountStored);
                 }
 

@@ -27,6 +27,36 @@ namespace Parsek.Logistics
         /// <summary>Read-only view of currently committed routes.</summary>
         internal static IReadOnlyList<Route> CommittedRoutes => committedRoutes;
 
+        // -----------------------------------------------------------------
+        // M4b Phase B2 (plan D11 / OQ7): RAM-only cargo escrow.
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// M4b Phase B2 (plan D11 / OQ7): the RAM-ONLY cargo escrow map.
+        /// Shape: <c>routeId -&gt; vesselPid -&gt; resourceName -&gt; reserved amount</c>.
+        /// A per-resource sub-map per <c>(routeId, pid)</c> so a depot can reserve
+        /// LiquidFuel and Oxidizer against the same source vessel independently.
+        ///
+        /// <para><b>NOT serialized.</b> Untouched by <see cref="SaveRoutesTo"/> /
+        /// <see cref="LoadRoutesFrom"/>; a loaded route carries no escrow. The
+        /// reservation is a within-tick / dispatch-to-window-phase guard recomputed
+        /// from pending route state on the next <see cref="RouteOrchestrator.Tick(double)"/>,
+        /// so it need not survive a scene change (cleared at the four lifecycle
+        /// sites below).</para>
+        ///
+        /// <para><b>Pure RAM - reads NO ERS/ELS.</b> The escrow holds nothing from
+        /// the committed-recording set or the ledger action list; it is a plain
+        /// reservation counter (routeId/pid/resource -&gt; double), so it passes the
+        /// ERS/ELS grep gate (<c>scripts/grep-audit-ers-els.ps1</c>) with no
+        /// allowlist entry.</para>
+        ///
+        /// <para><b>DROP-not-revert.</b> Escrow has no ledger row; the physical
+        /// debit's revert is the rewind quicksave + ELS replay keys (RouteModule
+        /// observe-only). The clear sites only RELEASE reservations.</para>
+        /// </summary>
+        private static readonly Dictionary<string, Dictionary<uint, Dictionary<string, double>>>
+            cargoEscrow = new Dictionary<string, Dictionary<uint, Dictionary<string, double>>>(StringComparer.Ordinal);
+
         /// <summary>
         /// Add a route. Idempotent on <see cref="Route.Id"/>: a second call
         /// with the same Id logs a Warn and does NOT replace the existing
@@ -80,6 +110,13 @@ namespace Parsek.Logistics
                 if (string.Equals(committedRoutes[i].Id, id, System.StringComparison.Ordinal))
                 {
                     committedRoutes.RemoveAt(i);
+                    // M4b Phase B2: a removed / tombstoned route drops its whole
+                    // escrow reservation so a competing route's available amount
+                    // rises back. DROP-not-revert: this hooks RemoveRoute (not
+                    // SupersedeCommit) because a reservation is reserve-and-released
+                    // within one EmitLoopCycle and essentially never live across a
+                    // tombstone - belt-and-suspenders. No-op when none held.
+                    DropRouteEscrow(id);
                     ParsekLog.Info(Tag, $"Route {ShortId(id)} removed");
                     return true;
                 }
@@ -122,8 +159,209 @@ namespace Parsek.Logistics
         {
             int prevCount = committedRoutes.Count;
             committedRoutes.Clear();
-            ParsekLog.Verbose(Tag, $"ResetForTesting prevCount={prevCount}");
+            // M4b Phase B2: the escrow is shared static state, so a
+            // [Collection("Sequential")] test that reserves must not leak its
+            // reservation into the next test. Clear it here alongside the routes.
+            int prevEscrowRoutes = cargoEscrow.Count;
+            cargoEscrow.Clear();
+            ParsekLog.Verbose(Tag,
+                $"ResetForTesting prevCount={prevCount} prevEscrowRoutes={prevEscrowRoutes}");
         }
+
+        // -----------------------------------------------------------------
+        // M4b Phase B2: escrow lifecycle (reserve / release / drop / clear)
+        // + the competing-route net read.
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Reserve (accumulate) <paramref name="amount"/> of
+        /// <paramref name="resourceName"/> against <c>(routeId, pid)</c>. Called at
+        /// the all-or-nothing dispatch gate (B3) so a competing higher-priority
+        /// route in the same / a later tick (before this route's physical debit)
+        /// sees the source's available amount reduced by what this route reserved.
+        /// Accumulates: a second reserve on the same key adds to the running total
+        /// (e.g. two same-pid windows under <see cref="RouteEndpoint"/> OQ6).
+        /// Non-positive amounts and null/empty keys are ignored. Pure RAM.
+        /// </summary>
+        internal static void ReserveCargo(string routeId, uint pid, string resourceName, double amount)
+        {
+            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(resourceName))
+            {
+                ParsekLog.Warn(Tag,
+                    $"ReserveCargo: null/empty routeId or resource (routeId={ShortId(routeId)} " +
+                    $"resource={resourceName ?? "<null>"}) - ignored");
+                return;
+            }
+            if (!(amount > 0.0))
+                return; // nothing to reserve (also filters NaN)
+
+            if (!cargoEscrow.TryGetValue(routeId, out var byPid))
+            {
+                byPid = new Dictionary<uint, Dictionary<string, double>>();
+                cargoEscrow[routeId] = byPid;
+            }
+            if (!byPid.TryGetValue(pid, out var byResource))
+            {
+                byResource = new Dictionary<string, double>(StringComparer.Ordinal);
+                byPid[pid] = byResource;
+            }
+            byResource.TryGetValue(resourceName, out double cur);
+            double next = cur + amount;
+            byResource[resourceName] = next;
+
+            ParsekLog.Verbose(Tag,
+                $"ReserveCargo routeId={ShortId(routeId)} pid={pid.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"resource={resourceName} amount={amount.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"newTotal={next.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Release (subtract) <paramref name="amount"/> of
+        /// <paramref name="resourceName"/> from <c>(routeId, pid)</c>. Called at
+        /// each window's physical debit (B3): the reservation is consumed as the
+        /// cargo physically leaves the source. Clamps at zero and removes the
+        /// resource / pid / route entry once it reaches zero so the map stays lean
+        /// and a later net read sees no residual. Non-positive amounts and missing
+        /// keys are no-ops (logged Verbose). Pure RAM.
+        /// </summary>
+        internal static void ReleaseCargo(string routeId, uint pid, string resourceName, double amount)
+        {
+            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(resourceName))
+            {
+                ParsekLog.Warn(Tag,
+                    $"ReleaseCargo: null/empty routeId or resource (routeId={ShortId(routeId)} " +
+                    $"resource={resourceName ?? "<null>"}) - ignored");
+                return;
+            }
+            if (!(amount > 0.0))
+                return;
+
+            if (!cargoEscrow.TryGetValue(routeId, out var byPid)
+                || !byPid.TryGetValue(pid, out var byResource)
+                || !byResource.TryGetValue(resourceName, out double cur))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ReleaseCargo: no reservation to release routeId={ShortId(routeId)} " +
+                    $"pid={pid.ToString(System.Globalization.CultureInfo.InvariantCulture)} resource={resourceName} - no-op");
+                return;
+            }
+
+            double next = cur - amount;
+            if (next <= 0.0)
+            {
+                byResource.Remove(resourceName);
+                if (byResource.Count == 0) byPid.Remove(pid);
+                if (byPid.Count == 0) cargoEscrow.Remove(routeId);
+                next = 0.0;
+            }
+            else
+            {
+                byResource[resourceName] = next;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ReleaseCargo routeId={ShortId(routeId)} pid={pid.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"resource={resourceName} amount={amount.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"newTotal={next.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Drop a route's WHOLE reservation (all pids, all resources) in one shot.
+        /// Called when the route is removed / tombstoned / aborted
+        /// (<see cref="RemoveRoute"/>) so a competing route's available amount rises
+        /// back. DROP-not-revert (plan D11): this only releases the reservation; the
+        /// physical debit (if any already fired) is reverted by the rewind quicksave
+        /// + ELS replay, never here. A no-op when the route holds no escrow. Pure RAM.
+        /// </summary>
+        internal static void DropRouteEscrow(string routeId)
+        {
+            if (string.IsNullOrEmpty(routeId))
+                return;
+            if (!cargoEscrow.TryGetValue(routeId, out var byPid))
+                return;
+
+            int pids = byPid.Count;
+            int resourceEntries = 0;
+            foreach (var kv in byPid)
+                resourceEntries += kv.Value != null ? kv.Value.Count : 0;
+            cargoEscrow.Remove(routeId);
+
+            ParsekLog.Info(Tag,
+                $"DropRouteEscrow routeId={ShortId(routeId)} droppedPids={pids} droppedResourceEntries={resourceEntries}");
+        }
+
+        /// <summary>
+        /// Clear ALL escrow reservations (every route). Wired at the lifecycle
+        /// boundaries where the in-cycle reservation is recomputed next tick:
+        /// any within-game scene change (<c>onGameSceneSwitchRequested</c>) and game
+        /// unload (<see cref="ParsekScenario.OnMainMenuTransition"/>). DROP-not-revert.
+        /// Pure RAM.
+        /// </summary>
+        internal static void ClearAllEscrow(string reason)
+        {
+            int prevRoutes = cargoEscrow.Count;
+            if (prevRoutes == 0)
+                return; // common case: nothing reserved, stay quiet (cheap no-op)
+            cargoEscrow.Clear();
+            ParsekLog.Info(Tag,
+                $"ClearAllEscrow reason={reason ?? "<none>"} clearedRoutes={prevRoutes}");
+        }
+
+        /// <summary>
+        /// M4b Phase B2 NET semantics (plan D11): the amount of
+        /// <paramref name="resourceName"/> on <paramref name="pid"/> that route
+        /// <paramref name="forRouteId"/> may rely on = live stored MINUS the sum of
+        /// reservations held by EVERY OTHER route on that pid+resource. A route does
+        /// NOT subtract its OWN reservation (it owns what it reserved). This is the
+        /// competing-route protection: route A reserves 100 from depot X at dispatch;
+        /// route B gating X in the same / a later tick (before A's physical debit)
+        /// sees X's available reduced by A's 100, so B cannot double-claim it.
+        ///
+        /// <para>Returns the total OTHER-route reservation to subtract (>= 0). The
+        /// caller wraps its live stored-amount reader as
+        /// <c>name =&gt; max(0, liveReader(name) - OtherRoutesReservedFor(routeId, pid, name))</c>.
+        /// Pure RAM - reads only the escrow dict.</para>
+        /// </summary>
+        internal static double OtherRoutesReservedFor(string forRouteId, uint pid, string resourceName)
+        {
+            if (string.IsNullOrEmpty(resourceName) || cargoEscrow.Count == 0)
+                return 0.0;
+
+            double sum = 0.0;
+            foreach (var routeEntry in cargoEscrow)
+            {
+                // A route never subtracts its OWN reservation - it owns what it
+                // reserved (the crux of the net: only competing routes reduce the
+                // amount this route sees).
+                if (string.Equals(routeEntry.Key, forRouteId, StringComparison.Ordinal))
+                    continue;
+                var byPid = routeEntry.Value;
+                if (byPid == null) continue;
+                if (!byPid.TryGetValue(pid, out var byResource) || byResource == null)
+                    continue;
+                if (byResource.TryGetValue(resourceName, out double reserved) && reserved > 0.0)
+                    sum += reserved;
+            }
+            return sum;
+        }
+
+        /// <summary>
+        /// Test/diagnostic read: the amount route <paramref name="routeId"/> has
+        /// reserved on <c>(pid, resourceName)</c> (0 when absent). Pure RAM.
+        /// </summary>
+        internal static double GetReservedForTesting(string routeId, uint pid, string resourceName)
+        {
+            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(resourceName))
+                return 0.0;
+            if (cargoEscrow.TryGetValue(routeId, out var byPid)
+                && byPid.TryGetValue(pid, out var byResource)
+                && byResource.TryGetValue(resourceName, out double v))
+                return v;
+            return 0.0;
+        }
+
+        /// <summary>Test/diagnostic read: number of routes currently holding any escrow.</summary>
+        internal static int EscrowRouteCountForTesting => cargoEscrow.Count;
 
         /// <summary>
         /// Write the current store into <paramref name="parent"/>. Strips any
