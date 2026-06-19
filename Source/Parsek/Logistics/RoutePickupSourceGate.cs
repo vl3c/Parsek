@@ -304,6 +304,79 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// M4b Phase B3 (plan D11 / OQ7): ONE source's escrow reservation - the
+        /// per-pid SUMMED resource amounts this route reserves against a single
+        /// resolved source vessel at dispatch. Keyed on the SAME resolved
+        /// <see cref="ResolvedPid"/> the B1 gate groups + nets on (so the reserve
+        /// and the gate read the same pid), with the SUMMED amounts the gate
+        /// checked (so reserve == sum-of-per-window-releases per pid).
+        /// </summary>
+        internal sealed class PickupSourceReservation
+        {
+            /// <summary>Resolved live vessel pid (the escrow key, same pid the gate netted on).</summary>
+            public uint ResolvedPid;
+            /// <summary>Player-facing vessel name for the reserve/release log lines (best-effort).</summary>
+            public string VesselName;
+            /// <summary>Summed per-resource reservation across this source's windows (positive only).</summary>
+            public Dictionary<string, double> SummedResourceManifest;
+        }
+
+        /// <summary>
+        /// M4b Phase B3: build the per-source escrow reservation list from a route's
+        /// pickup stops. Reuses <see cref="TryBuildSourceGroups"/> (the SAME grouping
+        /// the B1 gate uses), then projects each group to a
+        /// <see cref="PickupSourceReservation"/> carrying the resolved pid + summed
+        /// resource manifest. The orchestrator calls
+        /// <see cref="RouteStore.ReserveCargo"/> once per (pid, resource) entry at
+        /// dispatch. A source with no positive resource manifest (inventory-only or
+        /// zero-summed) contributes no reservation - inventory escrow is the B3 seam
+        /// left for a multi-window inventory consolidation, not wired here (resource
+        /// escrow is the primary deliverable). Returns the same
+        /// <paramref name="unresolvedReason"/> contract as
+        /// <see cref="TryBuildSourceGroups"/> (false on an unresolved endpoint - the
+        /// caller should not reserve a partial set).
+        /// </summary>
+        internal static bool TryBuildReservations(
+            Route route,
+            Func<RouteEndpoint, PickupSourceResolution> resolver,
+            out List<PickupSourceReservation> reservations,
+            out string unresolvedReason)
+        {
+            reservations = new List<PickupSourceReservation>();
+
+            if (!TryBuildSourceGroups(route, resolver, out List<PickupSourceGroup> groups, out unresolvedReason))
+                return false;
+
+            for (int i = 0; i < groups.Count; i++)
+            {
+                PickupSourceGroup g = groups[i];
+                if (g.SummedResourceManifest == null || g.SummedResourceManifest.Count == 0)
+                    continue; // inventory-only / no resource pickup - no resource reservation
+
+                Dictionary<string, double> positive = null;
+                foreach (var kv in g.SummedResourceManifest)
+                {
+                    if (string.IsNullOrEmpty(kv.Key) || !(kv.Value > 0.0))
+                        continue;
+                    if (positive == null)
+                        positive = new Dictionary<string, double>(g.SummedResourceManifest.Count, StringComparer.Ordinal);
+                    positive[kv.Key] = kv.Value;
+                }
+                if (positive == null)
+                    continue; // every summed entry was non-positive
+
+                reservations.Add(new PickupSourceReservation
+                {
+                    ResolvedPid = g.ResolvedPid,
+                    VesselName = g.VesselName,
+                    SummedResourceManifest = positive,
+                });
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// The <c>OriginLacksCargo</c> detail token for a short pickup source,
         /// consumed by <see cref="Parsek.LogisticsHoldPresentation"/>. Shape:
         /// <c>source:&lt;pid&gt;:&lt;name&gt;:&lt;resource-or-inventory-token&gt;</c>.

@@ -1041,6 +1041,14 @@ namespace Parsek.Logistics
                 EmitDispatchDebit(route, currentUT, env, cycleId,
                     applyPhysicalOriginDebit: true, dispatchStopIndex: dispatchCarrierStopIndex);
 
+                // M4b B3 (plan D11 / OQ7): RESERVE this cycle's per-source cargo escrow
+                // at dispatch (once per cycle, post-eligibility, pre-emit). The summed
+                // per-pid reservation holds across the dispatch-to-window-phase gap so a
+                // competing route's B1 gate sees it; each pickup window RELEASEs its own
+                // portion at its physical debit (or on a window endpoint loss), netting
+                // the reservation to zero by cycle end (the leak-free invariant).
+                ReserveCycleEscrow(route, currentUT, env, cycleId);
+
                 if (env != null && env.IsCareer && route.IsKscOrigin)
                 {
                     route.PendingRecoveryCreditCycleId = cycleId;
@@ -1188,10 +1196,18 @@ namespace Parsek.Logistics
         {
             windowEmitted = false;
 
-            // Pickup half (endpoint DEBIT first). M4a is multi-stop DELIVERY; a
-            // pure-delivery stop has no pickup manifest and skips this. (A multi-
-            // window run with >1 source-debiting pickup window is M4b territory; a
-            // single bidirectional M3a window still works through this path.)
+            // Pickup half (endpoint DEBIT first). A pure-delivery stop has no pickup
+            // manifest and skips this. M4b B3 LIFTED the M4a defer: each pickup
+            // window's source debit now fires here via EmitPickupHalf (PendingStopIndex
+            // is driven to THIS window's stop index by the caller, so ResolveCycleStop
+            // resolves THIS stop's PickupManifest), under the windowed C-2 replay key
+            // IsPickupAlreadyInLedger((RouteId, cycleId, stopIndex)) - so a >1
+            // source-debiting (pickup) multi-window run fires each window's source
+            // debit at its own dock phase, idempotent per window across reload. The
+            // single bidirectional M3a window is byte-behaviour-identical (its single
+            // pickup stop still fires exactly this path). The reserve/release escrow
+            // (ReserveCycleEscrow at dispatch / ReleaseWindowEscrow inside EmitPickupHalf)
+            // holds each window's source contribution between dispatch and its debit.
             if (RouteHasPickupManifest(route))
             {
                 EmitPickupHalf(route, currentUT, env, cycleId);
@@ -1212,6 +1228,190 @@ namespace Parsek.Logistics
                     ApplyDelivery(route, currentUT, env, bumpCompletedCycle: false);
                 windowEmitted = true;
             }
+        }
+
+        // =====================================================================
+        // M4b Phase B3 (plan D10/D11 / OQ7): the reserve / release ESCROW
+        // lifecycle for source-debiting (pickup) windows. RESERVE at dispatch
+        // (once per cycle, post-eligibility), RELEASE at each window's physical
+        // debit (or on a window endpoint loss), so a partial cycle keeps the
+        // un-fired window's reservation LIVE across the gap (a competing route's
+        // B1 gate sees it). The leak-free invariant: every Reserve is matched by
+        // a Release (debit or skip) within the cycle, or a Drop on tombstone /
+        // scene-change. Reserve keys on the SAME resolved pid the B1 gate nets on.
+        // =====================================================================
+
+        /// <summary>
+        /// (M4b B3) RESERVE this cycle's per-source cargo escrow at DISPATCH. Builds
+        /// the per-pid SUMMED reservation list from the route's pickup
+        /// <see cref="RouteStop"/>s (the SAME grouping <see cref="RoutePickupSourceGate"/>
+        /// uses for the B1 gate), resolving each pickup source endpoint to the SAME
+        /// live pid the gate nets on (<see cref="ResolveEscrowSourcePid"/>), and calls
+        /// <see cref="RouteStore.ReserveCargo"/> once per (pid, resource). A competing
+        /// higher-priority route gating the same source in this or a later tick (before
+        /// this route's physical debit) then sees the source's available amount reduced
+        /// by what this route reserved. Reserve is the SUMMED amount per pid so it nets
+        /// to zero once every pickup window of the cycle releases its own portion.
+        ///
+        /// <para>Pure RAM (no ledger row); the per-cycle reserve is idempotent in
+        /// practice because dispatch fires exactly once per cycle (the carrier-stop ELS
+        /// guard), so this runs once per cycle. A delivery-only route reserves nothing.
+        /// On an unresolved pickup source the build returns false and nothing is
+        /// reserved (the eligibility gate already held the cycle; reserving a partial
+        /// set would leak).</para>
+        /// </summary>
+        internal static void ReserveCycleEscrow(
+            Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId)
+        {
+            if (route == null || string.IsNullOrEmpty(route.Id)
+                || route.Stops == null || route.Stops.Count == 0)
+                return;
+
+            RoutePickupSourceGate.PickupSourceResolution Resolver(RouteEndpoint endpoint)
+            {
+                uint pid = ResolveEscrowSourcePid(endpoint, env);
+                if (pid == 0u)
+                    return RoutePickupSourceGate.PickupSourceResolution.Miss("escrow-source-unresolved");
+                // The escrow builder only reads ResolvedPid + the summed manifest; the
+                // readers are unused on the reserve path, so pass harmless no-ops.
+                return RoutePickupSourceGate.PickupSourceResolution.Ok(
+                    pid, EscrowSourceNameForLog(endpoint, env), _ => 0.0, _ => 0);
+            }
+
+            bool built = RoutePickupSourceGate.TryBuildReservations(
+                route, Resolver,
+                out List<RoutePickupSourceGate.PickupSourceReservation> reservations,
+                out string unresolvedReason);
+
+            if (!built)
+            {
+                // A pickup source did not resolve at dispatch. The eligibility gate
+                // (which re-resolves the same sources) would normally have held this
+                // cycle; if we still got here, reserve NOTHING (a partial reservation
+                // would leak - some windows would never release a hold they never had
+                // a matching reserve for). The window-debit release is a no-op against
+                // the empty escrow, so no leak.
+                ParsekLog.VerboseRateLimited(Tag, "escrow-reserve-unresolved-" + route.Id,
+                    $"ReserveCycleEscrow: route {ShortIdForLog(route)} cycle={cycleId} " +
+                    $"pickup source unresolved (reason={unresolvedReason}) - reserved nothing");
+                return;
+            }
+
+            if (reservations.Count == 0)
+                return; // delivery-only / inventory-only - nothing to reserve
+
+            int reservedPids = 0;
+            int reservedEntries = 0;
+            for (int i = 0; i < reservations.Count; i++)
+            {
+                var r = reservations[i];
+                bool any = false;
+                foreach (var kv in r.SummedResourceManifest)
+                {
+                    RouteStore.ReserveCargo(route.Id, r.ResolvedPid, kv.Key, kv.Value);
+                    reservedEntries++;
+                    any = true;
+                }
+                if (any) reservedPids++;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ReserveCycleEscrow: route {ShortIdForLog(route)} cycle={cycleId} " +
+                $"reservedSources={reservedPids.ToString(IC)} " +
+                $"reservedResourceEntries={reservedEntries.ToString(IC)} at ut={currentUT.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// (M4b B3) RELEASE one pickup window's escrow portion AFTER its physical
+        /// debit fires (or when the window endpoint is lost mid-cycle, OQ4: the cargo
+        /// was not taken, so the hold is freed without debiting). Releases the
+        /// window's OWN <see cref="RouteStop.PickupManifest"/> amounts against the
+        /// SAME resolved pid the reserve keyed on (<paramref name="resolvedPid"/> -
+        /// the pid <see cref="ApplyPickupDebit"/> resolved, or the escrow-resolve pid
+        /// on the unresolved-debit path). After the cycle's LAST pickup window
+        /// releases, the source's reservation nets to zero (summed reserve ==
+        /// sum-of-per-window releases per pid). A no-op against an empty escrow (e.g.
+        /// after a reload, where the escrow was not persisted - the reserve is
+        /// recomputed from pending state on the live session only).
+        /// </summary>
+        internal static void ReleaseWindowEscrow(
+            Route route, RouteStop stop, uint resolvedPid, string cycleId, string contextTag)
+        {
+            if (route == null || string.IsNullOrEmpty(route.Id) || stop == null)
+                return;
+            if (resolvedPid == 0u)
+                return; // unresolved pid - nothing was reserved against pid 0 (reserve skips it too)
+            Dictionary<string, double> manifest = stop.PickupManifest;
+            if (manifest == null || manifest.Count == 0)
+                return; // inventory-only / pure-delivery window - no resource reservation to release
+
+            int releasedEntries = 0;
+            foreach (var kv in manifest)
+            {
+                if (string.IsNullOrEmpty(kv.Key) || !(kv.Value > 0.0))
+                    continue;
+                RouteStore.ReleaseCargo(route.Id, resolvedPid, kv.Key, kv.Value);
+                releasedEntries++;
+            }
+
+            if (releasedEntries > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ReleaseWindowEscrow: route {ShortIdForLog(route)} cycle={cycleId} " +
+                    $"pid={resolvedPid.ToString(IC)} releasedResourceEntries={releasedEntries.ToString(IC)} " +
+                    $"context={contextTag ?? "<none>"}");
+            }
+        }
+
+        /// <summary>
+        /// (M4b B3) Resolve a pickup-source endpoint to the SAME live pid the B1 gate
+        /// and <see cref="ApplyPickupDebit"/> resolve to. Production resolves the live
+        /// vessel via the env and returns its <c>persistentId</c> (exactly what
+        /// <c>OriginVesselPid</c> on the debit outcome carries). When the env cannot
+        /// return a live vessel (headless test env, or an off-Unity context), fall
+        /// back to the endpoint's craft-baked <see cref="RouteEndpoint.VesselPersistentId"/>
+        /// so the reserve and the release key on the same pid the test seam's
+        /// <c>OriginVesselPid</c> reports. Returns 0 when neither resolves.
+        /// </summary>
+        private static uint ResolveEscrowSourcePid(RouteEndpoint endpoint, IRouteRuntimeEnvironment env)
+        {
+            if (env != null)
+            {
+                try
+                {
+                    if (env.TryResolveEndpointVessel(endpoint, out Vessel vessel, out _)
+                        && vessel != null)
+                        return vessel.persistentId;
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"ResolveEscrowSourcePid: env resolve threw {ex.GetType().Name}: {ex.Message}; " +
+                        "falling back to endpoint baked pid");
+                }
+            }
+            // Fallback: the craft-baked endpoint pid. This matches the pid the headless
+            // test path's PickupDebitApplierForTesting returns as OriginVesselPid, so
+            // reserve and release key identically.
+            return endpoint.VesselPersistentId;
+        }
+
+        private static string EscrowSourceNameForLog(RouteEndpoint endpoint, IRouteRuntimeEnvironment env)
+        {
+            if (env != null)
+            {
+                try
+                {
+                    if (env.TryResolveEndpointVessel(endpoint, out Vessel vessel, out _)
+                        && vessel != null)
+                        return vessel.vesselName;
+                }
+                catch
+                {
+                    // best-effort name only
+                }
+            }
+            return null;
         }
 
         /// <summary>
@@ -1487,6 +1687,17 @@ namespace Parsek.Logistics
             // physical origin debit (design D11).
             EmitDispatchDebit(route, currentUT, env, cycleId, applyPhysicalOriginDebit: true);
 
+            // M4b B3 (plan D11 / OQ7): RESERVE this cycle's per-source cargo escrow at
+            // dispatch (single-stop path - the M3a single bidirectional window reserves
+            // its source here too). Released at the pickup window's physical debit
+            // below. For a single-window route reserve == release, so the escrow nets to
+            // zero within this one EmitLoopCycle (a competing route only sees it during
+            // the instant between this reserve and EmitPickupHalf's release - within one
+            // tick, the priority-ordered CompareRoutesForTick snapshot means a route
+            // reserves-and-debits inside its own EmitLoopCycle before a competing route
+            // runs). A delivery-only route reserves nothing.
+            ReserveCycleEscrow(route, currentUT, env, cycleId);
+
             // Recovery-credit deferral (logistics-recovery-credit section 5.2): this
             // cycle just dispatched a (potential) Career-KSC charge, so it now OWES a
             // recovery credit to be flushed on the NEXT crossing. Set the pending
@@ -1646,6 +1857,24 @@ namespace Parsek.Logistics
 
             Dictionary<string, double> pickupManifest = stop.PickupManifest;
             OriginDebitOutcome pickup = ApplyPickupDebit(stop.Endpoint, pickupManifest, env, route.Id);
+
+            // M4b B3 (plan D11 / OQ7): RELEASE this window's escrow portion now that the
+            // physical debit has fired. The debit is NOT gated on transport disposition
+            // (19.2.5: the outflow was witnessed; a crashed transport still debits the
+            // source), so the release follows the debit unconditionally here. Key on the
+            // pid ApplyPickupDebit resolved (pickup.OriginVesselPid) - the SAME pid
+            // ReserveCycleEscrow keyed on; when the endpoint was UNRESOLVED at debit
+            // (OQ4: endpoint lost mid-cycle, zero actuals, cargo NOT taken) the outcome
+            // carries pid 0, so fall back to the escrow-resolve pid to free the hold
+            // anyway (no leak). After the cycle's last pickup window releases, the
+            // source's summed reservation nets to zero (leak-free invariant). A no-op
+            // against an empty escrow (e.g. after a reload, where escrow is RAM-only and
+            // not persisted - the reserve is recomputed on the live session only).
+            uint releasePid = pickup.OriginVesselPid != 0u
+                ? pickup.OriginVesselPid
+                : ResolveEscrowSourcePid(stop.Endpoint, env);
+            ReleaseWindowEscrow(route, stop, releasePid, cycleId,
+                pickup.Unresolved ? "window-endpoint-lost" : "window-debit");
 
             if (pickup.Short && !pickup.Unresolved)
             {

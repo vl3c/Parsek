@@ -370,5 +370,80 @@ namespace Parsek.Tests.Logistics
             resolver.Resolved[70u] = (70u, "Bay", null, new Dictionary<string, int> { { "hashA", 2 } });
             Assert.True(Run(route, resolver).Covered);
         }
+
+        // ---- B3 escrow reservation builder ----------------------------------
+
+        // catches (B3): the reservation builder NOT keying on the same resolved pid
+        // the gate nets on, or NOT summing same-pid windows. The reserve list must
+        // carry one entry per resolved pid with the SUMMED per-resource amount, so
+        // reserve(pid) == sum-of-per-window-releases(pid).
+        [Fact]
+        public void Reservations_KeyOnResolvedPid_SumSamePidWindows()
+        {
+            // Source A (pid 10) one window 100 Ore; source B (pid 20) two same-pid
+            // windows 200 + 50 Ore -> summed 250 against pid 20.
+            var route = RouteWithStops(
+                PickupStop(10u, 100.0, new Dictionary<string, double> { { "Ore", 100.0 } }),
+                PickupStop(20u, 200.0, new Dictionary<string, double> { { "Ore", 200.0 } }),
+                PickupStop(20u, 300.0, new Dictionary<string, double> { { "Ore", 50.0 } }));
+            var resolver = new FakeResolver();
+            resolver.Resolved[10u] = (10u, "Depot A", new Dictionary<string, double>(), null);
+            resolver.Resolved[20u] = (20u, "Depot B", new Dictionary<string, double>(), null);
+
+            bool built = RoutePickupSourceGate.TryBuildReservations(
+                route, resolver.Resolve, out var reservations, out string unresolved);
+
+            Assert.True(built, "unresolved=" + unresolved);
+            Assert.Equal(2, reservations.Count);
+
+            var a = reservations.Find(r => r.ResolvedPid == 10u);
+            Assert.NotNull(a);
+            Assert.Equal(100.0, a.SummedResourceManifest["Ore"], 6);
+
+            var b = reservations.Find(r => r.ResolvedPid == 20u);
+            Assert.NotNull(b);
+            Assert.Equal(250.0, b.SummedResourceManifest["Ore"], 6); // 200 + 50 summed
+        }
+
+        // catches (B3): an inventory-only / delivery-only route building a spurious
+        // resource reservation. The resource escrow is the primary B3 deliverable;
+        // an inventory-only pickup window contributes NO resource reservation (the
+        // inventory escrow is the deferred B3 seam, not wired).
+        [Fact]
+        public void Reservations_InventoryOnlyAndDeliveryOnly_ReserveNothing()
+        {
+            var inv = new List<InventoryPayloadItem> { new InventoryPayloadItem { IdentityHash = "hashA", Quantity = 1 } };
+            var route = RouteWithStops(
+                PickupStop(70u, 100.0, null, inv),                 // inventory-only pickup
+                DeliveryStop(80u, 200.0, new Dictionary<string, double> { { "Ore", 50.0 } })); // delivery-only
+            var resolver = new FakeResolver();
+            resolver.Resolved[70u] = (70u, "Bay", null, new Dictionary<string, int> { { "hashA", 1 } });
+
+            bool built = RoutePickupSourceGate.TryBuildReservations(
+                route, resolver.Resolve, out var reservations, out _);
+
+            Assert.True(built);
+            Assert.Empty(reservations); // no resource reservation
+        }
+
+        // catches (B3): an unresolved pickup source NOT short-circuiting the reserve
+        // build - a partial reservation set (some sources reserved, one missing)
+        // would leak. The builder must return false on the first unresolved source so
+        // the caller reserves NOTHING.
+        [Fact]
+        public void Reservations_UnresolvedSource_ReturnsFalse_NoPartialSet()
+        {
+            var route = RouteWithStops(
+                PickupStop(10u, 100.0, new Dictionary<string, double> { { "Ore", 100.0 } }),
+                PickupStop(99u, 200.0, new Dictionary<string, double> { { "Ore", 200.0 } })); // 99 not in resolver
+            var resolver = new FakeResolver();
+            resolver.Resolved[10u] = (10u, "Depot A", new Dictionary<string, double>(), null);
+
+            bool built = RoutePickupSourceGate.TryBuildReservations(
+                route, resolver.Resolve, out var reservations, out string unresolved);
+
+            Assert.False(built);
+            Assert.Equal("pid-miss", unresolved);
+        }
     }
 }
