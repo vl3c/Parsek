@@ -42,6 +42,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- Better Time Warp compatibility: recording splits on airless bodies keep their correct approach altitude even when Better Time Warp relaxes KSP's warp altitude limits, because Parsek now snapshots the stock limits before the mod overrides them.
 - Fixed a looping transfer ghost drawing only the first piece of its incoming sphere-of-influence approach orbit line on the flight map, with the rest of the curve appearing seconds later.
 - A looped delivery ghost that docks with a station you are flying now docks against the live station, not a ghost copy parked at the station's recorded position about 20 km away; the station's own duplicate ghost is hidden (in flight and on the map) only while a delivery ghost is actively docking it, so watching the route replay near your parked craft no longer hides the inbound delivery meshes.
 - Looped-mission map and tracking-station trajectory lines no longer vanish when the map is zoomed far out. Past the zoom-out threshold they now switch to the same flat 2D drawing mode stock orbit lines use, instead of staying in a 3D mode that drops them at distance.
