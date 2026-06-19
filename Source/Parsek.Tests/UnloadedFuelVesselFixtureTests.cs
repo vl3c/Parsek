@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using Parsek.InGameTests.Helpers;
 using Xunit;
@@ -174,6 +175,114 @@ namespace Parsek.Tests
             Assert.True(ok);
             Assert.Equal(0.0, Amount(lf), 6);
             Assert.True(MaxAmount(lf) >= Amount(lf));
+        }
+
+        // ==================================================================
+        // capStoredLf: bound a shared source so it covers one pickup but not two
+        // (the escrow competing-route hold). The cap forces EXACT stored + a tank
+        // just large enough for it + the requested free capacity (donor's large
+        // capacity NOT preserved).
+        // ==================================================================
+
+        [Fact]
+        public void AdjustSnapshotLiquidFuel_Cap_OnLargeTank_ClampsExactAndDoesNotPreserveCapacity()
+        {
+            // A large donor tank (1000 max). Capping to 5 stored with free=1 must
+            // shrink the tank to exactly 6 max - NOT keep the 1000 capacity - so the
+            // spawned source holds exactly 5 LF (one pickup of 4, not two).
+            var lf = Resource(LiquidFuelName, 800.0, 1000.0);
+            var vessel = Vessel(Part(lf));
+
+            bool ok = UnloadedFuelVesselFixture.AdjustSnapshotLiquidFuel(
+                vessel, minStoredLf: 5.0, minFreeCapacity: 1.0, out string reason, capStoredLf: 5.0);
+
+            Assert.True(ok);
+            Assert.Null(reason);
+            Assert.Equal(5.0, Amount(lf), 6);             // exact cap, overrides the donor's 800 stored
+            Assert.Equal(6.0, MaxAmount(lf), 6);          // cap + free, donor's 1000 NOT preserved
+            Assert.True(MaxAmount(lf) - Amount(lf) >= 1.0 - 1e-9);
+        }
+
+        [Fact]
+        public void AdjustSnapshotLiquidFuel_Cap_OverridesMinStoredFloor()
+        {
+            // capStoredLf wins over minStoredLf: the cap is the exact stored amount
+            // even when minStoredLf is larger.
+            var lf = Resource(LiquidFuelName, 0.0, 0.0);
+            var vessel = Vessel(Part(lf));
+
+            bool ok = UnloadedFuelVesselFixture.AdjustSnapshotLiquidFuel(
+                vessel, minStoredLf: 100.0, minFreeCapacity: 2.0, out _, capStoredLf: 5.0);
+
+            Assert.True(ok);
+            Assert.Equal(5.0, Amount(lf), 6);     // cap, NOT the 100 floor
+            Assert.Equal(7.0, MaxAmount(lf), 6);  // cap + free
+        }
+
+        [Fact]
+        public void AdjustSnapshotLiquidFuel_Cap_NegativeTreatedAsZero()
+        {
+            var lf = Resource(LiquidFuelName, 50.0, 100.0);
+            var vessel = Vessel(Part(lf));
+
+            bool ok = UnloadedFuelVesselFixture.AdjustSnapshotLiquidFuel(
+                vessel, minStoredLf: 10.0, minFreeCapacity: 3.0, out _, capStoredLf: -7.0);
+
+            Assert.True(ok);
+            Assert.Equal(0.0, Amount(lf), 6);     // negative cap clamps to 0
+            Assert.Equal(3.0, MaxAmount(lf), 6);  // 0 + free
+        }
+
+        [Fact]
+        public void AdjustSnapshotLiquidFuel_Cap_BoundsBelowTwicePickup()
+        {
+            // The escrow contract: stored covers one pickup but not two.
+            const double pickup = 4.0;
+            var lf = Resource(LiquidFuelName, 9999.0, 99999.0);
+            var vessel = Vessel(Part(lf));
+
+            bool ok = UnloadedFuelVesselFixture.AdjustSnapshotLiquidFuel(
+                vessel, minStoredLf: pickup + 1.0, minFreeCapacity: 1.0, out _, capStoredLf: pickup + 1.0);
+
+            Assert.True(ok);
+            double stored = Amount(lf);
+            Assert.True(stored >= pickup, $"source must cover one pickup (stored={stored} pickup={pickup})");
+            Assert.True(stored < 2.0 * pickup, $"source must NOT cover two pickups (stored={stored} 2x={2.0 * pickup})");
+        }
+
+        // ==================================================================
+        // IsReuseExcluded: a second multi-source provisioning call must NOT reuse
+        // an already-provisioned depot's pid (distinct-depot fix).
+        // ==================================================================
+
+        [Fact]
+        public void IsReuseExcluded_NullSet_NeverExcludes()
+        {
+            Assert.False(UnloadedFuelVesselFixture.IsReuseExcluded(1600022941u, null));
+        }
+
+        [Fact]
+        public void IsReuseExcluded_EmptySet_NeverExcludes()
+        {
+            Assert.False(UnloadedFuelVesselFixture.IsReuseExcluded(1600022941u, new HashSet<uint>()));
+        }
+
+        [Fact]
+        public void IsReuseExcluded_PidInSet_Excludes()
+        {
+            // The KSP.log repro: depot A spawned pid=1600022941, then the depot B call
+            // reused that SAME pid. Excluding it forces a fresh distinct-pid spawn.
+            var set = new HashSet<uint> { 1600022941u };
+            Assert.True(UnloadedFuelVesselFixture.IsReuseExcluded(1600022941u, set));
+        }
+
+        [Fact]
+        public void IsReuseExcluded_OtherPidNotInSet_NotExcluded()
+        {
+            // A freshly-spawned depot B (distinct pid) is NOT excluded, so it resolves
+            // as the second source.
+            var set = new HashSet<uint> { 1600022941u };
+            Assert.False(UnloadedFuelVesselFixture.IsReuseExcluded(1600099999u, set));
         }
     }
 }

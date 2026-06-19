@@ -106,9 +106,29 @@ namespace Parsek.InGameTests.Helpers
         ///         resolve by the returned pid.
         /// Step d: on any failure leave <c>result.Vessel == null</c> (caller skips).
         /// Every branch logs with the <c>TestHelper</c> subsystem tag.
+        ///
+        /// <para><paramref name="excludeReusePids"/>: when non-null, the step-a
+        /// reuse fast-path SKIPS any vessel whose persistentId is in the set. This
+        /// is how a multi-SOURCE test provisions TWO distinct depots: after
+        /// provisioning depot A, the second call passes
+        /// <c>{ depotA.persistentId }</c> so the reuse path cannot hand back the
+        /// first-spawned depot (which is now itself an existing unloaded vessel),
+        /// forcing a fresh spawn with a distinct pid (preserveIdentity:false mints a
+        /// new identity). It does NOT affect step b - a spawn always produces a
+        /// fresh pid - so excluding pids only changes whether reuse is allowed.
+        /// Defaults null = unchanged single-source behavior.</para>
+        ///
+        /// <para><paramref name="capStoredLf"/>: when non-null, the spawned copy's
+        /// FIRST LiquidFuel tank is shaped to EXACTLY this stored amount with a tank
+        /// just large enough to hold it plus <paramref name="minFreeCapacity"/> (no
+        /// larger). This bounds a SHARED source so it covers exactly one pickup but
+        /// not two, which the escrow competing-route hold test needs. Only applies
+        /// on the SPAWN path (step b); the reuse path returns the existing vessel's
+        /// real stored amount. Defaults null = the donor's large capacity is kept.</para>
         /// </summary>
         internal static IEnumerator EnsureUnloadedLiquidFuelVessel(
-            double minStoredLf, double minFreeCapacity, EnsureResult result)
+            double minStoredLf, double minFreeCapacity, EnsureResult result,
+            HashSet<uint> excludeReusePids = null, double? capStoredLf = null)
         {
             if (result == null)
             {
@@ -121,7 +141,7 @@ namespace Parsek.InGameTests.Helpers
             result.SpawnedPid = 0u;
 
             // --- Step a: reuse a pre-existing suitable unloaded vessel. ---
-            if (TryFindExistingUnloadedVessel(minStoredLf, minFreeCapacity,
+            if (TryFindExistingUnloadedVessel(minStoredLf, minFreeCapacity, excludeReusePids,
                     out Vessel existing, out double existingStored))
             {
                 result.Vessel = existing;
@@ -160,13 +180,19 @@ namespace Parsek.InGameTests.Helpers
                 yield break;
             }
 
-            if (!AdjustSnapshotLiquidFuel(donor, minStoredLf, minFreeCapacity, out string adjustReason))
+            if (!AdjustSnapshotLiquidFuel(donor, minStoredLf, minFreeCapacity, out string adjustReason, capStoredLf))
             {
                 ParsekLog.Warn(Tag,
                     $"EnsureUnloadedLiquidFuelVessel: could not shape donor snapshot LiquidFuel " +
                     $"(reason={adjustReason}); cannot spawn fixture - caller will skip");
                 yield break;
             }
+
+            ParsekLog.Info(Tag,
+                $"EnsureUnloadedLiquidFuelVessel: shaped donor snapshot for spawn " +
+                $"(minStoredLF={minStoredLf.ToString("R", IC)} minFreeCap={minFreeCapacity.ToString("R", IC)} " +
+                $"capStoredLF={(capStoredLf.HasValue ? capStoredLf.Value.ToString("R", IC) : "none")} " +
+                $"excludeReusePids={(excludeReusePids != null ? excludeReusePids.Count.ToString(IC) : "0")})");
 
             CelestialBody body = active.mainBody;
             // High circular parking orbit, phased to the FAR side of the body from
@@ -314,6 +340,18 @@ namespace Parsek.InGameTests.Helpers
         // ==================================================================
 
         /// <summary>
+        /// Pure reuse-exclusion predicate: a candidate is excluded from the step-a
+        /// reuse fast-path when its persistentId is in <paramref name="excludeReusePids"/>.
+        /// A null/empty set never excludes (preserving single-source behavior).
+        /// Extracted so the multi-source distinct-depot decision is xUnit-testable
+        /// without a live FlightGlobals scan.
+        /// </summary>
+        internal static bool IsReuseExcluded(uint candidatePid, HashSet<uint> excludeReusePids)
+        {
+            return excludeReusePids != null && excludeReusePids.Contains(candidatePid);
+        }
+
+        /// <summary>
         /// Rewrites the LiquidFuel RESOURCE nodes in a backed-up VESSEL snapshot so
         /// the FIRST LiquidFuel tank carries at least <paramref name="minStoredLf"/>
         /// stored and at least <paramref name="minFreeCapacity"/> free capacity
@@ -321,13 +359,21 @@ namespace Parsek.InGameTests.Helpers
         /// Other LiquidFuel tanks are left untouched. Pure with respect to Unity:
         /// operates only on the ConfigNode, so it is directly xUnit-testable.
         ///
+        /// <para>When <paramref name="capStoredLf"/> is non-null, the first tank is
+        /// shaped to EXACTLY that stored amount (overriding <paramref name="minStoredLf"/>)
+        /// and its maxAmount is clamped to exactly <c>cap + minFreeCapacity</c> - the
+        /// donor's large capacity is NOT preserved. This bounds a SHARED source so it
+        /// covers exactly one pickup but not two (the escrow competing-route hold). A
+        /// negative cap is treated as zero.</para>
+        ///
         /// Returns false (with a reason) when the snapshot has no PART/RESOURCE
         /// LiquidFuel node to shape - the donor pad rocket is guaranteed to have
         /// LiquidFuel because the loaded precondition that gates these tests holds,
         /// but the contract stays defensive.
         /// </summary>
         internal static bool AdjustSnapshotLiquidFuel(
-            ConfigNode vesselNode, double minStoredLf, double minFreeCapacity, out string reason)
+            ConfigNode vesselNode, double minStoredLf, double minFreeCapacity, out string reason,
+            double? capStoredLf = null)
         {
             reason = null;
             if (vesselNode == null)
@@ -337,6 +383,8 @@ namespace Parsek.InGameTests.Helpers
             }
             if (minStoredLf < 0.0) minStoredLf = 0.0;
             if (minFreeCapacity < 0.0) minFreeCapacity = 0.0;
+            bool capped = capStoredLf.HasValue;
+            double capAmount = capped ? Math.Max(0.0, capStoredLf.Value) : 0.0;
 
             ConfigNode[] parts = vesselNode.GetNodes("PART");
             if (parts == null || parts.Length == 0)
@@ -358,16 +406,30 @@ namespace Parsek.InGameTests.Helpers
                     if (!string.Equals(res.GetValue("name"), LiquidFuelName, StringComparison.Ordinal))
                         continue;
 
-                    // Target: amount >= minStoredLf, maxAmount - amount >= minFreeCapacity.
-                    double newAmount = minStoredLf;
-                    double newMax = newAmount + minFreeCapacity;
+                    double newAmount;
+                    double newMax;
+                    if (capped)
+                    {
+                        // EXACT cap: store exactly capAmount in a tank just big enough
+                        // for it + the requested free capacity. The donor's large
+                        // capacity is deliberately NOT preserved so a shared source
+                        // covers one pickup but not two.
+                        newAmount = capAmount;
+                        newMax = newAmount + minFreeCapacity;
+                    }
+                    else
+                    {
+                        // Target: amount >= minStoredLf, maxAmount - amount >= minFreeCapacity.
+                        newAmount = minStoredLf;
+                        newMax = newAmount + minFreeCapacity;
 
-                    // Preserve a larger existing tank capacity if it already exceeds
-                    // the requested totals (keeps the tank shape realistic), but never
-                    // below the requested free capacity.
-                    double existingMax = ParseDouble(res.GetValue("maxAmount"));
-                    if (existingMax > newMax) newMax = existingMax;
-                    if (newMax - newAmount < minFreeCapacity) newMax = newAmount + minFreeCapacity;
+                        // Preserve a larger existing tank capacity if it already exceeds
+                        // the requested totals (keeps the tank shape realistic), but never
+                        // below the requested free capacity.
+                        double existingMax = ParseDouble(res.GetValue("maxAmount"));
+                        if (existingMax > newMax) newMax = existingMax;
+                        if (newMax - newAmount < minFreeCapacity) newMax = newAmount + minFreeCapacity;
+                    }
 
                     res.SetValue("amount", newAmount.ToString("R", IC), true);
                     res.SetValue("maxAmount", newMax.ToString("R", IC), true);
@@ -395,7 +457,8 @@ namespace Parsek.InGameTests.Helpers
         /// so a save that already has a suitable vessel behaves exactly as before.
         /// </summary>
         private static bool TryFindExistingUnloadedVessel(
-            double minStoredLf, double minFreeCapacity, out Vessel candidate, out double stored)
+            double minStoredLf, double minFreeCapacity, HashSet<uint> excludeReusePids,
+            out Vessel candidate, out double stored)
         {
             candidate = null;
             stored = 0.0;
@@ -410,6 +473,10 @@ namespace Parsek.InGameTests.Helpers
                 if (v == null || v.loaded) continue;
                 if (active != null && ReferenceEquals(v, active)) continue;
                 if (ghostPids != null && ghostPids.Contains(v.persistentId)) continue;
+                // A multi-source caller excludes the pids it already provisioned so the
+                // reuse path cannot hand back an earlier-spawned depot - forcing a fresh,
+                // distinct-pid spawn for the second depot.
+                if (IsReuseExcluded(v.persistentId, excludeReusePids)) continue;
                 if (v.protoVessel == null || v.protoVessel.protoPartSnapshots == null) continue;
 
                 double s = new Parsek.Logistics.LiveOriginCargoProbe(v, false)

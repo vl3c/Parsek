@@ -124,8 +124,12 @@ namespace Parsek.InGameTests
                         "PRECONDITION: could not provide unloaded depot A (>= " +
                         $"{DepotAMinStored.ToString("R", IC)} LF). Provide a fueled PRELAUNCH pad rocket");
 
+                // Provision depot B excluding depot A's pid so the reuse fast-path
+                // cannot hand back the just-spawned depot A; that forces a fresh
+                // distinct-pid spawn (preserveIdentity:false mints a new identity).
+                HashSet<uint> excludeForB = BuildExcludeSet(fixtureA);
                 IEnumerator ensureB = UnloadedFuelVesselFixture.EnsureUnloadedLiquidFuelVessel(
-                    DepotBMinStored, FixtureMinFreeCapacity, fixtureB);
+                    DepotBMinStored, FixtureMinFreeCapacity, fixtureB, excludeForB);
                 while (ensureB.MoveNext())
                     yield return ensureB.Current;
                 if (fixtureB.Vessel == null)
@@ -248,8 +252,10 @@ namespace Parsek.InGameTests
                 if (fixtureA.Vessel == null)
                     InGameAssert.Skip("PRECONDITION: could not provide stocked depot A. Provide a fueled PRELAUNCH pad rocket");
 
+                // Exclude depot A's pid so depot B spawns distinct (see test 1).
+                HashSet<uint> excludeForB = BuildExcludeSet(fixtureA);
                 IEnumerator ensureB = UnloadedFuelVesselFixture.EnsureUnloadedLiquidFuelVessel(
-                    DepotBMinStored, FixtureMinFreeCapacity, fixtureB);
+                    DepotBMinStored, FixtureMinFreeCapacity, fixtureB, excludeForB);
                 while (ensureB.MoveNext())
                     yield return ensureB.Current;
                 if (fixtureB.Vessel == null)
@@ -446,11 +452,18 @@ namespace Parsek.InGameTests
             var sharedFixture = new UnloadedFuelVesselFixture.EnsureResult();
             try
             {
-                // The shared source holds enough for exactly ONE route's pickup but
-                // not two, so reserving for A nets B below its requirement.
+                // The shared source must hold enough for exactly ONE route's pickup but
+                // NOT two, so reserving for A nets B below its requirement. Cap the
+                // spawned source's stored LiquidFuel to PickupAmountA + epsilon (covers
+                // one pickup, well under 2x) so a single donor pad rocket - whose tank
+                // is far larger than 2x the tiny pickup - can still demonstrate the
+                // competing-route hold. The cap clamps the spawned tank exactly; it does
+                // NOT apply to a reused pre-existing vessel (see the >= 2x guard below).
                 double sourceFloor = PickupAmountA + 1.0;
+                double sourceCap = PickupAmountA + 1.0; // < 2*PickupAmountA
                 IEnumerator ensure = UnloadedFuelVesselFixture.EnsureUnloadedLiquidFuelVessel(
-                    sourceFloor, FixtureMinFreeCapacity, sharedFixture);
+                    sourceFloor, FixtureMinFreeCapacity, sharedFixture,
+                    excludeReusePids: null, capStoredLf: sourceCap);
                 while (ensure.MoveNext())
                     yield return ensure.Current;
                 if (sharedFixture.Vessel == null)
@@ -562,8 +575,10 @@ namespace Parsek.InGameTests
                 if (fixtureA.Vessel == null)
                     InGameAssert.Skip("PRECONDITION: could not provide depot A. Provide a fueled PRELAUNCH pad rocket");
 
+                // Exclude depot A's pid so depot B spawns distinct (see test 1).
+                HashSet<uint> excludeForB = BuildExcludeSet(fixtureA);
                 IEnumerator ensureB = UnloadedFuelVesselFixture.EnsureUnloadedLiquidFuelVessel(
-                    DepotBMinStored, FixtureMinFreeCapacity, fixtureB);
+                    DepotBMinStored, FixtureMinFreeCapacity, fixtureB, excludeForB);
                 while (ensureB.MoveNext())
                     yield return ensureB.Current;
                 if (fixtureB.Vessel == null)
@@ -1236,6 +1251,30 @@ namespace Parsek.InGameTests
         // ==================================================================
         // State snapshot / restore helpers
         // ==================================================================
+
+        /// <summary>
+        /// The reuse-exclusion set for provisioning a SECOND distinct depot: the
+        /// already-provisioned fixture's resolved persistentId (the just-spawned
+        /// depot is now itself an existing unloaded vessel, so without excluding it
+        /// the reuse fast-path would hand it back for the second call), plus the
+        /// active vessel's pid as belt-and-suspenders. Prefers the live resolved
+        /// vessel pid; falls back to the recorded SpawnedPid.
+        /// </summary>
+        private static HashSet<uint> BuildExcludeSet(UnloadedFuelVesselFixture.EnsureResult provisioned)
+        {
+            var set = new HashSet<uint>();
+            if (provisioned != null)
+            {
+                if (provisioned.Vessel != null)
+                    set.Add(provisioned.Vessel.persistentId);
+                if (provisioned.SpawnedPid != 0u)
+                    set.Add(provisioned.SpawnedPid);
+            }
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active != null)
+                set.Add(active.persistentId);
+            return set;
+        }
 
         private static List<Route> SnapshotRoutes()
         {
