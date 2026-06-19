@@ -3429,6 +3429,14 @@ namespace Parsek.Logistics
                 route.PauseAfterCurrentCycle = false;
                 string reason = plan.IsPartial ? "delivered-partial-then-paused" : "delivered-then-paused";
                 route.TransitionTo(RouteStatus.Paused, reason);
+                // M4b escrow-strand fix (PR #1180 clean-review Finding 1): a Send-Once-armed
+                // MULTI-STOP route can pause HERE mid-PARTIAL-cycle (an early window delivered
+                // this tick, a later window still pending), so it never reaches the
+                // cycle-complete escrow sweep (ProcessMultiStopCrossings) and the pending
+                // window's source reservation would strand, mis-gating a competing route.
+                // Drop it. Idempotent no-op on the complete-cycle / single-stop / no-escrow
+                // paths (this is the sixth and final quiesce transition).
+                RouteStore.DropRouteEscrow(route.Id);
             }
             else
             {
