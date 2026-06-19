@@ -8376,10 +8376,20 @@ namespace Parsek
         /// (<see cref="RouteOrchestrator.ReEstablishEscrowForUnfiredWindows"/>); the
         /// single-stop path has no dispatch-to-debit gap. Clearing here prevents a stale
         /// craft-baked-pid reservation from mis-gating a competing route after the
-        /// scene reloads. Static so it can also fire from the disposed-instance edge
-        /// safely. DROP-not-revert (no ledger row to reverse).
+        /// scene reloads. DROP-not-revert (no ledger row to reverse).
+        ///
+        /// MUST be an instance method: KSP's <c>EventData&lt;T&gt;.Add</c> builds an
+        /// <c>EvtDelegate</c> whose ctor unconditionally runs
+        /// <c>originatorType = evt.Target.GetType().Name</c>. For a <c>static</c> handler
+        /// <c>evt.Target</c> is null, so <c>Add</c> throws <c>NullReferenceException</c>.
+        /// Subscribed from <see cref="SubscribeVesselLifecycleEvents"/> during
+        /// <see cref="OnLoad"/>, so a static handler here aborts the whole OnLoad before
+        /// recordings load and the next save then writes 0 RECORDING_TREE nodes — a silent
+        /// recording-index wipe. Unsubscribed in <see cref="OnDestroy"/>, so the
+        /// disposed-instance edge is already handled. The body only makes a static call,
+        /// so instance-ness has no behavioral cost.
         /// </summary>
-        private static void OnGameSceneSwitchClearEscrow(
+        private void OnGameSceneSwitchClearEscrow(
             GameEvents.FromToAction<GameScenes, GameScenes> action)
         {
             RouteStore.ClearAllEscrow($"scene-switch {action.from}->{action.to}");

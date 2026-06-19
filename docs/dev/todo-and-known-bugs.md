@@ -13,6 +13,47 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~Bug - static GameEvent handler in OnLoad NREs and wipes the recording index~~ (DONE, branch `fix-onload-static-handler-nre`)
+
+The M4b escrow work (`logistics-m4-multistop`) added
+`GameEvents.onGameSceneSwitchRequested.Add(OnGameSceneSwitchClearEscrow)` to
+`ParsekScenario.SubscribeVesselLifecycleEvents`, with `OnGameSceneSwitchClearEscrow`
+declared `static`. KSP's `EventData<T>.Add` builds an `EvtDelegate` whose ctor runs
+`originatorType = evt.Target.GetType().Name` (verified by decompiling Assembly-CSharp);
+`evt.Target` is null for a static method, so `Add` throws `NullReferenceException`.
+Because the subscription runs inside `OnLoad`, the exception aborted the entire OnLoad
+**before recordings were loaded** (`OnLoad: exception phase=initial-baseline ... 0 recordings`),
+and the next save then wrote `0 RECORDING_TREE` nodes to `persistent.sfs` — a silent
+recording-index wipe. The CleanOrphanFiles guard preserved the sidecar files on disk
+(`writing 0 RECORDING_TREE nodes but disk has N stranded sidecar recording ID(s)`), so no
+data was lost, but every recording vanished from the UI. Recovery: redeploy a non-buggy
+DLL, then load the freshest quicksave that still has the `RECORDING_TREE` nodes.
+
+**Fix:** make `OnGameSceneSwitchClearEscrow` an instance method (its body only makes a
+static `RouteStore.ClearAllEscrow` call, so instance-ness has no behavioral cost;
+`OnDestroy` already unsubscribes it). Regression guard:
+`ScenarioGameEventHandlerContractTests.OnGameSceneSwitchClearEscrow_MustBeInstanceMethod_NotStatic`.
+General rule established: **no `ParsekScenario` handler subscribed to a KSP GameEvent may
+be `static`** — KSP's `EventData.Add` dereferences `evt.Target` (null for static).
+
+## Bug - `OnMainMenuTransition` is a static GameEvent handler: silently dead since 2026-03-22 (OPEN, separate from above)
+
+Found during review of the `OnGameSceneSwitchClearEscrow` fix. `ParsekScenario.OnMainMenuTransition`
+is `private static` and is subscribed to `GameEvents.onGameSceneLoadRequested` from
+`RegisterMainMenuHook()` (called during `OnLoad`). The same KSP `EvtDelegate` NRE applies, but here
+the `Add` is wrapped in `try/catch (NullReferenceException)` whose comment wrongly blames
+"GameEvents not ready … will retry on next OnLoad". The throw is deterministic (static handler), so
+the hook has **never** registered — present on `main` too, since commit `d398cac43` (2026-03-22). It
+does not crash and did not wipe recordings; it just means `OnMainMenuTransition` never fires, so its
+main-menu session reset (`initialLoadDone`, pending-cleanup clears, `PlaybackScopeTracker.Reset`,
+`RouteStore.ClearAllEscrow`) and its **unconditional per-scene-switch**
+`LedgerOrchestrator.FlushStalePendingRecoveryFunds` + `RecoveryPayoutContextStore.Clear` have been
+inert. **Not fixed here on purpose:** correcting the `static` re-activates ~3 months of dormant
+session-reset + ledger/recovery-funds logic, which is a behavioral change that needs its own commit
+and an in-game playtest (return-to-main-menu, load a different save, recovery-funds accounting), not a
+ride-along in a recovery fix. Fix when scoped: make it an instance method, delete the misleading
+catch comment, and extend the contract test to cover it.
+
 ## Dev - Logistics in-game tests: auto-spawn unloaded vessel (no manual second craft)
 
 The 7 logistics FLIGHT in-game tests (origin-debit / pickup / multi-stop delivery,
