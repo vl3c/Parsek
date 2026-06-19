@@ -74,6 +74,14 @@ namespace Parsek.Reaim
             /// <summary>T_rot (the destination rotation period the hold aligns).</summary>
             public double AlignPeriodSeconds;
 
+            /// <summary>The recorded deorbit UT (the selected destination surface-section start) - the descent
+            /// trigger's re-anchor point. NaN on <see cref="None"/>.</summary>
+            public double RecordedDeorbitUT;
+
+            /// <summary>T_park: the selected destination loiter run's orbital period (seconds) - the period the
+            /// descent trigger circles while waiting for alignment. NaN on <see cref="None"/>.</summary>
+            public double DestinationPeriodSeconds;
+
             internal static DestinationLoiterTrimResult None =>
                 new DestinationLoiterTrimResult
                 {
@@ -85,6 +93,8 @@ namespace Parsek.Reaim
                     HoldSeconds = 0.0,
                     HoldAtUT = double.NaN,
                     AlignPeriodSeconds = double.NaN,
+                    RecordedDeorbitUT = double.NaN,
+                    DestinationPeriodSeconds = double.NaN,
                 };
         }
 
@@ -238,6 +248,8 @@ namespace Parsek.Reaim
                 HoldSeconds = bestW,
                 HoldAtUT = recordedArrivalUT,
                 AlignPeriodSeconds = rotationPeriod,
+                RecordedDeorbitUT = recordedDestSurfaceUT,
+                DestinationPeriodSeconds = destRun.PeriodSeconds,
             };
             LogSolve(targetBody, result, mode);
             return result;

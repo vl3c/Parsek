@@ -6835,7 +6835,13 @@ namespace Parsek
                 string arrivalAmberReason = null,
                 double launchBodyRotationPeriodSeconds = double.NaN,
                 bool launchHoldEngaged = false,
-                double recordedSoiExitUT = double.NaN)
+                double recordedSoiExitUT = double.NaN,
+                int[] descentMemberIndices = null,
+                double recordedDeorbitUT = double.NaN,
+                double descentEndUT = double.NaN,
+                double destinationBodyRotationPeriodSeconds = double.NaN,
+                double loiterPeriodSeconds = double.NaN,
+                double captureShiftSeconds = double.NaN)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6856,6 +6862,12 @@ namespace Parsek
                 LaunchBodyRotationPeriodSeconds = launchBodyRotationPeriodSeconds;
                 LaunchHoldEngaged = launchHoldEngaged;
                 RecordedSoiExitUT = recordedSoiExitUT;
+                DescentMemberIndices = descentMemberIndices;
+                RecordedDeorbitUT = recordedDeorbitUT;
+                DescentEndUT = descentEndUT;
+                DestinationBodyRotationPeriodSeconds = destinationBodyRotationPeriodSeconds;
+                LoiterPeriodSeconds = loiterPeriodSeconds;
+                CaptureShiftSeconds = captureShiftSeconds;
             }
 
             /// <summary>
@@ -7029,6 +7041,63 @@ namespace Parsek
             /// engaged, in which case <see cref="TryComputeSpanLoopUT"/> inserts no SOI-exit hold. Runtime-only.
             /// </summary>
             internal double RecordedSoiExitUT { get; }
+
+            // === Descent trigger (re-aim looped LANDING) =====================================
+            // docs/dev/plans/reaim-descent-trigger.md. For a re-aimed looped landing the parking CONIC is
+            // shifted ~|captureShift| earlier (PR #1177) to meet the early-arriving transfer, opening a gap
+            // before the body-fixed deorbit->reentry->landing clip. These fields let the tracking-station /
+            // map resolver detach the descent member's head from the loop clock and re-anchor it to the first
+            // rotation-aligned moment after the icon reaches the parking-orbit deorbit point (the icon circles
+            // the conic in between, then plays the recorded clip verbatim onto the EXACT recorded site).
+            // All sentinels (-1 / NaN) on every non-landing / non-re-aim unit, so the resolver is byte-identical
+            // to today there. Runtime-only (the LoopUnit set is rebuilt per scene, never persisted).
+
+            /// <summary>The committed-recording indices of the member SET carrying the post-parking body-fixed
+            /// approach clip (deorbit-&gt;reentry-&gt;landing for a surface mission, OR the rendezvous/docking
+            /// approach for an orbital one), or null/empty when the descent trigger is not engaged. A
+            /// multi-recording chain continues PAST the destination arrival as several separate committed
+            /// recordings (each a member); they all share ONE re-anchored descent clip and ONE trigger, and
+            /// each renders only the slice of the clip in its own window. Ascending committed-index order.</summary>
+            internal int[] DescentMemberIndices { get; }
+
+            /// <summary>True if committed index <paramref name="i"/> is one of the descent-set members.</summary>
+            internal bool IsDescentMember(int i)
+            {
+                if (DescentMemberIndices == null) return false;
+                for (int k = 0; k < DescentMemberIndices.Length; k++)
+                    if (DescentMemberIndices[k] == i) return true;
+                return false;
+            }
+
+            /// <summary>The recorded UT of the descent member's deorbit (the first target-body surface section
+            /// start after arrival) - where the re-anchored descent clip begins. NaN when not engaged.</summary>
+            internal double RecordedDeorbitUT { get; }
+
+            /// <summary>The recorded UT the descent clip ends (touchdown); the re-anchored head hides the member
+            /// once it passes this. NaN when not engaged.</summary>
+            internal double DescentEndUT { get; }
+
+            /// <summary>The destination body's sidereal rotation period T_rot (seconds): the live rotation
+            /// equals the recorded deorbit rotation iff currentUT ≡ recordedDeorbitUT (mod T_rot), so the clip
+            /// lands on the exact recorded site. NaN when not engaged.</summary>
+            internal double DestinationBodyRotationPeriodSeconds { get; }
+
+            /// <summary>The destination parking orbit period T_park (seconds): the period the icon circles while
+            /// waiting for the descent alignment. NaN when not engaged.</summary>
+            internal double LoiterPeriodSeconds { get; }
+
+            /// <summary>The capture shift (seconds, &lt;= 0): how far PR #1177 moved the parking conic earlier
+            /// (newArrival - recordedArrival ≈ HohmannTof - recordedTof). The conic's deorbit point sits at
+            /// recorded UT recordedDeorbitUT + captureShift. NaN when not engaged.</summary>
+            internal double CaptureShiftSeconds { get; }
+
+            /// <summary>True only when this unit carries a fully-resolved descent trigger (a re-aim looped
+            /// arrival with a non-empty descent member set, an early arrival, and valid periods).</summary>
+            internal bool HasDescentTrigger =>
+                IsReaim && DescentMemberIndices != null && DescentMemberIndices.Length > 0
+                && !double.IsNaN(RecordedDeorbitUT) && !double.IsNaN(DescentEndUT)
+                && DestinationBodyRotationPeriodSeconds > 0.0 && LoiterPeriodSeconds > 0.0
+                && !double.IsNaN(CaptureShiftSeconds);
         }
 
         /// <summary>
@@ -8259,7 +8328,7 @@ namespace Parsek
                 memberStartUT,
                 memberEndUT,
                 out double loopUT,
-                out _,
+                out long unitCycle,
                 out _,
                 unit.RelaunchSchedule,
                 unit.LoiterCuts,
@@ -8269,6 +8338,54 @@ namespace Parsek
                 unit.LaunchBodyRotationPeriodSeconds,
                 unit.LaunchHoldEngaged,
                 unit.RecordedSoiExitUT);
+
+            // Descent trigger (re-aim looped arrival, docs/dev/plans/reaim-descent-trigger.md): the post-parking
+            // body-fixed approach clip (deorbit->reentry->landing for a surface mission, OR the rendezvous/docking
+            // approach for an orbital one) lives in a SET of chain-tail members AFTER the destination arrival.
+            // Those members must NOT play on the raw loop clock - the re-aimed transfer arrives ~|captureShift|
+            // early so the loop slot for the clip lands at the WRONG destination rotation phase (the icon-frozen /
+            // mis-aligned bug). DETACH the whole set from the loop clock and re-anchor it to the first
+            // rotation-aligned moment after the icon reaches the parking-orbit deorbit point. ONE shared, monotone
+            // descent head spans the set; each member renders ONLY the slice of the clip inside its own window and
+            // is HIDDEN in every other phase (Inert before the icon reaches the deorbit point, Loiter while the
+            // icon circles the transfer member's shifted conic, Done after the clip ends). Byte-identical for every
+            // non-descent member / non-re-aim unit (HasDescentTrigger false).
+            if (unit.HasDescentTrigger && unit.IsDescentMember(i))
+            {
+                if (decision == UnitMemberRenderDecision.SpanClockUnresolved)
+                {
+                    renderHidden = true; // the loop has not started this frame
+                    return liveUT;
+                }
+
+                bool renderDescent = Parsek.Reaim.DescentTrigger.TryResolveDescentMemberHead(
+                    liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
+                    unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
+                    unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
+                    memberStartUT, memberEndUT, out double descentHead,
+                    out Parsek.Reaim.DescentTrigger.DescentHeadPhase descentPhase);
+
+                var dic = CultureInfo.InvariantCulture;
+                ParsekLog.VerboseRateLimited(
+                    "ReaimDescent",
+                    // Mission identity + member + phase key: bounded by mission x member x phase, not frame count.
+                    $"descent-head.{unit.PhaseAnchorUT.ToString("R", dic)}.{unit.SpanStartUT.ToString("R", dic)}.{i.ToString(dic)}.{descentPhase}",
+                    $"descent trigger member={i.ToString(dic)} cycle={unitCycle.ToString(dic)} phase={descentPhase} " +
+                    $"render={renderDescent} liveUT={liveUT.ToString("R", dic)} head={descentHead.ToString("R", dic)} " +
+                    $"win=[{memberStartUT.ToString("R", dic)},{memberEndUT.ToString("R", dic)}] " +
+                    $"deorbit={unit.RecordedDeorbitUT.ToString("R", dic)} end={unit.DescentEndUT.ToString("R", dic)} " +
+                    $"cs={unit.CaptureShiftSeconds.ToString("R", dic)} Trot={unit.DestinationBodyRotationPeriodSeconds.ToString("R", dic)} Tpark={unit.LoiterPeriodSeconds.ToString("R", dic)}");
+
+                if (renderDescent)
+                {
+                    renderHidden = false; // this member owns its slice of the re-anchored clip
+                    return descentHead;
+                }
+                // Inert / Loiter / Done / outside-this-member's-slice: hidden (the descent member NEVER rides the
+                // raw loop clock; the transfer member carries the icon over the shifted conic during the wait).
+                renderHidden = true;
+                return liveUT;
+            }
 
             if (decision == UnitMemberRenderDecision.Render)
                 return loopUT;
@@ -8365,6 +8482,12 @@ namespace Parsek
             double primaryUT = ResolveTrackingStationSampleUT(i, memberStartUT, memberEndUT, liveUT, units, out primaryHidden);
 
             if (units == null || !units.TryGetUnitForMember(i, out LoopUnit unit))
+                return primaryUT;
+
+            // Descent trigger R6: a descent-set member is governed ENTIRELY by the re-anchored primary head; it
+            // must NOT also emit a boundary-overlap SECONDARY (the secondary path does not descent-remap, so it
+            // would draw the body-fixed clip at the raw loop UT = the wrong rotation again). Suppress it.
+            if (unit.HasDescentTrigger && unit.IsDescentMember(i))
                 return primaryUT;
 
             double trimmedStart = unit.MemberStartUT(i, memberStartUT);
