@@ -4817,21 +4817,60 @@ namespace Parsek
 
         /// <summary>
         /// Returns the approach altitude threshold for an airless body.
-        /// Prefers KSP's timeWarpAltitudeLimits[4] (100x warp limit) when available — this is
-        /// KSP's own definition of "close enough that fast warp is dangerous" and adapts to modded
-        /// planets automatically. Falls back to body.Radius * 0.15 clamped to [5000, 200000].
+        /// Prefers KSP's timeWarpAltitudeLimits[4] (100x warp limit) — KSP's own definition of
+        /// "close enough that fast warp is dangerous", which adapts to modded planets automatically.
+        /// A warp mod (e.g. BetterTimeWarp) overwrites the live array at MainMenu startup, zeroing
+        /// index [4]; <see cref="StockWarpAltitudeLimits"/> snapshots the genuine stock value before
+        /// that override, so we prefer the snapshot, then the live array, then a radius fallback
+        /// (body.Radius * 0.15 clamped to [5000, 200000]).
         /// WARNING: Callers must check body.atmosphere first — this method does not guard against
         /// atmospheric bodies (which use atmosphere boundary splits instead).
         /// </summary>
         internal static double ComputeApproachAltitude(CelestialBody body)
         {
-            if (body != null && body.timeWarpAltitudeLimits != null
-                && body.timeWarpAltitudeLimits.Length >= 5
-                && body.timeWarpAltitudeLimits[4] > 0)
+            if (body == null)
+                return ComputeApproachAltitude(0);
+
+            float stockLimit = StockWarpAltitudeLimits.TryGetStockLimit(body.name, 4, out var s)
+                ? s : 0f;
+            float liveLimit = (body.timeWarpAltitudeLimits != null
+                && body.timeWarpAltitudeLimits.Length >= 5)
+                ? body.timeWarpAltitudeLimits[4] : 0f;
+
+            double altitude = SelectApproachAltitude(stockLimit, liveLimit, body.Radius, out var source);
+
+            // Surface (rate-limited per body) the case where a mod zeroed the live limit and we
+            // recovered the stock value — the in-game proof the hardening took effect.
+            if (source == "stock" && liveLimit <= 0f)
             {
-                return body.timeWarpAltitudeLimits[4];
+                ParsekLog.VerboseRateLimited(StockWarpAltitudeLimits.Tag, body.name,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "ComputeApproachAltitude({0}): live limit zeroed by a warp mod; using stock {1:F0}m",
+                        body.name, altitude));
             }
-            return ComputeApproachAltitude(body != null ? body.Radius : 0);
+            return altitude;
+        }
+
+        /// <summary>
+        /// Pure approach-altitude selection: prefer the captured stock limit, then the live
+        /// (possibly mod-overridden) limit, then the radius fallback. A limit of 0 (or negative)
+        /// means "unavailable". <paramref name="source"/> is "stock" / "live" / "radius".
+        /// </summary>
+        internal static double SelectApproachAltitude(
+            float stockLimit, float liveLimit, double bodyRadius, out string source)
+        {
+            if (stockLimit > 0f)
+            {
+                source = "stock";
+                return stockLimit;
+            }
+            if (liveLimit > 0f)
+            {
+                source = "live";
+                return liveLimit;
+            }
+            source = "radius";
+            return ComputeApproachAltitude(bodyRadius);
         }
 
         /// <summary>
