@@ -37,12 +37,13 @@ namespace Parsek.Reaim
         }
 
         // Keyed by (member recording id, synodic window) - the member id is stable across frames (the
-        // committed index can shuffle) and the window discriminator lets TWO concurrent windows (k and
-        // k+1) coexist for overlapping ghost instances (Approach A). A different window is simply a
-        // different key, so advancing the window no longer self-evicts the prior window's entry (the
-        // old single-slot-per-member cache could hold only ONE window at a time). CacheEntry.Window is
-        // kept (some entries are read back through it for diagnostics), but the tuple KEY is now
-        // authoritative for which window an entry belongs to.
+        // committed index can shuffle) and the window discriminator means advancing the window inserts a
+        // new key rather than clobbering the prior window's entry. The live clock resolves ONE window per
+        // frame (cadence is now a whole synodic multiple, so each relaunch lands on a real window and the
+        // mission fits one cadence - a single instance, no overlap), but the band keeps the prior window
+        // briefly so a window-boundary frame is not a forced rebuild. CacheEntry.Window is kept (some
+        // entries are read back through it for diagnostics), but the tuple KEY is authoritative for which
+        // window an entry belongs to.
         private readonly Dictionary<(string memberId, long window), CacheEntry> cacheByMemberWindow =
             new Dictionary<(string memberId, long window), CacheEntry>();
 
@@ -60,12 +61,11 @@ namespace Parsek.Reaim
 
         // Eviction band half-width (windows): on every insert, drop any of THIS member's cached windows
         // whose index falls outside [currentWindow - CacheWindowBandHalfWidth, currentWindow +
-        // CacheWindowBandHalfWidth]. The overlap needs at most the current window + the next window
-        // (k and k+1) live at once, so a symmetric +-1 band (3 windows max per member) is the smallest
-        // bound that (a) never evicts a window still needed this frame - the window just inserted is the
-        // band center, so it is always kept - and (b) caps the per-member entry count at a small constant
-        // so a tuple dict cannot leak old windows at high warp between Clear() calls. Per-member: one
-        // member's eviction never touches another member's entries.
+        // CacheWindowBandHalfWidth]. A symmetric +-1 band (3 windows max per member) is the smallest bound
+        // that (a) never evicts the window just inserted - it is the band center, so it is always kept -
+        // and keeps the immediately-prior window across a boundary frame, and (b) caps the per-member
+        // entry count at a small constant so a tuple dict cannot leak old windows at high warp between
+        // Clear() calls. Per-member: one member's eviction never touches another member's entries.
         private const long CacheWindowBandHalfWidth = 1;
 
         /// <summary>Drops all cached window adapters (call when the committed set / missions change so a
@@ -164,49 +164,16 @@ namespace Parsek.Reaim
             }
             windowIndex = cycleIndex;
 
-            // The window is derived; the lookup/build/cache for (memberId, cycleIndex) is shared with the
-            // explicit-window overload below so the two cannot drift.
+            // The window is derived; the lookup/build/cache for (memberId, cycleIndex) lives in the shared
+            // core so the cache keying / eviction stay in one place.
             return TryResolveWindowSegmentsCore(
                 memberId, memberSegments, plan, schedule, cycleIndex, out segments);
         }
 
-        /// <summary>
-        /// Resolves the re-aimed OrbitSegment list for one re-aim member at an EXPLICIT synodic
-        /// <paramref name="window"/>, SKIPPING the live-clock window derivation that
-        /// <see cref="TryResolveWindowSegments"/> performs. Caches by <c>(memberId, window)</c> with the
-        /// SAME semantics as the currentUT overload (they share <see cref="TryResolveWindowSegmentsCore"/>).
-        /// Returns false (keep the faithful recorded segments) on a window miss / unsupported plan.
-        /// DARK in sub-PR 2: no caller yet (sub-PR 3 calls this to pre-resolve the next overlap window k+1
-        /// independently of the live clock).
-        /// </summary>
-        internal bool TryResolveWindowSegmentsForWindow(
-            string memberId,
-            IReadOnlyList<OrbitSegment> memberSegments,
-            ReaimMissionPlan plan,
-            ReaimWindowPlanner.ReaimWindowSchedule schedule,
-            long window,
-            out List<OrbitSegment> segments)
-        {
-            segments = null;
-            if (!plan.Supported || !schedule.Valid || string.IsNullOrEmpty(memberId))
-                return false;
-
-            // Same cheap pre-check as the currentUT overload: a member with no heliocentric leg in the
-            // transfer window has nothing to re-aim - keep its faithful body-relative segments.
-            if (!ReaimSegmentAssembler.HasHeliocentricLegInWindow(
-                    memberSegments, plan.CommonAncestor, plan.RecordedDepartureUT, plan.RecordedArrivalUT))
-                return false;
-
-            return TryResolveWindowSegmentsCore(
-                memberId, memberSegments, plan, schedule, window, out segments);
-        }
-
-        // Shared lookup/build/cache core for BOTH overloads, keyed by (memberId, window). The currentUT
-        // overload derives the window from the live clock first; the explicit-window overload passes it
-        // straight through. Factoring this here keeps the two overloads byte-identical in caching +
-        // building semantics (they cannot drift). BuildWindowSegments is pure in its window argument
-        // (it reads schedule.DepartureUTForWindow(window) etc.), so an explicit window resolves the same
-        // geometry the currentUT path would at a UT mapping to that window.
+        // Shared lookup/build/cache core, keyed by (memberId, window). The currentUT path derives the
+        // window from the live clock, then passes it here. BuildWindowSegments is pure in its window
+        // argument (it reads schedule.DepartureUTForWindow(window) etc.), so the cached geometry matches
+        // what the live clock derives for that window.
         private bool TryResolveWindowSegmentsCore(
             string memberId,
             IReadOnlyList<OrbitSegment> memberSegments,
@@ -378,28 +345,28 @@ namespace Parsek.Reaim
             // BuildParkingCandidateTofs + true-duration render bounds + captureShift) gates on coincidence.
             double parkDeltaLonDeg = anchor.ParkDeltaLonDeg;
 
-            // BOUNDED FIX (this task): the park-end r1 anchor is evaluated on the CADENCE clock (parkReplayUT)
-            // while the transfer aims on the SYNODIC clock (nominalDepartureUT == departureUT). They coincide
-            // ONLY at window 0 (and at every window when cadence == synodic, i.e. span <= synodic). When they
-            // diverge (k >= 1 of a span > synodic mission) the park-end override produces a WILD conic
-            // (playtest window 21: ecc 0.82, r1 192 deg around the Sun), so gate the F2 bundle on coincidence
-            // and let the EXISTING code fall back to the tested Increment-1 path (r1 = launch-body center,
-            // BuildCandidateTofs, NaN render bounds, captureShift 0) - a sane Kerbin->Duna conic, NOT wild.
-            // The every-window fix is the deferred Approach A (overlap instances, cadence == synodic); the
-            // naive "move parkReplayUT to the synodic clock" (Approach C) was REJECTED as a #1172 revert (it
-            // re-opens the ~142 deg/loop distant-loiter park teleport).
+            // The park-end r1 anchor is evaluated on the CADENCE clock (parkReplayUT == RelaunchUTForWindow)
+            // and the transfer aims on the DEPARTURE clock (nominalDepartureUT == DepartureUTForWindow). With
+            // the synodic-MULTIPLE cadence both clocks step by the same cadence, so they COINCIDE at EVERY
+            // window for EVERY mission (the every-window fix): the F2 bundle (r1 override +
+            // BuildParkingCandidateTofs + true-duration render bounds + captureShift) fires at every relaunch,
+            // aiming the transfer at the target's LIVE position each window, with no self-overlap (the mission
+            // fits one cadence). The coincidence gate is kept as a defensive belt - a degenerate / future
+            // schedule whose clocks somehow disagree still fails closed to the tested Increment-1 path (r1 =
+            // launch-body center, BuildCandidateTofs, NaN render bounds, captureShift 0) - a sane Kerbin->Duna
+            // conic, NOT wild - rather than producing the old span>synodic divergent override.
             bool anchorWantsOverride = anchor.Mode == ReaimSegmentAssembler.DepartureAnchorMode.ParkEndOverride;
             bool clocksCoincide = ReaimWindowPlanner.ParkEndOverrideClocksCoincide(parkReplayUT, nominalDepartureUT);
             bool hasDepartureOverride = anchorWantsOverride && clocksCoincide;
             if (anchorWantsOverride && !clocksCoincide)
             {
                 ParsekLog.Verbose("ReaimPlayback",
-                    $"member={memberId} window={windowIndex} park-end override gated off (clocks diverge: " +
+                    $"member={memberId} window={windowIndex} park-end override gated off (clocks diverge unexpectedly: " +
                     $"parkReplayUT={parkReplayUT.ToString("R", ic)} - departUT={nominalDepartureUT.ToString("R", ic)} = " +
                     $"{(parkReplayUT - nominalDepartureUT).ToString("R", ic)}s, cadence={schedule.CadenceSeconds.ToString("R", ic)} " +
                     $"synodic={schedule.SynodicPeriodSeconds.ToString("R", ic)}) -> Increment-1 Kerbin-center fallback " +
                     $"(sane, not wild); #1172 park re-phase still applies (parkDeltaLon={parkDeltaLonDeg.ToString("R", ic)}deg); " +
-                    $"every-window-correct needs Approach A (overlap)");
+                    $"clocks should coincide every window now (cadence is a synodic multiple)");
             }
             Vector3d parkEndPosUnswizzled = default(Vector3d);
             Vector3d parkEndVelUnswizzled = default(Vector3d);
@@ -490,19 +457,17 @@ namespace Parsek.Reaim
             // park-end and the transfer-start are the SAME point and the icon traverses park -> transfer
             // continuously.
             //
-            // CLOCK CHOICE (the issue-1 fix): replayUT is the CADENCE-clock relaunch time
-            // (schedule.RelaunchUTForWindow = D0 + window*cadence), NOT the synodic departure
-            // (DepartureUTForWindow = D0 + window*synodic). The loop ENGINE relaunches the ghost every
-            // CADENCE = max(span, synodic); the body-relative escape leg therefore follows the launch body at
-            // its position D0 + window*cadence, so the park must re-phase to the SAME time to meet it. When
-            // cadence == synodic (synodic > span, the normal interplanetary case) the two clocks coincide and
-            // this is byte-identical to the synodic departure. They DIVERGE only when the recorded span
-            // exceeds the synodic (a mission longer than its own transfer window, e.g. Kerbal X #2): there the
-            // synodic-clock re-phase drifts the park ~142 deg*window off the live launch body, which is the
-            // distant-loiter teleport. Pinning the park to the cadence clock keeps the loiter on the live
-            // launch body at every window. (The TRANSFER's ARRIVAL still rides the synodic clock so it aims
-            // at the target's true position; the residual transfer->target seam in the span>synodic case is
-            // the separate Increment-2 overlap work, out of scope for this departure-seam fix.)
+            // CLOCK CHOICE: replayUT is the CADENCE-clock relaunch time (schedule.RelaunchUTForWindow =
+            // D0 + window*cadence). The loop ENGINE relaunches the ghost every CADENCE; the body-relative
+            // escape leg therefore follows the launch body at its position D0 + window*cadence, so the park
+            // must re-phase to the SAME time to meet it. With the synodic-MULTIPLE cadence the transfer's
+            // DEPARTURE clock (DepartureUTForWindow) ALSO steps by cadence, so the departure, the relaunch,
+            // and the park re-phase all share D0 + window*cadence at EVERY window. The park sits next to the
+            // live launch body AND the transfer is aimed at the same UT, so it reaches the target's LIVE
+            // position - the every-window transfer-aim fix (this supersedes the old span>synodic divergence,
+            // where the synodic-clock arrival drifted ~142 deg*window off the live launch body and only
+            // window 0 was correct). The residual launch-rotation seam (#1174's launch hold) and the
+            // cross-SOI ~62 deg encounter kink are separate and out of scope here.
 
             // RENDER SPAN + CAPTURE RE-TIME (F2, parking path only). The parking-departure transfer now uses
             // the GEOMETRIC Hohmann tof (much shorter than the recorded tof), so it ARRIVES earlier than the

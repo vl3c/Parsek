@@ -168,17 +168,6 @@ namespace Parsek
         internal const int MaxOverlapMissionInstances = 20;
 
         /// <summary>
-        /// Default-OFF rollout flag for the Approach-A re-aim self-overlap milestone.
-        /// When false (production default) the builder cadence flip in
-        /// <see cref="MissionLoopUnitBuilder.ShouldFlipToSelfOverlapCadence"/> never runs,
-        /// so builder output stays byte-identical and the #1174 launch-hold-secondary
-        /// regime is untouched. Flip to true ONLY after the per-frame body-following
-        /// overlap refresh (sub-PR 3) AND the launch-hold rotation port land — flipping it
-        /// earlier re-opens the #1174 launch->escape seam for this unit.
-        /// </summary>
-        internal const bool ReaimSelfOverlapEnabled = false;
-
-        /// <summary>
         /// Bug #414: cap on throttle-eligible ghost-visual builds per
         /// UpdatePlayback tick. Worst-case spawn cost =
         /// cap × <see cref="MaxSpawnBuildMillisecondsPerAdvance"/> ≈ under
