@@ -302,6 +302,14 @@ namespace Parsek.Logistics
             // zero-recovery branch if the route owes nothing.
             EmitPendingRecoveryCredit(route, currentUT, env);
 
+            // M4b escrow-strand fix (PR #1180 review): a multi-origin route that reserved
+            // its per-source escrow at dispatch and is paused MID-cycle never reaches the
+            // cycle-complete DropRouteEscrow sweep, so the stale reservation would keep
+            // mis-gating a competing route sharing that source until the next scene switch.
+            // Drop it on the immediate-pause transition. Idempotent no-op when nothing is
+            // held (a delivery-only route, or a route paused between cycles).
+            RouteStore.DropRouteEscrow(route.Id);
+
             route.PauseAfterCurrentCycle = false;
             route.TransitionTo(RouteStatus.Paused, "player-pause");
             return true;
@@ -1929,6 +1937,15 @@ namespace Parsek.Logistics
                     $"pure-pickup (no delivery manifest) - delivery half skipped, " +
                     $"bumped completedCycles={route.CompletedCycles.ToString(IC)}");
             }
+
+            // M4b escrow-strand fix (PR #1180 review): the single-stop analogue of the
+            // multi-stop cycle-complete sweep (ProcessMultiStopCrossings). The cycle is
+            // fully emitted here (dispatch + pickup-release + delivery), so ANY residual
+            // reservation is stale - e.g. a reserve-pid != release-pid divergence where
+            // EmitPickupHalf's release missed the dispatch-time reserved key. Drop it so
+            // no positive residual can leak. No-op on the normal leak-free path (reserve
+            // == release already netted to zero), and on a delivery-only route (no reserve).
+            RouteStore.DropRouteEscrow(route.Id);
             return true;
         }
 
@@ -2971,6 +2988,12 @@ namespace Parsek.Logistics
             if (decision.NextStatus.HasValue)
                 route.TransitionTo(decision.NextStatus.Value, decision.Reason);
 
+            // M4b escrow-strand fix (PR #1180 review): an EndpointLost route stops crossing
+            // and never reaches its cycle-complete escrow drop, so a reservation held from a
+            // dispatch earlier in the cycle would mis-gate a competing route. Drop it.
+            // Idempotent no-op when nothing is held.
+            RouteStore.DropRouteEscrow(route.Id);
+
             route.NextEligibilityCheckUT = decision.NewNextEligibilityCheckUT;
 
             // M6 hold reasons: persist the loss verdict (the resolver token,
@@ -3169,6 +3192,10 @@ namespace Parsek.Logistics
                 // before the route goes quiet. Idempotent / gated; no-ops if nothing owed.
                 EmitPendingRecoveryCredit(route, currentUT, env);
                 route.TransitionTo(RouteStatus.EndpointLost, "endpoint-lost-at-delivery");
+                // M4b escrow-strand fix (PR #1180 review): see ApplyEndpointLost - drop any
+                // held escrow on the delivery-time endpoint-lost transition too (the cycle
+                // never completes, so the cycle-complete sweep won't run). Idempotent no-op.
+                RouteStore.DropRouteEscrow(route.Id);
                 route.PendingDeliveryUT = null;
                 route.PendingStopIndex = -1;
                 route.NextEligibilityCheckUT = currentUT + WaitRetryIntervalSec;

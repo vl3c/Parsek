@@ -8352,6 +8352,16 @@ namespace Parsek
             // unconditionally (cheap no-op when the queue is empty) keeps the
             // staleness eviction running on the broadest lifecycle boundary
             // LedgerOrchestrator can observe.
+            //
+            // REACTIVATION NOTE (PR #1180 review): this handler was dormant ~3 months
+            // (the static-handler NRE swallowed every RegisterMainMenuHook registration)
+            // until the static->instance fix, so this per-scene-switch flush now runs in
+            // normal play for the first time. FlushStalePendingRecoveryFunds clears the
+            // WHOLE pending queue, not just age-stale entries; the pairing-can't-straddle-
+            // a-scene-boundary argument above is why it is believed safe, but the standing
+            // verification is a career recover-then-immediately-switch-scene playtest (see
+            // docs/dev/todo-and-known-bugs.md) before fully relying on it. If a legit
+            // recovery is ever evicted, scope this flush to MAINMENU rather than every scene.
             LedgerOrchestrator.FlushStalePendingRecoveryFunds(
                 $"scene switch to {newScene}");
             RecoveryPayoutContextStore.Clear($"scene switch to {newScene}");

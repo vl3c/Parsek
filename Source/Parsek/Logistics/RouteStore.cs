@@ -864,6 +864,12 @@ namespace Parsek.Logistics
                     if (IsSourceProblemStatus(next) && !IsSourceProblemStatus(prev))
                     {
                         FlushPendingRecoveryCreditOnSourceProblem(route, reasonOrNone);
+                        // M4b escrow-strand fix (PR #1180 review): a route that flips into a
+                        // source-problem stop state mid-cycle stops crossing and never reaches
+                        // its cycle-complete escrow drop, so a stale reservation would keep
+                        // mis-gating a competing route sharing that source. Idempotent no-op
+                        // when nothing is held.
+                        DropRouteEscrow(route.Id);
                     }
 
                     route.TransitionTo(next, $"{reasonOrNone}/{cause}");

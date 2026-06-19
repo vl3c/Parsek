@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Parsek;
 using Parsek.Logistics;
+using Parsek.Tests.Generators;
 using Xunit;
 
 namespace Parsek.Tests.Logistics
@@ -82,6 +83,55 @@ namespace Parsek.Tests.Logistics
             // The reserve logged a new-total line for audit.
             Assert.Contains(logLines, l => l.Contains("[Route]")
                 && l.Contains("ReserveCargo") && l.Contains("newTotal=100"));
+        }
+
+        // ---- escrow-strand fix (PR #1180 review): mid-cycle quiesce drops escrow ----
+
+        // catches the MAJOR escrow-strand defect: a multi-origin route reserves its
+        // per-source escrow at dispatch and the player Pauses it MID-cycle (before its
+        // last window fires), so it never reaches the cycle-complete DropRouteEscrow
+        // sweep. Without the TryPause-immediate-branch drop, the stale reservation keeps
+        // OtherRoutesReservedFor subtracting it, mis-gating a competing route B sharing
+        // the source until the next scene switch.
+        [Fact]
+        public void TryPause_MidCycle_DropsHeldEscrow_SoCompetingRouteNotMisGated()
+        {
+            const uint depotX = 100u;
+            var routeA = new RouteFixtureBuilder()
+                .WithId("route-A").WithStatus(RouteStatus.Active).Build();
+            RouteStore.AddRoute(routeA);
+            // Simulate the dispatch-time reservation A holds while in flight.
+            RouteStore.ReserveCargo("route-A", depotX, "LiquidFuel", 100.0);
+
+            // Before the pause, competing route B is mis-gated by A's reservation.
+            Assert.Equal(100.0, RouteStore.OtherRoutesReservedFor("route-B", depotX, "LiquidFuel"));
+
+            // Pause A mid-cycle (immediate-pause branch; null env -> the recovery-credit
+            // flush no-ops, the escrow drop still runs).
+            Assert.True(RouteOrchestrator.TryPause(routeA, -1.0, null));
+            Assert.Equal(RouteStatus.Paused, routeA.Status);
+
+            // The stale reservation is gone: B is no longer mis-gated, and A holds nothing.
+            Assert.Equal(0.0, RouteStore.OtherRoutesReservedFor("route-B", depotX, "LiquidFuel"));
+            Assert.Equal(0.0, RouteStore.GetReservedForTesting("route-A", depotX, "LiquidFuel"));
+            Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("DropRouteEscrow"));
+        }
+
+        // catches a regression where the new TryPause drop fires on a route that holds
+        // NO escrow (a delivery-only or between-cycles route): DropRouteEscrow must be a
+        // clean no-op (no spurious drop line, no exception) so pausing an ordinary route
+        // is unaffected.
+        [Fact]
+        public void TryPause_NoHeldEscrow_DropIsCleanNoOp()
+        {
+            var routeA = new RouteFixtureBuilder()
+                .WithId("route-A").WithStatus(RouteStatus.Active).Build();
+            RouteStore.AddRoute(routeA);
+
+            Assert.True(RouteOrchestrator.TryPause(routeA, -1.0, null));
+            Assert.Equal(RouteStatus.Paused, routeA.Status);
+            // No escrow was held, so no drop line is emitted (DropRouteEscrow returns early).
+            Assert.DoesNotContain(logLines, l => l.Contains("[Route]") && l.Contains("DropRouteEscrow"));
         }
 
         // catches: the net leaking across resource names (LF reservation reducing
