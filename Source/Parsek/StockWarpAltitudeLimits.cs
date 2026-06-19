@@ -21,9 +21,12 @@ namespace Parsek
     ///
     /// Fix: snapshot the stock array on <c>PSystemManager.Instance.OnPSystemReady</c>, which
     /// fires during the <c>PSystemSpawn</c> startup phase — BEFORE the <c>MainMenu</c> addons
-    /// that override the limits run. (Same proven hook ContractConfigurator uses.) If the
+    /// that override the limits run. (Same proven hook ContractConfigurator uses.) The capture is
+    /// <b>write-once</b>: once a non-empty snapshot exists it is never overwritten, so a later
+    /// <c>OnPSystemReady</c> re-fire (e.g. a Kopernicus PSystem rebuild, by which point the warp
+    /// mod has already zeroed the live arrays) cannot clobber the genuine stock values. If the
     /// capture never runs the cache stays empty and callers fall back to exactly the prior
-    /// behavior, so this is fail-safe.
+    /// behavior, so this is fail-safe: the cache is always either empty or correct, never wrong.
     /// </summary>
     internal static class StockWarpAltitudeLimits
     {
@@ -62,10 +65,21 @@ namespace Parsek
         /// <summary>
         /// Pure capture core: fill the cache from (body name, limits) pairs. Clones each array
         /// so later mod overrides of the live array cannot mutate the snapshot. Logs a single
-        /// summary line (the in-game proof that the capture actually ran). Returns the count.
+        /// summary line (the in-game proof that the capture actually ran). Returns the count of
+        /// bodies stored (0 if a non-empty snapshot already exists — capture is write-once).
         /// </summary>
         internal static int Capture(IEnumerable<KeyValuePair<string, float[]>> bodyLimits, string reason)
         {
+            // Write-once: a warp mod overrides the live arrays at MainMenu, AFTER our PSystemReady
+            // capture. A later OnPSystemReady re-fire (Kopernicus PSystem rebuild, GameDatabase
+            // reload) would otherwise re-read the now-zeroed live arrays and overwrite the genuine
+            // stock snapshot. Skipping once we hold a snapshot keeps the fail-safe contract true.
+            if (captured)
+            {
+                ParsekLog.Verbose(Tag, "skip re-capture (stock limits already snapshotted), reason=" + reason);
+                return 0;
+            }
+
             int count = 0;
             if (bodyLimits != null)
             {
@@ -129,14 +143,21 @@ namespace Parsek
     [KSPAddon(KSPAddon.Startup.PSystemSpawn, true)]
     internal sealed class StockWarpAltitudeLimitsCapture : MonoBehaviour
     {
+        private bool subscribed;
+
         private void Start()
         {
+            // Persist across scenes (mirrors ContractConfigurator) so the OnPSystemReady delegate
+            // never dangles on a destroyed MonoBehaviour. The capture itself is write-once, so a
+            // re-fire is a harmless no-op regardless.
+            DontDestroyOnLoad(this);
             try
             {
                 var psm = PSystemManager.Instance;
                 if (psm != null && psm.OnPSystemReady != null)
                 {
                     psm.OnPSystemReady.Add(OnPSystemReady);
+                    subscribed = true;
                     ParsekLog.Verbose(StockWarpAltitudeLimits.Tag,
                         "registered OnPSystemReady stock-warp-limit capture");
                 }
@@ -155,6 +176,22 @@ namespace Parsek
         private void OnPSystemReady()
         {
             StockWarpAltitudeLimits.CaptureFromBodies("OnPSystemReady");
+        }
+
+        private void OnDestroy()
+        {
+            if (!subscribed)
+                return;
+            try
+            {
+                var psm = PSystemManager.Instance;
+                if (psm != null && psm.OnPSystemReady != null)
+                    psm.OnPSystemReady.Remove(OnPSystemReady);
+            }
+            catch (Exception e)
+            {
+                ParsekLog.Warn(StockWarpAltitudeLimits.Tag, "OnDestroy failed: " + e.Message);
+            }
         }
     }
 }

@@ -4861,6 +4861,11 @@ namespace Parsek
         {
             if (stockLimit > 0f)
             {
+                // Stock-first by design: this split threshold is Parsek's STOCK notion of "close
+                // to the surface", so prefer the pre-mod snapshot over the live value — whether a
+                // warp mod zeroed it (BTW) or relaxed it, or a rare body mod edited it after the
+                // snapshot. The snapshot is taken at PSystemReady, after legit body mods configure
+                // their bodies, so this overrides only post-load warp-mod tampering in practice.
                 source = "stock";
                 return stockLimit;
             }
