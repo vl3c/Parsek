@@ -5,16 +5,16 @@ using Xunit;
 
 namespace Parsek.Tests
 {
-    // Sub-PR 2 of the Approach-A self-overlap milestone: the resolver's per-member cache was re-keyed to
-    // per-(member, window) so two concurrent windows (k and k+1) can be cached at once for overlapping
-    // ghost instances, plus a new explicit-window overload (TryResolveWindowSegmentsForWindow) and a
-    // bounded eviction band. These tests pin the cache keying / eviction / window-derivation contract.
+    // The resolver's per-member cache is keyed per-(member, window) and resolves ONE window per frame from
+    // the live clock (cadence is a whole synodic multiple, so each relaunch lands on a real window and the
+    // mission fits one cadence - a single instance, no overlap). These tests pin the LIVE currentUT path:
+    // the (member, window) keying, the per-window caching ("solve once per window"), the unsupported /
+    // no-heliocentric-leg fail-closed paths, and Clear().
     //
     // BuildWindowSegments is Unity-bound (FlightGlobals.Bodies + live orbit reconstruction), so it cannot
     // run headless. The resolver exposes BuilderOverrideForTesting (null in production; the live path is
     // byte-identical) which these tests set to a pure synthetic builder. That lets us exercise the cache
-    // logic, the tuple key, the two-window concurrency, and the eviction band without Unity, and to pin
-    // that the currentUT overload and the explicit-window overload resolve the SAME window/segments.
+    // logic + tuple key without Unity, all through the live TryResolveWindowSegments(currentUT) entry point.
     public class ReaimPlaybackResolverTests
     {
         // Stock-ish Kerbin->Duna numbers so the pure ReaimWindowPlanner produces a valid schedule.
@@ -45,7 +45,7 @@ namespace Parsek.Tests
         }
 
         // One non-predicted common-ancestor segment that spans the transfer window (satisfies the
-        // HasHeliocentricLegInWindow pre-check both overloads run before touching the cache).
+        // HasHeliocentricLegInWindow pre-check the live path runs before touching the cache).
         private static List<OrbitSegment> HeliocentricMemberSegments()
         {
             return new List<OrbitSegment>
@@ -99,10 +99,10 @@ namespace Parsek.Tests
             return r;
         }
 
-        // The currentUT overload returns the builder's segments and an out windowIndex consistent with the
-        // window the builder was asked for (the re-key did not change the live derivation -> caching path).
+        // The currentUT path returns the builder's segments and an out windowIndex consistent with the
+        // window the builder was asked for (the live derivation -> caching path resolves one window).
         [Fact]
-        public void CurrentUtOverload_ReturnsBuiltSegments_AndConsistentWindow()
+        public void CurrentUtPath_ReturnsBuiltSegments_AndConsistentWindow()
         {
             var schedule = PlanSchedule();
             Assert.True(schedule.Valid, schedule.Reason);
@@ -126,10 +126,10 @@ namespace Parsek.Tests
             Assert.Equal(1.0e10 + windowIndex, segments[0].semiMajorAxis, 6);
         }
 
-        // The same window resolves from the cache on a second frame (no rebuild) - the re-key preserves the
-        // "solve once per window" caching semantics of the live path.
+        // The same window resolves from the cache on a second frame (no rebuild) - the (member, window)
+        // key preserves the "solve once per window" caching semantics on the live path.
         [Fact]
-        public void CurrentUtOverload_CachesPerWindow_NoRebuildSameWindow()
+        public void CurrentUtPath_CachesPerWindow_NoRebuildSameWindow()
         {
             var schedule = PlanSchedule();
             var fake = new FakeBuilder();
@@ -150,141 +150,36 @@ namespace Parsek.Tests
             Assert.Equal(1, fake.BuildCountByWindow[w0]); // built exactly once across the two frames
         }
 
-        // The PURPOSE of the re-key: window k AND window k+1 are cached CONCURRENTLY with DISTINCT geometry.
-        // The old single-slot-per-member cache could not hold both at once (advancing the window evicted k).
+        // Advancing the live clock by one cadence resolves the NEXT window with DISTINCT geometry and a
+        // fresh build (the per-window key does not collide with the prior window).
         [Fact]
-        public void ExplicitWindowOverload_HoldsTwoWindowsConcurrently_DistinctGeometry()
+        public void CurrentUtPath_AdvancingWindow_ResolvesNextWindow_DistinctGeometry()
         {
             var schedule = PlanSchedule();
             var fake = new FakeBuilder();
             var resolver = NewResolverWith(fake);
             var plan = SupportedPlan();
-            var segs = HeliocentricMemberSegments();
 
-            const long k = 3;
-            Assert.True(resolver.TryResolveWindowSegmentsForWindow("mA", segs, plan, schedule, k, out var sk));
-            Assert.True(resolver.TryResolveWindowSegmentsForWindow("mA", segs, plan, schedule, k + 1, out var sk1));
+            double utK = schedule.FirstDepartureUT + 10.0;
+            Assert.True(resolver.TryResolveWindowSegments(
+                "mA", HeliocentricMemberSegments(), plan, schedule,
+                schedule.PhaseAnchorUT, SpanStart, SpanEnd, schedule.CadenceSeconds, utK,
+                out List<OrbitSegment> segK, out long wK));
 
-            // Distinct geometry (sma encodes the window).
-            Assert.NotEqual(sk[0].semiMajorAxis, sk1[0].semiMajorAxis);
-            Assert.Equal(1.0e10 + k, sk[0].semiMajorAxis, 6);
-            Assert.Equal(1.0e10 + (k + 1), sk1[0].semiMajorAxis, 6);
+            // One cadence later -> the next window.
+            double utK1 = utK + schedule.CadenceSeconds;
+            Assert.True(resolver.TryResolveWindowSegments(
+                "mA", HeliocentricMemberSegments(), plan, schedule,
+                schedule.PhaseAnchorUT, SpanStart, SpanEnd, schedule.CadenceSeconds, utK1,
+                out List<OrbitSegment> segK1, out long wK1));
 
-            // BOTH windows are still cached: re-resolving each is a cache hit (no extra build).
-            Assert.True(resolver.TryResolveWindowSegmentsForWindow("mA", segs, plan, schedule, k, out var skAgain));
-            Assert.True(resolver.TryResolveWindowSegmentsForWindow("mA", segs, plan, schedule, k + 1, out _));
-            Assert.Equal(1, fake.BuildCountByWindow[k]);
-            Assert.Equal(1, fake.BuildCountByWindow[k + 1]);
-            Assert.Equal(1.0e10 + k, skAgain[0].semiMajorAxis, 6);
+            Assert.Equal(wK + 1, wK1);
+            Assert.NotEqual(segK[0].semiMajorAxis, segK1[0].semiMajorAxis);
+            Assert.Equal(1.0e10 + wK, segK[0].semiMajorAxis, 6);
+            Assert.Equal(1.0e10 + wK1, segK1[0].semiMajorAxis, 6);
         }
 
-        // The explicit-window overload at window k returns the SAME segments the currentUT overload returns
-        // at a currentUT that maps to window k (the two overloads share the build/cache core).
-        [Fact]
-        public void ExplicitWindow_MatchesCurrentUt_ForTheSameWindow()
-        {
-            var schedule = PlanSchedule();
-            var plan = SupportedPlan();
-            var segs = HeliocentricMemberSegments();
-
-            // First learn which window the currentUT path derives at this UT.
-            var fakeA = new FakeBuilder();
-            var resolverA = NewResolverWith(fakeA);
-            double currentUT = schedule.FirstDepartureUT + 10.0;
-            Assert.True(resolverA.TryResolveWindowSegments(
-                "mA", segs, plan, schedule,
-                schedule.PhaseAnchorUT, SpanStart, SpanEnd, schedule.CadenceSeconds, currentUT,
-                out List<OrbitSegment> fromCurrentUt, out long windowIndex));
-
-            // Now resolve the SAME window explicitly on a fresh resolver.
-            var fakeB = new FakeBuilder();
-            var resolverB = NewResolverWith(fakeB);
-            Assert.True(resolverB.TryResolveWindowSegmentsForWindow(
-                "mA", segs, plan, schedule, windowIndex, out List<OrbitSegment> fromExplicit));
-
-            Assert.Equal(fromCurrentUt.Count, fromExplicit.Count);
-            for (int i = 0; i < fromCurrentUt.Count; i++)
-                Assert.Equal(fromCurrentUt[i].semiMajorAxis, fromExplicit[i].semiMajorAxis, 6);
-        }
-
-        // The eviction band keeps the dict bounded: advancing the window monotonically through 0..10 leaves
-        // only the [current-1, current+1] band cached (3 windows max per member), never all 11.
-        [Fact]
-        public void EvictionBand_KeepsDictBounded_AsWindowsAdvance()
-        {
-            var schedule = PlanSchedule();
-            var fake = new FakeBuilder();
-            var resolver = NewResolverWith(fake);
-            var plan = SupportedPlan();
-            var segs = HeliocentricMemberSegments();
-
-            // Advance the window monotonically 0..10 (one build per window: 11 builds total).
-            for (long w = 0; w <= 10; w++)
-                Assert.True(resolver.TryResolveWindowSegmentsForWindow("mA", segs, plan, schedule, w, out _));
-
-            // After the final insert (window 10 = band center), only the [9, 11] band survives. 11 was never
-            // inserted, so windows 9 and 10 are the only cached entries; re-resolving them is a cache HIT
-            // (still 1 build each). Windows 0..8 were evicted; re-resolving any rebuilds (+1 build).
-            Assert.Equal(1, fake.BuildCountByWindow[9]);
-            Assert.Equal(1, fake.BuildCountByWindow[10]);
-            // Probe the eviction of an out-of-band window FIRST while 10 is still the center: window 8 must
-            // have been evicted -> a rebuild. (Probing 8 makes 8 the new center, but we read its count after.)
-            Assert.Equal(1, fake.BuildCountByWindow[8]); // built once in the loop, evicted, not yet rebuilt
-            resolver.TryResolveWindowSegmentsForWindow("mA", segs, plan, schedule, 8, out _);
-            Assert.Equal(2, fake.BuildCountByWindow[8]); // 8 was evicted -> rebuilt now
-        }
-
-        // Window 9 and 10 stay cached together after a monotonic advance to 10 (the band holds the two
-        // overlap windows the milestone needs). Asserted on its own so the band-retention is unambiguous.
-        [Fact]
-        public void EvictionBand_RetainsCurrentAndPriorWindow()
-        {
-            var schedule = PlanSchedule();
-            var fake = new FakeBuilder();
-            var resolver = NewResolverWith(fake);
-            var plan = SupportedPlan();
-            var segs = HeliocentricMemberSegments();
-
-            for (long w = 0; w <= 10; w++)
-                resolver.TryResolveWindowSegmentsForWindow("mA", segs, plan, schedule, w, out _);
-
-            // Re-resolve 9 then 10: both cache hits (no rebuild) because both are inside the [9,11] band of
-            // center 10. Note: re-resolving 9 makes 9 the center (band [8,10]), which still contains 10, so
-            // the subsequent 10 re-resolve is also a hit.
-            resolver.TryResolveWindowSegmentsForWindow("mA", segs, plan, schedule, 9, out _);
-            resolver.TryResolveWindowSegmentsForWindow("mA", segs, plan, schedule, 10, out _);
-            Assert.Equal(1, fake.BuildCountByWindow[9]);
-            Assert.Equal(1, fake.BuildCountByWindow[10]);
-        }
-
-        // Eviction is per-member: one member advancing its window far never evicts another member's cached
-        // window. The FakeBuilder counts per (window) across members, so use disjoint window ranges to keep
-        // the build counts unambiguous (A uses window 0; B uses windows 100..110).
-        [Fact]
-        public void EvictionBand_IsPerMember_DoesNotDropOtherMembersWindows()
-        {
-            var schedule = PlanSchedule();
-            var fake = new FakeBuilder();
-            var resolver = NewResolverWith(fake);
-            var plan = SupportedPlan();
-            var segs = HeliocentricMemberSegments();
-
-            // Member A caches window 0 (1 build).
-            Assert.True(resolver.TryResolveWindowSegmentsForWindow("mA", segs, plan, schedule, 0, out _));
-            Assert.Equal(1, fake.BuildCountByWindow[0]);
-
-            // Member B advances through a DISJOINT window range so its eviction band never overlaps A's 0.
-            for (long w = 100; w <= 110; w++)
-                resolver.TryResolveWindowSegmentsForWindow("mB", segs, plan, schedule, w, out _);
-
-            // A's window 0 must still be cached (B's per-member eviction never touched it): re-resolving A's
-            // window 0 is a cache HIT -> still exactly 1 build for window 0.
-            Assert.True(resolver.TryResolveWindowSegmentsForWindow("mA", segs, plan, schedule, 0, out var aSeg));
-            Assert.NotNull(aSeg);
-            Assert.Equal(1, fake.BuildCountByWindow[0]);
-        }
-
-        // Unsupported plan / invalid schedule -> false (faithful), no build, on both overloads.
+        // Unsupported plan / invalid schedule -> false (faithful), no build, on the live path.
         [Fact]
         public void UnsupportedOrInvalid_ReturnsFalse_NoBuild()
         {
@@ -292,17 +187,24 @@ namespace Parsek.Tests
             var fake = new FakeBuilder();
             var resolver = NewResolverWith(fake);
             var segs = HeliocentricMemberSegments();
+            double currentUT = schedule.FirstDepartureUT + 10.0;
 
             var unsupported = ReaimMissionPlan.Unsupported("Kerbin", "test");
-            Assert.False(resolver.TryResolveWindowSegmentsForWindow("mA", segs, unsupported, schedule, 0, out _));
+            Assert.False(resolver.TryResolveWindowSegments(
+                "mA", segs, unsupported, schedule,
+                schedule.PhaseAnchorUT, SpanStart, SpanEnd, schedule.CadenceSeconds, currentUT,
+                out _, out _));
 
             var invalidSchedule = default(ReaimWindowPlanner.ReaimWindowSchedule); // Valid == false
-            Assert.False(resolver.TryResolveWindowSegmentsForWindow("mA", segs, SupportedPlan(), invalidSchedule, 0, out _));
+            Assert.False(resolver.TryResolveWindowSegments(
+                "mA", segs, SupportedPlan(), invalidSchedule,
+                schedule.PhaseAnchorUT, SpanStart, SpanEnd, schedule.CadenceSeconds, currentUT,
+                out _, out _));
 
             Assert.Empty(fake.BuiltWindows);
         }
 
-        // A member with no heliocentric leg -> the pre-check returns false before any build on both overloads.
+        // A member with no heliocentric leg -> the pre-check returns false before any build on the live path.
         [Fact]
         public void NoHeliocentricLeg_ReturnsFalse_BeforeBuild()
         {
@@ -310,31 +212,43 @@ namespace Parsek.Tests
             var fake = new FakeBuilder();
             var resolver = NewResolverWith(fake);
             var plan = SupportedPlan();
+            double currentUT = schedule.FirstDepartureUT + 10.0;
             // A body-relative-only member (wrong body) has no common-ancestor leg in the window.
             var noHelio = new List<OrbitSegment>
             {
                 new OrbitSegment { startUT = RecordedDeparture, endUT = RecordedArrival, bodyName = "Kerbin", isPredicted = false },
             };
 
-            Assert.False(resolver.TryResolveWindowSegmentsForWindow("mA", noHelio, plan, schedule, 0, out _));
+            Assert.False(resolver.TryResolveWindowSegments(
+                "mA", noHelio, plan, schedule,
+                schedule.PhaseAnchorUT, SpanStart, SpanEnd, schedule.CadenceSeconds, currentUT,
+                out _, out _));
             Assert.Empty(fake.BuiltWindows);
         }
 
         // Clear() drops all cached windows -> the next resolve rebuilds (a recording edit must not survive).
         [Fact]
-        public void Clear_DropsAllCachedWindows()
+        public void Clear_DropsCachedWindow_NextResolveRebuilds()
         {
             var schedule = PlanSchedule();
             var fake = new FakeBuilder();
             var resolver = NewResolverWith(fake);
             var plan = SupportedPlan();
-            var segs = HeliocentricMemberSegments();
+            double currentUT = schedule.FirstDepartureUT + 10.0;
 
-            resolver.TryResolveWindowSegmentsForWindow("mA", segs, plan, schedule, 2, out _);
-            Assert.Equal(1, fake.BuildCountByWindow[2]);
+            Assert.True(resolver.TryResolveWindowSegments(
+                "mA", HeliocentricMemberSegments(), plan, schedule,
+                schedule.PhaseAnchorUT, SpanStart, SpanEnd, schedule.CadenceSeconds, currentUT,
+                out _, out long w));
+            Assert.Equal(1, fake.BuildCountByWindow[w]);
+
             resolver.Clear();
-            resolver.TryResolveWindowSegmentsForWindow("mA", segs, plan, schedule, 2, out _);
-            Assert.Equal(2, fake.BuildCountByWindow[2]); // rebuilt after Clear
+            Assert.True(resolver.TryResolveWindowSegments(
+                "mA", HeliocentricMemberSegments(), plan, schedule,
+                schedule.PhaseAnchorUT, SpanStart, SpanEnd, schedule.CadenceSeconds, currentUT,
+                out _, out long w2));
+            Assert.Equal(w, w2);
+            Assert.Equal(2, fake.BuildCountByWindow[w]); // rebuilt after Clear
         }
     }
 }
