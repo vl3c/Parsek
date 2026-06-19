@@ -84,6 +84,53 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("origin-unresolved:no-live-vessels", text);
         }
 
+        // M4b Phase B1 (plan D10 / OQ5): the per-PICKUP-SOURCE all-or-nothing gate
+        // names the short SOURCE vessel via a "source:<pid>:<name>:<short>" token.
+        // catches: the source token rendering only the resource (the player needs
+        // to know WHICH depot is short), or a parse that drops the name.
+        [Fact]
+        public void DescribeHold_PickupSourceShort_NamesSourceVesselAndResource()
+        {
+            string token = RoutePickupSourceGate.BuildHoldToken(40u, "Depot A", "Ore");
+            Assert.Equal(
+                "Depot A is out of Ore - delivers when it has the full amount",
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0));
+        }
+
+        // catches: an inventory-short pickup source rendering the opaque hash, or
+        // not naming the source.
+        [Fact]
+        public void DescribeHold_PickupSourceInventoryShort_NamesSource()
+        {
+            string token = RoutePickupSourceGate.BuildHoldToken(50u, "Cargo Bay", "inventory:abc123");
+            Assert.Equal(
+                "Cargo Bay is missing a required stored part - delivers when it holds it",
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0));
+        }
+
+        // catches: an unresolved pickup source losing its raw reason tail.
+        [Fact]
+        public void DescribeHold_PickupSourceUnresolved()
+        {
+            string text = LogisticsHoldPresentation.DescribeHold(
+                OriginLacksCargo, "pickup-source-unresolved:pid-miss", 0.0);
+            Assert.StartsWith(
+                "a pickup source vessel could not be found - it may have moved, been recovered, or been destroyed",
+                text);
+            Assert.Contains("pickup-source-unresolved:pid-miss", text);
+        }
+
+        // catches: a source token with an empty name (sanitized "<unnamed>")
+        // rendering a broken sentence.
+        [Fact]
+        public void DescribeHold_PickupSourceShort_UnnamedSource()
+        {
+            string token = RoutePickupSourceGate.BuildHoldToken(60u, null, "MonoPropellant");
+            Assert.Equal(
+                "<unnamed> is out of MonoPropellant - delivers when it has the full amount",
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0));
+        }
+
         // catches: the funds shortfall number not surfacing (loop path carries it
         // through EligibilityResult.Shortfall), or a comma-locale render.
         [Fact]
@@ -309,6 +356,9 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-lacks-LiquidFuel", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "inventory:abc123def456", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-unresolved:pid-miss-no-surface-fallback", 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, RoutePickupSourceGate.BuildHoldToken(40u, "Depot A", "Ore"), 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, RoutePickupSourceGate.BuildHoldToken(50u, "Cargo Bay", "inventory:abc123"), 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "pickup-source-unresolved:pid-miss", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "", 0.0),
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-short", 1234.5),
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-shortfall-99", 0.0),
