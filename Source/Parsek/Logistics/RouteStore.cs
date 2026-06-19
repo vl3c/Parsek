@@ -42,7 +42,13 @@ namespace Parsek.Logistics
         /// reservation is a within-tick / dispatch-to-window-phase guard recomputed
         /// from pending route state on the next <see cref="RouteOrchestrator.Tick(double)"/>,
         /// so it need not survive a scene change (cleared at the four lifecycle
-        /// sites below).</para>
+        /// sites below). The recompute is real for the MULTI-STOP path: a
+        /// <c>dispatchAlready</c> resume of an in-flight cycle whose escrow was cleared
+        /// re-establishes the still-un-fired windows' reservation
+        /// (<see cref="RouteOrchestrator.ReEstablishEscrowForUnfiredWindows"/>, M4b B3
+        /// C1), idempotent via <see cref="HasEscrow"/>. The SINGLE-STOP path has no
+        /// gap (reserve and release fire inside one <c>EmitLoopCycle</c>), so it needs
+        /// no recompute.</para>
         ///
         /// <para><b>Pure RAM - reads NO ERS/ELS.</b> The escrow holds nothing from
         /// the committed-recording set or the ledger action list; it is a plain
@@ -294,8 +300,10 @@ namespace Parsek.Logistics
         /// Clear ALL escrow reservations (every route). Wired at the lifecycle
         /// boundaries where the in-cycle reservation is recomputed next tick:
         /// any within-game scene change (<c>onGameSceneSwitchRequested</c>) and game
-        /// unload (<see cref="ParsekScenario.OnMainMenuTransition"/>). DROP-not-revert.
-        /// Pure RAM.
+        /// unload (<see cref="ParsekScenario.OnMainMenuTransition"/>). For a multi-stop
+        /// cycle interrupted mid-flight the next tick's <c>dispatchAlready</c> resume
+        /// re-establishes the un-fired windows' hold (M4b B3 C1); the single-stop path
+        /// has no dispatch-to-debit gap to recompute. DROP-not-revert. Pure RAM.
         /// </summary>
         internal static void ClearAllEscrow(string reason)
         {
@@ -358,6 +366,23 @@ namespace Parsek.Logistics
                 && byResource.TryGetValue(resourceName, out double v))
                 return v;
             return 0.0;
+        }
+
+        /// <summary>
+        /// True when route <paramref name="routeId"/> currently holds ANY escrow
+        /// reservation (any pid, any resource). The idempotency guard for the
+        /// re-establish-on-resume path (M4b B3 C1): a <c>dispatchAlready</c> resume
+        /// of an in-flight multi-stop cycle re-reserves the un-fired windows ONLY
+        /// when the route's escrow was cleared (a scene-switch <c>ClearAllEscrow</c>
+        /// or a reload dropped it); a normal in-session resume still holds its
+        /// reservation, so this returns true and the resume skips the re-reserve
+        /// (no double-reserve). Pure RAM.
+        /// </summary>
+        internal static bool HasEscrow(string routeId)
+        {
+            if (string.IsNullOrEmpty(routeId))
+                return false;
+            return cargoEscrow.TryGetValue(routeId, out var byPid) && byPid != null && byPid.Count > 0;
         }
 
         /// <summary>Test/diagnostic read: number of routes currently holding any escrow.</summary>

@@ -1071,6 +1071,17 @@ namespace Parsek.Logistics
                 // prior cycle's owed recovery credit still flushes on this crossing.
                 route.ClearHold("crossing-eligible");
                 EmitPendingRecoveryCredit(route, currentUT, env);
+
+                // M4b B3 C1 (plan OQ7/D11 "recomputed from pending state on the next
+                // Tick"): a dispatchAlready resume of an IN-FLIGHT multi-stop cycle
+                // re-establishes the escrow for this cycle's still-UN-FIRED pickup
+                // windows when the escrow was CLEARED mid-cycle (a scene-switch
+                // ClearAllEscrow or a reload dropped the RAM-only map). Idempotent:
+                // a no-op when the route already holds escrow (a normal in-session
+                // resume - no clear happened), so it never double-reserves. The C2
+                // cycle-complete drop sweeps it when the cycle finishes.
+                ReEstablishEscrowForUnfiredWindows(route, currentUT, env, cycleId, cMin);
+
                 ParsekLog.Verbose(Tag,
                     $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
                     $"dispatch already in ledger (committed) - firing only the due window(s), no re-gate");
@@ -1120,6 +1131,21 @@ namespace Parsek.Logistics
                 route.CompletedCycles += 1;
                 if (route.LastObservedLoopCycleIndex < cMin)
                     route.LastObservedLoopCycleIndex = cMin;
+
+                // M4b B3 C2 (close the reserve-pid != release-pid leak robustly): at
+                // cycle-complete EVERY window has fired (debited+released) or been
+                // skipped, so ANY residual reservation for this route is stale - e.g.
+                // a window whose resolved release pid diverged from the dispatch-time
+                // reserve pid (a mid-cycle source-identity change / surface-fallback
+                // / craft-baked-pid regeneration), where the release missed the
+                // reserved key. Dropping the whole route's escrow here guarantees no
+                // positive-residual leak regardless of pid divergence. Safe because a
+                // loop route is single-instance (cadence >= span, only one cycle in
+                // flight). This also drops the C1 re-established reservation. A no-op
+                // when nothing is held (the normal leak-free path already netted to
+                // zero).
+                RouteStore.DropRouteEscrow(route.Id);
+
                 // A LATER owed cycle remains -> ask the caller to re-invoke. (cMin's
                 // own un-fired windows are all reached this pass, so the only
                 // remaining work is cMin+1's windows.)
@@ -1263,6 +1289,22 @@ namespace Parsek.Logistics
         internal static void ReserveCycleEscrow(
             Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId)
         {
+            ReserveCycleEscrow(route, currentUT, env, cycleId, includeStop: null, contextTag: "dispatch");
+        }
+
+        /// <summary>
+        /// (M4b B3) Internal reserve worker shared by the dispatch-time full-cycle
+        /// reserve (<paramref name="includeStop"/> = null) and the C1
+        /// re-establish-on-resume path (<paramref name="includeStop"/> keeps only the
+        /// un-fired windows of the resumed cycle). Builds the per-pid SUMMED
+        /// reservation over the included pickup windows and calls
+        /// <see cref="RouteStore.ReserveCargo"/> once per (pid, resource).
+        /// <paramref name="contextTag"/> distinguishes the two call sites in the log.
+        /// </summary>
+        internal static void ReserveCycleEscrow(
+            Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId,
+            Func<RouteStop, bool> includeStop, string contextTag)
+        {
             if (route == null || string.IsNullOrEmpty(route.Id)
                 || route.Stops == null || route.Stops.Count == 0)
                 return;
@@ -1279,7 +1321,7 @@ namespace Parsek.Logistics
             }
 
             bool built = RoutePickupSourceGate.TryBuildReservations(
-                route, Resolver,
+                route, Resolver, includeStop,
                 out List<RoutePickupSourceGate.PickupSourceReservation> reservations,
                 out string unresolvedReason);
 
@@ -1293,12 +1335,12 @@ namespace Parsek.Logistics
                 // the empty escrow, so no leak.
                 ParsekLog.VerboseRateLimited(Tag, "escrow-reserve-unresolved-" + route.Id,
                     $"ReserveCycleEscrow: route {ShortIdForLog(route)} cycle={cycleId} " +
-                    $"pickup source unresolved (reason={unresolvedReason}) - reserved nothing");
+                    $"context={contextTag} pickup source unresolved (reason={unresolvedReason}) - reserved nothing");
                 return;
             }
 
             if (reservations.Count == 0)
-                return; // delivery-only / inventory-only - nothing to reserve
+                return; // delivery-only / inventory-only / no un-fired window - nothing to reserve
 
             int reservedPids = 0;
             int reservedEntries = 0;
@@ -1317,8 +1359,46 @@ namespace Parsek.Logistics
 
             ParsekLog.Verbose(Tag,
                 $"ReserveCycleEscrow: route {ShortIdForLog(route)} cycle={cycleId} " +
-                $"reservedSources={reservedPids.ToString(IC)} " +
+                $"context={contextTag} reservedSources={reservedPids.ToString(IC)} " +
                 $"reservedResourceEntries={reservedEntries.ToString(IC)} at ut={currentUT.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// (M4b B3 C1) RE-ESTABLISH this cycle's cargo escrow from the still-UN-FIRED
+        /// pickup windows on a <c>dispatchAlready</c> resume - honoring OQ7/D11's
+        /// "the reserve is recomputed from pending route state on the next Tick".
+        /// After a within-game scene switch (<c>ClearAllEscrow</c>) or a reload
+        /// (escrow is RAM-only) lands MID-cycle, the cycle resumes with its dispatch
+        /// already in the ledger, so <see cref="ReserveCycleEscrow(Route, double, IRouteRuntimeEnvironment, string)"/>
+        /// at dispatch does NOT re-run and the un-fired window's hold would be silently
+        /// lost - a competing route could then drain the source in the gap (violating
+        /// 19.2.5 strand-protection). This re-reserves ONLY the windows of cycle
+        /// <paramref name="cycleIndex"/> whose <see cref="RouteStop.LastFiredCycleIndex"/>
+        /// is still <c>&lt; cycleIndex</c> (a window already debited+released this cycle
+        /// has its hold consumed and must NOT be re-reserved, else double).
+        ///
+        /// <para><b>IDEMPOTENT:</b> runs ONLY when the route currently holds NO escrow
+        /// (<see cref="RouteStore.HasEscrow"/> is false - i.e. a clear/reload dropped
+        /// it). A normal in-session resume (no clear happened) still holds its
+        /// reservation, so this short-circuits and does NOT re-reserve (no
+        /// double-reserve). The C2 cycle-complete <see cref="RouteStore.DropRouteEscrow"/>
+        /// then drops whatever this re-established when the cycle finishes.</para>
+        /// </summary>
+        internal static void ReEstablishEscrowForUnfiredWindows(
+            Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId, long cycleIndex)
+        {
+            if (route == null || string.IsNullOrEmpty(route.Id))
+                return;
+
+            // Idempotency guard: only re-establish when the escrow was CLEARED (a
+            // scene-switch ClearAllEscrow / a reload). A normal in-session resume
+            // still holds its reservation -> skip (no double-reserve).
+            if (RouteStore.HasEscrow(route.Id))
+                return;
+
+            ReserveCycleEscrow(route, currentUT, env, cycleId,
+                includeStop: stop => stop != null && stop.LastFiredCycleIndex < cycleIndex,
+                contextTag: "resume-reestablish");
         }
 
         /// <summary>

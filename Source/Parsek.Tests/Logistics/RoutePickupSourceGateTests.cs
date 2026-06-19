@@ -445,5 +445,38 @@ namespace Parsek.Tests.Logistics
             Assert.False(built);
             Assert.Equal("pid-miss", unresolved);
         }
+
+        // catches (B3 C1): the un-fired-window filter NOT excluding an already-fired
+        // window. The re-establish-on-resume path builds reservations over ONLY the
+        // windows whose LastFiredCycleIndex < the resumed cycle index; a window that
+        // already debited+released this cycle must be EXCLUDED (re-reserving it would
+        // double the hold).
+        [Fact]
+        public void Reservations_UnfiredWindowFilter_ExcludesAlreadyFiredWindow()
+        {
+            // Two sources for cycle index 0; window A (pid 10) already fired this
+            // cycle (LastFiredCycleIndex == 0), window B (pid 20) has NOT (-1).
+            var stopA = PickupStop(10u, 100.0, new Dictionary<string, double> { { "Ore", 100.0 } });
+            stopA.LastFiredCycleIndex = 0;
+            var stopB = PickupStop(20u, 200.0, new Dictionary<string, double> { { "Ore", 200.0 } });
+            stopB.LastFiredCycleIndex = -1;
+            var route = RouteWithStops(stopA, stopB);
+            var resolver = new FakeResolver();
+            resolver.Resolved[10u] = (10u, "Depot A", new Dictionary<string, double>(), null);
+            resolver.Resolved[20u] = (20u, "Depot B", new Dictionary<string, double>(), null);
+
+            // Filter to un-fired windows of cycle 0 (LastFiredCycleIndex < 0).
+            bool built = RoutePickupSourceGate.TryBuildReservations(
+                route, resolver.Resolve,
+                stop => stop != null && stop.LastFiredCycleIndex < 0L,
+                out var reservations, out string unresolved);
+
+            Assert.True(built, "unresolved=" + unresolved);
+            // Only window B's source is rebuilt - window A (already fired) is excluded.
+            Assert.Single(reservations);
+            Assert.Equal(20u, reservations[0].ResolvedPid);
+            Assert.Equal(200.0, reservations[0].SummedResourceManifest["Ore"], 6);
+            Assert.Null(reservations.Find(r => r.ResolvedPid == 10u));
+        }
     }
 }

@@ -8328,11 +8328,12 @@ namespace Parsek
                 // inheriting a stale "in replay scope" mark from a previous game.
                 PlaybackScopeTracker.Reset();
                 // M4b Phase B2 (plan D11 / OQ7): drop the RAM-only cargo escrow on
-                // game unload, mirroring the other RAM-cache resets here. The
-                // reservation is recomputed from pending route state on the next
-                // RouteOrchestrator.Tick of a freshly loaded game, so it must not
-                // survive into a different save's logistics state. DROP-not-revert
-                // (no ledger row to reverse).
+                // game unload, mirroring the other RAM-cache resets here. A multi-stop
+                // cycle's reservation is recomputed from pending route state on the
+                // next RouteOrchestrator.Tick (the B3 C1 dispatchAlready-resume
+                // re-establish); the single-stop path has no gap to recompute. Either
+                // way the escrow must not survive into a different save's logistics
+                // state. DROP-not-revert (no ledger row to reverse).
                 RouteStore.ClearAllEscrow("main-menu-transition");
                 ParsekLog.Info("Scenario",
                     "Main menu transition — reset initialLoadDone to prevent stale data leak");
@@ -8368,9 +8369,12 @@ namespace Parsek
 
         /// <summary>
         /// M4b Phase B2 (plan D11 / OQ7): drop the RAM-only cargo escrow on any
-        /// within-game scene change. The in-cycle reservation is recomputed from
-        /// pending route state on the next <see cref="RouteOrchestrator.Tick(double)"/>,
-        /// so it need not survive a scene change; clearing it here prevents a stale
+        /// within-game scene change. A multi-stop cycle's in-flight reservation is
+        /// recomputed from pending route state on the next
+        /// <see cref="RouteOrchestrator.Tick(double)"/> - the B3 C1 dispatchAlready-resume
+        /// re-establishes the un-fired windows' hold
+        /// (<see cref="RouteOrchestrator.ReEstablishEscrowForUnfiredWindows"/>); the
+        /// single-stop path has no dispatch-to-debit gap. Clearing here prevents a stale
         /// craft-baked-pid reservation from mis-gating a competing route after the
         /// scene reloads. Static so it can also fire from the disposed-instance edge
         /// safely. DROP-not-revert (no ledger row to reverse).

@@ -184,6 +184,25 @@ namespace Parsek.Logistics
             out List<PickupSourceGroup> groups,
             out string unresolvedReason)
         {
+            return TryBuildSourceGroups(route, resolver, null, out groups, out unresolvedReason);
+        }
+
+        /// <summary>
+        /// M4b Phase B3 (C1): same as the 4-arg overload but with an optional
+        /// <paramref name="includeStop"/> filter applied BEFORE the source-vs-not
+        /// classification. The re-establish-on-resume path passes a predicate that
+        /// keeps ONLY the un-fired pickup windows of the cycle being resumed
+        /// (<c>stop.LastFiredCycleIndex &lt; cycleIndex</c>), so a window already
+        /// debited+released this cycle is NOT re-grouped (and so not re-reserved).
+        /// A null filter includes every stop (the dispatch-time full-cycle reserve).
+        /// </summary>
+        internal static bool TryBuildSourceGroups(
+            Route route,
+            Func<RouteEndpoint, PickupSourceResolution> resolver,
+            Func<RouteStop, bool> includeStop,
+            out List<PickupSourceGroup> groups,
+            out string unresolvedReason)
+        {
             groups = new List<PickupSourceGroup>();
             unresolvedReason = null;
 
@@ -198,6 +217,8 @@ namespace Parsek.Logistics
             {
                 RouteStop stop = route.Stops[i];
                 if (stop == null) continue;
+                if (includeStop != null && !includeStop(stop))
+                    continue; // C1: filtered out (e.g. an already-fired window on resume)
 
                 bool hasResourcePickup = stop.PickupManifest != null && stop.PickupManifest.Count > 0;
                 bool hasInventoryPickup = stop.InventoryPickupManifest != null
@@ -342,9 +363,27 @@ namespace Parsek.Logistics
             out List<PickupSourceReservation> reservations,
             out string unresolvedReason)
         {
+            return TryBuildReservations(route, resolver, null, out reservations, out unresolvedReason);
+        }
+
+        /// <summary>
+        /// M4b Phase B3 (C1): same as the 4-arg overload but with an optional
+        /// <paramref name="includeStop"/> filter forwarded to
+        /// <see cref="TryBuildSourceGroups(Route, Func{RouteEndpoint, PickupSourceResolution}, Func{RouteStop, bool}, out List{PickupSourceGroup}, out string)"/>.
+        /// The re-establish-on-resume path passes a predicate that keeps only the
+        /// un-fired pickup windows of the resumed cycle, so the rebuilt reservation
+        /// covers exactly the windows that have NOT yet debited+released their hold.
+        /// </summary>
+        internal static bool TryBuildReservations(
+            Route route,
+            Func<RouteEndpoint, PickupSourceResolution> resolver,
+            Func<RouteStop, bool> includeStop,
+            out List<PickupSourceReservation> reservations,
+            out string unresolvedReason)
+        {
             reservations = new List<PickupSourceReservation>();
 
-            if (!TryBuildSourceGroups(route, resolver, out List<PickupSourceGroup> groups, out unresolvedReason))
+            if (!TryBuildSourceGroups(route, resolver, includeStop, out List<PickupSourceGroup> groups, out unresolvedReason))
                 return false;
 
             for (int i = 0; i < groups.Count; i++)

@@ -94,11 +94,25 @@ namespace Parsek.Tests.Logistics
                 new List<(uint, Dictionary<string, double>)>();
             public HashSet<uint> UnresolvedPids = new HashSet<uint>();
 
+            // Optional hook run INSIDE Apply (i.e. after the window-debit fires but
+            // BEFORE EmitPickupHalf's subsequent ReleaseWindowEscrow), so a test can
+            // snapshot the reservation that is still live at the moment the window
+            // physically debits. Receives the endpoint pid being debited.
+            public Action<uint> OnDebit;
+
+            // Optional endpoint-pid -> reported OriginVesselPid remap. When a window's
+            // endpoint pid is present, the outcome reports a DIFFERENT OriginVesselPid
+            // (simulating a mid-cycle source-identity change / surface-fallback / craft-
+            // baked-pid regeneration), so EmitPickupHalf's release keys on the diverged
+            // pid and MISSES the dispatch-time reserve (the C2 leak). Absent -> identity.
+            public Dictionary<uint, uint> ReleasePidRemap;
+
             public RouteOrchestrator.OriginDebitOutcome Apply(
                 RouteEndpoint endpoint, Dictionary<string, double> manifest, IRouteRuntimeEnvironment env)
             {
                 Debits.Add((endpoint.VesselPersistentId,
                     manifest != null ? new Dictionary<string, double>(manifest) : null));
+                OnDebit?.Invoke(endpoint.VesselPersistentId);
 
                 if (UnresolvedPids.Contains(endpoint.VesselPersistentId))
                 {
@@ -114,13 +128,18 @@ namespace Parsek.Tests.Logistics
                     };
                 }
 
+                uint reportedPid = endpoint.VesselPersistentId;
+                if (ReleasePidRemap != null
+                    && ReleasePidRemap.TryGetValue(endpoint.VesselPersistentId, out uint remapped))
+                    reportedPid = remapped;
+
                 return new RouteOrchestrator.OriginDebitOutcome
                 {
                     ActualDebited = manifest != null
                         ? new Dictionary<string, double>(manifest)
                         : null,
                     RequestedOnShortfall = null,
-                    OriginVesselPid = endpoint.VesselPersistentId,
+                    OriginVesselPid = reportedPid,
                     Short = false,
                     Unresolved = false,
                 };
@@ -148,6 +167,16 @@ namespace Parsek.Tests.Logistics
                         Sequence = stopIndex * RouteOrchestrator.SeqStride + 3,
                     });
                 };
+            return seam;
+        }
+
+        // Same as InstallPickupSeam but the debit outcome reports a DIVERGED
+        // OriginVesselPid for the remapped endpoints, so EmitPickupHalf's release keys
+        // on the diverged pid (missing the dispatch-time reserve) - the C2 leak path.
+        private RecordingPickupSeam InstallPickupSeamWithPidRemap(Dictionary<uint, uint> remap)
+        {
+            var seam = InstallPickupSeam();
+            seam.ReleasePidRemap = remap;
             return seam;
         }
 
@@ -460,6 +489,10 @@ namespace Parsek.Tests.Logistics
         // reservation across the cross-cycle catch-up (the A3 Blocker1 class, extended
         // to a source-debiting route). After two complete cycles, each source is
         // debited exactly twice (once per cycle), and the escrow is empty.
+        // NOTE (C4): this drives TWO FULL CYCLES window-by-window on SEPARATE ticks
+        // (it is NOT a single straddling gap-tick); the genuine single-tick cMin
+        // catch-up path is pinned by the A3 suite (without escrow). The escrow
+        // assertion here is the per-cycle reserve/release net-zero across cycles.
         [Fact]
         public void CrossCycleGapTick_MultiPickup_EachSourceDebitsOncePerCycle_NoLeak()
         {
@@ -660,6 +693,162 @@ namespace Parsek.Tests.Logistics
             // No escrow held at any point for a delivery-only route.
             Assert.Equal(0, RouteStore.EscrowRouteCountForTesting);
             Assert.Equal(1, route.CompletedCycles);
+        }
+
+        // ==================================================================
+        // (10) C1: a dispatchAlready resume after a mid-cycle escrow CLEAR (scene-
+        //      switch / reload) RE-ESTABLISHES the un-fired window's reservation
+        //      before that window fires (a competing route sees it again), and is
+        //      IDEMPOTENT (a normal in-session resume does NOT double-reserve).
+        // ==================================================================
+
+        // catches (C1): the un-fired window's hold being SILENTLY LOST across a mid-
+        // cycle escrow clear (a scene-switch ClearAllEscrow or a reload dropped the
+        // RAM-only map) - leaving a gap where a competing route could drain the source
+        // (violating 19.2.5 strand-protection). On the dispatchAlready resume the
+        // reserve must be RE-ESTABLISHED from the still-un-fired pickup windows
+        // (OQ7/D11 "recomputed from pending state on the next Tick").
+        [Fact]
+        public void DispatchAlreadyResumeAfterClear_ReestablishesUnfiredWindowReservation()
+        {
+            var route = Build2SourceRoute();
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit()); // docks 1150 (A) / 1300 (B) / 1380 (station)
+            var seam = InstallPickupSeam();
+            var env = new EligibleEnv();
+
+            // Tick at dock A (1150): dispatch reserves BOTH (A=100, B=200), window 0
+            // debits + releases A. Source B's 200 reservation is now live (partial).
+            RouteOrchestrator.Tick(1150.0, env);
+            Assert.Equal(200.0, RouteStore.GetReservedForTesting(route.Id, 200u, "Ore"));
+            Assert.Equal(0.0, RouteStore.GetReservedForTesting(route.Id, 100u, "Ore"));
+
+            // Simulate a scene-switch / reload mid-gap: the RAM-only escrow is cleared.
+            RouteStore.ClearAllEscrow("test-scene-switch");
+            Assert.Equal(0, RouteStore.EscrowRouteCountForTesting); // hold lost (the bug)
+
+            // On window B's debit, snapshot the live reservation BEFORE EmitPickupHalf
+            // releases it: the resume must have RE-ESTABLISHED B's 200 hold, and a
+            // competing route's B1 net must see it.
+            double reservedAtBDebit = -1.0;
+            double competitorSeesAtBDebit = -1.0;
+            seam.OnDebit = pid =>
+            {
+                if (pid == 200u)
+                {
+                    reservedAtBDebit = RouteStore.GetReservedForTesting(route.Id, 200u, "Ore");
+                    competitorSeesAtBDebit =
+                        RouteStore.OtherRoutesReservedFor("route-competitor", 200u, "Ore");
+                }
+            };
+
+            // Resume tick past dock B (1350): dispatchAlready==true (cycle-0 dispatch
+            // is in the ledger), the escrow was cleared -> re-establish B's reservation,
+            // THEN window B fires + releases it.
+            RouteOrchestrator.Tick(1350.0, env);
+
+            // At window B's debit the re-established hold was LIVE (200 Ore), and a
+            // competing route saw it (the strand-protection restored across the gap).
+            Assert.Equal(200.0, reservedAtBDebit);
+            Assert.Equal(200.0, competitorSeesAtBDebit);
+
+            // Window A (already fired this cycle) was NOT re-reserved (no double): only
+            // window B's source debited on the resume tick.
+            Assert.Equal(2, seam.Debits.Count); // A on tick 1, B on the resume tick
+            Assert.Equal(200u, seam.Debits[1].pid);
+
+            // The re-established reservation released at B's debit; cycle completes
+            // at the station dock, escrow empty (no leak).
+            RouteOrchestrator.Tick(1380.0, env);
+            Assert.Equal(0, RouteStore.EscrowRouteCountForTesting);
+            Assert.Equal(1, route.CompletedCycles);
+
+            // The re-establish was logged with its distinguishing context tag.
+            Assert.Contains(logLines, l => l.Contains("[Route]")
+                && l.Contains("ReserveCycleEscrow") && l.Contains("context=resume-reestablish"));
+        }
+
+        // catches (C1 idempotency): a NORMAL in-session resume (no clear happened) re-
+        // reserving the un-fired window on top of the live reservation -> DOUBLE hold.
+        // The re-establish must run ONLY when the route holds NO escrow; an in-session
+        // resume still holds its reservation, so it must short-circuit.
+        [Fact]
+        public void DispatchAlreadyResumeNoClear_DoesNotDoubleReserve()
+        {
+            var route = Build2SourceRoute();
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            var seam = InstallPickupSeam();
+            var env = new EligibleEnv();
+
+            // Tick at dock A: B's 200 reservation is live (partial cycle). No clear.
+            RouteOrchestrator.Tick(1150.0, env);
+            Assert.Equal(200.0, RouteStore.GetReservedForTesting(route.Id, 200u, "Ore"));
+
+            // On window B's debit, snapshot the live reservation: it must still be
+            // exactly 200 (the in-session resume did NOT re-reserve on top of it).
+            double reservedAtBDebit = -1.0;
+            seam.OnDebit = pid =>
+            {
+                if (pid == 200u)
+                    reservedAtBDebit = RouteStore.GetReservedForTesting(route.Id, 200u, "Ore");
+            };
+
+            // Resume tick (no clear in between): dispatchAlready==true, escrow still
+            // held -> the re-establish must NO-OP (idempotent), so B's hold stays 200,
+            // not 400.
+            RouteOrchestrator.Tick(1350.0, env);
+
+            Assert.Equal(200.0, reservedAtBDebit); // not doubled to 400
+            RouteOrchestrator.Tick(1380.0, env);
+            Assert.Equal(0, RouteStore.EscrowRouteCountForTesting); // nets to zero, no leak
+            Assert.Equal(1, route.CompletedCycles);
+
+            // No resume-reestablish reserve happened (the route already held escrow).
+            Assert.DoesNotContain(logLines, l => l.Contains("context=resume-reestablish"));
+        }
+
+        // ==================================================================
+        // (11) C2: a cycle-complete drop SWEEP clears any residual reservation, even
+        //      when a release MISSED (reserve-pid != release-pid divergence).
+        // ==================================================================
+
+        // catches (C2): a positive-residual reservation LEAKING past cycle-complete
+        // when the window's resolved release pid diverged from the dispatch-time
+        // reserve pid (a mid-cycle source-identity change / surface-fallback / craft-
+        // baked-pid regeneration), so the release missed the reserved key. The cycle-
+        // complete DropRouteEscrow must sweep it -> EscrowRouteCountForTesting == 0
+        // after the cycle regardless of pid divergence.
+        [Fact]
+        public void CycleComplete_DropsResidual_WhenReleasePidDiverges()
+        {
+            var route = Build2SourceRoute();
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            // Make source B's window RESOLVE TO A DIFFERENT PID at debit time than the
+            // dispatch-time reserve keyed on. The reserve keys on the endpoint baked
+            // pid (200, headless fallback); the seam reports OriginVesselPid = 999 for
+            // pid 200, so ReleaseWindowEscrow releases against 999 - MISSING the 200
+            // reservation. (Simulates a surface-fallback / pid-regeneration divergence.)
+            var seam = InstallPickupSeamWithPidRemap(new Dictionary<uint, uint> { { 200u, 999u } });
+            var env = new EligibleEnv();
+
+            RouteOrchestrator.Tick(1150.0, env); // window A debits + releases (pid 100 matches)
+            RouteOrchestrator.Tick(1350.0, env); // window B debits; release on 999 misses 200
+
+            // Mid-cycle the divergence left a positive residual on pid 200 (the release
+            // went to 999). This is the leak C2 closes.
+            Assert.Equal(200.0, RouteStore.GetReservedForTesting(route.Id, 200u, "Ore"));
+
+            // Station dock (1380): cycle completes -> DropRouteEscrow sweeps the residual.
+            RouteOrchestrator.Tick(1380.0, env);
+
+            Assert.Equal(0, RouteStore.EscrowRouteCountForTesting); // residual swept, no leak
+            Assert.Equal(0.0, RouteStore.GetReservedForTesting(route.Id, 200u, "Ore"));
+            Assert.Equal(1, route.CompletedCycles);
+            // The cycle-complete drop logged a sweep of the residual entry.
+            Assert.Contains(logLines, l => l.Contains("[Route]")
+                && l.Contains("DropRouteEscrow") && l.Contains("droppedResourceEntries=1"));
         }
     }
 }
