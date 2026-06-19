@@ -13,6 +13,37 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~Bug - `OnMainMenuTransition` is a static GameEvent handler: silently dead since 2026-03-22~~ (DONE - code fixed on branch `fix-mainmenu-static-handler`; in-game playtest PENDING)
+
+`ParsekScenario.OnMainMenuTransition` was `private static` and subscribed to
+`GameEvents.onGameSceneLoadRequested` from `RegisterMainMenuHook()` (called during `OnLoad`).
+KSP's `EventData<T>.Add` builds an `EvtDelegate` whose ctor unconditionally runs
+`originatorType = evt.Target.GetType().Name` (verified by decompiling Assembly-CSharp); `evt.Target`
+is null for a static method, so `Add` throws `NullReferenceException`. The `Add` was wrapped in
+`try/catch (NullReferenceException)` whose comment wrongly blamed "GameEvents not ready ... will
+retry on next OnLoad". The throw is **deterministic** (static handler), so the hook **never**
+registered - present on `main` since commit `d398cac43` (2026-03-22). It does not crash and did not
+wipe recordings (unlike the sibling `OnGameSceneSwitchClearEscrow` NRE fixed by `a73950f90` in the
+logistics-m4 work / PR #1180); it just meant `OnMainMenuTransition` never fired, so its main-menu
+session reset (`initialLoadDone`, pending-cleanup clears, `PlaybackScopeTracker.Reset`,
+`RouteStore.ClearAllEscrow`) and its **unconditional per-scene-switch**
+`LedgerOrchestrator.FlushStalePendingRecoveryFunds` + `RecoveryPayoutContextStore.Clear` were inert
+for ~3 months.
+
+**Fix:** make `OnMainMenuTransition` (and `RegisterMainMenuHook`) instance methods, subscribe
+idempotently (Remove-then-Add, mirroring `SubscribeVesselLifecycleEvents`), drop the register-once
+`mainMenuHookRegistered` static flag and the misleading try/catch, and unsubscribe in `OnDestroy` so
+the now-instance subscription does not leak a stale `Target` across scenario re-instantiation.
+Regression guard: `ScenarioGameEventHandlerContractTests.OnMainMenuTransition_MustBeInstanceMethod_NotStatic`
+(general rule: no `ParsekScenario` GameEvent handler may be `static`). Because removing `static`
+re-activates ~3 months of dormant session-reset + ledger/recovery-funds logic, this ships as its own
+commit + branch, separate from PR #1180. **In-game playtest (REQUIRED, still PENDING):** (1) return
+to the main menu from flight/KSC - confirm no crash and a subsequently loaded save starts clean;
+(2) load a different save without restarting KSP - confirm no stale state bleeds between saves;
+(3) recovery-funds accounting - confirm the now-active per-scene-switch flush does not double-flush,
+mis-attribute, or wrongly clear pending recovery payouts; watch `KSP.log` for the registration now
+succeeding and any new per-scene-switch ledger activity. **Playtest result: PENDING.**
+
 ## Fixed - Better Time Warp support: snapshot stock warp altitude limits before the mod zeroes them (branch `bettertimewarp-support`)
 
 **Investigation:** BetterTimeWarpContinued (cloned at `mods/BetterTimeWarpContinued/`) raises the warp ceiling by reassigning `TimeWarp.fetch.warpRates` / `physicsWarpRates` and overriding every body's `timeWarpAltitudeLimits` to `{0,0,0,0,0,0,100000,2000000}` at `MainMenu` startup. No Harmony, no programmatic warp/time control. A full trace of Parsek's warp reads found everything safe: value-threshold reads (`ShouldSuppressVisualFx` >10×, `ShouldSuppressGhosts` >50×, map-reseed >1×) stay correct at any rate; index/`>0` reads (`CurrentRateIndex`, `SetRate(0)`, time-jump/rewind save-restore `SetRate(index)`) are unaffected since the 8-rails/4-physics index structure is preserved; no hardcoded rate tables anywhere.
