@@ -68,6 +68,7 @@ All notable changes to Parsek are documented here.
 - Looped re-aim launches no longer draw a spurious extra connector beside the trajectory now that the ascent meets the escape: when the aligned launch line already reaches the escape orbit, the short connector that used to bridge the old gap is no longer drawn.
 - On a tightly-packed looped re-aim launch (where the next launch lifts off as a second ghost while the previous one is still arriving), that second ghost now draws its forward trajectory too: the takeoff/ascent line and the escape trajectory ahead of its icon appear at launch, instead of only the icon and the orbit it has already reached showing up. The forward path was being dropped because the launch recording was skipped whenever the earlier ghost had moved on to the destination.
 - A launch recorded as two back-to-back ascent legs (pad climb then continuation to orbit) no longer draws a stray curved connector from the first leg straight to the escape orbit, shortcutting over the continuation leg; only the ascent leg that actually meets the escape orbit connects to it.
+- Returning to the main menu now reliably resets Parsek's in-memory session state, so loading a different save without restarting KSP no longer risks carrying stale recording and playback state between saves. The reset hook had silently never registered.
 
 ### Internals
 

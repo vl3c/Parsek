@@ -32,27 +32,10 @@ DLL, then load the freshest quicksave that still has the `RECORDING_TREE` nodes.
 **Fix:** make `OnGameSceneSwitchClearEscrow` an instance method (its body only makes a
 static `RouteStore.ClearAllEscrow` call, so instance-ness has no behavioral cost;
 `OnDestroy` already unsubscribes it). Regression guard:
-`ScenarioGameEventHandlerContractTests.OnGameSceneSwitchClearEscrow_MustBeInstanceMethod_NotStatic`.
-General rule established: **no `ParsekScenario` handler subscribed to a KSP GameEvent may
-be `static`** — KSP's `EventData.Add` dereferences `evt.Target` (null for static).
-
-## Bug - `OnMainMenuTransition` is a static GameEvent handler: silently dead since 2026-03-22 (OPEN, separate from above)
-
-Found during review of the `OnGameSceneSwitchClearEscrow` fix. `ParsekScenario.OnMainMenuTransition`
-is `private static` and is subscribed to `GameEvents.onGameSceneLoadRequested` from
-`RegisterMainMenuHook()` (called during `OnLoad`). The same KSP `EvtDelegate` NRE applies, but here
-the `Add` is wrapped in `try/catch (NullReferenceException)` whose comment wrongly blames
-"GameEvents not ready … will retry on next OnLoad". The throw is deterministic (static handler), so
-the hook has **never** registered — present on `main` too, since commit `d398cac43` (2026-03-22). It
-does not crash and did not wipe recordings; it just means `OnMainMenuTransition` never fires, so its
-main-menu session reset (`initialLoadDone`, pending-cleanup clears, `PlaybackScopeTracker.Reset`,
-`RouteStore.ClearAllEscrow`) and its **unconditional per-scene-switch**
-`LedgerOrchestrator.FlushStalePendingRecoveryFunds` + `RecoveryPayoutContextStore.Clear` have been
-inert. **Not fixed here on purpose:** correcting the `static` re-activates ~3 months of dormant
-session-reset + ledger/recovery-funds logic, which is a behavioral change that needs its own commit
-and an in-game playtest (return-to-main-menu, load a different save, recovery-funds accounting), not a
-ride-along in a recovery fix. Fix when scoped: make it an instance method, delete the misleading
-catch comment, and extend the contract test to cover it.
+the parameterized `ScenarioGameEventHandlerContractTests.ScenarioGameEventHandler_MustBeInstanceMethod_NotStatic`
+(now covers all six subscribed ParsekScenario handlers). General rule established: **no
+`ParsekScenario` handler subscribed to a KSP GameEvent may be `static`** — KSP's
+`EventData.Add` dereferences `evt.Target` (null for static).
 
 ## Dev - Logistics in-game tests: auto-spawn unloaded vessel (no manual second craft)
 
@@ -90,6 +73,38 @@ inventory-pickup tests are unchanged (no unloaded variant; an unloaded inventory
 fixture would need a stored cargo part the pad rocket may lack). Pure piece unit-
 tested in `Source/Parsek.Tests/UnloadedFuelVesselFixtureTests.cs`. Test-infra only
 (no user-facing CHANGELOG line). LIVE validation via Ctrl+Shift+T is pending.
+
+## ~~Bug - `OnMainMenuTransition` is a static GameEvent handler: silently dead since 2026-03-22~~ (DONE - merged onto `logistics-m4-multistop`; in-game playtest PENDING)
+
+`ParsekScenario.OnMainMenuTransition` was `private static` and subscribed to
+`GameEvents.onGameSceneLoadRequested` from `RegisterMainMenuHook()` (called during `OnLoad`).
+KSP's `EventData<T>.Add` builds an `EvtDelegate` whose ctor unconditionally runs
+`originatorType = evt.Target.GetType().Name` (verified by decompiling Assembly-CSharp); `evt.Target`
+is null for a static method, so `Add` throws `NullReferenceException`. The `Add` was wrapped in
+`try/catch (NullReferenceException)` whose comment wrongly blamed "GameEvents not ready ... will
+retry on next OnLoad". The throw is **deterministic** (static handler), so the hook **never**
+registered - present on `main` since commit `d398cac43` (2026-03-22). It does not crash and did not
+wipe recordings (unlike the sibling `OnGameSceneSwitchClearEscrow` NRE fixed by `a73950f90` in the
+logistics-m4 work / PR #1180); it just meant `OnMainMenuTransition` never fired, so its main-menu
+session reset (`initialLoadDone`, pending-cleanup clears, `PlaybackScopeTracker.Reset`,
+`RouteStore.ClearAllEscrow`) and its **unconditional per-scene-switch**
+`LedgerOrchestrator.FlushStalePendingRecoveryFunds` + `RecoveryPayoutContextStore.Clear` were inert
+for ~3 months.
+
+**Fix:** make `OnMainMenuTransition` (and `RegisterMainMenuHook`) instance methods, subscribe
+idempotently (Remove-then-Add, mirroring `SubscribeVesselLifecycleEvents`), drop the register-once
+`mainMenuHookRegistered` static flag and the misleading try/catch, and unsubscribe in `OnDestroy` so
+the now-instance subscription does not leak a stale `Target` across scenario re-instantiation.
+Regression guard: the parameterized `ScenarioGameEventHandlerContractTests.ScenarioGameEventHandler_MustBeInstanceMethod_NotStatic`
+(now covers all six subscribed ParsekScenario handlers). Because removing `static`
+re-activates ~3 months of dormant session-reset + ledger/recovery-funds logic, this landed as its own
+commit merged onto `logistics-m4-multistop` (PR #1180). **In-game playtest (REQUIRED, still PENDING):** (1) return
+to the main menu from flight/KSC - confirm no crash and a subsequently loaded save starts clean;
+(2) load a different save without restarting KSP - confirm no stale state bleeds between saves;
+(3) recovery-funds accounting - confirm the now-active per-scene-switch flush does not double-flush,
+mis-attribute, or wrongly clear pending recovery payouts; watch `KSP.log` for the registration now
+succeeding and any new per-scene-switch ledger activity. **Playtest result: PENDING.**
+
 ## Fixed - Better Time Warp support: snapshot stock warp altitude limits before the mod zeroes them (branch `bettertimewarp-support`)
 
 **Investigation:** BetterTimeWarpContinued (cloned at `mods/BetterTimeWarpContinued/`) raises the warp ceiling by reassigning `TimeWarp.fetch.warpRates` / `physicsWarpRates` and overriding every body's `timeWarpAltitudeLimits` to `{0,0,0,0,0,0,100000,2000000}` at `MainMenu` startup. No Harmony, no programmatic warp/time control. A full trace of Parsek's warp reads found everything safe: value-threshold reads (`ShouldSuppressVisualFx` >10×, `ShouldSuppressGhosts` >50×, map-reseed >1×) stay correct at any rate; index/`>0` reads (`CurrentRateIndex`, `SetRate(0)`, time-jump/rewind save-restore `SetRate(index)`) are unaffected since the 8-rails/4-physics index structure is preserved; no hardcoded rate tables anywhere.

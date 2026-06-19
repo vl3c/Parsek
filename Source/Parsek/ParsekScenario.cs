@@ -2412,7 +2412,6 @@ namespace Parsek
         private static bool initialLoadDone = false;
         private static string lastSaveFolder = null;
         private static bool budgetDeductionApplied = false;
-        private static bool mainMenuHookRegistered = false;
 
         // Tracks the scene from which the last OnSave fired.
         // Used to detect FLIGHT→FLIGHT transitions (Revert to Launch / quickload)
@@ -4064,28 +4063,27 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Registers a one-time hook to reset session state when returning to main menu.
-        /// This prevents stale in-memory recordings from leaking into a new save
-        /// (e.g., deleting a career and creating a new one with the same name).
+        /// Subscribes the main-menu session-reset hook (<see cref="OnMainMenuTransition"/>),
+        /// which resets <c>initialLoadDone</c> and clears pending-cleanup / playback-scope
+        /// state when returning to the main menu so stale in-memory recordings don't leak
+        /// into a new save (e.g. deleting a career and creating a new one with the same
+        /// name). Idempotent (Remove then Add), mirroring
+        /// <see cref="SubscribeVesselLifecycleEvents"/>; <see cref="OnDestroy"/> removes the
+        /// subscription on scenario teardown.
+        ///
+        /// <see cref="OnMainMenuTransition"/> MUST stay an instance method: KSP's
+        /// <c>EventData&lt;T&gt;.Add</c> builds an <c>EvtDelegate</c> whose ctor
+        /// unconditionally runs <c>originatorType = evt.Target.GetType().Name</c>. For a
+        /// <c>static</c> handler <c>evt.Target</c> is null, so <c>Add</c> throws
+        /// <c>NullReferenceException</c>. That throw is DETERMINISTIC, not a transient
+        /// "GameEvents not ready" condition, so the old try/catch + register-once flag
+        /// silently swallowed every registration and this hook never fired (dormant since
+        /// the handler was made static).
         /// </summary>
-        private static void RegisterMainMenuHook()
+        private void RegisterMainMenuHook()
         {
-            if (!mainMenuHookRegistered)
-            {
-                // Wrapped in try-catch: KSP's EvtDelegate constructor can throw
-                // NullReferenceException during early scene loads when GameEvents
-                // internals aren't fully initialized.
-                try
-                {
-                    GameEvents.onGameSceneLoadRequested.Add(OnMainMenuTransition);
-                    mainMenuHookRegistered = true;
-                }
-                catch (System.NullReferenceException)
-                {
-                    ParsekLog.Verbose("Scenario",
-                        "Main menu hook deferred (GameEvents not ready) — will retry on next OnLoad");
-                }
-            }
+            GameEvents.onGameSceneLoadRequested.Remove(OnMainMenuTransition);
+            GameEvents.onGameSceneLoadRequested.Add(OnMainMenuTransition);
         }
 
         /// <summary>
@@ -8311,8 +8309,15 @@ namespace Parsek
         /// <summary>
         /// Resets session state when transitioning to main menu, preventing stale
         /// in-memory recordings from leaking between saves with the same name.
+        ///
+        /// MUST be an instance method (never <c>static</c>): KSP's
+        /// <c>EventData&lt;T&gt;.Add</c> dereferences <c>evt.Target</c> (null for a
+        /// static handler) in the <c>EvtDelegate</c> ctor and throws
+        /// <c>NullReferenceException</c>. Subscribed from
+        /// <see cref="RegisterMainMenuHook"/>; unsubscribed in <see cref="OnDestroy"/>.
+        /// See <see cref="RegisterMainMenuHook"/> for the full rationale.
         /// </summary>
-        private static void OnMainMenuTransition(GameScenes newScene)
+        private void OnMainMenuTransition(GameScenes newScene)
         {
             if (newScene == GameScenes.MAINMENU)
             {
@@ -8405,6 +8410,10 @@ namespace Parsek
             // M4b Phase B2: drop the scene-switch escrow-clear subscription on
             // scenario teardown so a re-loaded scenario re-subscribes cleanly.
             GameEvents.onGameSceneSwitchRequested.Remove(OnGameSceneSwitchClearEscrow);
+            // Main-menu session-reset hook (RegisterMainMenuHook). Now an instance
+            // subscription, so it MUST be removed here or the delegate leaks a stale
+            // Target into the next scenario instantiation.
+            GameEvents.onGameSceneLoadRequested.Remove(OnMainMenuTransition);
             // #434: RevertDetector subscriptions are idempotent and persist for the
             // lifetime of the game session; tearing them down here so a scenario-module
             // shutdown doesn't leak dangling delegates if the session ends mid-flight.

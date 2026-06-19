@@ -10,30 +10,40 @@ namespace Parsek.Tests
     /// KSP's <c>EventData&lt;T&gt;.Add</c> wraps the handler in an <c>EvtDelegate</c> whose
     /// constructor unconditionally runs <c>originatorType = evt.Target.GetType().Name</c>
     /// (verified by decompiling Assembly-CSharp). A static method's delegate has a null
-    /// <c>Target</c>, so <c>Add</c> throws <c>NullReferenceException</c>. Because the
-    /// scenario's GameEvent handlers are wired from <c>SubscribeVesselLifecycleEvents</c>
-    /// during <c>ParsekScenario.OnLoad</c>, a static handler aborts the entire OnLoad before
-    /// recordings are loaded; the next save then writes 0 RECORDING_TREE nodes and silently
-    /// wipes the recording index (the CleanOrphanFiles guard preserves the sidecars, but the
-    /// recordings disappear from the UI). Regression guard for the logistics-m4
-    /// <c>OnGameSceneSwitchClearEscrow</c> NRE.
+    /// <c>Target</c>, so <c>Add</c> throws <c>NullReferenceException</c>. Because these handlers
+    /// are wired during <c>ParsekScenario.OnLoad</c>, a static handler either aborts the entire
+    /// OnLoad before recordings load — the <c>OnGameSceneSwitchClearEscrow</c> case, which wiped
+    /// the recording index on the next save — or, if the throw is swallowed (the old
+    /// <c>RegisterMainMenuHook</c> try/catch around <c>OnMainMenuTransition</c>), silently never
+    /// registers so the hook is dead. Either way the handler is broken.
+    ///
+    /// When a new ParsekScenario GameEvent subscription is added, add its handler name to
+    /// <see cref="ScenarioGameEventHandler_MustBeInstanceMethod_NotStatic"/> below.
     /// </summary>
     public class ScenarioGameEventHandlerContractTests
     {
-        [Fact]
-        public void OnGameSceneSwitchClearEscrow_MustBeInstanceMethod_NotStatic()
+        [Theory]
+        [InlineData("OnMainMenuTransition")]          // GameEvents.onGameSceneLoadRequested
+        [InlineData("OnGameSceneSwitchClearEscrow")]  // GameEvents.onGameSceneSwitchRequested
+        [InlineData("OnVesselRecoveryProcessing")]    // GameEvents.onVesselRecoveryProcessing
+        [InlineData("OnVesselRecovered")]             // GameEvents.onVesselRecovered
+        [InlineData("OnVesselTerminated")]            // GameEvents.onVesselTerminated
+        [InlineData("OnVesselSwitching")]             // GameEvents.onVesselSwitching
+        public void ScenarioGameEventHandler_MustBeInstanceMethod_NotStatic(string handlerName)
         {
             MethodInfo handler = typeof(Parsek.ParsekScenario).GetMethod(
-                "OnGameSceneSwitchClearEscrow",
+                handlerName,
                 BindingFlags.Instance | BindingFlags.Static
                     | BindingFlags.NonPublic | BindingFlags.Public);
 
-            Assert.True(handler != null, "OnGameSceneSwitchClearEscrow not found on ParsekScenario");
+            Assert.True(handler != null, $"{handlerName} not found on ParsekScenario");
             Assert.False(
                 handler.IsStatic,
-                "OnGameSceneSwitchClearEscrow must be an INSTANCE method. KSP's EventData.Add "
-                + "dereferences evt.Target (null for a static handler) and throws NullReferenceException, "
-                + "which aborts ParsekScenario.OnLoad and wipes the recording index on the next save.");
+                $"{handlerName} must be an INSTANCE method. KSP's EventData.Add dereferences "
+                + "evt.Target (null for a static handler) in the EvtDelegate ctor and throws "
+                + "NullReferenceException. Subscribed during ParsekScenario.OnLoad, a static handler "
+                + "either aborts OnLoad (wiping the recording index on the next save) or, if the "
+                + "throw is swallowed, silently never registers so the hook goes dead.");
         }
     }
 }
