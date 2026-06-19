@@ -237,6 +237,50 @@ namespace Parsek.Tests.Logistics
             Assert.True(RouteDispatchEvaluator.CheckEligibility(b, 1150.0, env).Eligible);
         }
 
+        // catches a regression where the PRODUCTION link mutator (RouteStore.LinkRoutes,
+        // what the detail-panel "Link round-trip..." picker commits) fails to wire BOTH
+        // directions or fails to seed the cursors, so the engine never alternates. Builds
+        // two UNLINKED routes (as RouteBuilder produces them), links them through the
+        // production mutator, and ticks: the pair must alternate exactly as a pre-linked
+        // pair does. Then unlinks through the production mutator and confirms both sides
+        // clear.
+        [Fact]
+        public void ProductionLinkMutator_DrivesAlternation_AndUnlinkClearsBoth()
+        {
+            var a = BuildLinkedRoute("route-a", linkedRouteId: null, dispatchPriority: 0);
+            var b = BuildLinkedRoute("route-b", linkedRouteId: null, dispatchPriority: 1);
+            RouteStore.AddRoute(a);
+            RouteStore.AddRoute(b);
+
+            // The production link path (what the picker's "Link" button calls).
+            Assert.True(RouteStore.LinkRoutes("route-a", "route-b"));
+            Assert.Equal("route-b", a.LinkedRouteId);
+            Assert.Equal("route-a", b.LinkedRouteId);
+            Assert.Equal(0, a.LastConsumedPartnerCycle);
+            Assert.Equal(0, b.LastConsumedPartnerCycle);
+
+            InstallUnitResolver(BuildUnit());
+            InstallRealPathRowEmitter();
+            var env = new EligibleEnv();
+
+            // Cycle 0: the seed (A, priority 0) breaks the cold-start deadlock; both
+            // consume within the tick (A processed first), proving the mutator-set link
+            // engages the gate exactly as a hand-set link does.
+            TickAtDock(a, 0, env);
+            Assert.Equal(1, a.CompletedCycles);
+            Assert.Equal(1, b.CompletedCycles);
+            Assert.Equal(1, Dispatched("route-a"));
+            Assert.Equal(1, Dispatched("route-b"));
+
+            // Unlink through the production mutator: both clear + reset, so each then
+            // dispatches freely (the gate early-returns on a null LinkedRouteId).
+            Assert.True(RouteStore.UnlinkRoute("route-a"));
+            Assert.Null(a.LinkedRouteId);
+            Assert.Null(b.LinkedRouteId);
+            Assert.Equal(0, a.LastConsumedPartnerCycle);
+            Assert.Equal(0, b.LastConsumedPartnerCycle);
+        }
+
         // ==================================================================
         // (2) Short/blocked partner -> B holds WaitingForPartner (named)
         // ==================================================================

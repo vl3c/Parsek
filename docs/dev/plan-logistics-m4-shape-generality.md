@@ -161,7 +161,7 @@ Each phase is commit-sized, ends green (`cd Source/Parsek.Tests && dotnet test`)
 ### M4c - Round-trip linking
 
 **Phase C1 - LinkedRouteId chain-constraint scheduler (D12, OQ8).**
-1. `Route.LastConsumedPartnerCycle` + sparse codec; the partner gate in `CheckEligibility` behind a new env accessor; M6 hold reason "waiting for partner"; deadlock-guard link-seed rule; route-creation UI to link a pair (minimal).
+1. `Route.LastConsumedPartnerCycle` + sparse codec; the partner gate in `CheckEligibility` behind a new env accessor; M6 hold reason "waiting for partner"; deadlock-guard link-seed rule; route-creation UI to link a pair (minimal). **Link UI shipped as a follow-up:** the engine landed in C1; the link/unlink control was dropped from the first C1/C2 pass (engine-only) and built afterward as a detail-panel `Link round-trip...` partner picker + `Unlink` button driving `RouteStore.LinkRoutes` / `UnlinkRoute` (+ `RemoveRoute` dangling-partner cleanup).
 2. Tests: A completes -> B becomes eligible -> B completes -> A becomes eligible (alternation); pause partner (10.14); save/reload preserves alternation state; deadlock guard seeds the chain; unlinked routes unaffected.
 
 **Phase C2 - In-game validation + M4c docs close.**

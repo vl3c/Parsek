@@ -123,7 +123,29 @@ namespace Parsek.Logistics
                     // within one EmitLoopCycle and essentially never live across a
                     // tombstone - belt-and-suspenders. No-op when none held.
                     DropRouteEscrow(id);
-                    ParsekLog.Info(Tag, $"Route {ShortId(id)} removed");
+                    // M4c: clear any partner's dangling round-trip back-reference at
+                    // the removed route. The partner gate bypasses an unresolved
+                    // partner at runtime (RouteDispatchEvaluator), so this never
+                    // crashes, but the stale LinkedRouteId would persist through the
+                    // codec round-trip; null it and reset the partner's alternation
+                    // cursor so a future re-link starts from the clean seed state. The
+                    // O(n) scan also catches a one-sided half-link left by a bug.
+                    int unlinkedPartners = 0;
+                    for (int j = 0; j < committedRoutes.Count; j++)
+                    {
+                        Route other = committedRoutes[j];
+                        if (other != null
+                            && string.Equals(other.LinkedRouteId, id, System.StringComparison.Ordinal))
+                        {
+                            other.LinkedRouteId = null;
+                            other.LastConsumedPartnerCycle = 0;
+                            unlinkedPartners++;
+                        }
+                    }
+                    ParsekLog.Info(Tag, $"Route {ShortId(id)} removed"
+                        + (unlinkedPartners > 0
+                            ? $" (cleared {unlinkedPartners} round-trip partner link(s))"
+                            : string.Empty));
                     return true;
                 }
             }
@@ -155,6 +177,138 @@ namespace Parsek.Logistics
 
             route = null;
             return false;
+        }
+
+        /// <summary>
+        /// M4c (plan D12 / OQ8): link two routes as a round-trip pair. Sets BOTH
+        /// routes' <see cref="Route.LinkedRouteId"/> to point at each other — the
+        /// partner gate (<see cref="RouteDispatchEvaluator.PartnerConstraintSatisfied"/>)
+        /// resolves the partner only by the LOCAL route's <c>LinkedRouteId</c>, so a
+        /// one-sided link would let the partner free-run; the link must be mutual.
+        /// Resets BOTH <see cref="Route.LastConsumedPartnerCycle"/> to the 0 default
+        /// (the clean cold start): the engine's deadlock seed
+        /// (<see cref="RouteDispatchEvaluator.IsChainSeed"/>, lower
+        /// <see cref="Route.DispatchPriority"/> then ordinal Id) deterministically
+        /// picks which side dispatches first, so the mutator never hand-seeds an
+        /// order.
+        ///
+        /// <para>Rejects (logged Warn, returns false): a null/empty id, a self-link
+        /// (<paramref name="idA"/> == <paramref name="idB"/>), an unknown id, or a
+        /// route already linked to a DIFFERENT partner (no 3-way chains — the gate
+        /// has no concept of more than one partner). Re-linking the SAME already-correct
+        /// pair is an idempotent no-op success that PRESERVES the live cursors.</para>
+        ///
+        /// <para>Edge case: linking two routes that have BOTH already completed cycles
+        /// (e.g. via the API; the UI excludes already-linked routes but a route may be
+        /// linked while mid-flight) resets both cursors to 0 while neither is at
+        /// CompletedCycles 0, so the deadlock seed does not fire and both routes are
+        /// momentarily un-gated — the pair may run one overlapping cycle before
+        /// alternation self-corrects (the dispatch advance snaps each cursor up). This
+        /// is benign (one extra simultaneous out-and-back, never a persistent break) and
+        /// is the accepted cost of the "reset to 0, never hand-seed which side goes
+        /// first" contract.</para>
+        /// </summary>
+        internal static bool LinkRoutes(string idA, string idB)
+        {
+            if (string.IsNullOrEmpty(idA) || string.IsNullOrEmpty(idB))
+            {
+                ParsekLog.Warn(Tag, "LinkRoutes: null or empty id — ignored");
+                return false;
+            }
+            if (string.Equals(idA, idB, System.StringComparison.Ordinal))
+            {
+                ParsekLog.Warn(Tag, $"LinkRoutes: cannot link route {ShortId(idA)} to itself — ignored");
+                return false;
+            }
+            if (!TryGetRoute(idA, out Route a) || !TryGetRoute(idB, out Route b))
+            {
+                ParsekLog.Warn(Tag,
+                    $"LinkRoutes: route {ShortId(idA)} or {ShortId(idB)} not found — ignored");
+                return false;
+            }
+
+            // Guard against re-pointing an already-linked route (would orphan a third
+            // route's back-reference / create an inconsistent chain). Re-linking to
+            // the SAME partner is an idempotent no-op success.
+            bool aLinkedElsewhere = !string.IsNullOrEmpty(a.LinkedRouteId)
+                && !string.Equals(a.LinkedRouteId, idB, System.StringComparison.Ordinal);
+            bool bLinkedElsewhere = !string.IsNullOrEmpty(b.LinkedRouteId)
+                && !string.Equals(b.LinkedRouteId, idA, System.StringComparison.Ordinal);
+            if (aLinkedElsewhere || bLinkedElsewhere)
+            {
+                ParsekLog.Warn(Tag,
+                    $"LinkRoutes: {ShortId(idA)} or {ShortId(idB)} already linked to a different route — unlink first; ignored");
+                return false;
+            }
+
+            // Idempotent re-link of the SAME pair that is ALREADY correctly bidirectional
+            // is a true no-op: do NOT zero the live alternation cursors (that would
+            // reintroduce a one-cycle double-dispatch on an actively-alternating pair).
+            // A one-sided half-link (one endpoint null / mismatched) does NOT match this
+            // guard and falls through to the mutation below, which repairs it.
+            if (string.Equals(a.LinkedRouteId, idB, System.StringComparison.Ordinal)
+                && string.Equals(b.LinkedRouteId, idA, System.StringComparison.Ordinal))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"LinkRoutes: {ShortId(idA)} <-> {ShortId(idB)} already linked — no-op (cursors preserved)");
+                return true;
+            }
+
+            a.LinkedRouteId = b.Id;
+            b.LinkedRouteId = a.Id;
+            a.LastConsumedPartnerCycle = 0;
+            b.LastConsumedPartnerCycle = 0;
+            ParsekLog.Info(Tag,
+                $"Route {ShortId(idA)} <-> {ShortId(idB)} linked as round-trip (cursors reset; seed breaks the cold-start deadlock)");
+            return true;
+        }
+
+        /// <summary>
+        /// M4c: break a round-trip link. Clears <paramref name="id"/>'s
+        /// <see cref="Route.LinkedRouteId"/> and, when the partner still points back
+        /// at this route, the partner's too, resetting BOTH
+        /// <see cref="Route.LastConsumedPartnerCycle"/> to 0 so a future re-link
+        /// starts from the clean seed state. The back-pointer equality guard avoids
+        /// clobbering a partner that was re-linked elsewhere. Returns true when the
+        /// route was linked and is now unlinked; false (logged) on a null/empty id,
+        /// an unknown id, or an already-unlinked route.
+        /// </summary>
+        internal static bool UnlinkRoute(string id)
+        {
+            if (string.IsNullOrEmpty(id))
+            {
+                ParsekLog.Warn(Tag, "UnlinkRoute: null or empty id — ignored");
+                return false;
+            }
+            if (!TryGetRoute(id, out Route route))
+            {
+                ParsekLog.Warn(Tag, $"UnlinkRoute: route {ShortId(id)} not found — ignored");
+                return false;
+            }
+
+            string partnerId = route.LinkedRouteId;
+            if (string.IsNullOrEmpty(partnerId))
+            {
+                ParsekLog.Verbose(Tag, $"UnlinkRoute: route {ShortId(id)} is not linked — no-op");
+                return false;
+            }
+
+            route.LinkedRouteId = null;
+            route.LastConsumedPartnerCycle = 0;
+            if (TryGetRoute(partnerId, out Route partner)
+                && string.Equals(partner.LinkedRouteId, id, System.StringComparison.Ordinal))
+            {
+                partner.LinkedRouteId = null;
+                partner.LastConsumedPartnerCycle = 0;
+                ParsekLog.Info(Tag,
+                    $"Route {ShortId(id)} <-> {ShortId(partnerId)} unlinked (both cursors reset)");
+            }
+            else
+            {
+                ParsekLog.Info(Tag,
+                    $"Route {ShortId(id)} unlinked from {ShortId(partnerId)} (partner missing or did not point back)");
+            }
+            return true;
         }
 
         /// <summary>

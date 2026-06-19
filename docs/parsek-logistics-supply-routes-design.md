@@ -137,7 +137,7 @@ Before each cycle, the route evaluates whether dispatch is possible. It checks t
 | Source recording deleted during transit | Current cycle aborts before delivery and route becomes `MissingSourceRecording`. |
 | Source recording rewritten/superseded | Route halted (`SourceChanged`). Player must recreate or explicitly reanalyze the route from the current proof data. |
 | Player reverts past a dispatch | Epoch isolation invalidates route events. Stock quicksave/load restores stock vessels; Parsek timeline rewind uses route ledger modules to reverse or mask route effects before live cargo mutation is allowed. |
-| Two routes linked as round-trip | Future feature: they alternate, Route A completes -> Route B dispatches -> B completes -> A dispatches. |
+| Two routes linked as round-trip | Linked from a route's detail panel: they alternate, Route A completes -> Route B dispatches -> B completes -> A dispatches. |
 
 ### 1.4 Example: fuel delivery rover
 
@@ -989,6 +989,7 @@ As built (M4c):
 - A round trip remains two separate one-way Supply Routes, each created from its own Supply Run.
 - A linked pair alternates dispatch eligibility: Route A completes -> Route B may dispatch -> Route B completes -> Route A may dispatch. The constraint is a thin scheduling layer, not a new resource path: route B holds `WaitingForPartner` (an evaluator failure kind, NOT a new `RouteStatus` — the route stays `Active` / `GhostDriving` / renders its loop while waiting) until the partner completes a NEW cycle, tracked by the sparse `Route.LastConsumedPartnerCycle` alternation cursor. The partner gate is ordered LAST in `CheckEligibility`, so a genuinely-blocked route surfaces its real blocker first; the M6 hold reason names the linked route.
 - Pausing (or Breaking) a partner does NOT block the other (10.14): a non-ghost-driving partner can never complete a cycle, so the constraint is bypassed and the route dispatches on its own schedule. A mutual A<->B link with neither route yet completed is broken by a deterministic deadlock seed (lower `DispatchPriority`, then ordinal `Id`) that dispatches first on its very first cycle.
+- The pair is established from a route's detail panel: a `Link round-trip...` button opens a single-select picker of eligible partners (any other route not already linked), and an `Unlink` button breaks the pair. The control commits through `RouteStore.LinkRoutes` / `UnlinkRoute`, which set the link on BOTH routes (the gate resolves the partner only by the local `LinkedRouteId`, so the link must be mutual), reset both `LastConsumedPartnerCycle` to the 0 cold-start default (the deadlock seed picks the first dispatcher), reject a self-link or an already-linked route, and clear a partner's dangling back-reference when a linked route is deleted (`RemoveRoute`).
 
 ---
 
