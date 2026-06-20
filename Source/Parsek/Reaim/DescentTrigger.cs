@@ -246,6 +246,11 @@ namespace Parsek.Reaim
             internal bool WindowLogged;
             internal bool DescentSeen;
             internal bool DoneLogged;
+            // The previous DISTINCT frame's currentUT (managed by DescentRenderTrace.Note, NOT by
+            // ClassifyDescentRenderEvent). Lets the Skipped line report the exact frame STEP that crossed the
+            // window, so "skipped" can be distinguished from "the resolver simply was not called there".
+            internal double LastUT;
+            internal bool HaveLastUT;
         }
 
         /// <summary>
@@ -430,10 +435,20 @@ namespace Parsek.Reaim
             if (string.IsNullOrEmpty(unitKey))
                 return;
             stateByUnit.TryGetValue(unitKey, out DescentTrigger.DescentTraceState s);
+            // Capture the previous distinct frame's UT BEFORE classifying (the multiple per-frame resolver call
+            // sites share one currentUT, so only the first updates LastUT; the rest see prevUT == currentUT).
+            double prevUT = s.LastUT;
+            bool havePrev = s.HaveLastUT && prevUT != currentUT;
             DescentTrigger.DescentRenderEvent ev = DescentTrigger.ClassifyDescentRenderEvent(ref s, cycle, phase);
+            if (!s.HaveLastUT || currentUT != s.LastUT)
+            {
+                s.LastUT = currentUT;
+                s.HaveLastUT = true;
+            }
             stateByUnit[unitKey] = s;
             if (ev == DescentTrigger.DescentRenderEvent.None)
                 return;
+            double frameStep = havePrev ? currentUT - prevUT : double.NaN;
 
             var ic = CultureInfo.InvariantCulture;
             double clip = descentEndUT - recordedDeorbitUT;       // descent clip live duration
@@ -465,11 +480,17 @@ namespace Parsek.Reaim
                         "ghost is created this frame - see the [MapRenderProbe]/[MapRenderTrace] truth lines for its world position.");
                     break;
                 case DescentTrigger.DescentRenderEvent.Skipped:
+                    // frameStep = currentUT - the previous frame this trace saw. If frameStep > the clip, the
+                    // frame literally stepped over the window (warp / a stutter); if frameStep is SMALL yet no
+                    // Descent frame fired, the resolver was not called inside the window (the view was not
+                    // rendering it) - two very different causes, now distinguishable from the log.
+                    bool steppedOver = !double.IsNaN(frameStep) && frameStep > clip;
                     ParsekLog.Warn("ReaimDescent",
                         $"DESCENT SKIPPED cycle={cycle.ToString(ic)}: reached Done at liveUT={currentUT.ToString("R", ic)} with NO " +
                         $"frame inside the descent window [{triggerUT.ToString("R", ic)},{winEnd.ToString("R", ic)}] " +
-                        $"(clip={clip.ToString("F0", ic)}s = {pctOfLoop.ToString("F4", ic)}% of the loop) - the time-warp step " +
-                        "skipped it; drop to low warp inside that window to render + observe the descent.");
+                        $"(clip={clip.ToString("F0", ic)}s = {pctOfLoop.ToString("F4", ic)}% of the loop). " +
+                        $"prevFrameUT={(havePrev ? prevUT.ToString("R", ic) : "n/a")} frameStep={(double.IsNaN(frameStep) ? "n/a" : frameStep.ToString("F0", ic) + "s")} " +
+                        $"cause={(steppedOver ? "frame-stepped-over-window (drop warp inside it)" : "resolver-not-called-in-window (view not rendering the descent there)")}.");
                     break;
             }
         }
