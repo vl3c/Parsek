@@ -131,12 +131,13 @@ namespace Parsek.Tests
             // The exact failure: the player warps at 1,000,000x toward the descent; one frame (≈20,000 s, or a
             // lag-spike ≈400,000 s) jumps the entire 20,513 s window between two resolver calls -> SKIPPED every cycle.
             double liveEnd = DescentWarpControl.DescentWindowEndLiveUT(Trigger, Deorbit, RecEnd);
-            // 500,000 s out (well before the window): the cap is distance/4 = 125,000 -> index 7 (100,000x), already
-            // BELOW 1,000,000x, so the player is forced to decelerate long before a frame could straddle the window.
+            // 500,000 s out (well before the window): the cap is distance/WorstFrameSeconds = 250,000 -> index 7
+            // (100,000x), already BELOW 1,000,000x, so the player is forced to decelerate long before a frame could
+            // straddle the window.
             double cap = DescentWarpControl.ComputeMaxWarpRate(Trigger - 500_000.0, Trigger, liveEnd);
             int targetIdx = DescentWarpControl.SelectRateIndexForCap(cap, Levels);
             Assert.True(targetIdx < 8, "approaching at 1,000,000x must be capped DOWN before the window");
-            Assert.Equal(7, targetIdx); // 125,000 -> 100,000x
+            Assert.Equal(7, targetIdx); // 250,000 -> 100,000x
 
             // Sanity: passing the RAW RECORDED end (the dead-guard bug) makes the past-the-descent branch fire (a live
             // currentUT is always >= the recorded end), so the cap would be +Infinity = no cap = the bug.

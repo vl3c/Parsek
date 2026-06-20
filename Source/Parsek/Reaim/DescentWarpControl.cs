@@ -41,10 +41,13 @@ namespace Parsek.Reaim
         // The descent clip should play over at most ~this many real seconds inside the window (a MAX cap; the player
         // may still go slower). cap_in_window = clip / DescentWatchSeconds.
         internal const double DescentWatchSeconds = 20.0;
-        // Assume a frame can take up to ~this many real seconds (a generous lag-spike margin: the worst seen was
-        // 0.4 s). The approaching cap = distance / WorstFrameSeconds, so a frame at the cap advances at most
-        // cap * WorstFrameSeconds = distance — it can never leap PAST the descent, even on a hitch.
-        internal const double WorstFrameSeconds = 4.0;
+        // Assume a frame can take up to ~this many real seconds (a lag-spike margin: the worst seen was 0.4 s, so
+        // 2.0 keeps ~5x headroom). The approaching cap = distance / WorstFrameSeconds, so a frame at the cap advances
+        // at most cap * WorstFrameSeconds = distance — it can never leap PAST the descent, even on a hitch. This
+        // value ALSO sets how early/aggressive the run-in is: the cap starts biting at distance < currentRate *
+        // WorstFrameSeconds and decays as distance / WorstFrameSeconds, so HALVING it (4 -> 2) starts the slow-down
+        // half as far out and runs in ~2x faster (the playtested "it slows too soon / takes too long" trim).
+        internal const double WorstFrameSeconds = 2.0;
 
         // --- Unity seam (wired by the scene addons; null in xUnit so NotifyDescentState no-ops) ---
         internal static Func<float> WarpRateProvider;    // TimeWarp.CurrentRate
