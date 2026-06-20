@@ -106,5 +106,48 @@ namespace Parsek.Tests
             Assert.Equal(Action.None, DescentWarpControl.DecideWarpAction(
                 Phase.Loiter, 970.0, Trigger, double.NaN, 1000f, HiIdx, Dt, false));
         }
+
+        // === Live/recorded frame conversion (the 2026-06-20 dead-warp-control bug) ===========================
+
+        [Fact]
+        public void DescentWindowEndLive_ConvertsRecordedClipIntoLiveFrame()
+        {
+            // Real values from the 2026-06-20 18:00 log: triggerUT is LIVE (~3.96e9), deorbit/end are RECORDED
+            // (~2.57e9). The live window end must be triggerUT + the recorded clip, NOT the raw recorded end.
+            const double trig = 3962534821.2722712, deorbit = 2570542380.9910212, recEnd = 2570562894.315805;
+            double liveEnd = DescentWarpControl.DescentWindowEndLiveUT(trig, deorbit, recEnd);
+            // Matches the DESCENT WINDOW log line's right bound (3962555334.597) within rounding.
+            Assert.Equal(3962555334.597, liveEnd, 3);
+            Assert.True(liveEnd > 3.9e9, "window end must be in the LIVE frame, not the recorded ~2.57e9 frame");
+            // The clip duration is preserved exactly.
+            Assert.Equal(recEnd - deorbit, liveEnd - trig, 6);
+        }
+
+        [Fact]
+        public void DescentWindowEndLive_NaN_PropagatesNaN()
+        {
+            Assert.True(double.IsNaN(DescentWarpControl.DescentWindowEndLiveUT(double.NaN, 1.0, 2.0)));
+            Assert.True(double.IsNaN(DescentWarpControl.DescentWindowEndLiveUT(1.0, double.NaN, 2.0)));
+            Assert.True(double.IsNaN(DescentWarpControl.DescentWindowEndLiveUT(1.0, 2.0, double.NaN)));
+        }
+
+        [Fact]
+        public void RealCrossFrameApproach_StillDecelerates_RegressionForDeadGuard()
+        {
+            // The exact failure the dead guard caused: a LIVE currentUT inside the loiter, approaching a LIVE
+            // trigger at high warp, with the descent window end computed from the RECORDED clip. The OLD code
+            // compared the live currentUT against the raw recorded descentEndUT (~2.57e9), so currentUT >= recEnd
+            // was always true -> None on every frame (the warp control never acted; auto-drop=0 all session).
+            // With the live-frame window end the SAME frame correctly decelerates.
+            const double trig = 3962534821.2722712, deorbit = 2570542380.9910212, recEnd = 2570562894.315805;
+            double liveEnd = DescentWarpControl.DescentWindowEndLiveUT(trig, deorbit, recEnd);
+            const double cur = 3962518000.0; // live, ~16821s before the trigger; at 1Mx one frame would overshoot
+            Assert.Equal(Action.StepDown, DescentWarpControl.DecideWarpAction(
+                Phase.Loiter, cur, trig, liveEnd, 1_000_000f, HiIdx, Dt, false));
+
+            // Sanity: feeding the RAW RECORDED end (the bug) makes the past-the-descent guard fire -> None.
+            Assert.Equal(Action.None, DescentWarpControl.DecideWarpAction(
+                Phase.Loiter, cur, trig, recEnd, 1_000_000f, HiIdx, Dt, false));
+        }
     }
 }

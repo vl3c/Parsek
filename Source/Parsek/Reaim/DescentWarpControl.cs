@@ -56,7 +56,29 @@ namespace Parsek.Reaim
         }
 
         /// <summary>
-        /// Pure: what to do with the warp THIS frame.
+        /// The descent render window's END in the LIVE time frame: the (live) <paramref name="triggerUT"/> plus the
+        /// recorded clip duration (<paramref name="descentEndUT"/> - <paramref name="recordedDeorbitUT"/>, both
+        /// RECORDED-frame). The window is <c>[triggerUT, this]</c>. NaN if any input is NaN.
+        ///
+        /// <para>CRITICAL FRAME NOTE: <c>RecordedDeorbitUT</c> / <c>DescentEndUT</c> are RECORDED UT (~2.5e9 in a
+        /// mid-game save) while the live loop clock / <c>triggerUT</c> are LIVE UT (~3.9e9). The warp guard MUST
+        /// compare the live <c>currentUT</c> against THIS live window end, never against the raw recorded
+        /// <c>descentEndUT</c>: a recorded UT is far smaller than any live UT, so <c>currentUT &gt;= descentEndUT</c>
+        /// would fire on EVERY frame and silently disable the entire warp control (the 2026-06-20 dead-warp-control
+        /// bug — <c>action=None</c> for the whole session, descent window warped over).</para>
+        /// </summary>
+        internal static double DescentWindowEndLiveUT(
+            double triggerUT, double recordedDeorbitUT, double descentEndUT)
+        {
+            if (double.IsNaN(triggerUT) || double.IsNaN(recordedDeorbitUT) || double.IsNaN(descentEndUT))
+                return double.NaN;
+            return triggerUT + (descentEndUT - recordedDeorbitUT);
+        }
+
+        /// <summary>
+        /// Pure: what to do with the warp THIS frame. <paramref name="descentWindowEndLiveUT"/> is the LIVE-frame
+        /// window end (<see cref="DescentWindowEndLiveUT"/>), NOT the raw recorded descentEndUT — see that helper's
+        /// frame note.
         /// <list type="bullet">
         /// <item>In the window (<c>Descent</c> phase, or <c>currentUT &gt;= triggerUT</c>): <c>DropToRealtime</c> if
         ///   still warping, else <c>None</c>.</item>
@@ -67,12 +89,12 @@ namespace Parsek.Reaim
         /// <c>None</c> for NaN timing, already past the descent, already at 1x / lowest index, or once dropped.
         /// </summary>
         internal static DescentWarpAction DecideWarpAction(
-            DescentTrigger.DescentHeadPhase phase, double currentUT, double triggerUT, double descentEndUT,
+            DescentTrigger.DescentHeadPhase phase, double currentUT, double triggerUT, double descentWindowEndLiveUT,
             float warpRate, int currentRateIndex, float deltaTime, bool alreadyDroppedThisCycle)
         {
             if (alreadyDroppedThisCycle) return DescentWarpAction.None;
-            if (double.IsNaN(triggerUT) || double.IsNaN(descentEndUT)) return DescentWarpAction.None;
-            if (currentUT >= descentEndUT) return DescentWarpAction.None; // past the descent — do not yank warp
+            if (double.IsNaN(triggerUT) || double.IsNaN(descentWindowEndLiveUT)) return DescentWarpAction.None;
+            if (currentUT >= descentWindowEndLiveUT) return DescentWarpAction.None; // past the descent — do not yank warp
 
             if (phase == DescentTrigger.DescentHeadPhase.Descent || currentUT >= triggerUT)
                 return warpRate > 1.0f ? DescentWarpAction.DropToRealtime : DescentWarpAction.None;
@@ -96,7 +118,7 @@ namespace Parsek.Reaim
         /// </summary>
         internal static void NotifyDescentState(
             string missionKey, long cycle, DescentTrigger.DescentHeadPhase phase,
-            double currentUT, double triggerUT, double descentEndUT)
+            double currentUT, double triggerUT, double recordedDeorbitUT, double descentEndUT)
         {
             if (WarpRateProvider == null || SetRateAction == null) return; // unwired (tests / non-flight scenes)
             if (EnabledProvider != null && !EnabledProvider()) return;     // user disabled
@@ -109,8 +131,13 @@ namespace Parsek.Reaim
             int index = RateIndexProvider != null ? RateIndexProvider() : 0;
             float dt = DeltaTimeProvider != null ? DeltaTimeProvider() : 0.02f;
 
+            // CRITICAL: descentEndUT/recordedDeorbitUT are RECORDED-frame; triggerUT/currentUT are LIVE. Convert the
+            // window end into the LIVE frame before the guard, or the recorded end (far below any live UT) makes the
+            // past-the-descent guard fire every frame and disables the control (the 2026-06-20 dead-warp-control bug).
+            double descentWindowEndLiveUT = DescentWindowEndLiveUT(triggerUT, recordedDeorbitUT, descentEndUT);
+
             DescentWarpAction action = DecideWarpAction(
-                phase, currentUT, triggerUT, descentEndUT, rate, index, dt, already);
+                phase, currentUT, triggerUT, descentWindowEndLiveUT, rate, index, dt, already);
 
             // Always-on (rate-limited) decision trace so a no-op is debuggable from a single log.
             ParsekLog.VerboseRateLimited("ReaimDescent", "warpctl." + missionKey + "." + phase,

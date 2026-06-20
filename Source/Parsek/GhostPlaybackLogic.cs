@@ -8413,9 +8413,12 @@ namespace Parsek
                 // no-op in xUnit / non-flight scenes (the Unity seam is unwired there) and when the user setting is
                 // off. Fires once per descent cycle; reached in BOTH the tracking station and FLIGHT (the polyline
                 // Driver walks this resolver every frame in flight), so one call site covers both scenes.
+                // Pass the RECORDED deorbit + descent-end so the warp control can convert the descent window end into
+                // the LIVE frame (triggerUT + clip). Passing the raw recorded DescentEndUT as the window end compares
+                // a live currentUT against a recorded UT and disables the control every frame (dead-warp-control bug).
                 Parsek.Reaim.DescentWarpControl.NotifyDescentState(
                     $"{unit.PhaseAnchorUT.ToString("R", dic)}.{unit.SpanStartUT.ToString("R", dic)}",
-                    unitCycle, descentPhase, liveUT, dscTriggerUT, unit.DescentEndUT);
+                    unitCycle, descentPhase, liveUT, dscTriggerUT, unit.RecordedDeorbitUT, unit.DescentEndUT);
 
                 if (renderDescent)
                 {
