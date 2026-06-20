@@ -2317,6 +2317,71 @@ namespace Parsek
                 return;
             }
 
+            // DESCENT TRIGGER (re-aim looped arrival, docs/dev/plans/reaim-descent-trigger.md): the FLIGHT
+            // engine must render a descent-set member EXACTLY like the map/TS resolver
+            // (ResolveTrackingStationSampleUT) - detach it from the raw loop clock and re-anchor the whole
+            // descent set to the first rotation-aligned moment after the icon reaches the parking-orbit deorbit
+            // point. Without this the engine kept driving the member on the raw span clock (decision +
+            // spanLoopUT from DecideUnitMemberRender), so in flight the descent member was HIDDEN the whole
+            // time (its raw loop slot lands at the WRONG destination rotation = outside its own window) and the
+            // ghost/icon never appeared. Re-resolve via the shared descent head and OVERRIDE the downstream
+            // span clock: when the trigger says render, force decision=Render and drive the ghost at the
+            // re-anchored descentHead; otherwise force a hide so the existing (3) teardown runs (the descent
+            // member NEVER rides the raw loop clock). Byte-identical for every non-descent member /
+            // non-re-aim unit (HasDescentTrigger false -> descentMember false -> this block is skipped).
+            bool descentMember = unit.HasDescentTrigger && unit.IsDescentMember(i);
+            if (descentMember)
+            {
+                GhostPlaybackLogic.DescentMemberEngineRender descentRender =
+                    GhostPlaybackLogic.ResolveDescentMemberEngineRender(
+                        unit, i, ctx.currentUT, unitCycle, memberStartUT, memberEndUT);
+
+                var dic = CultureInfo.InvariantCulture;
+                ParsekLog.VerboseRateLimited(
+                    "ReaimDescent",
+                    // Bounded by mission x member x phase (NOT frame count), matching the resolver key shape.
+                    "engine-descent-head." + unit.PhaseAnchorUT.ToString("R", dic) + "."
+                        + unit.SpanStartUT.ToString("R", dic) + "." + i.ToString(dic) + "." + descentRender.Phase,
+                    "engine descent trigger member=" + i.ToString(dic)
+                        + " cycle=" + unitCycle.ToString(dic) + " phase=" + descentRender.Phase
+                        + " render=" + descentRender.Render
+                        + " liveUT=" + ctx.currentUT.ToString("R", dic)
+                        + " head=" + descentRender.Head.ToString("R", dic)
+                        + " win=[" + memberStartUT.ToString("R", dic) + "," + memberEndUT.ToString("R", dic) + "]"
+                        + " deorbit=" + unit.RecordedDeorbitUT.ToString("R", dic)
+                        + " end=" + unit.DescentEndUT.ToString("R", dic)
+                        + " cs=" + unit.CaptureShiftSeconds.ToString("R", dic),
+                    5.0);
+
+                // NOTE: the always-on per-cycle lifecycle trace (DescentRenderTrace.Note -> DESCENT
+                // WINDOW/RENDERED/SKIPPED/REVERTED) is intentionally NOT emitted here. DescentRenderTrace holds
+                // ONE per-unit state machine keyed by (PhaseAnchorUT.SpanStartUT); the map/TS resolver
+                // (ResolveTrackingStationSampleUT, reached in FLIGHT every frame via the polyline Driver's
+                // ResolveTrackingStationSampleFrame walk) already feeds it. A second feeder from this engine in
+                // the SAME scene would interleave two currentUTs into one state and produce spurious
+                // Reverted/Skipped events. The engine-specific render decision is surfaced by the distinct
+                // "engine-descent-head" VerboseRateLimited line above (a non-colliding key).
+
+                if (descentRender.Render)
+                {
+                    // Drive the ghost at the re-anchored descent head: override the downstream span clock so
+                    // the warp gate, activation gate, cycle change, and RenderInRangeGhost all run against the
+                    // descentHead instead of the raw loopUT. FORCE decision=Render: the raw loop-clock decision
+                    // here is typically HiddenOutsideWindow (the descent member's raw slot lands at the wrong
+                    // rotation, out of window) — the trigger overrides it to render the re-anchored slice.
+                    spanLoopUT = descentRender.Head;
+                    decision = GhostPlaybackLogic.UnitMemberRenderDecision.Render;
+                }
+                else
+                {
+                    // Inert / Loiter / Done / outside this member's slice: HIDE. Force the out-of-window hide
+                    // so the existing (3) teardown runs (which also keeps the watched-owner-alive invariant) -
+                    // the descent member never drives its ghost on the raw loop clock (the transfer member's
+                    // shifted conic carries the icon during the wait).
+                    decision = GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow;
+                }
+            }
+
             // BOUNDARY-OVERLAP secondary decision (docs/dev/plan-launch-boundary-overlap.md 3.1/3.2),
             // HOISTED above the (3) hide/destroy block (review H2). Resolve whether this member carries a
             // live boundary-overlap secondary (the early-launching NEXT instance N+1) BEFORE the primary's
@@ -2330,7 +2395,11 @@ namespace Parsek
             var boundarySecondaryDecision = GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.NoSecondary;
             double boundarySecondaryLoopUT = unit.SpanStartUT;
             long boundarySecondaryCycle = 0;
-            if (unit.LaunchHoldEngaged)
+            // Descent trigger R6 (mirrors ResolveTrackingStationSampleFrame): a descent-set member is governed
+            // ENTIRELY by the re-anchored descent head; it must NOT also emit a boundary-overlap SECONDARY (the
+            // secondary path does not descent-remap, so it would draw the body-fixed clip at the raw loop UT =
+            // the wrong rotation again). Suppress it for descent members.
+            if (unit.LaunchHoldEngaged && !descentMember)
             {
                 boundarySecondaryDecision = GhostPlaybackLogic.DecideBoundaryOverlapSecondaryRender(
                     ctx.currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
@@ -2524,8 +2593,12 @@ namespace Parsek
             // units). The positioner derotates Absolute body-fixed point playback by it so vacuum
             // burn arcs land at their recorded INERTIAL positions instead of riding the planet's
             // extra rotation (the 2026-06-11 playtest's 46-degree teleports near the station).
+            // A descent-set member's head is ALREADY rotation-aligned by the descent trigger (spanLoopUT was
+            // overridden to descentHead above); the M4b phasing-knob body-fixed shift must NOT apply on top, or
+            // the descent would be double-shifted off the recorded site. Gate it off for descent members (the
+            // resolver path applies no such shift either, so this keeps engine/map parity).
             double bodyFixedShift = 0.0;
-            if (unit.RelaunchSchedule != null && unit.RelaunchSchedule.HasPhasingKnob
+            if (!descentMember && unit.RelaunchSchedule != null && unit.RelaunchSchedule.HasPhasingKnob
                 && unit.RelaunchSchedule.TryResolveActiveLaunch(
                     ctx.currentUT, out double knobLaunchUT, out _))
             {
