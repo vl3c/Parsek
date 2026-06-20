@@ -4927,6 +4927,23 @@ namespace Parsek
                 return false;
             }
 
+            // J2: a synthesized tail whose periapsis sits below the body surface is an impact
+            // ellipse, not a renderable coast loop (e.g. a re-aimed transfer member ending at a
+            // deorbit). Decline it here at the map-presence call site only, so the shared resolver
+            // (spawn path) and the diagnostics path stay byte-identical. Closed orbits with a
+            // periapsis at/above the surface are untouched.
+            if (!ReferenceEquals(body, null)
+                && OrbitSeedResolver.IsTailSeedSubSurface(
+                    tailSeed.Segment.semiMajorAxis,
+                    tailSeed.Segment.eccentricity,
+                    body.Radius))
+            {
+                TailDerivedOrbitSeed declinedSeed = tailSeed;
+                declinedSeed.DeclineReason = "sub-surface-periapsis";
+                detail = FormatEndpointTailSeedDetail(declinedSeed, accepted: false);
+                return false;
+            }
+
             string endpointSeedSource = null;
             RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
                 traj,

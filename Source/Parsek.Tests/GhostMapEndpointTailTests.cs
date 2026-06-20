@@ -145,6 +145,105 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsTailSeedSubSurface_DeclinesBelowRadius()
+        {
+            // The exact J2 Duna numbers: sma 375410.8, ecc 0.618363 -> periapsis ~143272 m,
+            // below Duna's 320000 m surface radius.
+            double periapsis = 375410.8 * (1.0 - 0.618363);
+            Assert.InRange(periapsis, 143270.0, 143274.0);
+            Assert.True(OrbitSeedResolver.IsTailSeedSubSurface(375410.8, 0.618363, 320000.0));
+        }
+
+        [Fact]
+        public void IsTailSeedSubSurface_AboveSurface_Accepts()
+        {
+            // The existing AcceptedTailSeed shape: periapsis ~809486 m > Kerbin 600000 m radius.
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(4_547_677.0, 0.822, 600000.0));
+        }
+
+        [Fact]
+        public void IsTailSeedSubSurface_BoundaryEqual_NotSubSurface()
+        {
+            // Periapsis exactly == bodyRadius is NOT sub-surface (strict less-than).
+            // sma * (1 - ecc) = 600000 with ecc 0.0 -> sma 600000.
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(600000.0, 0.0, 600000.0));
+        }
+
+        [Fact]
+        public void IsTailSeedSubSurface_HyperbolicTransfer_NotSubSurface()
+        {
+            // The real rec=44 transfer conic from the log (negative sma, ecc >= 1) must never
+            // be declined by this gate; ecc >= 1 falls through.
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(-188091.0, 3.6025, 320000.0));
+        }
+
+        [Fact]
+        public void IsTailSeedSubSurface_Degenerate_AllReturnFalse()
+        {
+            double sub = 320000.0;
+            // Non-finite sma / ecc / radius.
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(double.NaN, 0.5, sub));
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(double.PositiveInfinity, 0.5, sub));
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(375410.8, double.NaN, sub));
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(375410.8, double.PositiveInfinity, sub));
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(375410.8, 0.618363, double.NaN));
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(375410.8, 0.618363, double.PositiveInfinity));
+            // Parabolic / hyperbolic boundary.
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(375410.8, 1.0, sub));
+            // Negative eccentricity.
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(375410.8, -0.1, sub));
+            // Non-positive sma.
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(0.0, 0.5, sub));
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(-100.0, 0.5, sub));
+            // Non-positive radius.
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(375410.8, 0.618363, 0.0));
+            Assert.False(OrbitSeedResolver.IsTailSeedSubSurface(375410.8, 0.618363, -1.0));
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_SubSurfaceTailDeclines_KeepsVisibleSegment()
+        {
+            // J2 end-to-end through the map-presence call site: an ACCEPTED tail seed whose
+            // synthesized orbit is sub-surface (periapsis 143272 m < Kerbin 600000 m) must be
+            // declined as sub-surface-periapsis and the visible segment (120-150) kept.
+            Recording rec = BuildEndpointRecording(Segment(startUT: 120.0, endUT: 150.0));
+            OrbitSeedResolver.TailSeedResolverForTesting =
+                (IPlaybackTrajectory traj, CelestialBody body, double currentUT, TailSeedUse use, out TailDerivedOrbitSeed seed) =>
+                {
+                    seed = AcceptedTailSeed(
+                        tailUT: 453.66,
+                        latestStoredSegmentEndUT: 150.0,
+                        rotationDriftSeconds: currentUT - 453.66);
+                    seed.Segment.semiMajorAxis = 375410.8;
+                    seed.Segment.eccentricity = 0.618363;
+                    return true;
+                };
+
+            int cached = -1;
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveMapPresenceGhostSource(
+                    rec,
+                    isSuppressed: false,
+                    alreadyMaterialized: false,
+                    currentUT: 135.7,
+                    allowTerminalOrbitFallback: true,
+                    logOperationName: "test-sub-surface-tail-decline",
+                    ref cached,
+                    out OrbitSegment segment,
+                    out _,
+                    out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.Segment, source);
+            Assert.Null(skipReason);
+            Assert.Equal(120.0, segment.startUT);
+            Assert.Equal(150.0, segment.endUT);
+            Assert.Contains(logLines, line =>
+                line.Contains("source=Segment")
+                && line.Contains("endpointTailSeed=decline")
+                && line.Contains("tailDecline=sub-surface-periapsis"));
+        }
+
+        [Fact]
         public void ResolveMapPresenceGhostSource_HistoricalTailDeclines_KeepsVisibleSegment()
         {
             Recording rec = BuildEndpointRecording(Segment(startUT: 120.0, endUT: 150.0));

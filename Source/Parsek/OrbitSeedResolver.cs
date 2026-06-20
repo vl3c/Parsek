@@ -313,6 +313,28 @@ namespace Parsek
                 && IsFinite(orbit.epoch);
         }
 
+        /// <summary>
+        /// True when a synthesized tail orbit's periapsis falls below the body surface,
+        /// i.e. the "orbit" is physically an impact ellipse, never a renderable coast loop.
+        /// Returns false for any non-finite / degenerate / open input (NaN/Inf elements,
+        /// non-positive sma, ecc &lt; 0 or &gt;= 1 hyperbolic/parabolic, non-positive radius)
+        /// so a bad radius or a hyperbolic transfer can never spuriously decline a legitimate
+        /// tail; only a closed orbit with periapsis strictly below the surface returns true.
+        /// </summary>
+        internal static bool IsTailSeedSubSurface(double semiMajorAxis, double eccentricity, double bodyRadius)
+        {
+            if (!IsFinite(semiMajorAxis) || !IsFinite(eccentricity) || !IsFinite(bodyRadius))
+                return false;
+            if (bodyRadius <= 0.0)
+                return false;
+            if (semiMajorAxis <= 0.0)
+                return false; // open / degenerate -> not a closed sub-surface loop
+            if (eccentricity < 0.0 || eccentricity >= 1.0)
+                return false; // hyperbolic / parabolic transfer excluded
+            double periapsis = semiMajorAxis * (1.0 - eccentricity);
+            return periapsis < bodyRadius;
+        }
+
         internal static string ResolveBodyName(CelestialBody body)
         {
             if (object.ReferenceEquals(body, null))
