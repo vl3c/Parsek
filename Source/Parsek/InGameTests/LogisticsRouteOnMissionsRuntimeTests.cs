@@ -214,6 +214,158 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// M4a (Phase A4, D7/D8) - the MULTI-STOP no-spawn extension. Under live KSP
+        /// statics this pins that a multi-stop route's backing Mission, fed through
+        /// the UNCHANGED <c>MissionLoopUnitBuilder.Build</c> (the union seam the
+        /// production ghost-driving selector uses), produces a loop unit whose member
+        /// window is <c>[launch .. LAST dock]</c>:
+        /// <list type="number">
+        ///   <item>the kept members - the transport through-line up to the last dock,
+        ///   INCLUDING the INTERMEDIATE-undock survivor leg (the transport that
+        ///   undocked from depot A and continued to depot B) - are loop-unit members
+        ///   (so the engine intercepts them at the loop-unit gate and they NEVER reach
+        ///   the spawn path);</item>
+        ///   <item>every recording AT/AFTER the last dock (the post-last-dock tail
+        ///   continuation + the terminal peel) is a NON-member (excluded entirely, so
+        ///   it never becomes a unit member and never spawns).</item>
+        /// </list>
+        /// The pure xUnit suite (<c>RouteBackingMissionLoopUnitTests</c>) covers the
+        /// derivation math; this pins that the production statics + the locked builder
+        /// compose the multi-stop window correctly at runtime. No route is committed
+        /// and no resource mutates, so this is a read-only union-seam check.
+        /// </summary>
+        [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - mutates the committed-tree list under live KSP statics; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "A MULTI-STOP route's backing mission yields one loop unit trimmed to [launch..last dock]: the kept members (incl. the intermediate-undock survivor) are loop-unit members (never spawn) and every recording at/after the last dock is a NON-member")]
+        public void RouteOnMissions_MultiStop_KeptMembersLoop_PostLastDockNonMembers()
+        {
+            // ---- PRECONDITION GATE -------------------------------------------
+            MethodInfo buildMethod = typeof(MissionLoopUnitBuilder).GetMethod(
+                "Build",
+                BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+            if (buildMethod == null)
+                InGameAssert.Skip("PRECONDITION: MissionLoopUnitBuilder.Build missing (locked Missions seam absent)");
+
+            string routeTreeId = "ingame-rom-multistop-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            string routeId = "ingame-rom-ms-id-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+
+            var preExistingRoutes = new List<Route>();
+            IReadOnlyList<Route> committedRoutes = RouteStore.CommittedRoutes;
+            for (int i = 0; i < committedRoutes.Count; i++)
+                if (committedRoutes[i] != null)
+                    preExistingRoutes.Add(committedRoutes[i]);
+
+            // launch -> dock A -> undock A (continue) -> dock B (last dock) -> undock B.
+            // Span end = the terminal structural boundary = 3000 (the last dock,
+            // mirroring how production aligns the last stop's RouteConnectionWindow).
+            RecordingTree routeTree = BuildMultiStopTree(routeTreeId);
+
+            bool routeTreeAdded = false, routeAdded = false;
+            var committed = new List<Recording>();
+
+            try
+            {
+                RecordingStore.AddCommittedTreeForTesting(routeTree);
+                routeTreeAdded = true;
+                committed.AddRange(routeTree.Recordings.Values);
+
+                int idxLaunch = committed.FindIndex(r => r.RecordingId == "launch");
+                int idxMidA2B = committed.FindIndex(r => r.RecordingId == "midA2B");
+                int idxDockedB = committed.FindIndex(r => r.RecordingId == "dockedB");
+                int idxTail = committed.FindIndex(r => r.RecordingId == "tail");
+                int idxPayloadB = committed.FindIndex(r => r.RecordingId == "payloadB");
+
+                const double rootLaunchUT = 1000.0;
+                const double lastDockUT = 3000.0;
+
+                HashSet<string> excluded = RouteBackingMission.ComputeExcludedIntervalKeys(
+                    routeTree, segmentEndUT: lastDockUT, launchUT: rootLaunchUT);
+                var route = new Route
+                {
+                    Id = routeId,
+                    Name = "Parsek Multi-Stop In-Game",
+                    BackingMissionTreeId = routeTreeId,
+                    ExcludedIntervalKeys = excluded,
+                    RecordedDockUT = lastDockUT,
+                    DockMemberRecordingId = "dockedB",
+                    LoopAnchorUT = rootLaunchUT,
+                    LastObservedLoopCycleIndex = -1,
+                    TransitDuration = lastDockUT - rootLaunchUT,
+                    DispatchInterval = lastDockUT - rootLaunchUT,
+                    Status = RouteStatus.Active,
+                    RecordingIds = new List<string> { "launch", "midA2B", "dockedB" },
+                    SourceRefs = new List<RouteSourceRef>
+                    {
+                        new RouteSourceRef { RecordingId = "launch", TreeId = routeTreeId },
+                        new RouteSourceRef { RecordingId = "midA2B", TreeId = routeTreeId },
+                        new RouteSourceRef { RecordingId = "dockedB", TreeId = routeTreeId }
+                    },
+                    // Two stops (depot A + depot B), both at distinct dock UTs.
+                    Stops = new List<RouteStop> { new RouteStop(), new RouteStop() }
+                };
+                RouteStore.AddRoute(route);
+                routeAdded = RouteStore.TryGetRoute(routeId, out _);
+                InGameAssert.IsTrue(routeAdded, "Multi-stop route was not stored");
+
+                double ut = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 100000.0;
+                IReadOnlyList<Mission> routeMissions =
+                    RouteGhostDriverSelector.SelectGhostDrivingBackingMissions(
+                        RouteStore.CommittedRoutes, ut);
+                Mission routeMission = null;
+                for (int i = 0; i < routeMissions.Count; i++)
+                    if (routeMissions[i] != null && routeMissions[i].TreeId == routeTreeId)
+                        routeMission = routeMissions[i];
+                InGameAssert.IsNotNull(routeMission,
+                    "Active multi-stop route was not selected as a ghost-driving backing mission");
+
+                // Union through the UNCHANGED builder.
+                GhostPlaybackLogic.LoopUnitSet set = MissionLoopUnitBuilder.Build(
+                    new List<Mission> { routeMission }, new[] { routeTree }, committed, 30.0);
+
+                InGameAssert.IsTrue(set.Count == 1,
+                    "Expected exactly one multi-stop loop unit, got " + set.Count);
+
+                // (a) Kept members loop (members -> intercepted, never spawn),
+                //     INCLUDING the intermediate-undock survivor.
+                InGameAssert.IsTrue(set.IsMember(idxLaunch),
+                    "launch leg must be a loop-unit member (loops, never spawns)");
+                InGameAssert.IsTrue(set.IsMember(idxMidA2B),
+                    "intermediate-undock survivor (transport continues depot A -> depot B) must STAY a member");
+                InGameAssert.IsTrue(set.IsMember(idxDockedB),
+                    "depot-B docked combined leg (folded into the kept through-line) must be a member");
+
+                // (b) Post-last-dock recordings are NON-members (never spawn).
+                InGameAssert.IsFalse(set.IsMember(idxTail),
+                    "post-last-dock tail continuation must be a NON-member");
+                InGameAssert.IsFalse(set.IsMember(idxPayloadB),
+                    "terminal-undock peel must be a NON-member");
+
+                // The unit span end-trims at the last dock (3000), not the tail (3500).
+                GhostPlaybackLogic.LoopUnit unit;
+                InGameAssert.IsTrue(set.TryGetUnitForMember(idxLaunch, out unit),
+                    "Could not resolve the multi-stop route's loop unit");
+                InGameAssert.IsTrue(Math.Abs(unit.SpanStartUT - rootLaunchUT) < 1.0,
+                    "Multi-stop unit span start should be the ROOT launch UT, was " + unit.SpanStartUT);
+                InGameAssert.IsTrue(Math.Abs(unit.SpanEndUT - lastDockUT) < 1.0,
+                    "Multi-stop unit span end should be the LAST dock UT, was " + unit.SpanEndUT);
+
+                ParsekLog.Info("TestRunner",
+                    $"RouteOnMissions_MultiStop_InGame: PASS routeTree={routeTreeId} " +
+                    $"units={set.Count} spanEnd={unit.SpanEndUT.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+            }
+            finally
+            {
+                if (routeAdded)
+                    RouteStore.RemoveRoute(routeId);
+                RestoreRoutes(preExistingRoutes);
+                if (routeTreeAdded) RemoveCommittedTree(routeTreeId);
+                MissionStore.PruneOrphans(RecordingStore.CommittedTrees);
+            }
+        }
+
+        /// <summary>
         /// LST-4 — the missing INTEGRATED end-to-end check for the loop-clock fire
         /// delivery path. Drives the production <see cref="RouteOrchestrator.Tick"/>
         /// through the LOOP-ROUTE branch (<c>IsLoopRoute</c> true) -> a confirmed
@@ -620,6 +772,33 @@ namespace Parsek.InGameTests
             var tree = new RecordingTree { Id = treeId, RootRecordingId = "m-a" };
             tree.Recordings["m-a"] = Leg("m-a", "M", 0, 5000, 5100, "Manual");
             tree.Recordings["m-b"] = Leg("m-b", "M", 1, 5100, 5200, "Manual");
+            return tree;
+        }
+
+        // M4a (A4) multi-stop tree (mirrors the verified xUnit topology in
+        // RouteBackingMissionLoopUnitTests.BuildMultiStopTree): launch -> dock A ->
+        // INTERMEDIATE undock from depot A (peeling payloadA, transport CONTINUES) ->
+        // dock B (the LAST dock) -> TERMINAL undock from depot B (peeling payloadB,
+        // tail flies home). Composition folds the transport into ONE through-line
+        // owned by "launch", split only at the two undocks; the span end is the
+        // terminal structural boundary 3000 (the last dock). Root launch UT 1000.
+        private static RecordingTree BuildMultiStopTree(string treeId)
+        {
+            var tree = new RecordingTree { Id = treeId, RootRecordingId = "launch" };
+            tree.Recordings["launch"] = Leg("launch", "C0", 0, 1000, 1500, "Transport");
+            tree.Recordings["midA2B"] = Leg("midA2B", "C0", 1, 1500, 2500, "Transport");
+            tree.Recordings["payloadA"] = Leg("payloadA", "C1", 0, 1500, 1800, "Payload");
+            tree.Recordings["dockedB"] = Leg("dockedB", "C0", 2, 2500, 3000, "Transport");
+            tree.Recordings["tail"] = Leg("tail", "C0", 3, 3000, 3500, "Transport");
+            tree.Recordings["payloadB"] = Leg("payloadB", "C2", 0, 3000, 3300, "Payload");
+            // INTERMEDIATE undock from depot A: peels payloadA, transport continues.
+            tree.BranchPoints.Add(BP("undockA-bp", BranchPointType.Undock,
+                new[] { "launch" }, new[] { "midA2B", "payloadA" }, 1500));
+            tree.BranchPoints.Add(BP("dockB-bp", BranchPointType.Dock,
+                new[] { "midA2B" }, new[] { "dockedB" }, 2500));
+            // TERMINAL undock from depot B (closest to the span end): peels payloadB.
+            tree.BranchPoints.Add(BP("undockB-bp", BranchPointType.Undock,
+                new[] { "dockedB" }, new[] { "tail", "payloadB" }, 3000));
             return tree;
         }
 

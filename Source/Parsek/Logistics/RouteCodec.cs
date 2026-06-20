@@ -111,6 +111,13 @@ namespace Parsek.Logistics
 
             if (!string.IsNullOrEmpty(route.LinkedRouteId))
                 node.AddValue("linkedRouteId", route.LinkedRouteId);
+            // Sparse round-trip linking alternation cursor (M4c Phase C1): 0 (the
+            // default for every unlinked / pre-M4c route) writes NOTHING, so the
+            // route round-trips byte-identically. Only a linked route that has
+            // consumed a partner cycle lands a value (mirrors the dispatchPriority /
+            // lastObservedLoopCycleIndex sparse convention).
+            if (route.LastConsumedPartnerCycle != 0)
+                node.AddValue("lastConsumedPartnerCycle", route.LastConsumedPartnerCycle.ToString(ic));
 
             // --- Status ---
             node.AddValue("status", route.Status.ToString());
@@ -279,6 +286,10 @@ namespace Parsek.Logistics
             route.LinkedRouteId = node.GetValue("linkedRouteId");
             if (string.IsNullOrEmpty(route.LinkedRouteId))
                 route.LinkedRouteId = null;
+            // Sparse round-trip linking alternation cursor (M4c Phase C1): absent ->
+            // the 0 default (no partner cycle consumed yet). No clamp needed; the
+            // field is a monotonic counter advanced only on dispatch.
+            TryParseInt(node.GetValue("lastConsumedPartnerCycle"), ic, 0, out route.LastConsumedPartnerCycle);
 
             string statusStr = node.GetValue("status");
             route.Status = ParseStatusOrWarn(statusStr, route.Id);
@@ -530,6 +541,16 @@ namespace Parsek.Logistics
             node.AddValue("segmentIndexBefore", stop.SegmentIndexBefore.ToString(ic));
             node.AddValue("deliveryOffsetSeconds", stop.DeliveryOffsetSeconds.ToString("R", ic));
 
+            // M4a per-stop fire state (plan OQ3/D5). Sparse: the -1.0 / -1
+            // defaults are the "single-stop / not-yet-set" sentinels, so omit
+            // both keys at default. A single-stop / pre-M4 route therefore writes
+            // NEITHER key and round-trips byte-identically (RANK-8). Mirrors the
+            // route-level lastObservedLoopCycleIndex sparse write above.
+            if (stop.RecordedDockUT != -1.0)
+                node.AddValue("recordedDockUT", stop.RecordedDockUT.ToString("R", ic));
+            if (stop.LastFiredCycleIndex != -1)
+                node.AddValue("lastFiredCycleIndex", stop.LastFiredCycleIndex.ToString(ic));
+
             SerializeFlatResourceManifest(node, DeliveryManifestNode, stop.DeliveryManifest, ic);
             SerializeInventoryItems(node, InventoryDeliveryManifestNode, stop.InventoryDeliveryManifest, ic);
 
@@ -551,6 +572,13 @@ namespace Parsek.Logistics
             stop.ConnectionKind = ParseConnectionKind(node.GetValue("connectionKind"));
             TryParseInt(node.GetValue("segmentIndexBefore"), ic, -1, out stop.SegmentIndexBefore);
             TryParseDouble(node.GetValue("deliveryOffsetSeconds"), inv, ic, out stop.DeliveryOffsetSeconds);
+
+            // M4a per-stop fire state (plan OQ3/D5): an absent key reads back the
+            // -1.0 / -1 default (no lazy alloc), the same empty->default contract
+            // the sparse route-level lastObservedLoopCycleIndex uses, so a
+            // single-stop / pre-M4 save reads back the single-stop sentinels.
+            TryParseDoubleWithDefault(node.GetValue("recordedDockUT"), inv, ic, -1.0, out stop.RecordedDockUT);
+            TryParseLong(node.GetValue("lastFiredCycleIndex"), ic, -1L, out stop.LastFiredCycleIndex);
 
             stop.DeliveryManifest = DeserializeFlatResourceManifest(node, DeliveryManifestNode, inv, ic);
             stop.InventoryDeliveryManifest = DeserializeInventoryItems(node, InventoryDeliveryManifestNode, ic);

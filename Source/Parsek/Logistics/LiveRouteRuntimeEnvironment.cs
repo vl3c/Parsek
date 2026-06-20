@@ -104,6 +104,33 @@ namespace Parsek.Logistics
                 return false;
             }
 
+            // Two INDEPENDENT provenances gate here (plan D10 / OQ5): the single
+            // docked-origin (route.Origin: launched cargo / KSC funds) and the
+            // per-pickup-source set (loaded-en-route cargo, derived from the pickup
+            // Stops). They are distinct - a resource launched from the origin is a
+            // different unit from a resource loaded at a pickup window - so they do
+            // NOT double-count. Gate the origin first (it owns the KSC / harvest
+            // early returns), then ALWAYS gate the pickup sources (a KSC-origin or
+            // harvest-origin route can still load cargo from a refinery/depot).
+            if (!OriginProvenanceHasCargo(route, out lackingResource))
+                return false;
+
+            return PickupSourcesHaveCargo(route, out lackingResource);
+        }
+
+        /// <summary>
+        /// The single docked-origin provenance gate (M1/M2/M3): KSC origin passes
+        /// (funds gated separately), harvest origin passes (no physical source),
+        /// otherwise resolve <see cref="Route.Origin"/> and gate all-or-nothing
+        /// against <see cref="Route.CostManifest"/> + <see cref="Route.InventoryCostManifest"/>.
+        /// Unchanged behavior - this is the pre-B1 OriginHasCargo body, extracted so
+        /// the new per-pickup-source gate (<see cref="PickupSourcesHaveCargo"/>) can
+        /// run as an independent provenance after it.
+        /// </summary>
+        private bool OriginProvenanceHasCargo(Route route, out string lackingResource)
+        {
+            lackingResource = string.Empty;
+
             if (route.IsKscOrigin)
             {
                 // KSC origin: per design §6.1, KSC has unlimited cargo.
@@ -202,6 +229,146 @@ namespace Parsek.Logistics
                     return false;
                 }
             }
+            return true;
+        }
+
+        /// <summary>
+        /// M4b Phase B1 (plan D10 / OQ5): the per-PICKUP-SOURCE all-or-nothing
+        /// dispatch gate, derived from the route's pickup <see cref="RouteStop"/>s
+        /// (NO new persisted Route field). Resolves each pickup stop's endpoint to
+        /// a live vessel, GROUPS the stops by resolved pid (one source vessel may
+        /// back several windows - OQ6), SUMS the per-pid pickup manifests, captures
+        /// the loaded-gate (<c>loaded &amp;&amp; !packed</c>) ONCE per resolved
+        /// vessel, and gates each source via the pure
+        /// <see cref="RoutePickupSourceGate"/>. ALL sources must cover; the FIRST
+        /// short source (ordered by the source's earliest dock UT) names the source
+        /// in the hold token. Logs a per-gate summary (sources are few/bounded).
+        /// </summary>
+        private bool PickupSourcesHaveCargo(Route route, out string lackingResource)
+        {
+            lackingResource = string.Empty;
+
+            // Cache resolved vessels per pid across this gate call so two pickup
+            // windows against the same craft-baked pid resolve + capture the
+            // loaded-gate ONCE (the loaded-gate is NEVER hoisted across vessels).
+            var resolvedByEndpoint = new Dictionary<uint, RoutePickupSourceGate.PickupSourceResolution>();
+
+            RoutePickupSourceGate.PickupSourceResolution Resolver(RouteEndpoint endpoint)
+            {
+                uint cacheKey = endpoint.VesselPersistentId;
+                if (cacheKey != 0u
+                    && resolvedByEndpoint.TryGetValue(cacheKey, out var cached))
+                    return cached;
+
+                bool resolved = RouteEndpointResolver.TryResolveEndpoint(
+                    endpoint, out Vessel vessel, out string reason);
+                RoutePickupSourceGate.PickupSourceResolution result;
+                if (!resolved || vessel == null)
+                {
+                    string r = resolved
+                        ? "resolved-null-vessel"
+                        : (string.IsNullOrEmpty(reason) ? "unknown" : reason);
+                    result = RoutePickupSourceGate.PickupSourceResolution.Miss(r);
+                }
+                else
+                {
+                    // Capture the loaded-gate ONCE for THIS vessel and bake it into
+                    // both readers.
+                    bool isLoaded = vessel.loaded && !vessel.packed;
+                    var probe = new LiveOriginCargoProbe(vessel, isLoaded);
+                    var inventoryWriter = new LiveInventoryPickupWriter(vessel, isLoaded);
+
+                    // M4b Phase B2 escrow NET (plan D11): the amount THIS route may
+                    // rely on = live stored MINUS the sum of reservations held by
+                    // OTHER routes on this pid+resource (a route never subtracts its
+                    // OWN reservation - it owns what it reserved). This is the
+                    // competing-route protection: a higher-priority route that
+                    // reserved from this source at dispatch (before its physical
+                    // debit) reduces what every OTHER route sees, so two routes
+                    // cannot double-claim the same tank. Pure RAM (RouteStore reads
+                    // only its escrow dict, never ERS/ELS), so the grep gate stays
+                    // green. NET is a no-op until something reserves (B3): in B2 the
+                    // escrow is always empty in production, so this is
+                    // byte-behaviour-identical to B1.
+                    uint sourcePid = vessel.persistentId;
+                    string routeId = route.Id;
+                    Func<string, double> liveReader = probe.ProbeResourceStored;
+                    Func<string, double> nettedReader = name =>
+                    {
+                        double live = liveReader(name);
+                        double reservedByOthers =
+                            RouteStore.OtherRoutesReservedFor(routeId, sourcePid, name);
+                        double available = live - reservedByOthers;
+                        return available > 0.0 ? available : 0.0;
+                    };
+
+                    // Inventory escrow is the B3 seam (plan D11: "inventory escrow
+                    // only if a multi-window inventory consolidation opens the gap").
+                    // The resource escrow is the primary deliverable; the inventory
+                    // counter passes through unmodified so the symmetry is one
+                    // analogous wrap away if B3 needs it.
+                    result = RoutePickupSourceGate.PickupSourceResolution.Ok(
+                        sourcePid,
+                        vessel.vesselName,
+                        nettedReader,
+                        inventoryWriter.CountStored);
+                }
+
+                if (cacheKey != 0u)
+                    resolvedByEndpoint[cacheKey] = result;
+                return result;
+            }
+
+            bool built = RoutePickupSourceGate.TryBuildSourceGroups(
+                route, Resolver,
+                out List<RoutePickupSourceGate.PickupSourceGroup> groups,
+                out string unresolvedReason);
+
+            if (!built)
+            {
+                lackingResource = "pickup-source-unresolved:" + unresolvedReason;
+                ParsekLog.VerboseRateLimited(Tag, "pickup-source-unresolved-" + route.Id,
+                    $"PickupSourcesHaveCargo: route {ShortIdForRoute(route)} " +
+                    $"pickup source endpoint unresolved (reason={unresolvedReason})");
+                return false;
+            }
+
+            if (groups.Count == 0)
+                return true; // delivery-only / no pickup sources - nothing to gate
+
+            RoutePickupSourceGate.GateResult result = RoutePickupSourceGate.Evaluate(groups);
+
+            // Per-gate summary (sources are bounded, so per-source lines are OK).
+            for (int i = 0; i < groups.Count; i++)
+            {
+                var g = groups[i];
+                bool isShort = !result.Covered && g.ResolvedPid == result.ShortSourcePid;
+                ParsekLog.VerboseRateLimited(Tag, "pickup-source-" + route.Id + "-" + g.ResolvedPid,
+                    $"PickupSourcesHaveCargo: route {ShortIdForRoute(route)} " +
+                    $"source pid={g.ResolvedPid.ToString(IC)} " +
+                    $"name={g.VesselName ?? "<none>"} " +
+                    $"resources={g.SummedResourceManifest.Count.ToString(IC)} " +
+                    $"inventory={g.SummedInventoryManifest.Count.ToString(IC)} " +
+                    $"decision={(isShort ? "short" : "cover")}");
+            }
+
+            if (!result.Covered)
+            {
+                lackingResource = result.ShortHoldToken;
+                ParsekLog.VerboseRateLimited(Tag, "pickup-source-gate-short-" + route.Id,
+                    $"PickupSourcesHaveCargo: route {ShortIdForRoute(route)} " +
+                    $"all-or-nothing FAIL first-short source pid={result.ShortSourcePid.ToString(IC)} " +
+                    $"name={result.ShortSourceName ?? "<none>"} " +
+                    $"short={result.ShortResource} " +
+                    $"shortfall={result.Shortfall.ToString("R", IC)} " +
+                    $"inventory={result.InventoryShort.ToString(IC)} " +
+                    $"sources={groups.Count.ToString(IC)}");
+                return false;
+            }
+
+            ParsekLog.VerboseRateLimited(Tag, "pickup-source-gate-ok-" + route.Id,
+                $"PickupSourcesHaveCargo: route {ShortIdForRoute(route)} " +
+                $"all {groups.Count.ToString(IC)} pickup source(s) cover - eligible");
             return true;
         }
 

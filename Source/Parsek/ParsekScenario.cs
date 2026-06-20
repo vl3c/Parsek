@@ -2412,7 +2412,6 @@ namespace Parsek
         private static bool initialLoadDone = false;
         private static string lastSaveFolder = null;
         private static bool budgetDeductionApplied = false;
-        private static bool mainMenuHookRegistered = false;
 
         // Tracks the scene from which the last OnSave fired.
         // Used to detect FLIGHT→FLIGHT transitions (Revert to Launch / quickload)
@@ -4064,28 +4063,27 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Registers a one-time hook to reset session state when returning to main menu.
-        /// This prevents stale in-memory recordings from leaking into a new save
-        /// (e.g., deleting a career and creating a new one with the same name).
+        /// Subscribes the main-menu session-reset hook (<see cref="OnMainMenuTransition"/>),
+        /// which resets <c>initialLoadDone</c> and clears pending-cleanup / playback-scope
+        /// state when returning to the main menu so stale in-memory recordings don't leak
+        /// into a new save (e.g. deleting a career and creating a new one with the same
+        /// name). Idempotent (Remove then Add), mirroring
+        /// <see cref="SubscribeVesselLifecycleEvents"/>; <see cref="OnDestroy"/> removes the
+        /// subscription on scenario teardown.
+        ///
+        /// <see cref="OnMainMenuTransition"/> MUST stay an instance method: KSP's
+        /// <c>EventData&lt;T&gt;.Add</c> builds an <c>EvtDelegate</c> whose ctor
+        /// unconditionally runs <c>originatorType = evt.Target.GetType().Name</c>. For a
+        /// <c>static</c> handler <c>evt.Target</c> is null, so <c>Add</c> throws
+        /// <c>NullReferenceException</c>. That throw is DETERMINISTIC, not a transient
+        /// "GameEvents not ready" condition, so the old try/catch + register-once flag
+        /// silently swallowed every registration and this hook never fired (dormant since
+        /// the handler was made static).
         /// </summary>
-        private static void RegisterMainMenuHook()
+        private void RegisterMainMenuHook()
         {
-            if (!mainMenuHookRegistered)
-            {
-                // Wrapped in try-catch: KSP's EvtDelegate constructor can throw
-                // NullReferenceException during early scene loads when GameEvents
-                // internals aren't fully initialized.
-                try
-                {
-                    GameEvents.onGameSceneLoadRequested.Add(OnMainMenuTransition);
-                    mainMenuHookRegistered = true;
-                }
-                catch (System.NullReferenceException)
-                {
-                    ParsekLog.Verbose("Scenario",
-                        "Main menu hook deferred (GameEvents not ready) — will retry on next OnLoad");
-                }
-            }
+            GameEvents.onGameSceneLoadRequested.Remove(OnMainMenuTransition);
+            GameEvents.onGameSceneLoadRequested.Add(OnMainMenuTransition);
         }
 
         /// <summary>
@@ -4197,6 +4195,14 @@ namespace Parsek
             GameEvents.onVesselTerminated.Add(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
             GameEvents.onVesselSwitching.Add(OnVesselSwitching);
+            // M4b Phase B2 (plan D11 / OQ7): clear the RAM-only cargo escrow on any
+            // within-game scene change. The in-cycle reservation is a within-tick /
+            // dispatch-to-window-phase guard recomputed from pending route state on
+            // the next RouteOrchestrator.Tick, so it need not survive a scene change;
+            // dropping it here avoids a stale craft-baked-pid reservation mis-gating
+            // a competing route after the scene reloads. Idempotent (Remove then Add).
+            GameEvents.onGameSceneSwitchRequested.Remove(OnGameSceneSwitchClearEscrow);
+            GameEvents.onGameSceneSwitchRequested.Add(OnGameSceneSwitchClearEscrow);
             // #434: subscribe idempotently so revert detection is armed from first OnLoad.
             RevertDetector.Subscribe();
             // Re-fly Esc-menu button gate: Apply() on every onFlightReady so a
@@ -8303,8 +8309,15 @@ namespace Parsek
         /// <summary>
         /// Resets session state when transitioning to main menu, preventing stale
         /// in-memory recordings from leaking between saves with the same name.
+        ///
+        /// MUST be an instance method (never <c>static</c>): KSP's
+        /// <c>EventData&lt;T&gt;.Add</c> dereferences <c>evt.Target</c> (null for a
+        /// static handler) in the <c>EvtDelegate</c> ctor and throws
+        /// <c>NullReferenceException</c>. Subscribed from
+        /// <see cref="RegisterMainMenuHook"/>; unsubscribed in <see cref="OnDestroy"/>.
+        /// See <see cref="RegisterMainMenuHook"/> for the full rationale.
         /// </summary>
-        private static void OnMainMenuTransition(GameScenes newScene)
+        private void OnMainMenuTransition(GameScenes newScene)
         {
             if (newScene == GameScenes.MAINMENU)
             {
@@ -8319,6 +8332,14 @@ namespace Parsek
                 // later save's recordings start out historical (dormant) rather than
                 // inheriting a stale "in replay scope" mark from a previous game.
                 PlaybackScopeTracker.Reset();
+                // M4b Phase B2 (plan D11 / OQ7): drop the RAM-only cargo escrow on
+                // game unload, mirroring the other RAM-cache resets here. A multi-stop
+                // cycle's reservation is recomputed from pending route state on the
+                // next RouteOrchestrator.Tick (the B3 C1 dispatchAlready-resume
+                // re-establish); the single-stop path has no gap to recompute. Either
+                // way the escrow must not survive into a different save's logistics
+                // state. DROP-not-revert (no ledger row to reverse).
+                RouteStore.ClearAllEscrow("main-menu-transition");
                 ParsekLog.Info("Scenario",
                     "Main menu transition — reset initialLoadDone to prevent stale data leak");
             }
@@ -8331,6 +8352,16 @@ namespace Parsek
             // unconditionally (cheap no-op when the queue is empty) keeps the
             // staleness eviction running on the broadest lifecycle boundary
             // LedgerOrchestrator can observe.
+            //
+            // REACTIVATION NOTE (PR #1180 review): this handler was dormant ~3 months
+            // (the static-handler NRE swallowed every RegisterMainMenuHook registration)
+            // until the static->instance fix, so this per-scene-switch flush now runs in
+            // normal play for the first time. FlushStalePendingRecoveryFunds clears the
+            // WHOLE pending queue, not just age-stale entries; the pairing-can't-straddle-
+            // a-scene-boundary argument above is why it is believed safe, but the standing
+            // verification is a career recover-then-immediately-switch-scene playtest (see
+            // docs/dev/todo-and-known-bugs.md) before fully relying on it. If a legit
+            // recovery is ever evicted, scope this flush to MAINMENU rather than every scene.
             LedgerOrchestrator.FlushStalePendingRecoveryFunds(
                 $"scene switch to {newScene}");
             RecoveryPayoutContextStore.Clear($"scene switch to {newScene}");
@@ -8351,6 +8382,34 @@ namespace Parsek
                 $"will skip revert strip/cleanup (frame={vesselSwitchPendingFrame})");
         }
 
+        /// <summary>
+        /// M4b Phase B2 (plan D11 / OQ7): drop the RAM-only cargo escrow on any
+        /// within-game scene change. A multi-stop cycle's in-flight reservation is
+        /// recomputed from pending route state on the next
+        /// <see cref="RouteOrchestrator.Tick(double)"/> - the B3 C1 dispatchAlready-resume
+        /// re-establishes the un-fired windows' hold
+        /// (<see cref="RouteOrchestrator.ReEstablishEscrowForUnfiredWindows"/>); the
+        /// single-stop path has no dispatch-to-debit gap. Clearing here prevents a stale
+        /// craft-baked-pid reservation from mis-gating a competing route after the
+        /// scene reloads. DROP-not-revert (no ledger row to reverse).
+        ///
+        /// MUST be an instance method: KSP's <c>EventData&lt;T&gt;.Add</c> builds an
+        /// <c>EvtDelegate</c> whose ctor unconditionally runs
+        /// <c>originatorType = evt.Target.GetType().Name</c>. For a <c>static</c> handler
+        /// <c>evt.Target</c> is null, so <c>Add</c> throws <c>NullReferenceException</c>.
+        /// Subscribed from <see cref="SubscribeVesselLifecycleEvents"/> during
+        /// <see cref="OnLoad"/>, so a static handler here aborts the whole OnLoad before
+        /// recordings load and the next save then writes 0 RECORDING_TREE nodes — a silent
+        /// recording-index wipe. Unsubscribed in <see cref="OnDestroy"/>, so the
+        /// disposed-instance edge is already handled. The body only makes a static call,
+        /// so instance-ness has no behavioral cost.
+        /// </summary>
+        private void OnGameSceneSwitchClearEscrow(
+            GameEvents.FromToAction<GameScenes, GameScenes> action)
+        {
+            RouteStore.ClearAllEscrow($"scene-switch {action.from}->{action.to}");
+        }
+
         public void OnDestroy()
         {
             stateRecorder?.Unsubscribe();
@@ -8358,6 +8417,13 @@ namespace Parsek
             GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
+            // M4b Phase B2: drop the scene-switch escrow-clear subscription on
+            // scenario teardown so a re-loaded scenario re-subscribes cleanly.
+            GameEvents.onGameSceneSwitchRequested.Remove(OnGameSceneSwitchClearEscrow);
+            // Main-menu session-reset hook (RegisterMainMenuHook). Now an instance
+            // subscription, so it MUST be removed here or the delegate leaks a stale
+            // Target into the next scenario instantiation.
+            GameEvents.onGameSceneLoadRequested.Remove(OnMainMenuTransition);
             // #434: RevertDetector subscriptions are idempotent and persist for the
             // lifetime of the game session; tearing them down here so a scenario-module
             // shutdown doesn't leak dangling delegates if the session ends mid-flight.

@@ -84,6 +84,53 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("origin-unresolved:no-live-vessels", text);
         }
 
+        // M4b Phase B1 (plan D10 / OQ5): the per-PICKUP-SOURCE all-or-nothing gate
+        // names the short SOURCE vessel via a "source:<pid>:<name>:<short>" token.
+        // catches: the source token rendering only the resource (the player needs
+        // to know WHICH depot is short), or a parse that drops the name.
+        [Fact]
+        public void DescribeHold_PickupSourceShort_NamesSourceVesselAndResource()
+        {
+            string token = RoutePickupSourceGate.BuildHoldToken(40u, "Depot A", "Ore");
+            Assert.Equal(
+                "Depot A is out of Ore - delivers when it has the full amount",
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0));
+        }
+
+        // catches: an inventory-short pickup source rendering the opaque hash, or
+        // not naming the source.
+        [Fact]
+        public void DescribeHold_PickupSourceInventoryShort_NamesSource()
+        {
+            string token = RoutePickupSourceGate.BuildHoldToken(50u, "Cargo Bay", "inventory:abc123");
+            Assert.Equal(
+                "Cargo Bay is missing a required stored part - delivers when it holds it",
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0));
+        }
+
+        // catches: an unresolved pickup source losing its raw reason tail.
+        [Fact]
+        public void DescribeHold_PickupSourceUnresolved()
+        {
+            string text = LogisticsHoldPresentation.DescribeHold(
+                OriginLacksCargo, "pickup-source-unresolved:pid-miss", 0.0);
+            Assert.StartsWith(
+                "a pickup source vessel could not be found - it may have moved, been recovered, or been destroyed",
+                text);
+            Assert.Contains("pickup-source-unresolved:pid-miss", text);
+        }
+
+        // catches: a source token with an empty name (sanitized "<unnamed>")
+        // rendering a broken sentence.
+        [Fact]
+        public void DescribeHold_PickupSourceShort_UnnamedSource()
+        {
+            string token = RoutePickupSourceGate.BuildHoldToken(60u, null, "MonoPropellant");
+            Assert.Equal(
+                "<unnamed> is out of MonoPropellant - delivers when it has the full amount",
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0));
+        }
+
         // catches: the funds shortfall number not surfacing (loop path carries it
         // through EligibilityResult.Shortfall), or a comma-locale render.
         [Fact]
@@ -294,6 +341,43 @@ namespace Parsek.Tests.Logistics
                     RouteStatus.Active, "not enough funds at KSC for this dispatch"));
         }
 
+        private const RouteDispatchEvaluator.EligibilityFailureKind WaitingForPartner =
+            RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner;
+
+        // M4c Phase C1 (plan D12 / OQ8): the round-trip linking hold names the
+        // linked partner. catches: the WaitingForPartner kind rendering the generic
+        // fallback instead of a partner-named "waiting for the linked route" clause.
+        [Fact]
+        public void DescribeHold_WaitingForPartner_NamesPartner()
+        {
+            Assert.Equal(
+                "waiting for the linked route 'Return Run' to complete its run",
+                LogisticsHoldPresentation.DescribeHold(WaitingForPartner, "partner:Return Run", 0.0));
+        }
+
+        // catches: a WaitingForPartner hold with a missing / malformed partner token
+        // rendering blank instead of the generic linked-route clause.
+        [Fact]
+        public void DescribeHold_WaitingForPartner_NoToken_GenericClause()
+        {
+            Assert.Equal(
+                "waiting for the linked route to complete its run",
+                LogisticsHoldPresentation.DescribeHold(WaitingForPartner, "partner:", 0.0));
+            Assert.Equal(
+                "waiting for the linked route to complete its run",
+                LogisticsHoldPresentation.DescribeHold(WaitingForPartner, null, 0.0));
+        }
+
+        // catches: a WaitingForPartner hold being suppressed from display on an
+        // Active route (the route stays GhostDriving while waiting, so the hold MUST
+        // show to answer "why isn't this delivering").
+        [Fact]
+        public void ShouldDisplayHold_WaitingForPartner_ShowsOnActive()
+        {
+            Assert.True(LogisticsHoldPresentation.ShouldDisplayHold(
+                RouteStatus.Active, WaitingForPartner));
+        }
+
         // ------------------------------------------------------------------
         // Plain-ASCII guard (no em dashes, no special Unicode)
         // ------------------------------------------------------------------
@@ -309,6 +393,9 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-lacks-LiquidFuel", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "inventory:abc123def456", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-unresolved:pid-miss-no-surface-fallback", 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, RoutePickupSourceGate.BuildHoldToken(40u, "Depot A", "Ore"), 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, RoutePickupSourceGate.BuildHoldToken(50u, "Cargo Bay", "inventory:abc123"), 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "pickup-source-unresolved:pid-miss", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "", 0.0),
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-short", 1234.5),
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-shortfall-99", 0.0),
@@ -319,6 +406,9 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, "stop-0-no-surface-candidate", 0.0),
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, "endpoint-destroyed-at-delivery:unknown", 0.0),
                 LogisticsHoldPresentation.DescribeHold(SourcesStale, "sources-stale", 0.0),
+                LogisticsHoldPresentation.DescribeHold(WaitingForPartner, "partner:Return Run", 0.0),
+                LogisticsHoldPresentation.DescribeHold(WaitingForPartner, "partner:", 0.0),
+                LogisticsHoldPresentation.DescribeHold(WaitingForPartner, null, 0.0),
                 LogisticsHoldPresentation.DescribeHold(
                     (RouteDispatchEvaluator.EligibilityFailureKind)999, "tok", 0.0),
                 LogisticsHoldPresentation.FormatHoldDetailLine("origin is out of LiquidFuel", 120.0),
