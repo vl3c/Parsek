@@ -13,123 +13,178 @@ namespace Parsek.Reaim
     // in GhostPlaybackLogic.ResolveTrackingStationSampleUT. Do NOT add it to the CHANGELOG as a feature.
     // ============================================================================================================
 
+    internal enum DescentWarpAction { None, StepDown, DropToRealtime }
+
     /// <summary>
-    /// Auto-drops time-warp to realtime (1x) right as a re-aim looped descent leaves the loiter and begins, so
-    /// the brief descent clip (the re-entry/landing, or the rendezvous-and-dock) is actually watchable instead of
-    /// being warped straight past. A looped mission's descent renders for only its recorded duration (~hours)
-    /// once per multi-hundred-day loop, so by hand the player almost always steps over its window.
+    /// Decelerates time-warp so a re-aim looped descent (re-entry/landing or station dock) is watchable instead of
+    /// being warped straight past — the descent renders for only its recorded duration (~hours) once per
+    /// multi-hundred-day loop, so at high warp a single frame can leap clean over its whole window.
     ///
-    /// <para>Split for testability: the per-frame DECISION (<see cref="ShouldDropWarp"/>) is pure and Unity-free;
-    /// the Unity calls (read the warp rate / frame dt, set the rate, read the enable setting) are injected via the
-    /// seam delegates, wired only inside FLIGHT / TRACKING-STATION by <see cref="DescentWarpControlAddonBase"/> and
+    /// <para>A single-frame lookahead is NOT enough: at extreme warp (1,000,000x) one frame can jump tens of
+    /// thousands of seconds — wider than the loiter itself — so the "next step crosses the trigger" check undershoots
+    /// and the following frame steps over the window. Instead this RAMPS the warp down: every frame, while the loop
+    /// clock is still approaching the trigger, if the next warp step would consume more than half the remaining
+    /// time-to-trigger it steps the rate down ONE level (1M -> 100k -> ... -> 1x). That physically cannot overshoot,
+    /// and lands at 1x right as the descent leaves the loiter.</para>
+    ///
+    /// <para>Split for testability: the per-frame DECISION (<see cref="DecideWarpAction"/>) is pure and Unity-free;
+    /// the Unity calls (read the warp rate / rate index / frame dt / frame count, set the rate, read the setting) are
+    /// injected via the seam delegates, wired only inside FLIGHT / TRACKING-STATION by the concrete addons below and
     /// left null in xUnit — so the resolver's per-frame <see cref="NotifyDescentState"/> call is a no-op in tests.</para>
-    ///
-    /// <para>The decision is PREDICTIVE during the loiter: it drops one frame BEFORE the loop clock would cross the
-    /// trigger UT (computed from the current warp rate * frame dt), so even a high warp that would otherwise step a
-    /// whole frame over the descent window lands a frame inside it. It fires at most ONCE per descent cycle.</para>
     /// </summary>
     internal static class DescentWarpControl
     {
-        // --- Unity seam (wired by the scene addon; null in xUnit so NotifyDescentState no-ops) ---
+        // --- Unity seam (wired by the scene addons; null in xUnit so NotifyDescentState no-ops) ---
         internal static Func<float> WarpRateProvider;    // TimeWarp.CurrentRate
+        internal static Func<int> RateIndexProvider;     // TimeWarp.CurrentRateIndex
         internal static Func<float> DeltaTimeProvider;   // Time.unscaledDeltaTime
-        internal static Action WarpToRealtime;           // TimeWarp.SetRate(0, true)
+        internal static Func<int> FrameProvider;         // Time.frameCount
+        internal static Action<int> SetRateAction;       // TimeWarp.SetRate(index, true)
         internal static Func<bool> EnabledProvider;      // the user setting; null => treated as enabled
 
-        // Per mission (PhaseAnchorUT.SpanStartUT), the descent cycle we have already dropped for, so the warp is
-        // yanked once as the descent starts and not re-fought if the player chooses to re-warp afterwards.
+        // Per mission (PhaseAnchorUT.SpanStartUT), the descent cycle we have already dropped to 1x for, so once the
+        // descent starts we stop acting and the player can re-warp freely afterwards.
         private static readonly Dictionary<string, long> droppedCycleByKey = new Dictionary<string, long>();
+        // The resolver calls NotifyDescentState once per descent MEMBER per frame (4+ calls/frame for one mission),
+        // all with the same shared state; act at most once per rendered frame.
+        private static int lastActionFrame = -1;
 
-        internal static void ResetForSceneChange() => droppedCycleByKey.Clear();
+        internal static void ResetForSceneChange()
+        {
+            droppedCycleByKey.Clear();
+            lastActionFrame = -1;
+        }
 
         /// <summary>
-        /// Pure: should we drop to realtime THIS frame? True when the descent is imminent or live and we have not
-        /// dropped yet this cycle and the warp is above 1x and we are not already past the descent:
+        /// Pure: what to do with the warp THIS frame.
         /// <list type="bullet">
-        /// <item><c>Descent</c> phase: the icon has left the loiter and is on the clip — drop now.</item>
-        /// <item><c>Loiter</c> phase: drop when the NEXT warp step (<c>currentUT + warpRate*deltaTime</c>) would
-        ///   reach <paramref name="triggerUT"/> — i.e. the very last loiter frame before the icon leaves, so the
-        ///   crossing itself happens at 1x and a high warp cannot step over the whole window.</item>
+        /// <item>In the window (<c>Descent</c> phase, or <c>currentUT &gt;= triggerUT</c>): <c>DropToRealtime</c> if
+        ///   still warping, else <c>None</c>.</item>
+        /// <item>Approaching (Inert/Loiter, <c>currentUT &lt; triggerUT</c>) and warping above 1x: <c>StepDown</c>
+        ///   when the next warp step (<c>warpRate*deltaTime</c>) would consume &gt; half the remaining
+        ///   time-to-trigger — i.e. decelerate one level so the clock cannot leap over the window.</item>
         /// </list>
-        /// Returns false for Inert/Done, NaN timing, rate &lt;= 1x, or once already dropped this cycle.
+        /// <c>None</c> for NaN timing, already past the descent, already at 1x / lowest index, or once dropped.
         /// </summary>
-        internal static bool ShouldDropWarp(
+        internal static DescentWarpAction DecideWarpAction(
             DescentTrigger.DescentHeadPhase phase, double currentUT, double triggerUT, double descentEndUT,
-            float warpRate, float deltaTime, bool alreadyDroppedThisCycle)
+            float warpRate, int currentRateIndex, float deltaTime, bool alreadyDroppedThisCycle)
         {
-            if (alreadyDroppedThisCycle) return false;
-            if (warpRate <= 1.0f) return false;
-            if (double.IsNaN(triggerUT) || double.IsNaN(descentEndUT)) return false;
-            if (currentUT >= descentEndUT) return false; // already past the descent — do not yank warp after the fact
+            if (alreadyDroppedThisCycle) return DescentWarpAction.None;
+            if (double.IsNaN(triggerUT) || double.IsNaN(descentEndUT)) return DescentWarpAction.None;
+            if (currentUT >= descentEndUT) return DescentWarpAction.None; // past the descent — do not yank warp
 
-            if (phase == DescentTrigger.DescentHeadPhase.Descent)
-                return true; // icon already on the clip
-            if (phase == DescentTrigger.DescentHeadPhase.Loiter)
-            {
-                double nextUT = currentUT + (double)warpRate * Math.Max(0.0, deltaTime);
-                return nextUT >= triggerUT; // next step would cross into the descent — drop now, before it
-            }
-            return false; // Inert / Done
+            if (phase == DescentTrigger.DescentHeadPhase.Descent || currentUT >= triggerUT)
+                return warpRate > 1.0f ? DescentWarpAction.DropToRealtime : DescentWarpAction.None;
+
+            // Approaching the trigger.
+            if (warpRate <= 1.0f) return DescentWarpAction.None;        // already realtime
+            if (currentRateIndex <= 0) return DescentWarpAction.None;   // already at the lowest rate
+            double timeToTrigger = triggerUT - currentUT;
+            if (timeToTrigger <= 0.0) return DescentWarpAction.DropToRealtime; // safety (covered above, defensive)
+            double nextStep = (double)warpRate * Math.Max(0.0, deltaTime);
+            if (nextStep > timeToTrigger * 0.5)
+                return DescentWarpAction.StepDown;
+            return DescentWarpAction.None;
         }
 
         /// <summary>
         /// Called from the descent resolver each frame for a descent member (the resolver is reached in BOTH the
-        /// tracking station and FLIGHT — via the polyline Driver's per-frame walk — so this one call site covers
-        /// both scenes). Drops warp to realtime once as the descent leaves the loiter. No-op when the Unity seam
-        /// is unwired (xUnit / other scenes) or the user setting is off.
+        /// tracking station and FLIGHT — via the polyline Driver's per-frame walk — so one call site covers both
+        /// scenes). Applies the deceleration ramp / realtime drop. No-op when the Unity seam is unwired (xUnit /
+        /// non-flight scenes) or the setting is off; acts at most once per frame and drops once per descent cycle.
         /// </summary>
         internal static void NotifyDescentState(
             string missionKey, long cycle, DescentTrigger.DescentHeadPhase phase,
             double currentUT, double triggerUT, double descentEndUT)
         {
-            if (WarpRateProvider == null || WarpToRealtime == null) return; // unwired (tests / non-flight scenes)
-            if (EnabledProvider != null && !EnabledProvider()) return;      // user disabled auto-slow
+            if (WarpRateProvider == null || SetRateAction == null) return; // unwired (tests / non-flight scenes)
+            if (EnabledProvider != null && !EnabledProvider()) return;     // user disabled
+
+            int frame = FrameProvider != null ? FrameProvider() : 0;
+            if (frame != 0 && frame == lastActionFrame) return; // already acted this frame (per-member dedup)
 
             bool already = droppedCycleByKey.TryGetValue(missionKey, out long dc) && dc == cycle;
             float rate = WarpRateProvider();
+            int index = RateIndexProvider != null ? RateIndexProvider() : 0;
             float dt = DeltaTimeProvider != null ? DeltaTimeProvider() : 0.02f;
-            if (!ShouldDropWarp(phase, currentUT, triggerUT, descentEndUT, rate, dt, already)) return;
 
-            droppedCycleByKey[missionKey] = cycle;
-            ParsekLog.Info("ReaimDescent", string.Format(CultureInfo.InvariantCulture,
-                "descent warp auto-drop: mission={0} cycle={1} phase={2} rate={3:F0}x -> 1x at UT {4:F1} " +
-                "(trigger {5:F1}); icon leaving loiter for descent",
-                missionKey, cycle, phase, rate, currentUT, triggerUT));
-            WarpToRealtime();
-        }
-    }
+            DescentWarpAction action = DecideWarpAction(
+                phase, currentUT, triggerUT, descentEndUT, rate, index, dt, already);
 
-    /// <summary>Wires the <see cref="DescentWarpControl"/> Unity seam in FLIGHT and the TRACKING STATION (the two
-    /// scenes the descent renders in), and clears the per-cycle dedup on scene entry. Unwires on scene exit so the
-    /// DDOL polyline Driver's resolver walk in any other scene stays a no-op.</summary>
-    internal abstract class DescentWarpControlAddonBase : MonoBehaviour
-    {
-        protected void Awake()
-        {
-            DescentWarpControl.WarpRateProvider = () => TimeWarp.CurrentRate;
-            DescentWarpControl.DeltaTimeProvider = () => Time.unscaledDeltaTime;
-            DescentWarpControl.WarpToRealtime = () =>
+            // Always-on (rate-limited) decision trace so a no-op is debuggable from a single log.
+            ParsekLog.VerboseRateLimited("ReaimDescent", "warpctl." + missionKey + "." + phase,
+                string.Format(CultureInfo.InvariantCulture,
+                    "warp-ctl mission={0} cycle={1} phase={2} rate={3:F0}x idx={4} dt={5:F3} curUT={6:F1} " +
+                    "trig={7:F1} ttt={8:F1} dropped={9} action={10}",
+                    missionKey, cycle, phase, rate, index, dt, currentUT, triggerUT,
+                    triggerUT - currentUT, already, action));
+
+            if (action == DescentWarpAction.None) return;
+            lastActionFrame = frame;
+
+            if (action == DescentWarpAction.StepDown)
             {
-                if (TimeWarp.fetch != null)
-                    TimeWarp.SetRate(0, true); // index 0 = 1x realtime; instant so a high warp stops immediately
-            };
-            DescentWarpControl.EnabledProvider = () =>
-                ParsekSettings.Current == null || ParsekSettings.Current.autoDropWarpForDescent;
-            DescentWarpControl.ResetForSceneChange();
+                SetRateAction(Math.Max(0, index - 1));
+                ParsekLog.VerboseRateLimited("ReaimDescent", "warpstep." + missionKey,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "descent warp ramp: mission={0} step idx {1} -> {2} (rate {3:F0}x, {4:F0}s to trigger)",
+                        missionKey, index, index - 1, rate, triggerUT - currentUT));
+            }
+            else // DropToRealtime
+            {
+                droppedCycleByKey[missionKey] = cycle;
+                SetRateAction(0);
+                ParsekLog.Info("ReaimDescent", string.Format(CultureInfo.InvariantCulture,
+                    "descent warp auto-drop: mission={0} cycle={1} phase={2} rate={3:F0}x -> 1x at UT {4:F1} " +
+                    "(trigger {5:F1}); descent starting",
+                    missionKey, cycle, phase, rate, currentUT, triggerUT));
+            }
         }
 
-        protected void OnDestroy()
+        // --- Unity wiring (shared by the two concrete scene addons) ---
+        internal static void Wire()
         {
-            DescentWarpControl.WarpRateProvider = null;
-            DescentWarpControl.DeltaTimeProvider = null;
-            DescentWarpControl.WarpToRealtime = null;
-            DescentWarpControl.EnabledProvider = null;
+            WarpRateProvider = () => TimeWarp.CurrentRate;
+            RateIndexProvider = () => TimeWarp.CurrentRateIndex;
+            DeltaTimeProvider = () => Time.unscaledDeltaTime;
+            FrameProvider = () => Time.frameCount;
+            SetRateAction = idx => { if (TimeWarp.fetch != null) TimeWarp.SetRate(idx, true); };
+            EnabledProvider = () =>
+                ParsekSettings.Current == null || ParsekSettings.Current.autoDropWarpForDescent;
+            ResetForSceneChange();
+        }
+
+        internal static void Unwire()
+        {
+            WarpRateProvider = null;
+            RateIndexProvider = null;
+            DeltaTimeProvider = null;
+            FrameProvider = null;
+            SetRateAction = null;
+            EnabledProvider = null;
         }
     }
 
     [KSPAddon(KSPAddon.Startup.Flight, false)]
-    internal class DescentWarpControlFlightAddon : DescentWarpControlAddonBase { }
+    internal sealed class DescentWarpControlFlightAddon : MonoBehaviour
+    {
+        private void Awake()
+        {
+            DescentWarpControl.Wire();
+            ParsekLog.Info("ReaimDescent", "DescentWarpControl wired (Flight)");
+        }
+        private void OnDestroy() => DescentWarpControl.Unwire();
+    }
 
     [KSPAddon(KSPAddon.Startup.TrackingStation, false)]
-    internal class DescentWarpControlTrackingAddon : DescentWarpControlAddonBase { }
+    internal sealed class DescentWarpControlTrackingAddon : MonoBehaviour
+    {
+        private void Awake()
+        {
+            DescentWarpControl.Wire();
+            ParsekLog.Info("ReaimDescent", "DescentWarpControl wired (TrackingStation)");
+        }
+        private void OnDestroy() => DescentWarpControl.Unwire();
+    }
 }
