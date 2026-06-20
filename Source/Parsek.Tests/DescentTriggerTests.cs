@@ -468,7 +468,11 @@ namespace Parsek.Tests
         {
             var windows = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>
             {
-                { 0, new GhostPlaybackLogic.LoopUnit.MemberWindow(0.0, 500.0) },        // owner (non-descent)
+                { 0, new GhostPlaybackLogic.LoopUnit.MemberWindow(0.0, 500.0) },        // owner (non-descent, span start)
+                // Transfer/loiter member (non-descent): its window covers the shifted-parking region the icon rides
+                // during the loiter (conicEnd = Deorbit + CapShift = 27,140,000 .. the seam Deorbit), so it RENDERS
+                // both while loitering AND while the descent plays — the double-icon the handoff hide must resolve.
+                { 5, new GhostPlaybackLogic.LoopUnit.MemberWindow(27_000_000.0, Deorbit) },
                 { 49, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1Start, W1End) },
                 { 50, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1End, W2End) },
                 { 51, new GhostPlaybackLogic.LoopUnit.MemberWindow(W2End, W3End) },
@@ -476,7 +480,7 @@ namespace Parsek.Tests
             var plan = new Parsek.Reaim.ReaimMissionPlan { Supported = true };
             var sched = new Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule { Valid = true };
             var unit = new GhostPlaybackLogic.LoopUnit(
-                0, new[] { 0, 49, 50, 51 }, SpanStart, DescentEnd, Cad, Pa, Cad, windows, null, plan, sched,
+                0, new[] { 0, 5, 49, 50, 51 }, SpanStart, DescentEnd, Cad, Pa, Cad, windows, null, plan, sched,
                 loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
                 arrivalAlignPeriodSeconds: double.NaN, arrivalAmberReason: null,
                 launchBodyRotationPeriodSeconds: double.NaN, launchHoldEngaged: false,
@@ -489,7 +493,7 @@ namespace Parsek.Tests
                 captureShiftSeconds: engage ? CapShift : double.NaN);
             return new GhostPlaybackLogic.LoopUnitSet(
                 new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
-                new Dictionary<int, int> { { 0, 0 }, { 49, 0 }, { 50, 0 }, { 51, 0 } });
+                new Dictionary<int, int> { { 0, 0 }, { 5, 0 }, { 49, 0 }, { 50, 0 }, { 51, 0 } });
         }
 
         private static double Resolve(int i, double wStart, double wEnd, double liveUT, GhostPlaybackLogic.LoopUnitSet units, out bool hidden)
@@ -547,6 +551,36 @@ namespace Parsek.Tests
             GhostPlaybackLogic.ResolveTrackingStationSampleFrame(
                 49, W1Start, W1End, t, units, out bool _, out bool hasSecondary, out double _, out long _);
             Assert.False(hasSecondary, "a descent member must not emit an un-remapped boundary-overlap secondary (R6)");
+        }
+
+        [Fact]
+        public void Resolver_TransferMember_HiddenDuringDescent_CleanHandoffNoDoubleIcon()
+        {
+            // The 2026-06-20 bug: when the descent fires, the transfer/loiter member keeps drawing its parking icon
+            // on the raw loop clock WHILE the descent member draws the clip — two icons, and the user tracks the
+            // loiter one. Member 5's window covers the shifted-parking region, so it RENDERS through both phases.
+            var units = BuildDescentUnit(engage: true);
+
+            // LOITER (before the trigger): the transfer member SHOULD draw — it carries the only icon while the
+            // descent member is still hidden.
+            double tLoiter = EntryUT(0) + 100.0;
+            Resolve(5, 27_000_000.0, Deorbit, tLoiter, units, out bool hLoiterTransfer);
+            Resolve(49, W1Start, W1End, tLoiter, units, out bool hLoiterDescent);
+            Assert.False(hLoiterTransfer, "transfer member draws the loiter icon while the descent still waits");
+            Assert.True(hLoiterDescent, "descent member hidden during the loiter");
+
+            // DESCENT PLAYING: the transfer member must HAND OFF — hidden — so the descent member's icon is the only
+            // one (no double icon).
+            double tDescent = TriggerUT(0) + 400.0;
+            Resolve(5, 27_000_000.0, Deorbit, tDescent, units, out bool hDescentTransfer);
+            Resolve(49, W1Start, W1End, tDescent, units, out bool hDescentDescent);
+            Assert.True(hDescentTransfer, "transfer member hidden once the descent plays (hand off, no double icon)");
+            Assert.False(hDescentDescent, "the descent member is the single visible icon during the descent");
+
+            // With the trigger OFF the transfer member is byte-identical (renders in both phases — no handoff).
+            var off = BuildDescentUnit(engage: false);
+            Resolve(5, 27_000_000.0, Deorbit, tDescent, off, out bool hOff);
+            Assert.False(hOff, "trigger OFF: no descent phase, so the transfer member is never hidden by the handoff");
         }
 
         [Fact]

@@ -8431,6 +8431,41 @@ namespace Parsek
                 return liveUT;
             }
 
+            // NON-DESCENT (transfer / loiter / launch) member of a descent-trigger unit. Once the shared descent is
+            // PLAYING (unit descent phase == Descent), the vessel has LEFT the parking, so this member's
+            // loiter/parking icon must HAND OFF to the descent member. Without this the transfer member keeps drawing
+            // its parking proto-icon on the raw loop clock WHILE the descent member draws the descent clip — two icons
+            // at once — and because the transfer member's is the prominent native proto-icon, the user tracks IT and
+            // reports "the icon stayed on the loiter" even though the descent did render (confirmed: 2026-06-20 13:34
+            // log — rec=44 `Marker DRAWN headUT=2567696156` on the parking while member=45 `phase=Descent`). Hide any
+            // CURRENTLY-RENDERING non-descent member for the descent window so the descent icon is the only one; in
+            // Inert / Loiter / Done it is left untouched (the loiter icon is correct until the trigger fires, and the
+            // descent member is the one hidden then). Scoped to descent-trigger units (HasDescentTrigger) and to the
+            // member that would otherwise render, so it is byte-identical everywhere else.
+            if (unit.HasDescentTrigger && decision == UnitMemberRenderDecision.Render)
+            {
+                Parsek.Reaim.DescentTrigger.DescentHeadPhase transferUnitPhase =
+                    Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead(
+                        liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
+                        unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
+                        unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _);
+                bool hideForDescentHandoff =
+                    transferUnitPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent;
+                var hdic = CultureInfo.InvariantCulture;
+                ParsekLog.VerboseRateLimited(
+                    "ReaimDescent",
+                    // Bounded by mission x member x phase x action (NOT frame count).
+                    $"transfer-handoff.{unit.PhaseAnchorUT.ToString("R", hdic)}.{unit.SpanStartUT.ToString("R", hdic)}.{i.ToString(hdic)}.{transferUnitPhase}.{hideForDescentHandoff}",
+                    $"transfer/loiter member={i.ToString(hdic)} cycle={unitCycle.ToString(hdic)} " +
+                    $"unitDescentPhase={transferUnitPhase} baseDecision=Render liveUT={liveUT.ToString("R", hdic)} " +
+                    $"loopUT={loopUT.ToString("R", hdic)} -> {(hideForDescentHandoff ? "HIDDEN (descent playing; hand off to descent member, no double icon)" : "kept (loiter/normal icon)")}");
+                if (hideForDescentHandoff)
+                {
+                    renderHidden = true;
+                    return liveUT;
+                }
+            }
+
             if (decision == UnitMemberRenderDecision.Render)
                 return loopUT;
 
