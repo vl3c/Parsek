@@ -13,45 +13,53 @@ namespace Parsek.Reaim
     // in GhostPlaybackLogic.ResolveTrackingStationSampleUT. Do NOT add it to the CHANGELOG as a feature.
     // ============================================================================================================
 
-    internal enum DescentWarpAction { None, StepDown, DropToRealtime }
-
     /// <summary>
-    /// Decelerates time-warp so a re-aim looped descent (re-entry/landing or station dock) is watchable instead of
-    /// being warped straight past — the descent renders for only its recorded duration (~hours) once per
-    /// multi-hundred-day loop, so at high warp a single frame can leap clean over its whole window.
+    /// Caps time-warp so a re-aim looped descent (re-entry/landing or station dock) is watchable instead of being
+    /// warped straight past — the descent renders for only its recorded clip (~hours) once per multi-hundred-day
+    /// loop (~0.05% of the loop), so at high warp a single frame leaps clean over its whole window.
     ///
-    /// <para>A single-frame lookahead is NOT enough: at extreme warp (1,000,000x) one frame can jump tens of
-    /// thousands of seconds — wider than the loiter itself — so the "next step crosses the trigger" check undershoots
-    /// and the following frame steps over the window. Instead this RAMPS the warp down: every frame, while the loop
-    /// clock is still approaching the trigger, if the next warp step would consume more than half the remaining
-    /// time-to-trigger it steps the rate down ONE level (1M -> 100k -> ... -> 1x). That physically cannot overshoot,
-    /// and lands at 1x right as the descent leaves the loiter.</para>
+    /// <para>WHY A PROPORTIONAL CAP, NOT A STEP-DOWN RAMP: the earlier "step the warp down one level when the next
+    /// step would consume &gt; half the time-to-trigger" ramp could NOT catch the window. At 1,000,000x one frame
+    /// jumps ~20,000 s (≈ the whole 20,513 s window) and a single lag-spike frame (dt 0.4 s seen in-game = ~400,000 s)
+    /// leaps over the entire loiter+window between two consecutive resolver calls, so the ramp's ~1-frame-wide
+    /// deceleration zone is simply straddled (2026-06-20 logs: descent SKIPPED every cycle, the trace first sees the
+    /// cycle already at Done). Instead this CAPS the max rate PROPORTIONAL to the distance to the descent
+    /// (<c>cap ≈ distance / WorstFrameSeconds</c>): far away the cap is huge (no effect), and as the descent nears the
+    /// cap tightens so that even a worst-case (laggy) frame advances less than the remaining gap and therefore cannot
+    /// overshoot. Inside the window the cap is <c>clip / DescentWatchSeconds</c> so the clip plays over a watchable
+    /// span and a frame still cannot skip it. It is a MAX only — the player may always warp SLOWER (e.g. 1x to study
+    /// the landing) and may re-warp freely once past the descent.</para>
     ///
-    /// <para>Split for testability: the per-frame DECISION (<see cref="DecideWarpAction"/>) is pure and Unity-free;
-    /// the Unity calls (read the warp rate / rate index / frame dt / frame count, set the rate, read the setting) are
-    /// injected via the seam delegates, wired only inside FLIGHT / TRACKING-STATION by the concrete addons below and
-    /// left null in xUnit — so the resolver's per-frame <see cref="NotifyDescentState"/> call is a no-op in tests.</para>
+    /// <para>Split for testability: the per-frame cap (<see cref="ComputeMaxWarpRate"/>) and the rate-level pick
+    /// (<see cref="SelectRateIndexForCap"/>) are pure and Unity-free; the Unity calls (read the rate / index / frame
+    /// count / rate-level table, set the rate, read the setting) are injected via the seam delegates, wired only
+    /// inside FLIGHT / TRACKING-STATION by the concrete addons below and left null in xUnit — so the resolver's
+    /// per-frame <see cref="NotifyDescentState"/> call is a no-op in tests.</para>
     /// </summary>
     internal static class DescentWarpControl
     {
+        // The descent clip should play over at most ~this many real seconds inside the window (a MAX cap; the player
+        // may still go slower). cap_in_window = clip / DescentWatchSeconds.
+        internal const double DescentWatchSeconds = 20.0;
+        // Assume a frame can take up to ~this many real seconds (a generous lag-spike margin: the worst seen was
+        // 0.4 s). The approaching cap = distance / WorstFrameSeconds, so a frame at the cap advances at most
+        // cap * WorstFrameSeconds = distance — it can never leap PAST the descent, even on a hitch.
+        internal const double WorstFrameSeconds = 4.0;
+
         // --- Unity seam (wired by the scene addons; null in xUnit so NotifyDescentState no-ops) ---
         internal static Func<float> WarpRateProvider;    // TimeWarp.CurrentRate
         internal static Func<int> RateIndexProvider;     // TimeWarp.CurrentRateIndex
-        internal static Func<float> DeltaTimeProvider;   // Time.unscaledDeltaTime
         internal static Func<int> FrameProvider;         // Time.frameCount
         internal static Action<int> SetRateAction;       // TimeWarp.SetRate(index, true)
         internal static Func<bool> EnabledProvider;      // the user setting; null => treated as enabled
+        internal static Func<float[]> RateLevelsProvider; // TimeWarp.fetch.warpRates (ascending)
 
-        // Per mission (PhaseAnchorUT.SpanStartUT), the descent cycle we have already dropped to 1x for, so once the
-        // descent starts we stop acting and the player can re-warp freely afterwards.
-        private static readonly Dictionary<string, long> droppedCycleByKey = new Dictionary<string, long>();
         // The resolver calls NotifyDescentState once per descent MEMBER per frame (4+ calls/frame for one mission),
         // all with the same shared state; act at most once per rendered frame.
         private static int lastActionFrame = -1;
 
         internal static void ResetForSceneChange()
         {
-            droppedCycleByKey.Clear();
             lastActionFrame = -1;
         }
 
@@ -61,11 +69,11 @@ namespace Parsek.Reaim
         /// RECORDED-frame). The window is <c>[triggerUT, this]</c>. NaN if any input is NaN.
         ///
         /// <para>CRITICAL FRAME NOTE: <c>RecordedDeorbitUT</c> / <c>DescentEndUT</c> are RECORDED UT (~2.5e9 in a
-        /// mid-game save) while the live loop clock / <c>triggerUT</c> are LIVE UT (~3.9e9). The warp guard MUST
-        /// compare the live <c>currentUT</c> against THIS live window end, never against the raw recorded
-        /// <c>descentEndUT</c>: a recorded UT is far smaller than any live UT, so <c>currentUT &gt;= descentEndUT</c>
-        /// would fire on EVERY frame and silently disable the entire warp control (the 2026-06-20 dead-warp-control
-        /// bug — <c>action=None</c> for the whole session, descent window warped over).</para>
+        /// mid-game save) while the live loop clock / <c>triggerUT</c> are LIVE UT (~3.9e9). The cap MUST compare the
+        /// live <c>currentUT</c> against THIS live window end, never against the raw recorded <c>descentEndUT</c>: a
+        /// recorded UT is far smaller than any live UT, so <c>currentUT &gt;= descentEndUT</c> would be true on EVERY
+        /// frame and silently disable the entire control (the 2026-06-20 dead-warp-control bug — descent warped over
+        /// all session).</para>
         /// </summary>
         internal static double DescentWindowEndLiveUT(
             double triggerUT, double recordedDeorbitUT, double descentEndUT)
@@ -76,45 +84,58 @@ namespace Parsek.Reaim
         }
 
         /// <summary>
-        /// Pure: what to do with the warp THIS frame. <paramref name="descentWindowEndLiveUT"/> is the LIVE-frame
-        /// window end (<see cref="DescentWindowEndLiveUT"/>), NOT the raw recorded descentEndUT — see that helper's
-        /// frame note.
+        /// PURE: the maximum warp rate allowed THIS frame so the descent window cannot be warped over.
+        /// <paramref name="descentWindowEndLiveUT"/> is the LIVE-frame window end (<see cref="DescentWindowEndLiveUT"/>).
         /// <list type="bullet">
-        /// <item>In the window (<c>Descent</c> phase, or <c>currentUT &gt;= triggerUT</c>): <c>DropToRealtime</c> if
-        ///   still warping, else <c>None</c>.</item>
-        /// <item>Approaching (Inert/Loiter, <c>currentUT &lt; triggerUT</c>) and warping above 1x: <c>StepDown</c>
-        ///   when the next warp step (<c>warpRate*deltaTime</c>) would consume &gt; half the remaining
-        ///   time-to-trigger — i.e. decelerate one level so the clock cannot leap over the window.</item>
+        /// <item>Past the descent (<c>currentUT &gt;= descentWindowEndLiveUT</c>) or NaN timing: <c>+Infinity</c> — no
+        ///   cap, the player warps freely.</item>
+        /// <item>Inside the window (<c>triggerUT &lt;= currentUT &lt; end</c>): <c>clip / DescentWatchSeconds</c> — the
+        ///   clip plays over ~that many real seconds and a frame cannot skip it.</item>
+        /// <item>Approaching (<c>currentUT &lt; triggerUT</c>): <c>distance / WorstFrameSeconds</c> — the cap tightens
+        ///   as the descent nears so even a laggy frame lands inside, never past. Far away this is huge (no effect).</item>
         /// </list>
-        /// <c>None</c> for NaN timing, already past the descent, already at 1x / lowest index, or once dropped.
+        /// Always at least 1.0 (never below realtime). A MAX only; the player may warp slower.
         /// </summary>
-        internal static DescentWarpAction DecideWarpAction(
-            DescentTrigger.DescentHeadPhase phase, double currentUT, double triggerUT, double descentWindowEndLiveUT,
-            float warpRate, int currentRateIndex, float deltaTime, bool alreadyDroppedThisCycle)
+        internal static double ComputeMaxWarpRate(
+            double currentUT, double triggerUT, double descentWindowEndLiveUT)
         {
-            if (alreadyDroppedThisCycle) return DescentWarpAction.None;
-            if (double.IsNaN(triggerUT) || double.IsNaN(descentWindowEndLiveUT)) return DescentWarpAction.None;
-            if (currentUT >= descentWindowEndLiveUT) return DescentWarpAction.None; // past the descent — do not yank warp
+            if (double.IsNaN(currentUT) || double.IsNaN(triggerUT) || double.IsNaN(descentWindowEndLiveUT))
+                return double.PositiveInfinity;
+            if (currentUT >= descentWindowEndLiveUT) return double.PositiveInfinity; // past the descent: free warp
+            if (currentUT >= triggerUT)
+            {
+                double clip = descentWindowEndLiveUT - triggerUT;
+                return Math.Max(1.0, clip / DescentWatchSeconds); // in the window: watchable cap
+            }
+            double distance = triggerUT - currentUT;              // approaching: tighten as it nears
+            return Math.Max(1.0, distance / WorstFrameSeconds);
+        }
 
-            if (phase == DescentTrigger.DescentHeadPhase.Descent || currentUT >= triggerUT)
-                return warpRate > 1.0f ? DescentWarpAction.DropToRealtime : DescentWarpAction.None;
-
-            // Approaching the trigger.
-            if (warpRate <= 1.0f) return DescentWarpAction.None;        // already realtime
-            if (currentRateIndex <= 0) return DescentWarpAction.None;   // already at the lowest rate
-            double timeToTrigger = triggerUT - currentUT;
-            if (timeToTrigger <= 0.0) return DescentWarpAction.DropToRealtime; // safety (covered above, defensive)
-            double nextStep = (double)warpRate * Math.Max(0.0, deltaTime);
-            if (nextStep > timeToTrigger * 0.5)
-                return DescentWarpAction.StepDown;
-            return DescentWarpAction.None;
+        /// <summary>
+        /// PURE: the highest warp-rate INDEX whose level is &lt;= <paramref name="maxRate"/> (at least 0).
+        /// <paramref name="rateLevels"/> is the ascending warp-rate table (<c>TimeWarp.warpRates</c>). Returns the top
+        /// index for <c>+Infinity</c> / NaN / empty (i.e. "no cap → leave the rate alone"); always returns &gt;= 0 so
+        /// index 0 (1x) is the floor.
+        /// </summary>
+        internal static int SelectRateIndexForCap(double maxRate, IReadOnlyList<float> rateLevels)
+        {
+            if (rateLevels == null || rateLevels.Count == 0) return 0;
+            if (double.IsNaN(maxRate) || double.IsPositiveInfinity(maxRate)) return rateLevels.Count - 1;
+            int idx = 0;
+            for (int i = 0; i < rateLevels.Count; i++)
+            {
+                if (rateLevels[i] <= maxRate) idx = i;
+                else break;
+            }
+            return idx;
         }
 
         /// <summary>
         /// Called from the descent resolver each frame for a descent member (the resolver is reached in BOTH the
         /// tracking station and FLIGHT — via the polyline Driver's per-frame walk — so one call site covers both
-        /// scenes). Applies the deceleration ramp / realtime drop. No-op when the Unity seam is unwired (xUnit /
-        /// non-flight scenes) or the setting is off; acts at most once per frame and drops once per descent cycle.
+        /// scenes). Caps the warp DOWN to the proportional limit; never raises it (a MAX), so the player keeps full
+        /// slower control and can re-warp freely once past the descent. No-op when the Unity seam is unwired (xUnit /
+        /// non-flight scenes) or the setting is off; acts at most once per frame.
         /// </summary>
         internal static void NotifyDescentState(
             string missionKey, long cycle, DescentTrigger.DescentHeadPhase phase,
@@ -126,47 +147,34 @@ namespace Parsek.Reaim
             int frame = FrameProvider != null ? FrameProvider() : 0;
             if (frame != 0 && frame == lastActionFrame) return; // already acted this frame (per-member dedup)
 
-            bool already = droppedCycleByKey.TryGetValue(missionKey, out long dc) && dc == cycle;
             float rate = WarpRateProvider();
             int index = RateIndexProvider != null ? RateIndexProvider() : 0;
-            float dt = DeltaTimeProvider != null ? DeltaTimeProvider() : 0.02f;
+            float[] levels = RateLevelsProvider != null ? RateLevelsProvider() : null;
 
             // CRITICAL: descentEndUT/recordedDeorbitUT are RECORDED-frame; triggerUT/currentUT are LIVE. Convert the
-            // window end into the LIVE frame before the guard, or the recorded end (far below any live UT) makes the
-            // past-the-descent guard fire every frame and disables the control (the 2026-06-20 dead-warp-control bug).
+            // window end into the LIVE frame, or the recorded end (far below any live UT) disables the cap every frame
+            // (the 2026-06-20 dead-warp-control bug).
             double descentWindowEndLiveUT = DescentWindowEndLiveUT(triggerUT, recordedDeorbitUT, descentEndUT);
-
-            DescentWarpAction action = DecideWarpAction(
-                phase, currentUT, triggerUT, descentWindowEndLiveUT, rate, index, dt, already);
+            double maxRate = ComputeMaxWarpRate(currentUT, triggerUT, descentWindowEndLiveUT);
+            int targetIdx = double.IsPositiveInfinity(maxRate) ? index : SelectRateIndexForCap(maxRate, levels);
 
             // Always-on (rate-limited) decision trace so a no-op is debuggable from a single log.
-            ParsekLog.VerboseRateLimited("ReaimDescent", "warpctl." + missionKey + "." + phase,
+            ParsekLog.VerboseRateLimited("ReaimDescent", "warpcap." + missionKey + "." + phase,
                 string.Format(CultureInfo.InvariantCulture,
-                    "warp-ctl mission={0} cycle={1} phase={2} rate={3:F0}x idx={4} dt={5:F3} curUT={6:F1} " +
-                    "trig={7:F1} ttt={8:F1} dropped={9} action={10}",
-                    missionKey, cycle, phase, rate, index, dt, currentUT, triggerUT,
-                    triggerUT - currentUT, already, action));
+                    "warp-cap mission={0} cycle={1} phase={2} rate={3:F0}x idx={4} curUT={5:F1} trig={6:F1} " +
+                    "ttt={7:F1} cap={8} targetIdx={9}",
+                    missionKey, cycle, phase, rate, index, currentUT, triggerUT, triggerUT - currentUT,
+                    double.IsPositiveInfinity(maxRate) ? "none" : ((long)maxRate).ToString(CultureInfo.InvariantCulture) + "x",
+                    targetIdx));
 
-            if (action == DescentWarpAction.None) return;
+            // Cap DOWN only — never speed the player up, and do nothing past the descent / when already slow enough.
+            if (double.IsPositiveInfinity(maxRate) || targetIdx >= index) return;
             lastActionFrame = frame;
-
-            if (action == DescentWarpAction.StepDown)
-            {
-                SetRateAction(Math.Max(0, index - 1));
-                ParsekLog.VerboseRateLimited("ReaimDescent", "warpstep." + missionKey,
-                    string.Format(CultureInfo.InvariantCulture,
-                        "descent warp ramp: mission={0} step idx {1} -> {2} (rate {3:F0}x, {4:F0}s to trigger)",
-                        missionKey, index, index - 1, rate, triggerUT - currentUT));
-            }
-            else // DropToRealtime
-            {
-                droppedCycleByKey[missionKey] = cycle;
-                SetRateAction(0);
-                ParsekLog.Info("ReaimDescent", string.Format(CultureInfo.InvariantCulture,
-                    "descent warp auto-drop: mission={0} cycle={1} phase={2} rate={3:F0}x -> 1x at UT {4:F1} " +
-                    "(trigger {5:F1}); descent starting",
-                    missionKey, cycle, phase, rate, currentUT, triggerUT));
-            }
+            SetRateAction(targetIdx);
+            ParsekLog.Info("ReaimDescent", string.Format(CultureInfo.InvariantCulture,
+                "descent warp cap: mission={0} cycle={1} phase={2} idx {3} -> {4} (was {5:F0}x; cap {6}x; {7:F0}s to trigger); descent {8}",
+                missionKey, cycle, phase, index, targetIdx, rate, (long)maxRate, triggerUT - currentUT,
+                currentUT >= triggerUT ? "playing" : "approaching"));
         }
 
         // --- Unity wiring (shared by the two concrete scene addons) ---
@@ -174,11 +182,11 @@ namespace Parsek.Reaim
         {
             WarpRateProvider = () => TimeWarp.CurrentRate;
             RateIndexProvider = () => TimeWarp.CurrentRateIndex;
-            DeltaTimeProvider = () => Time.unscaledDeltaTime;
             FrameProvider = () => Time.frameCount;
             SetRateAction = idx => { if (TimeWarp.fetch != null) TimeWarp.SetRate(idx, true); };
             EnabledProvider = () =>
                 ParsekSettings.Current == null || ParsekSettings.Current.autoDropWarpForDescent;
+            RateLevelsProvider = () => TimeWarp.fetch != null ? TimeWarp.fetch.warpRates : null;
             ResetForSceneChange();
         }
 
@@ -186,10 +194,10 @@ namespace Parsek.Reaim
         {
             WarpRateProvider = null;
             RateIndexProvider = null;
-            DeltaTimeProvider = null;
             FrameProvider = null;
             SetRateAction = null;
             EnabledProvider = null;
+            RateLevelsProvider = null;
         }
     }
 

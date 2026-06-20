@@ -1,126 +1,37 @@
+using System.Collections.Generic;
 using Parsek.Reaim;
 using Xunit;
-using Phase = Parsek.Reaim.DescentTrigger.DescentHeadPhase;
-using Action = Parsek.Reaim.DescentWarpAction;
 
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Unit tests for <see cref="DescentWarpControl.DecideWarpAction"/> — the pure, Unity-free deceleration-ramp
-    /// decision behind the (provisional) auto-slow-warp-for-descent diagnostic. The Unity seam / addons / per-frame
-    /// and per-cycle dedup are exercised in-game.
+    /// Unit tests for the pure, Unity-free decision behind the (provisional) auto-slow-warp-for-descent diagnostic:
+    /// <see cref="DescentWarpControl.DescentWindowEndLiveUT"/> (live/recorded frame conversion),
+    /// <see cref="DescentWarpControl.ComputeMaxWarpRate"/> (the distance-proportional cap), and
+    /// <see cref="DescentWarpControl.SelectRateIndexForCap"/> (rate-level pick). The Unity seam / addons / per-frame
+    /// dedup are exercised in-game.
     /// </summary>
     public class DescentWarpControlTests
     {
-        private const double Trigger = 1000.0;
-        private const double DescentEnd = 21513.0; // ~5.7h clip
-        private const float Dt = 0.02f;
-        private const int HiIdx = 7; // a high warp-rate index (so StepDown is allowed)
+        // Real cross-frame UTs from the 2026-06-20 logs: triggerUT is LIVE (~3.96e9); deorbit/end are RECORDED (~2.57e9).
+        private const double Trigger = 3962534821.2722712;
+        private const double Deorbit = 2570542380.9910212;
+        private const double RecEnd = 2570562894.315805;     // recorded descent-end (the dead-guard trap value)
+        private const double Clip = RecEnd - Deorbit;          // 20513.33s
 
-        [Fact]
-        public void Descent_HighWarp_DropsToRealtime()
-        {
-            Assert.Equal(Action.DropToRealtime, DescentWarpControl.DecideWarpAction(
-                Phase.Descent, 1100.0, Trigger, DescentEnd, 1000f, HiIdx, Dt, false));
-        }
-
-        [Fact]
-        public void Descent_AtRealtime_None()
-        {
-            Assert.Equal(Action.None, DescentWarpControl.DecideWarpAction(
-                Phase.Descent, 1100.0, Trigger, DescentEnd, 1f, 0, Dt, false));
-        }
-
-        [Fact]
-        public void AtOrPastTrigger_Warping_DropsToRealtime()
-        {
-            // Loop clock already at/after the trigger but before descentEnd, still warping -> drop.
-            Assert.Equal(Action.DropToRealtime, DescentWarpControl.DecideWarpAction(
-                Phase.Loiter, 1500.0, Trigger, DescentEnd, 1000f, HiIdx, Dt, false));
-        }
-
-        [Fact]
-        public void AlreadyDropped_None()
-        {
-            Assert.Equal(Action.None, DescentWarpControl.DecideWarpAction(
-                Phase.Descent, 1100.0, Trigger, DescentEnd, 1000f, HiIdx, Dt, true));
-        }
-
-        [Fact]
-        public void PastDescentEnd_None()
-        {
-            Assert.Equal(Action.None, DescentWarpControl.DecideWarpAction(
-                Phase.Descent, DescentEnd + 100.0, Trigger, DescentEnd, 1000f, HiIdx, Dt, false));
-        }
-
-        [Fact]
-        public void Loiter_NextStepUnderHalfTimeToTrigger_None()
-        {
-            // currentUT 500, rate 1000x, dt 0.02 -> step 20s; ttt 500; 20 <= 250 -> keep warping.
-            Assert.Equal(Action.None, DescentWarpControl.DecideWarpAction(
-                Phase.Loiter, 500.0, Trigger, DescentEnd, 1000f, HiIdx, Dt, false));
-        }
-
-        [Fact]
-        public void Loiter_NextStepOverHalfTimeToTrigger_StepsDown()
-        {
-            // currentUT 970, rate 1000x, dt 0.02 -> step 20s; ttt 30; 20 > 15 -> decelerate one level.
-            Assert.Equal(Action.StepDown, DescentWarpControl.DecideWarpAction(
-                Phase.Loiter, 970.0, Trigger, DescentEnd, 1000f, HiIdx, Dt, false));
-        }
-
-        [Fact]
-        public void Loiter_AlreadyAtLowestIndex_None()
-        {
-            // Even if the step would overshoot, index 0 cannot step down further (the at-trigger drop handles it).
-            Assert.Equal(Action.None, DescentWarpControl.DecideWarpAction(
-                Phase.Loiter, 970.0, Trigger, DescentEnd, 50f, 0, Dt, false));
-        }
-
-        [Fact]
-        public void Loiter_AtRealtime_None()
-        {
-            Assert.Equal(Action.None, DescentWarpControl.DecideWarpAction(
-                Phase.Loiter, 970.0, Trigger, DescentEnd, 1f, 0, Dt, false));
-        }
-
-        [Fact]
-        public void ExtremeWarp_StepsDownInsteadOfSteppingOver_TheActualFailedFrame()
-        {
-            // The real 2026-06-20 17:31 frame that the old single-shot check stepped over: at 1,000,000x the loiter
-            // was ~2 frames wide and the next frame leapt past the whole window. With the ramp the SAME frame
-            // (ttt ~31266s, step at 1Mx/0.02 = 20000s > 15633) decelerates instead of overshooting.
-            const double trig = 3883978907.88, dEnd = 3883999421.21, cur = 3883947641.95;
-            Assert.Equal(Action.StepDown, DescentWarpControl.DecideWarpAction(
-                Phase.Loiter, cur, trig, dEnd, 1_000_000f, HiIdx, Dt, false));
-            // And a frame-time hiccup (dt 0.05, the implied real step ~50000s) still decelerates, not overshoots.
-            Assert.Equal(Action.StepDown, DescentWarpControl.DecideWarpAction(
-                Phase.Loiter, cur, trig, dEnd, 1_000_000f, HiIdx, 0.05f, false));
-        }
-
-        [Fact]
-        public void NaNTiming_None()
-        {
-            Assert.Equal(Action.None, DescentWarpControl.DecideWarpAction(
-                Phase.Descent, 1100.0, double.NaN, DescentEnd, 1000f, HiIdx, Dt, false));
-            Assert.Equal(Action.None, DescentWarpControl.DecideWarpAction(
-                Phase.Loiter, 970.0, Trigger, double.NaN, 1000f, HiIdx, Dt, false));
-        }
+        // The standard stock KSP high-warp rate table.
+        private static readonly float[] Levels = { 1f, 5f, 10f, 50f, 100f, 1000f, 10000f, 100000f, 1000000f };
 
         // === Live/recorded frame conversion (the 2026-06-20 dead-warp-control bug) ===========================
 
         [Fact]
         public void DescentWindowEndLive_ConvertsRecordedClipIntoLiveFrame()
         {
-            // Real values from the 2026-06-20 18:00 log: triggerUT is LIVE (~3.96e9), deorbit/end are RECORDED
-            // (~2.57e9). The live window end must be triggerUT + the recorded clip, NOT the raw recorded end.
-            const double trig = 3962534821.2722712, deorbit = 2570542380.9910212, recEnd = 2570562894.315805;
-            double liveEnd = DescentWarpControl.DescentWindowEndLiveUT(trig, deorbit, recEnd);
+            double liveEnd = DescentWarpControl.DescentWindowEndLiveUT(Trigger, Deorbit, RecEnd);
             // Matches the DESCENT WINDOW log line's right bound (3962555334.597) within rounding.
             Assert.Equal(3962555334.597, liveEnd, 3);
             Assert.True(liveEnd > 3.9e9, "window end must be in the LIVE frame, not the recorded ~2.57e9 frame");
-            // The clip duration is preserved exactly.
-            Assert.Equal(recEnd - deorbit, liveEnd - trig, 6);
+            Assert.Equal(Clip, liveEnd - Trigger, 6); // clip duration preserved exactly
         }
 
         [Fact]
@@ -131,23 +42,106 @@ namespace Parsek.Tests
             Assert.True(double.IsNaN(DescentWarpControl.DescentWindowEndLiveUT(1.0, 2.0, double.NaN)));
         }
 
-        [Fact]
-        public void RealCrossFrameApproach_StillDecelerates_RegressionForDeadGuard()
-        {
-            // The exact failure the dead guard caused: a LIVE currentUT inside the loiter, approaching a LIVE
-            // trigger at high warp, with the descent window end computed from the RECORDED clip. The OLD code
-            // compared the live currentUT against the raw recorded descentEndUT (~2.57e9), so currentUT >= recEnd
-            // was always true -> None on every frame (the warp control never acted; auto-drop=0 all session).
-            // With the live-frame window end the SAME frame correctly decelerates.
-            const double trig = 3962534821.2722712, deorbit = 2570542380.9910212, recEnd = 2570562894.315805;
-            double liveEnd = DescentWarpControl.DescentWindowEndLiveUT(trig, deorbit, recEnd);
-            const double cur = 3962518000.0; // live, ~16821s before the trigger; at 1Mx one frame would overshoot
-            Assert.Equal(Action.StepDown, DescentWarpControl.DecideWarpAction(
-                Phase.Loiter, cur, trig, liveEnd, 1_000_000f, HiIdx, Dt, false));
+        // === ComputeMaxWarpRate (the distance-proportional cap) ================================================
 
-            // Sanity: feeding the RAW RECORDED end (the bug) makes the past-the-descent guard fire -> None.
-            Assert.Equal(Action.None, DescentWarpControl.DecideWarpAction(
-                Phase.Loiter, cur, trig, recEnd, 1_000_000f, HiIdx, Dt, false));
+        [Fact]
+        public void MaxWarpRate_PastTheDescent_NoCap()
+        {
+            double liveEnd = DescentWarpControl.DescentWindowEndLiveUT(Trigger, Deorbit, RecEnd);
+            Assert.True(double.IsPositiveInfinity(
+                DescentWarpControl.ComputeMaxWarpRate(liveEnd + 1.0, Trigger, liveEnd)));
+        }
+
+        [Fact]
+        public void MaxWarpRate_NaN_NoCap()
+        {
+            Assert.True(double.IsPositiveInfinity(
+                DescentWarpControl.ComputeMaxWarpRate(Trigger, double.NaN, Trigger + Clip)));
+        }
+
+        [Fact]
+        public void MaxWarpRate_InsideWindow_WatchableCap()
+        {
+            double liveEnd = DescentWarpControl.DescentWindowEndLiveUT(Trigger, Deorbit, RecEnd);
+            // Just inside the window: cap = clip / DescentWatchSeconds (so the clip plays over ~that many seconds).
+            double cap = DescentWarpControl.ComputeMaxWarpRate(Trigger + 1.0, Trigger, liveEnd);
+            Assert.Equal(Clip / DescentWarpControl.DescentWatchSeconds, cap, 6);
+            // A frame at this cap advances cap*dt; even a generous dt is far below the clip, so it cannot be skipped.
+            Assert.True(cap * 0.5 < Clip, "in-window cap must leave many frames inside the clip");
+        }
+
+        [Fact]
+        public void MaxWarpRate_Approaching_TightensWithDistance()
+        {
+            double liveEnd = DescentWarpControl.DescentWindowEndLiveUT(Trigger, Deorbit, RecEnd);
+            // 2,000,000 s out: cap = distance / WorstFrameSeconds = 2e6 / 4 = 500,000.
+            double cap = DescentWarpControl.ComputeMaxWarpRate(Trigger - 2_000_000.0, Trigger, liveEnd);
+            Assert.Equal(2_000_000.0 / DescentWarpControl.WorstFrameSeconds, cap, 3);
+        }
+
+        [Fact]
+        public void MaxWarpRate_Approaching_CannotOvershoot_TheCoreInvariant()
+        {
+            // The property that defeats the lag spike: at the cap, a worst-case frame (WorstFrameSeconds long) advances
+            // cap * WorstFrameSeconds <= the remaining distance, so it lands AT or before the window — never past.
+            double liveEnd = DescentWarpControl.DescentWindowEndLiveUT(Trigger, Deorbit, RecEnd);
+            foreach (double distance in new[] { 50.0, 500.0, 20_000.0, 500_000.0, 5_000_000.0 })
+            {
+                double cap = DescentWarpControl.ComputeMaxWarpRate(Trigger - distance, Trigger, liveEnd);
+                Assert.True(cap * DescentWarpControl.WorstFrameSeconds <= distance + 1e-6,
+                    $"a worst-case frame at the cap must not leap past the descent (distance={distance})");
+            }
+        }
+
+        [Fact]
+        public void MaxWarpRate_NeverBelowRealtime()
+        {
+            double liveEnd = DescentWarpControl.DescentWindowEndLiveUT(Trigger, Deorbit, RecEnd);
+            // 1 s from the trigger: distance/WorstFrameSeconds < 1, floored to 1.0 (never below realtime).
+            Assert.Equal(1.0, DescentWarpControl.ComputeMaxWarpRate(Trigger - 1.0, Trigger, liveEnd));
+        }
+
+        // === SelectRateIndexForCap (rate-level pick) ==========================================================
+
+        [Theory]
+        [InlineData(1_000_000.0, 8)] // exactly the top level
+        [InlineData(950_000.0, 7)]   // below 1M -> 100k
+        [InlineData(1000.0, 5)]      // exactly 1000x
+        [InlineData(999.0, 4)]       // below 1000 -> 100
+        [InlineData(20.0, 2)]        // below 50 -> 10
+        [InlineData(0.5, 0)]         // below realtime -> 1x floor
+        public void SelectRateIndex_PicksHighestLevelAtOrBelowCap(double cap, int expected)
+        {
+            Assert.Equal(expected, DescentWarpControl.SelectRateIndexForCap(cap, Levels));
+        }
+
+        [Fact]
+        public void SelectRateIndex_InfinityOrEmpty_TopOrZero()
+        {
+            Assert.Equal(Levels.Length - 1, DescentWarpControl.SelectRateIndexForCap(double.PositiveInfinity, Levels));
+            Assert.Equal(0, DescentWarpControl.SelectRateIndexForCap(1000.0, new List<float>()));
+            Assert.Equal(0, DescentWarpControl.SelectRateIndexForCap(1000.0, null));
+        }
+
+        // === The 2026-06-20 regression: 1,000,000x straddles the sub-frame window ============================
+
+        [Fact]
+        public void RealApproachAt1Mx_CapsBelow1Mx_SoTheWindowCannotBeStraddled()
+        {
+            // The exact failure: the player warps at 1,000,000x toward the descent; one frame (≈20,000 s, or a
+            // lag-spike ≈400,000 s) jumps the entire 20,513 s window between two resolver calls -> SKIPPED every cycle.
+            double liveEnd = DescentWarpControl.DescentWindowEndLiveUT(Trigger, Deorbit, RecEnd);
+            // 500,000 s out (well before the window): the cap is distance/4 = 125,000 -> index 7 (100,000x), already
+            // BELOW 1,000,000x, so the player is forced to decelerate long before a frame could straddle the window.
+            double cap = DescentWarpControl.ComputeMaxWarpRate(Trigger - 500_000.0, Trigger, liveEnd);
+            int targetIdx = DescentWarpControl.SelectRateIndexForCap(cap, Levels);
+            Assert.True(targetIdx < 8, "approaching at 1,000,000x must be capped DOWN before the window");
+            Assert.Equal(7, targetIdx); // 125,000 -> 100,000x
+
+            // Sanity: passing the RAW RECORDED end (the dead-guard bug) makes the past-the-descent branch fire (a live
+            // currentUT is always >= the recorded end), so the cap would be +Infinity = no cap = the bug.
+            Assert.True(double.IsPositiveInfinity(
+                DescentWarpControl.ComputeMaxWarpRate(Trigger - 500_000.0, Trigger, RecEnd)));
         }
     }
 }
