@@ -993,15 +993,20 @@ namespace Parsek.Display
 
         /// <summary>
         /// Clamp B (re-aim descent trigger): cap a forward-run window's <paramref name="chainDataEndUT"/> at the
-        /// unit's <c>RecordedDeorbitUT</c> when <paramref name="recordingIndex"/> is the NON-descent transfer/owner
-        /// member of a descent-trigger unit. The transfer member's own recorded data runs past the deorbit seam
-        /// into its Duna capture+parking+descent (rec.EndUT = the recorded landing); the SEPARATE descent members
-        /// own the re-anchored body-fixed descent, so the transfer member's forward run must stop at the seam to
-        /// avoid painting its own descent leg + forward bridge legs during the loiter. Byte-identical (returns
+        /// unit's SHIFTED parking-conic end (<c>RecordedDeorbitUT + CaptureShiftSeconds</c>, captureShift NEGATIVE)
+        /// when <paramref name="recordingIndex"/> is the NON-descent transfer/owner member of a descent-trigger
+        /// unit. PR #1177 shifts that member's destination parking conics ~|captureShift| EARLIER to meet the
+        /// early-arriving re-aimed transfer, so the rendered conics end at <c>deorbit+captureShift</c>. Leaving the
+        /// forward-run window at the UNSHIFTED <c>rec.EndUT</c> (~the seam, ~|captureShift| later) lets the
+        /// <see cref="ForwardRenderWindow"/> past-end branch (<c>currentUT &lt;= dataEndUT + 1</c>) fire once the
+        /// loiter icon passes the shifted conic end and paint the member's OWN unshifted recorded approach tail
+        /// plus a ~|captureShift|-gap bridge — the spurious "second path" the icon cannot follow. Capping at the
+        /// shifted conic end makes that guard FAIL the moment the icon leaves the shifted conic, killing the leak;
+        /// the shifted parking conic the icon rides is untouched. Byte-identical (returns
         /// <paramref name="chainDataEndUT"/> unchanged) when: <paramref name="loopUnits"/> is null, the index is
-        /// not a unit member, the unit has no descent trigger, the index IS a descent member (it takes its own
-        /// trigger-gated pass), RecordedDeorbitUT is NaN, or the window already ends at/before the seam. Pure;
-        /// xUnit-testable without Unity.
+        /// not a unit member, the unit has no descent trigger, the index IS a descent member (its line comes only
+        /// from its own trigger-gated pass), RecordedDeorbitUT/CaptureShiftSeconds is NaN, captureShift is not
+        /// negative, or the window already ends at/before the shifted conic end. Pure; xUnit-testable without Unity.
         /// </summary>
         internal static double ClampChainDataEndForDescentTransfer(
             double chainDataEndUT, int recordingIndex, GhostPlaybackLogic.LoopUnitSet loopUnits)
@@ -1009,8 +1014,12 @@ namespace Parsek.Display
             if (loopUnits != null
                 && loopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit unit)
                 && unit.HasDescentTrigger && !IsDescentTriggerMember(recordingIndex, loopUnits)
-                && !double.IsNaN(unit.RecordedDeorbitUT) && chainDataEndUT > unit.RecordedDeorbitUT)
-                return unit.RecordedDeorbitUT;
+                && !double.IsNaN(unit.RecordedDeorbitUT) && !double.IsNaN(unit.CaptureShiftSeconds))
+            {
+                double shiftedConicEndUT = unit.RecordedDeorbitUT + unit.CaptureShiftSeconds;
+                if (shiftedConicEndUT < unit.RecordedDeorbitUT && chainDataEndUT > shiftedConicEndUT)
+                    return shiftedConicEndUT;
+            }
             return chainDataEndUT;
         }
 
@@ -4523,14 +4532,14 @@ namespace Parsek.Display
                         chainDataEndUT = member.rec.EndUT;
                 }
 
-                // Re-aim descent trigger: the transfer/owner member's OWN recorded data runs PAST the recorded
-                // deorbit seam into its Duna capture+parking+descent (rec.EndUT = the recorded landing). The
-                // SEPARATE descent members own the re-anchored body-fixed descent; letting the forward run paint
-                // this member's own descent leg + forward bridge legs during the loiter leaves the descent line
-                // lingering on the map. Cap the forward window at the seam for the NON-descent transfer member of
-                // a descent-trigger unit, so the run ends at the parking-conic deorbit point. Byte-identical for
-                // non-re-aim chains (HasDescentTrigger false) and for descent members themselves (excluded by
-                // !IsDescentTriggerMember; their descent line comes only from their own trigger-gated pass).
+                // Re-aim descent trigger: the re-aim shifts the transfer/owner member's destination parking conics
+                // ~|captureShift| EARLIER (PR #1177), so they end at deorbit+captureShift. If the forward-run
+                // window stays at the UNSHIFTED rec.EndUT (~the seam, ~|captureShift| later), the past-end branch
+                // fires once the loiter icon passes the shifted conic and paints the member's OWN unshifted
+                // recorded approach tail + a ~|captureShift|-gap bridge — a spurious "second path" beside the
+                // shifted parking the icon rides. Cap the forward window at the SHIFTED conic end so that past-end
+                // run never fires. Byte-identical for non-re-aim chains (HasDescentTrigger false) and for descent
+                // members themselves (excluded; their line comes only from their own trigger-gated pass).
                 chainDataEndUT = ClampChainDataEndForDescentTransfer(
                     chainDataEndUT, recordingIndex, loopUnits);
 

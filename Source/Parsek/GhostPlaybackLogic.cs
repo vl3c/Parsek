@@ -8338,18 +8338,6 @@ namespace Parsek
             memberStartUT = unit.MemberStartUT(i, memberStartUT);
             memberEndUT = unit.MemberEndUT(i, memberEndUT);
 
-            // Re-aim descent trigger: the transfer/owner member carries its OWN recorded Duna capture+parking+descent
-            // (rec.EndUT = the recorded landing). The post-seam descent is a chain of short OrbitSegment fragments with
-            // dead gaps; letting the shared loop clock sweep through them flickers the icon (orbit-segment-active <-> proto)
-            // and the polyline paints the descent leg during the loiter. The SEPARATE descent members own the re-anchored
-            // descent, so clamp the transfer member's render window to the seam: it shows only the pre-seam parking conic.
-            // Byte-identical for non-re-aim units (HasDescentTrigger false) and for the descent members themselves (they
-            // take the IsDescentMember branch below before this matters). Runs BEFORE DecideUnitMemberRender so the
-            // Render/Hidden window and the returned effUT both use the clamped end.
-            if (unit.HasDescentTrigger && !unit.IsDescentMember(i)
-                && !double.IsNaN(unit.RecordedDeorbitUT) && memberEndUT > unit.RecordedDeorbitUT)
-                memberEndUT = unit.RecordedDeorbitUT;
-
             UnitMemberRenderDecision decision = DecideUnitMemberRender(
                 liveUT,
                 unit.PhaseAnchorUT,

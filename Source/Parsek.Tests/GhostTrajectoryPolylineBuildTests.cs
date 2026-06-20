@@ -1928,25 +1928,27 @@ namespace Parsek.Tests
             Assert.False(GhostTrajectoryPolylineRenderer.IsDescentTriggerMember(0, noTrigger));
         }
 
-        // Clamp B: the forward-run window's chainDataEndUT is capped at RecordedDeorbitUT for the NON-descent
-        // transfer member of a descent-trigger unit, so its own Duna descent leg + forward bridge legs stop
-        // painting during the loiter. MakeDescentUnitSet sets recordedDeorbitUT = 500, descent set = {0},
+        // Clamp B: the forward-run window's chainDataEndUT is capped at the SHIFTED parking-conic end
+        // (RecordedDeorbitUT + CaptureShiftSeconds) for the NON-descent transfer member of a descent-trigger
+        // unit, so once the loiter icon passes the shifted conic the past-end run no longer paints the member's
+        // own unshifted recorded approach tail + captureShift-gap bridge. MakeDescentUnitSet sets
+        // recordedDeorbitUT = 500, captureShiftSeconds = -100000 (shifted conic end = -99500), descent set = {0},
         // owner/member 2 = the non-descent transfer member.
         [Fact]
-        public void ClampChainDataEndForDescentTransfer_CapsTransferMemberAtDeorbit()
+        public void ClampChainDataEndForDescentTransfer_CapsTransferMemberAtShiftedConicEnd()
         {
-            const double deorbit = 500.0; // MakeDescentUnitSet's recordedDeorbitUT
+            const double shiftedConicEnd = 500.0 + (-100000.0); // recordedDeorbit + captureShift = -99500
             var units = MakeDescentUnitSet(new[] { 0 }, new[] { 0, 2 });
 
-            // index 2 = non-descent transfer member, window end PAST the seam -> clamped down to the seam.
+            // index 2 = non-descent transfer member, window end PAST the shifted conic end -> clamped down to it.
             double clamped = GhostTrajectoryPolylineRenderer.ClampChainDataEndForDescentTransfer(
-                deorbit + 100_000.0, 2, units);
-            Assert.Equal(deorbit, clamped, 6);
+                600_000.0, 2, units);
+            Assert.Equal(shiftedConicEnd, clamped, 6);
 
-            // A window already at/before the seam is untouched (no upward clamp).
+            // A window already at/before the shifted conic end is untouched (no upward clamp).
             double below = GhostTrajectoryPolylineRenderer.ClampChainDataEndForDescentTransfer(
-                deorbit - 1000.0, 2, units);
-            Assert.Equal(deorbit - 1000.0, below, 6);
+                shiftedConicEnd - 1000.0, 2, units);
+            Assert.Equal(shiftedConicEnd - 1000.0, below, 6);
         }
 
         [Fact]
