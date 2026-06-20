@@ -6,13 +6,17 @@ using UnityEngine;
 namespace Parsek.Reaim
 {
     // ============================================================================================================
-    // Auto-slow time-warp for re-aim looped descents (a real, user-gated feature — NOT a scaffold). A re-aim
-    // looped landing's recorded deorbit->reentry->landing clip renders for only its recorded duration once per
-    // multi-hundred-day loop (~0.05% of the loop), so at high warp a single frame leaps clean over it. This
-    // decelerates warp into the descent window so it is watchable. Gated by ParsekSettings.autoDropWarpForDescent
-    // (default on); fully no-op when the setting is off, in xUnit / non-flight scenes (the Unity seam is unwired),
-    // and for any vessel that is not a re-aim looped descent (the resolver only calls NotifyDescentState for a
-    // descent-trigger member). Caps DOWN only — the player always keeps slower control.
+    // TEMPORARY DEBUG AID — MUST BE REMOVED once the descent RENDERING issues are fully debugged. It BREAKS
+    // GAMEPLAY: it forcibly decelerates the player's time-warp near a re-aim looped descent. It exists only to make
+    // the descent reliably REACHABLE while we debug its rendering (the descent renders for ~0.05% of the loop, so
+    // at high warp a single frame leaps clean over it). It decelerates warp into the descent window via a
+    // distance-proportional cap. Gated by ParsekSettings.autoDropWarpForDescent (default on); no-op when the
+    // setting is off, in xUnit / non-flight scenes (the Unity seam is unwired), and for any vessel that is not a
+    // re-aim looped descent (the resolver only calls NotifyDescentState for a descent-trigger member). Caps DOWN
+    // only. NOT a shipping feature — do NOT keep a CHANGELOG entry for it.
+    // REMOVAL RECIPE (after the rendering is fixed): delete DescentWarpControl.cs + DescentWarpControlTests.cs +
+    // the ParsekSettings.autoDropWarpForDescent field + the NotifyDescentState call in
+    // GhostPlaybackLogic.ResolveTrackingStationSampleUT.
     // ============================================================================================================
 
     /// <summary>
