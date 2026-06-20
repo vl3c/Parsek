@@ -559,6 +559,127 @@ namespace Parsek.Tests
             Assert.Equal(Deorbit + 400.0, u49, 3);
         }
 
+        // --- FLIGHT-engine integration: GhostPlaybackLogic.ResolveDescentMemberEngineRender (Defect 3) ---
+        //
+        // The engine-side complement of the resolver branch: the same TryResolveDescentMemberHead remap,
+        // surfaced as render-flag + head + phase so the flight engine can drive a live ghost (vs the resolver's
+        // UT + renderHidden). These assert the engine helper produces the SAME render/head decision as the
+        // resolver for the descent set, so the flight scene renders descent members identically to the map/TS.
+
+        private static GhostPlaybackLogic.LoopUnit DescentUnitFor(GhostPlaybackLogic.LoopUnitSet units)
+        {
+            Assert.True(units.TryGetUnitForMember(49, out GhostPlaybackLogic.LoopUnit unit));
+            return unit;
+        }
+
+        [Fact]
+        public void EngineRender_DescentMember_RendersOnlyItsOwnSlice()
+        {
+            var units = BuildDescentUnit(engage: true);
+            var unit = DescentUnitFor(units);
+            double t = TriggerUT(0) + 400.0; // shared head = Deorbit + 400 -> in member 49's window only
+
+            var r49 = GhostPlaybackLogic.ResolveDescentMemberEngineRender(unit, 49, t, 0, W1Start, W1End);
+            Assert.True(r49.Render);
+            Assert.Equal(Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent, r49.Phase);
+            Assert.Equal(Deorbit + 400.0, r49.Head, 3);
+
+            var r50 = GhostPlaybackLogic.ResolveDescentMemberEngineRender(unit, 50, t, 0, W1End, W2End);
+            var r51 = GhostPlaybackLogic.ResolveDescentMemberEngineRender(unit, 51, t, 0, W2End, W3End);
+            Assert.False(r50.Render);
+            Assert.False(r51.Render);
+            // Hidden members carry NaN heads (never positioned on the raw loop clock).
+            Assert.True(double.IsNaN(r50.Head));
+            Assert.True(double.IsNaN(r51.Head));
+        }
+
+        [Fact]
+        public void EngineRender_DescentMember_HiddenInInertLoiterDone()
+        {
+            var units = BuildDescentUnit(engage: true);
+            var unit = DescentUnitFor(units);
+
+            var inert = GhostPlaybackLogic.ResolveDescentMemberEngineRender(
+                unit, 49, EntryUT(0) - 100.0, 0, W1Start, W1End);
+            var loiter = GhostPlaybackLogic.ResolveDescentMemberEngineRender(
+                unit, 49, EntryUT(0) + 100.0, 0, W1Start, W1End);
+            var done = GhostPlaybackLogic.ResolveDescentMemberEngineRender(
+                unit, 49, TriggerUT(0) + (DescentEnd - Deorbit) + 50.0, 0, W1Start, W1End);
+
+            Assert.False(inert.Render);
+            Assert.Equal(Parsek.Reaim.DescentTrigger.DescentHeadPhase.Inert, inert.Phase);
+            Assert.False(loiter.Render);
+            Assert.Equal(Parsek.Reaim.DescentTrigger.DescentHeadPhase.Loiter, loiter.Phase);
+            Assert.False(done.Render);
+            Assert.Equal(Parsek.Reaim.DescentTrigger.DescentHeadPhase.Done, done.Phase);
+            Assert.True(double.IsNaN(inert.Head));
+            Assert.True(double.IsNaN(loiter.Head));
+            Assert.True(double.IsNaN(done.Head));
+        }
+
+        [Fact]
+        public void EngineRender_MatchesResolver_HeadAndRenderFlag()
+        {
+            var units = BuildDescentUnit(engage: true);
+            var unit = DescentUnitFor(units);
+            // Across Inert / Loiter / Descent(in-slice + out-of-slice) / Done the engine render flag mirrors the
+            // resolver's !renderHidden, and the rendered head equals the resolver's returned UT.
+            foreach (double t in new[]
+            {
+                EntryUT(0) - 100.0,                         // Inert
+                EntryUT(0) + 100.0,                         // Loiter
+                TriggerUT(0) + 400.0,                       // Descent, in member 49's slice
+                TriggerUT(0) + (DescentEnd - Deorbit) + 50.0 // Done
+            })
+            {
+                double resolverUT = Resolve(49, W1Start, W1End, t, units, out bool resolverHidden);
+                var eng = GhostPlaybackLogic.ResolveDescentMemberEngineRender(unit, 49, t, 0, W1Start, W1End);
+                Assert.Equal(!resolverHidden, eng.Render);
+                if (eng.Render)
+                    Assert.Equal(resolverUT, eng.Head, 6);
+            }
+        }
+
+        [Fact]
+        public void EngineRender_ReArmsAtCycle1()
+        {
+            var units = BuildDescentUnit(engage: true);
+            var unit = DescentUnitFor(units);
+            double t = TriggerUT(1) + 400.0; // cycle 1, shared head = Deorbit + 400 -> member 49 again
+            var r = GhostPlaybackLogic.ResolveDescentMemberEngineRender(unit, 49, t, 1, W1Start, W1End);
+            Assert.True(r.Render);
+            Assert.Equal(Deorbit + 400.0, r.Head, 3);
+            Assert.Equal(1L, r.CycleIndex);
+        }
+
+        // --- DescribeLoopMemberRoleForTeardown: the teardown-reason tag that ties a [GhostMap] destroy to the
+        //     descent member (observability, used at the renderHidden ghost-teardown sites) ---
+
+        [Fact]
+        public void TeardownRole_DescentMember_TagsWithIndex()
+        {
+            var units = BuildDescentUnit(engage: true);
+            // A descent member's teardown reason carries " descent-member={i}" for correlation.
+            string r49 = GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(49, units);
+            Assert.Equal(" descent-member=49", r49);
+            Assert.Equal(" descent-member=51", GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(51, units));
+        }
+
+        [Fact]
+        public void TeardownRole_NonDescentAndNonMember_AreEmpty()
+        {
+            var on = BuildDescentUnit(engage: true);
+            // The owner member 0 is a unit member but NOT in the descent set -> empty (byte-identical reason).
+            Assert.Equal(string.Empty, GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(0, on));
+            // An index not in the unit at all -> empty.
+            Assert.Equal(string.Empty, GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(999, on));
+            // A null unit set -> empty (no loop, no role).
+            Assert.Equal(string.Empty, GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(49, null));
+            // The SAME descent index but with the trigger NOT engaged (no descent trigger) -> empty.
+            var off = BuildDescentUnit(engage: false);
+            Assert.Equal(string.Empty, GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(49, off));
+        }
+
         // --- ComputeDescentTiming: the window bounds shared by the head dispatch and the observability trace ---
 
         [Fact]
@@ -624,6 +745,60 @@ namespace Parsek.Tests
             // Even repeated Inert (the long launch/transfer/parking stretch) stays silent.
             Assert.Equal(DescentTrigger.DescentRenderEvent.None,
                 DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Inert));
+        }
+
+        // --- Reverted: the descent rendered then fell back to Loiter/Inert mid-clip (the user-reported
+        //     "icon moved back onto the loiter trajectory" bug). One event per cycle; a clean
+        //     Descent -> Done finish is NOT a revert. ---
+
+        [Fact]
+        public void Lifecycle_RenderedThenLoiter_EmitsRevertedOnce()
+        {
+            var s = default(DescentTrigger.DescentTraceState);
+            DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Loiter); // window
+            Assert.Equal(DescentTrigger.DescentRenderEvent.Rendered,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Descent));
+            // The head leaves the descent clip back to Loiter mid-cycle -> Reverted (the bug).
+            Assert.Equal(DescentTrigger.DescentRenderEvent.Reverted,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Loiter));
+            // Only once per cycle, even if it oscillates back and forth.
+            Assert.Equal(DescentTrigger.DescentRenderEvent.None,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Descent));
+            Assert.Equal(DescentTrigger.DescentRenderEvent.None,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Loiter));
+        }
+
+        [Fact]
+        public void Lifecycle_RenderedThenInert_EmitsReverted()
+        {
+            var s = default(DescentTrigger.DescentTraceState);
+            DescentTrigger.ClassifyDescentRenderEvent(ref s, 2, DescentTrigger.DescentHeadPhase.Loiter);
+            DescentTrigger.ClassifyDescentRenderEvent(ref s, 2, DescentTrigger.DescentHeadPhase.Descent);
+            // Falling all the way back to Inert after rendering is also a revert.
+            Assert.Equal(DescentTrigger.DescentRenderEvent.Reverted,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 2, DescentTrigger.DescentHeadPhase.Inert));
+        }
+
+        [Fact]
+        public void Lifecycle_CleanDescentToDone_DoesNotEmitReverted()
+        {
+            var s = default(DescentTrigger.DescentTraceState);
+            DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Loiter);
+            DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Descent);
+            // The normal landing: Descent -> Done is the expected finish, NOT a revert (Done is excluded).
+            Assert.Equal(DescentTrigger.DescentRenderEvent.None,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Done));
+        }
+
+        [Fact]
+        public void Lifecycle_LoiterBeforeRender_DoesNotEmitReverted()
+        {
+            var s = default(DescentTrigger.DescentTraceState);
+            // Loiter BEFORE any Descent frame opens the window but is not a revert (nothing rendered yet).
+            Assert.Equal(DescentTrigger.DescentRenderEvent.WindowOpened,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Loiter));
+            Assert.Equal(DescentTrigger.DescentRenderEvent.None,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Loiter));
         }
     }
 }

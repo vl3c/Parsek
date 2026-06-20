@@ -1842,6 +1842,92 @@ namespace Parsek.Tests
             Assert.Equal(3, membersUngated.Count);
         }
 
+        // Builds a re-aim LoopUnit + set whose descent member set is the given committed indices, owner=2.
+        private static Parsek.GhostPlaybackLogic.LoopUnitSet MakeDescentUnitSet(int[] descentIndices, int[] memberIndices)
+        {
+            var plan = new Parsek.Reaim.ReaimMissionPlan { Supported = true };
+            var sched = new Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule { Valid = true };
+            var unit = new Parsek.GhostPlaybackLogic.LoopUnit(
+                2, memberIndices, 0.0, 1000.0, 2000.0, 0.0, 2000.0, null, null, plan, sched,
+                loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
+                arrivalAlignPeriodSeconds: double.NaN, arrivalAmberReason: null,
+                launchBodyRotationPeriodSeconds: double.NaN, launchHoldEngaged: false, recordedSoiExitUT: double.NaN,
+                descentMemberIndices: descentIndices, recordedDeorbitUT: 500.0, descentEndUT: 600.0,
+                destinationBodyRotationPeriodSeconds: 65517.86, loiterPeriodSeconds: 4000.0, captureShiftSeconds: -100000.0);
+            var ownerByIndex = new Dictionary<int, int>();
+            foreach (int mi in memberIndices) ownerByIndex[mi] = 2;
+            return new Parsek.GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, Parsek.GhostPlaybackLogic.LoopUnit> { { 2, unit } }, ownerByIndex);
+        }
+
+        // DEFECT 2 regression: a chain=none descent member passed as `rec` itself must NOT be re-added.
+        // CollectChainRunMembers' non-chain direct-add path (and the empty-members defensive fallback) bypass
+        // the chain-member exclusion loop, so a standalone (chain=none) descent member used to leak back into
+        // the run and draw its descent leg on the visible member's loop-clock head. The fix leaves the member
+        // set EMPTY for it (its descent line comes only from its own trigger-gated primary pass).
+        [Fact]
+        public void CollectChainRunMembers_NonChainDescentMemberAsRec_NotReAdded()
+        {
+            // committed index 0 = a standalone (chain=none) descent member.
+            var descent = MakeChainMember("rec-descent-standalone", chainId: null, startUT: 600.0);
+            var committed = new List<Recording> { descent, MakeChainMember("x", null, 0.0) };
+            // Descent set = committed index 0; member set includes it (owner=2 is unrelated here).
+            var units = MakeDescentUnitSet(new[] { 0 }, new[] { 0, 2 });
+
+            var members = new List<(int index, Recording rec)> { (9, descent) }; // stale entry must clear
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(committed, descent, 0, members, units);
+
+            // The standalone descent member is fully excluded -> empty run (no leg/arc/bridge draws for it).
+            Assert.Empty(members);
+
+            // Without the loop-unit set the standalone member still collects as a single member (unchanged).
+            var ungated = new List<(int index, Recording rec)>();
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(committed, descent, 0, ungated);
+            Assert.Single(ungated);
+            Assert.Same(descent, ungated[0].rec);
+        }
+
+        // A NON-descent standalone recording is unaffected by the descent guard (still a single-member run).
+        [Fact]
+        public void CollectChainRunMembers_NonChainNonDescentMember_StillSingleMember()
+        {
+            var visible = MakeChainMember("rec-visible-standalone", chainId: null, startUT: 600.0);
+            var committed = new List<Recording> { visible, MakeChainMember("x", null, 0.0) };
+            // Descent set = committed index 1 (NOT index 0); index 0 is the visible member.
+            var units = MakeDescentUnitSet(new[] { 1 }, new[] { 0, 1 });
+
+            var members = new List<(int index, Recording rec)>();
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(committed, visible, 0, members, units);
+
+            Assert.Single(members);
+            Assert.Same(visible, members[0].rec);
+        }
+
+        // The IsDescentTriggerMember seam (shared by the three forward-run exclusion sites) truth table.
+        [Fact]
+        public void IsDescentTriggerMember_TruthTable()
+        {
+            var units = MakeDescentUnitSet(new[] { 0 }, new[] { 0, 2 });
+
+            // index 0 is the descent member -> true.
+            Assert.True(GhostTrajectoryPolylineRenderer.IsDescentTriggerMember(0, units));
+            // index 2 is a unit member but NOT in the descent set -> false.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsDescentTriggerMember(2, units));
+            // index 5 is not a member at all -> false.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsDescentTriggerMember(5, units));
+            // null loop-unit set -> false (byte-identical no-trigger path).
+            Assert.False(GhostTrajectoryPolylineRenderer.IsDescentTriggerMember(0, null));
+
+            // A unit with NO descent trigger -> false even for a member index.
+            var noTrigger = new Parsek.GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, Parsek.GhostPlaybackLogic.LoopUnit>
+                {
+                    { 2, new Parsek.GhostPlaybackLogic.LoopUnit(2, new[] { 0, 2 }, 0.0, 1000.0, 2000.0, 0.0) }
+                },
+                new Dictionary<int, int> { { 0, 2 }, { 2, 2 } });
+            Assert.False(GhostTrajectoryPolylineRenderer.IsDescentTriggerMember(0, noTrigger));
+        }
+
         // A chain recording missing from the committed list (detached caller input) falls back to the
         // single-member run instead of an empty member set (the pass must still draw something).
         [Fact]

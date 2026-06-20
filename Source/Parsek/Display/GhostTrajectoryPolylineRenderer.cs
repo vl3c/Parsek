@@ -930,7 +930,14 @@ namespace Parsek.Display
             if (rec == null) return;
             if (!rec.IsChainRecording || committed == null)
             {
-                members.Add((recordingIndex, rec));
+                // DESCENT TRIGGER: a standalone (chain=none) descent member must NOT be added to the run -
+                // it is drawn solely by its own trigger-gated primary pass at the re-anchored head. The
+                // chain-member exclusion loop below never runs for a non-chain rec, so the exclusion has to
+                // be applied on this direct-add path too (the live leak: a chain=none descent member like
+                // "Merger Kerman" drew its descent leg on the visible member's loop clock). Leave members
+                // empty for it. A non-descent standalone recording is unaffected (guard false).
+                if (!IsDescentTriggerMember(recordingIndex, loopUnits))
+                    members.Add((recordingIndex, rec));
                 return;
             }
             for (int i = 0; i < committed.Count; i++)
@@ -945,9 +952,7 @@ namespace Parsek.Display
                 // its descent line on the loop clock every pass over its recorded slot - desynced from the
                 // trigger-controlled icon (the descent line painted on the loiter while the icon still waits).
                 // Its legs AND arcs stay out of the run, matching the descent member's intended full hide.
-                if (loopUnits != null
-                    && loopUnits.TryGetUnitForMember(i, out GhostPlaybackLogic.LoopUnit du)
-                    && du.HasDescentTrigger && du.IsDescentMember(i))
+                if (IsDescentTriggerMember(i, loopUnits))
                     continue;
                 members.Add((i, m));
             }
@@ -955,10 +960,35 @@ namespace Parsek.Display
             {
                 // Defensive: rec itself was not in the committed list (caller passed a detached
                 // recording) - fall back to the single-member run so the pass still works.
-                members.Add((recordingIndex, rec));
+                // Mirror the exclusion: never re-add a descent-trigger member here either (a
+                // chain=none descent member reaches this fallback because the chain-member loop
+                // above matched none, and re-adding it would draw its descent leg on the run's
+                // loop-clock head - exactly the leak the descent member's own trigger-gated
+                // primary pass already covers). Leave members empty so its legs/arcs/bridges
+                // stay out of the run.
+                if (!IsDescentTriggerMember(recordingIndex, loopUnits))
+                    members.Add((recordingIndex, rec));
                 return;
             }
             members.Sort((a, b) => a.rec.StartUT.CompareTo(b.rec.StartUT));
+        }
+
+        /// <summary>
+        /// True when committed index <paramref name="index"/> is a descent-set member of a re-aim looped
+        /// arrival (its owning unit <see cref="GhostPlaybackLogic.LoopUnit.HasDescentTrigger"/> and the index
+        /// is in its descent set). A descent member renders ONLY via its own trigger-gated primary pass (drawn
+        /// at the re-anchored rotation-aligned head, hidden during the loiter); it must be kept out of EVERY
+        /// forward-run leg/arc/bridge path, which all draw against the VISIBLE member's raw LOOP-CLOCK head and
+        /// would otherwise paint the descent line on the loiter while the icon still waits. The single seam for
+        /// the three forward-run exclusion sites (chain run membership, the head-leg bridge candidate, and the
+        /// per-member run loop) so they cannot drift apart. <c>loopUnits == null</c> / non-member / no descent
+        /// trigger -> false (byte-identical to the no-trigger path). Pure; xUnit-testable without Unity.
+        /// </summary>
+        internal static bool IsDescentTriggerMember(int index, GhostPlaybackLogic.LoopUnitSet loopUnits)
+        {
+            return loopUnits != null
+                && loopUnits.TryGetUnitForMember(index, out GhostPlaybackLogic.LoopUnit du)
+                && du.HasDescentTrigger && du.IsDescentMember(index);
         }
 
         /// <summary>
@@ -3644,6 +3674,31 @@ namespace Parsek.Display
                                 activeLegInfoFactory()));
                     }
 
+                    // SINGLE-LEG draw-state companion (logging gap fill): the multi-leg head/active-leg
+                    // diagnostics above only run for set.legs.Length > 1, so a SINGLE-leg recording (e.g. a
+                    // descent member's lone deorbit->landing clip, recs acf1435a / c5d0148a) had NO
+                    // per-recording line when its one leg toggled drawn<->head-UT-gated. That toggle is exactly
+                    // the descent-revert symptom on the polyline surface (the descent leg stops drawing the
+                    // instant the head leaves its window), so surface it on CHANGE keyed by recordingId: one
+                    // discrete line whenever this recording's single-leg draw state flips, carrying the head UT
+                    // and the leg span so the flip is greppable alongside the [ReaimDescent] phase line and the
+                    // [GhostMap] ghost teardown for the same recording. Restricted to single-leg recordings so
+                    // the multi-leg path keeps its richer active-leg CHANGED line as the sole signal.
+                    if (set.legs.Length == 1)
+                    {
+                        var oneLeg = set.legs[0];
+                        bool anyDrawnOne = anyDrawn;
+                        double headUtOne = headUT;
+                        string recIdOne = rec.RecordingId;
+                        ParsekLog.VerboseOnChange(DriverTag, "polyline-singleleg." + rec.RecordingId,
+                            anyDrawnOne ? "drawn" : "gated",
+                            () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Polyline single-leg draw CHANGED: rec={0} drawn={1} headUT={2:F1} " +
+                                "leg=[{3:F1},{4:F1}] span={5:F0}s body={6} pts={7}",
+                                recIdOne, anyDrawnOne, headUtOne, oneLeg.startUT, oneLeg.endUT,
+                                oneLeg.endUT - oneLeg.startUT, oneLeg.bodyName ?? "(null)", oneLeg.PointCount));
+                    }
+
                     if (anyDrawn)
                     {
                         frameDrawn++;
@@ -4479,8 +4534,16 @@ namespace Parsek.Display
                 // adjacent conics and applies the angle + signed-gap gates. The HEAD leg (drawn by the
                 // head-gated pass) is a candidate when it is body-fixed (an anchorable head leg is
                 // rotated onto the conic seam by the draw-time anchor, so it already connects).
+                //
+                // DESCENT TRIGGER: this head-leg block reads rec/set DIRECTLY (not chainRunMemberScratch),
+                // so a descent member reaching the forward pass as `rec` (it does during its Descent window:
+                // primaryRenders is true there) would add its body-fixed descent leg as a bridge candidate
+                // here and DecideSeamBridges would bridge INTO/OUT OF it. A descent member must be fully out
+                // of the run, so skip the head-leg block entirely for it - its descent line comes only from
+                // its own trigger-gated primary pass.
                 bridgeLegScratch.Clear();
-                if (set.legs != null)
+                bool recIsDescentMember = IsDescentTriggerMember(recordingIndex, loopUnits);
+                if (set.legs != null && !recIsDescentMember)
                 {
                     for (int li = 0; li < set.legs.Length; li++)
                     {
@@ -4505,6 +4568,17 @@ namespace Parsek.Display
                 for (int mi = 0; mi < chainRunMemberScratch.Count; mi++)
                 {
                     var member = chainRunMemberScratch[mi];
+
+                    // DESCENT TRIGGER (defence in depth): CollectChainRunMembers already excludes descent
+                    // members, but a chain=none descent member reaching this pass as `rec` is added by the
+                    // non-chain direct-add path (it is not a chain recording, so the chain-member exclusion
+                    // loop is never entered for it). Skip it here too so its run LEGS (B'), run ARCS (C), and
+                    // its participation in seam-bridge construction (the FUTURE-leg bridge candidates added
+                    // below) are ALL suppressed - the descent member is fully out of the forward run, and its
+                    // descent line is drawn solely by its own trigger-gated primary pass at the re-anchored
+                    // rotation-aligned head. A non-descent member is byte-identical (guard false).
+                    if (IsDescentTriggerMember(member.index, loopUnits))
+                        continue;
 
                     // ---- (B') RUN LEGS: any non-orbital leg of this member overlapping the run window,
                     // EXCLUDING the current head leg (drawn by the head-gated pass of the visible member).

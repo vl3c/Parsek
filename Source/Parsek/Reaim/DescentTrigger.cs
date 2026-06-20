@@ -236,6 +236,16 @@ namespace Parsek.Reaim
             Rendered,
             /// <summary>Done reached with no Descent frame this cycle — the render window was skipped (warp).</summary>
             Skipped,
+            /// <summary>
+            /// The head LEFT the Descent phase AFTER it had rendered this cycle, but BEFORE reaching Done
+            /// (i.e. it fell back to Loiter or Inert mid-clip). This is the "descent got cancelled / the icon
+            /// moved back onto the loiter trajectory" symptom: the descent member is hidden again, its ghost is
+            /// torn down (a <c>mission-loop-out-of-window</c> destroy on the [GhostMap] tag), and the loiter
+            /// member's conic carries the icon. Without this event the revert is INVISIBLE on the descent tag
+            /// (Rendered already fired, Skipped is suppressed once DescentSeen latches), so the lifecycle could
+            /// not be reconstructed from the log. Emitted at most once per cycle.
+            /// </summary>
+            Reverted,
         }
 
         /// <summary>Per-unit lifecycle state for <see cref="ClassifyDescentRenderEvent"/> (one struct per loop unit).</summary>
@@ -246,6 +256,9 @@ namespace Parsek.Reaim
             internal bool WindowLogged;
             internal bool DescentSeen;
             internal bool DoneLogged;
+            // Set once the Reverted event has fired this cycle (head left Descent after rendering, before Done),
+            // so the revert is reported at most once per cycle even though the resolver is called many times.
+            internal bool RevertLogged;
             // The previous DISTINCT frame's currentUT (managed by DescentRenderTrace.Note, NOT by
             // ClassifyDescentRenderEvent). Lets the Skipped line report the exact frame STEP that crossed the
             // window, so "skipped" can be distinguished from "the resolver simply was not called there".
@@ -269,12 +282,25 @@ namespace Parsek.Reaim
                 s.WindowLogged = false;
                 s.DescentSeen = false;
                 s.DoneLogged = false;
+                s.RevertLogged = false;
             }
 
             if (phase == DescentHeadPhase.Descent && !s.DescentSeen)
             {
                 s.DescentSeen = true;
                 return DescentRenderEvent.Rendered;
+            }
+            // REVERT: the head had already rendered this cycle (DescentSeen) but is now back in a NON-terminal
+            // pre-descent phase (Loiter or Inert) rather than progressing to Done. That is the user-reported
+            // "descent got cancelled and the icon moved back onto the loiter trajectory" symptom - the descent
+            // member hides again and its ghost is torn down. Surface it ONCE per cycle so the revert is greppable
+            // on the [ReaimDescent] tag instead of vanishing into a generic out-of-window ghost destroy. A clean
+            // Descent -> Done finish (the normal landing) is NOT a revert and is excluded below.
+            if (s.DescentSeen && !s.RevertLogged
+                && (phase == DescentHeadPhase.Loiter || phase == DescentHeadPhase.Inert))
+            {
+                s.RevertLogged = true;
+                return DescentRenderEvent.Reverted;
             }
             if (phase == DescentHeadPhase.Done && !s.DescentSeen && !s.DoneLogged)
             {
@@ -478,6 +504,23 @@ namespace Parsek.Reaim
                         $"DESCENT RENDERED cycle={cycle.ToString(ic)} member={member.ToString(ic)}: a frame landed in " +
                         $"the window at liveUT={currentUT.ToString("R", ic)} (trigger={triggerUT.ToString("R", ic)}); the " +
                         "ghost is created this frame - see the [MapRenderProbe]/[MapRenderTrace] truth lines for its world position.");
+                    break;
+                case DescentTrigger.DescentRenderEvent.Reverted:
+                    // frameStep = currentUT - the previous frame this trace saw. The descent had already rendered
+                    // this cycle (a Rendered line preceded this) but the head fell back to phase=Loiter/Inert
+                    // before reaching Done - the icon left the descent clip and re-circled the loiter conic. A
+                    // SMALL frameStep means the revert happened across an ordinary frame (a genuine mid-clip
+                    // cancel - the bug), while a LARGE frameStep means warp jumped the head back out of the
+                    // window. The descent ghost is torn down right after this; grep [GhostMap] for a
+                    // 'mission-loop-out-of-window' destroy at this liveUT to see the matching ghost teardown.
+                    ParsekLog.Warn("ReaimDescent",
+                        $"DESCENT REVERTED cycle={cycle.ToString(ic)} member={member.ToString(ic)}: phase={phase} " +
+                        $"after the descent had RENDERED this cycle - the icon left the descent clip and fell back to the " +
+                        $"loiter conic at liveUT={currentUT.ToString("R", ic)} " +
+                        $"(window=[{triggerUT.ToString("R", ic)},{winEnd.ToString("R", ic)}] clip={clip.ToString("F0", ic)}s). " +
+                        $"prevFrameUT={(havePrev ? prevUT.ToString("R", ic) : "n/a")} frameStep={(double.IsNaN(frameStep) ? "n/a" : frameStep.ToString("F0", ic) + "s")} " +
+                        $"cause={(!double.IsNaN(frameStep) && frameStep > clip ? "warp-jumped-head-out-of-window" : "mid-clip-cancel (head fell back across an ordinary frame - the descent/loiter render bug)")}. " +
+                        "The descent ghost is torn down this frame; see the matching [GhostMap] mission-loop-out-of-window destroy.");
                     break;
                 case DescentTrigger.DescentRenderEvent.Skipped:
                     // frameStep = currentUT - the previous frame this trace saw. If frameStep > the clip, the

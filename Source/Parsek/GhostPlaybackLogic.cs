@@ -7203,6 +7203,25 @@ namespace Parsek
         }
 
         /// <summary>
+        /// A short loop-role tag for the given committed member index, appended to a ghost-teardown reason
+        /// so a generic "mission-loop-out-of-window" destroy line states WHICH loop role the torn-down ghost
+        /// played. The only role that needs naming for diagnosis today is a DESCENT member of a re-aim looped
+        /// arrival: when its head leaves the descent clip the descent ghost is destroyed and the loiter member
+        /// carries the icon (the user-reported "icon moved back onto the loiter trajectory" symptom), so tagging
+        /// the destroy ties the [GhostMap] teardown to the [ReaimDescent] DESCENT REVERTED line by member index.
+        /// Returns the empty string for a non-member / non-descent member (so a non-descent destroy reason is
+        /// byte-identical to before). Pure; no Unity.
+        /// </summary>
+        internal static string DescribeLoopMemberRoleForTeardown(int memberIndex, LoopUnitSet units)
+        {
+            if (units == null || !units.TryGetUnitForMember(memberIndex, out LoopUnit unit))
+                return string.Empty;
+            if (unit.HasDescentTrigger && unit.IsDescentMember(memberIndex))
+                return " descent-member=" + memberIndex.ToString(CultureInfo.InvariantCulture);
+            return string.Empty;
+        }
+
+        /// <summary>
         /// A whole-period loiter interval excised from a re-aim loop's recorded timeline
         /// (docs/dev/plans/reaim-loiter-compression.md). Recorded
         /// [<see cref="StartUT"/>, <see cref="StartUT"/> + <see cref="LengthSeconds"/>] is removed from
@@ -8408,6 +8427,72 @@ namespace Parsek
             // automatically.
             renderHidden = true;
             return liveUT;
+        }
+
+        /// <summary>
+        /// The FLIGHT-engine descent-member render outcome (the engine-side complement of the
+        /// <see cref="ResolveTrackingStationSampleUT"/> descent branch). The map/TS resolver substitutes a
+        /// single sample UT; the engine instead positions a live ghost, so it needs the head plus an explicit
+        /// render flag and the phase (for logging / the lifecycle trace) rather than a UT + renderHidden pair.
+        /// </summary>
+        internal readonly struct DescentMemberEngineRender
+        {
+            internal DescentMemberEngineRender(
+                bool render, double head, Parsek.Reaim.DescentTrigger.DescentHeadPhase phase, long cycleIndex)
+            {
+                Render = render;
+                Head = head;
+                Phase = phase;
+                CycleIndex = cycleIndex;
+            }
+
+            /// <summary>True iff this member should render its ghost THIS frame at <see cref="Head"/> (the
+            /// Descent phase, and the shared head falls in this member's window). False -> the member is
+            /// HIDDEN (Inert / Loiter / Done / out-of-this-member's-slice); it must NEVER drive its ghost on
+            /// the raw loop clock (that is the wrong-rotation bug).</summary>
+            internal bool Render { get; }
+
+            /// <summary>The re-anchored descent head UT to position the ghost at when <see cref="Render"/> is
+            /// true; NaN otherwise.</summary>
+            internal double Head { get; }
+
+            /// <summary>The descent head phase this frame (Inert / Loiter / Descent / Done) for logging + the
+            /// always-on lifecycle trace.</summary>
+            internal Parsek.Reaim.DescentTrigger.DescentHeadPhase Phase { get; }
+
+            /// <summary>The loop cycle index the descent timing was computed for (passed through for the
+            /// lifecycle trace so the engine and the resolver agree on the cycle).</summary>
+            internal long CycleIndex { get; }
+        }
+
+        /// <summary>
+        /// FLIGHT-engine per-frame descent-member render decision (re-aim looped arrival,
+        /// docs/dev/plans/reaim-descent-trigger.md). Mirrors the <see cref="ResolveTrackingStationSampleUT"/>
+        /// descent branch EXACTLY so the flight engine renders a descent member identically to the map / TS:
+        /// detach it from the raw loop clock and re-anchor the whole descent set to the first rotation-aligned
+        /// moment after the icon reaches the parking-orbit deorbit point. The caller has already resolved the
+        /// shared span clock (<paramref name="unitCycle"/>) and trimmed the member window; this only runs the
+        /// descent remap via <see cref="Parsek.Reaim.DescentTrigger.TryResolveDescentMemberHead"/> and reports
+        /// whether THIS member renders (and at what re-anchored head). A descent member that does not render is
+        /// HIDDEN - it never drives its ghost on the raw loop clock. The caller is responsible for the
+        /// SpanClockUnresolved early-out BEFORE calling this (the engine tears the ghost down there already).
+        /// Pure: no Unity, no logging (the engine owns the rate-limited log + lifecycle trace at the call site,
+        /// exactly like the resolver). Returns the head phase too so the caller can drive the same
+        /// <see cref="Parsek.Reaim.DescentRenderTrace"/> lifecycle line.
+        /// </summary>
+        internal static DescentMemberEngineRender ResolveDescentMemberEngineRender(
+            LoopUnit unit, int i, double liveUT, long unitCycle,
+            double memberStartUT, double memberEndUT)
+        {
+            bool renderDescent = Parsek.Reaim.DescentTrigger.TryResolveDescentMemberHead(
+                liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
+                unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
+                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
+                memberStartUT, memberEndUT, out double descentHead,
+                out Parsek.Reaim.DescentTrigger.DescentHeadPhase descentPhase);
+
+            return new DescentMemberEngineRender(
+                renderDescent, renderDescent ? descentHead : double.NaN, descentPhase, unitCycle);
         }
 
         /// <summary>The render outcome for the BOUNDARY-OVERLAP secondary of one member on a given frame.</summary>

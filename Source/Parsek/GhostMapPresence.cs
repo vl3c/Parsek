@@ -2727,7 +2727,9 @@ namespace Parsek
                         hadLastKnown ? last.Body : null,
                         HighLogic.LoadedScene.ToString(),
                         hadLastKnown ? (Vector3d?)last.WorldPos : null,
-                        string.Format(ic, "{0} chainPid={1}", reason ?? "(none)", chainPid)));
+                        // Carry the recordingId for pid<->recordingId correlation (see the index-keyed destroy).
+                        string.Format(ic, "{0} chainPid={1} rec={2}", reason ?? "(none)", chainPid,
+                            hadLastKnown ? (last.RecordingId ?? "<none>") : "<none>")));
             }
 
             return wasTarget;
@@ -4253,7 +4255,11 @@ namespace Parsek
                         hadLastKnown ? last.Body : null,
                         HighLogic.LoadedScene.ToString(),
                         hadLastKnown ? (Vector3d?)last.WorldPos : null,
-                        string.Format(ic, "{0} index={1}", reason ?? "(none)", recordingIndex)));
+                        // Carry the recordingId so a GhostDestroyed line is greppable back to its recording
+                        // (and thus to the [ReaimDescent] descent-member lines and the always-on [GhostMap]
+                        // destroy decision line, which already names the recordingId + the descent-member tag).
+                        string.Format(ic, "{0} index={1} rec={2}", reason ?? "(none)", recordingIndex,
+                            hadLastKnown ? (last.RecordingId ?? "<none>") : "<none>")));
             }
         }
 
@@ -6931,7 +6937,13 @@ namespace Parsek
                 if (renderHidden)
                 {
                     if (toRemove == null) toRemove = new List<(int, string)>();
-                    toRemove.Add((idx, "mission-loop-out-of-window"));
+                    // Enrich the teardown reason with the loop role. This is the TRACKING-STATION teardown
+                    // site (where the descent-revert bug was observed): a descent member tearing down here is
+                    // the descent ghost being destroyed as its head leaves the descent clip and the loiter
+                    // member takes the icon, so name it for correlation with the [ReaimDescent] DESCENT
+                    // REVERTED line. Empty (byte-identical reason) for every non-descent member.
+                    toRemove.Add((idx, "mission-loop-out-of-window"
+                        + GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(idx, loopUnits)));
                     continue;
                 }
 
@@ -10992,7 +11004,11 @@ namespace Parsek
                             body.name,
                             HighLogic.LoadedScene.ToString(),
                             v.GetWorldPos3D(),
-                            logContext));
+                            // Correlation key: carry the recordingId in the reason so a GhostCreated line is
+                            // greppable back to its recording (the pid<->recordingId map is otherwise only in
+                            // the separate vesselPidToRecordingId writes). Ties the ghost-create TRUTH to the
+                            // descent DECISION ([ReaimDescent] is recordingId/member-keyed) for one grep.
+                            "rec=" + (traj != null ? traj.RecordingId : "<none>") + " " + logContext));
                 }
 
                 return v;
@@ -12786,7 +12802,13 @@ namespace Parsek
                     out bool renderHidden, out double loopEpochShiftSeconds);
                 if (renderHidden)
                 {
-                    GhostMapPresence.RemoveGhostVesselForRecording(idx, "mission-loop-out-of-window");
+                    // Enrich the teardown reason with the loop role: a descent member tearing down here is the
+                    // descent-revert/finish path (the icon falls back to the loiter conic), so the destroy line
+                    // names it for correlation with the [ReaimDescent] DESCENT REVERTED/SKIPPED line. Empty (=>
+                    // byte-identical reason) for every non-descent member.
+                    GhostMapPresence.RemoveGhostVesselForRecording(idx,
+                        "mission-loop-out-of-window"
+                        + GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(idx, loopUnits));
                     if (toRemoveFromMap == null) toRemoveFromMap = new List<int>();
                     toRemoveFromMap.Add(idx);
                     // Re-queue to pendingMapVessels so the create pass re-materializes the orbit
@@ -13068,7 +13090,12 @@ namespace Parsek
                         out bool renderHidden, out double loopEpochShiftSeconds);
                     if (renderHidden)
                     {
-                        GhostMapPresence.RemoveGhostVesselForRecording(idx, "mission-loop-out-of-window");
+                        // Enrich the teardown reason with the loop role (descent member => the descent
+                        // revert/finish path) so the destroy line correlates with the [ReaimDescent] line.
+                        // Empty (byte-identical reason) for every non-descent member.
+                        GhostMapPresence.RemoveGhostVesselForRecording(idx,
+                            "mission-loop-out-of-window"
+                            + GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(idx, loopUnits));
                         if (toReDefer == null) toReDefer = new List<int>();
                         toReDefer.Add(idx);
                         continue;
