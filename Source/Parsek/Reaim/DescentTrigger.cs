@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek.Reaim
 {
@@ -155,20 +156,13 @@ namespace Parsek.Reaim
                 || descentEndUT < recordedDeorbitUT)
                 return DescentHeadPhase.Inert;
 
-            // conicEnd: the deorbit point on the SHIFTED parking conic (recorded UT recordedDeorbitUT +
-            // captureShift). Because the shift is large and negative, conicEnd lands in the recorded TRANSFER
-            // region (before arrival), so only LAUNCH-side loiter cuts precede it - CompressSpanUT subtracts
-            // exactly those, mapping conicEnd to the live offset from launch (the destination loiter cut, which
-            // sits after arrival, is after conicEnd and correctly contributes 0). Null cuts -> identity, so the
-            // no-compression path is byte-identical.
-            double conicEnd = recordedDeorbitUT + captureShiftSeconds;
-            double entryOffset = GhostPlaybackLogic.CompressSpanUT(conicEnd, loiterCuts) - spanStartUT;
-            double entryUT = phaseAnchorUT + cycleIndex * cadenceSeconds + entryOffset;
+            ComputeDescentTiming(
+                cycleIndex, phaseAnchorUT, cadenceSeconds, spanStartUT, recordedDeorbitUT, rotationPeriod,
+                captureShiftSeconds, loiterCuts, out double conicEnd, out double entryUT, out double triggerUT);
 
             if (currentUT < entryUT)
                 return DescentHeadPhase.Inert; // icon still launching / transferring / riding the parking conic
 
-            double triggerUT = ComputeRotationAlignedTriggerUT(entryUT, recordedDeorbitUT, rotationPeriod);
             if (double.IsNaN(triggerUT))
                 return DescentHeadPhase.Inert; // defensive: degenerate trigger -> no remap
 
@@ -198,6 +192,96 @@ namespace Parsek.Reaim
 
             head = descentHead;
             return DescentHeadPhase.Descent;
+        }
+
+        /// <summary>
+        /// PURE descent timing for cycle <paramref name="cycleIndex"/>: the shifted-conic deorbit point
+        /// (<paramref name="conicEnd"/>), the live UT the icon reaches it (<paramref name="entryUT"/>), and the
+        /// rotation-aligned handoff UT (<paramref name="triggerUT"/>). Shared by <see cref="ComputeDescentMemberHead"/>
+        /// (the head dispatch) and the observability trace (the window bounds), so both agree on the timing. The
+        /// descent RENDER window is then <c>[triggerUT, triggerUT + (descentEndUT - recordedDeorbitUT)]</c>.
+        /// </summary>
+        internal static void ComputeDescentTiming(
+            long cycleIndex, double phaseAnchorUT, double cadenceSeconds, double spanStartUT,
+            double recordedDeorbitUT, double rotationPeriod, double captureShiftSeconds,
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts,
+            out double conicEnd, out double entryUT, out double triggerUT)
+        {
+            // conicEnd lands in the recorded TRANSFER region (captureShift is large + negative), so only
+            // LAUNCH-side loiter cuts precede it - CompressSpanUT subtracts exactly those (the destination cut,
+            // after arrival, contributes 0). Null cuts -> identity.
+            conicEnd = recordedDeorbitUT + captureShiftSeconds;
+            double entryOffset = GhostPlaybackLogic.CompressSpanUT(conicEnd, loiterCuts) - spanStartUT;
+            entryUT = phaseAnchorUT + cycleIndex * cadenceSeconds + entryOffset;
+            triggerUT = ComputeRotationAlignedTriggerUT(entryUT, recordedDeorbitUT, rotationPeriod);
+        }
+
+        // === Observability: descent-render lifecycle trace (always-on, bounded per cycle) ===============
+        // The decision-side complement to the MapRenderProbe truth-side tracer: the probe can only observe a
+        // ghost that was CREATED, but a descent member is hidden (never created) until its short render window,
+        // which at high warp is skipped between frames - so the probe sees nothing and the only evidence is here.
+        // This trace states, per loop cycle, EXACTLY ONE of: the window bounds (WindowOpened, at the first Loiter
+        // frame), that the descent actually RENDERED (the first Descent frame = proof it was sampled), or that it
+        // was SKIPPED (Done reached with no Descent frame = the warp stepped over the whole window). Bounded to a
+        // few lines per cycle, so it is Info/Warn (always on), not gated behind mapRenderTracing.
+
+        /// <summary>The descent-render lifecycle event for one resolver frame (see <see cref="ClassifyDescentRenderEvent"/>).</summary>
+        internal enum DescentRenderEvent
+        {
+            /// <summary>Nothing to emit this frame (already emitted for this cycle, or an unremarkable phase).</summary>
+            None,
+            /// <summary>First Loiter frame of the cycle — the descent window is now known; emit its bounds.</summary>
+            WindowOpened,
+            /// <summary>First Descent frame of the cycle — the descent was actually sampled (it rendered).</summary>
+            Rendered,
+            /// <summary>Done reached with no Descent frame this cycle — the render window was skipped (warp).</summary>
+            Skipped,
+        }
+
+        /// <summary>Per-unit lifecycle state for <see cref="ClassifyDescentRenderEvent"/> (one struct per loop unit).</summary>
+        internal struct DescentTraceState
+        {
+            internal long Cycle;
+            internal bool Started;       // false until the first call (so cycle 0 is not treated as a transition)
+            internal bool WindowLogged;
+            internal bool DescentSeen;
+            internal bool DoneLogged;
+        }
+
+        /// <summary>
+        /// PURE per-frame classification of the descent-render lifecycle, advancing <paramref name="s"/> and
+        /// returning the single event (if any) to log. Idempotent within a cycle and across the multiple resolver
+        /// call sites per frame: once an event has fired for a cycle it returns <see cref="DescentRenderEvent.None"/>.
+        /// A new cycle resets the per-cycle flags. No Unity, no logging (testable).
+        /// </summary>
+        internal static DescentRenderEvent ClassifyDescentRenderEvent(
+            ref DescentTraceState s, long cycle, DescentHeadPhase phase)
+        {
+            if (!s.Started || cycle != s.Cycle)
+            {
+                s.Started = true;
+                s.Cycle = cycle;
+                s.WindowLogged = false;
+                s.DescentSeen = false;
+                s.DoneLogged = false;
+            }
+
+            if (phase == DescentHeadPhase.Descent && !s.DescentSeen)
+            {
+                s.DescentSeen = true;
+                return DescentRenderEvent.Rendered;
+            }
+            if (phase == DescentHeadPhase.Done && !s.DescentSeen && !s.DoneLogged)
+            {
+                s.DoneLogged = true;
+                return DescentRenderEvent.Skipped;
+            }
+            if (phase == DescentHeadPhase.Loiter && !s.WindowLogged)
+            {
+                s.WindowLogged = true;
+                return DescentRenderEvent.WindowOpened;
+            }
+            return DescentRenderEvent.None;
         }
 
         /// <summary>
@@ -314,6 +398,80 @@ namespace Parsek.Reaim
 
             head = double.NaN;
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Always-on, bounded descent-render lifecycle logger - the decision-side complement to the truth-side
+    /// <c>MapRenderProbe</c>. A descent member is hidden (never created as a ghost) until its short render
+    /// window, which at high time-warp is skipped between frames, so the probe never observes it; this trace
+    /// states per loop cycle whether the descent RENDERED (a frame landed in its window), was SKIPPED (warp
+    /// stepped over it), and what the window bounds were - the evidence needed to diagnose "it didn't descend"
+    /// from the log alone. Holds the per-unit <see cref="DescentTrigger.DescentTraceState"/>; the decision is the
+    /// pure <see cref="DescentTrigger.ClassifyDescentRenderEvent"/>. One bounded set of lines per cycle, so it is
+    /// Info/Warn (not gated behind mapRenderTracing).
+    /// </summary>
+    internal static class DescentRenderTrace
+    {
+        private static readonly Dictionary<string, DescentTrigger.DescentTraceState> stateByUnit =
+            new Dictionary<string, DescentTrigger.DescentTraceState>(StringComparer.Ordinal);
+
+        internal static void ResetForTesting() => stateByUnit.Clear();
+
+        /// <summary>
+        /// Called per descent-member per frame from the resolver. Emits at most one bounded line per cycle event
+        /// (WindowOpened / Rendered / Skipped); idempotent across the multiple per-frame resolver call sites.
+        /// </summary>
+        internal static void Note(
+            string unitKey, int member, long cycle, DescentTrigger.DescentHeadPhase phase,
+            double currentUT, double entryUT, double triggerUT, double recordedDeorbitUT, double descentEndUT,
+            double cadenceSeconds, double rotationPeriod)
+        {
+            if (string.IsNullOrEmpty(unitKey))
+                return;
+            stateByUnit.TryGetValue(unitKey, out DescentTrigger.DescentTraceState s);
+            DescentTrigger.DescentRenderEvent ev = DescentTrigger.ClassifyDescentRenderEvent(ref s, cycle, phase);
+            stateByUnit[unitKey] = s;
+            if (ev == DescentTrigger.DescentRenderEvent.None)
+                return;
+
+            var ic = CultureInfo.InvariantCulture;
+            double clip = descentEndUT - recordedDeorbitUT;       // descent clip live duration
+            double winEnd = triggerUT + clip;                     // render window [trigger, trigger+clip]
+            double pctOfLoop = cadenceSeconds > 0.0 ? 100.0 * clip / cadenceSeconds : double.NaN;
+            // Rotation-alignment residual: the descent lands on the EXACT recorded site iff (trigger - deorbit) is
+            // a whole number of destination rotations. By construction this is ~0; a non-zero value would mean a
+            // wrong landing site (a broken trigger), so logging it makes "correct site" provable from the log.
+            double rotResidualDeg = double.NaN;
+            if (rotationPeriod > 0.0 && !double.IsInfinity(rotationPeriod))
+            {
+                double r = ((triggerUT - recordedDeorbitUT) % rotationPeriod + rotationPeriod) % rotationPeriod;
+                rotResidualDeg = 360.0 * Math.Min(r, rotationPeriod - r) / rotationPeriod;
+            }
+            switch (ev)
+            {
+                case DescentTrigger.DescentRenderEvent.WindowOpened:
+                    ParsekLog.Info("ReaimDescent",
+                        $"DESCENT WINDOW cycle={cycle.ToString(ic)}: loitering now; descent renders at " +
+                        $"[{triggerUT.ToString("R", ic)},{winEnd.ToString("R", ic)}] " +
+                        $"(clip={clip.ToString("F0", ic)}s = {pctOfLoop.ToString("F4", ic)}% of the " +
+                        $"{cadenceSeconds.ToString("F0", ic)}s loop; entry={entryUT.ToString("R", ic)}; " +
+                        $"siteRotResidual={rotResidualDeg.ToString("F4", ic)}deg = lands on the recorded site)");
+                    break;
+                case DescentTrigger.DescentRenderEvent.Rendered:
+                    ParsekLog.Info("ReaimDescent",
+                        $"DESCENT RENDERED cycle={cycle.ToString(ic)} member={member.ToString(ic)}: a frame landed in " +
+                        $"the window at liveUT={currentUT.ToString("R", ic)} (trigger={triggerUT.ToString("R", ic)}); the " +
+                        "ghost is created this frame - see the [MapRenderProbe]/[MapRenderTrace] truth lines for its world position.");
+                    break;
+                case DescentTrigger.DescentRenderEvent.Skipped:
+                    ParsekLog.Warn("ReaimDescent",
+                        $"DESCENT SKIPPED cycle={cycle.ToString(ic)}: reached Done at liveUT={currentUT.ToString("R", ic)} with NO " +
+                        $"frame inside the descent window [{triggerUT.ToString("R", ic)},{winEnd.ToString("R", ic)}] " +
+                        $"(clip={clip.ToString("F0", ic)}s = {pctOfLoop.ToString("F4", ic)}% of the loop) - the time-warp step " +
+                        "skipped it; drop to low warp inside that window to render + observe the descent.");
+                    break;
+            }
         }
     }
 }

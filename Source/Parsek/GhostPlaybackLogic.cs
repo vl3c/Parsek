@@ -8376,6 +8376,19 @@ namespace Parsek
                     $"deorbit={unit.RecordedDeorbitUT.ToString("R", dic)} end={unit.DescentEndUT.ToString("R", dic)} " +
                     $"cs={unit.CaptureShiftSeconds.ToString("R", dic)} Trot={unit.DestinationBodyRotationPeriodSeconds.ToString("R", dic)} Tpark={unit.LoiterPeriodSeconds.ToString("R", dic)}");
 
+                // Always-on lifecycle trace (bounded per cycle): states whether the descent RENDERED, was SKIPPED
+                // (warp stepped over its window), and the window bounds - the decision-side evidence the truth-side
+                // MapRenderProbe cannot give (the descent member is never created until it actually renders).
+                Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
+                    unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT, unit.RecordedDeorbitUT,
+                    unit.DestinationBodyRotationPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
+                    out _, out double dscEntryUT, out double dscTriggerUT);
+                Parsek.Reaim.DescentRenderTrace.Note(
+                    $"{unit.PhaseAnchorUT.ToString("R", dic)}.{unit.SpanStartUT.ToString("R", dic)}",
+                    i, unitCycle, descentPhase, liveUT, dscEntryUT, dscTriggerUT,
+                    unit.RecordedDeorbitUT, unit.DescentEndUT, unit.CadenceSeconds,
+                    unit.DestinationBodyRotationPeriodSeconds);
+
                 if (renderDescent)
                 {
                     renderHidden = false; // this member owns its slice of the re-anchored clip

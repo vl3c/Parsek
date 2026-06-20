@@ -558,5 +558,72 @@ namespace Parsek.Tests
             Assert.False(h49);
             Assert.Equal(Deorbit + 400.0, u49, 3);
         }
+
+        // --- ComputeDescentTiming: the window bounds shared by the head dispatch and the observability trace ---
+
+        [Fact]
+        public void Timing_MatchesTheHeadDispatchEntryAndTrigger()
+        {
+            DescentTrigger.ComputeDescentTiming(
+                0, Pa, Cad, SpanStart, Deorbit, DunaTrot, CapShift, null,
+                out double conicEnd, out double entryUT, out double triggerUT);
+            Assert.Equal(Deorbit + CapShift, conicEnd, 3);
+            Assert.Equal(EntryUT(0), entryUT, 3);     // same entry the head dispatch uses
+            Assert.Equal(TriggerUT(0), triggerUT, 3); // same trigger -> the trace's window agrees with the render
+        }
+
+        // --- ClassifyDescentRenderEvent: the per-cycle render/skip lifecycle (pure, stateful via ref) ---
+
+        [Fact]
+        public void Lifecycle_LoiterThenDescent_EmitsWindowThenRendered_OncEach()
+        {
+            var s = default(DescentTrigger.DescentTraceState);
+            Assert.Equal(DescentTrigger.DescentRenderEvent.WindowOpened,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Loiter));
+            Assert.Equal(DescentTrigger.DescentRenderEvent.None,  // idempotent across per-frame call sites
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Loiter));
+            Assert.Equal(DescentTrigger.DescentRenderEvent.Rendered,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Descent));
+            Assert.Equal(DescentTrigger.DescentRenderEvent.None,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Descent));
+            // Reaching Done after a real render does NOT emit Skipped.
+            Assert.Equal(DescentTrigger.DescentRenderEvent.None,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Done));
+        }
+
+        [Fact]
+        public void Lifecycle_LoiterThenDone_NoDescent_EmitsSkippedOnce()
+        {
+            var s = default(DescentTrigger.DescentTraceState);
+            DescentTrigger.ClassifyDescentRenderEvent(ref s, 3, DescentTrigger.DescentHeadPhase.Loiter); // window
+            Assert.Equal(DescentTrigger.DescentRenderEvent.Skipped, // warp stepped Loiter -> Done over the window
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 3, DescentTrigger.DescentHeadPhase.Done));
+            Assert.Equal(DescentTrigger.DescentRenderEvent.None, // only once
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 3, DescentTrigger.DescentHeadPhase.Done));
+        }
+
+        [Fact]
+        public void Lifecycle_NewCycle_ReArms()
+        {
+            var s = default(DescentTrigger.DescentTraceState);
+            DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Loiter);
+            DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Descent);
+            // Next cycle: the window opens again (flags reset on the cycle change).
+            Assert.Equal(DescentTrigger.DescentRenderEvent.WindowOpened,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 1, DescentTrigger.DescentHeadPhase.Loiter));
+            Assert.Equal(DescentTrigger.DescentRenderEvent.Rendered,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 1, DescentTrigger.DescentHeadPhase.Descent));
+        }
+
+        [Fact]
+        public void Lifecycle_Inert_EmitsNothing()
+        {
+            var s = default(DescentTrigger.DescentTraceState);
+            Assert.Equal(DescentTrigger.DescentRenderEvent.None,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Inert));
+            // Even repeated Inert (the long launch/transfer/parking stretch) stays silent.
+            Assert.Equal(DescentTrigger.DescentRenderEvent.None,
+                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Inert));
+        }
     }
 }
