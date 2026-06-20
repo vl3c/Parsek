@@ -6,11 +6,13 @@ using UnityEngine;
 namespace Parsek.Reaim
 {
     // ============================================================================================================
-    // TEMPORARY / PROVISIONAL — DIAGNOSTIC SCAFFOLD, NOT A SHIPPING FEATURE. Exists only to capture ONE clean
-    // in-window descent log (the descent window is ~0.05% of the loop and manual warp keeps stepping over it).
-    // Once the descent is confirmed to render cleanly, REVERT this whole feature: delete DescentWarpControl.cs +
-    // DescentWarpControlTests.cs, the ParsekSettings.autoDropWarpForDescent field, and the NotifyDescentState call
-    // in GhostPlaybackLogic.ResolveTrackingStationSampleUT. Do NOT add it to the CHANGELOG as a feature.
+    // Auto-slow time-warp for re-aim looped descents (a real, user-gated feature — NOT a scaffold). A re-aim
+    // looped landing's recorded deorbit->reentry->landing clip renders for only its recorded duration once per
+    // multi-hundred-day loop (~0.05% of the loop), so at high warp a single frame leaps clean over it. This
+    // decelerates warp into the descent window so it is watchable. Gated by ParsekSettings.autoDropWarpForDescent
+    // (default on); fully no-op when the setting is off, in xUnit / non-flight scenes (the Unity seam is unwired),
+    // and for any vessel that is not a re-aim looped descent (the resolver only calls NotifyDescentState for a
+    // descent-trigger member). Caps DOWN only — the player always keeps slower control.
     // ============================================================================================================
 
     /// <summary>

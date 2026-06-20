@@ -74,7 +74,7 @@ namespace Parsek.Tests
         public void MaxWarpRate_Approaching_TightensWithDistance()
         {
             double liveEnd = DescentWarpControl.DescentWindowEndLiveUT(Trigger, Deorbit, RecEnd);
-            // 2,000,000 s out: cap = distance / WorstFrameSeconds = 2e6 / 4 = 500,000.
+            // 2,000,000 s out: cap = distance / WorstFrameSeconds = 2e6 / 2 = 1,000,000.
             double cap = DescentWarpControl.ComputeMaxWarpRate(Trigger - 2_000_000.0, Trigger, liveEnd);
             Assert.Equal(2_000_000.0 / DescentWarpControl.WorstFrameSeconds, cap, 3);
         }

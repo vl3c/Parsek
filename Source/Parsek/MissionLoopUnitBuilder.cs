@@ -796,43 +796,17 @@ namespace Parsek
                                     descentWindows.Add(mw2);
                             descentWindows.Sort((a, b) => a.StartUT.CompareTo(b.StartUT));
 
-                            double descentSetEndUT = double.NaN;
-                            double descentSetMinStartUT = double.NaN;
-                            // CONTIGUITY (review B1): the shared monotone descent head must be covered by SOME
-                            // member at every UT in [seam, descentEnd]. A real gap between member windows would
-                            // drop the head into no window = a blank ghost mid-clip; a first window starting after
-                            // the seam would blank the start of the clip (the head begins at recordedDeorbit=seam).
-                            // Require every member to have a window, the windows to tile contiguously (within eps),
-                            // and the first window to begin at the seam; otherwise DECLINE (faithful, byte-identical
-                            // fallback) rather than engage with a known blackout.
-                            bool descentContiguous = descentWindows.Count == descentSet.Length;
-                            for (int k = 0; k < descentWindows.Count; k++)
-                            {
-                                if (double.IsNaN(descentSetEndUT) || descentWindows[k].EndUT > descentSetEndUT)
-                                    descentSetEndUT = descentWindows[k].EndUT;
-                                if (double.IsNaN(descentSetMinStartUT) || descentWindows[k].StartUT < descentSetMinStartUT)
-                                    descentSetMinStartUT = descentWindows[k].StartUT;
-                                if (k > 0 && descentWindows[k].StartUT
-                                        > descentWindows[k - 1].EndUT + descentSeamEpsSeconds)
-                                    descentContiguous = false;
-                            }
-                            bool descentStartMatchesSeam = !double.IsNaN(descentSetMinStartUT)
-                                && System.Math.Abs(descentSetMinStartUT - seamUT) <= descentSeamEpsSeconds;
-                            // conicEnd = recordedDeorbit + captureShift must lie in the post-SOI-exit transfer
-                            // region the entryUT derivation assumes (launch-hold borrow/repay cancel there); a very
-                            // large |captureShift| could push it before the SOI exit and desync the handoff
-                            // (review m5). NaN SOI-exit (no launch-body parking leg / no hold) skips the guard.
-                            double conicEndRecorded = seamUT + descCaptureShift;
-                            bool descentConicInRegion = double.IsNaN(plan.RecordedSoiExitUT)
-                                || conicEndRecorded >= plan.RecordedSoiExitUT;
-
-                            bool descentEngage = foundDescentRun
-                                && !double.IsNaN(descCaptureShift) && descCaptureShift < 0.0
-                                && descTrot > 0.0 && !double.IsInfinity(descTrot)
-                                && !double.IsNaN(seamUT)
-                                && descentSet.Length > 0
-                                && !double.IsNaN(descentSetEndUT) && descentSetEndUT > seamUT
-                                && descentContiguous && descentStartMatchesSeam && descentConicInRegion;
+                            // Build-time engage/decline decision (contiguity / seam-match / conic-region safety
+                            // gates) extracted to the pure, xUnit-tested DescentTrigger.EvaluateEngage so a
+                            // regression in any guard is caught by CI. descentWindows is ascending by StartUT.
+                            Parsek.Reaim.DescentTrigger.DescentEngageDecision descentDecision =
+                                Parsek.Reaim.DescentTrigger.EvaluateEngage(
+                                    foundDescentRun, descentWindows, descentSet.Length, seamUT,
+                                    descCaptureShift, descTrot, plan.RecordedSoiExitUT, descentSeamEpsSeconds);
+                            double descentSetEndUT = descentDecision.SetEndUT;
+                            double descentSetMinStartUT = descentDecision.SetMinStartUT;
+                            double conicEndRecorded = seamUT + descCaptureShift; // for the engage log line below
+                            bool descentEngage = descentDecision.Engage;
                             if (descentEngage)
                             {
                                 descentMemberIndices = descentSet;
@@ -876,8 +850,8 @@ namespace Parsek
                                     $"(foundRun={foundDescentRun} captureShift={descCaptureShift.ToString("R", dic)} " +
                                     $"Trot={descTrot.ToString("R", dic)} seam={seamUT.ToString("R", dic)} " +
                                     $"descentSet=[{string.Join(",", descentSet)}] setEnd={descentSetEndUT.ToString("R", dic)} " +
-                                    $"contiguous={descentContiguous} startMatchesSeam={descentStartMatchesSeam} " +
-                                    $"conicInRegion={descentConicInRegion} setMinStart={descentSetMinStartUT.ToString("R", dic)})");
+                                    $"contiguous={descentDecision.Contiguous} startMatchesSeam={descentDecision.StartMatchesSeam} " +
+                                    $"conicInRegion={descentDecision.ConicInRegion} setMinStart={descentSetMinStartUT.ToString("R", dic)})");
                             }
                         }
                         else if (!SuppressLogging)

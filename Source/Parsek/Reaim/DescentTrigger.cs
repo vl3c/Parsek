@@ -457,6 +457,90 @@ namespace Parsek.Reaim
             return selected.ToArray();
         }
 
+        /// <summary>The build-time engage/decline decision + derived set bounds (see <see cref="EvaluateEngage"/>).</summary>
+        internal readonly struct DescentEngageDecision
+        {
+            internal DescentEngageDecision(bool engage, double setEndUT, double setMinStartUT,
+                bool contiguous, bool startMatchesSeam, bool conicInRegion)
+            {
+                Engage = engage;
+                SetEndUT = setEndUT;
+                SetMinStartUT = setMinStartUT;
+                Contiguous = contiguous;
+                StartMatchesSeam = startMatchesSeam;
+                ConicInRegion = conicInRegion;
+            }
+
+            /// <summary>True iff the descent trigger should engage (else the caller stays faithful/byte-identical).</summary>
+            internal bool Engage { get; }
+            /// <summary>The descent set's last member EndUT (=&gt; DescentEndUT); NaN if no windows.</summary>
+            internal double SetEndUT { get; }
+            /// <summary>The descent set's first member StartUT; NaN if no windows.</summary>
+            internal double SetMinStartUT { get; }
+            /// <summary>Every member has a window and the windows tile with no gap &gt; eps.</summary>
+            internal bool Contiguous { get; }
+            /// <summary>The first window begins at the seam (within eps).</summary>
+            internal bool StartMatchesSeam { get; }
+            /// <summary>conicEnd (= seam + captureShift) sits at/after the recorded SOI exit (or SOI-exit is NaN).</summary>
+            internal bool ConicInRegion { get; }
+        }
+
+        /// <summary>
+        /// PURE build-time decision: should the descent trigger ENGAGE for this re-aim looped arrival, and the
+        /// derived set bounds (DescentEndUT, min start). It encodes the engage SAFETY GATES (review B1/m5) so they
+        /// are unit-tested rather than living inline in the builder: the shared monotone descent head must be
+        /// covered by SOME member at every UT in [seam, descentEnd] — every member has a window, the windows tile
+        /// within <paramref name="seamEpsSeconds"/>, and the first begins at the seam — AND captureShift must be
+        /// negative, the rotation period valid (&gt;0, finite), the seam valid, the set non-empty with end &gt; seam,
+        /// and conicEnd (= seam + captureShift) at/after the recorded SOI exit (NaN SOI-exit skips that guard). Any
+        /// failure =&gt; Engage false (faithful, byte-identical fallback) rather than engaging with a known blackout.
+        /// <paramref name="sortedDescentWindows"/> MUST be ascending by StartUT (the caller sorts). Pure; no Unity.
+        /// </summary>
+        internal static DescentEngageDecision EvaluateEngage(
+            bool foundDescentRun,
+            IReadOnlyList<GhostPlaybackLogic.LoopUnit.MemberWindow> sortedDescentWindows,
+            int descentSetCount,
+            double seamUT,
+            double captureShiftSeconds,
+            double rotationPeriod,
+            double recordedSoiExitUT,
+            double seamEpsSeconds)
+        {
+            double setEndUT = double.NaN;
+            double setMinStartUT = double.NaN;
+            // CONTIGUITY: require a window per member, the windows to tile (within eps), and (below) the first to
+            // begin at the seam; otherwise the head would drop into no window mid-clip = a blank ghost.
+            bool contiguous = sortedDescentWindows != null && sortedDescentWindows.Count == descentSetCount;
+            if (sortedDescentWindows != null)
+            {
+                for (int k = 0; k < sortedDescentWindows.Count; k++)
+                {
+                    if (double.IsNaN(setEndUT) || sortedDescentWindows[k].EndUT > setEndUT)
+                        setEndUT = sortedDescentWindows[k].EndUT;
+                    if (double.IsNaN(setMinStartUT) || sortedDescentWindows[k].StartUT < setMinStartUT)
+                        setMinStartUT = sortedDescentWindows[k].StartUT;
+                    if (k > 0 && sortedDescentWindows[k].StartUT
+                            > sortedDescentWindows[k - 1].EndUT + seamEpsSeconds)
+                        contiguous = false;
+                }
+            }
+            bool startMatchesSeam = !double.IsNaN(setMinStartUT)
+                && System.Math.Abs(setMinStartUT - seamUT) <= seamEpsSeconds;
+            // conicEnd must lie in the post-SOI-exit transfer region the entryUT derivation assumes (a very large
+            // |captureShift| could push it before the SOI exit and desync the handoff).
+            double conicEndRecorded = seamUT + captureShiftSeconds;
+            bool conicInRegion = double.IsNaN(recordedSoiExitUT) || conicEndRecorded >= recordedSoiExitUT;
+            bool engage = foundDescentRun
+                && !double.IsNaN(captureShiftSeconds) && captureShiftSeconds < 0.0
+                && rotationPeriod > 0.0 && !double.IsInfinity(rotationPeriod)
+                && !double.IsNaN(seamUT)
+                && descentSetCount > 0
+                && !double.IsNaN(setEndUT) && setEndUT > seamUT
+                && contiguous && startMatchesSeam && conicInRegion;
+            return new DescentEngageDecision(
+                engage, setEndUT, setMinStartUT, contiguous, startMatchesSeam, conicInRegion);
+        }
+
         /// <summary>
         /// PURE per-member resolution for a descent-set member under the multi-member shared trigger: computes
         /// the shared descent head via <see cref="ComputeDescentMemberHead"/> (member-agnostic) and dispatches

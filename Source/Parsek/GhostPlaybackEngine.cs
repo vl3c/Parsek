@@ -2366,8 +2366,9 @@ namespace Parsek
                 {
                     // Drive the ghost at the re-anchored descent head: override the downstream span clock so
                     // the warp gate, activation gate, cycle change, and RenderInRangeGhost all run against the
-                    // descentHead instead of the raw loopUT. decision is already Render (the trigger only
-                    // renders inside the member's own window slice).
+                    // descentHead instead of the raw loopUT. FORCE decision=Render: the raw loop-clock decision
+                    // here is typically HiddenOutsideWindow (the descent member's raw slot lands at the wrong
+                    // rotation, out of window) — the trigger overrides it to render the re-anchored slice.
                     spanLoopUT = descentRender.Head;
                     decision = GhostPlaybackLogic.UnitMemberRenderDecision.Render;
                 }

@@ -565,6 +565,99 @@ namespace Parsek.Tests
                     DunaTrot, Tpark, double.NaN, null, out _)); // NaN capture shift
         }
 
+        // --- EvaluateEngage: the build-time engage/decline safety gate (extracted from MissionLoopUnitBuilder) ---
+
+        private const double EngEps = 1.0;
+
+        private static GhostPlaybackLogic.LoopUnit.MemberWindow MW(double s, double e)
+            => new GhostPlaybackLogic.LoopUnit.MemberWindow(s, e);
+
+        // A contiguous descent set tiling [Deorbit(seam), DescentEnd], first window beginning at the seam.
+        private static List<GhostPlaybackLogic.LoopUnit.MemberWindow> ContiguousWindows()
+            => new List<GhostPlaybackLogic.LoopUnit.MemberWindow>
+            {
+                MW(Deorbit, Deorbit + 800.0),
+                MW(Deorbit + 800.0, Deorbit + 1500.0),
+                MW(Deorbit + 1500.0, DescentEnd),
+            };
+
+        private static DescentTrigger.DescentEngageDecision Eval(
+            List<GhostPlaybackLogic.LoopUnit.MemberWindow> w, double seam, double capShift,
+            double trot, double soiExit, bool found = true)
+            => DescentTrigger.EvaluateEngage(found, w, w.Count, seam, capShift, trot, soiExit, EngEps);
+
+        [Fact]
+        public void Engage_AllGatesPass_Engages()
+        {
+            var d = Eval(ContiguousWindows(), Deorbit, CapShift, DunaTrot, double.NaN);
+            Assert.True(d.Engage);
+            Assert.True(d.Contiguous && d.StartMatchesSeam && d.ConicInRegion);
+            Assert.Equal(DescentEnd, d.SetEndUT, 3);
+            Assert.Equal(Deorbit, d.SetMinStartUT, 3);
+        }
+
+        [Fact]
+        public void Engage_GapBetweenWindows_Declines()
+        {
+            var w = new List<GhostPlaybackLogic.LoopUnit.MemberWindow>
+            { MW(Deorbit, Deorbit + 800.0), MW(Deorbit + 1500.0, DescentEnd) }; // 800 -> 1500 gap > eps
+            var d = Eval(w, Deorbit, CapShift, DunaTrot, double.NaN);
+            Assert.False(d.Contiguous);
+            Assert.False(d.Engage);
+        }
+
+        [Fact]
+        public void Engage_FirstWindowAfterSeam_Declines()
+        {
+            var w = new List<GhostPlaybackLogic.LoopUnit.MemberWindow>
+            { MW(Deorbit + 50.0, Deorbit + 800.0), MW(Deorbit + 800.0, DescentEnd) }; // starts 50s after seam
+            var d = Eval(w, Deorbit, CapShift, DunaTrot, double.NaN);
+            Assert.False(d.StartMatchesSeam);
+            Assert.False(d.Engage);
+        }
+
+        [Fact]
+        public void Engage_ConicBeforeSoiExit_Declines()
+        {
+            // conicEnd = seam + captureShift; put the SOI exit just AFTER it so conicInRegion is false.
+            double soiExit = Deorbit + CapShift + 1000.0;
+            var d = Eval(ContiguousWindows(), Deorbit, CapShift, DunaTrot, soiExit);
+            Assert.False(d.ConicInRegion);
+            Assert.False(d.Engage);
+        }
+
+        [Fact]
+        public void Engage_ConicAtOrAfterSoiExit_Engages()
+        {
+            double soiExit = Deorbit + CapShift - 1000.0; // conicEnd >= soiExit
+            var d = Eval(ContiguousWindows(), Deorbit, CapShift, DunaTrot, soiExit);
+            Assert.True(d.ConicInRegion);
+            Assert.True(d.Engage);
+        }
+
+        [Fact]
+        public void Engage_WindowCountMismatch_Declines()
+        {
+            var w = ContiguousWindows(); // 3 windows, but claim 4 members -> count mismatch
+            var d = DescentTrigger.EvaluateEngage(true, w, w.Count + 1, Deorbit, CapShift, DunaTrot, double.NaN, EngEps);
+            Assert.False(d.Contiguous);
+            Assert.False(d.Engage);
+        }
+
+        [Fact]
+        public void Engage_DegenerateInputs_Decline()
+        {
+            var w = ContiguousWindows();
+            Assert.False(Eval(w, Deorbit, CapShift, DunaTrot, double.NaN, found: false).Engage); // run not found
+            Assert.False(Eval(w, Deorbit, 100.0, DunaTrot, double.NaN).Engage);                  // positive captureShift
+            Assert.False(Eval(w, Deorbit, double.NaN, DunaTrot, double.NaN).Engage);             // NaN captureShift
+            Assert.False(Eval(w, Deorbit, CapShift, 0.0, double.NaN).Engage);                    // non-positive rotation
+            Assert.False(Eval(w, Deorbit, CapShift, double.PositiveInfinity, double.NaN).Engage); // infinite rotation
+            Assert.False(Eval(w, double.NaN, CapShift, DunaTrot, double.NaN).Engage);            // NaN seam
+            var empty = new List<GhostPlaybackLogic.LoopUnit.MemberWindow>();
+            Assert.False(DescentTrigger.EvaluateEngage(true, empty, 0, Deorbit, CapShift, DunaTrot, double.NaN, EngEps).Engage);
+        }
+
         // --- Resolver integration: GhostPlaybackLogic.ResolveTrackingStationSampleUT / …Frame (review M1) ---
         //
         // Builds a re-aim LoopUnit (IsReaim true) with a 3-member descent set {49,50,51} partitioning
