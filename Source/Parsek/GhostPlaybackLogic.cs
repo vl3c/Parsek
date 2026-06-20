@@ -8593,6 +8593,79 @@ namespace Parsek
                 unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out deorbitHead);
         }
 
+        /// <summary>
+        /// COSMETIC fix (re-aim descent "post-landing suborbital looping ghost"): true iff committed index
+        /// <paramref name="i"/> is the NON-descent TRANSFER/owner member of a descent-trigger unit AND the
+        /// shared descent has HANDED OFF or LANDED this frame (descent phase == Descent or Done). In those
+        /// phases the transfer member's recorded journey is over - it carried the icon to the shifted parking
+        /// deorbit point and handed off to the descent set - so its map / tracking-station orbit ghost must be
+        /// RETIRED cleanly (the create resolver returns None) instead of synthesizing a spurious EndpointTail
+        /// coast from the recorded deorbit endpoint (which, having no covering segment past the parking conic,
+        /// is a sub-surface ellipse drawn as a closed loop). The descent set owns the visual during Descent (the
+        /// re-anchored clip) and the landing is terminal during Done (a looped mission has no persistent
+        /// landed-vessel ghost; it cycles back to the next launch), so a clean retire is the CORRECT outcome -
+        /// the sub-surface tail was the bug.
+        ///
+        /// <para>Returns FALSE for Inert and Loiter (the icon is still riding the shifted PARKING conic - that
+        /// conic MUST keep rendering, so this returns false and the resolver's normal covering-segment branch is
+        /// untouched), for a descent-SET member (its own trigger-gated render owns it), for a unit with no
+        /// descent trigger, for an unresolved span clock, and for any degenerate input. Resolves the unit cycle
+        /// through the SAME <see cref="DecideUnitMemberRender"/> path the resolver / engine / I1 use (one source
+        /// of truth - the live-frame phase, NOT a raw recorded-domain UT inequality), then classifies via the
+        /// pure <see cref="Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead"/>. Mirrors the handoff at
+        /// <see cref="ResolveTrackingStationSampleUT"/> (which hides the transfer marker in Descent) but ALSO
+        /// covers Done, where the handoff does not fire and the spurious tail appears. Pure; no Unity
+        /// (xUnit-testable).</para>
+        /// </summary>
+        internal static bool IsTransferMemberDescentContinuation(
+            LoopUnit unit, int i, double liveUT, double memberStartUT, double memberEndUT)
+        {
+            // Only the NON-descent transfer/owner member of a descent-trigger unit can carry the continuation;
+            // byte-identical-off for every other member / non-re-aim unit (HasDescentTrigger false).
+            if (!unit.HasDescentTrigger || unit.IsDescentMember(i))
+                return false;
+
+            memberStartUT = unit.MemberStartUT(i, memberStartUT);
+            memberEndUT = unit.MemberEndUT(i, memberEndUT);
+
+            // Resolve the unit cycle via the production decision path (cycle is window-independent; the member
+            // window only governs the in-window Render decision - irrelevant here, we just need unitCycle).
+            UnitMemberRenderDecision decision = DecideUnitMemberRender(
+                liveUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                memberStartUT, memberEndUT, out _, out long unitCycle, out _,
+                unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
+                unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
+                unit.RecordedSoiExitUT);
+            if (decision == UnitMemberRenderDecision.SpanClockUnresolved)
+                return false; // the loop has not started this frame
+
+            Parsek.Reaim.DescentTrigger.DescentHeadPhase phase =
+                Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead(
+                    liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
+                    unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
+                    unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _);
+
+            // After the seam (handed off / landed) -> retire. Inert/Loiter -> false -> the shifted parking
+            // (loiter) conic keeps rendering through the resolver's unchanged covering-segment branch.
+            return phase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent
+                || phase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Done;
+        }
+
+        /// <summary>
+        /// COSMETIC fix convenience wrapper: resolves the owning unit from <paramref name="units"/> via
+        /// <see cref="LoopUnitSet.TryGetUnitForMember"/> and delegates to
+        /// <see cref="IsTransferMemberDescentContinuation(LoopUnit,int,double,double,double)"/>. Returns false
+        /// for a null set or a non-member index (byte-identical-off). Lets the GhostMapPresence create callers
+        /// compute the flag in one line.
+        /// </summary>
+        internal static bool IsTransferMemberDescentContinuation(
+            LoopUnitSet units, int i, double liveUT, double memberStartUT, double memberEndUT)
+        {
+            if (units == null || !units.TryGetUnitForMember(i, out LoopUnit unit))
+                return false;
+            return IsTransferMemberDescentContinuation(unit, i, liveUT, memberStartUT, memberEndUT);
+        }
+
         /// <summary>The render outcome for the BOUNDARY-OVERLAP secondary of one member on a given frame.</summary>
         internal enum BoundaryOverlapSecondaryDecision
         {

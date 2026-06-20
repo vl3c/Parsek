@@ -5180,7 +5180,8 @@ namespace Parsek
             string expectedSoiGapBody = null,
             bool acceptTerminalOrbitForLoopSynthesis = false,
             bool loopMemberInWindow = false,
-            bool liveLaunchMatchedAnchorOfActiveMember = false)
+            bool liveLaunchMatchedAnchorOfActiveMember = false,
+            bool transferMemberDescentContinuation = false)
         {
             segment = default(OrbitSegment);
             stateVectorPoint = default(TrajectoryPoint);
@@ -5341,6 +5342,28 @@ namespace Parsek
 
             double activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
             bool terminalMapPresenceRegion = IsTerminalMapPresenceRegion(traj, currentUT);
+
+            // COSMETIC fix (re-aim descent "post-landing suborbital looping ghost"): the descent-trigger
+            // TRANSFER member, once the shared descent has handed off / landed (descent phase Descent or Done,
+            // computed at the LIVE clock by the caller via
+            // GhostPlaybackLogic.IsTransferMemberDescentContinuation), has finished its recorded journey at the
+            // shifted parking deorbit point. With no covering OrbitSegment past that conic it would otherwise
+            // synthesize an EndpointTail coast from the recorded deorbit endpoint = a sub-surface ellipse drawn
+            // as a closed loop. RETIRE the ghost cleanly here, BEFORE the covering-segment / EndpointTail /
+            // Segment resolution below, so there is NOTHING to fall back to (this is the J2 trap the reverted
+            // 9fecdfcb6 hit: a decline INSIDE the endpoint-tail resolver fell through to a stale launch/transfer
+            // Segment - Sun/Ike - and put a clickable ghost on the wrong body). The pre-seam loiter parking conic
+            // is preserved because the flag is FALSE in Inert/Loiter, so the normal covering-segment branch runs
+            // unchanged. Default false keeps every non-opted-in caller byte-identical.
+            if (transferMemberDescentContinuation)
+            {
+                skipReason = "transfer-member-descent-continuation";
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    "descent-trigger transfer member handed off / landed: retire cleanly; "
+                        + "the descent set owns the visual (no sub-surface endpoint-tail, no wrong-segment fallback)");
+            }
 
             string checkpointFallbackDetail = null;
             string checkpointFallbackRejectReason = null;
@@ -6615,7 +6638,14 @@ namespace Parsek
                     // Loop member replaying in its window (effUT != live currentUT): allow the
                     // map ghost to be created alongside any persisted real terminal vessel.
                     loopMemberInWindow: (currentUT - effUT) != 0.0,
-                    liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
+                    liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember,
+                    // COSMETIC fix: retire the descent-trigger transfer member's ghost once the shared descent
+                    // has handed off / landed (phase Descent/Done, at the LIVE currentUT - NOT effUT) so it does
+                    // not synthesize the sub-surface endpoint-tail looping ghost. False (byte-identical) for
+                    // every non-descent member / non-re-aim unit and in Inert/Loiter (loiter conic preserved).
+                    transferMemberDescentContinuation:
+                        GhostPlaybackLogic.IsTransferMemberDescentContinuation(
+                            loopUnits, i, currentUT, rec.StartUT, rec.EndUT));
                 trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None) continue;
 
@@ -9274,7 +9304,8 @@ namespace Parsek
             int recordingIndex,
             string context,
             bool loopMemberInWindow = false,
-            bool liveLaunchMatchedAnchorOfActiveMember = false)
+            bool liveLaunchMatchedAnchorOfActiveMember = false,
+            bool transferMemberDescentContinuation = false)
         {
             // Both create callers (the per-frame lifecycle pass AND the one-shot startup create)
             // now sample at the loop-mapped effUT and pass loopMemberInWindow, so for an in-window
@@ -9301,7 +9332,8 @@ namespace Parsek
                 recordingIndex: recordingIndex,
                 acceptTerminalOrbitForLoopSynthesis: false,
                 loopMemberInWindow: loopMemberInWindow,
-                liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
+                liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember,
+                transferMemberDescentContinuation: transferMemberDescentContinuation);
 
             // BUG-B: in the live tracking-station create paths (batch != null), a committed recording
             // that WOULD seed a map icon (source != None) but is purely historical (the player only ever
@@ -9550,7 +9582,13 @@ namespace Parsek
                     // Loop member replaying in its window (effUT != live currentUT): allow the map ghost
                     // to be created alongside any persisted real terminal vessel, matching the lifecycle pass.
                     loopMemberInWindow: (currentUT - effUT) != 0.0,
-                    liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
+                    liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember,
+                    // COSMETIC fix: retire the descent-trigger transfer member's ghost once the shared descent
+                    // has handed off / landed (phase Descent/Done at the LIVE currentUT) so the one-shot startup
+                    // create never seeds the sub-surface endpoint-tail looping ghost. Byte-identical off / pre-seam.
+                    transferMemberDescentContinuation:
+                        GhostPlaybackLogic.IsTransferMemberDescentContinuation(
+                            loopUnits, i, currentUT, rec.StartUT, rec.EndUT));
                 trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None)
                 {

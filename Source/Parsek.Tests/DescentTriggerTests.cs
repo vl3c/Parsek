@@ -838,6 +838,79 @@ namespace Parsek.Tests
                 offUnit, 5, EntryUT(0) + 100.0, 27_000_000.0, Deorbit, out _, out _, out _));
         }
 
+        // --- COSMETIC 2: GhostPlaybackLogic.IsTransferMemberDescentContinuation (post-landing suborbital ghost) ---
+        //
+        // The transfer member's map/TS orbit ghost must RETIRE once the shared descent has handed off (Descent)
+        // or landed (Done) — that is the window where, with no covering segment past the parking conic, the
+        // create resolver would synthesize a sub-surface EndpointTail looping ghost. It must NOT retire during
+        // Inert/Loiter (the icon is still riding the shifted parking conic — that conic MUST keep rendering).
+        // Member 5 is the non-descent transfer member; 49 is a descent-set member. Phase boundaries match the
+        // I1 test above (Inert/Loiter/Descent/Done off EntryUT/TriggerUT).
+
+        [Fact]
+        public void TransferMemberDescentContinuation_DescentAndDone_True_RetiresTheGhost()
+        {
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+
+            // DESCENT: the descent set owns the visual; the transfer ghost retires (no sub-surface tail).
+            Assert.True(GhostPlaybackLogic.IsTransferMemberDescentContinuation(
+                unit, 5, TriggerUT(0) + 400.0, 27_000_000.0, Deorbit));
+            // DONE (post-landing): the handoff no longer hides the transfer member, so the spurious tail would
+            // appear here — retire it. This is the exact post-landing bug window.
+            Assert.True(GhostPlaybackLogic.IsTransferMemberDescentContinuation(
+                unit, 5, TriggerUT(0) + (DescentEnd - Deorbit) + 50.0, 27_000_000.0, Deorbit));
+        }
+
+        [Fact]
+        public void TransferMemberDescentContinuation_InertAndLoiter_False_PreservesLoiterConic()
+        {
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+
+            // INERT (icon still launching/transferring/riding the parking conic) -> keep the normal source.
+            Assert.False(GhostPlaybackLogic.IsTransferMemberDescentContinuation(
+                unit, 5, EntryUT(0) - 100.0, 27_000_000.0, Deorbit));
+            // LOITER (icon circling the SHIFTED PARKING conic) -> must NOT retire, or the loiter conic vanishes.
+            double tLoiter = EntryUT(0) + 100.0;
+            Assert.True(tLoiter < TriggerUT(0));
+            Assert.False(GhostPlaybackLogic.IsTransferMemberDescentContinuation(
+                unit, 5, tLoiter, 27_000_000.0, Deorbit));
+        }
+
+        [Fact]
+        public void TransferMemberDescentContinuation_DescentSetMember_AlwaysFalse()
+        {
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            // A descent-SET member (49) is governed by its own trigger-gated render; this transfer-only gate
+            // never touches it, in any phase.
+            foreach (double t in new[] { EntryUT(0) - 100.0, EntryUT(0) + 100.0, TriggerUT(0) + 400.0,
+                TriggerUT(0) + (DescentEnd - Deorbit) + 50.0 })
+                Assert.False(GhostPlaybackLogic.IsTransferMemberDescentContinuation(unit, 49, t, W1Start, W1End));
+        }
+
+        [Fact]
+        public void TransferMemberDescentContinuation_TriggerOff_AlwaysFalse_ByteIdentical()
+        {
+            var unit = DescentUnitFor(BuildDescentUnit(engage: false));
+            // No descent trigger: the transfer member is never retired by this gate, in any phase.
+            foreach (double t in new[] { Pa + 100.0, Pa + 700.0, Pa + 30_000_000.0, TriggerUT(0) + 400.0 })
+                Assert.False(GhostPlaybackLogic.IsTransferMemberDescentContinuation(unit, 5, t, 27_000_000.0, Deorbit));
+        }
+
+        [Fact]
+        public void TransferMemberDescentContinuation_SetWrapper_NullAndNonMember_False()
+        {
+            var units = BuildDescentUnit(engage: true);
+            double tDescent = TriggerUT(0) + 400.0;
+            // Wrapper resolves the unit for a real member (matches the LoopUnit overload).
+            Assert.True(GhostPlaybackLogic.IsTransferMemberDescentContinuation(
+                units, 5, tDescent, 27_000_000.0, Deorbit));
+            // Null set / non-member index -> false (byte-identical-off; no NRE).
+            Assert.False(GhostPlaybackLogic.IsTransferMemberDescentContinuation(
+                (GhostPlaybackLogic.LoopUnitSet)null, 5, tDescent, 27_000_000.0, Deorbit));
+            Assert.False(GhostPlaybackLogic.IsTransferMemberDescentContinuation(
+                units, 999, tDescent, 27_000_000.0, Deorbit));
+        }
+
         // --- FLIGHT-engine integration: GhostPlaybackLogic.ResolveDescentMemberEngineRender (Defect 3) ---
         //
         // The engine-side complement of the resolver branch: the same TryResolveDescentMemberHead remap,
