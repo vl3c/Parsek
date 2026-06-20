@@ -5,6 +5,14 @@ using UnityEngine;
 
 namespace Parsek.Reaim
 {
+    // ============================================================================================================
+    // TEMPORARY / PROVISIONAL — DIAGNOSTIC SCAFFOLD, NOT A SHIPPING FEATURE. Exists only to capture ONE clean
+    // in-window descent log (the descent window is ~0.05% of the loop and manual warp keeps stepping over it).
+    // Once the descent is confirmed to render cleanly, REVERT this whole feature: delete DescentWarpControl.cs +
+    // DescentWarpControlTests.cs, the ParsekSettings.autoDropWarpForDescent field, and the NotifyDescentState call
+    // in GhostPlaybackLogic.ResolveTrackingStationSampleUT. Do NOT add it to the CHANGELOG as a feature.
+    // ============================================================================================================
+
     /// <summary>
     /// Auto-drops time-warp to realtime (1x) right as a re-aim looped descent leaves the loiter and begins, so
     /// the brief descent clip (the re-entry/landing, or the rendezvous-and-dock) is actually watchable instead of
