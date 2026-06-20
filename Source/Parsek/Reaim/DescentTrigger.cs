@@ -216,6 +216,87 @@ namespace Parsek.Reaim
             triggerUT = ComputeRotationAlignedTriggerUT(entryUT, recordedDeorbitUT, rotationPeriod);
         }
 
+        /// <summary>
+        /// The TRANSFER member's re-anchored DEORBIT-tail head this frame (I1 - "the descent renders
+        /// disconnected from the loiter"). The recorded deorbit/approach legs that lead DOWN TO the seam
+        /// (recordedDeorbit) live INSIDE the transfer member, not in the descent set, so they normally play on
+        /// the raw loop clock at the stale (~|captureShift|-earlier) arrival slot and never render re-anchored -
+        /// the descent (post-seam, 49km-&gt;surface) floats with no visible connection from the loiter/parking
+        /// down to it. This swept head joins those pre-seam deorbit legs to the descent member's first head AT
+        /// the trigger so the line draws continuous loiter -&gt; deorbit -&gt; entry -&gt; surface.
+        ///
+        /// <para>The head is the SAME forward-only re-anchor the descent member uses
+        /// (<c>recordedDeorbitUT + (currentUT - triggerUT)</c>), but it is exposed ONLY while the unit is in the
+        /// <see cref="DescentHeadPhase.Loiter"/> phase. During Loiter <c>currentUT &lt; triggerUT</c>, so this
+        /// head is &lt; <paramref name="recordedDeorbitUT"/> (= the seam): it sweeps the PRE-seam deorbit legs
+        /// and rises toward the seam as <c>currentUT -&gt; triggerUT</c>, reaching it exactly at the trigger -
+        /// the same value the descent member's first head takes there, giving seam continuity.</para>
+        ///
+        /// <para>Returns true (with <paramref name="deorbitHead"/> set) ONLY during Loiter. In every other phase
+        /// it returns false / NaN: Inert (the icon has not reached the deorbit point yet), Descent (the transfer
+        /// member is HIDDEN by the verified handoff and the descent member owns the entry leg, so a Descent-phase
+        /// deorbit head is both unreachable and unnecessary), and Done. Degenerate inputs collapse to Inert via
+        /// <see cref="ComputeDescentMemberHead"/>, so they also return false - byte-identical to the no-trigger
+        /// path. Pure; no Unity (xUnit-testable).</para>
+        /// </summary>
+        internal static bool TryComputeTransferDeorbitHead(
+            double currentUT,
+            long cycleIndex,
+            double phaseAnchorUT,
+            double cadenceSeconds,
+            double spanStartUT,
+            double recordedDeorbitUT,
+            double descentEndUT,
+            double rotationPeriod,
+            double parkingPeriod,
+            double captureShiftSeconds,
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts,
+            out double deorbitHead)
+        {
+            deorbitHead = double.NaN;
+
+            // Classify the unit's descent phase via the SAME pure helper the descent member uses (degenerate
+            // inputs -> Inert -> false here, so the gate is byte-identical-off).
+            DescentHeadPhase phase = ComputeDescentMemberHead(
+                currentUT, cycleIndex, phaseAnchorUT, cadenceSeconds, spanStartUT,
+                recordedDeorbitUT, descentEndUT, rotationPeriod, parkingPeriod, captureShiftSeconds,
+                loiterCuts, out _);
+
+            if (phase != DescentHeadPhase.Loiter)
+                return false;
+
+            // Same triggerUT the descent member re-anchors on (ComputeDescentTiming is the shared source).
+            ComputeDescentTiming(
+                cycleIndex, phaseAnchorUT, cadenceSeconds, spanStartUT, recordedDeorbitUT, rotationPeriod,
+                captureShiftSeconds, loiterCuts, out _, out _, out double triggerUT);
+            if (double.IsNaN(triggerUT))
+                return false; // defensive: degenerate trigger -> no re-anchor (Loiter implies a valid trigger)
+
+            // Forward-only join: < recordedDeorbitUT during Loiter (currentUT < triggerUT), -> recordedDeorbitUT
+            // at the trigger (the descent member's first head), so the deorbit legs sweep down to and meet the seam.
+            deorbitHead = recordedDeorbitUT + (currentUT - triggerUT);
+            return true;
+        }
+
+        /// <summary>
+        /// Per-leg head pairing for I1: the head to gate ONE transfer leg with. A DEORBIT-TAIL leg (the
+        /// contiguous Duna approach legs ending at/below the seam, identified by the caller and signalled via
+        /// <paramref name="deorbitTailLegEligible"/>) gates on the re-anchored <paramref name="deorbitHead"/>
+        /// (computed by <see cref="TryComputeTransferDeorbitHead"/>); every other leg keeps the normal
+        /// <paramref name="loopHeadUT"/> (byte-identical). When <paramref name="deorbitTailLegEligible"/> is
+        /// false (no Loiter-phase deorbit head, or the leg is not a deorbit-tail leg) the loop head is returned
+        /// unchanged, so non-transfer recordings and every non-Loiter phase reach the identical gate as today.
+        /// Pure; xUnit-testable without Unity.
+        /// </summary>
+        internal static double ResolveTransferLegHeadUT(
+            double legEndUT, double seamUT, double epsSeconds, double loopHeadUT,
+            double deorbitHead, bool deorbitTailLegEligible)
+        {
+            return (deorbitTailLegEligible && legEndUT <= seamUT + epsSeconds)
+                ? deorbitHead
+                : loopHeadUT;
+        }
+
         // === Observability: descent-render lifecycle trace (always-on, bounded per cycle) ===============
         // The decision-side complement to the MapRenderProbe truth-side tracer: the probe can only observe a
         // ghost that was CREATED, but a descent member is hidden (never created) until its short render window,

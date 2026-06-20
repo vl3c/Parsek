@@ -8542,6 +8542,57 @@ namespace Parsek
                 renderDescent, renderDescent ? descentHead : double.NaN, descentPhase, unitCycle);
         }
 
+        /// <summary>
+        /// I1 (re-aim descent "renders disconnected from the loiter"): the re-anchored DEORBIT-tail head for the
+        /// NON-descent TRANSFER member of a descent-trigger unit, so the transfer member's contiguous deorbit /
+        /// approach legs (the Duna legs ending AT the seam) draw swept down to the seam during the LOITER phase
+        /// and join the descent member's first head at the trigger - rendering continuous loiter -&gt; deorbit -&gt;
+        /// entry -&gt; surface. Resolves the unit cycle through the SAME <see cref="DecideUnitMemberRender"/> path
+        /// the resolver / engine use (no parallel cycle formula - one source of truth), then delegates to the pure
+        /// <see cref="Parsek.Reaim.DescentTrigger.TryComputeTransferDeorbitHead"/>, which returns a head ONLY
+        /// during Loiter. Also returns the shifted-parking-conic end <paramref name="conicEndUT"/> and the seam
+        /// <paramref name="seamUT"/> so the caller's per-leg deorbit-tail predicate (a pure-UT window
+        /// <c>conicEndUT &lt; legEndUT &lt;= seamUT + eps</c>) can select only the contiguous post-shifted-conic
+        /// destination tail. Returns false (byte-identical-off) for a null unit, a descent-set member, a unit
+        /// with no descent trigger, an unresolved span clock, or any phase other than Loiter. Pure: no logging
+        /// (the caller owns rate-limiting).
+        /// </summary>
+        internal static bool TryResolveTransferDeorbitHeadForMember(
+            LoopUnit unit, int i, double liveUT, double memberStartUT, double memberEndUT,
+            out double deorbitHead, out double conicEndUT, out double seamUT)
+        {
+            deorbitHead = double.NaN;
+            conicEndUT = double.NaN;
+            seamUT = double.NaN;
+
+            // Only the NON-descent transfer/owner member of a descent-trigger unit carries the deorbit tail.
+            // The caller resolves the unit via TryGetUnitForMember, so it is always a real member here.
+            if (!unit.HasDescentTrigger || unit.IsDescentMember(i))
+                return false;
+
+            memberStartUT = unit.MemberStartUT(i, memberStartUT);
+            memberEndUT = unit.MemberEndUT(i, memberEndUT);
+
+            // Resolve the unit cycle via the production decision path (cycle is window-independent, so the member
+            // window only governs the in-window Render decision - irrelevant here, we just need unitCycle).
+            UnitMemberRenderDecision decision = DecideUnitMemberRender(
+                liveUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                memberStartUT, memberEndUT, out _, out long unitCycle, out _,
+                unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
+                unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
+                unit.RecordedSoiExitUT);
+            if (decision == UnitMemberRenderDecision.SpanClockUnresolved)
+                return false; // the loop has not started this frame
+
+            seamUT = unit.RecordedDeorbitUT;
+            conicEndUT = unit.RecordedDeorbitUT + unit.CaptureShiftSeconds;
+
+            return Parsek.Reaim.DescentTrigger.TryComputeTransferDeorbitHead(
+                liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
+                unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
+                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out deorbitHead);
+        }
+
         /// <summary>The render outcome for the BOUNDARY-OVERLAP secondary of one member on a given frame.</summary>
         internal enum BoundaryOverlapSecondaryDecision
         {

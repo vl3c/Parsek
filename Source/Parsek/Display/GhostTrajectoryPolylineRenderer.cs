@@ -3482,6 +3482,29 @@ namespace Parsek.Display
                     // every non-launch-hold member / aligned loop (renderHidden false there), so this is unchanged.
                     if (primaryRenders)
                     {
+                    // I1 (re-aim descent "renders disconnected from the loiter"): for the NON-descent TRANSFER
+                    // member of a descent-trigger unit, the deorbit/approach legs that lead DOWN TO the seam live
+                    // INSIDE this member (not in the descent set) and would otherwise gate off entirely - the
+                    // loiter loopUT sits ~|captureShift| below their recorded UTs, so ShouldDrawLegAtHeadUT(...,
+                    // headUT) is false every frame, and during the descent this member is HIDDEN by the handoff.
+                    // Resolve a re-anchored deorbit head ONCE (Loiter-phase only); the per-leg gate below
+                    // substitutes it for the deorbit-tail legs so they sweep down to the seam and join the descent
+                    // member's first head at the trigger. Byte-identical-off for non-descent units (hasDeorbitHead
+                    // false) and for every phase other than Loiter on the transfer member.
+                    bool hasDeorbitHead = false;
+                    double deorbitHead = double.NaN;
+                    double deorbitSeamUT = double.NaN;
+                    double deorbitConicEndUT = double.NaN;
+                    if (loopUnits != null
+                        && loopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit dtUnit)
+                        && dtUnit.HasDescentTrigger
+                        && !IsDescentTriggerMember(recordingIndex, loopUnits))
+                    {
+                        hasDeorbitHead = GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                            dtUnit, recordingIndex, currentUT, rec.StartUT, rec.EndUT,
+                            out deorbitHead, out deorbitConicEndUT, out deorbitSeamUT);
+                    }
+
                     for (int li = 0; li < set.legs.Length; li++)
                     {
                         var leg = set.legs[li];
@@ -3494,7 +3517,16 @@ namespace Parsek.Display
                         // tracks the moving ghost and a multi-leg recording shows
                         // only the single leg it is currently flying instead of
                         // every leg at once.
-                        if (!ShouldDrawLegAtHeadUT(leg.startUT, leg.endUT, headUT))
+                        //
+                        // I1: a deorbit-tail leg (the contiguous post-shifted-conic destination tail, UT window
+                        // conicEnd < legEnd <= seam+eps) on the transfer member gates on the re-anchored
+                        // deorbitHead instead of the loop head; every other leg keeps headUT (byte-identical).
+                        bool deorbitTailLeg = hasDeorbitHead
+                            && !double.IsNaN(deorbitConicEndUT) && !double.IsNaN(deorbitSeamUT)
+                            && leg.endUT > deorbitConicEndUT;
+                        double legHeadUT = Parsek.Reaim.DescentTrigger.ResolveTransferLegHeadUT(
+                            leg.endUT, deorbitSeamUT, 1.0, headUT, deorbitHead, deorbitTailLeg);
+                        if (!ShouldDrawLegAtHeadUT(leg.startUT, leg.endUT, legHeadUT))
                         {
                             frameLegsHeadUtGated++;
                             continue;

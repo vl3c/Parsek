@@ -281,6 +281,113 @@ namespace Parsek.Tests
                     DescentEnd, DunaTrot, Tpark, CapShift, null, out _));
         }
 
+        // --- TryComputeTransferDeorbitHead: the transfer member's re-anchored deorbit-tail head (I1) ---
+        //
+        // I1: the deorbit/approach legs DOWN TO the seam live inside the transfer member (not the descent set),
+        // so they must be swept by a pre-seam re-anchored head during the Loiter phase so the line draws
+        // continuous loiter -> deorbit -> entry -> surface.
+
+        private static bool TransferDeorbitHead(double currentUT, long n, out double head)
+            => DescentTrigger.TryComputeTransferDeorbitHead(
+                currentUT, n, Pa, Cad, SpanStart, Deorbit, DescentEnd, DunaTrot, Tpark, CapShift, null, out head);
+
+        [Fact]
+        public void TransferDeorbitHead_Inert_ReturnsFalse_NaN()
+        {
+            // Before the icon reaches the deorbit point (Inert) there is no re-anchored deorbit head.
+            Assert.False(TransferDeorbitHead(EntryUT(0) - 1.0, 0, out double head));
+            Assert.True(double.IsNaN(head));
+        }
+
+        [Fact]
+        public void TransferDeorbitHead_Loiter_HeadBelowSeam()
+        {
+            // During Loiter (entry <= t < trigger) the deorbit head is BELOW the seam (recordedDeorbit) - it
+            // sweeps the PRE-seam deorbit legs - and increases toward the seam as currentUT -> triggerUT.
+            double tEarly = EntryUT(0) + 100.0;
+            double tLate = TriggerUT(0) - 100.0;
+            Assert.True(tEarly < TriggerUT(0) && tLate < TriggerUT(0));
+            Assert.True(TransferDeorbitHead(tEarly, 0, out double hEarly));
+            Assert.True(TransferDeorbitHead(tLate, 0, out double hLate));
+            Assert.True(hEarly < Deorbit, $"hEarly={hEarly} not below seam {Deorbit}");
+            Assert.True(hLate < Deorbit, $"hLate={hLate} not below seam {Deorbit}");
+            Assert.True(hLate > hEarly, "deorbit head must rise toward the seam over the loiter");
+        }
+
+        [Fact]
+        public void TransferDeorbitHead_AtTriggerMinus_ApproachesSeam()
+        {
+            // As currentUT -> triggerUT the deorbit head -> recordedDeorbit (= seam), the SAME value the descent
+            // member's first head takes at the trigger (ComputeDescentEffectiveHeadUT(trigger,trigger,deorbit) ==
+            // deorbit), so the deorbit-tail legs join the entry leg with seam continuity.
+            Assert.True(TransferDeorbitHead(TriggerUT(0) - 0.001, 0, out double head));
+            Assert.True(Math.Abs(head - Deorbit) < 0.01, $"head={head} seam={Deorbit}");
+            double descentFirstHead = DescentTrigger.ComputeDescentEffectiveHeadUT(TriggerUT(0), TriggerUT(0), Deorbit);
+            Assert.Equal(Deorbit, descentFirstHead, 6); // continuity target
+        }
+
+        [Fact]
+        public void TransferDeorbitHead_Descent_ReturnsFalse()
+        {
+            // During Descent the transfer member is HIDDEN by the handoff and the descent member owns the entry
+            // leg, so the pre-seam deorbit head must NOT activate (it would be unreachable + unnecessary).
+            Assert.False(TransferDeorbitHead(TriggerUT(0) + 500.0, 0, out double head));
+            Assert.True(double.IsNaN(head));
+        }
+
+        [Fact]
+        public void TransferDeorbitHead_Done_ReturnsFalse()
+        {
+            double clip = DescentEnd - Deorbit;
+            Assert.False(TransferDeorbitHead(TriggerUT(0) + clip + 1.0, 0, out double head));
+            Assert.True(double.IsNaN(head));
+        }
+
+        [Fact]
+        public void TransferDeorbitHead_Degenerate_ReturnsFalse()
+        {
+            // Any degenerate input collapses to Inert via ComputeDescentMemberHead -> false (byte-identical-off).
+            Assert.False(DescentTrigger.TryComputeTransferDeorbitHead(
+                TriggerUT(0) - 100.0, 0, Pa, Cad, SpanStart, Deorbit, DescentEnd,
+                double.NaN, Tpark, CapShift, null, out _)); // no rotation period
+            Assert.False(DescentTrigger.TryComputeTransferDeorbitHead(
+                TriggerUT(0) - 100.0, 0, Pa, Cad, SpanStart, Deorbit, DescentEnd,
+                DunaTrot, 0.0, CapShift, null, out _)); // no parking period
+            Assert.False(DescentTrigger.TryComputeTransferDeorbitHead(
+                TriggerUT(0) - 100.0, 0, Pa, Cad, SpanStart, Deorbit, Deorbit - 1.0,
+                DunaTrot, Tpark, CapShift, null, out _)); // descentEnd < deorbit
+            Assert.False(DescentTrigger.TryComputeTransferDeorbitHead(
+                TriggerUT(0) - 100.0, 0, Pa, Cad, SpanStart, Deorbit, DescentEnd,
+                DunaTrot, Tpark, double.NaN, null, out _)); // NaN capture shift
+        }
+
+        // --- ResolveTransferLegHeadUT: per-leg head pairing (deorbit-tail uses deorbitHead, others loop head) ---
+
+        [Fact]
+        public void ResolveTransferLegHeadUT_DeorbitTailUsesDeorbitHead_OthersUseLoopHead()
+        {
+            const double seam = Deorbit;
+            const double eps = 1.0;
+            const double loopHead = 27_000_000.0;
+            const double deorbitHead = 29_500_000.0;
+
+            // A deorbit-tail leg (eligible) whose end is at/below the seam -> uses deorbitHead.
+            Assert.Equal(deorbitHead,
+                DescentTrigger.ResolveTransferLegHeadUT(seam, seam, eps, loopHead, deorbitHead, true), 6);
+            Assert.Equal(deorbitHead,
+                DescentTrigger.ResolveTransferLegHeadUT(seam - 5000.0, seam, eps, loopHead, deorbitHead, true), 6);
+
+            // A leg ending ABOVE the seam (beyond eps) -> loop head even when eligible.
+            Assert.Equal(loopHead,
+                DescentTrigger.ResolveTransferLegHeadUT(seam + 10.0, seam, eps, loopHead, deorbitHead, true), 6);
+
+            // Not eligible (no deorbit head, or not a deorbit-tail leg) -> always loop head (byte-identical-off).
+            Assert.Equal(loopHead,
+                DescentTrigger.ResolveTransferLegHeadUT(seam, seam, eps, loopHead, deorbitHead, false), 6);
+            Assert.Equal(loopHead,
+                DescentTrigger.ResolveTransferLegHeadUT(seam - 5000.0, seam, eps, loopHead, deorbitHead, false), 6);
+        }
+
         // --- SelectDescentMemberIndices: the post-parking body-fixed approach member SET ---
         //
         // Models the real "Route: KSC → Duna" chain: launch #41 (Kerbin), probe #48 (Kerbin), transfer #53
@@ -591,6 +698,51 @@ namespace Parsek.Tests
             double u49 = Resolve(49, W1Start, W1End, t, units, out bool h49);
             Assert.False(h49);
             Assert.Equal(Deorbit + 400.0, u49, 3);
+        }
+
+        // --- I1 wiring: GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember ---
+        //
+        // Resolves the transfer member's deorbit-tail head via the production DecideUnitMemberRender cycle path
+        // (member 5 is the non-descent transfer member in BuildDescentUnit). Loiter-only; conicEnd/seam exposed.
+
+        [Fact]
+        public void TransferDeorbitHeadForMember_TransferMember_LoiterOnly()
+        {
+            var units = BuildDescentUnit(engage: true);
+            var unit = DescentUnitFor(units);
+
+            // Loiter -> true, head below seam, conicEnd + seam reported.
+            double tLoiter = EntryUT(0) + 100.0;
+            Assert.True(tLoiter < TriggerUT(0));
+            Assert.True(GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                unit, 5, tLoiter, 27_000_000.0, Deorbit, out double head, out double conicEnd, out double seam));
+            Assert.True(head < Deorbit, $"head={head} not below seam");
+            Assert.Equal(Deorbit, seam, 3);
+            Assert.Equal(Deorbit + CapShift, conicEnd, 3);
+
+            // Inert / Descent / Done -> false.
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                unit, 5, EntryUT(0) - 100.0, 27_000_000.0, Deorbit, out _, out _, out _)); // Inert
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                unit, 5, TriggerUT(0) + 400.0, 27_000_000.0, Deorbit, out _, out _, out _)); // Descent
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                unit, 5, TriggerUT(0) + (DescentEnd - Deorbit) + 50.0, 27_000_000.0, Deorbit, out _, out _, out _)); // Done
+        }
+
+        [Fact]
+        public void TransferDeorbitHeadForMember_DescentMemberAndTriggerOff_ReturnFalse()
+        {
+            var on = BuildDescentUnit(engage: true);
+            var onUnit = DescentUnitFor(on);
+            // A DESCENT-set member (49) carries no deorbit tail (its own trigger-gated pass owns the clip).
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                onUnit, 49, EntryUT(0) + 100.0, W1Start, W1End, out _, out _, out _));
+
+            // Trigger OFF: the transfer member yields no deorbit head (byte-identical-off).
+            var off = BuildDescentUnit(engage: false);
+            var offUnit = DescentUnitFor(off);
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                offUnit, 5, EntryUT(0) + 100.0, 27_000_000.0, Deorbit, out _, out _, out _));
         }
 
         // --- FLIGHT-engine integration: GhostPlaybackLogic.ResolveDescentMemberEngineRender (Defect 3) ---
