@@ -1801,6 +1801,47 @@ namespace Parsek.Tests
             Assert.Equal(0, members[2].index);
         }
 
+        // A descent-trigger member is excluded from the chain run: it renders ONLY via its own trigger-gated
+        // primary pass, so the run must not draw its body-fixed descent leg on the loop clock (the descent-line-
+        // on-the-loiter desync). The non-descent siblings still run.
+        [Fact]
+        public void CollectChainRunMembers_DescentMember_ExcludedFromRun()
+        {
+            const string chain = "chain-d";
+            var launch = MakeChainMember("rec-launch", chain, startUT: 100.0);   // committed index 2
+            var middle = MakeChainMember("rec-middle", chain, startUT: 300.0);   // committed index 4
+            var descent = MakeChainMember("rec-descent", chain, startUT: 600.0); // committed index 0 (descent member)
+            var committed = new List<Recording> { descent, MakeChainMember("x", null, 0.0), launch, MakeChainMember("y", "z", 0.0), middle };
+            var members = new List<(int index, Recording rec)>();
+
+            // A re-aim unit whose descent set = committed index 0 (the descent recording).
+            var plan = new Parsek.Reaim.ReaimMissionPlan { Supported = true };
+            var sched = new Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule { Valid = true };
+            var unit = new Parsek.GhostPlaybackLogic.LoopUnit(
+                2, new[] { 0, 2, 4 }, 0.0, 1000.0, 2000.0, 0.0, 2000.0, null, null, plan, sched,
+                loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
+                arrivalAlignPeriodSeconds: double.NaN, arrivalAmberReason: null,
+                launchBodyRotationPeriodSeconds: double.NaN, launchHoldEngaged: false, recordedSoiExitUT: double.NaN,
+                descentMemberIndices: new[] { 0 }, recordedDeorbitUT: 500.0, descentEndUT: 600.0,
+                destinationBodyRotationPeriodSeconds: 65517.86, loiterPeriodSeconds: 4000.0, captureShiftSeconds: -100000.0);
+            var units = new Parsek.GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, Parsek.GhostPlaybackLogic.LoopUnit> { { 2, unit } },
+                new Dictionary<int, int> { { 0, 2 }, { 2, 2 }, { 4, 2 } });
+
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(committed, middle, 4, members, units);
+
+            // The descent member (index 0) is gone; launch + middle remain (sorted by StartUT).
+            Assert.Equal(2, members.Count);
+            Assert.Same(launch, members[0].rec);
+            Assert.Same(middle, members[1].rec);
+            Assert.DoesNotContain(members, m => ReferenceEquals(m.rec, descent));
+
+            // Without the loop-unit set (null), the descent member is NOT excluded (byte-identical to before).
+            var membersUngated = new List<(int index, Recording rec)>();
+            GhostTrajectoryPolylineRenderer.CollectChainRunMembers(committed, middle, 4, membersUngated);
+            Assert.Equal(3, membersUngated.Count);
+        }
+
         // A chain recording missing from the committed list (detached caller input) falls back to the
         // single-member run instead of an empty member set (the pass must still draw something).
         [Fact]

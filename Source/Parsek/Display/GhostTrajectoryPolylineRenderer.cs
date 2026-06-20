@@ -922,7 +922,8 @@ namespace Parsek.Display
         /// </summary>
         internal static void CollectChainRunMembers(
             IReadOnlyList<Recording> committed, Recording rec, int recordingIndex,
-            List<(int index, Recording rec)> members)
+            List<(int index, Recording rec)> members,
+            GhostPlaybackLogic.LoopUnitSet loopUnits = null)
         {
             if (members == null) return;
             members.Clear();
@@ -937,6 +938,17 @@ namespace Parsek.Display
                 var m = committed[i];
                 if (m == null || string.IsNullOrEmpty(m.RecordingId)) continue;
                 if (!string.Equals(m.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                // DESCENT TRIGGER: a descent-set member renders ONLY via its own trigger-gated primary pass
+                // (hidden during the loiter, drawn at the re-anchored head during its rotation-aligned window).
+                // Exclude it from the chain RUN entirely: the run draws sibling members' body-fixed legs against
+                // the VISIBLE (transfer) member's LOOP-CLOCK head, so a descent member left in the run would draw
+                // its descent line on the loop clock every pass over its recorded slot - desynced from the
+                // trigger-controlled icon (the descent line painted on the loiter while the icon still waits).
+                // Its legs AND arcs stay out of the run, matching the descent member's intended full hide.
+                if (loopUnits != null
+                    && loopUnits.TryGetUnitForMember(i, out GhostPlaybackLogic.LoopUnit du)
+                    && du.HasDescentTrigger && du.IsDescentMember(i))
+                    continue;
                 members.Add((i, m));
             }
             if (members.Count == 0)
@@ -4403,7 +4415,7 @@ namespace Parsek.Display
                 // member's conics (ascent leg no longer draws alone), and after the handoff the previous
                 // member's legs persist as run legs (the ascent leg no longer vanishes). Standalone
                 // recordings collect as a single member, byte-identical to the pre-chain behaviour.
-                CollectChainRunMembers(committed, rec, recordingIndex, chainRunMemberScratch);
+                CollectChainRunMembers(committed, rec, recordingIndex, chainRunMemberScratch, loopUnits);
 
                 // Resolve per-member EFFECTIVE segments (CRITICAL sourcing: re-aim-resolved, == recorded
                 // by reference for faithful members) + the per-member synodic window index for the arc
