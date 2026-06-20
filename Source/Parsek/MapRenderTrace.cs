@@ -337,7 +337,8 @@ namespace Parsek
         /// pays nothing beyond the caller's own <see cref="IsEnabled"/> guard).
         /// </summary>
         internal static void EmitMarkerDecisionOnChange(
-            RenderSurface surface, string pidKey, double currentUT, string signature)
+            RenderSurface surface, string pidKey, double currentUT, string signature,
+            double effUT = double.NaN)
         {
             if (!IsEnabled)
                 return;
@@ -357,7 +358,12 @@ namespace Parsek
                 lastMarkerDecisionSignatureByPid.Clear();
 
             lastMarkerDecisionSignatureByPid[pidKey] = signature;
-            EmitOnChange("MarkerDecision", surface, pidKey, currentUT, currentUT, signature);
+            // effUT slot: the REAL loop-shifted sample UT the classifier used (e.g. the ~2.5e9 Duna-region
+            // UT for a looped re-aim member), threaded separately from the live currentUT so the line no
+            // longer mislabels effUT==currentUT. Callers that do not pass effUT (the per-instance overlap
+            // path, where the instance head IS the live sample) get the legacy effUT==currentUT behavior.
+            double resolvedEffUT = double.IsNaN(effUT) ? currentUT : effUT;
+            EmitOnChange("MarkerDecision", surface, pidKey, currentUT, resolvedEffUT, signature);
         }
 
         // MVP: detailed windows are keyed by pid.ToString(). recordingId keying

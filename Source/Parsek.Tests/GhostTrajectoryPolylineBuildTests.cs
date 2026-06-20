@@ -1928,6 +1928,57 @@ namespace Parsek.Tests
             Assert.False(GhostTrajectoryPolylineRenderer.IsDescentTriggerMember(0, noTrigger));
         }
 
+        // Clamp B: the forward-run window's chainDataEndUT is capped at RecordedDeorbitUT for the NON-descent
+        // transfer member of a descent-trigger unit, so its own Duna descent leg + forward bridge legs stop
+        // painting during the loiter. MakeDescentUnitSet sets recordedDeorbitUT = 500, descent set = {0},
+        // owner/member 2 = the non-descent transfer member.
+        [Fact]
+        public void ClampChainDataEndForDescentTransfer_CapsTransferMemberAtDeorbit()
+        {
+            const double deorbit = 500.0; // MakeDescentUnitSet's recordedDeorbitUT
+            var units = MakeDescentUnitSet(new[] { 0 }, new[] { 0, 2 });
+
+            // index 2 = non-descent transfer member, window end PAST the seam -> clamped down to the seam.
+            double clamped = GhostTrajectoryPolylineRenderer.ClampChainDataEndForDescentTransfer(
+                deorbit + 100_000.0, 2, units);
+            Assert.Equal(deorbit, clamped, 6);
+
+            // A window already at/before the seam is untouched (no upward clamp).
+            double below = GhostTrajectoryPolylineRenderer.ClampChainDataEndForDescentTransfer(
+                deorbit - 1000.0, 2, units);
+            Assert.Equal(deorbit - 1000.0, below, 6);
+        }
+
+        [Fact]
+        public void ClampChainDataEndForDescentTransfer_UnchangedWhenGuardFalse()
+        {
+            const double endUT = 600_000.0;
+            var units = MakeDescentUnitSet(new[] { 0 }, new[] { 0, 2 });
+
+            // index 0 IS a descent member -> excluded by the guard, returned unchanged (its descent line comes
+            // only from its own trigger-gated pass, not the transfer-member forward run).
+            Assert.Equal(endUT,
+                GhostTrajectoryPolylineRenderer.ClampChainDataEndForDescentTransfer(endUT, 0, units), 6);
+
+            // index 5 is not a member at all -> unchanged.
+            Assert.Equal(endUT,
+                GhostTrajectoryPolylineRenderer.ClampChainDataEndForDescentTransfer(endUT, 5, units), 6);
+
+            // null loop-unit set -> unchanged (byte-identical no-trigger path).
+            Assert.Equal(endUT,
+                GhostTrajectoryPolylineRenderer.ClampChainDataEndForDescentTransfer(endUT, 2, null), 6);
+
+            // A unit with NO descent trigger -> unchanged even for the transfer member index.
+            var noTrigger = new Parsek.GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, Parsek.GhostPlaybackLogic.LoopUnit>
+                {
+                    { 2, new Parsek.GhostPlaybackLogic.LoopUnit(2, new[] { 0, 2 }, 0.0, 1000.0, 2000.0, 0.0) }
+                },
+                new Dictionary<int, int> { { 0, 2 }, { 2, 2 } });
+            Assert.Equal(endUT,
+                GhostTrajectoryPolylineRenderer.ClampChainDataEndForDescentTransfer(endUT, 2, noTrigger), 6);
+        }
+
         // A chain recording missing from the committed list (detached caller input) falls back to the
         // single-member run instead of an empty member set (the pass must still draw something).
         [Fact]

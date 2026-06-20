@@ -992,6 +992,29 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// Clamp B (re-aim descent trigger): cap a forward-run window's <paramref name="chainDataEndUT"/> at the
+        /// unit's <c>RecordedDeorbitUT</c> when <paramref name="recordingIndex"/> is the NON-descent transfer/owner
+        /// member of a descent-trigger unit. The transfer member's own recorded data runs past the deorbit seam
+        /// into its Duna capture+parking+descent (rec.EndUT = the recorded landing); the SEPARATE descent members
+        /// own the re-anchored body-fixed descent, so the transfer member's forward run must stop at the seam to
+        /// avoid painting its own descent leg + forward bridge legs during the loiter. Byte-identical (returns
+        /// <paramref name="chainDataEndUT"/> unchanged) when: <paramref name="loopUnits"/> is null, the index is
+        /// not a unit member, the unit has no descent trigger, the index IS a descent member (it takes its own
+        /// trigger-gated pass), RecordedDeorbitUT is NaN, or the window already ends at/before the seam. Pure;
+        /// xUnit-testable without Unity.
+        /// </summary>
+        internal static double ClampChainDataEndForDescentTransfer(
+            double chainDataEndUT, int recordingIndex, GhostPlaybackLogic.LoopUnitSet loopUnits)
+        {
+            if (loopUnits != null
+                && loopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit unit)
+                && unit.HasDescentTrigger && !IsDescentTriggerMember(recordingIndex, loopUnits)
+                && !double.IsNaN(unit.RecordedDeorbitUT) && chainDataEndUT > unit.RecordedDeorbitUT)
+                return unit.RecordedDeorbitUT;
+            return chainDataEndUT;
+        }
+
+        /// <summary>
         /// Run-arc cache key (Step 3 Cache bullet): the run-arc VectorLine set is re-sampled only when the
         /// SELECTED segment set (the indices <see cref="SelectForwardArcSegmentIndices"/> returned) or the
         /// re-aim synodic WINDOW changes. Keying on the actual selected set (not currentElementIndex) is
@@ -4499,6 +4522,17 @@ namespace Parsek.Display
                     if (member.rec.EndUT > chainDataEndUT)
                         chainDataEndUT = member.rec.EndUT;
                 }
+
+                // Re-aim descent trigger: the transfer/owner member's OWN recorded data runs PAST the recorded
+                // deorbit seam into its Duna capture+parking+descent (rec.EndUT = the recorded landing). The
+                // SEPARATE descent members own the re-anchored body-fixed descent; letting the forward run paint
+                // this member's own descent leg + forward bridge legs during the loiter leaves the descent line
+                // lingering on the map. Cap the forward window at the seam for the NON-descent transfer member of
+                // a descent-trigger unit, so the run ends at the parking-conic deorbit point. Byte-identical for
+                // non-re-aim chains (HasDescentTrigger false) and for descent members themselves (excluded by
+                // !IsDescentTriggerMember; their descent line comes only from their own trigger-gated pass).
+                chainDataEndUT = ClampChainDataEndForDescentTransfer(
+                    chainDataEndUT, recordingIndex, loopUnits);
 
                 // Window source: members are StartUT-ordered and partition the recorded-UT axis, so the
                 // concatenation is time-sorted. RE-coalesce the chain-wide list so a same-orbit coast

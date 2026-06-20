@@ -286,6 +286,22 @@ namespace Parsek.Patches
             else
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
 
+            // Re-aim descent flicker observability: capture EVERY icon-source flip as a discrete on-change
+            // event (NOT rate-limited), so a sub-second proto<->orbit-segment thrash on the descent-trigger
+            // transfer member - the symptom the rate-limited "Icon drive" line below drops at ~1/sec - shows
+            // up as one line per ACTUAL flip. Keyed per pid by the suppressed bool, so a stable icon source
+            // emits nothing after the first frame; only the flip frames cost a string build. The descent
+            // clamp (GhostPlaybackLogic.ResolveTrackingStationSampleUT) should collapse these flips to zero
+            // for the clamped transfer member - this line is the proof.
+            ParsekLog.VerboseOnChange("GhostOrbitIcon",
+                "icon-flip-" + pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                decision.Suppressed ? "S" : "V",
+                () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Icon source flip pid={0} suppressed={1} reason={2} liveUT={3:F1} driveUT={4:F1} " +
+                    "shift={5:F1} window=[{6:F1},{7:F1}] scene={8}",
+                    pid, decision.Suppressed, decision.Reason, currentUT, driveUT, shift,
+                    startUT, endUT, HighLogic.LoadedScene));
+
             ParsekLog.VerboseRateLimited("GhostOrbitIcon", "drive-" + pid,
                 string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "Icon drive pid={0} reason={1} liveUT={2:F1} effUT/driveUT={3:F1} shift={4:F1} " +

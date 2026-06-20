@@ -559,6 +559,89 @@ namespace Parsek.Tests
             Assert.Equal(Deorbit + 400.0, u49, 3);
         }
 
+        // --- Clamp A: the non-descent transfer/owner member's render window is capped at RecordedDeorbitUT ---
+        //
+        // The transfer member carries its OWN recorded Duna capture+parking+descent (rec.EndUT = the recorded
+        // landing), so its UN-clamped render window runs PAST RecordedDeorbitUT into the post-seam descent. The
+        // SEPARATE descent members own the re-anchored descent; the clamp caps the transfer member's window at
+        // the seam so the shared loop clock never sweeps through its own descent OrbitSegment fragments (the
+        // icon-flicker + lingering-polyline bug). Built with a WIDE owner window [0, Deorbit + buffer] so the
+        // un-clamped end straddles the seam; the cycle-0 span loopUT ~= liveUT - phaseAnchor (see the
+        // ByteIdentical test which renders member 0 at liveUT = Pa + small), so liveUT = Pa + Deorbit + d puts
+        // the owner's loopUT at ~Deorbit + d.
+        private static GhostPlaybackLogic.LoopUnitSet BuildWideOwnerUnit(bool engage)
+        {
+            const double ownerWindowEnd = Deorbit + 100_000.0; // straddles the seam (Deorbit)
+            var windows = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>
+            {
+                { 0, new GhostPlaybackLogic.LoopUnit.MemberWindow(0.0, ownerWindowEnd) }, // owner (non-descent)
+                { 49, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1Start, W1End) },
+                { 50, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1End, W2End) },
+                { 51, new GhostPlaybackLogic.LoopUnit.MemberWindow(W2End, W3End) },
+            };
+            var plan = new Parsek.Reaim.ReaimMissionPlan { Supported = true };
+            var sched = new Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule { Valid = true };
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                0, new[] { 0, 49, 50, 51 }, SpanStart, DescentEnd, Cad, Pa, Cad, windows, null, plan, sched,
+                loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
+                arrivalAlignPeriodSeconds: double.NaN, arrivalAmberReason: null,
+                launchBodyRotationPeriodSeconds: double.NaN, launchHoldEngaged: false,
+                recordedSoiExitUT: double.NaN,
+                descentMemberIndices: engage ? new[] { 49, 50, 51 } : null,
+                recordedDeorbitUT: engage ? Deorbit : double.NaN,
+                descentEndUT: engage ? DescentEnd : double.NaN,
+                destinationBodyRotationPeriodSeconds: engage ? DunaTrot : double.NaN,
+                loiterPeriodSeconds: engage ? Tpark : double.NaN,
+                captureShiftSeconds: engage ? CapShift : double.NaN);
+            return new GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
+                new Dictionary<int, int> { { 0, 0 }, { 49, 0 }, { 50, 0 }, { 51, 0 } });
+        }
+
+        [Fact]
+        public void Resolver_TransferMember_ClampedToDeorbit_HidesPostSeam()
+        {
+            var on = BuildWideOwnerUnit(engage: true);
+            const double ownerWindowEnd = Deorbit + 100_000.0;
+
+            // PRE-seam: loopUT ~= Deorbit - 1000 (< Deorbit), inside the clamped window -> renders.
+            double uPre = Resolve(0, 0.0, ownerWindowEnd, Pa + Deorbit - 1000.0, on, out bool hPre);
+            Assert.False(hPre); // pre-seam parking conic still renders under the clamp
+            Assert.False(double.IsNaN(uPre));
+
+            // POST-seam: loopUT ~= Deorbit + 1000 (> Deorbit). The clamp caps memberEndUT at Deorbit, so the
+            // owner is now OUTSIDE its window -> hidden. This is the icon-flicker fix: the transfer member no
+            // longer rides its own post-seam descent fragments.
+            Resolve(0, 0.0, ownerWindowEnd, Pa + Deorbit + 1000.0, on, out bool hPost);
+            Assert.True(hPost, "transfer member hidden past the recorded deorbit seam (clamp engaged)");
+        }
+
+        [Fact]
+        public void Resolver_TransferMember_NoClampWhenTriggerOff_RendersPostSeam()
+        {
+            // Same wide owner window + same post-seam loopUT, but the descent trigger is OFF (HasDescentTrigger
+            // false). The clamp guard short-circuits, so the un-clamped window [0, Deorbit + buffer] still
+            // covers the loopUT and the owner RENDERS - proving the clamp is gated on the trigger and is
+            // byte-identical for non-re-aim units.
+            var off = BuildWideOwnerUnit(engage: false);
+            const double ownerWindowEnd = Deorbit + 100_000.0;
+            Resolve(0, 0.0, ownerWindowEnd, Pa + Deorbit + 1000.0, off, out bool hPost);
+            Assert.False(hPost, "trigger-off owner still renders past the seam (no clamp applied)");
+        }
+
+        [Fact]
+        public void Resolver_DescentMember_NotClampedByTransferGuard()
+        {
+            // A descent member (index 49) is EXCLUDED from the Clamp A guard (!IsDescentMember), so the clamp
+            // never touches it; it still takes the IsDescentMember descent-remap branch. Confirm it renders its
+            // own slice exactly as the un-widened unit does (the clamp did not perturb the descent path).
+            var units = BuildWideOwnerUnit(engage: true);
+            double t = TriggerUT(0) + 400.0; // shared head = Deorbit + 400 -> in member 49's window
+            double u49 = Resolve(49, W1Start, W1End, t, units, out bool h49);
+            Assert.False(h49);
+            Assert.Equal(Deorbit + 400.0, u49, 3);
+        }
+
         // --- FLIGHT-engine integration: GhostPlaybackLogic.ResolveDescentMemberEngineRender (Defect 3) ---
         //
         // The engine-side complement of the resolver branch: the same TryResolveDescentMemberHead remap,

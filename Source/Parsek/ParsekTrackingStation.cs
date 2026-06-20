@@ -424,8 +424,15 @@ namespace Parsek
                 // summary. Pass tsSkipReason=None on the draw path -> the optional field is omitted.
                 bool decDirectorTraced = false, decPolylineOwning = false,
                     decIconSuppressed = false, decShouldDraw = false;
+                // decisionEffUT: the REAL loop-shifted sample UT (ResolveTrackingStationSampleUT result)
+                // to thread into the trace line's effUT slot, NaN -> fall back to currentUT. The
+                // span-clock-substituted callers below (post-effUT-resolution) pass the true effUT so the
+                // line shows the loop-shifted UT the classifier used (e.g. the ~2.5e9 Duna-region UT) rather
+                // than mislabeling effUT==currentUT. The pre-effUT overlap-branch caller keeps the NaN
+                // default (its instance head is the live sample, byte-identical to before).
                 void EmitMarkerDecision(MapRenderTrace.MarkerOutcome outcome,
-                    AtmosphericMarkerSkipReason tsSkipReason = AtmosphericMarkerSkipReason.None)
+                    AtmosphericMarkerSkipReason tsSkipReason = AtmosphericMarkerSkipReason.None,
+                    double decisionEffUT = double.NaN)
                 {
                     if (!traceOn || rec == null || string.IsNullOrEmpty(rec.RecordingId))
                         return;
@@ -437,7 +444,8 @@ namespace Parsek
                             MapRenderTrace.MarkerRideReason.NotAttempted, -1, "traj",
                             tsSkipReason: tsSkipReason == AtmosphericMarkerSkipReason.None
                                 ? null
-                                : AtmosphericMarkerSkipReasonToken(tsSkipReason)));
+                                : AtmosphericMarkerSkipReasonToken(tsSkipReason)),
+                        decisionEffUT);
                 }
 
                 // ---- Slice (iii) TS port: per-instance overlap markers riding the ONE shared polyline ----
@@ -521,7 +529,8 @@ namespace Parsek
                 if (renderHidden)
                 {
                     summary.LoopMemberHidden++;
-                    EmitMarkerDecision(MapRenderTrace.MarkerOutcome.SkippedLoopHidden);
+                    EmitMarkerDecision(MapRenderTrace.MarkerOutcome.SkippedLoopHidden,
+                        decisionEffUT: effUT);
                     continue;
                 }
 
@@ -544,7 +553,8 @@ namespace Parsek
                     CountAtmosphericMarkerSkip(ref summary, skipReason);
                     // C-1: pass the RAW skip reason so the finer TS taxonomy (folded away by
                     // MapSkipReasonToMarkerOutcome) survives as the tsSkip= field on this ghost's line.
-                    EmitMarkerDecision(MapSkipReasonToMarkerOutcome(skipReason), skipReason);
+                    EmitMarkerDecision(MapSkipReasonToMarkerOutcome(skipReason), skipReason,
+                        decisionEffUT: effUT);
                     continue;
                 }
 
@@ -592,7 +602,8 @@ namespace Parsek
                         summary.MissingBody++;
                     else
                         summary.BracketMiss++;
-                    EmitMarkerDecision(MapRenderTrace.MarkerOutcome.SkippedPositionFail);
+                    EmitMarkerDecision(MapRenderTrace.MarkerOutcome.SkippedPositionFail,
+                        decisionEffUT: effUT);
                     continue;
                 }
 
@@ -610,7 +621,8 @@ namespace Parsek
                 summary.Drawn++;
 
                 // Tracer: the atmospheric (non-proto) marker drew.
-                EmitMarkerDecision(MapRenderTrace.MarkerOutcome.DrawnNonProto);
+                EmitMarkerDecision(MapRenderTrace.MarkerOutcome.DrawnNonProto,
+                    decisionEffUT: effUT);
 
                 ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
                     $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
