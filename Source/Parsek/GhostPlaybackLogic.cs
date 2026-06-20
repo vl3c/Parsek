@@ -8408,6 +8408,15 @@ namespace Parsek
                     unit.RecordedDeorbitUT, unit.DescentEndUT, unit.CadenceSeconds,
                     unit.DestinationBodyRotationPeriodSeconds);
 
+                // Auto-slow: drop time-warp to 1x as this descent leaves the loiter and starts, so the brief clip
+                // is watchable instead of being warped past (a tiny slice of the multi-hundred-day loop). Pure
+                // no-op in xUnit / non-flight scenes (the Unity seam is unwired there) and when the user setting is
+                // off. Fires once per descent cycle; reached in BOTH the tracking station and FLIGHT (the polyline
+                // Driver walks this resolver every frame in flight), so one call site covers both scenes.
+                Parsek.Reaim.DescentWarpControl.NotifyDescentState(
+                    $"{unit.PhaseAnchorUT.ToString("R", dic)}.{unit.SpanStartUT.ToString("R", dic)}",
+                    unitCycle, descentPhase, liveUT, dscTriggerUT, unit.DescentEndUT);
+
                 if (renderDescent)
                 {
                     renderHidden = false; // this member owns its slice of the re-anchored clip
