@@ -1843,6 +1843,313 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(200.0, outcome.Route.DispatchInterval);
             Assert.True(outcome.Route.DispatchInterval >= outcome.Route.TransitDuration);
         }
+
+        // -----------------------------------------------------------------
+        // M4a Phase A2: RouteBuilder builds N ordered stops (plan D4)
+        // -----------------------------------------------------------------
+
+        // A second Mun endpoint, distinct pid, for the second stop.
+        private static RouteEndpoint MakeSecondMunEndpoint(uint pid = 9002)
+        {
+            return new RouteEndpoint
+            {
+                VesselPersistentId = pid,
+                BodyName = "Mun",
+                Latitude = 20.0,
+                Longitude = 30.0,
+                Altitude = 700.0,
+                IsSurface = true
+            };
+        }
+
+        // Build a 2-stop eligible analysis from a single KSC source. The Stops
+        // list (what A1 produces) carries TWO windows ordered ascending by DockUT;
+        // the scalar fields mirror the anchor (first) stop, matching A1's contract.
+        // dockA=1100/undockA=1150 ; dockB=1200/undockB=1250, all inside the
+        // source [1000..1300] span so RouteBuilder's window-sanity gate passes
+        // against the LAST stop (dock 1200 < undock 1250).
+        private static RouteAnalysisResult TwoStopAnalysis(Recording source)
+        {
+            RouteConnectionWindow windowA = new RouteConnectionWindow
+            {
+                WindowId = "wA",
+                DockUT = 1100.0,
+                UndockUT = 1150.0,
+                TransferTargetVesselPid = 9001,
+                TransferKind = RouteConnectionKind.DockingPort,
+                EndpointAtDock = MakeMunEndpoint(9001),
+                TransferEndpointSituation = 1
+            };
+            RouteConnectionWindow windowB = new RouteConnectionWindow
+            {
+                WindowId = "wB",
+                DockUT = 1200.0,
+                UndockUT = 1250.0,
+                TransferTargetVesselPid = 9002,
+                TransferKind = RouteConnectionKind.DockingPort,
+                EndpointAtDock = MakeSecondMunEndpoint(9002),
+                TransferEndpointSituation = 1
+            };
+            var stopA = new RouteAnalysisStop
+            {
+                ConnectionWindow = windowA,
+                ResourceDeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 150.0 } },
+                InventoryDeliveryManifest = null,
+                ResourceLoadManifest = null,
+                InventoryLoadManifest = null,
+                EndpointAtDock = windowA.EndpointAtDock.Value,
+                DockUT = windowA.DockUT,
+                SourceRecording = source
+            };
+            var stopB = new RouteAnalysisStop
+            {
+                ConnectionWindow = windowB,
+                ResourceDeliveryManifest = new Dictionary<string, double> { { "MonoPropellant", 200.0 } },
+                InventoryDeliveryManifest = null,
+                ResourceLoadManifest = null,
+                InventoryLoadManifest = null,
+                EndpointAtDock = windowB.EndpointAtDock.Value,
+                DockUT = windowB.DockUT,
+                SourceRecording = source
+            };
+            return new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = source,
+                // Scalars mirror the anchor (first/min-DockUT) stop, as A1 does.
+                ConnectionWindow = windowA,
+                ResourceDeliveryManifest = stopA.ResourceDeliveryManifest,
+                InventoryDeliveryManifest = null,
+                Stops = new List<RouteAnalysisStop> { stopA, stopB }
+            };
+        }
+
+        [Fact]
+        public void BuildRoute_TwoStopAnalysis_BuildsTwoStopsInDockUtOrder()
+        {
+            // catches (M4a D4): RouteBuilder still building a single stop from the
+            // scalar fields after A1 widened the result to a Stops list. A 2-stop
+            // analysis MUST build 2 RouteStops in DockUT order, each carrying its
+            // own endpoint + delivery manifest + per-stop RecordedDockUT.
+            Recording source = MakeKscSource(
+                startUT: 1000.0, endUT: 1300.0, dockUT: 1100.0, undockUT: 1250.0);
+            RouteAnalysisResult analysis = TwoStopAnalysis(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 600.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Null(outcome.RejectReason);
+            Assert.Equal(2, outcome.Route.Stops.Count);
+
+            RouteStop s0 = outcome.Route.Stops[0];
+            RouteStop s1 = outcome.Route.Stops[1];
+            // Ascending DockUT order preserved (A1 ordered them; A2 keeps order).
+            Assert.Equal(1100.0, s0.RecordedDockUT);
+            Assert.Equal(1200.0, s1.RecordedDockUT);
+            // Each stop's endpoint + delivery manifest come from ITS own window.
+            Assert.Equal(9001u, s0.Endpoint.VesselPersistentId);
+            Assert.Equal(150.0, s0.DeliveryManifest["LiquidFuel"]);
+            Assert.Equal(9002u, s1.Endpoint.VesselPersistentId);
+            Assert.Equal(200.0, s1.DeliveryManifest["MonoPropellant"]);
+        }
+
+        [Fact]
+        public void BuildRoute_TwoStopAnalysis_DeliveryOffsetsSetForMultiStop_AscendingByDock()
+        {
+            // catches (M4a D4): DeliveryOffsetSeconds left at 0.0 on a multi-stop
+            // route, or computed off the wrong epoch. For N>1 each stop's offset is
+            // dockUT - rootLaunchUT, so stop0 (earlier dock) MUST be < stop1, and
+            // both > 0. With no committedTree, rootLaunchUT == source.StartUT (1000).
+            Recording source = MakeKscSource(
+                startUT: 1000.0, endUT: 1300.0, dockUT: 1100.0, undockUT: 1250.0);
+            RouteAnalysisResult analysis = TwoStopAnalysis(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 600.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            double off0 = outcome.Route.Stops[0].DeliveryOffsetSeconds;
+            double off1 = outcome.Route.Stops[1].DeliveryOffsetSeconds;
+            // dockA(1100) - launch(1000) = 100 ; dockB(1200) - launch(1000) = 200.
+            Assert.Equal(100.0, off0);
+            Assert.Equal(200.0, off1);
+            Assert.True(off0 < off1, "stop0 offset must precede stop1 offset");
+            Assert.True(off0 > 0.0, "multi-stop offsets are dock-minus-launch, positive");
+            // Multi-stop summary line logged with the per-stop dock UTs + endpoints.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("Built multi-stop route")
+                && l.Contains("stops=2"));
+        }
+
+        [Fact]
+        public void BuildRoute_TwoStopAnalysis_RouteSpanUsesLastStopDock()
+        {
+            // catches (M4a D4): the route span (RecordedDockUT / TransitDuration /
+            // DockMemberRecordingId) keying on the FIRST window instead of the LAST
+            // (max-DockUT) stop. The rendered span must end at the run-end dock so
+            // the no-spawn end-trim (A4) covers the whole multi-stop run.
+            Recording source = MakeKscSource(
+                startUT: 1000.0, endUT: 1300.0, dockUT: 1100.0, undockUT: 1250.0);
+            RouteAnalysisResult analysis = TwoStopAnalysis(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 600.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            // Route-level RecordedDockUT == the LAST stop's dock (1200), not 1100.
+            Assert.Equal(1200.0, outcome.Route.RecordedDockUT);
+            // TransitDuration == lastDock(1200) - rootLaunch(1000) = 200.
+            Assert.Equal(200.0, outcome.Route.TransitDuration);
+        }
+
+        [Fact]
+        public void BuildRoute_SingleStopScalarOnlyAnalysis_StillBuildsOneStop()
+        {
+            // catches (M4a D4 / RANK-8): a scalar-only analysis (no Stops list, the
+            // shape the pure-logic tests construct) failing to build, or building a
+            // stop whose per-stop fields drift off the byte-identical single-stop
+            // sentinels. The synthesized single stop must keep SegmentIndexBefore=0,
+            // DeliveryOffsetSeconds=0.0, and RecordedDockUT=-1 (sparse-omitted),
+            // matching the pre-A2 build exactly.
+            Recording source = MakeKscSource();
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+            Assert.Null(analysis.Stops); // scalar-only, no list
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Single(outcome.Route.Stops);
+            RouteStop only = outcome.Route.Stops[0];
+            Assert.Equal(0, only.SegmentIndexBefore);
+            Assert.Equal(0.0, only.DeliveryOffsetSeconds);
+            // Single-stop sentinels keep the new per-stop fields at default so the
+            // codec sparse-omits them (byte-identity pinned in RouteCodecTests).
+            Assert.Equal(-1.0, only.RecordedDockUT);
+            Assert.Equal(-1L, only.LastFiredCycleIndex);
+            // The delivery manifest still rides the synthesized stop.
+            Assert.Equal(50.0, only.DeliveryManifest["LiquidFuel"]);
+            // No multi-stop summary line for a single-stop route.
+            Assert.DoesNotContain(logLines, l => l.Contains("Built multi-stop route"));
+        }
+
+        [Fact]
+        public void BuildRoute_CrossRecordingMultiStop_DockMemberRecordingIdCoherentWithLastStop()
+        {
+            // catches (A2 review fold): Route.DockMemberRecordingId keying on the
+            // ANCHOR/first stop's source while Route.RecordedDockUT keys on the
+            // LAST stop, producing an incoherent (last-UT, first-recording) pair
+            // for a CROSS-recording multi-stop route (AnalyzeTree collects windows
+            // across different member recordings). The route-span pair must point
+            // at the SAME leaf - the run-end dock - because A4's end-trim and
+            // MissionRouteStructureList resolve the dock window through
+            // DockMemberRecordingId. The existing same-source TwoStopAnalysis
+            // fixture cannot catch this (anchor == last there).
+            Recording anchor = MakeKscSource(
+                startUT: 1000.0, endUT: 1300.0, recordingId: "src-anchor",
+                dockUT: 1100.0, undockUT: 1250.0);
+            Recording lastRec = MakeKscSource(
+                startUT: 1000.0, endUT: 1300.0, recordingId: "src-last",
+                dockUT: 1200.0, undockUT: 1250.0);
+
+            RouteConnectionWindow windowA = new RouteConnectionWindow
+            {
+                WindowId = "wA", DockUT = 1100.0, UndockUT = 1150.0,
+                TransferTargetVesselPid = 9001, TransferKind = RouteConnectionKind.DockingPort,
+                EndpointAtDock = MakeMunEndpoint(9001), TransferEndpointSituation = 1
+            };
+            RouteConnectionWindow windowB = new RouteConnectionWindow
+            {
+                WindowId = "wB", DockUT = 1200.0, UndockUT = 1250.0,
+                TransferTargetVesselPid = 9002, TransferKind = RouteConnectionKind.DockingPort,
+                EndpointAtDock = MakeSecondMunEndpoint(9002), TransferEndpointSituation = 1
+            };
+            var stopA = new RouteAnalysisStop
+            {
+                ConnectionWindow = windowA,
+                ResourceDeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 150.0 } },
+                EndpointAtDock = windowA.EndpointAtDock.Value, DockUT = windowA.DockUT,
+                SourceRecording = anchor
+            };
+            var stopB = new RouteAnalysisStop
+            {
+                ConnectionWindow = windowB,
+                ResourceDeliveryManifest = new Dictionary<string, double> { { "MonoPropellant", 200.0 } },
+                EndpointAtDock = windowB.EndpointAtDock.Value, DockUT = windowB.DockUT,
+                SourceRecording = lastRec // DIFFERENT recording than the anchor
+            };
+            var analysis = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = anchor, // scalars mirror the anchor (A1)
+                ConnectionWindow = windowA,
+                ResourceDeliveryManifest = stopA.ResourceDeliveryManifest,
+                Stops = new List<RouteAnalysisStop> { stopA, stopB }
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 600.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(2, outcome.Route.Stops.Count);
+            // The route-span pair is COHERENT: both reference the last (run-end) leaf.
+            Assert.Equal(1200.0, outcome.Route.RecordedDockUT);
+            Assert.Equal("src-last", outcome.Route.DockMemberRecordingId);
+            Assert.NotEqual("src-anchor", outcome.Route.DockMemberRecordingId);
+        }
+
+        [Fact]
+        public void BuildRoute_SingleStopViaStopsList_MatchesScalarFallback()
+        {
+            // catches (A2 review nit #4): the real length-1 Stops path diverging
+            // from the scalar-only ResolveAnalysisStops fallback for a single
+            // window. A 1-entry Stops list must build the SAME single-stop route
+            // (same sentinels, same span) as the scalar-only shape, so the
+            // fallback is a true equivalent and not a masked divergence.
+            Recording source = MakeKscSource();
+
+            RouteConnectionWindow window = new RouteConnectionWindow
+            {
+                WindowId = "wOnly", DockUT = 1100.0, UndockUT = 1200.0,
+                TransferTargetVesselPid = 9001, TransferKind = RouteConnectionKind.DockingPort,
+                EndpointAtDock = MakeMunEndpoint(9001), TransferEndpointSituation = 1
+            };
+            var onlyStop = new RouteAnalysisStop
+            {
+                ConnectionWindow = window,
+                ResourceDeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 50.0 } },
+                EndpointAtDock = window.EndpointAtDock.Value, DockUT = window.DockUT,
+                SourceRecording = source
+            };
+            var analysis = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = source,
+                ConnectionWindow = window,
+                ResourceDeliveryManifest = onlyStop.ResourceDeliveryManifest,
+                Stops = new List<RouteAnalysisStop> { onlyStop }
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Single(outcome.Route.Stops);
+            RouteStop only = outcome.Route.Stops[0];
+            // Same single-stop sentinels as the scalar-only fallback build:
+            // offset 0, per-stop fire fields at default (sparse-omitted on save).
+            Assert.Equal(0, only.SegmentIndexBefore);
+            Assert.Equal(0.0, only.DeliveryOffsetSeconds);
+            Assert.Equal(-1.0, only.RecordedDockUT);
+            Assert.Equal(-1L, only.LastFiredCycleIndex);
+            Assert.Equal(50.0, only.DeliveryManifest["LiquidFuel"]);
+            // Single-stop route span keys on the one stop's recording.
+            Assert.Equal("src-ksc", outcome.Route.DockMemberRecordingId);
+            // No multi-stop summary line for a single-stop route via the list path.
+            Assert.DoesNotContain(logLines, l => l.Contains("Built multi-stop route"));
+        }
     }
 
     /// <summary>

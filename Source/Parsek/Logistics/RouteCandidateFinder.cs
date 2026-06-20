@@ -128,7 +128,10 @@ namespace Parsek.Logistics
             // to give. The engine runs in Quiet mode here (this sweep polls ~1/s),
             // so it emits no per-tree INFO; the detailed per-tree reason is still
             // logged at INFO on the one-shot Create Route path (Diagnostic mode).
-            int missingProof = 0, multiWindow = 0, missingEndpoint = 0,
+            // M4a (plan D1): MultipleConnectionWindows is re-purposed to the
+            // genuinely-UNORDERABLE case (duplicate / NaN DockUT), not "multi-stop
+            // not yet supported" - multi-stop windows are now accepted + ordered.
+            int missingProof = 0, unorderableWindows = 0, missingEndpoint = 0,
                 mixedPickup = 0, noManifest = 0, undockedStart = 0, untrackedGain = 0,
                 flowNotClosed = 0;
             for (int i = 0; i < committedTrees.Count; i++)
@@ -151,7 +154,7 @@ namespace Parsek.Logistics
                     switch (analysis?.Status)
                     {
                         case RouteAnalysisStatus.MissingRouteProof: missingProof++; break;
-                        case RouteAnalysisStatus.MultipleConnectionWindows: multiWindow++; break;
+                        case RouteAnalysisStatus.MultipleConnectionWindows: unorderableWindows++; break;
                         case RouteAnalysisStatus.MissingEndpointProof: missingEndpoint++; break;
                         case RouteAnalysisStatus.MixedPickupDelivery: mixedPickup++; break;
                         case RouteAnalysisStatus.NoDeliveryManifest: noManifest++; break;
@@ -175,7 +178,7 @@ namespace Parsek.Logistics
             ParsekLog.Verbose(Tag,
                 $"DeriveCandidates: trees={committedTrees.Count} candidates={result.Count} " +
                 $"notSealed={notSealed} ineligible={ineligible} alreadyPromoted={alreadyPromoted} " +
-                $"[missingProof={missingProof} multiWindow={multiWindow} " +
+                $"[missingProof={missingProof} unorderableWindows={unorderableWindows} " +
                 $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} " +
                 $"noManifest={noManifest} undockedStart={undockedStart} " +
                 $"untrackedGain={untrackedGain} flowNotClosed={flowNotClosed}]");
@@ -217,7 +220,9 @@ namespace Parsek.Logistics
             int ineligible = 0;
             // Per-reason breakdown of the ineligible count, mirroring DeriveCandidates'
             // batch-summary convention (one Verbose line after the loop, never per item).
-            int missingProof = 0, multiWindow = 0, missingEndpoint = 0,
+            // M4a (plan D1): MultipleConnectionWindows is re-purposed to the
+            // genuinely-UNORDERABLE case (duplicate / NaN DockUT).
+            int missingProof = 0, unorderableWindows = 0, missingEndpoint = 0,
                 mixedPickup = 0, noManifest = 0, undockedStart = 0, untrackedGain = 0,
                 flowNotClosed = 0;
             for (int i = 0; i < committedTrees.Count; i++)
@@ -251,7 +256,7 @@ namespace Parsek.Logistics
                     switch (status)
                     {
                         case RouteAnalysisStatus.MissingRouteProof: missingProof++; break;
-                        case RouteAnalysisStatus.MultipleConnectionWindows: multiWindow++; break;
+                        case RouteAnalysisStatus.MultipleConnectionWindows: unorderableWindows++; break;
                         case RouteAnalysisStatus.MissingEndpointProof: missingEndpoint++; break;
                         case RouteAnalysisStatus.MixedPickupDelivery: mixedPickup++; break;
                         case RouteAnalysisStatus.NoDeliveryManifest: noManifest++; break;
@@ -277,7 +282,7 @@ namespace Parsek.Logistics
             ParsekLog.Verbose(Tag,
                 $"DeriveNearMisses: trees={committedTrees.Count} nearMisses={result.Count} " +
                 $"notSealed={notSealed} ineligible={ineligible} " +
-                $"[missingProof={missingProof} multiWindow={multiWindow} " +
+                $"[missingProof={missingProof} unorderableWindows={unorderableWindows} " +
                 $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} " +
                 $"noManifest={noManifest} undockedStart={undockedStart} " +
                 $"untrackedGain={untrackedGain} flowNotClosed={flowNotClosed}]");

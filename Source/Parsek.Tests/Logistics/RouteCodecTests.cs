@@ -573,6 +573,60 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(3, raisedLoaded.DispatchPriority);
         }
 
+        // M4c Phase C1 (plan D12 / OQ8): the round-trip linking alternation cursor
+        // round-trips, and its 0 default is sparse (omitted) so an unlinked / pre-M4c
+        // route writes NOTHING new and is byte-identical.
+        // catches: LastConsumedPartnerCycle not persisting (alternation state lost
+        // across save/reload), or the sparse 0 default being written and bloating an
+        // unlinked route's save.
+        [Fact]
+        public void RoundTrip_LastConsumedPartnerCycle_SparseDefaultZero()
+        {
+            var leanStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+
+            // Unlinked route at the 0 default: writes NO lastConsumedPartnerCycle
+            // value AND no linkedRouteId -> byte-identical to a pre-M4c route.
+            var defaultRoute = new RouteFixtureBuilder()
+                .WithId("partner-default-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .Build();
+            var defNode = new ConfigNode("ROUTE");
+            defaultRoute.SerializeInto(defNode);
+            Assert.False(defNode.HasValue("lastConsumedPartnerCycle"),
+                "lastConsumedPartnerCycle must be omitted when 0 (the default)");
+            Assert.False(defNode.HasValue("linkedRouteId"),
+                "an unlinked route writes no linkedRouteId");
+            Route defLoaded = Route.DeserializeFrom(defNode);
+            Assert.NotNull(defLoaded);
+            Assert.Equal(0, defLoaded.LastConsumedPartnerCycle);
+            Assert.Null(defLoaded.LinkedRouteId);
+
+            // A linked route mid-alternation round-trips both the link and the cursor.
+            var linkedRoute = new RouteFixtureBuilder()
+                .WithId("partner-linked-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .WithLinkedRouteId("partner-other-route")
+                .WithLastConsumedPartnerCycle(5)
+                .Build();
+            var linkedNode = new ConfigNode("ROUTE");
+            linkedRoute.SerializeInto(linkedNode);
+            Assert.True(linkedNode.HasValue("lastConsumedPartnerCycle"),
+                "lastConsumedPartnerCycle must be written when non-zero");
+            Route linkedLoaded = Route.DeserializeFrom(linkedNode);
+            Assert.NotNull(linkedLoaded);
+            Assert.Equal("partner-other-route", linkedLoaded.LinkedRouteId);
+            Assert.Equal(5, linkedLoaded.LastConsumedPartnerCycle);
+        }
+
         // catches: a hand-edited save with a negative dispatch priority landing a
         // sub-floor value instead of being clamped up to 0 on load.
         [Fact]
@@ -1185,6 +1239,201 @@ namespace Parsek.Tests.Logistics
         }
 
         // -----------------------------------------------------------------
+        // M4a Phase A2: N-stop + per-stop fire-state round-trip + byte-identity
+        // -----------------------------------------------------------------
+
+        // A lean single-stop route at the single-stop / pre-M4 sentinels: no
+        // backing-mission definition, SegmentIndexBefore=0, DeliveryOffsetSeconds=0,
+        // and the new per-stop fields at their -1.0 / -1 defaults.
+        private static Route BuildLeanSingleStopRoute(string id = "lean-single-stop")
+        {
+            var leanStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+                // RecordedDockUT / LastFiredCycleIndex left at -1.0 / -1.
+            };
+            return new RouteFixtureBuilder()
+                .WithId(id)
+                .WithName("Lean Single Stop")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .Build();
+        }
+
+        // catches (M4a A2): a 2-stop route losing a stop, mis-ordering, or dropping
+        // the per-stop RecordedDockUT on the round-trip. The codec STOP region is
+        // already list-shaped, so N stops + the new sparse per-stop fields must
+        // survive SerializeInto -> DeserializeFrom intact.
+        [Fact]
+        public void RoundTrip_TwoStops_PerStopRecordedDockUtPreserved()
+        {
+            var stopA = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 150.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 100.0,
+                RecordedDockUT = 1100.0,
+                LastFiredCycleIndex = -1
+            };
+            var stopB = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "MonoPropellant", 200.0 } },
+                SegmentIndexBefore = 1,
+                DeliveryOffsetSeconds = 200.0,
+                RecordedDockUT = 1200.0,
+                // A non-default firing index also round-trips (A3 drives it; the
+                // codec must carry it now).
+                LastFiredCycleIndex = 4
+            };
+            Route original = new RouteFixtureBuilder()
+                .WithId("two-stop-route")
+                .WithName("Two Stop Run")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(stopA)
+                .WithStop(stopB)
+                .Build();
+
+            var node = new ConfigNode("ROUTE");
+            original.SerializeInto(node);
+
+            Route roundTripped = Route.DeserializeFrom(node);
+            Assert.NotNull(roundTripped);
+            Assert.Equal(2, roundTripped.Stops.Count);
+            // Order + per-stop fire state preserved.
+            Assert.Equal(1100.0, roundTripped.Stops[0].RecordedDockUT);
+            Assert.Equal(-1L, roundTripped.Stops[0].LastFiredCycleIndex);
+            Assert.Equal(1200.0, roundTripped.Stops[1].RecordedDockUT);
+            Assert.Equal(4L, roundTripped.Stops[1].LastFiredCycleIndex);
+            // Manifests stayed with their stops.
+            Assert.Equal(150.0, roundTripped.Stops[0].DeliveryManifest["LiquidFuel"]);
+            Assert.Equal(200.0, roundTripped.Stops[1].DeliveryManifest["MonoPropellant"]);
+        }
+
+        // catches (M4a A2 / OQ3): the per-stop fields written NON-sparsely. A
+        // single-stop route at the -1.0 / -1 defaults must write NEITHER the
+        // recordedDockUT NOR the lastFiredCycleIndex STOP key, and read back the
+        // defaults.
+        [Fact]
+        public void RoundTrip_SingleStop_PerStopFireStateSparseOmitted()
+        {
+            Route route = BuildLeanSingleStopRoute();
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+
+            ConfigNode[] stopNodes = node.GetNodes(RouteCodec.StopNode);
+            Assert.Single(stopNodes);
+            ConfigNode stopNode = stopNodes[0];
+            // The single-stop sentinels are sparse-omitted on the STOP node.
+            Assert.False(stopNode.HasValue("recordedDockUT"),
+                "single-stop STOP must omit recordedDockUT at the -1.0 default");
+            Assert.False(stopNode.HasValue("lastFiredCycleIndex"),
+                "single-stop STOP must omit lastFiredCycleIndex at the -1 default");
+
+            Route roundTripped = Route.DeserializeFrom(node);
+            Assert.NotNull(roundTripped);
+            Assert.Single(roundTripped.Stops);
+            Assert.Equal(-1.0, roundTripped.Stops[0].RecordedDockUT);
+            Assert.Equal(-1L, roundTripped.Stops[0].LastFiredCycleIndex);
+        }
+
+        // catches (M4a A2 / RANK-8): the byte-identity pin. A single-stop route's
+        // STOP node carries segmentIndexBefore + deliveryOffsetSeconds=0 and NO new
+        // per-stop keys, AND the whole serialized route ConfigNode string is
+        // byte-identical to a known-good baseline built the A2 way. If A2 ever
+        // changes how a single-stop route serializes, this fails.
+        [Fact]
+        public void Serialize_SingleStop_ByteIdenticalToBaseline()
+        {
+            Route route = BuildLeanSingleStopRoute("byte-id-single-stop");
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+
+            ConfigNode[] stopNodes = node.GetNodes(RouteCodec.StopNode);
+            Assert.Single(stopNodes);
+            ConfigNode stopNode = stopNodes[0];
+            // The pre-A2 single-stop STOP keys stay present at their placeholders.
+            Assert.Equal("0", stopNode.GetValue("segmentIndexBefore"));
+            Assert.Equal("0", stopNode.GetValue("deliveryOffsetSeconds"));
+            // No new per-stop keys on a single-stop route.
+            Assert.False(stopNode.HasValue("recordedDockUT"));
+            Assert.False(stopNode.HasValue("lastFiredCycleIndex"));
+
+            // Full serialized-route byte-identity against the known-good baseline.
+            // ConfigNode.ToString() is the on-disk text representation, so an
+            // identical string is byte-identical persistence.
+            const string baseline =
+@"ROUTE
+{
+	id = byte-id-single-stop
+	name = Lean Single Stop
+	isKscOrigin = False
+	kscDispatchFundsCost = 0
+	transitDuration = 0
+	dispatchInterval = 0
+	dispatchWindowEpochUT = 0
+	dispatchWindowPeriod = 0
+	nextDispatchUT = 0
+	currentSegmentIndex = -1
+	pendingStopIndex = -1
+	status = Active
+	pauseAfterCurrentCycle = False
+	completedCycles = 0
+	skippedCycles = 0
+	recordedDockUT = -1
+	loopAnchorUT = -1
+	ORIGIN
+	{
+		bodyName = Kerbin
+		latitude = -0.0972
+		longitude = -74.5577
+		altitude = 75.2
+		isSurface = True
+	}
+	STOP
+	{
+		connectionKind = DockingPort
+		segmentIndexBefore = 0
+		deliveryOffsetSeconds = 0
+		ENDPOINT
+		{
+			vesselPersistentId = 67890
+			bodyName = Mun
+			latitude = 3.2001
+			longitude = -45.1234
+			altitude = 612.5
+			isSurface = True
+		}
+		DELIVERY_MANIFEST
+		{
+			LiquidFuel = 100
+		}
+	}
+}
+";
+            Assert.Equal(
+                Normalize(baseline),
+                Normalize(node.ToString()));
+        }
+
+        // Normalize line endings so the byte-identity baseline string compares
+        // stably across platforms (the on-disk newline is what matters; CRLF vs LF
+        // is an editor artifact, not a serialization change).
+        private static string Normalize(string s)
+        {
+            return s.Replace("\r\n", "\n").Replace("\r", "\n");
+        }
+
+        // -----------------------------------------------------------------
         // Deep-compare helpers (test-private)
         // -----------------------------------------------------------------
 
@@ -1204,6 +1453,9 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(a.ConnectionKind, b.ConnectionKind);
             Assert.Equal(a.SegmentIndexBefore, b.SegmentIndexBefore);
             Assert.Equal(a.DeliveryOffsetSeconds, b.DeliveryOffsetSeconds);
+            // M4a per-stop fire state (plan OQ3/D5).
+            Assert.Equal(a.RecordedDockUT, b.RecordedDockUT);
+            Assert.Equal(a.LastFiredCycleIndex, b.LastFiredCycleIndex);
             AssertResourceManifestEqual(a.DeliveryManifest, b.DeliveryManifest);
             AssertInventoryListEqual(a.InventoryDeliveryManifest, b.InventoryDeliveryManifest);
             // M3 pickup direction (plan D8/D9).

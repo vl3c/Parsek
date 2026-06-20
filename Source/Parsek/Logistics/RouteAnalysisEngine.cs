@@ -43,7 +43,28 @@ namespace Parsek.Logistics
         /// (<see cref="RouteAnalysisResult.RejectDetail"/>, mirrors
         /// <see cref="UntrackedCargoGain"/>). Append-only value.
         /// </summary>
-        FlowDoesNotClose = 8
+        FlowDoesNotClose = 8,
+        /// <summary>
+        /// M4a documented-limitation rejection (plan D9): an undock -> undock
+        /// shuttle whose route BEGINS between two docks - i.e. inside a pre-dock
+        /// recording - cannot be START-trimmed because a dock MID-recording is
+        /// not a selectable interval boundary in the locked Missions layer
+        /// (composition renders a contiguous <c>[min-start, max-end]</c> window
+        /// per vessel; Missions gap 1). The eventual lift is M-MIS-5.
+        /// <para>
+        /// RESERVED documented-limitation reason: this is the player-facing
+        /// SURFACE text, not (yet) emitted by an analysis detector. In M4a most
+        /// such runs already reject as <see cref="UndockedStartOrigin"/> (they
+        /// start undocked with cargo aboard, no KSC launch / docked-origin
+        /// proof), and the "begins mid-recording between two docks" shape is NOT
+        /// cleanly distinguishable from the general undocked-start case without
+        /// the Missions-side dock-as-interval-boundary detection (M-MIS-5,
+        /// locked). Per plan D9 we add the surfaced reason + formatter text now
+        /// and do not force a fragile detector. Append-only value; parses
+        /// forward-compatibly.
+        /// </para>
+        /// </summary>
+        MidRecordingStartTrimUnsupported = 9
     }
 
     /// <summary>
@@ -60,6 +81,37 @@ namespace Parsek.Logistics
         Quiet = 1
     }
 
+    /// <summary>
+    /// M4a per-stop analysis result (plan D2): one entry per accepted connection
+    /// window across the source-path recordings, ordered ascending by
+    /// <see cref="DockUT"/>. Carries the per-window manifests + the resolved
+    /// endpoint + the source recording the window lives on. The run-level
+    /// singletons on <see cref="RouteAnalysisResult"/> (HarvestedManifest /
+    /// IsHarvestOrigin / FirstHarvestWindow) stay run-level; the per-window
+    /// terms move here. A single-window run produces exactly one stop whose
+    /// values are byte-identical to the run-level scalar fields (which are
+    /// populated from the FIRST/anchor window), so every existing scalar
+    /// consumer keeps compiling and a single-window run is unchanged.
+    ///
+    /// Scope boundary (A1): RouteBuilder and every other consumer still read the
+    /// SCALAR fields, so a multi-window run still builds a single-stop route for
+    /// now; consuming this list to build N stops is Phase A2.
+    /// </summary>
+    internal sealed class RouteAnalysisStop
+    {
+        public RouteConnectionWindow ConnectionWindow;
+        public Dictionary<string, double> ResourceDeliveryManifest;
+        public List<InventoryPayloadItem> InventoryDeliveryManifest;
+        public Dictionary<string, double> ResourceLoadManifest;
+        public List<InventoryPayloadItem> InventoryLoadManifest;
+        /// <summary>The resolved endpoint at this window's dock (window.EndpointAtDock.Value).</summary>
+        public RouteEndpoint EndpointAtDock;
+        /// <summary>This window's recorded dock UT - the per-stop firing phase + the stop sort key.</summary>
+        public double DockUT;
+        /// <summary>The source recording this window lives on (varies per stop in AnalyzeTree).</summary>
+        public Recording SourceRecording;
+    }
+
     internal sealed class RouteAnalysisResult
     {
         public RouteAnalysisStatus Status;
@@ -67,6 +119,17 @@ namespace Parsek.Logistics
         public RouteConnectionWindow ConnectionWindow;
         public Dictionary<string, double> ResourceDeliveryManifest;
         public List<InventoryPayloadItem> InventoryDeliveryManifest;
+
+        /// <summary>
+        /// M4a per-stop collection (plan D2): every accepted connection window
+        /// across the source path, ordered ascending by
+        /// <see cref="RouteAnalysisStop.DockUT"/>. Populated on an Eligible
+        /// multi-window run (and on a single-window run, with one entry). The
+        /// scalar fields above mirror the FIRST/anchor stop, so single-window
+        /// runs and every existing scalar consumer are unchanged. Null on every
+        /// reject status.
+        /// </summary>
+        public List<RouteAnalysisStop> Stops;
 
         /// <summary>
         /// M3 pickup-direction load manifest (plan D2/D8): per routable resource
@@ -189,9 +252,13 @@ namespace Parsek.Logistics
             if (sourcePathIds == null || sourcePathIds.Count == 0)
                 return MissingProof(logMode);
 
-            Recording source = null;
-            RouteConnectionWindow window = null;
-
+            // M4a (plan D1): collect EVERY completed window across the source-path
+            // recordings, then order them by DockUT. AnalyzeTree iterates an
+            // UNORDERED HashSet, so the sort is mandatory for a deterministic stop
+            // order. The legacy "second window -> MultipleConnectionWindows" reject
+            // is re-purposed (D1) to fire ONLY on genuinely-unorderable windows
+            // (duplicate or NaN DockUT).
+            var windows = new List<WindowOnRecording>();
             foreach (string recordingId in sourcePathIds)
             {
                 if (!tree.Recordings.TryGetValue(recordingId, out Recording rec))
@@ -204,32 +271,24 @@ namespace Parsek.Logistics
                     RouteConnectionWindow candidate = rec.RouteConnectionWindows[i];
                     if (candidate == null || !candidate.IsComplete)
                         continue;
-
-                    if (window != null)
-                    {
-                        Diag(logMode,
-                            $"RouteAnalysis rejected: multiple completed windows tree={tree.Id ?? "<none>"}");
-                        return new RouteAnalysisResult
-                        {
-                            Status = RouteAnalysisStatus.MultipleConnectionWindows
-                        };
-                    }
-
-                    source = rec;
-                    window = candidate;
+                    windows.Add(new WindowOnRecording { Source = rec, Window = candidate });
                 }
             }
 
-            if (window == null)
+            if (windows.Count == 0)
                 return MissingProof(logMode);
+
+            if (!TryOrderWindows(windows, logMode, $"tree={tree.Id ?? "<none>"}",
+                    out List<WindowOnRecording> ordered, out RouteAnalysisResult unorderable))
+                return unorderable;
 
             // Resolve the ORIGIN recording for the workflow gate: the tree ROOT
             // (the launch carries LaunchSiteName / StartBodyName / the
-            // RouteOriginProof) when it resolves, else the analysis source (the
+            // RouteOriginProof) when it resolves, else the anchor source (the
             // legacy single-recording case where the source IS the root). Same
             // walk as RouteCreationFormatters.ResolveOriginIdentity so the gate
             // and the display classification cannot diverge.
-            Recording originRec = source;
+            Recording originRec = ordered[0].Source;
             if (!string.IsNullOrEmpty(tree.RootRecordingId)
                 && tree.Recordings.TryGetValue(tree.RootRecordingId, out Recording rootRec)
                 && rootRec != null)
@@ -237,7 +296,103 @@ namespace Parsek.Logistics
                 originRec = rootRec;
             }
 
-            return AnalyzeWindow(source, window, originRec, tree, logMode);
+            return AnalyzeWindows(ordered, originRec, tree, logMode);
+        }
+
+        /// <summary>
+        /// A completed connection window paired with the recording it lives on
+        /// (M4a). In <see cref="AnalyzeTree"/> the source recording varies per
+        /// window (one dock-merged child per dock); in
+        /// <see cref="AnalyzeRecording"/> every window shares the one recording.
+        /// </summary>
+        private struct WindowOnRecording
+        {
+            public Recording Source;
+            public RouteConnectionWindow Window;
+        }
+
+        /// <summary>
+        /// M4a window ordering (plan D1): sort the collected completed windows by
+        /// <see cref="RouteConnectionWindow.DockUT"/> ascending. The set is
+        /// genuinely UNORDERABLE - and rejects
+        /// <see cref="RouteAnalysisStatus.MultipleConnectionWindows"/> - when any
+        /// window carries a NaN DockUT (no sort key) or two windows share an
+        /// identical DockUT (two transfers at the same recorded time cannot be
+        /// sequenced). A single window is trivially ordered. Logs a one-line
+        /// batch summary of the accepted count + the sorted DockUT order, and the
+        /// duplicate/NaN DockUT on the unorderable reject.
+        /// </summary>
+        private static bool TryOrderWindows(
+            List<WindowOnRecording> windows,
+            RouteAnalysisLogMode logMode,
+            string contextLabel,
+            out List<WindowOnRecording> ordered,
+            out RouteAnalysisResult unorderable)
+        {
+            unorderable = null;
+
+            // A single window is trivially ordered and can never be "unorderable"
+            // (nothing to order against). Skip the unorderable checks entirely so
+            // a single-window run is byte-identical to pre-M4 - including the
+            // NaN-DockUT edge, which pre-M4 flowed through analysis (UndockUT, not
+            // DockUT, was the IsComplete + warn key) and was rejected later by
+            // RouteBuilder, NOT at analysis time.
+            if (windows.Count <= 1)
+            {
+                ordered = windows;
+                return true;
+            }
+
+            // NaN DockUT -> no deterministic sort key.
+            for (int i = 0; i < windows.Count; i++)
+            {
+                double dut = windows[i].Window.DockUT;
+                if (double.IsNaN(dut) || double.IsInfinity(dut))
+                {
+                    Diag(logMode,
+                        $"RouteAnalysis rejected: unorderable windows (non-finite DockUT) {contextLabel} " +
+                        $"dockUT={dut.ToString("R", CultureInfo.InvariantCulture)}");
+                    ordered = null;
+                    unorderable = new RouteAnalysisResult
+                    {
+                        Status = RouteAnalysisStatus.MultipleConnectionWindows
+                    };
+                    return false;
+                }
+            }
+
+            ordered = new List<WindowOnRecording>(windows);
+            ordered.Sort((a, b) => a.Window.DockUT.CompareTo(b.Window.DockUT));
+
+            // Duplicate DockUT -> two transfers at the same recorded time, no
+            // deterministic ordering between them.
+            for (int i = 1; i < ordered.Count; i++)
+            {
+                if (ordered[i].Window.DockUT == ordered[i - 1].Window.DockUT)
+                {
+                    Diag(logMode,
+                        $"RouteAnalysis rejected: unorderable windows (duplicate DockUT) {contextLabel} " +
+                        $"dockUT={ordered[i].Window.DockUT.ToString("R", CultureInfo.InvariantCulture)}");
+                    ordered = null;
+                    unorderable = new RouteAnalysisResult
+                    {
+                        Status = RouteAnalysisStatus.MultipleConnectionWindows
+                    };
+                    return false;
+                }
+            }
+
+            if (ordered.Count > 1)
+            {
+                var dockOrder = new List<string>(ordered.Count);
+                for (int i = 0; i < ordered.Count; i++)
+                    dockOrder.Add(ordered[i].Window.DockUT.ToString("R", CultureInfo.InvariantCulture));
+                Diag(logMode,
+                    $"RouteAnalysis windows accepted+ordered {contextLabel} count={ordered.Count} " +
+                    $"dockOrder=[{string.Join(",", dockOrder)}]");
+            }
+
+            return true;
         }
 
         internal static RouteAnalysisResult AnalyzeRecording(
@@ -248,90 +403,138 @@ namespace Parsek.Logistics
                 recording.RouteConnectionWindows.Count == 0)
                 return MissingProof(logMode);
 
-            RouteConnectionWindow window = null;
+            // M4a (plan D1): collect EVERY completed window on this recording,
+            // then order by DockUT. The legacy "second window ->
+            // MultipleConnectionWindows" reject is re-purposed (D1) to fire only
+            // on genuinely-unorderable windows (duplicate or NaN DockUT).
+            var windows = new List<WindowOnRecording>();
             for (int i = 0; i < recording.RouteConnectionWindows.Count; i++)
             {
                 RouteConnectionWindow candidate = recording.RouteConnectionWindows[i];
                 if (candidate == null || !candidate.IsComplete)
                     continue;
-
-                if (window != null)
-                    return new RouteAnalysisResult
-                    {
-                        Status = RouteAnalysisStatus.MultipleConnectionWindows
-                    };
-
-                window = candidate;
+                windows.Add(new WindowOnRecording { Source = recording, Window = candidate });
             }
 
-            if (window == null)
+            if (windows.Count == 0)
                 return MissingProof(logMode);
+
+            if (!TryOrderWindows(windows, logMode,
+                    $"recording={recording.RecordingId ?? "<none>"}",
+                    out List<WindowOnRecording> ordered, out RouteAnalysisResult unorderable))
+                return unorderable;
 
             // Single-recording analysis: the recording IS the origin recording.
             // No tree: the M2 gain check engages only when the recording is its
             // own complete lineage (no parent links), else it degrades to the
             // legacy path.
-            return AnalyzeWindow(recording, window, recording, null, logMode);
+            return AnalyzeWindows(ordered, recording, null, logMode);
         }
 
-        private static RouteAnalysisResult AnalyzeWindow(
-            Recording source,
-            RouteConnectionWindow window,
+        /// <summary>
+        /// Per-window built manifests + the source recording the window lives on
+        /// (M4a). The endpoint-proof gate has already passed; these are the four
+        /// admission-direction manifests fed to the per-window direction gates
+        /// and (summed across windows) the run-level harvest check + closure.
+        /// </summary>
+        private struct PerWindowManifests
+        {
+            public Recording Source;
+            public RouteConnectionWindow Window;
+            public Dictionary<string, double> Resources;
+            public List<InventoryPayloadItem> Inventory;
+            public Dictionary<string, double> LoadResources;
+            public List<InventoryPayloadItem> LoadInventory;
+        }
+
+        /// <summary>
+        /// M4a multi-window analysis (plan D2/D3): runs the PER-WINDOW gates
+        /// (endpoint-proof, manifest build, unwitnessed-inventory-gain,
+        /// no-delivery-AND-no-load) for EVERY window in DockUT order, and the
+        /// RUN-LEVEL gates (harvest gain check, undocked-start workflow gate,
+        /// untracked-gain verdict, flow closure, refined undocked-start) ONCE
+        /// against the ANCHOR (first) window with the harvest "covered" / closure
+        /// terms summed across all windows.
+        ///
+        /// <para><b>Single-window byte-identity:</b> with one window the gate
+        /// order is endpoint-proof -> build -> harvest-check ->
+        /// undocked(non-harvest) -> inventory-gain -> no-delivery -> untracked ->
+        /// closure -> refined-undocked -> eligible, the exact pre-M4 sequence,
+        /// fed length-1 lists / a single-window summed load (== the one window's
+        /// load). The scalar result fields mirror the anchor stop, so a
+        /// single-window run is unchanged.</para>
+        /// </summary>
+        private static RouteAnalysisResult AnalyzeWindows(
+            List<WindowOnRecording> ordered,
             Recording originRec,
             RecordingTree tree,
             RouteAnalysisLogMode logMode)
         {
-            if (!HasEndpointProof(window))
+            // --- Per-window build + endpoint-proof (matches pre-M4 steps 1-2) ---
+            var built = new List<PerWindowManifests>(ordered.Count);
+            for (int i = 0; i < ordered.Count; i++)
             {
-                Diag(logMode,
-                    $"RouteAnalysis rejected: missing endpoint proof source={source?.RecordingId ?? "<none>"} " +
-                    $"window={window.WindowId ?? "<none>"} targetPid={window.TransferTargetVesselPid} " +
-                    $"kind={window.TransferKind} situation={window.TransferEndpointSituation} " +
-                    $"endpointAtDock={(window.EndpointAtDock.HasValue ? "yes" : "no")}");
-                return new RouteAnalysisResult
+                Recording source = ordered[i].Source;
+                RouteConnectionWindow window = ordered[i].Window;
+
+                if (!HasEndpointProof(window))
                 {
-                    Status = RouteAnalysisStatus.MissingEndpointProof,
-                    SourceRecording = source,
-                    ConnectionWindow = window
-                };
+                    Diag(logMode,
+                        $"RouteAnalysis rejected: missing endpoint proof source={source?.RecordingId ?? "<none>"} " +
+                        $"window={window.WindowId ?? "<none>"} targetPid={window.TransferTargetVesselPid} " +
+                        $"kind={window.TransferKind} situation={window.TransferEndpointSituation} " +
+                        $"endpointAtDock={(window.EndpointAtDock.HasValue ? "yes" : "no")}");
+                    return new RouteAnalysisResult
+                    {
+                        Status = RouteAnalysisStatus.MissingEndpointProof,
+                        SourceRecording = source,
+                        ConnectionWindow = window
+                    };
+                }
+
+                // M3 (plan D2/D4 item 1/6): build BOTH transfer directions up front.
+                built.Add(new PerWindowManifests
+                {
+                    Source = source,
+                    Window = window,
+                    Resources = BuildResourceDeliveryManifest(window, source?.RecordingId, logMode),
+                    Inventory = BuildInventoryDeliveryManifest(window),
+                    LoadResources = BuildResourceLoadManifest(window, source?.RecordingId, logMode),
+                    LoadInventory = BuildInventoryLoadManifest(window)
+                });
             }
 
-            // M3 (plan D2/D4 item 1/6): build BOTH transfer directions up front.
-            // The delivery manifest (assume-start-loaded, admission direction)
-            // and the load manifest (sign-flip mirror) are computed here so the
-            // load term can feed the harvest gain check (D3 composition: a pickup
-            // window legitimately raises dock transport above anchor start) and
-            // the gate ORDER below (D4) classifies off the built manifests.
-            // Building early does not change the REJECT order - the gates that
-            // consume them still fire in the D4 sequence.
-            Dictionary<string, double> resources =
-                BuildResourceDeliveryManifest(window, source?.RecordingId, logMode);
-            List<InventoryPayloadItem> inventory = BuildInventoryDeliveryManifest(window);
-            Dictionary<string, double> loadResources =
-                BuildResourceLoadManifest(window, source?.RecordingId, logMode);
-            List<InventoryPayloadItem> loadInventory = BuildInventoryLoadManifest(window);
+            // Two distinct anchors (plan D2/D3):
+            //  - The SCALAR anchor (the FIRST / min-DockUT window) populates the
+            //    run-level scalar result fields so every existing scalar consumer
+            //    keeps compiling and a single-window run is byte-identical.
+            //  - The GAIN anchor (the LAST / max-DockUT window) drives the
+            //    run-level harvest gain check + flow closure: its source resolves
+            //    the full lineage (deepest leg) and its dock holds the maximally-
+            //    accumulated transport cargo, so an over-accumulation shows here.
+            // For a single-window run first == last, so both collapse to the one
+            // window and the analysis is byte-identical to pre-M4.
+            PerWindowManifests anchor = built[0];
+            PerWindowManifests gainAnchor = built[built.Count - 1];
 
-            // M2 gain-side flow closure (plan D6): resolve the transport
-            // lineage and run the gain check. ENGAGED only when every lineage
-            // leg carries a COMPLETE run manifest; otherwise the result is
-            // LegacyFallback (logged once per analysis inside) and the
-            // pre-M2 path below runs byte-identically. The M3 load term is
-            // threaded in as a witnessed source (D3 item 7) so a pickup window
-            // does not false-reject as UntrackedCargoGain.
+            // M2 gain-side flow closure (plan D6 / D3): run the gain check ONCE
+            // against the GAIN anchor, with the covered-load term SUMMED across
+            // every window (D3: a legit multi-pickup run whose accumulated dock
+            // cargo exceeds any single window's load must not false-reject as
+            // UntrackedCargoGain). ENGAGED only when every lineage leg carries a
+            // COMPLETE run manifest; otherwise LegacyFallback and the pre-M2 path
+            // runs byte-identically (the summed-load is the only multi-window
+            // delta, and it equals the single load for a one-window run).
+            Dictionary<string, double> summedLoad = SumManifestList(built);
             HarvestGainCheckResult gainCheck =
                 RouteHarvestAnalysis.CheckTransportGains(
-                    tree, source, window, logMode, loadResources);
+                    tree, gainAnchor.Source, gainAnchor.Window, logMode, summedLoad);
             bool harvestEngaged = gainCheck.Outcome != HarvestGainOutcome.LegacyFallback;
 
-            // M1 workflow gate (design D7): an undocked-start run carries cargo
-            // whose source was never witnessed, so it can never dispatch.
-            // Ordering (legacy path): after the endpoint-proof check, before
-            // the manifest-level complaints (the workflow error outranks them).
-            // On the harvest-data path the verdict is DEFERRED (plan finding
-            // 11, two-phase gate): the refined gate below needs harvested
-            // totals AND the delivery manifest, so it runs after the gain
-            // check. RouteBuilder's endpoint-missing reject stays as the
-            // defensive backstop at create time.
+            // M1 workflow gate (design D7), run-level on the origin recording:
+            // an undocked-start run carries cargo whose source was never
+            // witnessed. Ordering matches pre-M4: after build, before the
+            // manifest-level direction gates. Deferred on the harvest-data path.
             if (!harvestEngaged && IsUndockedStartOrigin(originRec))
             {
                 Diag(logMode,
@@ -342,139 +545,146 @@ namespace Parsek.Logistics
                 return new RouteAnalysisResult
                 {
                     Status = RouteAnalysisStatus.UndockedStartOrigin,
-                    SourceRecording = source,
-                    ConnectionWindow = window
+                    SourceRecording = anchor.Source,
+                    ConnectionWindow = anchor.Window
                 };
             }
 
-            // M3 direction classification (plan D2/D7): cargo flow in EITHER
-            // direction - resource AND inventory - is now admissible. A
-            // pure-delivery, pure-pickup, or mixed window classifies and admits.
-            // Inventory pickup (Phase 5) is the sign-flip mirror of the inventory
-            // delivery builder: loadInventory (above) carries the witnessed
-            // endpoint->transport stored-part moves per IdentityHash. Inventory
-            // closure is WINDOW-LOCAL (OQ3): inventory is non-fungible and has no
-            // harvested provenance, so a transport inventory GAIN with NO matching
-            // endpoint LOSS is unwitnessed and MUST fail closed. The former
-            // MixedPickupDelivery reject is now reachable ONLY for that
-            // unwitnessed-gain case - a clean inventory pickup (gain matched by an
-            // endpoint loss) classifies into loadInventory and admits.
-            if (HasUnwitnessedInventoryGain(window, out string inventoryPickupReason))
+            // --- Per-window direction gates (matches pre-M4 steps 5-6) ---------
+            // Inventory closure is WINDOW-LOCAL (OQ3), and the no-delivery-AND-no-
+            // load gate is per-window: an empty window is not a stop. Each runs
+            // per window in DockUT order.
+            for (int i = 0; i < built.Count; i++)
             {
-                Diag(logMode,
-                    $"RouteAnalysis rejected: unwitnessed inventory gain " +
-                    $"source={source?.RecordingId ?? "<none>"} " +
-                    $"window={window.WindowId ?? "<none>"} {inventoryPickupReason}");
-                return new RouteAnalysisResult
+                PerWindowManifests w = built[i];
+
+                // M3 direction classification (plan D2/D7): an unwitnessed
+                // transport inventory gain (gain with no matching endpoint loss)
+                // fails closed window-locally - inventory has no harvested
+                // provenance, so it can never be admitted as a load term.
+                if (HasUnwitnessedInventoryGain(w.Window, out string inventoryPickupReason))
                 {
-                    Status = RouteAnalysisStatus.MixedPickupDelivery,
-                    SourceRecording = source,
-                    ConnectionWindow = window
-                };
+                    Diag(logMode,
+                        $"RouteAnalysis rejected: unwitnessed inventory gain " +
+                        $"source={w.Source?.RecordingId ?? "<none>"} " +
+                        $"window={w.Window.WindowId ?? "<none>"} {inventoryPickupReason}");
+                    return new RouteAnalysisResult
+                    {
+                        Status = RouteAnalysisStatus.MixedPickupDelivery,
+                        SourceRecording = w.Source,
+                        ConnectionWindow = w.Window
+                    };
+                }
+
+                // Gate fix (a) (plan D4): reject only when NO cargo flowed in
+                // EITHER direction at this window (a window that transferred
+                // nothing is not a stop).
+                bool hasDelivery =
+                    (w.Resources != null && w.Resources.Count > 0) ||
+                    (w.Inventory != null && w.Inventory.Count > 0);
+                bool hasInventoryLoad = w.LoadInventory != null && w.LoadInventory.Count > 0;
+                bool hasLoad =
+                    (w.LoadResources != null && w.LoadResources.Count > 0) || hasInventoryLoad;
+                if (!hasDelivery && !hasLoad)
+                {
+                    Diag(logMode,
+                        $"RouteAnalysis rejected: no delivery or load manifest source={w.Source?.RecordingId ?? "<none>"} " +
+                        $"window={w.Window.WindowId ?? "<none>"}");
+                    return new RouteAnalysisResult
+                    {
+                        Status = RouteAnalysisStatus.NoDeliveryManifest,
+                        SourceRecording = w.Source,
+                        ConnectionWindow = w.Window
+                    };
+                }
             }
 
-            // Gate fix (a) (plan D4): a pure-pickup window has NO delivery
-            // manifest. Pre-M3 this rejected here (NoDeliveryManifest) before
-            // reaching Eligible. Widen the gate to "no delivery AND no load":
-            // only reject when NO cargo flowed in EITHER direction. A window
-            // carrying ONLY a resource load (pure pickup) now passes this gate.
-            bool hasDelivery =
-                (resources != null && resources.Count > 0) ||
-                (inventory != null && inventory.Count > 0);
-            bool hasInventoryLoad = loadInventory != null && loadInventory.Count > 0;
-            bool hasLoad =
-                (loadResources != null && loadResources.Count > 0) || hasInventoryLoad;
-            if (!hasDelivery && !hasLoad)
-            {
-                Diag(logMode,
-                    $"RouteAnalysis rejected: no delivery or load manifest source={source?.RecordingId ?? "<none>"} " +
-                    $"window={window.WindowId ?? "<none>"}");
-                return new RouteAnalysisResult
-                {
-                    Status = RouteAnalysisStatus.NoDeliveryManifest,
-                    SourceRecording = source,
-                    ConnectionWindow = window
-                };
-            }
-
-            // M2 gain verdict (plan D6): a positive transport gain with no
-            // witnessed harvest rejects with the exact unaccounted quantity
-            // named. Runs after the manifest build (the gain check needs the
-            // same window data) and only on the harvest-data path.
+            // --- Run-level gain verdict (matches pre-M4 step 7) ----------------
             if (harvestEngaged && gainCheck.Outcome == HarvestGainOutcome.UntrackedGain)
             {
                 Diag(logMode,
                     $"RouteAnalysis rejected: untracked cargo gain resource={gainCheck.RejectResource} " +
                     $"gained={gainCheck.RejectGained.ToString("R", CultureInfo.InvariantCulture)} " +
                     $"harvested={gainCheck.RejectHarvested.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"source={source?.RecordingId ?? "<none>"}");
+                    $"source={anchor.Source?.RecordingId ?? "<none>"}");
                 return new RouteAnalysisResult
                 {
                     Status = RouteAnalysisStatus.UntrackedCargoGain,
-                    SourceRecording = source,
-                    ConnectionWindow = window,
+                    SourceRecording = anchor.Source,
+                    ConnectionWindow = anchor.Window,
                     RejectDetail = gainCheck.RejectDetail,
                     HarvestedManifest = gainCheck.HarvestedManifest,
                     FirstHarvestWindow = gainCheck.FirstHarvestWindow
                 };
             }
 
-            // M3 flow closure (plan D3, gate order D4: after the harvest
-            // untracked-gain check, before the refined undocked-start gate).
-            // Presence-gated per OQ2: the full-run balance needs the anchor's
-            // launched (StartTransportResources) + residual (EndTransportResources)
-            // terms, available only on the harvest-data path with a resolved
-            // anchor. The window-direction classification above already admitted
-            // the pickup window-locally (the self-contained min basis), so a
-            // skipped closure NEVER drops the pickup. Closure REJECTS only on
-            // over-delivery (pre-clamp slack < -GainEpsilon): the transport
-            // ended with more of a resource than ever arrived. A positive slack
-            // is legitimate consumption and never rejects.
+            // --- Run-level flow closure (plan D3; matches pre-M4 step 8) -------
+            // Feed ComputeFlowClosure the FULL per-window lists: launched = the
+            // anchor leg's StartTransportResources; loaded / delivered sum over
+            // every window; residual = the LAST (max-DockUT) window's
+            // UndockTransportResources (run-end transport state - a SUM would
+            // double-count cargo still aboard). For one window this is exactly the
+            // pre-M4 length-1 call.
             if (harvestEngaged && gainCheck.AnchorLeg?.RouteRunManifest != null)
             {
+                var loadedWindows = new List<Dictionary<string, double>>(built.Count);
+                var deliveredWindows = new List<Dictionary<string, double>>(built.Count);
+                for (int i = 0; i < built.Count; i++)
+                {
+                    loadedWindows.Add(built[i].LoadResources);
+                    deliveredWindows.Add(built[i].Resources);
+                }
+                Dictionary<string, double> residual =
+                    ToAmountDict(built[built.Count - 1].Window.UndockTransportResources);
+
                 FlowClosureResult closure = ComputeFlowClosure(
                     ToAmountDict(gainCheck.AnchorLeg.RouteRunManifest.StartTransportResources),
-                    new List<Dictionary<string, double>> { loadResources },
+                    loadedWindows,
                     gainCheck.HarvestedManifest,
-                    new List<Dictionary<string, double>> { resources },
-                    ToAmountDict(window.UndockTransportResources));
+                    deliveredWindows,
+                    residual);
                 if (!closure.Closes)
                 {
                     Diag(logMode,
                         $"RouteAnalysis rejected: flow does not close resource={closure.OffendingResource} " +
                         $"unaccounted={closure.UnaccountedQuantity.ToString("R", CultureInfo.InvariantCulture)} " +
-                        $"source={source?.RecordingId ?? "<none>"}");
+                        $"source={anchor.Source?.RecordingId ?? "<none>"}");
                     return new RouteAnalysisResult
                     {
                         Status = RouteAnalysisStatus.FlowDoesNotClose,
-                        SourceRecording = source,
-                        ConnectionWindow = window,
+                        SourceRecording = anchor.Source,
+                        ConnectionWindow = anchor.Window,
                         RejectDetail = closure.RejectDetail,
-                        ResourceLoadManifest = hasLoad ? loadResources : null,
+                        ResourceLoadManifest = (summedLoad != null && summedLoad.Count > 0)
+                            ? summedLoad
+                            : null,
                         HarvestedManifest = gainCheck.HarvestedManifest,
                         FirstHarvestWindow = gainCheck.FirstHarvestWindow
                     };
                 }
             }
 
-            // M2 refined undocked-start gate (plan D6, two-phase): on the
-            // harvest-data path the deferred verdict lands here. Undocked
-            // start stays rejected when the run delivers INVENTORY (no
-            // harvest provenance exists for inventory in M2) or when any
-            // delivered resource exceeds its witnessed harvested total; a
-            // fully-harvest-covered delivery becomes Eligible as a
-            // HARVEST-ORIGIN run (D7).
+            // --- Run-level refined undocked-start gate (matches pre-M4 step 9) -
+            // On the harvest-data path the deferred undocked-start verdict lands
+            // here, checked against the ANCHOR window's delivery manifest (the
+            // origin classification is a run-level property). A fully-harvest-
+            // covered delivery becomes a HARVEST-ORIGIN run (D7).
             bool isHarvestOrigin = false;
             if (harvestEngaged && IsUndockedStartOrigin(originRec))
             {
+                // Checked against the gain-anchor (last) window's delivery
+                // manifest, consistent with the gain measurement. For N=1 this is
+                // the one window (byte-identical). A multi-stop harvest-origin run
+                // checking EVERY delivery is beyond A1's scope (A1 multi-stop is
+                // KSC-origin delivery, which never reaches this undocked gate).
                 string undockedRejectReason = null;
-                if (inventory != null && inventory.Count > 0)
+                if (gainAnchor.Inventory != null && gainAnchor.Inventory.Count > 0)
                 {
                     undockedRejectReason = "inventory-delivery-not-harvestable";
                 }
-                else if (resources != null)
+                else if (gainAnchor.Resources != null)
                 {
-                    foreach (KeyValuePair<string, double> kvp in resources)
+                    foreach (KeyValuePair<string, double> kvp in gainAnchor.Resources)
                     {
                         double harvestedAmount = 0.0;
                         gainCheck.HarvestedManifest?.TryGetValue(kvp.Key, out harvestedAmount);
@@ -497,8 +707,8 @@ namespace Parsek.Logistics
                     return new RouteAnalysisResult
                     {
                         Status = RouteAnalysisStatus.UndockedStartOrigin,
-                        SourceRecording = source,
-                        ConnectionWindow = window,
+                        SourceRecording = anchor.Source,
+                        ConnectionWindow = anchor.Window,
                         HarvestedManifest = gainCheck.HarvestedManifest,
                         FirstHarvestWindow = gainCheck.FirstHarvestWindow
                     };
@@ -508,48 +718,96 @@ namespace Parsek.Logistics
                 Diag(logMode,
                     $"RouteAnalysis: undocked start fully harvest-covered -> harvest origin " +
                     $"originRec={originRec?.RecordingId ?? "<none>"} " +
-                    $"resources={resources?.Count ?? 0}");
+                    $"resources={anchor.Resources?.Count ?? 0}");
             }
 
-            // Backing-mission render geometry (RouteBackingMission) keys its
-            // [launch..undock] trim on window.UndockUT. A non-finite UndockUT would
-            // make the window unrenderable downstream (RouteBuilder rejects it with
-            // backing-mission-unresolvable), so surface it at analysis time as a
-            // diagnostic — eligibility itself is unchanged. Gated with the other
-            // per-call diagnostics so the poll sweep does not re-warn every second;
-            // the one-shot Create Route path (Diagnostic) still surfaces it, and
-            // RouteBuilder independently rejects the build.
+            // --- Eligible: build the per-stop collection + the anchor scalars --
+            // Backing-mission render geometry keys on UndockUT; warn on a
+            // non-finite anchor UndockUT (RouteBuilder independently rejects it).
             if (logMode == RouteAnalysisLogMode.Diagnostic &&
-                (double.IsNaN(window.UndockUT) || double.IsInfinity(window.UndockUT)))
+                (double.IsNaN(anchor.Window.UndockUT) || double.IsInfinity(anchor.Window.UndockUT)))
                 ParsekLog.Warn("Route",
-                    $"RouteAnalysis: eligible window carries non-finite UndockUT source={source?.RecordingId ?? "<none>"} " +
-                    $"window={window.WindowId ?? "<none>"} undockUT={window.UndockUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"RouteAnalysis: eligible window carries non-finite UndockUT source={anchor.Source?.RecordingId ?? "<none>"} " +
+                    $"window={anchor.Window.WindowId ?? "<none>"} undockUT={anchor.Window.UndockUT.ToString("R", CultureInfo.InvariantCulture)} " +
                     "(RouteBackingMission cannot derive the [launch..undock] trim; RouteBuilder will reject)");
 
+            var stops = new List<RouteAnalysisStop>(built.Count);
+            for (int i = 0; i < built.Count; i++)
+            {
+                PerWindowManifests w = built[i];
+                bool wHasInventoryLoad = w.LoadInventory != null && w.LoadInventory.Count > 0;
+                stops.Add(new RouteAnalysisStop
+                {
+                    ConnectionWindow = w.Window,
+                    ResourceDeliveryManifest = w.Resources,
+                    InventoryDeliveryManifest = w.Inventory,
+                    ResourceLoadManifest = (w.LoadResources != null && w.LoadResources.Count > 0)
+                        ? w.LoadResources
+                        : null,
+                    InventoryLoadManifest = wHasInventoryLoad ? w.LoadInventory : null,
+                    EndpointAtDock = w.Window.EndpointAtDock.Value,
+                    DockUT = w.Window.DockUT,
+                    SourceRecording = w.Source
+                });
+            }
+
             Diag(logMode,
-                $"RouteAnalysis eligible: source={source?.RecordingId ?? "<none>"} " +
-                $"window={window.WindowId ?? "<none>"} resources={resources?.Count ?? 0} " +
-                $"load={loadResources?.Count ?? 0} " +
-                $"inventory={inventory?.Count ?? 0} " +
-                $"inventoryLoad={loadInventory?.Count ?? 0} " +
+                $"RouteAnalysis eligible: source={anchor.Source?.RecordingId ?? "<none>"} " +
+                $"window={anchor.Window.WindowId ?? "<none>"} stops={stops.Count} " +
+                $"resources={anchor.Resources?.Count ?? 0} " +
+                $"load={anchor.LoadResources?.Count ?? 0} " +
+                $"inventory={anchor.Inventory?.Count ?? 0} " +
+                $"inventoryLoad={anchor.LoadInventory?.Count ?? 0} " +
                 $"harvestData={(harvestEngaged ? "1" : "0")} " +
                 $"harvestOrigin={(isHarvestOrigin ? "1" : "0")}");
 
+            bool anchorHasInventoryLoad = anchor.LoadInventory != null && anchor.LoadInventory.Count > 0;
             return new RouteAnalysisResult
             {
                 Status = RouteAnalysisStatus.Eligible,
-                SourceRecording = source,
-                ConnectionWindow = window,
-                ResourceDeliveryManifest = resources,
-                InventoryDeliveryManifest = inventory,
-                ResourceLoadManifest = (loadResources != null && loadResources.Count > 0)
-                    ? loadResources
+                // Scalar fields mirror the ANCHOR stop so every existing scalar
+                // consumer (RouteBuilder, formatters, candidate finder, UI) keeps
+                // compiling and a single-window run is byte-identical. Consuming
+                // the Stops list to build N stops is Phase A2.
+                SourceRecording = anchor.Source,
+                ConnectionWindow = anchor.Window,
+                ResourceDeliveryManifest = anchor.Resources,
+                InventoryDeliveryManifest = anchor.Inventory,
+                ResourceLoadManifest = (anchor.LoadResources != null && anchor.LoadResources.Count > 0)
+                    ? anchor.LoadResources
                     : null,
-                InventoryLoadManifest = hasInventoryLoad ? loadInventory : null,
+                InventoryLoadManifest = anchorHasInventoryLoad ? anchor.LoadInventory : null,
                 HarvestedManifest = harvestEngaged ? gainCheck.HarvestedManifest : null,
                 IsHarvestOrigin = isHarvestOrigin,
-                FirstHarvestWindow = harvestEngaged ? gainCheck.FirstHarvestWindow : null
+                FirstHarvestWindow = harvestEngaged ? gainCheck.FirstHarvestWindow : null,
+                Stops = stops
             };
+        }
+
+        /// <summary>
+        /// M4a (plan D3): sums every window's resource LOAD manifest into one
+        /// dict, so the run-level harvest "covered" term credits all N witnessed
+        /// pickups (today the per-window call folded one). Null/empty manifests
+        /// are skipped; returns null when no window loads anything (so the harvest
+        /// check sees the same null a delivery-only run passed pre-M4).
+        /// </summary>
+        private static Dictionary<string, double> SumManifestList(List<PerWindowManifests> built)
+        {
+            Dictionary<string, double> summed = null;
+            for (int i = 0; i < built.Count; i++)
+            {
+                Dictionary<string, double> load = built[i].LoadResources;
+                if (load == null || load.Count == 0)
+                    continue;
+                if (summed == null)
+                    summed = new Dictionary<string, double>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, double> kvp in load)
+                {
+                    summed.TryGetValue(kvp.Key, out double existing);
+                    summed[kvp.Key] = existing + kvp.Value;
+                }
+            }
+            return summed;
         }
 
         private static RouteAnalysisResult MissingProof(RouteAnalysisLogMode logMode)
@@ -626,10 +884,10 @@ namespace Parsek.Logistics
         // window carry ANY resource pickup?" - that deliberately keeps seeing
         // UNDEFINED resource names. NOTE: this is NOT the live eligibility
         // guard. As of M3 Phase 1 it is DEAD in the eligibility flow:
-        // AnalyzeWindow no longer calls it, and the former
+        // AnalyzeWindows no longer calls it, and the former
         // HasMixedPickupDelivery path that used it was deleted. The actual
         // fail-closed protection for an undefined-name pickup is the WIDENED
-        // NoDeliveryManifest gate in AnalyzeWindow: an undefined name is
+        // NoDeliveryManifest gate in AnalyzeWindows: an undefined name is
         // dropped from BOTH the load and delivery admission manifests
         // (BuildResourceLoadManifest / BuildResourceDeliveryManifest exclude
         // it), so a pure undefined-name pickup has hasLoad=false AND
@@ -675,7 +933,7 @@ namespace Parsek.Logistics
 
         // Inventory pickup PRESENCE detector - "does this window carry ANY
         // inventory move FROM the endpoint OR onto the transport?" As of M3
-        // Phase 5 it is DEAD in the eligibility flow: AnalyzeWindow no longer
+        // Phase 5 it is DEAD in the eligibility flow: AnalyzeWindows no longer
         // calls it (the former inventory-reject path was REPLACED by
         // classification via BuildInventoryLoadManifest +
         // HasUnwitnessedInventoryGain). It is retained as a directly-tested
@@ -746,7 +1004,7 @@ namespace Parsek.Logistics
                 // exclusion is itself the fail-closed mechanism: paired with
                 // the same exclusion in BuildResourceLoadManifest, an
                 // undefined-name pickup yields hasLoad=false AND
-                // hasDelivery=false and rejects at AnalyzeWindow's widened
+                // hasDelivery=false and rejects at AnalyzeWindows's widened
                 // no-delivery-AND-no-load gate (a mod uninstall cannot route a
                 // phantom resource in EITHER direction). HasResourcePickup is
                 // a dead-in-eligibility presence detector, not the guard - see
@@ -789,7 +1047,7 @@ namespace Parsek.Logistics
         /// exclusion, paired with the same exclusion in
         /// <see cref="BuildResourceDeliveryManifest"/>, is the D2 fail-closed
         /// mechanism: a pure undefined-name pickup produces hasLoad=false AND
-        /// hasDelivery=false and rejects at <see cref="AnalyzeWindow"/>'s
+        /// hasDelivery=false and rejects at <see cref="AnalyzeWindows"/>'s
         /// widened no-delivery-AND-no-load (<see cref="RouteAnalysisStatus.NoDeliveryManifest"/>)
         /// gate, so a mod uninstall can never flip a recorded pickup from
         /// rejected into a phantom admitted load term. (<see cref="HasResourcePickup"/>

@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using Parsek.Logistics;
+using Parsek.InGameTests.Helpers;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -43,6 +44,11 @@ namespace Parsek.InGameTests
         private const double DefaultPickupAmount = 5.0;
         private const double MinMeaningfulPickup = 0.1;
         private const double ResourceTolerance = 0.01;
+
+        // Auto-spawn fixture floors (shared shape with the M1 origin-debit suite):
+        // enough stored LiquidFuel to pick up the default amount with margin.
+        private const double FixtureMinStoredLf = DefaultPickupAmount + 5.0;
+        private const double FixtureMinFreeCapacity = 1.0;
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         private const string IsolatedOnlyBatchSkipReason =
@@ -141,55 +147,78 @@ namespace Parsek.InGameTests
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = IsolatedOnlyBatchSkipReason,
-            Description = "ApplyPickupDebit re-aimed at an UNLOADED on-rails vessel as the resolved pickup endpoint drains ProtoPartResourceSnapshot.amount through the production unloaded writer; the outcome carries the actuals + endpoint pid. Sources an existing unloaded vessel from the save (no spawn) and skips with a named reason when none exists")]
-        public void PickupDebit_UnloadedEndpointVessel_WritesProtoSnapshot()
+            Description = "ApplyPickupDebit re-aimed at an UNLOADED on-rails vessel as the resolved pickup endpoint drains ProtoPartResourceSnapshot.amount through the production unloaded writer; the outcome carries the actuals + endpoint pid. Auto-spawns an unloaded LiquidFuel vessel (fresh-identity pad-rocket copy in a parking orbit) when the save lacks one, reuses an existing one when present, and skips only when neither can be provided")]
+        public IEnumerator PickupDebit_UnloadedEndpointVessel_WritesProtoSnapshot()
         {
-            if (!TryFindUnloadedLiquidFuelVessel(out Vessel endpointVessel, out double storedBefore))
-                InGameAssert.Skip(
-                    "PRECONDITION: no unloaded non-ghost vessel with >= " +
-                    $"{MinMeaningfulPickup.ToString("R", IC)} debitable LiquidFuel in this save. " +
-                    "The unloaded-endpoint fixture sources an EXISTING on-rails vessel (plan finding 6: " +
-                    "spawn-based fixtures are unproven ground); load a save with a distant fuel-carrying " +
-                    "vessel (e.g. an orbiting depot) to run this test");
-            double pickupAmount = Math.Min(DefaultPickupAmount, storedBefore);
+            // Post-restore unpack wait (the fixture snapshots the active vessel,
+            // so it must be loaded+unpacked first).
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
 
-            List<KeyValuePair<ProtoPartResourceSnapshot, double>> protoSnapshot =
-                SnapshotProtoLiquidFuel(endpointVessel);
+            // Auto-spawn (or reuse) an unloaded LiquidFuel vessel so the player
+            // only needs a fueled pad rocket; null fixture => fall back to Skip.
+            var fixture = new UnloadedFuelVesselFixture.EnsureResult();
+            IEnumerator ensure = UnloadedFuelVesselFixture.EnsureUnloadedLiquidFuelVessel(
+                FixtureMinStoredLf, FixtureMinFreeCapacity, fixture);
+            while (ensure.MoveNext())
+                yield return ensure.Current;
 
             try
             {
-                RouteEndpoint endpoint = EndpointForVessel(endpointVessel);
-                var pickupManifest = new Dictionary<string, double>(StringComparer.Ordinal)
+                if (fixture.Vessel == null)
+                    InGameAssert.Skip(
+                        "PRECONDITION: could not provide an unloaded non-ghost vessel with >= " +
+                        $"{FixtureMinStoredLf.ToString("R", IC)} debitable LiquidFuel - no suitable pre-existing " +
+                        "on-rails vessel AND the auto-spawn from the active pad rocket did not settle unloaded " +
+                        "(see the TestHelper log lines). Provide a fueled PRELAUNCH pad rocket to run this test");
+                Vessel endpointVessel = fixture.Vessel;
+                double storedBefore = fixture.StoredLiquidFuel;
+                double pickupAmount = Math.Min(DefaultPickupAmount, storedBefore);
+
+                List<KeyValuePair<ProtoPartResourceSnapshot, double>> protoSnapshot =
+                    SnapshotProtoLiquidFuel(endpointVessel);
+
+                try
                 {
-                    { LiquidFuelName, pickupAmount },
-                };
+                    RouteEndpoint endpoint = EndpointForVessel(endpointVessel);
+                    var pickupManifest = new Dictionary<string, double>(StringComparer.Ordinal)
+                    {
+                        { LiquidFuelName, pickupAmount },
+                    };
 
-                RouteOrchestrator.OriginDebitOutcome outcome = RouteOrchestrator.ApplyPickupDebit(
-                    endpoint, pickupManifest, new LiveRouteRuntimeEnvironment(), "ingame-pickup-unloaded");
+                    RouteOrchestrator.OriginDebitOutcome outcome = RouteOrchestrator.ApplyPickupDebit(
+                        endpoint, pickupManifest, new LiveRouteRuntimeEnvironment(), "ingame-pickup-unloaded");
 
-                InGameAssert.IsFalse(outcome.Unresolved, "Unloaded endpoint should resolve via the pid lookup");
-                InGameAssert.IsFalse(outcome.Short, "Full unloaded pickup must not be short");
-                InGameAssert.AreEqual(endpointVessel.persistentId, outcome.OriginVesselPid,
-                    "Outcome must carry the unloaded endpoint pid");
-                InGameAssert.IsNotNull(outcome.ActualDebited, "Outcome must carry the actual-debited manifest");
-                InGameAssert.ApproxEqual(pickupAmount, outcome.ActualDebited[LiquidFuelName], ResourceTolerance,
-                    "Actual-debited must equal the witnessed pickup amount");
+                    InGameAssert.IsFalse(outcome.Unresolved, "Unloaded endpoint should resolve via the pid lookup");
+                    InGameAssert.IsFalse(outcome.Short, "Full unloaded pickup must not be short");
+                    InGameAssert.AreEqual(endpointVessel.persistentId, outcome.OriginVesselPid,
+                        "Outcome must carry the unloaded endpoint pid");
+                    InGameAssert.IsNotNull(outcome.ActualDebited, "Outcome must carry the actual-debited manifest");
+                    InGameAssert.ApproxEqual(pickupAmount, outcome.ActualDebited[LiquidFuelName], ResourceTolerance,
+                        "Actual-debited must equal the witnessed pickup amount");
 
-                double storedAfter = new LiveOriginCargoProbe(endpointVessel, false)
-                    .ProbeResourceStored(LiquidFuelName);
-                InGameAssert.ApproxEqual(storedBefore - pickupAmount, storedAfter, ResourceTolerance,
-                    $"Unloaded endpoint LiquidFuel pool should drop by {pickupAmount.ToString("R", IC)} " +
-                    $"(before={storedBefore.ToString("R", IC)} after={storedAfter.ToString("R", IC)})");
+                    double storedAfter = new LiveOriginCargoProbe(endpointVessel, false)
+                        .ProbeResourceStored(LiquidFuelName);
+                    InGameAssert.ApproxEqual(storedBefore - pickupAmount, storedAfter, ResourceTolerance,
+                        $"Unloaded endpoint LiquidFuel pool should drop by {pickupAmount.ToString("R", IC)} " +
+                        $"(before={storedBefore.ToString("R", IC)} after={storedAfter.ToString("R", IC)})");
 
-                ParsekLog.Info("TestRunner",
-                    $"PickupDebit_Unloaded: PASS endpoint={endpointVessel.vesselName} " +
-                    $"pid={endpointVessel.persistentId.ToString(IC)} " +
-                    $"storedBefore={storedBefore.ToString("R", IC)} storedAfter={storedAfter.ToString("R", IC)} " +
-                    $"pickup={pickupAmount.ToString("R", IC)}");
+                    ParsekLog.Info("TestRunner",
+                        $"PickupDebit_Unloaded: PASS endpoint={endpointVessel.vesselName} " +
+                        $"pid={endpointVessel.persistentId.ToString(IC)} " +
+                        $"storedBefore={storedBefore.ToString("R", IC)} storedAfter={storedAfter.ToString("R", IC)} " +
+                        $"pickup={pickupAmount.ToString("R", IC)}");
+                }
+                finally
+                {
+                    RestoreProtoLiquidFuel(protoSnapshot);
+                }
             }
             finally
             {
-                RestoreProtoLiquidFuel(protoSnapshot);
+                // Remove the auto-spawned fixture vessel (no-op for a reused one).
+                UnloadedFuelVesselFixture.Cleanup(fixture);
             }
         }
 
@@ -510,40 +539,6 @@ namespace Parsek.InGameTests
             for (int i = 0; i < snapshot.Count; i++)
                 if (snapshot[i].Key != null)
                     snapshot[i].Key.amount = snapshot[i].Value;
-        }
-
-        /// <summary>
-        /// Finds an existing UNLOADED, non-ghost, non-active vessel holding at
-        /// least <see cref="MinMeaningfulPickup"/> debitable LiquidFuel per the
-        /// production <see cref="LiveOriginCargoProbe"/> (unloaded branch).
-        /// Mirror of the M1 origin-debit suite's fixture (plan finding 6:
-        /// spawn-based fixtures are unproven ground).
-        /// </summary>
-        private static bool TryFindUnloadedLiquidFuelVessel(out Vessel candidate, out double stored)
-        {
-            candidate = null;
-            stored = 0.0;
-            List<Vessel> vessels = FlightGlobals.Vessels;
-            if (vessels == null) return false;
-            HashSet<uint> ghostPids = GhostMapPresence.ghostMapVesselPids;
-            Vessel active = FlightGlobals.ActiveVessel;
-
-            for (int i = 0; i < vessels.Count; i++)
-            {
-                Vessel v = vessels[i];
-                if (v == null || v.loaded) continue;
-                if (active != null && ReferenceEquals(v, active)) continue;
-                if (ghostPids != null && ghostPids.Contains(v.persistentId)) continue;
-                if (v.protoVessel == null || v.protoVessel.protoPartSnapshots == null) continue;
-
-                double s = new LiveOriginCargoProbe(v, false).ProbeResourceStored(LiquidFuelName);
-                if (s < MinMeaningfulPickup) continue;
-
-                candidate = v;
-                stored = s;
-                return true;
-            }
-            return false;
         }
     }
 }

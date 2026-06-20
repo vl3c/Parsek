@@ -46,6 +46,20 @@ namespace Parsek.Logistics
         internal const double SurfaceProximityRadiusMeters = 500.0;
 
         /// <summary>
+        /// (M4a A3) Per-window <see cref="GameAction.Sequence"/> stride. Under
+        /// Horn A a multi-stop cycle fires N windows under ONE cycleId, so the
+        /// fixed intra-window order (RouteDispatched 0 / RouteCargoDebited 1 /
+        /// RouteCargoPickedUp 2 / RouteCargoDelivered 3) is NOT unique across
+        /// windows. Each window's rows are offset by
+        /// <c>stopIndex * SEQ_STRIDE + intraSeq</c> so <c>(UT, Sequence)</c> stays
+        /// a TOTAL order across windows (replay-stability + the ledger dedup
+        /// equality). Stride 8 (&gt;= 4 to cover the four intra-window types with
+        /// headroom). A single-stop route fires only stop 0, so its sequences stay
+        /// 0/1/2/3 -- byte-identical to the pre-A3 fixed values.
+        /// </summary>
+        internal const int SeqStride = 8;
+
+        /// <summary>
         /// Canonical <see cref="ParsekLog"/> subsystem tag for every route-subsystem
         /// log line. Do not introduce new tag names — the integration follow-up
         /// unified all route logs under this single tag.
@@ -189,6 +203,13 @@ namespace Parsek.Logistics
             {
                 route.LastObservedLoopCycleIndex = -1;
                 route.LoopAnchorUT = currentUT;
+                // M4a A3 (OQ3): the per-stop fire sub-gates must reset alongside the
+                // route-level cycle cursor, else a multi-stop route re-activated
+                // after a Pause would see stale LastFiredCycleIndex values and stall
+                // (raised) or jump (lowered) the post-activate windows. -1 means
+                // "no cycle fired yet" so the first post-activate crossing of each
+                // window fires exactly once.
+                ResetStopFireState(route);
             }
 
             // M6 hold reasons: activation resets loop observation, so a
@@ -280,6 +301,14 @@ namespace Parsek.Logistics
             // (section 5.4). Idempotent via guard 3; no-ops on the Career-KSC gate /
             // zero-recovery branch if the route owes nothing.
             EmitPendingRecoveryCredit(route, currentUT, env);
+
+            // M4b escrow-strand fix (PR #1180 review): a multi-origin route that reserved
+            // its per-source escrow at dispatch and is paused MID-cycle never reaches the
+            // cycle-complete DropRouteEscrow sweep, so the stale reservation would keep
+            // mis-gating a competing route sharing that source until the next scene switch.
+            // Drop it on the immediate-pause transition. Idempotent no-op when nothing is
+            // held (a delivery-only route, or a route paused between cycles).
+            RouteStore.DropRouteEscrow(route.Id);
 
             route.PauseAfterCurrentCycle = false;
             route.TransitionTo(RouteStatus.Paused, "player-pause");
@@ -419,6 +448,43 @@ namespace Parsek.Logistics
                   .Append(route.DispatchPriority.ToString(IC));
             }
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Round-trip linking alternation advance (M4c Phase C1, plan D12 / OQ8).
+        /// Called at the moment a chain-linked route's cycle DISPATCHES (the
+        /// once-per-cycle dispatch emit), gated on a non-null
+        /// <see cref="Route.LinkedRouteId"/>. Sets
+        /// <see cref="Route.LastConsumedPartnerCycle"/> to the partner's CURRENT
+        /// <see cref="Route.CompletedCycles"/> so the partner gate
+        /// (<see cref="RouteDispatchEvaluator.PartnerConstraintSatisfied"/>) holds
+        /// this route until the partner completes ANOTHER cycle (strict A-&gt;B-&gt;A
+        /// alternation). The invariant: after this route dispatches consuming
+        /// partner-completion <c>K</c>, the route holds until the partner reaches
+        /// completion <c>K+1</c>.
+        ///
+        /// <para>An unlinked route, an unresolved partner, or a non-advancing
+        /// (Paused / Broken) partner is a no-op - those are the same routes the
+        /// partner gate bypasses, and a no-op here keeps the cursor at its
+        /// already-correct value. Idempotent / monotone: it only ever assigns the
+        /// partner's current completion count, never decrements.</para>
+        /// </summary>
+        internal static void AdvancePartnerAlternationOnDispatch(Route route, double currentUT)
+        {
+            if (route == null || string.IsNullOrEmpty(route.LinkedRouteId))
+                return;
+            if (!RouteStore.TryGetRoute(route.LinkedRouteId, out Route partner) || partner == null)
+                return;
+
+            int prev = route.LastConsumedPartnerCycle;
+            if (route.LastConsumedPartnerCycle == partner.CompletedCycles)
+                return; // already consumed this partner cycle (e.g. seed re-dispatch before partner advances)
+
+            route.LastConsumedPartnerCycle = partner.CompletedCycles;
+            ParsekLog.Verbose(Tag,
+                $"PartnerGate: route {ShortIdForLog(route)} dispatched - consumed partner={ShortIdForLog(partner)} " +
+                $"cycle lastConsumed {prev.ToString(IC)} -> {route.LastConsumedPartnerCycle.ToString(IC)} " +
+                $"at ut={currentUT.ToString("R", IC)}");
         }
 
         /// <summary>
@@ -608,6 +674,45 @@ namespace Parsek.Logistics
                 return;
             }
 
+            // M4a A3 (Horn A, BLOCKER-1 fix): a multi-stop DELIVERY route fires N
+            // windows under ONE cycleId, each at its OWN recorded dock phase via the
+            // loop clock. The dispatch half fires once (cycle open), each window's
+            // delivery (+pickup) fires at its own RecordedDockUT, and CompletedCycles
+            // bumps once per completed cycle. A single-stop route keeps the
+            // byte-identical scalar path below.
+            //
+            // Catch-up loop (BLOCKER-1): ProcessMultiStopCrossings processes EXACTLY
+            // ONE dock-cycle per pass - the LOWEST owed cycle (cMin). Processing one
+            // cycle at a time, in ascending order, with Completed/Skipped bumped
+            // exactly once when cMin's last dock is reached, is what keeps the
+            // invariant Completed+Skipped == cMin (so cycleId = cycle-{C+S} is
+            // genuinely UNIQUE per cycle and the per-window replay guards never
+            // collide across cycles). When a tick straddles >1 owed cycle (a gap tick
+            // with a prior owed window, or a long warp), the pass returns
+            // stillDue=true and this loop re-invokes the helper - the next pass sees
+            // the bumped C+S baseline and a fresh cycleId for cMin+1. Bounded by the
+            // same MaxCatchUpCyclesPerTick cap as the legacy catch-up loop.
+            if (route.Stops != null && route.Stops.Count > 1)
+            {
+                int passes = 0;
+                bool stillDue = true;
+                while (stillDue && passes < MaxCatchUpCyclesPerTick)
+                {
+                    ProcessMultiStopCrossings(
+                        route, currentUT, env, unit, loopUT, cycleIndex, isInInterCycleTail,
+                        ref dispatched, ref transitioned, ref skipped, out stillDue);
+                    passes++;
+                }
+                if (stillDue)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"LoopRoute(multi): route {ShortIdForLog(route)} hit max catch-up " +
+                        $"passes ({MaxCatchUpCyclesPerTick.ToString(IC)}) at ut={currentUT.ToString("R", IC)} " +
+                        "- deferring remaining owed cycles to next tick");
+                }
+                return;
+            }
+
             // Dock-phase crossing detection (DEL-2). A new span-clock cycle alone
             // does NOT fire: the delivery is gated on the loop clock having reached
             // the recorded dock PHASE within the cycle (loopUT >= RecordedDockUT),
@@ -722,6 +827,13 @@ namespace Parsek.Logistics
             route.LastObservedLoopCycleIndex = dockCycleIndex;
             if (emitted)
             {
+                // M4c Phase C1 (plan D12 / OQ8): a fresh dispatch consumes the
+                // partner's current cycle so the route holds WaitingForPartner until
+                // the partner completes ANOTHER cycle (strict A->B->A alternation).
+                // Advance ONLY on a genuine fire (emitted true), NOT on the
+                // ELS-replay backstop below (a replay re-presents an already-consumed
+                // cycle - re-advancing would skip a partner cycle).
+                AdvancePartnerAlternationOnDispatch(route, currentUT);
                 dispatched++;
                 transitioned++;
                 ParsekLog.Info(Tag,
@@ -737,6 +849,707 @@ namespace Parsek.Logistics
                     "(already in ledger) — emitted nothing; " +
                     $"snapped lastObserved={dockCycleIndex.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)}");
             }
+        }
+
+        /// <summary>
+        /// (M4a A3 / Horn A) Per-window firing for a MULTI-STOP delivery route.
+        /// Within ONE span cycle, N windows fire each at its OWN recorded dock
+        /// phase under ONE cycleId (<c>cycle-{Completed+Skipped}</c>): the dispatch
+        /// half fires once (cycle open, the once-per-cycle KSC funds charge), each
+        /// stop's delivery (+ pickup if witnessed) fires at <c>stop.RecordedDockUT</c>
+        /// via the loop clock, and <see cref="Route.CompletedCycles"/> bumps ONCE
+        /// after the LAST window's phase has been reached.
+        ///
+        /// <para><b>Per-stop fire state (OQ3).</b> Each <see cref="RouteStop"/>
+        /// carries <see cref="RouteStop.LastFiredCycleIndex"/>; a window fires when
+        /// its dock phase has been reached for a cycle index strictly greater than
+        /// that, then snaps it forward (fire-once across save/reload). The route-
+        /// level <see cref="Route.LastObservedLoopCycleIndex"/> snap is DEFERRED
+        /// until <c>loopUT &gt;= max(stop.RecordedDockUT)</c> (the cycle's last
+        /// dock), so a tick landing between dock A and dock B still fires window B
+        /// on the next tick (it would otherwise see the cycle consumed). Warp:
+        /// each due window fires ONCE for the highest passed dock cycle and snaps
+        /// forward; the per-stop guard + the dispatch ELS backstop keep it
+        /// idempotent.</para>
+        ///
+        /// <para><b>Dispatch-once / eligibility.</b> Eligibility is checked once
+        /// per cycle, the first tick a window of the cycle is due. A blocked cycle
+        /// emits nothing, bumps <see cref="Route.SkippedCycles"/>, snaps every
+        /// stop + the route marker forward to the cycle, and records the hold. The
+        /// dispatch half is gated by <see cref="IsDispatchAlreadyInLedger"/> on the
+        /// cycle's first-window stop index, so the second tick (window B's) does NOT
+        /// re-dispatch.</para>
+        ///
+        /// <para><b>BLOCKER-1: one dock-cycle per pass.</b> This helper processes
+        /// EXACTLY ONE dock-cycle per invocation - the LOWEST owed cycle
+        /// <c>cMin</c> across the stops. When a tick straddles more than one owed
+        /// cycle (a gap tick with a prior owed window, or a long warp jump), only
+        /// <c>cMin</c>'s windows fire this pass; the dispatch/funds charge fires
+        /// once for <c>cMin</c>, and Completed/Skipped is bumped exactly once when
+        /// <c>cMin</c>'s last dock is reached. That bump advances the
+        /// <c>cycle-{C+S}</c> baseline so the NEXT pass computes a FRESH cycleId for
+        /// <c>cMin+1</c>. The caller (<see cref="ProcessLoopRoute"/>) re-invokes
+        /// while <paramref name="stillDue"/> is true so multiple owed cycles in one
+        /// tick are processed in ascending order. The invariant <c>C+S == cMin</c>
+        /// holds at the start of every pass, which is what makes the per-window
+        /// replay guard keys (<c>RouteId, cycleId, stopIndex</c>) genuinely unique
+        /// per cycle - closing the gap-tick guard collision that dropped a whole
+        /// cycle's dispatch + a delivery under a frozen single cycleId.</para>
+        /// </summary>
+        /// <param name="stillDue">On return, true when the route has at least one
+        /// owed window of a LATER cycle than the one just processed (so the caller's
+        /// catch-up loop should re-invoke). False when no window is owed (terminal:
+        /// either nothing was due this pass, or the highest passed dock cycle was
+        /// just processed).</param>
+        private static void ProcessMultiStopCrossings(
+            Route route, double currentUT, IRouteRuntimeEnvironment env,
+            GhostPlaybackLogic.LoopUnit unit, double loopUT, long cycleIndex, bool isInInterCycleTail,
+            ref int dispatched, ref int transitioned, ref int skipped, out bool stillDue)
+        {
+            stillDue = false;
+            int stopCount = route.Stops.Count;
+
+            // The dispatch/debit rows of a multi-stop cycle carry a CYCLE-STABLE
+            // carrier stop index (stop 0, the first stop in DockUT order). It MUST
+            // be stable across the whole cycle - NOT the "first window due this
+            // tick" - so a partial-cycle resume (window 0 fired + persisted; the
+            // resume tick has only window 1 due) does NOT re-dispatch under a
+            // different stop index. The dispatch fires exactly once per cycleId,
+            // guarded by IsDispatchAlreadyInLedger on (cycleId, this carrier index).
+            const int dispatchCarrierStopIndex = 0;
+
+            // max dock UT across the route's stops (the cycle's LAST dock).
+            double maxDockUT = double.NegativeInfinity;
+            for (int i = 0; i < stopCount; i++)
+            {
+                RouteStop s = route.Stops[i];
+                if (s.RecordedDockUT > maxDockUT) maxDockUT = s.RecordedDockUT;
+            }
+
+            // BLOCKER-1: scan every stop's owed dock-cycle and find the LOWEST owed
+            // cycle cMin. A window is owed when its dock phase has been reached for a
+            // cycle index strictly greater than its own LastFiredCycleIndex
+            // (RouteLoopClock.IsDockCrossing). We process ONLY cMin this pass: each
+            // stop is "due this pass" iff its owed dock-cycle equals cMin AND its dock
+            // phase is reached for cMin (sDockCycle == cMin). A later-cycle owed
+            // window (sDockCycle > cMin, e.g. an earlier stop already in cMin+1)
+            // sets stillDue so the caller re-invokes after the C+S bump advances the
+            // cycleId. Stops are walked in DockUT-ascending order (RouteBuilder A1/A2).
+            long cMin = long.MaxValue;
+            bool anyOwed = false;
+            for (int i = 0; i < stopCount; i++)
+            {
+                RouteStop s = route.Stops[i];
+                bool windowCrossing = RouteLoopClock.IsDockCrossing(
+                    unit, loopUT, cycleIndex, s.RecordedDockUT,
+                    s.LastFiredCycleIndex, out long sDockCycle);
+                if (!windowCrossing)
+                    continue;
+                anyOwed = true;
+                if (sDockCycle < cMin)
+                    cMin = sDockCycle;
+            }
+
+            if (!anyOwed)
+            {
+                skipped++;
+                ParsekLog.VerboseRateLimited(Tag, "loop-noncross-multi-" + route.Id,
+                    $"LoopRoute(multi): route {ShortIdForLog(route)} stops={stopCount.ToString(IC)} " +
+                    $"no due window — loopUT={loopUT.ToString("R", IC)} " +
+                    $"cycleIdx={cycleIndex.ToString(IC)} " +
+                    $"lastObserved={route.LastObservedLoopCycleIndex.ToString(IC)} " +
+                    $"maxDockUT={maxDockUT.ToString("R", IC)} at ut={currentUT.ToString("R", IC)}",
+                    5.0);
+                return;
+            }
+
+            // Collect the windows belonging to cMin (the only cycle fired this pass).
+            // A window belongs to cMin when its dock phase has been reached for
+            // EXACTLY cMin (its own owed dock-cycle == cMin). dueCount > 0 always
+            // here (cMin is the min of a non-empty owed set), and every cMin window
+            // has sDockCycle == cMin so all share ONE cycleId.
+            var dueStopIndex = new List<int>(stopCount);
+            int laterOwed = 0;
+            for (int i = 0; i < stopCount; i++)
+            {
+                RouteStop s = route.Stops[i];
+                bool windowCrossing = RouteLoopClock.IsDockCrossing(
+                    unit, loopUT, cycleIndex, s.RecordedDockUT,
+                    s.LastFiredCycleIndex, out long sDockCycle);
+                if (!windowCrossing)
+                    continue;
+                if (sDockCycle == cMin)
+                    dueStopIndex.Add(i);
+                else
+                    laterOwed++; // a window of cMin+1.. (processed on a later pass)
+            }
+            int dueCount = dueStopIndex.Count;
+
+            // The cycle's id. The SAFETY PROPERTY (BLOCKER-1 fix) is that the
+            // cycleId is unique per FIRED cycle: CompletedCycles + SkippedCycles is
+            // strictly monotonic, bumped exactly once per cycle as each completes /
+            // is skipped, and a partially-fired cycle resumes under its EXISTING
+            // count-id (the per-window guard keys (RouteId, cycleId, stopIndex)
+            // therefore never collide across cycles). NOTE: the stronger equality
+            // C+S == cMin holds only for same-tick, NON-warp ascending catch-up
+            // passes; across a warp that SKIPS span cycles, cMin (a loop-cycle
+            // index) runs ahead of C+S (a fired-cycle COUNT). The fix does NOT rely
+            // on that equality - only on per-fired-cycle id uniqueness + correct
+            // partial-bucket resume, both of which hold under warp.
+            string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
+
+            // True when this tick's loop phase has reached/passed the cycle's LAST
+            // dock for CMIN: the cycle is complete this pass. Because we fire only
+            // cMin per pass, a tick deep in a later cycle still completes cMin here
+            // (its last dock is long past), then the caller re-invokes for cMin+1.
+            // A tick that lands in cMin's own (dockA, dockB) gap leaves this false
+            // and strands cMin's window B for the next TICK (stillDue stays false -
+            // there is no LATER owed cycle, only cMin's own un-reached window).
+            bool cycleLastDockReached = loopUT >= maxDockUT
+                ? true
+                // The last dock is reached for cMin when the highest cMin-window dock
+                // phase has been crossed. For the in-gap case all cMin windows whose
+                // dock is reached are due; cMin's last dock is reached iff the
+                // highest-DockUT stop's owed dock-cycle is also cMin (it is due).
+                : IsMaxDockStopDue(route, dueStopIndex, maxDockUT);
+
+            ParsekLog.Verbose(Tag,
+                $"LoopRoute(multi): route {ShortIdForLog(route)} cMin={cMin.ToString(IC)} " +
+                $"DUE windows={dueCount.ToString(IC)} laterOwed={laterOwed.ToString(IC)} " +
+                $"cycle={cycleId} dispatchCarrierStop={dispatchCarrierStopIndex.ToString(IC)} " +
+                $"loopUT={loopUT.ToString("R", IC)} maxDockUT={maxDockUT.ToString("R", IC)} " +
+                $"lastDockReached={(cycleLastDockReached ? "1" : "0")} " +
+                $"lastObserved={route.LastObservedLoopCycleIndex.ToString(IC)} at ut={currentUT.ToString("R", IC)}");
+
+            // Has CMIN's dispatch already fired (a prior tick of the same cycle, or a
+            // save/reload)? The dispatch/debit rows carry the cycle-STABLE carrier
+            // stop index (stop 0), so this is true on the SECOND tick of a multi-tick
+            // cycle (window B) AND on a partial-cycle resume - the carrier index never
+            // drifts to a later due window.
+            bool dispatchAlready = IsDispatchAlreadyInLedger(route.Id, cycleId, dispatchCarrierStopIndex);
+
+            // Eligibility gates the cycle at DISPATCH only (OQ4: all-or-nothing is
+            // at the source gate, NOT mid-cycle delivery). Once the cycle is
+            // committed (dispatch fired on an earlier tick), the later windows fire
+            // unconditionally - a witnessed delivery to A is not discarded because a
+            // later eligibility re-check would fail. So skip the eligibility gate
+            // entirely on a dispatch-already cycle.
+            if (!dispatchAlready)
+            {
+                RouteDispatchEvaluator.EligibilityResult elig =
+                    RouteDispatchEvaluator.CheckEligibility(route, currentUT, env);
+
+                if (!elig.Eligible)
+                {
+                    // Blocked cycle cMin (NOT yet committed): emit NOTHING for any
+                    // window. Flush any prior dispatched cycle's owed recovery credit
+                    // (the blocked crossing IS the next crossing for it). Bump
+                    // SkippedCycles ONCE (C+S advances to cMin+1 for the next pass),
+                    // and ATOMICALLY skip the WHOLE blocked cycle by snapping EVERY
+                    // stop not yet fired through cMin forward to cMin (OQ4 all-or-
+                    // nothing-at-dispatch / OQ3 snap-every-stop). The unconditional
+                    // `< cMin` snap is required for correctness, NOT just the windows
+                    // dock-crossed THIS tick: when the block tick lands in cMin's own
+                    // (dockA, dockB) gap, dock B's stop has not dock-crossed yet, but
+                    // it MUST still be marked skipped for cMin - otherwise, if the
+                    // block clears before the ghost reaches dock B, dock B would fire
+                    // next tick as a SEPARATELY-dispatched delivery under a fresh
+                    // cycleId, splitting one logically-skipped cycle into
+                    // "dock A skipped" + "dock B dispatched + delivered" (an
+                    // unaffordable cycle the player's resources never supported).
+                    // Safe with laterOwed: a stop owed at cMin+1 has LastFired == cMin
+                    // (it fired/skipped cMin already), so `cMin < cMin` is false and
+                    // its cMin+1 obligation survives for the next catch-up pass.
+                    EmitPendingRecoveryCredit(route, currentUT, env);
+                    route.SkippedCycles += 1;
+                    for (int j = 0; j < stopCount; j++)
+                    {
+                        if (route.Stops[j].LastFiredCycleIndex < cMin)
+                            route.Stops[j].LastFiredCycleIndex = cMin;
+                    }
+                    if (route.LastObservedLoopCycleIndex < cMin)
+                        route.LastObservedLoopCycleIndex = cMin;
+                    route.RecordHold(elig.Kind, elig.Reason, elig.Shortfall, currentUT);
+                    skipped++;
+                    stillDue = laterOwed > 0;
+                    ParsekLog.Info(Tag,
+                        $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
+                        $"BLOCKED kind={elig.Kind} reason={elig.Reason ?? "<none>"} " +
+                        $"shortfall={elig.Shortfall.ToString("R", IC)} — emitted nothing for {dueCount.ToString(IC)} " +
+                        $"cMin window(s), snapped due stops+lastObserved={cMin.ToString(IC)} " +
+                        $"skippedCycles={route.SkippedCycles.ToString(IC)} stillDue={(stillDue ? "1" : "0")}");
+                    return;
+                }
+
+                // Eligible + first commit of the cycle: clear any prior hold BEFORE
+                // emitting (a per-window endpoint loss can record an EndpointLost
+                // hold inside the delivery half; one clear here covers it).
+                route.ClearHold("crossing-eligible");
+
+                // Dispatch half (once per cycle): origin/funds debit + the
+                // RouteDispatched/RouteCargoDebited pair under the cycle's carrier
+                // stop index. The dispatch ELS guard suppresses a re-dispatch on the
+                // SECOND tick (window B) / on a save-reload resume.
+                EmitDispatchDebit(route, currentUT, env, cycleId,
+                    applyPhysicalOriginDebit: true, dispatchStopIndex: dispatchCarrierStopIndex);
+
+                // M4b B3 (plan D11 / OQ7): RESERVE this cycle's per-source cargo escrow
+                // at dispatch (once per cycle, post-eligibility, pre-emit). The summed
+                // per-pid reservation holds across the dispatch-to-window-phase gap so a
+                // competing route's B1 gate sees it; each pickup window RELEASEs its own
+                // portion at its physical debit (or on a window endpoint loss), netting
+                // the reservation to zero by cycle end (the leak-free invariant).
+                ReserveCycleEscrow(route, currentUT, env, cycleId);
+
+                if (env != null && env.IsCareer && route.IsKscOrigin)
+                {
+                    route.PendingRecoveryCreditCycleId = cycleId;
+                    route.PendingRecoveryCreditDispatchUT = currentUT;
+                    ParsekLog.Verbose(Tag,
+                        $"LoopRoute(multi): route {ShortIdForLog(route)} armed pending recovery credit " +
+                        $"cycle={cycleId} dispatchUT={currentUT.ToString("R", IC)}");
+                }
+                // M4c Phase C1 (plan D12 / OQ8): the cycle's once-per-cycle dispatch
+                // just fired (this is the !dispatchAlready first-commit branch), so
+                // consume the partner's current cycle. A dispatchAlready resume (the
+                // else branch below) does NOT re-advance - the cycle's dispatch was
+                // already counted on its first tick.
+                AdvancePartnerAlternationOnDispatch(route, currentUT);
+                dispatched++;
+                ParsekLog.Info(Tag,
+                    $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
+                    $"dispatch fired (carrierStopIndex={dispatchCarrierStopIndex.ToString(IC)}) " +
+                    $"at ut={currentUT.ToString("R", IC)}");
+            }
+            else
+            {
+                // Cycle already committed (dispatch in the ledger): fire only the due
+                // window(s), no eligibility re-gate. The crossing is eligible by
+                // construction (the cycle dispatched), so clear any stale hold; the
+                // prior cycle's owed recovery credit still flushes on this crossing.
+                route.ClearHold("crossing-eligible");
+                EmitPendingRecoveryCredit(route, currentUT, env);
+
+                // M4b B3 C1 (plan OQ7/D11 "recomputed from pending state on the next
+                // Tick"): a dispatchAlready resume of an IN-FLIGHT multi-stop cycle
+                // re-establishes the escrow for this cycle's still-UN-FIRED pickup
+                // windows when the escrow was CLEARED mid-cycle (a scene-switch
+                // ClearAllEscrow or a reload dropped the RAM-only map). Idempotent:
+                // a no-op when the route already holds escrow (a normal in-session
+                // resume - no clear happened), so it never double-reserves. The C2
+                // cycle-complete drop sweeps it when the cycle finishes.
+                ReEstablishEscrowForUnfiredWindows(route, currentUT, env, cycleId, cMin);
+
+                ParsekLog.Verbose(Tag,
+                    $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
+                    $"dispatch already in ledger (committed) - firing only the due window(s), no re-gate");
+            }
+
+            // Fire each DUE window of cMin's pickup (+ delivery), in DockUT order.
+            // Each window carries its OWN stop index (drives ResolveCycleStop +
+            // RouteHas*Manifest via PendingStopIndex, the Sequence stride, and the
+            // per-window delivery ELS guard). No window bumps CompletedCycles — the
+            // once-per-cycle bump fires below when the last dock is reached.
+            int firedWindows = 0;
+            for (int d = 0; d < dueStopIndex.Count; d++)
+            {
+                int stopIdx = dueStopIndex[d];
+
+                // Drive PendingStopIndex so ResolveCycleStop / RouteHasDeliveryManifest /
+                // RouteHasPickupManifest resolve THIS window's stop (C5 - the helpers
+                // need no rewrite).
+                route.PendingStopIndex = stopIdx;
+
+                EmitMultiStopWindow(route, currentUT, env, cycleId, stopIdx,
+                    out bool windowEmitted);
+
+                // Snap THIS stop's fire index forward to cMin (fire-once across
+                // reload). Every due window of this pass belongs to cMin.
+                if (route.Stops[stopIdx].LastFiredCycleIndex < cMin)
+                    route.Stops[stopIdx].LastFiredCycleIndex = cMin;
+
+                if (windowEmitted)
+                    firedWindows++;
+                transitioned++;
+            }
+
+            // PendingStopIndex is a within-tick scratch for the helpers; clear it so
+            // a later non-loop read never sees a stale value.
+            route.PendingStopIndex = -1;
+
+            // Deferred route-level cycle-completion snap (OQ3) + the once-per-cycle
+            // Completed bump (BLOCKER-1): advance the route marker + COUNT cMin ONLY
+            // when cMin's last dock has been reached this pass. The CompletedCycles
+            // bump lives HERE (not in any per-window applier) so it fires exactly once
+            // per multi-stop cycle regardless of which half(s) the windows emitted,
+            // and it advances C+S to cMin+1 so the next catch-up pass computes a fresh
+            // cycleId.
+            if (cycleLastDockReached)
+            {
+                route.CompletedCycles += 1;
+                if (route.LastObservedLoopCycleIndex < cMin)
+                    route.LastObservedLoopCycleIndex = cMin;
+
+                // M4b B3 C2 (close the reserve-pid != release-pid leak robustly): at
+                // cycle-complete EVERY window has fired (debited+released) or been
+                // skipped, so ANY residual reservation for this route is stale - e.g.
+                // a window whose resolved release pid diverged from the dispatch-time
+                // reserve pid (a mid-cycle source-identity change / surface-fallback
+                // / craft-baked-pid regeneration), where the release missed the
+                // reserved key. Dropping the whole route's escrow here guarantees no
+                // positive-residual leak regardless of pid divergence. Safe because a
+                // loop route is single-instance (cadence >= span, only one cycle in
+                // flight). This also drops the C1 re-established reservation. A no-op
+                // when nothing is held (the normal leak-free path already netted to
+                // zero).
+                RouteStore.DropRouteEscrow(route.Id);
+
+                // A LATER owed cycle remains -> ask the caller to re-invoke. (cMin's
+                // own un-fired windows are all reached this pass, so the only
+                // remaining work is cMin+1's windows.)
+                stillDue = laterOwed > 0;
+                ParsekLog.Info(Tag,
+                    $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
+                    $"last dock reached — firedWindows={firedWindows.ToString(IC)} " +
+                    $"snapped lastObserved={cMin.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)} " +
+                    $"stillDue={(stillDue ? "1" : "0")}");
+            }
+            else
+            {
+                // cMin's last dock NOT yet reached this tick (the ghost is between
+                // cMin's dock A and dock B): the cycle is NOT counted, the route
+                // marker is held, and there is no LATER owed cycle (a window of cMin+1
+                // cannot be due before cMin's last dock). stillDue stays false: cMin's
+                // remaining windows fire on a future TICK, not a same-tick re-pass.
+                stillDue = false;
+                ParsekLog.Info(Tag,
+                    $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
+                    $"partial — firedWindows={firedWindows.ToString(IC)} (more windows pending this cycle); " +
+                    $"lastObserved held at {route.LastObservedLoopCycleIndex.ToString(IC)} " +
+                    $"completedCycles={route.CompletedCycles.ToString(IC)}");
+            }
+        }
+
+        /// <summary>
+        /// (M4a A3 / BLOCKER-1) True when the stop carrying the route's LAST dock
+        /// (max <c>RecordedDockUT</c>) is among the windows due THIS pass
+        /// (<paramref name="dueStopIndex"/>). Used only on the in-gap branch
+        /// (<c>loopUT &lt; maxDockUT</c> is false on the fast path): a cycle's last
+        /// dock is reached this pass iff the max-DockUT stop's owed dock-cycle is the
+        /// cycle being processed (so it is due). When the last-dock stop is NOT due
+        /// this pass (a true mid-cycle gap tick), the cycle is left open and its
+        /// remaining windows fire on a future tick. Pure.
+        /// </summary>
+        private static bool IsMaxDockStopDue(
+            Route route, List<int> dueStopIndex, double maxDockUT)
+        {
+            // Find the stop index that carries the max dock UT.
+            int maxStopIdx = -1;
+            for (int i = 0; i < route.Stops.Count; i++)
+            {
+                if (route.Stops[i].RecordedDockUT == maxDockUT)
+                {
+                    maxStopIdx = i;
+                    break;
+                }
+            }
+            if (maxStopIdx < 0)
+                return false;
+            return dueStopIndex.Contains(maxStopIdx);
+        }
+
+        /// <summary>
+        /// (M4a A3) Emits ONE window of a multi-stop cycle: the pickup half (when
+        /// the stop carries a witnessed pickup manifest) then the delivery half
+        /// (when the stop carries a delivery manifest), under the cycle's shared
+        /// <paramref name="cycleId"/> and this window's <paramref name="stopIndex"/>.
+        /// The pickup-before-delivery order mirrors the single-stop
+        /// <see cref="EmitLoopCycle"/> (endpoint DEBIT before endpoint CREDIT so a
+        /// same-resource deliver+pickup nets without a phantom clamp).
+        ///
+        /// <para><b>CompletedCycles is NOT bumped here.</b> Every multi-stop window
+        /// passes <c>bumpCompletedCycle=false</c> to <see cref="ApplyDelivery"/>;
+        /// the once-per-cycle bump is owned by
+        /// <see cref="ProcessMultiStopCrossings"/> (fired after the last window,
+        /// independent of which half a window emits), so a pickup-only last window
+        /// still completes the cycle.</para>
+        /// </summary>
+        private static void EmitMultiStopWindow(
+            Route route, double currentUT, IRouteRuntimeEnvironment env,
+            string cycleId, int stopIndex, out bool windowEmitted)
+        {
+            windowEmitted = false;
+
+            // Pickup half (endpoint DEBIT first). A pure-delivery stop has no pickup
+            // manifest and skips this. M4b B3 LIFTED the M4a defer: each pickup
+            // window's source debit now fires here via EmitPickupHalf (PendingStopIndex
+            // is driven to THIS window's stop index by the caller, so ResolveCycleStop
+            // resolves THIS stop's PickupManifest), under the windowed C-2 replay key
+            // IsPickupAlreadyInLedger((RouteId, cycleId, stopIndex)) - so a >1
+            // source-debiting (pickup) multi-window run fires each window's source
+            // debit at its own dock phase, idempotent per window across reload. The
+            // single bidirectional M3a window is byte-behaviour-identical (its single
+            // pickup stop still fires exactly this path). The reserve/release escrow
+            // (ReserveCycleEscrow at dispatch / ReleaseWindowEscrow inside EmitPickupHalf)
+            // holds each window's source contribution between dispatch and its debit.
+            if (RouteHasPickupManifest(route))
+            {
+                EmitPickupHalf(route, currentUT, env, cycleId);
+                windowEmitted = true;
+            }
+
+            // Delivery half (endpoint CREDIT). Skip for a stop with no delivery
+            // manifest (the per-window ELS guard inside ApplyDelivery keys on
+            // (routeId, cycleId, stopIndex), so window 0's row never suppresses
+            // window 1). bumpCompletedCycle=false for EVERY multi-stop window — the
+            // cycle-complete bump is fired once by the caller.
+            if (RouteHasDeliveryManifest(route))
+            {
+                var deliveryApplier = DeliveryApplierForTesting;
+                if (deliveryApplier != null)
+                    deliveryApplier(route, currentUT, env);
+                else
+                    ApplyDelivery(route, currentUT, env, bumpCompletedCycle: false);
+                windowEmitted = true;
+            }
+        }
+
+        // =====================================================================
+        // M4b Phase B3 (plan D10/D11 / OQ7): the reserve / release ESCROW
+        // lifecycle for source-debiting (pickup) windows. RESERVE at dispatch
+        // (once per cycle, post-eligibility), RELEASE at each window's physical
+        // debit (or on a window endpoint loss), so a partial cycle keeps the
+        // un-fired window's reservation LIVE across the gap (a competing route's
+        // B1 gate sees it). The leak-free invariant: every Reserve is matched by
+        // a Release (debit or skip) within the cycle, or a Drop on tombstone /
+        // scene-change. Reserve keys on the SAME resolved pid the B1 gate nets on.
+        // =====================================================================
+
+        /// <summary>
+        /// (M4b B3) RESERVE this cycle's per-source cargo escrow at DISPATCH. Builds
+        /// the per-pid SUMMED reservation list from the route's pickup
+        /// <see cref="RouteStop"/>s (the SAME grouping <see cref="RoutePickupSourceGate"/>
+        /// uses for the B1 gate), resolving each pickup source endpoint to the SAME
+        /// live pid the gate nets on (<see cref="ResolveEscrowSourcePid"/>), and calls
+        /// <see cref="RouteStore.ReserveCargo"/> once per (pid, resource). A competing
+        /// higher-priority route gating the same source in this or a later tick (before
+        /// this route's physical debit) then sees the source's available amount reduced
+        /// by what this route reserved. Reserve is the SUMMED amount per pid so it nets
+        /// to zero once every pickup window of the cycle releases its own portion.
+        ///
+        /// <para>Pure RAM (no ledger row); the per-cycle reserve is idempotent in
+        /// practice because dispatch fires exactly once per cycle (the carrier-stop ELS
+        /// guard), so this runs once per cycle. A delivery-only route reserves nothing.
+        /// On an unresolved pickup source the build returns false and nothing is
+        /// reserved (the eligibility gate already held the cycle; reserving a partial
+        /// set would leak).</para>
+        /// </summary>
+        internal static void ReserveCycleEscrow(
+            Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId)
+        {
+            ReserveCycleEscrow(route, currentUT, env, cycleId, includeStop: null, contextTag: "dispatch");
+        }
+
+        /// <summary>
+        /// (M4b B3) Internal reserve worker shared by the dispatch-time full-cycle
+        /// reserve (<paramref name="includeStop"/> = null) and the C1
+        /// re-establish-on-resume path (<paramref name="includeStop"/> keeps only the
+        /// un-fired windows of the resumed cycle). Builds the per-pid SUMMED
+        /// reservation over the included pickup windows and calls
+        /// <see cref="RouteStore.ReserveCargo"/> once per (pid, resource).
+        /// <paramref name="contextTag"/> distinguishes the two call sites in the log.
+        /// </summary>
+        internal static void ReserveCycleEscrow(
+            Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId,
+            Func<RouteStop, bool> includeStop, string contextTag)
+        {
+            if (route == null || string.IsNullOrEmpty(route.Id)
+                || route.Stops == null || route.Stops.Count == 0)
+                return;
+
+            RoutePickupSourceGate.PickupSourceResolution Resolver(RouteEndpoint endpoint)
+            {
+                uint pid = ResolveEscrowSourcePid(endpoint, env);
+                if (pid == 0u)
+                    return RoutePickupSourceGate.PickupSourceResolution.Miss("escrow-source-unresolved");
+                // The escrow builder only reads ResolvedPid + the summed manifest; the
+                // readers are unused on the reserve path, so pass harmless no-ops.
+                return RoutePickupSourceGate.PickupSourceResolution.Ok(
+                    pid, EscrowSourceNameForLog(endpoint, env), _ => 0.0, _ => 0);
+            }
+
+            bool built = RoutePickupSourceGate.TryBuildReservations(
+                route, Resolver, includeStop,
+                out List<RoutePickupSourceGate.PickupSourceReservation> reservations,
+                out string unresolvedReason);
+
+            if (!built)
+            {
+                // A pickup source did not resolve at dispatch. The eligibility gate
+                // (which re-resolves the same sources) would normally have held this
+                // cycle; if we still got here, reserve NOTHING (a partial reservation
+                // would leak - some windows would never release a hold they never had
+                // a matching reserve for). The window-debit release is a no-op against
+                // the empty escrow, so no leak.
+                ParsekLog.VerboseRateLimited(Tag, "escrow-reserve-unresolved-" + route.Id,
+                    $"ReserveCycleEscrow: route {ShortIdForLog(route)} cycle={cycleId} " +
+                    $"context={contextTag} pickup source unresolved (reason={unresolvedReason}) - reserved nothing");
+                return;
+            }
+
+            if (reservations.Count == 0)
+                return; // delivery-only / inventory-only / no un-fired window - nothing to reserve
+
+            int reservedPids = 0;
+            int reservedEntries = 0;
+            for (int i = 0; i < reservations.Count; i++)
+            {
+                var r = reservations[i];
+                bool any = false;
+                foreach (var kv in r.SummedResourceManifest)
+                {
+                    RouteStore.ReserveCargo(route.Id, r.ResolvedPid, kv.Key, kv.Value);
+                    reservedEntries++;
+                    any = true;
+                }
+                if (any) reservedPids++;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ReserveCycleEscrow: route {ShortIdForLog(route)} cycle={cycleId} " +
+                $"context={contextTag} reservedSources={reservedPids.ToString(IC)} " +
+                $"reservedResourceEntries={reservedEntries.ToString(IC)} at ut={currentUT.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// (M4b B3 C1) RE-ESTABLISH this cycle's cargo escrow from the still-UN-FIRED
+        /// pickup windows on a <c>dispatchAlready</c> resume - honoring OQ7/D11's
+        /// "the reserve is recomputed from pending route state on the next Tick".
+        /// After a within-game scene switch (<c>ClearAllEscrow</c>) or a reload
+        /// (escrow is RAM-only) lands MID-cycle, the cycle resumes with its dispatch
+        /// already in the ledger, so <see cref="ReserveCycleEscrow(Route, double, IRouteRuntimeEnvironment, string)"/>
+        /// at dispatch does NOT re-run and the un-fired window's hold would be silently
+        /// lost - a competing route could then drain the source in the gap (violating
+        /// 19.2.5 strand-protection). This re-reserves ONLY the windows of cycle
+        /// <paramref name="cycleIndex"/> whose <see cref="RouteStop.LastFiredCycleIndex"/>
+        /// is still <c>&lt; cycleIndex</c> (a window already debited+released this cycle
+        /// has its hold consumed and must NOT be re-reserved, else double).
+        ///
+        /// <para><b>IDEMPOTENT:</b> runs ONLY when the route currently holds NO escrow
+        /// (<see cref="RouteStore.HasEscrow"/> is false - i.e. a clear/reload dropped
+        /// it). A normal in-session resume (no clear happened) still holds its
+        /// reservation, so this short-circuits and does NOT re-reserve (no
+        /// double-reserve). The C2 cycle-complete <see cref="RouteStore.DropRouteEscrow"/>
+        /// then drops whatever this re-established when the cycle finishes.</para>
+        /// </summary>
+        internal static void ReEstablishEscrowForUnfiredWindows(
+            Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId, long cycleIndex)
+        {
+            if (route == null || string.IsNullOrEmpty(route.Id))
+                return;
+
+            // Idempotency guard: only re-establish when the escrow was CLEARED (a
+            // scene-switch ClearAllEscrow / a reload). A normal in-session resume
+            // still holds its reservation -> skip (no double-reserve).
+            if (RouteStore.HasEscrow(route.Id))
+                return;
+
+            ReserveCycleEscrow(route, currentUT, env, cycleId,
+                includeStop: stop => stop != null && stop.LastFiredCycleIndex < cycleIndex,
+                contextTag: "resume-reestablish");
+        }
+
+        /// <summary>
+        /// (M4b B3) RELEASE one pickup window's escrow portion AFTER its physical
+        /// debit fires (or when the window endpoint is lost mid-cycle, OQ4: the cargo
+        /// was not taken, so the hold is freed without debiting). Releases the
+        /// window's OWN <see cref="RouteStop.PickupManifest"/> amounts against the
+        /// SAME resolved pid the reserve keyed on (<paramref name="resolvedPid"/> -
+        /// the pid <see cref="ApplyPickupDebit"/> resolved, or the escrow-resolve pid
+        /// on the unresolved-debit path). After the cycle's LAST pickup window
+        /// releases, the source's reservation nets to zero (summed reserve ==
+        /// sum-of-per-window releases per pid). A no-op against an empty escrow (e.g.
+        /// after a reload, where the escrow was not persisted - the reserve is
+        /// recomputed from pending state on the live session only).
+        /// </summary>
+        internal static void ReleaseWindowEscrow(
+            Route route, RouteStop stop, uint resolvedPid, string cycleId, string contextTag)
+        {
+            if (route == null || string.IsNullOrEmpty(route.Id) || stop == null)
+                return;
+            if (resolvedPid == 0u)
+                return; // unresolved pid - nothing was reserved against pid 0 (reserve skips it too)
+            Dictionary<string, double> manifest = stop.PickupManifest;
+            if (manifest == null || manifest.Count == 0)
+                return; // inventory-only / pure-delivery window - no resource reservation to release
+
+            int releasedEntries = 0;
+            foreach (var kv in manifest)
+            {
+                if (string.IsNullOrEmpty(kv.Key) || !(kv.Value > 0.0))
+                    continue;
+                RouteStore.ReleaseCargo(route.Id, resolvedPid, kv.Key, kv.Value);
+                releasedEntries++;
+            }
+
+            if (releasedEntries > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ReleaseWindowEscrow: route {ShortIdForLog(route)} cycle={cycleId} " +
+                    $"pid={resolvedPid.ToString(IC)} releasedResourceEntries={releasedEntries.ToString(IC)} " +
+                    $"context={contextTag ?? "<none>"}");
+            }
+        }
+
+        /// <summary>
+        /// (M4b B3) Resolve a pickup-source endpoint to the SAME live pid the B1 gate
+        /// and <see cref="ApplyPickupDebit"/> resolve to. Production resolves the live
+        /// vessel via the env and returns its <c>persistentId</c> (exactly what
+        /// <c>OriginVesselPid</c> on the debit outcome carries). When the env cannot
+        /// return a live vessel (headless test env, or an off-Unity context), fall
+        /// back to the endpoint's craft-baked <see cref="RouteEndpoint.VesselPersistentId"/>
+        /// so the reserve and the release key on the same pid the test seam's
+        /// <c>OriginVesselPid</c> reports. Returns 0 when neither resolves.
+        /// </summary>
+        private static uint ResolveEscrowSourcePid(RouteEndpoint endpoint, IRouteRuntimeEnvironment env)
+        {
+            if (env != null)
+            {
+                try
+                {
+                    if (env.TryResolveEndpointVessel(endpoint, out Vessel vessel, out _)
+                        && vessel != null)
+                        return vessel.persistentId;
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"ResolveEscrowSourcePid: env resolve threw {ex.GetType().Name}: {ex.Message}; " +
+                        "falling back to endpoint baked pid");
+                }
+            }
+            // Fallback: the craft-baked endpoint pid. This matches the pid the headless
+            // test path's PickupDebitApplierForTesting returns as OriginVesselPid, so
+            // reserve and release key identically.
+            return endpoint.VesselPersistentId;
+        }
+
+        private static string EscrowSourceNameForLog(RouteEndpoint endpoint, IRouteRuntimeEnvironment env)
+        {
+            if (env != null)
+            {
+                try
+                {
+                    if (env.TryResolveEndpointVessel(endpoint, out Vessel vessel, out _)
+                        && vessel != null)
+                        return vessel.vesselName;
+                }
+                catch
+                {
+                    // best-effort name only
+                }
+            }
+            return null;
         }
 
         /// <summary>
@@ -984,7 +1797,12 @@ namespace Parsek.Logistics
             // re-apply every reload (risk register #1). Check (routeId, cycleId) on
             // the dispatch row up front and emit NOTHING on a replay - the caller
             // still snaps LastObservedLoopCycleIndex forward.
-            if (IsDispatchAlreadyInLedger(route.Id, cycleId))
+            // M4a A3: EmitLoopCycle is the SINGLE-STOP full-cycle emitter (the
+            // multi-stop cycle runs through ProcessMultiStopCrossings /
+            // EmitMultiStopWindow). Its dispatch row carries the v0 sentinel stop
+            // index -1, so the re-keyed dispatch guard is checked against -1
+            // (byte-identical to pre-A3: one dispatch per cycle, stopIndex -1).
+            if (IsDispatchAlreadyInLedger(route.Id, cycleId, -1))
             {
                 // Mirror ApplyDelivery's replay branch: bump CompletedCycles so the
                 // NEXT cycle's id (cycle-{Completed+Skipped}) advances past this
@@ -1006,6 +1824,17 @@ namespace Parsek.Logistics
             // backstop above, so this is the ONLY caller that applies the M1
             // physical origin debit (design D11).
             EmitDispatchDebit(route, currentUT, env, cycleId, applyPhysicalOriginDebit: true);
+
+            // M4b B3 (plan D11 / OQ7): RESERVE this cycle's per-source cargo escrow at
+            // dispatch (single-stop path - the M3a single bidirectional window reserves
+            // its source here too). Released at the pickup window's physical debit
+            // below. For a single-window route reserve == release, so the escrow nets to
+            // zero within this one EmitLoopCycle (a competing route only sees it during
+            // the instant between this reserve and EmitPickupHalf's release - within one
+            // tick, the priority-ordered CompareRoutesForTick snapshot means a route
+            // reserves-and-debits inside its own EmitLoopCycle before a competing route
+            // runs). A delivery-only route reserves nothing.
+            ReserveCycleEscrow(route, currentUT, env, cycleId);
 
             // Recovery-credit deferral (logistics-recovery-credit section 5.2): this
             // cycle just dispatched a (potential) Career-KSC charge, so it now OWES a
@@ -1108,6 +1937,15 @@ namespace Parsek.Logistics
                     $"pure-pickup (no delivery manifest) - delivery half skipped, " +
                     $"bumped completedCycles={route.CompletedCycles.ToString(IC)}");
             }
+
+            // M4b escrow-strand fix (PR #1180 review): the single-stop analogue of the
+            // multi-stop cycle-complete sweep (ProcessMultiStopCrossings). The cycle is
+            // fully emitted here (dispatch + pickup-release + delivery), so ANY residual
+            // reservation is stale - e.g. a reserve-pid != release-pid divergence where
+            // EmitPickupHalf's release missed the dispatch-time reserved key. Drop it so
+            // no positive residual can leak. No-op on the normal leak-free path (reserve
+            // == release already netted to zero), and on a delivery-only route (no reserve).
+            RouteStore.DropRouteEscrow(route.Id);
             return true;
         }
 
@@ -1140,8 +1978,50 @@ namespace Parsek.Logistics
                 return;
             }
 
+            // The stop index this pickup window keys on (same value the row carries
+            // and ResolveCycleStop resolved): PendingStopIndex, falling back to 0.
+            int pickupStopIndex = route.PendingStopIndex >= 0 ? route.PendingStopIndex : 0;
+
+            // C-2 (defense-in-depth): per-window pickup replay backstop. The pickup
+            // half PHYSICALLY debits the source, so a cursor/ledger desync of the
+            // BLOCKER-1 class (a window re-presented under a frozen cycleId) could
+            // otherwise double-debit a refinery/depot. The dispatch ELS guard +
+            // per-stop LastFiredCycleIndex already prevent normal re-presentation;
+            // this row-keyed guard makes a double-debit IMPOSSIBLE even if those are
+            // out-flanked. Symmetric with the delivery guard (STEP 1 of
+            // ApplyDelivery): if THIS (routeId, cycleId, stopIndex) pickup row is
+            // already in the ELS, emit NOTHING (no second physical debit, no second
+            // row). Single-stop / legacy never double-fires (the dispatch backstop),
+            // so this never trips for it - byte-identical there.
+            if (IsPickupAlreadyInLedger(route.Id, cycleId, pickupStopIndex))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PickupHalf: route {ShortIdForLog(route)} cycle={cycleId} " +
+                    $"stop={pickupStopIndex.ToString(IC)} replay detected — already in ledger, " +
+                    "skipping physical debit + row (C-2 backstop)");
+                return;
+            }
+
             Dictionary<string, double> pickupManifest = stop.PickupManifest;
             OriginDebitOutcome pickup = ApplyPickupDebit(stop.Endpoint, pickupManifest, env, route.Id);
+
+            // M4b B3 (plan D11 / OQ7): RELEASE this window's escrow portion now that the
+            // physical debit has fired. The debit is NOT gated on transport disposition
+            // (19.2.5: the outflow was witnessed; a crashed transport still debits the
+            // source), so the release follows the debit unconditionally here. Key on the
+            // pid ApplyPickupDebit resolved (pickup.OriginVesselPid) - the SAME pid
+            // ReserveCycleEscrow keyed on; when the endpoint was UNRESOLVED at debit
+            // (OQ4: endpoint lost mid-cycle, zero actuals, cargo NOT taken) the outcome
+            // carries pid 0, so fall back to the escrow-resolve pid to free the hold
+            // anyway (no leak). After the cycle's last pickup window releases, the
+            // source's summed reservation nets to zero (leak-free invariant). A no-op
+            // against an empty escrow (e.g. after a reload, where escrow is RAM-only and
+            // not persisted - the reserve is recomputed on the live session only).
+            uint releasePid = pickup.OriginVesselPid != 0u
+                ? pickup.OriginVesselPid
+                : ResolveEscrowSourcePid(stop.Endpoint, env);
+            ReleaseWindowEscrow(route, stop, releasePid, cycleId,
+                pickup.Unresolved ? "window-endpoint-lost" : "window-debit");
 
             if (pickup.Short && !pickup.Unresolved)
             {
@@ -1178,15 +2058,20 @@ namespace Parsek.Logistics
             // (actual manifest, requested-on-shortfall, endpoint pid) but ZERO funds
             // and Sequence 2 (after dispatch Seq0 + debit Seq1). Carries BOTH the
             // resource AND the inventory picked-up manifests (D7). Zero actuals in
-            // either dimension serialize as no manifest.
+            // either dimension serialize as no manifest. pickupStopIndex was resolved
+            // at the top of this method (the same value the C-2 backstop keyed on).
             var pickedUpAction = new GameAction
             {
                 Type = GameActionType.RouteCargoPickedUp,
                 UT = currentUT,
                 RouteId = route.Id,
                 RouteCycleId = cycleId,
-                RouteStopIndex = route.PendingStopIndex >= 0 ? route.PendingStopIndex : 0,
-                Sequence = 2,
+                RouteStopIndex = pickupStopIndex,
+                // M4a A3 (Horn A): offset into THIS window's stride block so the
+                // RouteCargoPickedUp row stays a TOTAL-order sibling of the
+                // dispatch (stride+0/+1) and delivery (stride+3) rows across all
+                // windows. Single-stop keeps stopIndex 0 -> Sequence 2 (v0-identical).
+                Sequence = pickupStopIndex * SeqStride + 2,
                 RouteResourceManifest = pickup.ActualDebited,
                 RouteRequestedResourceManifest = pickup.RequestedOnShortfall,
                 RouteInventoryManifest = inventoryPickup.ActualPickedUp,
@@ -1220,6 +2105,23 @@ namespace Parsek.Logistics
         /// without Planetarium / Vessel / Funding statics.
         /// </summary>
         internal static System.Action<Route, double, IRouteRuntimeEnvironment> DeliveryApplierForTesting;
+
+        /// <summary>
+        /// (M4a A3) Test seam consulted INSIDE the real <see cref="ApplyDelivery"/>,
+        /// AFTER its per-window idempotency guard (STEP 1,
+        /// <see cref="IsDeliveryAlreadyInLedger"/>) but BEFORE the live-Vessel
+        /// resolution. Production leaves it null (the live delivery path runs). A
+        /// multi-window xUnit test assigns a fake that emits a
+        /// <see cref="GameActionType.RouteCargoDelivered"/> row for the passed
+        /// (cycleId, stopIndex) so window 2's delivery is genuinely emitted through
+        /// the REAL guard - a window-2-suppressed regression goes RED instead of
+        /// false-green (the failure mode the plain <see cref="DeliveryApplierForTesting"/>
+        /// fake masks by short-circuiting BEFORE the guard). The CompletedCycles
+        /// bump + pending clear are handled by the caller after this returns; the
+        /// fake must NOT bump.
+        /// </summary>
+        internal static System.Action<Route, double, IRouteRuntimeEnvironment, string, int, bool>
+            DeliveryRowEmitterForTesting;
 
         /// <summary>
         /// Result of the physical origin debit half (M1, design D12): the
@@ -1867,8 +2769,16 @@ namespace Parsek.Logistics
         /// </summary>
         internal static void EmitDispatchDebit(
             Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId,
-            bool applyPhysicalOriginDebit)
+            bool applyPhysicalOriginDebit, int dispatchStopIndex = -1)
         {
+            // M4a A3 (Horn A): the dispatch/debit rows are stamped with
+            // dispatchStopIndex (the cycle's first delivery/pickup window in DockUT
+            // order on the loop path) so BOTH replay guards key per-window, and
+            // their Sequence is offset into that window's stride block. The legacy
+            // self-timer path passes -1 (the v0 sentinel) so its rows stay
+            // byte-identical: stopIndex -1 (codec-omitted) + Sequence 0/1.
+            int dispatchSeqBase = dispatchStopIndex >= 0 ? dispatchStopIndex * SeqStride : 0;
+
             // Funds cost: only meaningful for Career + KSC origin. We compute it
             // unconditionally so the persisted KscDispatchFundsCost stays in sync
             // with what the evaluator's funds gate saw, but the emitted action
@@ -1945,8 +2855,8 @@ namespace Parsek.Logistics
                 UT = currentUT,
                 RouteId = route.Id,
                 RouteCycleId = cycleId,
-                RouteStopIndex = -1,
-                Sequence = 0,
+                RouteStopIndex = dispatchStopIndex,
+                Sequence = dispatchSeqBase + 0,
             };
 
             // RouteCargoDebited — the physical/funds debit. Carries the cost
@@ -1964,8 +2874,8 @@ namespace Parsek.Logistics
                 UT = currentUT,
                 RouteId = route.Id,
                 RouteCycleId = cycleId,
-                RouteStopIndex = -1,
-                Sequence = 1,
+                RouteStopIndex = dispatchStopIndex,
+                Sequence = dispatchSeqBase + 1,
                 RouteResourceManifest = physicalDebitApplied
                     ? originDebit.ActualDebited
                     : CloneManifest(route.CostManifest),
@@ -2078,6 +2988,12 @@ namespace Parsek.Logistics
             if (decision.NextStatus.HasValue)
                 route.TransitionTo(decision.NextStatus.Value, decision.Reason);
 
+            // M4b escrow-strand fix (PR #1180 review): an EndpointLost route stops crossing
+            // and never reaches its cycle-complete escrow drop, so a reservation held from a
+            // dispatch earlier in the cycle would mis-gate a competing route. Drop it.
+            // Idempotent no-op when nothing is held.
+            RouteStore.DropRouteEscrow(route.Id);
+
             route.NextEligibilityCheckUT = decision.NewNextEligibilityCheckUT;
 
             // M6 hold reasons: persist the loss verdict (the resolver token,
@@ -2152,40 +3068,61 @@ namespace Parsek.Logistics
         /// </summary>
         private static void ApplyDelivery(Route route, double currentUT, IRouteRuntimeEnvironment env)
         {
+            // Single-stop / legacy entry: the (only) delivery window completes the
+            // cycle, so bump CompletedCycles once (byte-behaviour-identical to
+            // pre-A3). The multi-stop loop helper calls the 4-arg overload below,
+            // passing false on every window except the last.
+            ApplyDelivery(route, currentUT, env, bumpCompletedCycle: true);
+        }
+
+        /// <summary>
+        /// M4a A3 (Horn A) delivery applier with explicit cycle-completion control.
+        /// <paramref name="bumpCompletedCycle"/> is true on the single / last window
+        /// of a cycle (advances <see cref="Route.CompletedCycles"/> once) and false
+        /// on the earlier windows of a multi-stop cycle (so the cycleId the later
+        /// windows compute stays stable). The 3-arg <see cref="ApplyDelivery"/>
+        /// forwards with <c>true</c> for the single-stop / legacy self-timer path.
+        /// </summary>
+        private static void ApplyDelivery(
+            Route route, double currentUT, IRouteRuntimeEnvironment env, bool bumpCompletedCycle)
+        {
             // Cycle id matches the dispatch/debit pair (cycle-{Completed + Skipped}).
-            // The dispatch applier bumps neither counter; delivery is the FIRST
-            // place CompletedCycles increments, so the cycle id at delivery time
-            // still names the in-flight cycle.
+            // M4a A3 (Horn A): NEITHER half bumps CompletedCycles any more (the
+            // cycle-complete bump moved OUT of the per-window path to the loop
+            // caller, ProcessLoopRoute / EmitLoopCycle, so a multi-stop cycle's
+            // N windows all recompute the SAME cycleId here). The recompute stays
+            // in sync with the tick-start computation precisely because Completed
+            // and Skipped are stable across the windows of one cycle.
             string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
 
-            // Stop index from the dispatch-arrival hand-off. v0 single-stop
-            // routes always land at stopIndex=0; multi-stop will reuse this
-            // field with the actual stop index resolved from CurrentSegmentIndex.
+            // Stop index from the per-crossing hand-off (M4a A3: ProcessLoopRoute
+            // drives PendingStopIndex to the firing window's index per crossing;
+            // single-stop / legacy paths leave it -1 -> stop 0). Both cycleId and
+            // stopIndex feed the per-window idempotency guard below.
             int stopIndex = route.PendingStopIndex >= 0 ? route.PendingStopIndex : 0;
 
             // STEP 1: idempotency guard. If ELS already contains a
-            // RouteCargoDelivered row for (routeId, cycleId), the cycle was
-            // delivered on a previous tick (or recovered after crash); applying
-            // again would double-charge funds and double-write resources. This
-            // is the orchestrator's ONLY ELS read — every other consumer
-            // routes through ERS or accepts dispatch evaluator's surface.
-            if (IsDeliveryAlreadyInLedger(route.Id, cycleId))
+            // RouteCargoDelivered row for (routeId, cycleId, stopIndex), THIS
+            // WINDOW was delivered on a previous tick (or recovered after crash);
+            // applying again would double-charge funds and double-write resources.
+            // M4a A3: keyed per-window (stopIndex) so window 0's row does NOT
+            // suppress windows 1..N (the RANK-1 hole). This is the orchestrator's
+            // ONLY ELS read — every other consumer routes through ERS.
+            if (IsDeliveryAlreadyInLedger(route.Id, cycleId, stopIndex))
             {
                 ParsekLog.Verbose(Tag,
-                    $"Delivery: route {ShortIdForLog(route)} cycle={cycleId} replay detected — already in ledger");
-                // Advance CompletedCycles symmetric with the success path in
-                // ApplyDeliveryFromPlan. The ledger says this cycle WAS
-                // delivered (the row exists), so the route's counter must
-                // reflect that completed cycle. Otherwise the next dispatch
-                // evaluator fires and computes the same cycleId (cycle-{N+S})
-                // as the replayed cycle, ApplyDispatch has no idempotency
-                // guard and emits a fresh RouteDispatched + RouteCargoDebited
-                // under that already-used cycleId, transit elapses, the
-                // delivery idempotency check trips again on the same id, and
-                // the route loops forever emitting redundant rows for cycle-N.
-                // Bumping CompletedCycles here advances the next dispatch to
-                // cycle-(N+1) so the cycle id sequence stays unique.
-                route.CompletedCycles += 1;
+                    $"Delivery: route {ShortIdForLog(route)} cycle={cycleId} " +
+                    $"stop={stopIndex.ToString(IC)} replay detected — already in ledger");
+                // M4a A3: the CompletedCycles bump on the replay branch is gated on
+                // bumpCompletedCycle (symmetric with the success path). The legacy
+                // self-timer + single-stop loop pass true (the replayed cycle WAS
+                // completed, so the counter must advance or the next dispatch reuses
+                // the same cycleId and loops forever - the original P2-1 fix). A
+                // multi-stop EARLIER window passes false: the loop caller owns the
+                // once-per-cycle bump, so the cycleId the LATER windows compute stays
+                // stable.
+                if (bumpCompletedCycle)
+                    route.CompletedCycles += 1;
                 route.PendingDeliveryUT = null;
                 route.PendingStopIndex = -1;
                 // Clear any stale retry timer carried over from a pre-dispatch
@@ -2195,6 +3132,25 @@ namespace Parsek.Logistics
                 // old WaitRetryIntervalSec deadline.
                 route.NextEligibilityCheckUT = null;
                 route.TransitionTo(RouteStatus.Active, "delivered-replay");
+                return;
+            }
+
+            // M4a A3 test seam: emit the RouteCargoDelivered row headlessly AFTER
+            // the REAL per-window idempotency guard above (STEP 1) but BEFORE the
+            // live-Vessel resolution below (which xUnit cannot satisfy). This lets a
+            // multi-window test exercise the REAL guard (so a window-2-suppressed
+            // regression goes RED, not false-green) without a live KSP Vessel.
+            // Production leaves this null and falls through to the live path.
+            var deliveryRowEmitter = DeliveryRowEmitterForTesting;
+            if (deliveryRowEmitter != null)
+            {
+                deliveryRowEmitter(route, currentUT, env, cycleId, stopIndex, bumpCompletedCycle);
+                if (bumpCompletedCycle)
+                    route.CompletedCycles += 1;
+                route.PendingDeliveryUT = null;
+                route.PendingStopIndex = -1;
+                route.NextEligibilityCheckUT = null;
+                route.TransitionTo(RouteStatus.Active, "delivered-loop-seam");
                 return;
             }
 
@@ -2236,6 +3192,10 @@ namespace Parsek.Logistics
                 // before the route goes quiet. Idempotent / gated; no-ops if nothing owed.
                 EmitPendingRecoveryCredit(route, currentUT, env);
                 route.TransitionTo(RouteStatus.EndpointLost, "endpoint-lost-at-delivery");
+                // M4b escrow-strand fix (PR #1180 review): see ApplyEndpointLost - drop any
+                // held escrow on the delivery-time endpoint-lost transition too (the cycle
+                // never completes, so the cycle-complete sweep won't run). Idempotent no-op.
+                RouteStore.DropRouteEscrow(route.Id);
                 route.PendingDeliveryUT = null;
                 route.PendingStopIndex = -1;
                 route.NextEligibilityCheckUT = currentUT + WaitRetryIntervalSec;
@@ -2298,6 +3258,7 @@ namespace Parsek.Logistics
                 InventoryActualCountReader = liveWriters.ReadInventoryActualCount,
                 FundsDebiter = LiveDebitFunds,
                 LedgerEmitter = Ledger.AddAction,
+                BumpCompletedCycle = bumpCompletedCycle,
             };
             ApplyDeliveryFromPlan(route, plan, ctx);
         }
@@ -2391,6 +3352,24 @@ namespace Parsek.Logistics
                 }
             }
 
+            // M4a A3 (Horn A): the RouteCargoDelivered row is offset into THIS
+            // window's stride block (+3, after dispatch +0 / debit +1 / pickup +2)
+            // so a multi-stop cycle's N delivery rows have a TOTAL (UT, Sequence)
+            // order. A single-stop route has ctx.StopIndex 0 -> Sequence 3.
+            //
+            // NOTE (C-1): single-stop is BEHAVIOUR-identical, not byte-identical.
+            // The single-stop RouteCargoDelivered.Sequence changes 0 -> 3 (the +3
+            // delivery offset of the stride-0 block). This is verified
+            // behaviour-preserving (recalc-walk-order-equivalent): route rows are
+            // non-earning, FundsModule ignores RouteCargoDelivered entirely, and the
+            // ledger walkers do not assume a contiguous 0..N
+            // (RecalculationEngine.SortActions = OrderBy UT, ThenBy IsEarning, ThenBy
+            // Sequence; the dedup equality keys on ActionId / type-specific fields,
+            // NOT Sequence). With one RouteCargoDelivered per cycle at its own UT and
+            // the dispatch-before-delivery guard still holding (dispatch seq 0/1 <
+            // delivery seq 3), the 0 -> 3 shift does not change any walk outcome;
+            // what matters is total ordering, which holds.
+            int deliverySeqBase = ctx.StopIndex >= 0 ? ctx.StopIndex * SeqStride : 0;
             var action = new GameAction
             {
                 Type = GameActionType.RouteCargoDelivered,
@@ -2398,7 +3377,7 @@ namespace Parsek.Logistics
                 RouteId = route.Id,
                 RouteCycleId = ctx.CycleId,
                 RouteStopIndex = ctx.StopIndex,
-                Sequence = 0,
+                Sequence = deliverySeqBase + 3,
                 RouteResourceManifest = actualManifest,
                 RouteRequestedResourceManifest = requestedManifest,
                 // GameAction.RouteKscFundsCost is float-typed by design (same
@@ -2409,11 +3388,17 @@ namespace Parsek.Logistics
             };
             ctx.LedgerEmitter(action);
 
-            // STEP 9: mutate route state + transition. Delivery completion is
-            // the only place CompletedCycles increments. Status transitions
-            // back to Active with a reason string carrying the partial/full
-            // discriminator so the UI can surface "delivered partial" badges.
-            route.CompletedCycles += 1;
+            // STEP 9: mutate route state + transition. M4a A3 (Horn A): the
+            // CompletedCycles bump is gated on ctx.BumpCompletedCycle so it fires
+            // exactly ONCE per cycle (the single/last window). An earlier window of
+            // a multi-stop cycle leaves the counter alone so the LATER windows
+            // recompute the SAME cycleId. A single-stop / legacy delivery always
+            // passes BumpCompletedCycle=true -> one bump per cycle (byte-identical
+            // to the pre-A3 unconditional increment here). Status transitions back
+            // to Active with a reason string carrying the partial/full discriminator
+            // so the UI can surface "delivered partial" badges.
+            if (ctx.BumpCompletedCycle)
+                route.CompletedCycles += 1;
             route.PendingDeliveryUT = null;
             route.PendingStopIndex = -1;
             // Successful delivery exits the route from any wait state — clear
@@ -2444,6 +3429,14 @@ namespace Parsek.Logistics
                 route.PauseAfterCurrentCycle = false;
                 string reason = plan.IsPartial ? "delivered-partial-then-paused" : "delivered-then-paused";
                 route.TransitionTo(RouteStatus.Paused, reason);
+                // M4b escrow-strand fix (PR #1180 clean-review Finding 1): a Send-Once-armed
+                // MULTI-STOP route can pause HERE mid-PARTIAL-cycle (an early window delivered
+                // this tick, a later window still pending), so it never reaches the
+                // cycle-complete escrow sweep (ProcessMultiStopCrossings) and the pending
+                // window's source reservation would strand, mis-gating a competing route.
+                // Drop it. Idempotent no-op on the complete-cycle / single-stop / no-escrow
+                // paths (this is the sixth and final quiesce transition).
+                RouteStore.DropRouteEscrow(route.Id);
             }
             else
             {
@@ -2466,7 +3459,7 @@ namespace Parsek.Logistics
         /// raw-ELS read — every other ledger interaction in this file goes
         /// through <see cref="Ledger.AddAction"/> on the write side.
         /// </summary>
-        private static bool IsDeliveryAlreadyInLedger(string routeId, string cycleId)
+        internal static bool IsDeliveryAlreadyInLedger(string routeId, string cycleId, int stopIndex)
         {
             if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
                 return false;
@@ -2491,6 +3484,13 @@ namespace Parsek.Logistics
                 if (a.Type != GameActionType.RouteCargoDelivered) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
                 if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
+                // M4a A3 (Horn A re-key): a multi-stop cycle fires N delivery
+                // windows under ONE cycleId, so the guard MUST also match the
+                // per-window stopIndex - else window 0's RouteCargoDelivered row
+                // would suppress windows 1..N forever (the RANK-1 hole). The
+                // delivery row carries its real ctx.StopIndex (ApplyDeliveryFromPlan),
+                // so this reads an already-serialized field.
+                if (a.RouteStopIndex != stopIndex) continue;
                 return true;
             }
             return false;
@@ -2515,7 +3515,7 @@ namespace Parsek.Logistics
         /// <see cref="IsDeliveryAlreadyInLedger"/> (dead for loop routes, M1 D11).
         /// Structural mirror of <see cref="IsDeliveryAlreadyInLedger"/>.</para>
         /// </summary>
-        private static bool IsDispatchAlreadyInLedger(string routeId, string cycleId)
+        internal static bool IsDispatchAlreadyInLedger(string routeId, string cycleId, int stopIndex)
         {
             if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
                 return false;
@@ -2540,6 +3540,66 @@ namespace Parsek.Logistics
                 if (a.Type != GameActionType.RouteDispatched) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
                 if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
+                // M4a A3 (Horn A re-key): the dispatch half fires exactly ONCE per
+                // cycle (the once-per-cycle KSC funds charge), so its row carries
+                // the cycle's dispatch stopIndex (the first window's index, stamped
+                // by EmitDispatchDebit). Matching the stopIndex keeps the guard
+                // symmetric with the delivery guard and reads the same already-
+                // serialized field; since exactly one dispatch row exists per
+                // cycle, the stopIndex match is effectively per-cycle.
+                if (a.RouteStopIndex != stopIndex) continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// (C-2, defense-in-depth) Per-window ELS idempotency check for the PICKUP
+        /// half. Returns <c>true</c> if any non-tombstoned
+        /// <see cref="GameActionType.RouteCargoPickedUp"/> row already exists for the
+        /// given <c>(routeId, cycleId, stopIndex)</c> triple.
+        ///
+        /// <para><b>Why a pickup-specific backstop.</b> The pickup half
+        /// (<see cref="EmitPickupHalf"/> -&gt; <see cref="ApplyPickupDebit"/>)
+        /// PHYSICALLY debits the source vessel, but unlike the dispatch and delivery
+        /// halves it had NO ledger-level idempotency guard of its own - it relied
+        /// entirely on the per-stop <see cref="RouteStop.LastFiredCycleIndex"/>
+        /// cursor + the dispatch-keyed backstop to never re-present. The BLOCKER-1
+        /// class of cursor/ledger desync (a frozen cycleId firing a window twice
+        /// under two different live cursors) showed that a cursor-only guard can be
+        /// out-flanked. Keying this backstop on the per-window pickup ROW (the same
+        /// (RouteId, cycleId, stopIndex) key the delivery guard uses) means even a
+        /// future cursor desync can never DOUBLE-DEBIT a physical source: a
+        /// second presentation of the same window finds its own
+        /// <c>RouteCargoPickedUp</c> row and skips the debit. Structural mirror of
+        /// <see cref="IsDeliveryAlreadyInLedger"/>.</para>
+        /// </summary>
+        internal static bool IsPickupAlreadyInLedger(string routeId, string cycleId, int stopIndex)
+        {
+            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
+                return false;
+
+            IReadOnlyList<GameAction> els;
+            try
+            {
+                els = EffectiveState.ComputeELS();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"IsPickupAlreadyInLedger: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as not-in-ledger");
+                return false;
+            }
+
+            if (els == null) return false;
+            for (int i = 0; i < els.Count; i++)
+            {
+                GameAction a = els[i];
+                if (a == null) continue;
+                if (a.Type != GameActionType.RouteCargoPickedUp) continue;
+                if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
+                if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
+                if (a.RouteStopIndex != stopIndex) continue;
                 return true;
             }
             return false;
@@ -2894,6 +3954,17 @@ namespace Parsek.Logistics
             public Func<int> InventoryActualCountReader;
             public Action<double> FundsDebiter;
             public Action<GameAction> LedgerEmitter;
+
+            /// <summary>
+            /// M4a A3 (Horn A): true when this delivery window COMPLETES the cycle
+            /// (the only window, or the last window of a multi-stop cycle). The
+            /// CompletedCycles bump fires ONCE per cycle and is gated on this flag,
+            /// so an EARLIER window of a multi-stop cycle does NOT advance the
+            /// cycleId the LATER windows compute. A single-stop / legacy delivery
+            /// always sets this true -> CompletedCycles bumps exactly once
+            /// (byte-behaviour-identical to pre-A3).
+            /// </summary>
+            public bool BumpCompletedCycle;
         }
 
         /// <summary>
@@ -3071,6 +4142,30 @@ namespace Parsek.Logistics
             if (stopIndex < 0 || stopIndex >= route.Stops.Count)
                 return null;
             return route.Stops[stopIndex];
+        }
+
+        /// <summary>
+        /// (M4a A3 / OQ3) Resets EVERY stop's per-window fire sub-gate
+        /// (<see cref="RouteStop.LastFiredCycleIndex"/>) back to -1 ("no cycle fired
+        /// yet"). Called at the same reset sites as the route-level
+        /// <see cref="Route.LastObservedLoopCycleIndex"/> cursor:
+        /// <see cref="TryActivate"/> (Paused -> Active) and
+        /// <see cref="RouteCadence.ApplyMultiplier"/> (cadence rebase). A single-stop
+        /// route leaves its (single) stop's default -1 untouched in practice; the
+        /// reset is idempotent there. Keeping it a shared helper means a multi-stop
+        /// route's later windows are never stalled (cadence raised -> smaller cycle
+        /// index never exceeds a stale per-stop value) or jumped (cadence lowered)
+        /// after a rebase / re-activate.
+        /// </summary>
+        internal static void ResetStopFireState(Route route)
+        {
+            if (route == null || route.Stops == null)
+                return;
+            for (int i = 0; i < route.Stops.Count; i++)
+            {
+                if (route.Stops[i] != null)
+                    route.Stops[i].LastFiredCycleIndex = -1;
+            }
         }
 
         private static Dictionary<string, double> CloneManifest(Dictionary<string, double> source)

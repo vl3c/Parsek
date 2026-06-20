@@ -85,16 +85,26 @@ namespace Parsek.Tests
             Assert.Equal(RouteAnalysisStatus.MissingRouteProof, result.Status);
         }
 
+        // M4a (plan D1): two completed windows at the SAME recorded DockUT are
+        // genuinely unorderable, so MultipleConnectionWindows still fires (the
+        // enum value is RE-PURPOSED from "multi-stop unsupported" to
+        // "unorderable"). Both BuildDeliveryWindow stops default to DockUT=100,
+        // so this is the duplicate-DockUT case. Distinct-DockUT multi-window
+        // runs now ACCEPT (the AcceptsAndOrders test below).
+        // catches: a duplicate-DockUT pair sneaking through as Eligible (no
+        // deterministic stop order) instead of rejecting.
         [Fact]
-        public void AnalyzeRecording_MultipleCompletedWindows_RejectsV0MultiStop()
+        public void AnalyzeRecording_DuplicateDockUT_RejectsMultipleConnectionWindows()
         {
             Recording rec = new Recording
             {
-                RecordingId = "multi-stop",
+                RecordingId = "duplicate-dock-ut",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
                 RouteConnectionWindows = new List<RouteConnectionWindow>
                 {
-                    BuildDeliveryWindow("one"),
-                    BuildDeliveryWindow("two")
+                    BuildDeliveryWindow("one"),   // DockUT 100
+                    BuildDeliveryWindow("two")    // DockUT 100 -> collides
                 }
             };
 
@@ -102,6 +112,11 @@ namespace Parsek.Tests
 
             Assert.False(result.IsEligible);
             Assert.Equal(RouteAnalysisStatus.MultipleConnectionWindows, result.Status);
+            // The unorderable reject names the colliding DockUT in the log.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("unorderable windows (duplicate DockUT)") &&
+                l.Contains("dockUT=100"));
         }
 
         [Fact]
@@ -2059,6 +2074,396 @@ namespace Parsek.Tests
             Assert.Equal(50.0, result.ResourceLoadManifest["Ore"], 6);
             // Closure did not engage (no run manifests), so no harvest data.
             Assert.Null(result.HarvestedManifest);
+        }
+
+        // ===============================================================
+        // M4a Phase A1 - multi-window acceptance + ordering + run-level
+        // closure. Plan docs/dev/plan-logistics-m4-shape-generality.md
+        // Phase A1 (D1 / D2 / D3).
+        // ===============================================================
+
+        // catches (D1): a multi-window run rejecting MultipleConnectionWindows
+        // (the pre-M4 behavior) instead of accepting + ordering the stops, and
+        // the per-stop list not being populated in ascending DockUT order. Two
+        // distinct-DockUT delivery windows on one recording (KSC origin, no run
+        // manifests so the harvest check stays legacy) must analyze Eligible
+        // with Stops ordered by DockUT ascending.
+        [Fact]
+        public void AnalyzeRecording_TwoDeliveryWindows_AcceptsAndOrdersByDockUT()
+        {
+            Recording rec = new Recording
+            {
+                RecordingId = "two-stop-delivery",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    // Listed out of order: DockUT 300 before DockUT 100.
+                    BuildDeliveryWindowAt("late", dockUT: 300.0, undockUT: 360.0),
+                    BuildDeliveryWindowAt("early", dockUT: 100.0, undockUT: 160.0)
+                }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.True(result.IsEligible,
+                $"a distinct-DockUT multi-window run must accept, got {result.Status}");
+            Assert.NotNull(result.Stops);
+            Assert.Equal(2, result.Stops.Count);
+            // Ordered ascending by DockUT.
+            Assert.Equal(100.0, result.Stops[0].DockUT);
+            Assert.Equal(300.0, result.Stops[1].DockUT);
+            Assert.Equal("early", result.Stops[0].ConnectionWindow.WindowId);
+            Assert.Equal("late", result.Stops[1].ConnectionWindow.WindowId);
+            // Scalar fields mirror the FIRST (anchor) stop so existing consumers
+            // and a single-stop build keep working in A1.
+            Assert.Same(result.Stops[0].ConnectionWindow, result.ConnectionWindow);
+            Assert.Equal(50.0, result.Stops[0].ResourceDeliveryManifest["LiquidFuel"]);
+            Assert.Equal(50.0, result.Stops[1].ResourceDeliveryManifest["LiquidFuel"]);
+            // The accept+order summary names the count + sorted DockUT order.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("windows accepted+ordered") &&
+                l.Contains("count=2"));
+        }
+
+        // catches (D1): the sort being a no-op / depending on input order. A
+        // reversed-DockUT input list must still produce ascending stop order.
+        // AnalyzeTree iterates an UNORDERED HashSet, so the deterministic sort is
+        // mandatory; this pins it via the single-recording entry (same ordering
+        // path) with a deliberately descending input list.
+        [Fact]
+        public void AnalyzeRecording_ReversedDockUTInput_StillOrdersAscending()
+        {
+            Recording rec = new Recording
+            {
+                RecordingId = "reversed-input",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    BuildDeliveryWindowAt("c", dockUT: 500.0, undockUT: 560.0),
+                    BuildDeliveryWindowAt("b", dockUT: 300.0, undockUT: 360.0),
+                    BuildDeliveryWindowAt("a", dockUT: 100.0, undockUT: 160.0)
+                }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.True(result.IsEligible, $"got {result.Status}");
+            Assert.Equal(3, result.Stops.Count);
+            Assert.Equal(100.0, result.Stops[0].DockUT);
+            Assert.Equal(300.0, result.Stops[1].DockUT);
+            Assert.Equal(500.0, result.Stops[2].DockUT);
+        }
+
+        // catches (D3): over-delivery summed across MULTIPLE delivery windows not
+        // rejecting FlowDoesNotClose. With complete run manifests the run-level
+        // closure feeds ALL N delivered windows; two deliveries that together
+        // exceed what ever arrived must reject naming the unaccounted quantity.
+        // (If the closure folded only one window it would close and slip through.)
+        [Fact]
+        public void AnalyzeTree_TwoDeliveryWindows_OverDeliveryAcrossWindows_RejectsFlowDoesNotClose()
+        {
+            // KSC origin, launched 100 Ore, no harvest. Two delivery windows of
+            // 60 Ore each (120 delivered total) and the transport still ends with
+            // 30 Ore residual -> delivered + residual (150) exceeds arrived (100):
+            // 50 Ore over-delivered. A single-window fold (60 delivered) would
+            // close (60 + 30 <= 100); the SUM (120) catches it.
+            RecordingTree tree = BuildTwoDeliveryWindowTree(
+                launchedOre: 100.0,
+                window1DeliverOre: 60.0, window1DockUT: 100.0,
+                window2DeliverOre: 60.0, window2DockUT: 300.0,
+                residualOre: 30.0);
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.False(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.FlowDoesNotClose, result.Status);
+            Assert.Equal("Ore: 50.0 over-delivered", result.RejectDetail);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("flow does not close") &&
+                l.Contains("resource=Ore") &&
+                l.Contains("unaccounted=50"));
+        }
+
+        // catches (D3, the multi-window covered-sum): a legit multi-PICKUP run
+        // false-rejecting UntrackedCargoGain because the harvest "covered" term
+        // folded only ONE window's load. Three pickups of 50 each; the gain check
+        // anchors on the LAST window, whose dock holds the 100 accumulated from
+        // the first two pickups (gain = 100 - 0). Covered only when ALL THREE
+        // loads sum (150 >= 100); folding one window (50) would false-reject.
+        [Fact]
+        public void AnalyzeTree_MultiPickup_CompleteManifest_NoFalseUntrackedCargoGain()
+        {
+            RecordingTree tree = BuildThreePickupTree();
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.NotEqual(RouteAnalysisStatus.UntrackedCargoGain, result.Status);
+            Assert.True(result.IsEligible,
+                $"a witnessed multi-pickup run must admit, got {result.Status}");
+            Assert.Equal(3, result.Stops.Count);
+            // Every stop carries its own 50-unit load manifest.
+            for (int i = 0; i < result.Stops.Count; i++)
+            {
+                Assert.NotNull(result.Stops[i].ResourceLoadManifest);
+                Assert.Equal(50.0, result.Stops[i].ResourceLoadManifest["Ore"], 6);
+            }
+        }
+
+        // catches (D2, no-regression): a SINGLE-window run analyzing differently
+        // than pre-M4. The scalar fields must be unchanged (a single-stop build
+        // is byte-identical) and Stops must carry exactly one entry mirroring the
+        // scalars.
+        [Fact]
+        public void AnalyzeRecording_SingleWindow_ByteIdenticalScalarsPlusOneStop()
+        {
+            Recording rec = new Recording
+            {
+                RecordingId = "single-window",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    BuildDeliveryWindow()
+                }
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.True(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.Eligible, result.Status);
+            // Scalar fields unchanged from the pre-M4 single-window result.
+            Assert.Same(rec, result.SourceRecording);
+            Assert.Equal(50.0, result.ResourceDeliveryManifest["LiquidFuel"]);
+            Assert.Single(result.InventoryDeliveryManifest);
+            Assert.Equal("evaJetpack", result.InventoryDeliveryManifest[0].PartName);
+            // Exactly one stop, mirroring the scalars.
+            Assert.NotNull(result.Stops);
+            Assert.Single(result.Stops);
+            Assert.Same(result.ConnectionWindow, result.Stops[0].ConnectionWindow);
+            Assert.Same(result.ResourceDeliveryManifest, result.Stops[0].ResourceDeliveryManifest);
+            Assert.Equal(100.0, result.Stops[0].DockUT);
+        }
+
+        // Delivery window at an explicit DockUT/UndockUT (M4a multi-window
+        // fixtures). Same clean LiquidFuel delivery (50 = min(endpointGain,
+        // transportLoss)) + inventory as BuildDeliveryWindow, parameterized so a
+        // test can place several windows at distinct recorded phases.
+        private static RouteConnectionWindow BuildDeliveryWindowAt(
+            string id, double dockUT, double undockUT)
+        {
+            InventoryPayloadItem item = Payload("payload-hash", "evaJetpack", 1, slotsTaken: 1);
+            return new RouteConnectionWindow
+            {
+                WindowId = id,
+                DockUT = dockUT,
+                UndockUT = undockUT,
+                TransferTargetVesselPid = 9001,
+                TransferKind = RouteConnectionKind.DockingPort,
+                DockTransportResources = Manifest(80.0, 100.0),
+                UndockTransportResources = Manifest(30.0, 100.0),
+                DockEndpointResources = Manifest(0.0, 200.0),
+                UndockEndpointResources = Manifest(50.0, 200.0),
+                DockTransportInventory = new List<InventoryPayloadItem> { item.DeepClone() },
+                UndockTransportInventory = null,
+                DockEndpointInventory = null,
+                UndockEndpointInventory = new List<InventoryPayloadItem> { item.DeepClone() },
+                EndpointAtDock = Endpoint(),
+                TransferEndpointSituation = 4
+            };
+        }
+
+        // Two-delivery-window tree (M4a closure fixture): KSC-origin root with a
+        // complete run manifest (launched/residual Ore) + a dock-merge child
+        // carrying TWO Ore delivery windows at distinct DockUTs. Both legs carry
+        // complete manifests so the run-level closure engages and is fed BOTH
+        // delivered windows.
+        private static RecordingTree BuildTwoDeliveryWindowTree(
+            double launchedOre,
+            double window1DeliverOre, double window1DockUT,
+            double window2DeliverOre, double window2DockUT,
+            double residualOre)
+        {
+            var root = new Recording
+            {
+                RecordingId = "md-root",
+                TreeId = "tree-md",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 50.0,
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { TransportPid },
+                    StartTransportResources = OreAmount(launchedOre),
+                    EndTransportResources = OreAmount(residualOre),
+                    EndCaptured = true
+                }
+            };
+            var merge = new Recording
+            {
+                RecordingId = "md-merge",
+                TreeId = "tree-md",
+                ExplicitStartUT = 50.0,
+                ExplicitEndUT = window2DockUT + 60.0,
+                ParentBranchPointId = "bp-dock",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { TransportPid, ColonyPid },
+                    StartTransportResources = OreAmount(launchedOre),
+                    EndTransportResources = OreAmount(launchedOre),
+                    EndCaptured = true
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    // window1: deliver window1DeliverOre, transport ends at 0 (its
+                    // undock is ignored by the closure; only the LAST window's
+                    // undock is the residual).
+                    OreDeliveryWindowAt(window1DockUT,
+                        dockTransport: window1DeliverOre, undockTransport: 0.0,
+                        deliverOre: window1DeliverOre),
+                    // window2 (last): deliver window2DeliverOre AND leave
+                    // residualOre aboard - the closure's residual term.
+                    OreDeliveryWindowAt(window2DockUT,
+                        dockTransport: window2DeliverOre + residualOre, undockTransport: residualOre,
+                        deliverOre: window2DeliverOre)
+                }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-md",
+                RootRecordingId = root.RecordingId,
+                ActiveRecordingId = merge.RecordingId
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(merge);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock",
+                UT = 50.0,
+                Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { root.RecordingId },
+                ChildRecordingIds = new List<string> { merge.RecordingId }
+            });
+            return tree;
+        }
+
+        // An Ore delivery window with explicit transport corners: the endpoint
+        // gains deliverOre (0 -> deliverOre) and the transport drops from
+        // dockTransport to undockTransport. delivered = min(deliverOre,
+        // dockTransport - undockTransport); the caller picks corners so
+        // transportLoss == deliverOre. The LAST window's undockTransport is the
+        // run-end residual the closure reads.
+        private static RouteConnectionWindow OreDeliveryWindowAt(
+            double dockUT, double dockTransport, double undockTransport, double deliverOre)
+        {
+            return new RouteConnectionWindow
+            {
+                WindowId = "ore-window-" + dockUT.ToString(CultureInfo.InvariantCulture),
+                DockUT = dockUT,
+                UndockUT = dockUT + 60.0,
+                TransferTargetVesselPid = 9001,
+                TransferKind = RouteConnectionKind.DockingPort,
+                TransportPartPersistentIds = new List<uint> { TransportPid },
+                EndpointPartPersistentIds = new List<uint> { ColonyPid },
+                DockTransportResources = OreAmount(dockTransport),
+                UndockTransportResources = OreAmount(undockTransport),
+                DockEndpointResources = OreAmount(0.0),
+                UndockEndpointResources = OreAmount(deliverOre),
+                EndpointAtDock = Endpoint(),
+                TransferEndpointSituation = 1
+            };
+        }
+
+        // Three-pickup tree (M4a covered-sum fixture): KSC-origin transport
+        // launches empty, picks up 50 Ore at each of three windows (DockUTs 100 /
+        // 200 / 300), ends with 150 aboard. The LAST window's DOCK transport
+        // holds 100 (the first two pickups), so the gain check sees a 100 gain
+        // that is covered only when ALL THREE loads sum (150). Complete run
+        // manifests so the harvest check engages.
+        private static RecordingTree BuildThreePickupTree()
+        {
+            var root = new Recording
+            {
+                RecordingId = "tp-root",
+                TreeId = "tree-tp",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 50.0,
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { TransportPid },
+                    StartTransportResources = OreAmount(0.0),
+                    EndTransportResources = OreAmount(150.0),
+                    EndCaptured = true
+                }
+            };
+            var merge = new Recording
+            {
+                RecordingId = "tp-merge",
+                TreeId = "tree-tp",
+                ExplicitStartUT = 50.0,
+                ExplicitEndUT = 360.0,
+                ParentBranchPointId = "bp-dock",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { TransportPid, ColonyPid },
+                    StartTransportResources = OreAmount(0.0),
+                    EndTransportResources = OreAmount(0.0),
+                    EndCaptured = true
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    // dock-transport accumulates 0 -> 50 -> 100 as the run picks up.
+                    OrePickupWindowAt(100.0, dockTransport: 0.0, undockTransport: 50.0, pickup: 50.0),
+                    OrePickupWindowAt(200.0, dockTransport: 50.0, undockTransport: 100.0, pickup: 50.0),
+                    OrePickupWindowAt(300.0, dockTransport: 100.0, undockTransport: 150.0, pickup: 50.0)
+                }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-tp",
+                RootRecordingId = root.RecordingId,
+                ActiveRecordingId = merge.RecordingId
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(merge);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock",
+                UT = 50.0,
+                Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { root.RecordingId },
+                ChildRecordingIds = new List<string> { merge.RecordingId }
+            });
+            return tree;
+        }
+
+        // An Ore pickup window: endpoint (pickup -> 0) onto transport
+        // (dockTransport -> undockTransport). Pure pickup, no delivery.
+        private static RouteConnectionWindow OrePickupWindowAt(
+            double dockUT, double dockTransport, double undockTransport, double pickup)
+        {
+            return new RouteConnectionWindow
+            {
+                WindowId = "pickup-" + dockUT.ToString(CultureInfo.InvariantCulture),
+                DockUT = dockUT,
+                UndockUT = dockUT + 30.0,
+                TransferTargetVesselPid = 9001,
+                TransferKind = RouteConnectionKind.DockingPort,
+                TransportPartPersistentIds = new List<uint> { TransportPid },
+                EndpointPartPersistentIds = new List<uint> { ColonyPid },
+                DockEndpointResources = OreAmount(pickup),
+                UndockEndpointResources = OreAmount(0.0),
+                DockTransportResources = OreAmount(dockTransport),
+                UndockTransportResources = OreAmount(undockTransport),
+                EndpointAtDock = Endpoint(),
+                TransferEndpointSituation = 1
+            };
         }
 
         // A pickup window: Ore flows endpoint (amount -> 0) onto transport
