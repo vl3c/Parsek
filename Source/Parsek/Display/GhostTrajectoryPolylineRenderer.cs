@@ -4684,6 +4684,21 @@ namespace Parsek.Display
                 double winStart = window.RunStartUT;
                 double winStop = window.StopUT;
 
+                // C4 (re-aim descent "two lines next to each other during the loiter"): when the loiter head
+                // sits in a gap, ComputeForwardWindow takes the OPEN-element branch and returns StopUT=Infinity
+                // (the recorded trajectory continues forward), which the past-end chainDataEndUT clamp above does
+                // NOT guard. So the STATIC forward run-leg pass below paints the descent-trigger TRANSFER member's
+                // post-conic deorbit-tail legs (its recorded approach down to the seam) as a second line beside
+                // the parking conic for the ENTIRE loiter. Cap winStop at the transfer member's SHIFTED conic end
+                // PER chain-run member (so the clamp fires regardless of which member drives the run — mirroring
+                // the chainDataEndUT per-member clamp), so the forward run never reaches those legs; the I1
+                // head-gated primary pass is the only thing that sweeps the deorbit tail in near the trigger.
+                // Byte-identical for non-descent members / non-re-aim chains (ClampChainDataEndForDescentTransfer
+                // returns winStop unchanged), so an open-element non-descent run keeps StopUT=Infinity.
+                for (int mi = 0; mi < chainRunMemberScratch.Count; mi++)
+                    winStop = ClampChainDataEndForDescentTransfer(
+                        winStop, chainRunMemberScratch[mi].index, loopUnits);
+
                 // Body-fixed run legs hidden this decide pass (playtest-7 rule): only PAST body-fixed
                 // legs hide (they would rotate-sweep into the inertial line behind the icon); FUTURE
                 // body-fixed legs (the Duna landing descent) draw, connected by the seam bridges.
