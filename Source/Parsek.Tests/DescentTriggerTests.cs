@@ -1318,5 +1318,97 @@ namespace Parsek.Tests
             Assert.Equal(DescentTrigger.DescentRenderEvent.None,
                 DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Loiter));
         }
+
+        // --- IsDescentTransferMemberInLoiterGap: the map-presence segment-lookup UT clamp predicate (the
+        //     destination-loiter "parking conic stops rendering" bug). True IFF a non-descent member of a
+        //     descent-trigger unit whose RECORDED loop clock has advanced PAST
+        //     conicEnd = RecordedDeorbitUT + CaptureShiftSeconds (= Deorbit + CapShift = 27_140_000). ---
+
+        // conicEnd for the BuildDescentUnit harness (Deorbit 30_000_000 + CapShift -2_860_000).
+        private const double LoiterGapConicEnd = Deorbit + CapShift; // 27_140_000
+
+        [Fact]
+        public void LoiterGap_TransferMemberPastConicEnd_True()
+        {
+            var units = BuildDescentUnit(engage: true);
+            // Member 5 is the non-descent transfer member; a recorded loop clock past conicEnd is the gap.
+            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, LoiterGapConicEnd + 1000.0));
+            // The owner member 0 is also a non-descent member, so it is equally in-gap past conicEnd.
+            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 0, LoiterGapConicEnd + 1000.0));
+            // The conic-end value resolves to conicEnd for the clamp.
+            Assert.Equal(LoiterGapConicEnd, GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 5), 3);
+        }
+
+        [Fact]
+        public void LoiterGap_BeforeOrAtConicEnd_False()
+        {
+            var units = BuildDescentUnit(engage: true);
+            // Still riding the shifted parking conic (loopUT <= conicEnd) -> no clamp; the conic renders normally.
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, LoiterGapConicEnd - 1000.0));
+            // Strict inequality: exactly AT conicEnd is NOT yet in the gap.
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, LoiterGapConicEnd));
+        }
+
+        [Fact]
+        public void LoiterGap_DescentMember_False()
+        {
+            var units = BuildDescentUnit(engage: true);
+            // A descent-SET member (49/50/51) is governed by its own trigger-gated render; the clamp never
+            // touches it, even past conicEnd.
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 49, LoiterGapConicEnd + 1000.0));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 51, LoiterGapConicEnd + 1000.0));
+            // And the conic-end resolver returns NaN for a descent-set member.
+            Assert.True(double.IsNaN(GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 49)));
+        }
+
+        [Fact]
+        public void LoiterGap_NonMemberIndex_False()
+        {
+            var units = BuildDescentUnit(engage: true);
+            // An index that is not a unit member at all -> false (byte-identical-off).
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 999, LoiterGapConicEnd + 1000.0));
+            Assert.True(double.IsNaN(GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 999)));
+        }
+
+        [Fact]
+        public void LoiterGap_NonDescentTriggerUnit_False()
+        {
+            // engage:false -> HasDescentTrigger false (RecordedDeorbitUT/CaptureShiftSeconds NaN, no descent set),
+            // so the predicate is false for EVERY member at any loopUT -> byte-identical-off, and the NaN
+            // RecordedDeorbitUT / CaptureShiftSeconds cases are covered here (HasDescentTrigger gates on them).
+            var off = BuildDescentUnit(engage: false);
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(off, 5, LoiterGapConicEnd + 1000.0));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(off, 0, LoiterGapConicEnd + 1000.0));
+            Assert.True(double.IsNaN(GhostPlaybackLogic.ResolveLoiterGapConicEndUT(off, 5)));
+        }
+
+        [Fact]
+        public void LoiterGap_NaNLoopUT_False()
+        {
+            var units = BuildDescentUnit(engage: true);
+            // A NaN sample UT never engages the clamp (defensive; loopUT > conicEnd is false for NaN anyway).
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, double.NaN));
+        }
+
+        [Fact]
+        public void LoiterGap_NullSet_False()
+        {
+            // A null unit set -> false / NaN (no loop, no clamp) with no NRE.
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(
+                (GhostPlaybackLogic.LoopUnitSet)null, 5, LoiterGapConicEnd + 1000.0));
+            Assert.True(double.IsNaN(GhostPlaybackLogic.ResolveLoiterGapConicEndUT(
+                (GhostPlaybackLogic.LoopUnitSet)null, 5)));
+        }
+
+        [Fact]
+        public void LoiterGap_LoopUnitOverload_MatchesSetOverload()
+        {
+            var units = BuildDescentUnit(engage: true);
+            var unit = DescentUnitFor(units);
+            // The LoopUnit overload agrees with the LoopUnitSet wrapper for a real member, across the seam.
+            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 5, LoiterGapConicEnd + 1000.0));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 5, LoiterGapConicEnd - 1000.0));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 49, LoiterGapConicEnd + 1000.0));
+        }
     }
 }

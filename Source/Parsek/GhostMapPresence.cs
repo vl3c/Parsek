@@ -7015,13 +7015,40 @@ namespace Parsek
                 // transfer/coast OrbitalCheckpoint section, freezing the orbit on its last segment
                 // instead of advancing through the mission's later segments. The checkpoint path
                 // stays available only for a genuine segment gap (no covering segment at effUT).
+                // LOITER-GAP map-presence clamp (re-aim looped LANDING destination loiter), Tracking-Station
+                // mirror of the flight path: the descent-trigger TRANSFER member's recorded loop clock (effUT)
+                // sweeps the shifted parking conic up to conicEnd = RecordedDeorbitUT + CaptureShiftSeconds, then
+                // enters the ~|CaptureShiftSeconds| gap before the recorded deorbit where NO OrbitSegment covers
+                // it (the deorbit tail is a non-orbital body-fixed leg). Unclamped, both the covering-segment
+                // lookup AND GetTrackingStationGhostRemovalReason's internal lookup return null there and the
+                // ghost is removed ("tracking-station-expired") mid-loiter, so the parking conic stops rendering
+                // until the descent fires. HOLD the segment-lookup sample UT at conicEnd inside the gap (for the
+                // covering-segment query AND the removal-reason query) so both keep returning the real recorded
+                // parking-conic segment and the ghost stays alive on its actual same-body Kepler segment (the icon
+                // keeps circling via its existing live-frame epoch offset). The clamp applies ONLY to these two
+                // segment lookups; every other effUT read below (checkpoint, gap-glide, logging, downstream orbit
+                // apply) still uses the live effUT. False (byte-identical) for every non-descent member / non-re-aim
+                // unit and once the descent trigger fires (the transfer member then retires elsewhere).
+                double segmentLookupUT = effUT;
+                if (GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(loopUnits, idx, effUT))
+                {
+                    segmentLookupUT = GhostPlaybackLogic.ResolveLoiterGapConicEndUT(loopUnits, idx);
+                    ParsekLog.VerboseRateLimited(Tag,
+                        "ts-loiter-gap-clamp-" + idx,
+                        string.Format(ic,
+                            "TS loiter-gap clamp: member={0} effUT={1:F1} held segment-lookup UT at conicEnd={2:F1} "
+                            + "(re-aim descent transfer member in captureShift loiter gap; parking conic kept rendering)",
+                            idx, effUT, segmentLookupUT),
+                        5.0);
+                }
+
                 // Same-body carry: a brief drop between two non-orbit-equivalent segments
                 // in the same body frame (e.g., capture burn between two Mun orbits) used to
                 // tear down and recreate the ProtoVessel, flashing the icon and orbit line.
                 // Carry the previous segment across same-body intra-block gaps so the ghost
                 // stays alive and only blinks when the body actually changes (SOI crossing).
                 OrbitSegment? coveringSegment = (rec != null && effectiveSegments != null)
-                    ? TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT)
+                    ? TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, segmentLookupUT)
                     : (OrbitSegment?)null;
                 bool segmentCoversEffUT = coveringSegment.HasValue;
 
@@ -7067,13 +7094,17 @@ namespace Parsek
                         2.0);
                 }
 
+                // LOITER-GAP clamp: pass segmentLookupUT (= conicEnd inside the gap, effUT otherwise) so the
+                // removal-reason's internal FindOrbitSegmentOrSameBodyCarry keeps finding the parking conic and
+                // does not expire the ghost in the captureShift gap. In the gap conicEnd < rec.EndUT, so the
+                // state-vector branch (currentUT > rec.EndUT) is unaffected (effUT is also < rec.EndUT there).
                 string removeReason = GetTrackingStationGhostRemovalReason(
                     rec,
                     isSuppressed,
                     alreadyMaterialized,
                     hasOrbitBounds,
                     isStateVector || fromCheckpoint,
-                    effUT,
+                    segmentLookupUT,
                     // Loop member replaying in its window: keep the ghost alongside any
                     // persisted real terminal vessel (mirrors the create-path bypass).
                     loopMemberInWindow: tsLoopEpochShift != 0.0,
@@ -12868,6 +12899,31 @@ namespace Parsek
                 List<OrbitSegment> effectiveSegments = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
                     idx, rec.RecordingId, rec.OrbitSegments, currentUT, loopUnits);
 
+                // LOITER-GAP map-presence clamp (re-aim looped LANDING destination loiter): the descent-trigger
+                // TRANSFER member's recorded loop clock (effUT) sweeps the shifted parking conic up to
+                // conicEnd = RecordedDeorbitUT + CaptureShiftSeconds, then enters the ~|CaptureShiftSeconds| gap
+                // before the recorded deorbit where NO OrbitSegment covers it (the deorbit tail is a non-orbital
+                // body-fixed leg). Unclamped, FindOrbitSegmentOrSameBodyCarry returns null there and the proto is
+                // destroyed mid-loiter ("left-orbit-segments"), so the parking conic stops rendering until the
+                // descent fires. HOLD the segment-lookup sample UT at conicEnd inside the gap so the lookup keeps
+                // returning the real recorded parking-conic segment and the proto stays alive on its actual
+                // same-body Kepler segment (the icon keeps circling via its existing live-frame epoch offset). The
+                // clamp applies ONLY to this segment lookup; every other read below still uses the live effUT.
+                // False (byte-identical) for every non-descent member / non-re-aim unit and once the descent
+                // trigger fires (the transfer member then retires via the live-clock continuation gate).
+                double segmentLookupUT = effUT;
+                if (GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(loopUnits, idx, effUT))
+                {
+                    segmentLookupUT = GhostPlaybackLogic.ResolveLoiterGapConicEndUT(loopUnits, idx);
+                    ParsekLog.VerboseRateLimited("Policy",
+                        "flight-loiter-gap-clamp-" + idx,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Flight loiter-gap clamp: member={0} effUT={1:F1} held segment-lookup UT at conicEnd={2:F1} "
+                            + "(re-aim descent transfer member in captureShift loiter gap; parking conic kept rendering)",
+                            idx, effUT, segmentLookupUT),
+                        5.0);
+                }
+
                 // Same-body carry: while the playback head is inside a body frame, briefly
                 // dropping the ghost between two non-orbit-equivalent segments (e.g., capture
                 // burn between two Mun orbits) would tear down and recreate the ProtoVessel,
@@ -12875,7 +12931,7 @@ namespace Parsek
                 // to drop the ghost when the body actually changes (SOI / frame change) or
                 // when the recording is truly past its last segment. Body-frame carry keeps
                 // the previous segment's orbit active until UT enters the next segment.
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT);
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, segmentLookupUT);
 
                 // Gap-points glide: FindOrbitSegmentOrSameBodyCarry keeps seg.HasValue true across a
                 // same-body inter-segment gap by carrying the PREVIOUS segment forward. That is correct

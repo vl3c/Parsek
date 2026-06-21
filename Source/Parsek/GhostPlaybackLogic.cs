@@ -8741,6 +8741,88 @@ namespace Parsek
         }
 
         /// <summary>
+        /// LOITER-GAP map-presence UT clamp (the destination-loiter "parking conic stops rendering" bug): true
+        /// IFF committed index <paramref name="i"/> is the NON-descent transfer/owner member of a re-aim
+        /// descent-trigger unit AND its RECORDED loop clock <paramref name="loopUT"/> (the loop-shifted sample UT
+        /// the map-presence resolver uses for the OrbitSegment lookup, NOT the live UT) has advanced PAST the
+        /// shifted-parking-conic deorbit point <c>conicEnd = RecordedDeorbitUT + CaptureShiftSeconds</c>.
+        ///
+        /// <para>Geometry: PR #1177 shifted the parking conic EARLIER by <c>|CaptureShiftSeconds|</c> (~33 days)
+        /// so it meets the early-arriving re-aimed transfer; the body-fixed deorbit-&gt;reentry-&gt;landing clip
+        /// was NOT shifted (pinned at recorded <c>RecordedDeorbitUT</c>). So the recorded loop clock sweeps the
+        /// shifted conic up to <c>conicEnd</c>, then enters the <c>|CaptureShiftSeconds|</c>-wide gap before the
+        /// recorded deorbit, where NO OrbitSegment covers the UT (the deorbit tail is a non-orbital body-fixed
+        /// leg). The map-presence segment lookup then returns null and the proto is destroyed mid-loiter, so the
+        /// parking conic stops rendering until the descent fires or the loop wraps. Inside this gap the caller
+        /// HOLDS the segment-lookup sample UT at <c>conicEnd</c> so the lookup keeps returning the real recorded
+        /// parking-conic segment and the proto stays alive on its actual same-body Kepler segment (the icon keeps
+        /// circling via its existing live-frame offset). The clamp applies ONLY to the segment lookup; every
+        /// other read still uses the live <paramref name="loopUT"/>.</para>
+        ///
+        /// <para>Returns FALSE for: a null unit set / non-member index / non-descent-trigger unit, a descent-SET
+        /// member (its own trigger-gated render owns it, and the descent member is hidden in the loiter), NaN
+        /// <see cref="LoopUnit.RecordedDeorbitUT"/> / <see cref="LoopUnit.CaptureShiftSeconds"/>, and
+        /// <paramref name="loopUT"/> &lt;= <c>conicEnd</c> (the icon is still riding the conic - the conic renders
+        /// through the unchanged segment lookup, no clamp). Crucially it is also FALSE once the descent trigger
+        /// fires: the descent member then owns the visual and the transfer member retires via
+        /// <see cref="IsTransferMemberDescentContinuation"/> (the live-clock Descent/Done gate), so there is no
+        /// lingering clamp past the trigger - this predicate is a pure recorded-domain <c>loopUT &gt; conicEnd</c>
+        /// test that the caller only consults BEFORE the transfer member is retired. Pure; no Unity
+        /// (xUnit-testable). Default-off at every non-opted-in call site.</para>
+        /// </summary>
+        internal static bool IsDescentTransferMemberInLoiterGap(LoopUnit unit, int i, double loopUT)
+        {
+            // Only the NON-descent transfer/owner member of a descent-trigger unit can be in the loiter gap;
+            // byte-identical-off for every descent-set member / non-re-aim unit (HasDescentTrigger false).
+            if (!unit.HasDescentTrigger || unit.IsDescentMember(i))
+                return false;
+
+            double recordedDeorbitUT = unit.RecordedDeorbitUT;
+            double captureShiftSeconds = unit.CaptureShiftSeconds;
+            if (double.IsNaN(loopUT)
+                || double.IsNaN(recordedDeorbitUT)
+                || double.IsNaN(captureShiftSeconds))
+                return false;
+
+            double conicEnd = recordedDeorbitUT + captureShiftSeconds;
+            return loopUT > conicEnd;
+        }
+
+        /// <summary>
+        /// LOITER-GAP clamp convenience wrapper: resolves the owning unit from <paramref name="units"/> via
+        /// <see cref="LoopUnitSet.TryGetUnitForMember"/> and delegates to
+        /// <see cref="IsDescentTransferMemberInLoiterGap(LoopUnit,int,double)"/>. Returns false for a null set or
+        /// a non-member index (byte-identical-off). Lets the GhostMapPresence flight/TS update callers compute the
+        /// clamp decision in one line.
+        /// </summary>
+        internal static bool IsDescentTransferMemberInLoiterGap(LoopUnitSet units, int i, double loopUT)
+        {
+            if (units == null || !units.TryGetUnitForMember(i, out LoopUnit unit))
+                return false;
+            return IsDescentTransferMemberInLoiterGap(unit, i, loopUT);
+        }
+
+        /// <summary>
+        /// LOITER-GAP clamp value: returns <c>conicEnd = RecordedDeorbitUT + CaptureShiftSeconds</c> (the shifted
+        /// parking-conic deorbit point) for the resolved descent-trigger unit owning member <paramref name="i"/>,
+        /// or NaN when the index is not a non-descent member of a descent-trigger unit (or inputs are degenerate).
+        /// Paired with <see cref="IsDescentTransferMemberInLoiterGap(LoopUnitSet,int,double)"/> so a caller can
+        /// HOLD the segment-lookup sample UT at this value inside the gap. Pure; no Unity (xUnit-testable).
+        /// </summary>
+        internal static double ResolveLoiterGapConicEndUT(LoopUnitSet units, int i)
+        {
+            if (units == null || !units.TryGetUnitForMember(i, out LoopUnit unit))
+                return double.NaN;
+            if (!unit.HasDescentTrigger || unit.IsDescentMember(i))
+                return double.NaN;
+            double recordedDeorbitUT = unit.RecordedDeorbitUT;
+            double captureShiftSeconds = unit.CaptureShiftSeconds;
+            if (double.IsNaN(recordedDeorbitUT) || double.IsNaN(captureShiftSeconds))
+                return double.NaN;
+            return recordedDeorbitUT + captureShiftSeconds;
+        }
+
+        /// <summary>
         /// OBSERVABILITY (descent render-window tracing): resolves the UNIT-level descent phase
         /// (Inert / Loiter / Descent / Done) for ANY member <paramref name="i"/> of a descent-trigger unit at
         /// the LIVE clock <paramref name="liveUT"/>, via the SAME <see cref="DecideUnitMemberRender"/> cycle path
