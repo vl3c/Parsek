@@ -457,6 +457,14 @@ namespace Parsek.Display
             if (emit == null) return;
             var ic = System.Globalization.CultureInfo.InvariantCulture;
 
+            // FRAME-LAG NOTE: this runs from MapRenderProbe.LateUpdate, but Draw3D + the per-frame deactivation
+            // sweep (RunDeactivationSweep) run LATER, in OnMapCameraPreCull. So a leg redrawn EVERY frame is
+            // stamped lastDrawnFrame == currentFrame-1 when read here (the prior frame's preCull), never
+            // currentFrame. "drawnRecently" therefore means lastDrawnFrame >= currentFrame-1 (the steady-state
+            // baseline for a continuously-drawn leg), and staleActive flags only a GENUINELY lingering mesh:
+            // active but NOT redrawn for 2+ frames (lastDrawnFrame < currentFrame-1) - the case the sweep should
+            // have hidden. (The earlier `== currentFrame` form flagged every redrawn leg as stale: 3825 false
+            // positives in the 2026-06-21 capture.)
             foreach (var kv in polylineCache)
             {
                 LegPolyline[] legs = kv.Value.legs;
@@ -466,14 +474,14 @@ namespace Parsek.Display
                     LegPolyline leg = legs[l];
                     bool hasLine = leg.vectorLine != null;
                     bool active = hasLine && leg.vectorLine.active;
-                    bool drawnThisFrame = leg.lastDrawnFrame == currentFrame;
-                    if (!active && !drawnThisFrame) continue; // not rendered this frame
+                    bool drawnRecently = leg.lastDrawnFrame >= currentFrame - 1;
+                    if (!active && !drawnRecently) continue; // not rendered recently
                     emit(string.Format(ic,
-                        "polyline-leg rec={0} leg={1}/{2} body={3} ut=[{4}-{5}] active={6} drawnThisFrame={7} "
+                        "polyline-leg rec={0} leg={1}/{2} body={3} ut=[{4}-{5}] active={6} drawnRecently={7} "
                         + "staleActive={8} pts={9} lastDrawnFrame={10}",
                         kv.Key, l, legs.Length, leg.bodyName ?? "(null)",
                         leg.startUT.ToString("F1", ic), leg.endUT.ToString("F1", ic),
-                        active, drawnThisFrame, active && !drawnThisFrame, leg.PointCount, leg.lastDrawnFrame));
+                        active, drawnRecently, active && !drawnRecently, leg.PointCount, leg.lastDrawnFrame));
                 }
             }
 
@@ -486,14 +494,14 @@ namespace Parsek.Display
                     ForwardArc arc = arcs[a];
                     bool hasLine = arc.vectorLine != null;
                     bool active = hasLine && arc.vectorLine.active;
-                    bool drawnThisFrame = arc.lastDrawnFrame == currentFrame;
-                    if (!active && !drawnThisFrame) continue; // not rendered this frame
+                    bool drawnRecently = arc.lastDrawnFrame >= currentFrame - 1;
+                    if (!active && !drawnRecently) continue; // not rendered recently
                     emit(string.Format(ic,
-                        "forward-arc rec={0} arc={1}/{2} body={3} ut=[{4}-{5}] active={6} drawnThisFrame={7} "
+                        "forward-arc rec={0} arc={1}/{2} body={3} ut=[{4}-{5}] active={6} drawnRecently={7} "
                         + "staleActive={8} lastDrawnFrame={9}",
                         kv.Key, a, arcs.Length, arc.bodyName ?? "(null)",
                         arc.startUT.ToString("F1", ic), arc.endUT.ToString("F1", ic),
-                        active, drawnThisFrame, active && !drawnThisFrame, arc.lastDrawnFrame));
+                        active, drawnRecently, active && !drawnRecently, arc.lastDrawnFrame));
                 }
             }
         }
@@ -4635,20 +4643,22 @@ namespace Parsek.Display
                     chainRunMemberReaimScratch.Add(memberReaimWindow);
                     if (memberCoalesced != null)
                         chainRunConcatScratch.AddRange(memberCoalesced);
-                    if (member.rec.EndUT > chainDataEndUT)
-                        chainDataEndUT = member.rec.EndUT;
+                    // Re-aim descent trigger (Clamp B, applied PER-MEMBER): cap a NON-descent transfer/owner
+                    // member's EndUT CONTRIBUTION at its SHIFTED parking-conic end (deorbit+captureShift) before
+                    // maxing, so the chain data end is clamped regardless of which member DRIVES the run. The
+                    // re-aim shifts that member's destination parking conics ~|captureShift| EARLIER (PR #1177);
+                    // leaving the window at the UNSHIFTED rec.EndUT lets ComputeForwardWindow's past-end branch
+                    // fire once the loiter/descent icon passes the shifted conic and paint the member's own
+                    // unshifted recorded approach tail as a spurious "second path". The OLD clamp (below) keyed on
+                    // recordingIndex only, so when a DESCENT member drove the chain pass (its Descent window) the
+                    // transfer member was a run member but never the recordingIndex and was never clamped - the
+                    // 2026-06-21 C4 stray heliocentric line beside the descent. Byte-identical for non-descent
+                    // members / non-re-aim chains (ClampChainDataEndForDescentTransfer returns the value unchanged).
+                    double memberEndUTClamped = ClampChainDataEndForDescentTransfer(
+                        member.rec.EndUT, member.index, loopUnits);
+                    if (memberEndUTClamped > chainDataEndUT)
+                        chainDataEndUT = memberEndUTClamped;
                 }
-
-                // Re-aim descent trigger: the re-aim shifts the transfer/owner member's destination parking conics
-                // ~|captureShift| EARLIER (PR #1177), so they end at deorbit+captureShift. If the forward-run
-                // window stays at the UNSHIFTED rec.EndUT (~the seam, ~|captureShift| later), the past-end branch
-                // fires once the loiter icon passes the shifted conic and paints the member's OWN unshifted
-                // recorded approach tail + a ~|captureShift|-gap bridge — a spurious "second path" beside the
-                // shifted parking the icon rides. Cap the forward window at the SHIFTED conic end so that past-end
-                // run never fires. Byte-identical for non-re-aim chains (HasDescentTrigger false) and for descent
-                // members themselves (excluded; their line comes only from their own trigger-gated pass).
-                chainDataEndUT = ClampChainDataEndForDescentTransfer(
-                    chainDataEndUT, recordingIndex, loopUnits);
 
                 // Window source: members are StartUT-ordered and partition the recorded-UT axis, so the
                 // concatenation is time-sorted. RE-coalesce the chain-wide list so a same-orbit coast

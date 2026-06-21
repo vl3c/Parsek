@@ -8718,6 +8718,74 @@ namespace Parsek
             return TryGetDescentUnitRenderPhase(unit, i, liveUT, memberStartUT, memberEndUT, out phase);
         }
 
+        /// <summary>
+        /// C1 (flight descent icon ride): true iff committed index <paramref name="i"/> is a descent-SET member
+        /// of a descent-trigger unit that is CURRENTLY rendering its own slice of the re-anchored descent clip
+        /// this frame — i.e. <see cref="Parsek.Reaim.DescentTrigger.TryResolveDescentMemberHead"/> returns true
+        /// (descent phase == Descent AND the shared monotone head falls inside this member's
+        /// <c>[memberStartUT, memberEndUT]</c> window). The descent-set members spawn in WINDOW order
+        /// (entry → touchdown → landing), which is NOT committed-index order, so the in-window descent member is
+        /// usually not the flight-map chain index-tip and is wrongly skipped; this predicate names the member
+        /// whose descent leg is actually drawn this frame so the icon can ride it. Resolves the unit cycle via
+        /// the production <see cref="DecideUnitMemberRender"/> path (one source of truth). Returns false for a
+        /// non-descent-trigger unit, a non-descent member, an unresolved span clock, or a head outside this
+        /// member's slice — byte-identical off. Pure; no Unity (xUnit-testable).
+        /// </summary>
+        internal static bool IsActiveDescentCarrierMember(
+            LoopUnitSet units, int i, double liveUT, double memberStartUT, double memberEndUT)
+        {
+            if (units == null || !units.TryGetUnitForMember(i, out LoopUnit unit))
+                return false;
+            if (!unit.HasDescentTrigger || !unit.IsDescentMember(i))
+                return false;
+
+            memberStartUT = unit.MemberStartUT(i, memberStartUT);
+            memberEndUT = unit.MemberEndUT(i, memberEndUT);
+
+            UnitMemberRenderDecision decision = DecideUnitMemberRender(
+                liveUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                memberStartUT, memberEndUT, out _, out long unitCycle, out _,
+                unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
+                unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
+                unit.RecordedSoiExitUT);
+            if (decision == UnitMemberRenderDecision.SpanClockUnresolved)
+                return false;
+
+            return Parsek.Reaim.DescentTrigger.TryResolveDescentMemberHead(
+                liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
+                unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
+                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
+                memberStartUT, memberEndUT, out _, out _);
+        }
+
+        /// <summary>
+        /// C1: the SINGLE committed index that should carry the flight-map descent icon this frame — the
+        /// HIGHEST-index descent-set member currently rendering its slice
+        /// (<see cref="IsActiveDescentCarrierMember"/>), or -1 when none does (no descent trigger, loiter, or
+        /// between cycles). The highest-index tie-break matches the existing chain-tip preference and the
+        /// observed render (the landing member rec 43 over the lander-clip rec 42 on their shared surface
+        /// window), so exactly ONE descent icon is exempted from the chain-tip skip — no double icon across
+        /// overlapping descent windows. Returns -1 (byte-identical off) for a null set / list or no descent-set
+        /// member in window. Pure; no Unity (xUnit-testable).
+        /// </summary>
+        internal static int ResolveFlightDescentIconCarrier(
+            System.Collections.Generic.IReadOnlyList<Recording> committed, double liveUT, LoopUnitSet units)
+        {
+            if (committed == null || units == null)
+                return -1;
+            int carrier = -1;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording rec = committed[i];
+                if (rec == null)
+                    continue;
+                if (i > carrier
+                    && IsActiveDescentCarrierMember(units, i, liveUT, rec.StartUT, rec.EndUT))
+                    carrier = i;
+            }
+            return carrier;
+        }
+
         /// <summary>The render outcome for the BOUNDARY-OVERLAP secondary of one member on a given frame.</summary>
         internal enum BoundaryOverlapSecondaryDecision
         {

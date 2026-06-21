@@ -1285,6 +1285,17 @@ namespace Parsek
             // both views. Only read when tracing is enabled.
             double traceUT = MapRenderTrace.IsEnabled ? Planetarium.GetUniversalTime() : 0.0;
 
+            // C1 (flight descent icon ride): the descent-set members spawn in WINDOW order
+            // (entry -> touchdown -> landing), which is NOT committed-index order, so the in-window descent
+            // member is usually not the chain INDEX-tip and would be dropped by the chain-tip skip below - the
+            // icon vanishes off the entry/descent legs and only the final landing member (highest index, widest
+            // window) survives. Resolve the ONE descent-set member that is actually rendering its descent slice
+            // this frame (highest-index in-window member, so a shared surface window draws a single icon) and
+            // exempt it from the chain-tip skip so the icon rides the entry->surface curve. -1 (no exemption,
+            // byte-identical) for non-descent / non-re-aim units or between cycles.
+            int descentIconCarrier = GhostPlaybackLogic.ResolveFlightDescentIconCarrier(
+                committed, currentUT, flight.Engine.CurrentLoopUnits);
+
             foreach (var kvp in flight.Engine.ghostStates)
             {
                 var state = kvp.Value;
@@ -1466,7 +1477,11 @@ namespace Parsek
                     }
                     string chainId = committed[kvp.Key].ChainId;
                     if (!string.IsNullOrEmpty(chainId) && chainTipIndexBuffer.Count > 0
-                        && chainTipIndexBuffer.TryGetValue(chainId, out int tip) && kvp.Key != tip)
+                        && chainTipIndexBuffer.TryGetValue(chainId, out int tip) && kvp.Key != tip
+                        // C1: do NOT skip the active descent-icon carrier (the in-window descent-set member) -
+                        // its descent leg is the one drawn this frame, so its icon must ride it even though it is
+                        // not the chain index-tip. -1 for non-descent units, so this is byte-identical there.
+                        && kvp.Key != descentIconCarrier)
                     {
                         summary.ChainNonTip++;
                         decOutcome = MapRenderTrace.MarkerOutcome.SkippedChainNonTip;

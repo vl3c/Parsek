@@ -665,6 +665,13 @@ namespace Parsek.Tests
         // per-phase renderHidden/UT, the SpanClockUnresolved early-out, byte-identical-off for a sibling member,
         // and the R6 secondary suppression — none of which the pure-helper tests exercise.
         private static GhostPlaybackLogic.LoopUnitSet BuildDescentUnit(bool engage)
+            => BuildDescentUnit(engage, overlapDescentWindows: false);
+
+        // overlapDescentWindows: make the three descent members 49/50/51 ALL span [W1Start, W3End] (so the same
+        // Descent-phase head is "in window" for all three at once) - models the real mission's shared surface
+        // window (rec 42 lander-clip + rec 43 EVA landing) used to verify the flight icon-carrier tie-break picks
+        // exactly ONE member (the highest index), so no double icon.
+        private static GhostPlaybackLogic.LoopUnitSet BuildDescentUnit(bool engage, bool overlapDescentWindows)
         {
             var windows = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>
             {
@@ -673,9 +680,9 @@ namespace Parsek.Tests
                 // during the loiter (conicEnd = Deorbit + CapShift = 27,140,000 .. the seam Deorbit), so it RENDERS
                 // both while loitering AND while the descent plays — the double-icon the handoff hide must resolve.
                 { 5, new GhostPlaybackLogic.LoopUnit.MemberWindow(27_000_000.0, Deorbit) },
-                { 49, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1Start, W1End) },
-                { 50, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1End, W2End) },
-                { 51, new GhostPlaybackLogic.LoopUnit.MemberWindow(W2End, W3End) },
+                { 49, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1Start, overlapDescentWindows ? W3End : W1End) },
+                { 50, new GhostPlaybackLogic.LoopUnit.MemberWindow(overlapDescentWindows ? W1Start : W1End, overlapDescentWindows ? W3End : W2End) },
+                { 51, new GhostPlaybackLogic.LoopUnit.MemberWindow(overlapDescentWindows ? W1Start : W2End, W3End) },
             };
             var plan = new Parsek.Reaim.ReaimMissionPlan { Supported = true };
             var sched = new Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule { Valid = true };
@@ -959,6 +966,74 @@ namespace Parsek.Tests
                 (GhostPlaybackLogic.LoopUnitSet)null, 5, TriggerUT(0) + 400.0, 27_000_000.0, Deorbit, out _));
             Assert.False(GhostPlaybackLogic.TryGetDescentUnitRenderPhase(
                 units, 999, TriggerUT(0) + 400.0, 27_000_000.0, Deorbit, out _));
+        }
+
+        // --- C1: flight descent icon carrier (GhostPlaybackLogic.IsActiveDescentCarrierMember / ResolveFlightDescentIconCarrier) ---
+        //
+        // Names the descent-set member whose descent leg is drawn THIS frame so the flight-map chain-tip skip
+        // can exempt it (the in-window descent member is usually not the chain index-tip). Single carrier per
+        // frame (highest index on a shared window) => no double icon.
+
+        [Fact]
+        public void ActiveDescentCarrierMember_OnlyTheInWindowDescentMemberInDescentPhase()
+        {
+            var units = BuildDescentUnit(engage: true);
+            double tDescent = TriggerUT(0) + 400.0; // shared head = Deorbit + 400 -> in member 49's window only
+
+            // Member 49 owns this slice this frame -> carrier.
+            Assert.True(GhostPlaybackLogic.IsActiveDescentCarrierMember(units, 49, tDescent, W1Start, W1End));
+            // Members 50/51 are descent members but their slices are not current -> not the carrier.
+            Assert.False(GhostPlaybackLogic.IsActiveDescentCarrierMember(units, 50, tDescent, W1End, W2End));
+            Assert.False(GhostPlaybackLogic.IsActiveDescentCarrierMember(units, 51, tDescent, W2End, W3End));
+            // The non-descent transfer member (5) is never a descent carrier.
+            Assert.False(GhostPlaybackLogic.IsActiveDescentCarrierMember(units, 5, tDescent, 27_000_000.0, Deorbit));
+            // Loiter: no descent member renders yet -> no carrier.
+            Assert.False(GhostPlaybackLogic.IsActiveDescentCarrierMember(units, 49, EntryUT(0) + 100.0, W1Start, W1End));
+            // Trigger off: byte-identical, never a carrier.
+            var off = BuildDescentUnit(engage: false);
+            Assert.False(GhostPlaybackLogic.IsActiveDescentCarrierMember(off, 49, tDescent, W1Start, W1End));
+        }
+
+        [Fact]
+        public void ResolveFlightDescentIconCarrier_PicksTheSingleInWindowMember()
+        {
+            var committed = BuildCommittedListForCarrier();
+            var units = BuildDescentUnit(engage: true);
+
+            // Descent phase, head in member 49's window -> carrier 49.
+            Assert.Equal(49, GhostPlaybackLogic.ResolveFlightDescentIconCarrier(committed, TriggerUT(0) + 400.0, units));
+            // Loiter -> no carrier (-1).
+            Assert.Equal(-1, GhostPlaybackLogic.ResolveFlightDescentIconCarrier(committed, EntryUT(0) + 100.0, units));
+            // Trigger off -> -1 (byte-identical; the chain-tip skip is unchanged).
+            Assert.Equal(-1, GhostPlaybackLogic.ResolveFlightDescentIconCarrier(committed, TriggerUT(0) + 400.0, BuildDescentUnit(engage: false)));
+            // Null inputs -> -1, no NRE.
+            Assert.Equal(-1, GhostPlaybackLogic.ResolveFlightDescentIconCarrier(null, TriggerUT(0) + 400.0, units));
+            Assert.Equal(-1, GhostPlaybackLogic.ResolveFlightDescentIconCarrier(committed, TriggerUT(0) + 400.0, null));
+        }
+
+        [Fact]
+        public void ResolveFlightDescentIconCarrier_SharedWindow_PicksHighestIndex_NoDoubleIcon()
+        {
+            // Members 49/50/51 ALL span the surface window (like rec 42 + rec 43), so all three are "in window"
+            // for the same Descent-phase head. The carrier must be exactly ONE - the highest index (51) - so the
+            // flight chain-tip exemption draws a single descent icon, not three.
+            var committed = BuildCommittedListForCarrier();
+            var overlap = BuildDescentUnit(engage: true, overlapDescentWindows: true);
+            double tDescent = TriggerUT(0) + 400.0;
+            Assert.True(GhostPlaybackLogic.IsActiveDescentCarrierMember(overlap, 49, tDescent, W1Start, W3End));
+            Assert.True(GhostPlaybackLogic.IsActiveDescentCarrierMember(overlap, 50, tDescent, W1Start, W3End));
+            Assert.True(GhostPlaybackLogic.IsActiveDescentCarrierMember(overlap, 51, tDescent, W1Start, W3End));
+            Assert.Equal(51, GhostPlaybackLogic.ResolveFlightDescentIconCarrier(committed, tDescent, overlap));
+        }
+
+        // Committed list covering indices 0..51; the descent members' windows come from the unit (MemberStartUT
+        // overrides the rec UTs), so the rec UTs here are placeholders.
+        private static System.Collections.Generic.List<Recording> BuildCommittedListForCarrier()
+        {
+            var committed = new System.Collections.Generic.List<Recording>();
+            for (int i = 0; i <= 51; i++)
+                committed.Add(new Recording { RecordingId = "carrier-rec-" + i });
+            return committed;
         }
 
         // --- FLIGHT-engine integration: GhostPlaybackLogic.ResolveDescentMemberEngineRender (Defect 3) ---
