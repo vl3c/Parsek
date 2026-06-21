@@ -8464,6 +8464,23 @@ namespace Parsek
                     renderHidden = true;
                     return liveUT;
                 }
+
+                // C1 (icon rides the deorbit arc, FIRST ITERATION): during the LAST parking-orbit-period of the
+                // Loiter (the deorbit transition), the transfer member's icon RIDES the re-anchored I1 deorbit
+                // head instead of circling the parking conic - so it descends the recorded deorbit tail from the
+                // parking orbit down to the seam (atmo entry), reaching it exactly at the trigger, where the
+                // atmospheric descent set takes over (continuous). Without this the icon circles the parking
+                // conic to conicEnd then JUMPS straight to atmo entry, skipping the orbit->entry deorbit. Reuses
+                // the I1 deorbit head + LoiterPeriodSeconds (both on the unit); the window is a first heuristic
+                // (the last parking period) to be tuned in-game. Byte-identical for non-descent / non-re-aim
+                // units (TryResolveTransferDeorbitIconHead returns false). NOTE: needs the deorbit-tail LINE to
+                // draw under the icon during this window (the renderer's I1 head-gated sweep).
+                if (TryResolveTransferDeorbitIconHead(
+                        unit, i, liveUT, memberStartUT, memberEndUT, out double deorbitIconHead))
+                {
+                    renderHidden = false;
+                    return deorbitIconHead;
+                }
             }
 
             if (decision == UnitMemberRenderDecision.Render)
@@ -8591,6 +8608,63 @@ namespace Parsek
                 liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
                 unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
                 unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out deorbitHead);
+        }
+
+        /// <summary>
+        /// C1 (icon rides the deorbit arc, FIRST ITERATION): the transfer member's ICON head during the deorbit
+        /// transition — the LAST parking-orbit-period of the Loiter phase. Returns the re-anchored I1 deorbit
+        /// head (<see cref="Parsek.Reaim.DescentTrigger.TryComputeTransferDeorbitHead"/>, the same head that
+        /// sweeps the deorbit-tail LINE) so the transfer member's icon descends the recorded deorbit tail from
+        /// the parking orbit down to the seam (atmo entry), reaching it at the trigger where the atmospheric
+        /// descent set takes over. Without it the icon circles the parking conic and then jumps straight to atmo
+        /// entry, skipping the orbit→entry deorbit (the user's C1). The deorbit window is a HEURISTIC first cut:
+        /// the last <c>LoiterPeriodSeconds</c> (one parking orbit) before <c>triggerUT</c>; tune in-game. Returns
+        /// false (byte-identical) for a non-descent-trigger unit, a descent-set member, a non-Loiter phase, a
+        /// frame before the deorbit window, an unresolved span clock, or a degenerate trigger / loiter period.
+        /// Pure; no Unity (xUnit-testable).
+        /// </summary>
+        internal static bool TryResolveTransferDeorbitIconHead(
+            LoopUnit unit, int i, double liveUT, double memberStartUT, double memberEndUT, out double iconHead)
+        {
+            iconHead = double.NaN;
+            if (!unit.HasDescentTrigger || unit.IsDescentMember(i))
+                return false;
+
+            memberStartUT = unit.MemberStartUT(i, memberStartUT);
+            memberEndUT = unit.MemberEndUT(i, memberEndUT);
+
+            UnitMemberRenderDecision decision = DecideUnitMemberRender(
+                liveUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                memberStartUT, memberEndUT, out _, out long unitCycle, out _,
+                unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
+                unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
+                unit.RecordedSoiExitUT);
+            if (decision == UnitMemberRenderDecision.SpanClockUnresolved)
+                return false;
+
+            Parsek.Reaim.DescentTrigger.DescentHeadPhase phase =
+                Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead(
+                    liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
+                    unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
+                    unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _);
+            if (phase != Parsek.Reaim.DescentTrigger.DescentHeadPhase.Loiter)
+                return false; // the icon only descends the deorbit tail during the loiter's run-up to the trigger
+
+            // The deorbit window = the last parking-orbit-period before the trigger (a first heuristic).
+            Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
+                unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT, unit.RecordedDeorbitUT,
+                unit.DestinationBodyRotationPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
+                out _, out _, out double triggerUT);
+            if (double.IsNaN(triggerUT)
+                || double.IsNaN(unit.LoiterPeriodSeconds) || unit.LoiterPeriodSeconds <= 0.0)
+                return false;
+            if (liveUT < triggerUT - unit.LoiterPeriodSeconds)
+                return false; // not yet in the deorbit transition — keep circling the parking conic
+
+            return Parsek.Reaim.DescentTrigger.TryComputeTransferDeorbitHead(
+                liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
+                unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
+                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out iconHead);
         }
 
         /// <summary>

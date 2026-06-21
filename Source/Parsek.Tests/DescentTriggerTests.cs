@@ -1036,6 +1036,47 @@ namespace Parsek.Tests
             return committed;
         }
 
+        // --- C1 first iteration: GhostPlaybackLogic.TryResolveTransferDeorbitIconHead (icon rides the deorbit arc) ---
+        //
+        // During the LAST parking-orbit-period of the Loiter the transfer member's icon rides the I1 deorbit head
+        // (descends the deorbit tail to the seam) instead of circling the parking conic.
+
+        [Fact]
+        public void TransferDeorbitIconHead_LateLoiter_RidesDeorbitHeadBelowSeam()
+        {
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            // Just before the trigger (within the last parking period Tpark) -> ride the deorbit head, below the seam.
+            double tLate = TriggerUT(0) - 1.0;
+            Assert.True(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                unit, 5, tLate, 27_000_000.0, Deorbit, out double head));
+            Assert.False(double.IsNaN(head));
+            Assert.True(head < Deorbit, $"deorbit icon head {head} should be below the seam {Deorbit}");
+
+            // Early loiter (before the last parking period) -> still circling the parking conic, no deorbit ride.
+            double tEarly = EntryUT(0) + 100.0;
+            Assert.True(tEarly < TriggerUT(0) - Tpark); // sanity: this frame IS before the deorbit window
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                unit, 5, tEarly, 27_000_000.0, Deorbit, out _));
+        }
+
+        [Fact]
+        public void TransferDeorbitIconHead_NonLoiterNonTransferOff_False()
+        {
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            // Inert / Descent -> false (only the loiter run-up rides the deorbit tail).
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                unit, 5, EntryUT(0) - 100.0, 27_000_000.0, Deorbit, out _)); // Inert
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                unit, 5, TriggerUT(0) + 400.0, 27_000_000.0, Deorbit, out _)); // Descent
+            // Descent-set member (49) -> false (the deorbit ride is the transfer member's, not a descent member's).
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                unit, 49, TriggerUT(0) - 1.0, W1Start, W1End, out _));
+            // Trigger off -> false (byte-identical-off).
+            var off = DescentUnitFor(BuildDescentUnit(engage: false));
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                off, 5, TriggerUT(0) - 1.0, 27_000_000.0, Deorbit, out _));
+        }
+
         // --- FLIGHT-engine integration: GhostPlaybackLogic.ResolveDescentMemberEngineRender (Defect 3) ---
         //
         // The engine-side complement of the resolver branch: the same TryResolveDescentMemberHead remap,
