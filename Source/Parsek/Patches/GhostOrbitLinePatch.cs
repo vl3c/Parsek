@@ -615,6 +615,26 @@ namespace Parsek.Patches
         /// period &gt; 0, both finite)? Only an elliptical arc has a meaningful
         /// shape to keep showing across transient boundary chatter.
         /// </summary>
+        /// <summary>
+        /// PURE (Layer B of the re-aim descent parking-conic render fix): should the
+        /// <c>past-body-frame-end</c> branch HOLD the orbit line visible instead of retiring it? True IFF the
+        /// ONLY reason to hide is that the LIVE currentUT is past the body-frame end (<paramref name="pastEnd"/>),
+        /// NOT below-atmosphere and NOT before the body-frame start, AND a parking-conic line hold is active for
+        /// this ghost (<paramref name="holdActive"/>, = TryGetParkingConicLineHold), AND there is a real finite
+        /// ellipse to keep drawing (<paramref name="orbitFiniteElliptical"/>). The hold is PAST-END only: a
+        /// below-atmosphere or before-start hide still retires (drag makes the conic meaningless; before-start the
+        /// arc is not yet this member's). When <paramref name="holdActive"/> is false (every non-held ghost) this
+        /// returns false, so the branch is byte-identical to the pre-fix retire. No Unity (xUnit-testable).
+        /// </summary>
+        internal static bool ShouldHoldParkingConicLine(
+            bool pastEnd, bool belowAtmosphere, bool beforeStart, bool holdActive, bool orbitFiniteElliptical)
+        {
+            if (!holdActive || !orbitFiniteElliptical)
+                return false;
+            // Only a pure past-end hide is held; below-atmosphere and before-start always retire.
+            return pastEnd && !belowAtmosphere && !beforeStart;
+        }
+
         internal static bool IsOrbitFiniteElliptical(Orbit orbit)
         {
             return orbit != null
@@ -890,15 +910,51 @@ namespace Parsek.Patches
             if (GhostMapPresence.TryGetBodyFrameOrbitBoundsForGhostVessel(
                 pid, currentUT, out double startUT, out double endUT))
             {
-                if (currentUT > endUT || currentUT < startUT || belowAtmosphere)
+                bool pastEnd = currentUT > endUT;
+                bool beforeStart = currentUT < startUT;
+                if (pastEnd || beforeStart || belowAtmosphere)
                 {
+                    // Layer B (re-aim descent parking-conic LINE HOLD): a descent-trigger TRANSFER member in the
+                    // captureShift loiter gap holds its FULL parking ellipse drawn through the whole loiter (the
+                    // seg-6 deorbit-arc window AND the post-seg-6 gap) until the live descent trigger fires - even
+                    // though the LIVE currentUT is past the parking conic's live-UT upper bound. The map-presence
+                    // reseed sites stamp the per-pid hold while the loiter-gap predicate is true and clear it the
+                    // instant it goes false (descent fired / loop wrapped), so the hold's deadline IS the trigger
+                    // UT and the line retires cleanly the same frame the descent set takes over. PAST-END ONLY:
+                    // below-atmosphere / before-start still retire. Byte-identical-off for every non-held ghost
+                    // (no stamp -> holdActive false -> the normal retire runs).
+                    bool holdActive =
+                        GhostMapPresence.TryGetParkingConicLineHold(pid, currentUT, out _);
+                    if (ShouldHoldParkingConicLine(
+                            pastEnd, belowAtmosphere, beforeStart, holdActive, orbitFiniteElliptical))
+                    {
+                        line.active = true;
+                        __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
+                        GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+                        // Re-stamp the grace deadline so a subsequent transient off-dip is still deferred while
+                        // the line is genuinely shown (same idiom as the visible-body-frame / terminal branches).
+                        GhostMapPresence.StampOrbitLineGrace(pid, Time.frameCount + OrbitLineGraceFrames);
+                        LogOrbitLineDecision(
+                            pid,
+                            "parking-conic-loiter-hold",
+                            line.active,
+                            __instance.drawIcons,
+                            GhostMapPresence.IsIconSuppressed(pid),
+                            belowAtmosphere: false,
+                            hasBounds: true,
+                            currentUT,
+                            startUT,
+                            endUT);
+                        return;
+                    }
+
                     line.active = false;
                     __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
                     if (belowAtmosphere)
                         GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                     string reason = belowAtmosphere
                         ? "below-atmosphere"
-                        : (currentUT > endUT ? "past-body-frame-end" : "before-body-frame-start");
+                        : (pastEnd ? "past-body-frame-end" : "before-body-frame-start");
                     LogOrbitLineDecision(
                         pid,
                         reason,

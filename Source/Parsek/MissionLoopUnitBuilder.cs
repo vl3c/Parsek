@@ -268,6 +268,11 @@ namespace Parsek
             double descentRotationPeriod = double.NaN;
             double descentLoiterPeriod = double.NaN;
             double descentCaptureShift = double.NaN;
+            // The transfer member's PARKING-conic end (= the destination loiter run end = the deorbit point =
+            // the start of the first deorbit-transition segment). The map-presence segment-lookup clamp
+            // boundary, distinct from descentRecordedDeorbitUT (the LAST target-body segment end / descent
+            // re-anchor). NaN keeps every non-descent unit byte-identical.
+            double descentParkingConicEndUT = double.NaN;
             if (bodyInfo != null)
             {
                 ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
@@ -815,6 +820,17 @@ namespace Parsek
                                 descentRotationPeriod = descTrot;
                                 descentLoiterPeriod = descentRun.PeriodSeconds;
                                 descentCaptureShift = descCaptureShift;
+                                // PARKING-conic end (Layer A of the loiter-gap render fix): the destination
+                                // loiter run's recorded end. A loiter run (ReaimLoiterCompressor.DetectRuns)
+                                // ends at the first > 5% sma step, so descentRun.EndUT is the parking conic's
+                                // last sample = the deorbit point = the start of the first deorbit-transition
+                                // OrbitSegment. This is the segment-lookup clamp boundary the map-presence path
+                                // holds the loiter on, distinct from descentRecordedDeorbitUT = seamUT (the LAST
+                                // target-body segment end, where the deorbit-transition conics finish - too late,
+                                // it lets the deorbit arc leak as the loiter orbit). descentRun is already a
+                                // shifted transfer-member parking segment end, so it is in the transfer member's
+                                // RECORDED frame (compared with effUT/loopUT with NO captureShift adjustment).
+                                descentParkingConicEndUT = descentRun.EndUT;
                                 if (!SuppressLogging)
                                 {
                                     var dic = CultureInfo.InvariantCulture;
@@ -827,6 +843,7 @@ namespace Parsek
                                         $"Trot={descentRotationPeriod.ToString("R", dic)}s " +
                                         $"Tpark={descentLoiterPeriod.ToString("R", dic)}s " +
                                         $"parkRevs={descentRun.WholeRevs.ToString(dic)} " +
+                                        $"parkingConicEnd={descentParkingConicEndUT.ToString("R", dic)} " +
                                         $"captureShift={descentCaptureShift.ToString("R", dic)}s " +
                                         $"conicEnd={conicEndRecorded.ToString("R", dic)} " +
                                         $"(geomTof={descGeomTof.ToString("F0", dic)} recordedTof={plan.RecordedTransferTofSeconds.ToString("F0", dic)})");
@@ -888,7 +905,8 @@ namespace Parsek
                 arrivalHold.AlignPeriodSeconds, arrivalHold.AmberReason,
                 launchHoldRotationPeriod, launchHoldEngaged, launchHoldSoiExitUT,
                 descentMemberIndices, descentRecordedDeorbitUT, descentEndUT,
-                descentRotationPeriod, descentLoiterPeriod, descentCaptureShift);
+                descentRotationPeriod, descentLoiterPeriod, descentCaptureShift,
+                descentParkingConicEndUT);
 
             if (!SuppressLogging)
             {

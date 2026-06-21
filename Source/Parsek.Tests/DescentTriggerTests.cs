@@ -143,6 +143,12 @@ namespace Parsek.Tests
         private const double DescentEnd = 30_002_000.0;
         private const double Tpark = 7000.0;
         private const double CapShift = -2_860_000.0;
+        // PARKING-conic end (the loiter run's recorded end = the deorbit point = seg-5 end / seg-6 start). In the
+        // confirmed recording it is EARLIER than the OLD boundary conicEnd = RecordedDeorbitUT + CaptureShift
+        // (which mapped onto the LATER seg-6 deorbit-arc end). Model it strictly BELOW
+        // OldLoiterGapConicEnd = Deorbit + CapShift = 27_140_000 (and above the loiter-entry region), so the new
+        // clamp fires EARLIER than the old one and the leak window (ParkingConicEnd, OldConicEnd] is non-empty.
+        private const double ParkingConicEnd = 27_100_000.0;
 
         private static DescentTrigger.DescentHeadPhase MemberHead(double currentUT, long n, out double head)
             => DescentTrigger.ComputeDescentMemberHead(
@@ -697,7 +703,12 @@ namespace Parsek.Tests
                 descentEndUT: engage ? DescentEnd : double.NaN,
                 destinationBodyRotationPeriodSeconds: engage ? DunaTrot : double.NaN,
                 loiterPeriodSeconds: engage ? Tpark : double.NaN,
-                captureShiftSeconds: engage ? CapShift : double.NaN);
+                captureShiftSeconds: engage ? CapShift : double.NaN,
+                // PARKING-conic end (seg-5 end): EARLIER than the OLD boundary conicEnd (= Deorbit+CapShift =
+                // 27_140_000) and far below Deorbit (30_000_000, the LAST target-body segment end). Models the
+                // confirmed recording's seg-5-end (parking conic) < seg-6-end (deorbit arc) geometry, so the gap
+                // predicate now fires at the parking-conic end (earlier) where the OLD conicEnd never did.
+                parkingConicEndUT: engage ? ParkingConicEnd : double.NaN);
             return new GhostPlaybackLogic.LoopUnitSet(
                 new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
                 new Dictionary<int, int> { { 0, 0 }, { 5, 0 }, { 49, 0 }, { 50, 0 }, { 51, 0 } });
@@ -1321,32 +1332,53 @@ namespace Parsek.Tests
 
         // --- IsDescentTransferMemberInLoiterGap: the map-presence segment-lookup UT clamp predicate (the
         //     destination-loiter "parking conic stops rendering" bug). True IFF a non-descent member of a
-        //     descent-trigger unit whose RECORDED loop clock has advanced PAST
+        //     descent-trigger unit whose RECORDED loop clock has advanced PAST the PARKING-conic end
+        //     (LoopUnit.ParkingConicEndUT = ParkingConicEnd = 27_100_000, EARLIER than) the OLD boundary
         //     conicEnd = RecordedDeorbitUT + CaptureShiftSeconds (= Deorbit + CapShift = 27_140_000). ---
 
-        // conicEnd for the BuildDescentUnit harness (Deorbit 30_000_000 + CapShift -2_860_000).
-        private const double LoiterGapConicEnd = Deorbit + CapShift; // 27_140_000
+        // The OLD boundary value (Deorbit + CapShift). The fix RE-POINTS the clamp from this to ParkingConicEnd.
+        private const double OldLoiterGapConicEnd = Deorbit + CapShift; // 27_140_000
 
         [Fact]
-        public void LoiterGap_TransferMemberPastConicEnd_True()
+        public void LoiterGap_TransferMemberPastParkingConicEnd_True()
         {
             var units = BuildDescentUnit(engage: true);
-            // Member 5 is the non-descent transfer member; a recorded loop clock past conicEnd is the gap.
-            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, LoiterGapConicEnd + 1000.0));
-            // The owner member 0 is also a non-descent member, so it is equally in-gap past conicEnd.
-            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 0, LoiterGapConicEnd + 1000.0));
-            // The conic-end value resolves to conicEnd for the clamp.
-            Assert.Equal(LoiterGapConicEnd, GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 5), 3);
+            // Member 5 is the non-descent transfer member; a recorded loop clock past the PARKING-conic end is the gap.
+            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, ParkingConicEnd + 1000.0));
+            // The owner member 0 is also a non-descent member, so it is equally in-gap past the parking-conic end.
+            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 0, ParkingConicEnd + 1000.0));
+            // The clamp value resolves to the PARKING-conic end (not conicEnd).
+            Assert.Equal(ParkingConicEnd, GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 5), 3);
         }
 
         [Fact]
-        public void LoiterGap_BeforeOrAtConicEnd_False()
+        public void LoiterGap_BeforeOrAtParkingConicEnd_False()
         {
             var units = BuildDescentUnit(engage: true);
-            // Still riding the shifted parking conic (loopUT <= conicEnd) -> no clamp; the conic renders normally.
-            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, LoiterGapConicEnd - 1000.0));
-            // Strict inequality: exactly AT conicEnd is NOT yet in the gap.
-            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, LoiterGapConicEnd));
+            // Still riding the parking conic (loopUT <= parkingConicEnd) -> no clamp; the conic renders normally.
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, ParkingConicEnd - 1000.0));
+            // Strict inequality: exactly AT the parking-conic end is NOT yet in the gap.
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, ParkingConicEnd));
+        }
+
+        // REGRESSION-PIN for the exact leak window: a recorded loop clock in (ParkingConicEnd, OldConicEnd] now
+        // returns TRUE (the new boundary fires EARLIER, at the parking-conic end). The OLD code (boundary =
+        // conicEnd = RecordedDeorbitUT + CaptureShift, which mapped onto the LATER deorbit-arc end) returned FALSE
+        // across this entire window, which is precisely where the contiguous deorbit arc (seg 6) leaked as the
+        // loiter orbit. Asserting TRUE here proves the boundary moved to the parking-conic end.
+        [Fact]
+        public void LoiterGap_InOldLeakWindow_NowTrue()
+        {
+            var units = BuildDescentUnit(engage: true);
+            // Geometry sanity: the parking-conic end is EARLIER than the old conicEnd boundary.
+            Assert.True(ParkingConicEnd < OldLoiterGapConicEnd);
+            // A UT strictly inside (ParkingConicEnd, OldConicEnd]: past the new boundary, at/before the old one.
+            double midLeak = (ParkingConicEnd + OldLoiterGapConicEnd) / 2.0;
+            Assert.True(midLeak > ParkingConicEnd && midLeak <= OldLoiterGapConicEnd);
+            // NEW behavior: TRUE here (the deorbit arc would otherwise leak). The OLD code returned FALSE.
+            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, midLeak));
+            // Exactly at the old conicEnd boundary it is also TRUE now (the old strict test returned false there).
+            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, OldLoiterGapConicEnd));
         }
 
         [Fact]
@@ -1354,10 +1386,10 @@ namespace Parsek.Tests
         {
             var units = BuildDescentUnit(engage: true);
             // A descent-SET member (49/50/51) is governed by its own trigger-gated render; the clamp never
-            // touches it, even past conicEnd.
-            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 49, LoiterGapConicEnd + 1000.0));
-            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 51, LoiterGapConicEnd + 1000.0));
-            // And the conic-end resolver returns NaN for a descent-set member.
+            // touches it, even past the parking-conic end.
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 49, ParkingConicEnd + 1000.0));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 51, ParkingConicEnd + 1000.0));
+            // And the clamp resolver returns NaN for a descent-set member.
             Assert.True(double.IsNaN(GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 49)));
         }
 
@@ -1366,27 +1398,37 @@ namespace Parsek.Tests
         {
             var units = BuildDescentUnit(engage: true);
             // An index that is not a unit member at all -> false (byte-identical-off).
-            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 999, LoiterGapConicEnd + 1000.0));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 999, ParkingConicEnd + 1000.0));
             Assert.True(double.IsNaN(GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 999)));
         }
 
         [Fact]
         public void LoiterGap_NonDescentTriggerUnit_False()
         {
-            // engage:false -> HasDescentTrigger false (RecordedDeorbitUT/CaptureShiftSeconds NaN, no descent set),
-            // so the predicate is false for EVERY member at any loopUT -> byte-identical-off, and the NaN
-            // RecordedDeorbitUT / CaptureShiftSeconds cases are covered here (HasDescentTrigger gates on them).
+            // engage:false -> HasDescentTrigger false (ParkingConicEndUT NaN, no descent set), so the predicate
+            // is false for EVERY member at any loopUT -> byte-identical-off.
             var off = BuildDescentUnit(engage: false);
-            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(off, 5, LoiterGapConicEnd + 1000.0));
-            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(off, 0, LoiterGapConicEnd + 1000.0));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(off, 5, ParkingConicEnd + 1000.0));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(off, 0, ParkingConicEnd + 1000.0));
             Assert.True(double.IsNaN(GhostPlaybackLogic.ResolveLoiterGapConicEndUT(off, 5)));
+        }
+
+        // Defensive: an engaged descent-trigger unit built with parkingConicEndUT = NaN (e.g. a degenerate
+        // builder path) never engages the clamp and resolves NaN. Guards the optional-default path.
+        [Fact]
+        public void LoiterGap_NaNParkingConicEnd_False()
+        {
+            var units = BuildDescentUnitWithParkingConicEnd(double.NaN);
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, ParkingConicEnd + 1000.0));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, Deorbit + 1000.0));
+            Assert.True(double.IsNaN(GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 5)));
         }
 
         [Fact]
         public void LoiterGap_NaNLoopUT_False()
         {
             var units = BuildDescentUnit(engage: true);
-            // A NaN sample UT never engages the clamp (defensive; loopUT > conicEnd is false for NaN anyway).
+            // A NaN sample UT never engages the clamp (defensive; loopUT > parkingConicEnd is false for NaN anyway).
             Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, double.NaN));
         }
 
@@ -1395,7 +1437,7 @@ namespace Parsek.Tests
         {
             // A null unit set -> false / NaN (no loop, no clamp) with no NRE.
             Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(
-                (GhostPlaybackLogic.LoopUnitSet)null, 5, LoiterGapConicEnd + 1000.0));
+                (GhostPlaybackLogic.LoopUnitSet)null, 5, ParkingConicEnd + 1000.0));
             Assert.True(double.IsNaN(GhostPlaybackLogic.ResolveLoiterGapConicEndUT(
                 (GhostPlaybackLogic.LoopUnitSet)null, 5)));
         }
@@ -1405,10 +1447,136 @@ namespace Parsek.Tests
         {
             var units = BuildDescentUnit(engage: true);
             var unit = DescentUnitFor(units);
-            // The LoopUnit overload agrees with the LoopUnitSet wrapper for a real member, across the seam.
-            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 5, LoiterGapConicEnd + 1000.0));
-            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 5, LoiterGapConicEnd - 1000.0));
-            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 49, LoiterGapConicEnd + 1000.0));
+            // The LoopUnit overload agrees with the LoopUnitSet wrapper for a real member, across the boundary.
+            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 5, ParkingConicEnd + 1000.0));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 5, ParkingConicEnd - 1000.0));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 49, ParkingConicEnd + 1000.0));
+        }
+
+        // --- TryResolveLoiterGapHoldTriggerUT: the live trigger UT the reseed sites stamp for the line hold. ---
+
+        [Fact]
+        public void HoldTrigger_TransferMember_ResolvesLiveTrigger()
+        {
+            var units = BuildDescentUnit(engage: true);
+            // A live UT inside the loiter (after entry, before the trigger) resolves the cycle-0 trigger UT,
+            // matching the production TriggerUT formula. The stamp deadline IS this trigger.
+            double live = EntryUT(0) + 0.5 * Tpark;
+            Assert.True(GhostPlaybackLogic.TryResolveLoiterGapHoldTriggerUT(
+                units, 5, live, 27_000_000.0, Deorbit, out double triggerUT));
+            Assert.Equal(TriggerUT(0), triggerUT, 3);
+        }
+
+        [Fact]
+        public void HoldTrigger_DescentMember_False()
+        {
+            var units = BuildDescentUnit(engage: true);
+            // A descent-SET member never gets a line hold (its own trigger-gated render owns it).
+            Assert.False(GhostPlaybackLogic.TryResolveLoiterGapHoldTriggerUT(
+                units, 49, EntryUT(0) + 100.0, W1Start, W1End, out double t));
+            Assert.True(double.IsNaN(t));
+        }
+
+        [Fact]
+        public void HoldTrigger_NonDescentTriggerUnit_False()
+        {
+            var off = BuildDescentUnit(engage: false);
+            // No descent trigger -> no hold trigger (byte-identical-off).
+            Assert.False(GhostPlaybackLogic.TryResolveLoiterGapHoldTriggerUT(
+                off, 5, EntryUT(0) + 100.0, 27_000_000.0, Deorbit, out double t));
+            Assert.True(double.IsNaN(t));
+        }
+
+        [Fact]
+        public void HoldTrigger_NullSetOrNonMember_False()
+        {
+            var units = BuildDescentUnit(engage: true);
+            Assert.False(GhostPlaybackLogic.TryResolveLoiterGapHoldTriggerUT(
+                (GhostPlaybackLogic.LoopUnitSet)null, 5, EntryUT(0) + 100.0, 0.0, Deorbit, out double tn));
+            Assert.True(double.IsNaN(tn));
+            Assert.False(GhostPlaybackLogic.TryResolveLoiterGapHoldTriggerUT(
+                units, 999, EntryUT(0) + 100.0, 0.0, Deorbit, out double tm));
+            Assert.True(double.IsNaN(tm));
+        }
+
+        // --- Layer B: GhostOrbitLinePatch.ShouldHoldParkingConicLine truth table (the past-end line hold). ---
+
+        [Fact]
+        public void HoldLine_PastEndOnly_WithHold_AndFiniteEllipse_True()
+        {
+            // The intended hold case: ONLY past-end, a hold stamped, a real finite ellipse -> hold the line.
+            Assert.True(Parsek.Patches.GhostOrbitLinePatch.ShouldHoldParkingConicLine(
+                pastEnd: true, belowAtmosphere: false, beforeStart: false,
+                holdActive: true, orbitFiniteElliptical: true));
+        }
+
+        [Fact]
+        public void HoldLine_NoHold_False()
+        {
+            // No stamp -> never hold (byte-identical-off for every non-held ghost).
+            Assert.False(Parsek.Patches.GhostOrbitLinePatch.ShouldHoldParkingConicLine(
+                pastEnd: true, belowAtmosphere: false, beforeStart: false,
+                holdActive: false, orbitFiniteElliptical: true));
+        }
+
+        [Fact]
+        public void HoldLine_NotFiniteEllipse_False()
+        {
+            // No real ellipse to keep drawing -> never hold (defensive).
+            Assert.False(Parsek.Patches.GhostOrbitLinePatch.ShouldHoldParkingConicLine(
+                pastEnd: true, belowAtmosphere: false, beforeStart: false,
+                holdActive: true, orbitFiniteElliptical: false));
+        }
+
+        [Fact]
+        public void HoldLine_BelowAtmosphere_AlwaysRetires()
+        {
+            // Below-atmosphere retires even with a hold stamped (drag makes the conic meaningless).
+            Assert.False(Parsek.Patches.GhostOrbitLinePatch.ShouldHoldParkingConicLine(
+                pastEnd: true, belowAtmosphere: true, beforeStart: false,
+                holdActive: true, orbitFiniteElliptical: true));
+        }
+
+        [Fact]
+        public void HoldLine_BeforeStart_AlwaysRetires()
+        {
+            // Before the body-frame start retires even with a hold stamped (the arc is not yet this member's);
+            // pastEnd false there, so the hold predicate is false.
+            Assert.False(Parsek.Patches.GhostOrbitLinePatch.ShouldHoldParkingConicLine(
+                pastEnd: false, belowAtmosphere: false, beforeStart: true,
+                holdActive: true, orbitFiniteElliptical: true));
+        }
+
+        // A descent-trigger unit whose parkingConicEndUT can be set explicitly (defensive-NaN coverage),
+        // otherwise identical to BuildDescentUnit(engage: true).
+        private static GhostPlaybackLogic.LoopUnitSet BuildDescentUnitWithParkingConicEnd(double parkingConicEndUT)
+        {
+            var windows = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>
+            {
+                { 0, new GhostPlaybackLogic.LoopUnit.MemberWindow(0.0, 500.0) },
+                { 5, new GhostPlaybackLogic.LoopUnit.MemberWindow(27_000_000.0, Deorbit) },
+                { 49, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1Start, W1End) },
+                { 50, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1End, W2End) },
+                { 51, new GhostPlaybackLogic.LoopUnit.MemberWindow(W2End, W3End) },
+            };
+            var plan = new Parsek.Reaim.ReaimMissionPlan { Supported = true };
+            var sched = new Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule { Valid = true };
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                0, new[] { 0, 5, 49, 50, 51 }, SpanStart, DescentEnd, Cad, Pa, Cad, windows, null, plan, sched,
+                loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
+                arrivalAlignPeriodSeconds: double.NaN, arrivalAmberReason: null,
+                launchBodyRotationPeriodSeconds: double.NaN, launchHoldEngaged: false,
+                recordedSoiExitUT: double.NaN,
+                descentMemberIndices: new[] { 49, 50, 51 },
+                recordedDeorbitUT: Deorbit,
+                descentEndUT: DescentEnd,
+                destinationBodyRotationPeriodSeconds: DunaTrot,
+                loiterPeriodSeconds: Tpark,
+                captureShiftSeconds: CapShift,
+                parkingConicEndUT: parkingConicEndUT);
+            return new GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
+                new Dictionary<int, int> { { 0, 0 }, { 5, 0 }, { 49, 0 }, { 50, 0 }, { 51, 0 } });
         }
     }
 }

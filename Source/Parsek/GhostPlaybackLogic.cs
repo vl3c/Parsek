@@ -6841,7 +6841,8 @@ namespace Parsek
                 double descentEndUT = double.NaN,
                 double destinationBodyRotationPeriodSeconds = double.NaN,
                 double loiterPeriodSeconds = double.NaN,
-                double captureShiftSeconds = double.NaN)
+                double captureShiftSeconds = double.NaN,
+                double parkingConicEndUT = double.NaN)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6868,6 +6869,7 @@ namespace Parsek
                 DestinationBodyRotationPeriodSeconds = destinationBodyRotationPeriodSeconds;
                 LoiterPeriodSeconds = loiterPeriodSeconds;
                 CaptureShiftSeconds = captureShiftSeconds;
+                ParkingConicEndUT = parkingConicEndUT;
             }
 
             /// <summary>
@@ -7090,6 +7092,21 @@ namespace Parsek
             /// (newArrival - recordedArrival ≈ HohmannTof - recordedTof). The conic's deorbit point sits at
             /// recorded UT recordedDeorbitUT + captureShift. NaN when not engaged.</summary>
             internal double CaptureShiftSeconds { get; }
+
+            /// <summary>
+            /// Recorded UT of the transfer member's PARKING-conic end (= the destination loiter run end = the
+            /// deorbit point = the start of the first deorbit-transition segment). The map-presence
+            /// segment-lookup clamp boundary (the destination-loiter "parking conic stops rendering" bug),
+            /// distinct from <see cref="RecordedDeorbitUT"/> (the LAST target-body segment end / descent
+            /// re-anchor). The loiter run ends at the first &gt; 5% sma step (ReaimLoiterCompressor), so this is
+            /// the orbit-raise/lower boundary between the parking conic and the deorbit arc, NOT a span-subtract
+            /// or terminal-tail synthesis. It is already in the transfer member's RECORDED frame (a shifted
+            /// parking-segment end), so the clamp compares it against the loop-shifted sample UT with NO
+            /// captureShift adjustment - unlike <c>conicEnd = RecordedDeorbitUT + CaptureShiftSeconds</c>, which
+            /// landed on the LATER deorbit-arc end and let the deorbit arc leak as the loiter orbit. NaN when the
+            /// descent trigger is not engaged.
+            /// </summary>
+            internal double ParkingConicEndUT { get; }
 
             /// <summary>True only when this unit carries a fully-resolved descent trigger (a re-aim looped
             /// arrival with a non-empty descent member set, an early arrival, and valid periods).</summary>
@@ -8745,30 +8762,40 @@ namespace Parsek
         /// IFF committed index <paramref name="i"/> is the NON-descent transfer/owner member of a re-aim
         /// descent-trigger unit AND its RECORDED loop clock <paramref name="loopUT"/> (the loop-shifted sample UT
         /// the map-presence resolver uses for the OrbitSegment lookup, NOT the live UT) has advanced PAST the
-        /// shifted-parking-conic deorbit point <c>conicEnd = RecordedDeorbitUT + CaptureShiftSeconds</c>.
+        /// PARKING-conic end <see cref="LoopUnit.ParkingConicEndUT"/> (the destination loiter run's recorded end
+        /// = the deorbit point = the start of the first deorbit-transition OrbitSegment).
         ///
         /// <para>Geometry: PR #1177 shifted the parking conic EARLIER by <c>|CaptureShiftSeconds|</c> (~33 days)
         /// so it meets the early-arriving re-aimed transfer; the body-fixed deorbit-&gt;reentry-&gt;landing clip
-        /// was NOT shifted (pinned at recorded <c>RecordedDeorbitUT</c>). So the recorded loop clock sweeps the
-        /// shifted conic up to <c>conicEnd</c>, then enters the <c>|CaptureShiftSeconds|</c>-wide gap before the
-        /// recorded deorbit, where NO OrbitSegment covers the UT (the deorbit tail is a non-orbital body-fixed
-        /// leg). The map-presence segment lookup then returns null and the proto is destroyed mid-loiter, so the
-        /// parking conic stops rendering until the descent fires or the loop wraps. Inside this gap the caller
-        /// HOLDS the segment-lookup sample UT at <c>conicEnd</c> so the lookup keeps returning the real recorded
-        /// parking-conic segment and the proto stays alive on its actual same-body Kepler segment (the icon keeps
-        /// circling via its existing live-frame offset). The clamp applies ONLY to the segment lookup; every
-        /// other read still uses the live <paramref name="loopUT"/>.</para>
+        /// was NOT shifted (pinned at recorded <c>RecordedDeorbitUT</c>). The transfer member's destination data
+        /// is the PARKING conic followed CONTIGUOUSLY by a deorbit-transition OrbitSegment (a real orbit-lower
+        /// arc with a sub-surface periapsis). The recorded loop clock sweeps the parking conic up to
+        /// <see cref="LoopUnit.ParkingConicEndUT"/>; PAST that point an UNCLAMPED segment lookup walks INTO the
+        /// contiguous deorbit arc and draws THAT as the loiter orbit (the user sees ~1/3 of an ellipse), then
+        /// past the deorbit-arc end NO OrbitSegment covers the UT and the proto retires mid-loiter, so the
+        /// parking conic stops rendering until the descent fires. Inside this gap the caller HOLDS the
+        /// segment-lookup sample UT at <see cref="LoopUnit.ParkingConicEndUT"/> so the lookup keeps returning the
+        /// real recorded PARKING-conic segment and the proto stays alive on it (the icon keeps circling via its
+        /// existing live-frame offset). The clamp applies ONLY to the segment lookup; every other read still uses
+        /// the live <paramref name="loopUT"/>.</para>
+        ///
+        /// <para>The boundary is the parking-conic end, NOT <c>conicEnd = RecordedDeorbitUT +
+        /// CaptureShiftSeconds</c>: that older value lands on the LATER deorbit-ARC end (the last target-body
+        /// segment end), so <c>loopUT &gt; conicEnd</c> never fired during the loiter and the deorbit arc leaked.
+        /// <see cref="LoopUnit.ParkingConicEndUT"/> is sourced from the destination loiter run end (the
+        /// orbit-raise/lower sma step between the parking conic and the deorbit arc), a real recorded boundary,
+        /// and is already in the transfer member's recorded frame so it needs NO captureShift adjustment.</para>
         ///
         /// <para>Returns FALSE for: a null unit set / non-member index / non-descent-trigger unit, a descent-SET
         /// member (its own trigger-gated render owns it, and the descent member is hidden in the loiter), NaN
-        /// <see cref="LoopUnit.RecordedDeorbitUT"/> / <see cref="LoopUnit.CaptureShiftSeconds"/>, and
-        /// <paramref name="loopUT"/> &lt;= <c>conicEnd</c> (the icon is still riding the conic - the conic renders
+        /// <see cref="LoopUnit.ParkingConicEndUT"/>, and <paramref name="loopUT"/> &lt;=
+        /// <see cref="LoopUnit.ParkingConicEndUT"/> (the icon is still riding the conic - the conic renders
         /// through the unchanged segment lookup, no clamp). Crucially it is also FALSE once the descent trigger
         /// fires: the descent member then owns the visual and the transfer member retires via
         /// <see cref="IsTransferMemberDescentContinuation"/> (the live-clock Descent/Done gate), so there is no
-        /// lingering clamp past the trigger - this predicate is a pure recorded-domain <c>loopUT &gt; conicEnd</c>
-        /// test that the caller only consults BEFORE the transfer member is retired. Pure; no Unity
-        /// (xUnit-testable). Default-off at every non-opted-in call site.</para>
+        /// lingering clamp past the trigger - this predicate is a pure recorded-domain <c>loopUT &gt;
+        /// parkingConicEnd</c> test that the caller only consults BEFORE the transfer member is retired. Pure; no
+        /// Unity (xUnit-testable). Default-off at every non-opted-in call site.</para>
         /// </summary>
         internal static bool IsDescentTransferMemberInLoiterGap(LoopUnit unit, int i, double loopUT)
         {
@@ -8777,15 +8804,16 @@ namespace Parsek
             if (!unit.HasDescentTrigger || unit.IsDescentMember(i))
                 return false;
 
-            double recordedDeorbitUT = unit.RecordedDeorbitUT;
-            double captureShiftSeconds = unit.CaptureShiftSeconds;
-            if (double.IsNaN(loopUT)
-                || double.IsNaN(recordedDeorbitUT)
-                || double.IsNaN(captureShiftSeconds))
+            double parkingConicEnd = unit.ParkingConicEndUT;
+            if (double.IsNaN(loopUT) || double.IsNaN(parkingConicEnd))
                 return false;
 
-            double conicEnd = recordedDeorbitUT + captureShiftSeconds;
-            return loopUT > conicEnd;
+            // The boundary is the PARKING-conic end (the loiter run's recorded end = the deorbit point), NOT
+            // conicEnd = RecordedDeorbitUT + CaptureShiftSeconds (the LATER deorbit-arc end). Past the parking
+            // conic the loop clock would otherwise walk INTO the contiguous deorbit-transition OrbitSegment and
+            // draw the deorbit arc as the loiter orbit; holding the segment lookup at the parking conic keeps the
+            // full parking ellipse rendered through the whole loiter.
+            return loopUT > parkingConicEnd;
         }
 
         /// <summary>
@@ -8803,11 +8831,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// LOITER-GAP clamp value: returns <c>conicEnd = RecordedDeorbitUT + CaptureShiftSeconds</c> (the shifted
-        /// parking-conic deorbit point) for the resolved descent-trigger unit owning member <paramref name="i"/>,
-        /// or NaN when the index is not a non-descent member of a descent-trigger unit (or inputs are degenerate).
-        /// Paired with <see cref="IsDescentTransferMemberInLoiterGap(LoopUnitSet,int,double)"/> so a caller can
-        /// HOLD the segment-lookup sample UT at this value inside the gap. Pure; no Unity (xUnit-testable).
+        /// LOITER-GAP clamp value: returns <see cref="LoopUnit.ParkingConicEndUT"/> (the destination loiter run
+        /// end = the parking-conic end = the deorbit point) for the resolved descent-trigger unit owning member
+        /// <paramref name="i"/>, or NaN when the index is not a non-descent member of a descent-trigger unit (or
+        /// inputs are degenerate). Paired with
+        /// <see cref="IsDescentTransferMemberInLoiterGap(LoopUnitSet,int,double)"/> so a caller can HOLD the
+        /// segment-lookup sample UT at this value inside the gap, keeping the lookup on the recorded parking
+        /// conic (NOT the contiguous deorbit arc, which the older <c>conicEnd</c> value let leak). Pure; no Unity
+        /// (xUnit-testable).
         /// </summary>
         internal static double ResolveLoiterGapConicEndUT(LoopUnitSet units, int i)
         {
@@ -8815,11 +8846,48 @@ namespace Parsek
                 return double.NaN;
             if (!unit.HasDescentTrigger || unit.IsDescentMember(i))
                 return double.NaN;
-            double recordedDeorbitUT = unit.RecordedDeorbitUT;
-            double captureShiftSeconds = unit.CaptureShiftSeconds;
-            if (double.IsNaN(recordedDeorbitUT) || double.IsNaN(captureShiftSeconds))
-                return double.NaN;
-            return recordedDeorbitUT + captureShiftSeconds;
+            return unit.ParkingConicEndUT;
+        }
+
+        /// <summary>
+        /// LOITER-GAP LINE HOLD trigger UT (Layer B of the parking-conic render fix): the LIVE-frame UT the
+        /// descent trigger fires for the descent-trigger unit owning the NON-descent transfer/owner member
+        /// <paramref name="i"/>, so the caller can stamp a per-pid orbit-line hold that keeps the FULL parking
+        /// ellipse drawn through the whole loiter (the seg-6 window AND the post-seg-6 gap) until the descent set
+        /// takes over. Resolves the unit cycle via the SAME <see cref="DecideUnitMemberRender"/> path the resolver
+        /// / engine / I1 use (one source of truth - the cycle the reseed loop is already on this frame), then the
+        /// shared <see cref="Parsek.Reaim.DescentTrigger.ComputeDescentTiming"/>. Returns false / NaN for a null
+        /// set, a non-member index, a non-descent-trigger unit, a descent-SET member, an unresolved span clock, or
+        /// a degenerate (NaN) trigger - byte-identical-off everywhere the line-hold must not engage. Pure; no
+        /// Unity (xUnit-testable).
+        /// </summary>
+        internal static bool TryResolveLoiterGapHoldTriggerUT(
+            LoopUnitSet units, int i, double liveUT, double memberStartUT, double memberEndUT,
+            out double triggerUT)
+        {
+            triggerUT = double.NaN;
+            if (units == null || !units.TryGetUnitForMember(i, out LoopUnit unit))
+                return false;
+            if (!unit.HasDescentTrigger || unit.IsDescentMember(i))
+                return false;
+
+            memberStartUT = unit.MemberStartUT(i, memberStartUT);
+            memberEndUT = unit.MemberEndUT(i, memberEndUT);
+
+            UnitMemberRenderDecision decision = DecideUnitMemberRender(
+                liveUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                memberStartUT, memberEndUT, out _, out long unitCycle, out _,
+                unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
+                unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
+                unit.RecordedSoiExitUT);
+            if (decision == UnitMemberRenderDecision.SpanClockUnresolved)
+                return false;
+
+            Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
+                unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT, unit.RecordedDeorbitUT,
+                unit.DestinationBodyRotationPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
+                out _, out _, out triggerUT);
+            return !double.IsNaN(triggerUT);
         }
 
         /// <summary>

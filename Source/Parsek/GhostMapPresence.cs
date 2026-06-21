@@ -888,6 +888,100 @@ namespace Parsek
         }
 
         /// <summary>
+        /// LOITER-GAP LINE HOLD (Layer B of the re-aim descent parking-conic render fix): per-pid LIVE-frame UT
+        /// the parking-conic orbit line must stay visible until (= the live descent trigger UT). Stamped by the
+        /// flight + TS reseed sites whenever the descent-trigger TRANSFER member is in the loiter gap
+        /// (GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap true), and REMOVED the instant the predicate
+        /// goes false (descent fired OR the loop wrapped). GhostOrbitLinePatch consults it in the
+        /// past-body-frame-end branch (via <see cref="TryGetParkingConicLineHold"/>) to HOLD the full parking
+        /// ellipse drawn through the seg-6 window and the post-seg-6 gap instead of retiring the line because the
+        /// LIVE currentUT is past the parking conic's live-UT upper bound. Cleared on every scene reset / teardown
+        /// alongside <see cref="vesselPidToRecordingId"/>. Empty for every non-held ghost, so the past-end retire
+        /// is byte-identical for all other ghosts.
+        /// </summary>
+        private static readonly Dictionary<uint, double> ghostParkingConicLineHoldUntilUT =
+            new Dictionary<uint, double>();
+
+        /// <summary>
+        /// Stamps the parking-conic line-hold deadline for <paramref name="pid"/> at LIVE UT
+        /// <paramref name="holdUntilUT"/> (the live descent trigger UT). Called by the flight + TS reseed sites
+        /// while the descent-trigger transfer member is in the loiter gap.
+        /// </summary>
+        internal static void StampParkingConicLineHold(uint pid, double holdUntilUT)
+        {
+            ghostParkingConicLineHoldUntilUT[pid] = holdUntilUT;
+        }
+
+        /// <summary>
+        /// Clears any parking-conic line-hold stamp for <paramref name="pid"/>. Called by the reseed sites the
+        /// instant the loiter-gap predicate goes false for the held pid, so a stale hold never keeps the parking
+        /// conic drawn into the next phase.
+        /// </summary>
+        internal static void ClearParkingConicLineHold(uint pid)
+        {
+            ghostParkingConicLineHoldUntilUT.Remove(pid);
+        }
+
+        /// <summary>
+        /// True iff a parking-conic line-hold stamp exists for <paramref name="pid"/> AND
+        /// <paramref name="currentUT"/> is at or before the stamped hold deadline (<paramref name="holdUntilUT"/>
+        /// = the live descent trigger UT). False once the trigger UT is reached, so the line retires cleanly the
+        /// same frame the descent set takes over. Pure read; no side effects.
+        /// </summary>
+        internal static bool TryGetParkingConicLineHold(uint pid, double currentUT, out double holdUntilUT)
+        {
+            if (ghostParkingConicLineHoldUntilUT.TryGetValue(pid, out holdUntilUT)
+                && !double.IsNaN(holdUntilUT)
+                && currentUT <= holdUntilUT)
+                return true;
+            holdUntilUT = double.NaN;
+            return false;
+        }
+
+        /// <summary>Test-only: clear the parking-conic line-hold stamps.</summary>
+        internal static void ClearParkingConicLineHoldsForTesting()
+        {
+            ghostParkingConicLineHoldUntilUT.Clear();
+        }
+
+        /// <summary>
+        /// Shared flight + TS reseed-site helper for the parking-conic LINE HOLD (Layer B). Resolves the LIVE
+        /// descent-trigger UT for the in-loiter-gap transfer member <paramref name="idx"/> (via
+        /// <see cref="GhostPlaybackLogic.TryResolveLoiterGapHoldTriggerUT"/>, using the SAME cycle the reseed loop
+        /// is on this frame) and STAMPS the per-pid line hold so GhostOrbitLinePatch keeps the full parking
+        /// ellipse drawn through the loiter until that trigger. Call ONLY when the loiter-gap predicate is true
+        /// for <paramref name="idx"/>. Keeps the flight + TS sites byte-identical to each other. Logs via the
+        /// caller-supplied rate-limit key/tag so the flight vs TS lines stay distinguishable.
+        /// </summary>
+        private static void StampParkingConicLineHoldForLoiterGap(
+            int idx, uint ghostPid, double currentUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
+            double recStartUT, double recEndUT,
+            string sceneTag, string logKeyPrefix)
+        {
+            if (ghostPid == 0)
+                return;
+            if (GhostPlaybackLogic.TryResolveLoiterGapHoldTriggerUT(
+                    loopUnits, idx, currentUT, recStartUT, recEndUT, out double triggerUT))
+            {
+                StampParkingConicLineHold(ghostPid, triggerUT);
+                ParsekLog.VerboseRateLimited(sceneTag,
+                    logKeyPrefix + idx,
+                    string.Format(ic,
+                        "{0} parking-conic line hold: member={1} pid={2} currentUT={3:F1} holdUntilUT(triggerUT)={4:F1} "
+                        + "(parking ellipse held visible through loiter until live descent trigger)",
+                        sceneTag, idx, ghostPid, currentUT, triggerUT),
+                    5.0);
+            }
+            else
+            {
+                // Defensive: in the gap but the trigger could not resolve (span clock unresolved this frame).
+                // Drop any prior hold so a stale deadline never lingers; the past-end retire then runs normally.
+                ClearParkingConicLineHold(ghostPid);
+            }
+        }
+
+        /// <summary>
         /// Map from chain PID (OriginalVesselPid) to the ghost Vessel object.
         /// Used for orbit updates, cleanup, and target transfer.
         /// </summary>
@@ -2688,6 +2782,7 @@ namespace Parsek
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
             ghostOrbitEpochShift.Remove(ghostPid);
             ghostIconDrivePropagation.Remove(ghostPid);
+            ghostParkingConicLineHoldUntilUT.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
             lastKnownByChainPid.Remove(chainPid);
@@ -3768,6 +3863,7 @@ namespace Parsek
             boundaryOverlapSecondaryPids.Clear(); // M1
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
+            ghostParkingConicLineHoldUntilUT.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
             activeReFlyDeferredStateVectorGhostSessions.Clear();
@@ -4195,6 +4291,7 @@ namespace Parsek
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
             ghostOrbitEpochShift.Remove(ghostPid);
             ghostIconDrivePropagation.Remove(ghostPid);
+            ghostParkingConicLineHoldUntilUT.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
@@ -7017,18 +7114,19 @@ namespace Parsek
                 // stays available only for a genuine segment gap (no covering segment at effUT).
                 // LOITER-GAP map-presence clamp (re-aim looped LANDING destination loiter), Tracking-Station
                 // mirror of the flight path: the descent-trigger TRANSFER member's recorded loop clock (effUT)
-                // sweeps the shifted parking conic up to conicEnd = RecordedDeorbitUT + CaptureShiftSeconds, then
-                // enters the ~|CaptureShiftSeconds| gap before the recorded deorbit where NO OrbitSegment covers
-                // it (the deorbit tail is a non-orbital body-fixed leg). Unclamped, both the covering-segment
-                // lookup AND GetTrackingStationGhostRemovalReason's internal lookup return null there and the
-                // ghost is removed ("tracking-station-expired") mid-loiter, so the parking conic stops rendering
-                // until the descent fires. HOLD the segment-lookup sample UT at conicEnd inside the gap (for the
+                // sweeps the parking conic up to its end (ParkingConicEndUT = the destination loiter run end =
+                // the deorbit point). PAST that point an UNCLAMPED lookup walks INTO the CONTIGUOUS
+                // deorbit-transition OrbitSegment and draws that deorbit arc as the loiter orbit (the user sees
+                // ~1/3 of an ellipse), then past the deorbit-arc end no segment covers effUT and the ghost is
+                // removed ("tracking-station-expired") mid-loiter, so the parking conic stops rendering until the
+                // descent fires. HOLD the segment-lookup sample UT at ParkingConicEndUT inside the gap (for the
                 // covering-segment query AND the removal-reason query) so both keep returning the real recorded
-                // parking-conic segment and the ghost stays alive on its actual same-body Kepler segment (the icon
-                // keeps circling via its existing live-frame epoch offset). The clamp applies ONLY to these two
+                // PARKING-conic segment and the ghost stays alive on it. The clamp applies ONLY to these two
                 // segment lookups; every other effUT read below (checkpoint, gap-glide, logging, downstream orbit
-                // apply) still uses the live effUT. False (byte-identical) for every non-descent member / non-re-aim
-                // unit and once the descent trigger fires (the transfer member then retires elsewhere).
+                // apply) still uses the live effUT. Layer B then stamps a per-pid line hold so GhostOrbitLinePatch
+                // keeps the FULL parking ellipse drawn until the live descent trigger. False (byte-identical) for
+                // every non-descent member / non-re-aim unit and once the descent trigger fires (the transfer
+                // member then retires elsewhere).
                 double segmentLookupUT = effUT;
                 if (GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(loopUnits, idx, effUT))
                 {
@@ -7036,10 +7134,23 @@ namespace Parsek
                     ParsekLog.VerboseRateLimited(Tag,
                         "ts-loiter-gap-clamp-" + idx,
                         string.Format(ic,
-                            "TS loiter-gap clamp: member={0} effUT={1:F1} held segment-lookup UT at conicEnd={2:F1} "
+                            "TS loiter-gap clamp: member={0} effUT={1:F1} held segment-lookup UT at parkingConicEnd={2:F1} "
                             + "(re-aim descent transfer member in captureShift loiter gap; parking conic kept rendering)",
                             idx, effUT, segmentLookupUT),
                         5.0);
+                    // Layer B: hold the parking-conic LINE visible through the loiter (past the live parking-conic
+                    // bound) until the live descent trigger; GhostOrbitLinePatch consults the stamp.
+                    StampParkingConicLineHoldForLoiterGap(
+                        idx, pid, currentUT, loopUnits,
+                        rec != null ? rec.StartUT : currentUT,
+                        rec != null ? rec.EndUT : currentUT,
+                        "TS", "ts-parking-conic-line-hold-");
+                }
+                else
+                {
+                    // Not in the gap (still on the conic, or the descent fired / loop wrapped): tear down any
+                    // line hold for this ghost so the stamp never lingers into the next phase.
+                    ClearParkingConicLineHold(pid);
                 }
 
                 // Same-body carry: a brief drop between two non-orbit-equivalent segments
@@ -10419,6 +10530,7 @@ namespace Parsek
             boundaryOverlapSecondaryPids.Clear(); // M1
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
+            ClearParkingConicLineHoldsForTesting();
             ResetCoverageSetsForTesting();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
@@ -10493,6 +10605,7 @@ namespace Parsek
             boundaryOverlapSecondaryPids.Clear(); // M1
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
+            ghostParkingConicLineHoldUntilUT.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
             activeReFlyDeferredStateVectorGhostSessions.Clear();
@@ -12900,28 +13013,44 @@ namespace Parsek
                     idx, rec.RecordingId, rec.OrbitSegments, currentUT, loopUnits);
 
                 // LOITER-GAP map-presence clamp (re-aim looped LANDING destination loiter): the descent-trigger
-                // TRANSFER member's recorded loop clock (effUT) sweeps the shifted parking conic up to
-                // conicEnd = RecordedDeorbitUT + CaptureShiftSeconds, then enters the ~|CaptureShiftSeconds| gap
-                // before the recorded deorbit where NO OrbitSegment covers it (the deorbit tail is a non-orbital
-                // body-fixed leg). Unclamped, FindOrbitSegmentOrSameBodyCarry returns null there and the proto is
-                // destroyed mid-loiter ("left-orbit-segments"), so the parking conic stops rendering until the
-                // descent fires. HOLD the segment-lookup sample UT at conicEnd inside the gap so the lookup keeps
-                // returning the real recorded parking-conic segment and the proto stays alive on its actual
-                // same-body Kepler segment (the icon keeps circling via its existing live-frame epoch offset). The
-                // clamp applies ONLY to this segment lookup; every other read below still uses the live effUT.
-                // False (byte-identical) for every non-descent member / non-re-aim unit and once the descent
-                // trigger fires (the transfer member then retires via the live-clock continuation gate).
+                // TRANSFER member's recorded loop clock (effUT) sweeps the parking conic up to its end
+                // (ParkingConicEndUT = the destination loiter run end = the deorbit point). PAST that point an
+                // UNCLAMPED FindOrbitSegmentOrSameBodyCarry walks INTO the CONTIGUOUS deorbit-transition
+                // OrbitSegment and draws that deorbit arc as the loiter orbit (~1/3 of an ellipse), then past the
+                // deorbit-arc end no segment covers effUT and the proto is destroyed ("left-orbit-segments"), so
+                // the parking conic stops rendering until the descent fires. HOLD the segment-lookup sample UT at
+                // ParkingConicEndUT inside the gap so the lookup keeps returning the real recorded PARKING-conic
+                // segment and the proto stays alive on it. The clamp applies ONLY to this segment lookup; every
+                // other read below still uses the live effUT. Layer B then stamps a per-pid line hold so
+                // GhostOrbitLinePatch keeps the FULL parking ellipse drawn until the live descent trigger. False
+                // (byte-identical) for every non-descent member / non-re-aim unit and once the descent trigger
+                // fires (the transfer member then retires via the live-clock continuation gate).
                 double segmentLookupUT = effUT;
+                uint flightGhostPid = vesselsByRecordingIndex.TryGetValue(idx, out Vessel flightGhostVessel)
+                        && flightGhostVessel != null
+                    ? flightGhostVessel.persistentId
+                    : 0u;
                 if (GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(loopUnits, idx, effUT))
                 {
                     segmentLookupUT = GhostPlaybackLogic.ResolveLoiterGapConicEndUT(loopUnits, idx);
                     ParsekLog.VerboseRateLimited("Policy",
                         "flight-loiter-gap-clamp-" + idx,
                         string.Format(CultureInfo.InvariantCulture,
-                            "Flight loiter-gap clamp: member={0} effUT={1:F1} held segment-lookup UT at conicEnd={2:F1} "
+                            "Flight loiter-gap clamp: member={0} effUT={1:F1} held segment-lookup UT at parkingConicEnd={2:F1} "
                             + "(re-aim descent transfer member in captureShift loiter gap; parking conic kept rendering)",
                             idx, effUT, segmentLookupUT),
                         5.0);
+                    // Layer B: hold the parking-conic LINE visible through the loiter (past the live parking-conic
+                    // bound) until the live descent trigger; GhostOrbitLinePatch consults the stamp.
+                    StampParkingConicLineHoldForLoiterGap(
+                        idx, flightGhostPid, currentUT, loopUnits,
+                        rec.StartUT, rec.EndUT, "FLIGHT", "flight-parking-conic-line-hold-");
+                }
+                else if (flightGhostPid != 0)
+                {
+                    // Not in the gap (still on the conic, or the descent fired / loop wrapped): tear down any
+                    // line hold for this ghost so the stamp never lingers into the next phase.
+                    ClearParkingConicLineHold(flightGhostPid);
                 }
 
                 // Same-body carry: while the playback head is inside a body frame, briefly
