@@ -8666,6 +8666,58 @@ namespace Parsek
             return IsTransferMemberDescentContinuation(unit, i, liveUT, memberStartUT, memberEndUT);
         }
 
+        /// <summary>
+        /// OBSERVABILITY (descent render-window tracing): resolves the UNIT-level descent phase
+        /// (Inert / Loiter / Descent / Done) for ANY member <paramref name="i"/> of a descent-trigger unit at
+        /// the LIVE clock <paramref name="liveUT"/>, via the SAME <see cref="DecideUnitMemberRender"/> cycle path
+        /// + <see cref="Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead"/> the resolver / engine use (the
+        /// phase is member-agnostic, so the transfer member and any descent-set member return the same unit
+        /// phase). Returns false (phase = Inert) for a non-descent-trigger unit or an unresolved span clock.
+        /// Used ONLY to gate the per-frame map-scene snapshot dump to the loiter-orbit + descent-to-landing
+        /// windows; never affects rendering. Pure; no Unity (xUnit-testable).
+        /// </summary>
+        internal static bool TryGetDescentUnitRenderPhase(
+            LoopUnit unit, int i, double liveUT, double memberStartUT, double memberEndUT,
+            out Parsek.Reaim.DescentTrigger.DescentHeadPhase phase)
+        {
+            phase = Parsek.Reaim.DescentTrigger.DescentHeadPhase.Inert;
+            if (!unit.HasDescentTrigger)
+                return false;
+
+            memberStartUT = unit.MemberStartUT(i, memberStartUT);
+            memberEndUT = unit.MemberEndUT(i, memberEndUT);
+
+            UnitMemberRenderDecision decision = DecideUnitMemberRender(
+                liveUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                memberStartUT, memberEndUT, out _, out long unitCycle, out _,
+                unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
+                unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
+                unit.RecordedSoiExitUT);
+            if (decision == UnitMemberRenderDecision.SpanClockUnresolved)
+                return false;
+
+            phase = Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead(
+                liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
+                unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
+                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _);
+            return true;
+        }
+
+        /// <summary>
+        /// OBSERVABILITY convenience wrapper resolving the owning unit from <paramref name="units"/>. Returns
+        /// false (phase = Inert) for a null set or a non-member index. See
+        /// <see cref="TryGetDescentUnitRenderPhase(LoopUnit,int,double,double,double,out Parsek.Reaim.DescentTrigger.DescentHeadPhase)"/>.
+        /// </summary>
+        internal static bool TryGetDescentUnitRenderPhase(
+            LoopUnitSet units, int i, double liveUT, double memberStartUT, double memberEndUT,
+            out Parsek.Reaim.DescentTrigger.DescentHeadPhase phase)
+        {
+            phase = Parsek.Reaim.DescentTrigger.DescentHeadPhase.Inert;
+            if (units == null || !units.TryGetUnitForMember(i, out LoopUnit unit))
+                return false;
+            return TryGetDescentUnitRenderPhase(unit, i, liveUT, memberStartUT, memberEndUT, out phase);
+        }
+
         /// <summary>The render outcome for the BOUNDARY-OVERLAP secondary of one member on a given frame.</summary>
         internal enum BoundaryOverlapSecondaryDecision
         {

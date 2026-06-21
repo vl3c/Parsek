@@ -391,6 +391,44 @@ namespace Parsek
             lineIntentByPid.Clear();
             renderIntentByPid.Clear();
             lastMarkerDecisionSignatureByPid.Clear();
+            descentRenderWindowFrame = -1;
+            descentRenderWindowPhase = null;
+            descentRenderWindowRecId = null;
+        }
+
+        // --- Descent render-window flag (per-frame) ----------------------------------------------------
+        // Published by the polyline Driver (Unity context, exec-order -50) for the frame whenever a
+        // descent-trigger unit is in the Loiter (loiter orbit) or Descent (descent-to-landing) phase, and read
+        // by the end-of-frame MapRenderProbe (exec-order 10000, same frame) to gate its per-frame FULL map-object
+        // snapshot to exactly those two windows. Frame-stamped so a stale flag from an earlier frame never
+        // re-triggers the dump. Cleared in Reset() on scene switch.
+        private static int descentRenderWindowFrame = -1;
+        private static string descentRenderWindowPhase;
+        private static string descentRenderWindowRecId;
+
+        /// <summary>Record that a descent-trigger unit is in a render window (Loiter / Descent) on
+        /// <paramref name="frame"/>. Last write per frame wins (the unit phase is identical across members).
+        /// No-op effect on rendering — purely a tracing gate.</summary>
+        internal static void NoteDescentRenderWindow(int frame, string phase, string recordingId)
+        {
+            descentRenderWindowFrame = frame;
+            descentRenderWindowPhase = phase;
+            descentRenderWindowRecId = recordingId;
+        }
+
+        /// <summary>True iff a descent render window was published for <paramref name="frame"/> (this frame),
+        /// returning the phase + the recording id that published it.</summary>
+        internal static bool TryGetDescentRenderWindow(int frame, out string phase, out string recordingId)
+        {
+            if (descentRenderWindowFrame == frame)
+            {
+                phase = descentRenderWindowPhase;
+                recordingId = descentRenderWindowRecId;
+                return true;
+            }
+            phase = null;
+            recordingId = null;
+            return false;
         }
 
         private static int CurrentFrameCount()

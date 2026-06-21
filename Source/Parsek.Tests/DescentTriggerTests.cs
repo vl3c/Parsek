@@ -911,6 +911,56 @@ namespace Parsek.Tests
                 units, 999, tDescent, 27_000_000.0, Deorbit));
         }
 
+        // --- OBSERVABILITY: GhostPlaybackLogic.TryGetDescentUnitRenderPhase (descent render-window tracing) ---
+        //
+        // Reports the unit-level descent phase for ANY member, gating the per-frame map-scene snapshot to the
+        // loiter (Loiter) + descent-to-landing (Descent) windows. Member-agnostic; false / Inert when off.
+
+        [Fact]
+        public void DescentUnitRenderPhase_TransferMember_AllFourPhases()
+        {
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            Assert.True(GhostPlaybackLogic.TryGetDescentUnitRenderPhase(
+                unit, 5, EntryUT(0) - 100.0, 27_000_000.0, Deorbit, out var inert));
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Inert, inert);
+            Assert.True(GhostPlaybackLogic.TryGetDescentUnitRenderPhase(
+                unit, 5, EntryUT(0) + 100.0, 27_000_000.0, Deorbit, out var loiter));
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Loiter, loiter);
+            Assert.True(GhostPlaybackLogic.TryGetDescentUnitRenderPhase(
+                unit, 5, TriggerUT(0) + 400.0, 27_000_000.0, Deorbit, out var descent));
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Descent, descent);
+            Assert.True(GhostPlaybackLogic.TryGetDescentUnitRenderPhase(
+                unit, 5, TriggerUT(0) + (DescentEnd - Deorbit) + 50.0, 27_000_000.0, Deorbit, out var done));
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Done, done);
+        }
+
+        [Fact]
+        public void DescentUnitRenderPhase_IsMemberAgnostic()
+        {
+            // The phase is unit-level: a descent-SET member (49) reports the SAME phase as the transfer member (5).
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            double t = TriggerUT(0) + 400.0; // Descent
+            Assert.True(GhostPlaybackLogic.TryGetDescentUnitRenderPhase(unit, 49, t, W1Start, W1End, out var p49));
+            Assert.True(GhostPlaybackLogic.TryGetDescentUnitRenderPhase(unit, 5, t, 27_000_000.0, Deorbit, out var p5));
+            Assert.Equal(p5, p49);
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Descent, p49);
+        }
+
+        [Fact]
+        public void DescentUnitRenderPhase_TriggerOffNullNonMember_FalseInert()
+        {
+            var off = DescentUnitFor(BuildDescentUnit(engage: false));
+            Assert.False(GhostPlaybackLogic.TryGetDescentUnitRenderPhase(
+                off, 5, TriggerUT(0) + 400.0, 27_000_000.0, Deorbit, out var pOff));
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Inert, pOff);
+
+            var units = BuildDescentUnit(engage: true);
+            Assert.False(GhostPlaybackLogic.TryGetDescentUnitRenderPhase(
+                (GhostPlaybackLogic.LoopUnitSet)null, 5, TriggerUT(0) + 400.0, 27_000_000.0, Deorbit, out _));
+            Assert.False(GhostPlaybackLogic.TryGetDescentUnitRenderPhase(
+                units, 999, TriggerUT(0) + 400.0, 27_000_000.0, Deorbit, out _));
+        }
+
         // --- FLIGHT-engine integration: GhostPlaybackLogic.ResolveDescentMemberEngineRender (Defect 3) ---
         //
         // The engine-side complement of the resolver branch: the same TryResolveDescentMemberHead remap,

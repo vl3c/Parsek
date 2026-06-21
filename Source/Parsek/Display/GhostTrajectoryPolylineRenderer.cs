@@ -442,6 +442,63 @@ namespace Parsek.Display
         internal static int CacheCountForTesting => polylineCache.Count;
 
         /// <summary>
+        /// OBSERVABILITY (descent render-window tracing): emit one line per RENDERED polyline object - every
+        /// cached leg AND forward-arc whose Vectrosity <c>VectorLine</c> is live this frame (active, or drawn
+        /// this frame). These VectorLines are NOT in <see cref="GhostMapPresence.ghostMapVesselPids"/>, so the
+        /// per-pid <see cref="MapRenderProbe"/> never sees them - they are exactly the "rendered but not logged"
+        /// extra trajectory lines the per-frame map-scene snapshot exists to catch. <c>staleActive</c> flags a
+        /// VectorLine still <c>active</c> but NOT drawn this frame (a one-shot Draw3D mesh that the deactivation
+        /// sweep has not yet hidden - a candidate stray line). Walks both static caches; Unity-coupled (reads
+        /// <c>VectorLine.active</c>), so it is driven only from the live probe, never xUnit. Each line is handed
+        /// to <paramref name="emit"/>; the caller owns the surface/prefix.
+        /// </summary>
+        internal static void EmitRenderedPolylineSnapshot(int currentFrame, System.Action<string> emit)
+        {
+            if (emit == null) return;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+
+            foreach (var kv in polylineCache)
+            {
+                LegPolyline[] legs = kv.Value.legs;
+                if (legs == null) continue;
+                for (int l = 0; l < legs.Length; l++)
+                {
+                    LegPolyline leg = legs[l];
+                    bool hasLine = leg.vectorLine != null;
+                    bool active = hasLine && leg.vectorLine.active;
+                    bool drawnThisFrame = leg.lastDrawnFrame == currentFrame;
+                    if (!active && !drawnThisFrame) continue; // not rendered this frame
+                    emit(string.Format(ic,
+                        "polyline-leg rec={0} leg={1}/{2} body={3} ut=[{4}-{5}] active={6} drawnThisFrame={7} "
+                        + "staleActive={8} pts={9} lastDrawnFrame={10}",
+                        kv.Key, l, legs.Length, leg.bodyName ?? "(null)",
+                        leg.startUT.ToString("F1", ic), leg.endUT.ToString("F1", ic),
+                        active, drawnThisFrame, active && !drawnThisFrame, leg.PointCount, leg.lastDrawnFrame));
+                }
+            }
+
+            foreach (var kv in forwardArcCache)
+            {
+                ForwardArc[] arcs = kv.Value.arcs;
+                if (arcs == null) continue;
+                for (int a = 0; a < arcs.Length; a++)
+                {
+                    ForwardArc arc = arcs[a];
+                    bool hasLine = arc.vectorLine != null;
+                    bool active = hasLine && arc.vectorLine.active;
+                    bool drawnThisFrame = arc.lastDrawnFrame == currentFrame;
+                    if (!active && !drawnThisFrame) continue; // not rendered this frame
+                    emit(string.Format(ic,
+                        "forward-arc rec={0} arc={1}/{2} body={3} ut=[{4}-{5}] active={6} drawnThisFrame={7} "
+                        + "staleActive={8} lastDrawnFrame={9}",
+                        kv.Key, a, arcs.Length, arc.bodyName ?? "(null)",
+                        arc.startUT.ToString("F1", ic), arc.endUT.ToString("F1", ic),
+                        active, drawnThisFrame, active && !drawnThisFrame, arc.lastDrawnFrame));
+                }
+            }
+        }
+
+        /// <summary>
         /// One body-coherent contiguous polyline leg covering a non-orbital
         /// phase of the recording. Built ONCE at cache-build time from
         /// either a TrackSection's per-frame sample list (Absolute /
@@ -3422,6 +3479,24 @@ namespace Parsek.Display
                         out bool hasSecondaryHead,
                         out double secondaryHeadUT,
                         out long secondaryHeadCycle);
+
+                    // OBSERVABILITY (mapRenderTracing): publish the descent render WINDOW (Loiter = the loiter
+                    // orbit, Descent = the descent-to-landing) for this frame so the end-of-frame MapRenderProbe
+                    // dumps EVERY rendered map object (orbit lines + polyline legs) during exactly those two
+                    // windows - catching extra / stale trajectory lines the per-pid change-based probe misses.
+                    // Computed before the renderHidden skip so it fires off whichever member renders this phase
+                    // (the transfer member during Loiter, the descent member during Descent). No-op when tracing
+                    // is off or this is not a descent-trigger unit member.
+                    if (MapRenderTrace.IsEnabled
+                        && GhostPlaybackLogic.TryGetDescentUnitRenderPhase(
+                            loopUnits, recordingIndex, currentUT, rec.StartUT, rec.EndUT,
+                            out Parsek.Reaim.DescentTrigger.DescentHeadPhase descentRenderPhase)
+                        && (descentRenderPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Loiter
+                            || descentRenderPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent))
+                    {
+                        MapRenderTrace.NoteDescentRenderWindow(
+                            Time.frameCount, descentRenderPhase.ToString(), rec.RecordingId);
+                    }
                     // PRIMARY-HIDDEN-BUT-SECONDARY-LIVE (launch->escape seam render fix): the primary head can be
                     // hidden (its loopUT is OUTSIDE this member's window - the continuing through-line instance N is
                     // months downstream near the destination, an orbital phase with no in-window non-orbital leg)
