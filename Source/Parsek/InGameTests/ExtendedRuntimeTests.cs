@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Parsek.Display;
 
 namespace Parsek.InGameTests
 {
@@ -2407,5 +2408,70 @@ namespace Parsek.InGameTests
             }
         }
 
+    }
+
+    /// <summary>
+    /// Descent-icon decouple (Unity-coupled wiring of <see cref="GhostTrajectoryPolylineRenderer.ResolveUndrawnLegFallback"/>):
+    /// a NON-conic-anchored body-fixed leg (a descent / atmospheric / surface leg) that was not drawn THIS
+    /// frame must NOT pin the marker to a stale held position - the real <c>TryAnchorMarkerToPolyline</c>
+    /// must DECLINE the hold (return false) so the caller keeps its FRESH body-fixed head, while an ANCHORED
+    /// leg in the same not-drawn state still HOLDS its last on-line position (its drawn line is ~96 deg off
+    /// the body-fixed head, so a body-fixed fallback would jump off the line). The pure decision is
+    /// xUnit-covered (<c>GhostTrajectoryPolylineBuildTests</c>); this drives the real Unity-coupled ride
+    /// (<c>Time.frameCount</c> + the leg cache + the <c>wasAnchored</c> stamp) deterministically via the
+    /// test seam, so it proves the WIRING, not just the formula. Restores the cache on exit.
+    /// </summary>
+    public class MarkerRideFallbackInGameTests
+    {
+        [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
+            Description = "A non-anchored descent leg not drawn this frame declines the stale hold (fresh body-fixed head); an anchored leg holds")]
+        public void NonAnchoredUndrawnLeg_DeclinesStaleHold()
+        {
+            try
+            {
+                int frame = Time.frameCount;
+                int staleFrame = frame - 3;          // leg not drawn this frame -> enters the fallback branch
+                const double start = 1000.0, end = 1100.0, head = 1050.0;
+
+                // A last-good on-line cache that WOULD satisfy TryHoldLastGood (fresh frame, 0 s head delta)
+                // for BOTH ids, so a successful hold proves the GATE chose to hold - not that the cache was
+                // missing.
+                GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                    "ride-nonanchored", new Vector3(7f, 8f, 9f), head, frame, 0);
+                GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                    "ride-anchored", new Vector3(7f, 8f, 9f), head, frame, 0);
+
+                // NON-anchored leg, not drawn this frame: must DECLINE the hold (caller keeps fresh head).
+                GhostTrajectoryPolylineRenderer.SetLegForTesting(
+                    "ride-nonanchored", start, end, wasAnchored: false, lastDrawnFrame: staleFrame);
+                bool nonAnchoredRode = GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                    "ride-nonanchored", head, out _,
+                    out MapRenderTrace.MarkerRideReason nonAnchoredReason, out _);
+
+                // ANCHORED leg, identical not-drawn state: must HOLD its last on-line position.
+                GhostTrajectoryPolylineRenderer.SetLegForTesting(
+                    "ride-anchored", start, end, wasAnchored: true, lastDrawnFrame: staleFrame);
+                bool anchoredRode = GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                    "ride-anchored", head, out _,
+                    out MapRenderTrace.MarkerRideReason anchoredReason, out _);
+
+                ParsekLog.Info("TestRunner",
+                    $"Marker-ride fallback in-game: nonAnchored rode={nonAnchoredRode} reason={nonAnchoredReason}; " +
+                    $"anchored rode={anchoredRode} reason={anchoredReason}");
+
+                InGameAssert.IsFalse(nonAnchoredRode,
+                    "a non-anchored body-fixed leg not drawn this frame must decline the ride so the caller keeps the fresh body-fixed head");
+                InGameAssert.AreEqual(MapRenderTrace.MarkerRideReason.FallbackNonAnchoredUseHead, nonAnchoredReason,
+                    "the declined non-anchored ride must report fallback-non-anchored-use-head");
+                InGameAssert.IsTrue(anchoredRode,
+                    "an anchored leg not drawn this frame must HOLD its last on-line position (non-vacuity: only the anchor state differs)");
+                InGameAssert.AreEqual(MapRenderTrace.MarkerRideReason.HeldLastGood, anchoredReason,
+                    "the anchored hold must report held-last-good");
+            }
+            finally
+            {
+                GhostTrajectoryPolylineRenderer.Clear();
+            }
+        }
     }
 }

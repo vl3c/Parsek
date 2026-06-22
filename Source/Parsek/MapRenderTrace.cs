@@ -245,6 +245,15 @@ namespace Parsek
             /// instead of snapping to the body-fixed head; bounded by frame-age + head-UT delta.
             /// </summary>
             HeldLastGood = 6,
+
+            /// <summary>
+            /// Deliberately declined the ride for a NON-conic-anchored body-fixed leg that was not drawn
+            /// this frame, so the caller keeps its FRESH body-fixed head (which is already on the line for
+            /// such a leg) instead of a &lt;=5 s-stale hold. The descent-icon decouple: the marker no longer
+            /// depends on the polyline leg being redrawn this frame. See
+            /// <see cref="GhostTrajectoryPolylineRenderer.ResolveUndrawnLegFallback"/>.
+            /// </summary>
+            FallbackNonAnchoredUseHead = 7,
         }
 
         internal static string MarkerRideReasonToken(MarkerRideReason reason, int legIndex)
@@ -257,6 +266,7 @@ namespace Parsek
                 case MarkerRideReason.FallbackMissingRecordedUTs: return "fallback-missing-recordedUTs";
                 case MarkerRideReason.FallbackNoCache: return "fallback-no-cache";
                 case MarkerRideReason.HeldLastGood: return "held-last-good-leg" + legIndex.ToString(CultureInfo.InvariantCulture);
+                case MarkerRideReason.FallbackNonAnchoredUseHead: return "fallback-non-anchored-use-head";
                 default: return "not-attempted";
             }
         }
