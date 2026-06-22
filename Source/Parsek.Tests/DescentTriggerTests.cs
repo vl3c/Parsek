@@ -817,6 +817,65 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Resolver_TransferMember_LoiterGap_ClampsHeadToParkingConicEnd()
+        {
+            // The rogue-descent bug: during the Loiter the transfer member's raw loop clock sweeps PAST the
+            // parking-conic end into the recorded deorbit -> descent region, but the LIVE descent has NOT triggered,
+            // so the shared marker / line / polyline head (this resolver) drew a descending icon at the wrong time.
+            // The fix clamps the returned head to ParkingConicEndUT through the loiter (the icon stays on the
+            // parking conic) until the descent hands off.
+            var on = BuildDescentUnit(engage: true);
+            var off = BuildDescentUnit(engage: false);
+
+            // A Loiter-phase liveUT where the transfer member (member 5) still RENDERS (not the descent handoff).
+            // The trigger-OFF resolve takes no descent branch, so it returns the raw loop clock — the unclamped
+            // head the marker would otherwise descend on.
+            double tLoiter = EntryUT(0) + 100.0;
+            double rawHead = Resolve(5, 27_000_000.0, Deorbit, tLoiter, off, out bool hOff);
+            Assert.False(hOff);
+            Assert.True(rawHead > ParkingConicEnd,
+                $"setup: the loop clock must be past the parking-conic end here (rawHead={rawHead}, parkingEnd={ParkingConicEnd})");
+
+            // Trigger ON: the head is clamped to the parking-conic end (no rogue descent), and the member still
+            // renders (it carries the parking-conic icon through the loiter).
+            double clampedHead = Resolve(5, 27_000_000.0, Deorbit, tLoiter, on, out bool hOn);
+            Assert.False(hOn, "the transfer member still renders during the loiter hold");
+            Assert.Equal(ParkingConicEnd, clampedHead, 3);
+
+            // Once the descent PLAYS the hand-off (transferUnitPhase == Descent) still wins — the clamp is placed
+            // AFTER the hideForDescentHandoff check, so it never keeps the transfer member visible during the descent.
+            double tDescent = TriggerUT(0) + 400.0;
+            Resolve(5, 27_000_000.0, Deorbit, tDescent, on, out bool hDescent);
+            Assert.True(hDescent, "the descent hand-off (hidden) still takes precedence over the loiter-gap clamp");
+        }
+
+        [Fact]
+        public void ClampTransferMemberHeadToLoiterGap_OnlyTransferMemberPastParkingEnd()
+        {
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));   // TransferMemberIndex = 5
+            // Transfer member (5), head PAST the parking-conic end -> clamped to ParkingConicEnd.
+            Assert.Equal(ParkingConicEnd,
+                GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 5, ParkingConicEnd + 1000.0), 3);
+            // Transfer member (5), head AT/BEFORE the parking-conic end -> unchanged (icon still on the conic).
+            Assert.Equal(ParkingConicEnd - 1000.0,
+                GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 5, ParkingConicEnd - 1000.0), 3);
+            Assert.Equal(ParkingConicEnd,
+                GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 5, ParkingConicEnd), 3);
+            // Owner (0) and the unshifted-frame ride-along (7): NEVER clamped, even past the boundary.
+            Assert.Equal(ParkingConicEnd + 1000.0,
+                GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 0, ParkingConicEnd + 1000.0), 3);
+            Assert.Equal(ParkingConicEnd + 1000.0,
+                GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 7, ParkingConicEnd + 1000.0), 3);
+            // Descent-set member (49): never the transfer member -> unchanged.
+            Assert.Equal(ParkingConicEnd + 1000.0,
+                GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 49, ParkingConicEnd + 1000.0), 3);
+            // Trigger OFF (no descent trigger) -> byte-identical, never clamps.
+            var off = DescentUnitFor(BuildDescentUnit(engage: false));
+            Assert.Equal(ParkingConicEnd + 1000.0,
+                GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(off, 5, ParkingConicEnd + 1000.0), 3);
+        }
+
+        [Fact]
         public void Resolver_DescentMember_ReArmsAtCycle1()
         {
             var units = BuildDescentUnit(engage: true);

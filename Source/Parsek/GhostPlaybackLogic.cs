@@ -8501,6 +8501,24 @@ namespace Parsek
                     return liveUT;
                 }
 
+                // Loiter-gap HEAD clamp (the rogue-descent fix): once the recorded loop clock sweeps PAST the
+                // parking-conic end, the raw loopUT return below would put this shared marker / line / polyline
+                // head in the recorded deorbit -> descent region - but the LIVE descent has NOT triggered (the unit
+                // phase is Inert / Loiter, the trigger is ~|captureShift| later), so the ghost renders a descending
+                // icon at the wrong time (the user's "rogue descending trajectory, only icon, no line"). Hold the
+                // head at the parking-conic end so every surface using this resolver stays on the parking conic
+                // through the loiter, matching the map-presence segment-lookup clamp + the orbit-line hold. Gated on
+                // the destination transfer member (IsDescentTransferMemberInLoiterGap checks i == TransferMemberIndex
+                // && loopUT > ParkingConicEndUT) and placed BEFORE C1 so the hold wins over the deorbit-arc ride
+                // past the parking end. Byte-identical-off for the owner / ride-alongs / descent set / non-re-aim
+                // units. (Step 1 freezes the head at the deorbit point; circling the parking conic through the wait
+                // is the separate step-2 change.)
+                if (IsDescentTransferMemberInLoiterGap(unit, i, loopUT))
+                {
+                    renderHidden = false;
+                    return unit.ParkingConicEndUT;
+                }
+
                 // C1 (icon rides the deorbit arc, FIRST ITERATION): during the LAST parking-orbit-period of the
                 // Loiter (the deorbit transition), the transfer member's icon RIDES the re-anchored I1 deorbit
                 // head instead of circling the parking conic - so it descends the recorded deorbit tail from the
@@ -8892,6 +8910,22 @@ namespace Parsek
                 return false;
             return IsDescentTransferMemberInLoiterGap(unit, i, loopUT);
         }
+
+        /// <summary>
+        /// Loiter-gap HEAD clamp (the rogue-descent fix): for the destination transfer member
+        /// (<see cref="LoopUnit.TransferMemberIndex"/>) of a re-aim descent-trigger unit, once the recorded loop
+        /// clock <paramref name="head"/> has swept PAST the parking-conic end
+        /// (<see cref="IsDescentTransferMemberInLoiterGap(LoopUnit,int,double)"/>), return
+        /// <see cref="LoopUnit.ParkingConicEndUT"/> so every head-driven render surface (the FLIGHT engine ghost +
+        /// its projected map mesh, the map marker / line / polyline) stays on the parking conic through the loiter
+        /// hold instead of playing the recorded deorbit -&gt; descent at the wrong time (the LIVE descent has not
+        /// triggered yet). Returns <paramref name="head"/> unchanged for every other member / phase / non-re-aim
+        /// unit (byte-identical-off). Pure; no Unity (xUnit-testable). The map/TS resolver
+        /// (<see cref="ResolveTrackingStationSampleUT"/>) applies the same clamp inline (it needs the
+        /// <c>renderHidden</c> out-param too); this wrapper is the one-liner the FLIGHT engine drive-clock site uses.
+        /// </summary>
+        internal static double ClampTransferMemberHeadToLoiterGap(LoopUnit unit, int i, double head)
+            => IsDescentTransferMemberInLoiterGap(unit, i, head) ? unit.ParkingConicEndUT : head;
 
         /// <summary>
         /// LOITER-GAP clamp value: returns the SHIFTED <see cref="LoopUnit.ParkingConicEndUT"/> (the destination
