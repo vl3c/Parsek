@@ -268,11 +268,18 @@ namespace Parsek
             double descentRotationPeriod = double.NaN;
             double descentLoiterPeriod = double.NaN;
             double descentCaptureShift = double.NaN;
-            // The transfer member's PARKING-conic end (= the destination loiter run end = the deorbit point =
-            // the start of the first deorbit-transition segment). The map-presence segment-lookup clamp
-            // boundary, distinct from descentRecordedDeorbitUT (the LAST target-body segment end / descent
-            // re-anchor). NaN keeps every non-descent unit byte-identical.
+            // The transfer member's SHIFTED PARKING-conic end (= the destination loiter run end + captureShift =
+            // the deorbit point = the start of the first deorbit-transition segment, in the re-aimed display
+            // frame). The map-presence segment-lookup clamp boundary, in the SAME frame as conicEnd and the
+            // effective-segment lookup effUT, distinct from descentRecordedDeorbitUT (the LAST target-body segment
+            // end / descent re-anchor). NaN keeps every non-descent unit byte-identical.
             double descentParkingConicEndUT = double.NaN;
+            // The committed index of the member whose OWN segments classified Supported = the DESTINATION transfer
+            // member (the one that loiters at the target and owns descentRun / seamUT). The loiter-gap predicate +
+            // line-hold gate EXACTLY on this member so a ride-along (e.g. a launch-body-orbit probe in a
+            // DIFFERENT/unshifted frame) never fires the clamp. -1 until the supported plan is captured; stays -1
+            // on every non-re-aim / declined unit (keeping the predicate byte-identical-off).
+            int transferMemberIndex = -1;
             if (bodyInfo != null)
             {
                 ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
@@ -415,6 +422,11 @@ namespace Parsek
                         {
                             plan = mp;
                             transferSegments = msegs;
+                            // The destination transfer member's committed index: the member whose OWN segments
+                            // classified Supported. This is the canonical transfer-member identity - the SAME
+                            // member that drives transferSegments / loiterRuns / descentRun / seamUT below - so
+                            // the loiter-gap clamp can gate on it exactly (excluding the ride-along probe).
+                            transferMemberIndex = midx;
                             // keep scanning only to finish the gatheredCount tally for the diagnostic
                         }
                     }
@@ -820,23 +832,46 @@ namespace Parsek
                                 descentRotationPeriod = descTrot;
                                 descentLoiterPeriod = descentRun.PeriodSeconds;
                                 descentCaptureShift = descCaptureShift;
-                                // PARKING-conic end (Layer A of the loiter-gap render fix): the destination
-                                // loiter run's recorded end. A loiter run (ReaimLoiterCompressor.DetectRuns)
+                                // PARKING-conic end (Layer A of the loiter-gap render fix): the SHIFTED
+                                // destination loiter run end. A loiter run (ReaimLoiterCompressor.DetectRuns)
                                 // ends at the first > 5% sma step, so descentRun.EndUT is the parking conic's
                                 // last sample = the deorbit point = the start of the first deorbit-transition
-                                // OrbitSegment. This is the segment-lookup clamp boundary the map-presence path
-                                // holds the loiter on, distinct from descentRecordedDeorbitUT = seamUT (the LAST
-                                // target-body segment end, where the deorbit-transition conics finish - too late,
-                                // it lets the deorbit arc leak as the loiter orbit). descentRun is already a
-                                // shifted transfer-member parking segment end, so it is in the transfer member's
-                                // RECORDED frame (compared with effUT/loopUT with NO captureShift adjustment).
-                                descentParkingConicEndUT = descentRun.EndUT;
+                                // OrbitSegment - but descentRun comes from the transfer member's RAW recorded
+                                // segments, so descentRun.EndUT is in the UNSHIFTED recorded frame. The
+                                // map-presence segment lookup runs against the RE-AIMED (captureShift-SHIFTED)
+                                // effective segments at the loop-shifted sample UT, so the clamp boundary MUST be
+                                // in the SHIFTED frame too: descentRun.EndUT + descCaptureShift. This is the SAME
+                                // frame as conicEnd (= seamUT + descCaptureShift, the deorbit-arc end) and the
+                                // same frame the effective-segment lookup effUT runs in; it lands on the SHIFTED
+                                // parking-conic end (one segment EARLIER than conicEnd's deorbit-arc end), so the
+                                // deorbit arc no longer leaks as the loiter orbit. Distinct from
+                                // descentRecordedDeorbitUT = seamUT (the LAST target-body segment end, where the
+                                // deorbit-transition conics finish - too late). descCaptureShift is the
+                                // build-time captureShift (= descentCaptureShift above), so the shift sign/magnitude
+                                // matches conicEnd exactly.
+                                descentParkingConicEndUT = descentRun.EndUT + descCaptureShift;
+                                // Frame-mismatch guard (the invariant behind two failed loiter fixes): the
+                                // parking-conic end and conicEnd are BOTH in the shifted frame, and the parking
+                                // conic must end BEFORE the deorbit-arc end (parkingConicEnd < conicEnd). If a
+                                // future edit drops the captureShift from parkingConicEnd it lands in the unshifted
+                                // ~2570 frame and EXCEEDS the shifted conicEnd, which this catches. Warn-only; it
+                                // can only fire on a genuine frame regression (would have caught commit 0ba10f594).
+                                if (!double.IsNaN(descentParkingConicEndUT) && !double.IsNaN(conicEndRecorded)
+                                    && descentParkingConicEndUT >= conicEndRecorded)
+                                {
+                                    ParsekLog.Warn("ReaimDescent", string.Format(CultureInfo.InvariantCulture,
+                                        "MissionLoopUnit: mission='{0}' parking-conic-end FRAME MISMATCH: "
+                                        + "parkingConicEnd={1:R} >= conicEnd={2:R} (must be EARLIER, in the same "
+                                        + "shifted frame; likely a missing captureShift on parkingConicEnd).",
+                                        mission.Name, descentParkingConicEndUT, conicEndRecorded));
+                                }
                                 if (!SuppressLogging)
                                 {
                                     var dic = CultureInfo.InvariantCulture;
                                     ParsekLog.Info("ReaimDescent",
                                         $"MissionLoopUnit: mission='{mission.Name}' DESCENT TRIGGER engaged " +
                                         $"dest={plan.TargetBody} members=[{string.Join(",", descentSet)}] " +
+                                        $"transferMember={transferMemberIndex.ToString(dic)} " +
                                         $"deorbit(seam)={descentRecordedDeorbitUT.ToString("R", dic)} " +
                                         $"setMinStart={descentSetMinStartUT.ToString("R", dic)} " +
                                         $"descentEnd={descentEndUT.ToString("R", dic)} " +
@@ -906,7 +941,7 @@ namespace Parsek
                 launchHoldRotationPeriod, launchHoldEngaged, launchHoldSoiExitUT,
                 descentMemberIndices, descentRecordedDeorbitUT, descentEndUT,
                 descentRotationPeriod, descentLoiterPeriod, descentCaptureShift,
-                descentParkingConicEndUT);
+                descentParkingConicEndUT, transferMemberIndex);
 
             if (!SuppressLogging)
             {

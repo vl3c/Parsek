@@ -149,6 +149,11 @@ namespace Parsek.Tests
         // OldLoiterGapConicEnd = Deorbit + CapShift = 27_140_000 (and above the loiter-entry region), so the new
         // clamp fires EARLIER than the old one and the leak window (ParkingConicEnd, OldConicEnd] is non-empty.
         private const double ParkingConicEnd = 27_100_000.0;
+        // The descentRun.EndUT analogue in the UNSHIFTED RECORDED frame: the builder computes
+        // ParkingConicEndUT = descentRun.EndUT + captureShift, so descentRun.EndUT = ParkingConicEnd - CapShift.
+        // A ride-along member whose loop clock is in the unshifted frame would cross THIS value (not the shifted
+        // ParkingConicEnd) - the exact member-40 failure where the old "any non-descent member" gate wrongly fired.
+        private const double RECORDED_PARKING_END = ParkingConicEnd - CapShift; // 27_100_000 - (-2_860_000) = 29_960_000
 
         private static DescentTrigger.DescentHeadPhase MemberHead(double currentUT, long n, out double head)
             => DescentTrigger.ComputeDescentMemberHead(
@@ -682,10 +687,16 @@ namespace Parsek.Tests
             var windows = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>
             {
                 { 0, new GhostPlaybackLogic.LoopUnit.MemberWindow(0.0, 500.0) },        // owner (non-descent, span start)
-                // Transfer/loiter member (non-descent): its window covers the shifted-parking region the icon rides
-                // during the loiter (conicEnd = Deorbit + CapShift = 27,140,000 .. the seam Deorbit), so it RENDERS
-                // both while loitering AND while the descent plays — the double-icon the handoff hide must resolve.
+                // Transfer/loiter member (the DESTINATION transfer member = TransferMemberIndex 5): its window
+                // covers the shifted-parking region the icon rides during the loiter (conicEnd = Deorbit + CapShift
+                // = 27,140,000 .. the seam Deorbit), so it RENDERS both while loitering AND while the descent plays
+                // — the double-icon the handoff hide must resolve. Its loop clock runs in the SHIFTED ~27M frame.
                 { 5, new GhostPlaybackLogic.LoopUnit.MemberWindow(27_000_000.0, Deorbit) },
+                // Ride-along member 7 (the Kerbin-probe analogue of the log's member 40): a NON-descent, NON-transfer
+                // member whose loop clock runs in a DIFFERENT, UNSHIFTED frame. It has no shifted destination parking
+                // conic and must NEVER be loiter-gap-clamped. Its window straddles the UNSHIFTED recorded parking end
+                // (RECORDED_PARKING_END = ParkingConicEnd - CapShift) so a test can drive it past that unshifted UT.
+                { 7, new GhostPlaybackLogic.LoopUnit.MemberWindow(RECORDED_PARKING_END - 5_000_000.0, RECORDED_PARKING_END + 5_000_000.0) },
                 { 49, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1Start, overlapDescentWindows ? W3End : W1End) },
                 { 50, new GhostPlaybackLogic.LoopUnit.MemberWindow(overlapDescentWindows ? W1Start : W1End, overlapDescentWindows ? W3End : W2End) },
                 { 51, new GhostPlaybackLogic.LoopUnit.MemberWindow(overlapDescentWindows ? W1Start : W2End, W3End) },
@@ -693,7 +704,7 @@ namespace Parsek.Tests
             var plan = new Parsek.Reaim.ReaimMissionPlan { Supported = true };
             var sched = new Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule { Valid = true };
             var unit = new GhostPlaybackLogic.LoopUnit(
-                0, new[] { 0, 5, 49, 50, 51 }, SpanStart, DescentEnd, Cad, Pa, Cad, windows, null, plan, sched,
+                0, new[] { 0, 5, 7, 49, 50, 51 }, SpanStart, DescentEnd, Cad, Pa, Cad, windows, null, plan, sched,
                 loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
                 arrivalAlignPeriodSeconds: double.NaN, arrivalAmberReason: null,
                 launchBodyRotationPeriodSeconds: double.NaN, launchHoldEngaged: false,
@@ -704,14 +715,18 @@ namespace Parsek.Tests
                 destinationBodyRotationPeriodSeconds: engage ? DunaTrot : double.NaN,
                 loiterPeriodSeconds: engage ? Tpark : double.NaN,
                 captureShiftSeconds: engage ? CapShift : double.NaN,
-                // PARKING-conic end (seg-5 end): EARLIER than the OLD boundary conicEnd (= Deorbit+CapShift =
-                // 27_140_000) and far below Deorbit (30_000_000, the LAST target-body segment end). Models the
-                // confirmed recording's seg-5-end (parking conic) < seg-6-end (deorbit arc) geometry, so the gap
-                // predicate now fires at the parking-conic end (earlier) where the OLD conicEnd never did.
-                parkingConicEndUT: engage ? ParkingConicEnd : double.NaN);
+                // SHIFTED PARKING-conic end (seg-5 end + captureShift): EARLIER than the OLD boundary conicEnd (=
+                // Deorbit+CapShift = 27_140_000) and far below Deorbit (30_000_000, the LAST target-body segment
+                // end). Models the confirmed recording's seg-5-end (parking conic) < seg-6-end (deorbit arc)
+                // geometry, so the gap predicate now fires at the parking-conic end (earlier) where the OLD conicEnd
+                // never did. It is in the SHIFTED frame, matching member 5's shifted loop clock.
+                parkingConicEndUT: engage ? ParkingConicEnd : double.NaN,
+                // The destination transfer member = member 5 (the one whose shifted parking conic exists). -1 when
+                // the descent trigger is not engaged, so the loiter-gap clamp is byte-identical-off.
+                transferMemberIndex: engage ? 5 : -1);
             return new GhostPlaybackLogic.LoopUnitSet(
                 new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
-                new Dictionary<int, int> { { 0, 0 }, { 5, 0 }, { 49, 0 }, { 50, 0 }, { 51, 0 } });
+                new Dictionary<int, int> { { 0, 0 }, { 5, 0 }, { 7, 0 }, { 49, 0 }, { 50, 0 }, { 51, 0 } });
         }
 
         private static double Resolve(int i, double wStart, double wEnd, double liveUT, GhostPlaybackLogic.LoopUnitSet units, out bool hidden)
@@ -903,6 +918,43 @@ namespace Parsek.Tests
             foreach (double t in new[] { EntryUT(0) - 100.0, EntryUT(0) + 100.0, TriggerUT(0) + 400.0,
                 TriggerUT(0) + (DescentEnd - Deorbit) + 50.0 })
                 Assert.False(GhostPlaybackLogic.IsTransferMemberDescentContinuation(unit, 49, t, W1Start, W1End));
+        }
+
+        [Fact]
+        public void TransferMemberDescentContinuation_OwnerMember_AlwaysFalse()
+        {
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            // The owner / tree root (member 0) is NOT the destination transfer member (TransferMemberIndex == 5):
+            // its recorded journey does not end at the shifted parking deorbit point, so it has no sub-surface
+            // EndpointTail to retire. The OLD "any non-descent member" gate wrongly returned true for it during
+            // Descent/Done; the narrowed exact-index gate leaves it untouched in every phase.
+            foreach (double t in new[] { EntryUT(0) - 100.0, EntryUT(0) + 100.0, TriggerUT(0) + 400.0,
+                TriggerUT(0) + (DescentEnd - Deorbit) + 50.0 })
+                Assert.False(GhostPlaybackLogic.IsTransferMemberDescentContinuation(unit, 0, t, 0.0, 500.0));
+        }
+
+        // === RIDE-ALONG REGRESSION PIN (the member-40 "Kerbal X Probe" bug): a re-aim looped landing unit can
+        // carry a NON-descent ride-along member in a DIFFERENT/unshifted frame (member 7 here = the log's member
+        // 40, a Kerbin-orbit probe). It never arrived at the destination and has no shifted parking conic, so its
+        // orbit ghost must KEEP rendering through the descent. The OLD phase-based "any non-descent member" gate
+        // retired it during Descent/Done (member-agnostic phase); the narrowed TransferMemberIndex gate must NOT.
+        [Fact]
+        public void TransferMemberDescentContinuation_RideAlongUnshiftedMember_NeverRetired()
+        {
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            double tDescent = TriggerUT(0) + 400.0;                          // Descent phase
+            double tDone = TriggerUT(0) + (DescentEnd - Deorbit) + 50.0;     // Done phase
+
+            // The ride-along (member 7) is NEVER retired - not in Descent, not in Done, not in any phase. This is
+            // the exact window where the old broad gate wrongly blanked the Kerbin probe's orbit ghost.
+            foreach (double t in new[] { EntryUT(0) - 100.0, EntryUT(0) + 100.0, tDescent, tDone })
+                Assert.False(GhostPlaybackLogic.IsTransferMemberDescentContinuation(
+                    unit, 7, t, RECORDED_PARKING_END - 5_000_000.0, RECORDED_PARKING_END + 5_000_000.0));
+
+            // CONTRAST: in the very same Descent/Done frames the ACTUAL destination transfer member (member 5 ==
+            // TransferMemberIndex) IS retired - so the narrowing did not weaken the original sub-surface-tail fix.
+            Assert.True(GhostPlaybackLogic.IsTransferMemberDescentContinuation(unit, 5, tDescent, 27_000_000.0, Deorbit));
+            Assert.True(GhostPlaybackLogic.IsTransferMemberDescentContinuation(unit, 5, tDone, 27_000_000.0, Deorbit));
         }
 
         [Fact]
@@ -1343,12 +1395,16 @@ namespace Parsek.Tests
         public void LoiterGap_TransferMemberPastParkingConicEnd_True()
         {
             var units = BuildDescentUnit(engage: true);
-            // Member 5 is the non-descent transfer member; a recorded loop clock past the PARKING-conic end is the gap.
+            // Member 5 is the DESTINATION transfer member (TransferMemberIndex); a shifted loop clock past the
+            // SHIFTED PARKING-conic end is the gap.
             Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, ParkingConicEnd + 1000.0));
-            // The owner member 0 is also a non-descent member, so it is equally in-gap past the parking-conic end.
-            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 0, ParkingConicEnd + 1000.0));
-            // The clamp value resolves to the PARKING-conic end (not conicEnd).
+            // The owner member 0 is NOT the transfer member, so under the narrowed scope it must NOT fire even past
+            // the parking-conic end (the old "any non-descent member" gate wrongly fired here).
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 0, ParkingConicEnd + 1000.0));
+            // The clamp value resolves to the SHIFTED PARKING-conic end (not conicEnd) for the transfer member,
+            // and NaN for the owner.
             Assert.Equal(ParkingConicEnd, GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 5), 3);
+            Assert.True(double.IsNaN(GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 0)));
         }
 
         [Fact]
@@ -1379,6 +1435,53 @@ namespace Parsek.Tests
             Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, midLeak));
             // Exactly at the old conicEnd boundary it is also TRUE now (the old strict test returned false there).
             Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, OldLoiterGapConicEnd));
+        }
+
+        // === FRAME-MISMATCH REGRESSION (the 0ba10f594 bug): ParkingConicEndUT must be the SHIFTED parking-conic
+        // end (descentRun.EndUT + captureShift), and the clamp must fire for the transfer member (shifted clock)
+        // while NEVER firing for a ride-along member in the unshifted recorded frame. ===
+
+        // The SHIFTED ParkingConicEndUT relationship the builder must produce: ParkingConicEnd ==
+        // RECORDED_PARKING_END + CapShift, i.e. descentRun.EndUT + captureShift. Pins the +captureShift fix
+        // (the broken commit set ParkingConicEndUT = descentRun.EndUT, i.e. the UNSHIFTED RECORDED_PARKING_END).
+        [Fact]
+        public void LoiterGap_ParkingConicEndIsShifted_DescentRunEndPlusCaptureShift()
+        {
+            // Arithmetic identity mirroring MissionLoopUnitBuilder: descentParkingConicEndUT = descentRun.EndUT +
+            // descCaptureShift. RECORDED_PARKING_END models descentRun.EndUT (recorded frame); CapShift is the
+            // captureShift; ParkingConicEnd is the value the predicate compares (shifted frame).
+            Assert.Equal(ParkingConicEnd, RECORDED_PARKING_END + CapShift, 3);
+            // It must NOT equal the broken (unshifted) value descentRun.EndUT.
+            Assert.NotEqual(RECORDED_PARKING_END, ParkingConicEnd);
+            // And the unit actually carries the SHIFTED value (the clamp resolves it).
+            var units = BuildDescentUnit(engage: true);
+            Assert.Equal(ParkingConicEnd, GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 5), 3);
+        }
+
+        // The transfer member's loop clock runs in the SHIFTED frame; the clamp FIRES once that shifted clock
+        // passes the SHIFTED ParkingConicEnd.
+        [Fact]
+        public void LoiterGap_TransferMemberInShiftedFrame_FiresAtShiftedParkingEnd()
+        {
+            var units = BuildDescentUnit(engage: true);
+            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, ParkingConicEnd + 1000.0));
+            Assert.Equal(ParkingConicEnd, GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 5), 3);
+        }
+
+        // The ride-along member 7 (the Kerbin-probe analogue of the log's member 40) runs in a DIFFERENT, UNSHIFTED
+        // frame. The clamp must NEVER fire for it - neither past the shifted ParkingConicEnd NOR past the unshifted
+        // RECORDED_PARKING_END (the exact member-40 failure: effUT=2570541362 > the unshifted 2570541341 wrongly
+        // fired the old "any non-descent member" gate). This is the regression pin the old tests missed.
+        [Fact]
+        public void LoiterGap_RideAlongUnshiftedMember_NeverFires()
+        {
+            var units = BuildDescentUnit(engage: true);
+            // Past the SHIFTED parking end: not the transfer member -> false.
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 7, ParkingConicEnd + 1000.0));
+            // Past the UNSHIFTED recorded parking end (the exact member-40 wrong-firing UT) -> still false.
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 7, RECORDED_PARKING_END + 1000.0));
+            // The clamp value resolves to NaN for the ride-along (it is never clamped).
+            Assert.True(double.IsNaN(GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 7)));
         }
 
         [Fact]
@@ -1465,6 +1568,21 @@ namespace Parsek.Tests
             Assert.True(GhostPlaybackLogic.TryResolveLoiterGapHoldTriggerUT(
                 units, 5, live, 27_000_000.0, Deorbit, out double triggerUT));
             Assert.Equal(TriggerUT(0), triggerUT, 3);
+        }
+
+        // The line-hold gate is narrowed to the destination transfer member: the OWNER (0) and the ride-along (7)
+        // must NOT get a line hold even though they are non-descent members (the old gate would have passed them).
+        [Fact]
+        public void HoldTrigger_OwnerAndRideAlong_False()
+        {
+            var units = BuildDescentUnit(engage: true);
+            double live = EntryUT(0) + 0.5 * Tpark;
+            Assert.False(GhostPlaybackLogic.TryResolveLoiterGapHoldTriggerUT(
+                units, 0, live, 0.0, 500.0, out double tOwner));
+            Assert.True(double.IsNaN(tOwner));
+            Assert.False(GhostPlaybackLogic.TryResolveLoiterGapHoldTriggerUT(
+                units, 7, live, RECORDED_PARKING_END - 5_000_000.0, RECORDED_PARKING_END + 5_000_000.0, out double tRide));
+            Assert.True(double.IsNaN(tRide));
         }
 
         [Fact]
@@ -1555,6 +1673,7 @@ namespace Parsek.Tests
             {
                 { 0, new GhostPlaybackLogic.LoopUnit.MemberWindow(0.0, 500.0) },
                 { 5, new GhostPlaybackLogic.LoopUnit.MemberWindow(27_000_000.0, Deorbit) },
+                { 7, new GhostPlaybackLogic.LoopUnit.MemberWindow(RECORDED_PARKING_END - 5_000_000.0, RECORDED_PARKING_END + 5_000_000.0) },
                 { 49, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1Start, W1End) },
                 { 50, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1End, W2End) },
                 { 51, new GhostPlaybackLogic.LoopUnit.MemberWindow(W2End, W3End) },
@@ -1562,7 +1681,7 @@ namespace Parsek.Tests
             var plan = new Parsek.Reaim.ReaimMissionPlan { Supported = true };
             var sched = new Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule { Valid = true };
             var unit = new GhostPlaybackLogic.LoopUnit(
-                0, new[] { 0, 5, 49, 50, 51 }, SpanStart, DescentEnd, Cad, Pa, Cad, windows, null, plan, sched,
+                0, new[] { 0, 5, 7, 49, 50, 51 }, SpanStart, DescentEnd, Cad, Pa, Cad, windows, null, plan, sched,
                 loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
                 arrivalAlignPeriodSeconds: double.NaN, arrivalAmberReason: null,
                 launchBodyRotationPeriodSeconds: double.NaN, launchHoldEngaged: false,
@@ -1573,10 +1692,11 @@ namespace Parsek.Tests
                 destinationBodyRotationPeriodSeconds: DunaTrot,
                 loiterPeriodSeconds: Tpark,
                 captureShiftSeconds: CapShift,
-                parkingConicEndUT: parkingConicEndUT);
+                parkingConicEndUT: parkingConicEndUT,
+                transferMemberIndex: 5);
             return new GhostPlaybackLogic.LoopUnitSet(
                 new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
-                new Dictionary<int, int> { { 0, 0 }, { 5, 0 }, { 49, 0 }, { 50, 0 }, { 51, 0 } });
+                new Dictionary<int, int> { { 0, 0 }, { 5, 0 }, { 7, 0 }, { 49, 0 }, { 50, 0 }, { 51, 0 } });
         }
     }
 }

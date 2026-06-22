@@ -6736,10 +6736,12 @@ namespace Parsek
                     // map ghost to be created alongside any persisted real terminal vessel.
                     loopMemberInWindow: (currentUT - effUT) != 0.0,
                     liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember,
-                    // COSMETIC fix: retire the descent-trigger transfer member's ghost once the shared descent
-                    // has handed off / landed (phase Descent/Done, at the LIVE currentUT - NOT effUT) so it does
-                    // not synthesize the sub-surface endpoint-tail looping ghost. False (byte-identical) for
-                    // every non-descent member / non-re-aim unit and in Inert/Loiter (loiter conic preserved).
+                    // COSMETIC fix: retire ONLY the descent-trigger DESTINATION transfer member's ghost
+                    // (TransferMemberIndex) once the shared descent has handed off / landed (phase Descent/Done, at
+                    // the LIVE currentUT - NOT effUT) so it does not synthesize the sub-surface endpoint-tail
+                    // looping ghost. False (byte-identical) for the owner, every ride-along in a different/unshifted
+                    // frame (e.g. a launch-body-orbit probe - it must keep rendering), every descent-set member,
+                    // and any non-re-aim unit, plus Inert/Loiter (loiter conic preserved).
                     transferMemberDescentContinuation:
                         GhostPlaybackLogic.IsTransferMemberDescentContinuation(
                             loopUnits, i, currentUT, rec.StartUT, rec.EndUT));
@@ -9725,9 +9727,11 @@ namespace Parsek
                     // to be created alongside any persisted real terminal vessel, matching the lifecycle pass.
                     loopMemberInWindow: (currentUT - effUT) != 0.0,
                     liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember,
-                    // COSMETIC fix: retire the descent-trigger transfer member's ghost once the shared descent
-                    // has handed off / landed (phase Descent/Done at the LIVE currentUT) so the one-shot startup
-                    // create never seeds the sub-surface endpoint-tail looping ghost. Byte-identical off / pre-seam.
+                    // COSMETIC fix: retire ONLY the descent-trigger DESTINATION transfer member's ghost
+                    // (TransferMemberIndex) once the shared descent has handed off / landed (phase Descent/Done at
+                    // the LIVE currentUT) so the one-shot startup create never seeds the sub-surface endpoint-tail
+                    // looping ghost. Byte-identical off for the owner / ride-alongs (different/unshifted frame) /
+                    // descent-set members / non-re-aim unit, and pre-seam.
                     transferMemberDescentContinuation:
                         GhostPlaybackLogic.IsTransferMemberDescentContinuation(
                             loopUnits, i, currentUT, rec.StartUT, rec.EndUT));
