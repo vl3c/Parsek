@@ -871,6 +871,25 @@ namespace Parsek.Tests
                 offUnit, 5, EntryUT(0) + 100.0, 27_000_000.0, Deorbit, out _, out _, out _));
         }
 
+        // Ride-along (member 7, the member-40 Kerbin-probe analogue in an unshifted frame) and the owner (member 0)
+        // are NOT the destination transfer member, so they carry NO deorbit tail - even at the loiter frame where
+        // the transfer member (5) does. The old "any non-descent member" gate wrongly handed them a shifted
+        // deorbit-tail head; the TransferMemberIndex gate excludes them.
+        [Fact]
+        public void TransferDeorbitHeadForMember_OwnerAndRideAlong_ReturnFalse()
+        {
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            double tLoiter = EntryUT(0) + 100.0;
+            // Contrast: the transfer member (5) DOES get a deorbit head at this loiter frame.
+            Assert.True(GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                unit, 5, tLoiter, 27_000_000.0, Deorbit, out _, out _, out _));
+            // Owner (0) and ride-along (7) get NONE - at the loiter frame or any other phase.
+            foreach (int idx in new[] { 0, 7 })
+                foreach (double t in new[] { EntryUT(0) - 100.0, tLoiter, TriggerUT(0) - 1.0, TriggerUT(0) + 400.0 })
+                    Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                        unit, idx, t, 27_000_000.0, Deorbit, out _, out _, out _));
+        }
+
         // --- COSMETIC 2: GhostPlaybackLogic.IsTransferMemberDescentContinuation (post-landing suborbital ghost) ---
         //
         // The transfer member's map/TS orbit ghost must RETIRE once the shared descent has handed off (Descent)
@@ -1138,6 +1157,23 @@ namespace Parsek.Tests
             var off = DescentUnitFor(BuildDescentUnit(engage: false));
             Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
                 off, 5, TriggerUT(0) - 1.0, 27_000_000.0, Deorbit, out _));
+        }
+
+        // Ride-along (member 7, the member-40 Kerbin-probe analogue) and the owner (member 0) are NOT the
+        // destination transfer member, so their icon never rides the deorbit tail - even in the late-loiter window
+        // where the transfer member's (5) does. Regression pin for the narrowed TransferMemberIndex gate.
+        [Fact]
+        public void TransferDeorbitIconHead_OwnerAndRideAlong_False()
+        {
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            double tLate = TriggerUT(0) - 1.0;
+            // Contrast: the transfer member (5) DOES ride the deorbit head in the late loiter.
+            Assert.True(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                unit, 5, tLate, 27_000_000.0, Deorbit, out _));
+            // Owner (0) and ride-along (7) never ride it.
+            foreach (int idx in new[] { 0, 7 })
+                Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                    unit, idx, tLate, 27_000_000.0, Deorbit, out _));
         }
 
         // --- FLIGHT-engine integration: GhostPlaybackLogic.ResolveDescentMemberEngineRender (Defect 3) ---

@@ -1059,7 +1059,8 @@ namespace Parsek.Display
         /// <summary>
         /// Clamp B (re-aim descent trigger): cap a forward-run window's <paramref name="chainDataEndUT"/> at the
         /// unit's SHIFTED parking-conic end (<c>RecordedDeorbitUT + CaptureShiftSeconds</c>, captureShift NEGATIVE)
-        /// when <paramref name="recordingIndex"/> is the NON-descent transfer/owner member of a descent-trigger
+        /// when <paramref name="recordingIndex"/> is the DESTINATION transfer member
+        /// (<see cref="GhostPlaybackLogic.LoopUnit.TransferMemberIndex"/>) of a descent-trigger
         /// unit. PR #1177 shifts that member's destination parking conics ~|captureShift| EARLIER to meet the
         /// early-arriving re-aimed transfer, so the rendered conics end at <c>deorbit+captureShift</c>. Leaving the
         /// forward-run window at the UNSHIFTED <c>rec.EndUT</c> (~the seam, ~|captureShift| later) lets the
@@ -1069,16 +1070,18 @@ namespace Parsek.Display
         /// shifted conic end makes that guard FAIL the moment the icon leaves the shifted conic, killing the leak;
         /// the shifted parking conic the icon rides is untouched. Byte-identical (returns
         /// <paramref name="chainDataEndUT"/> unchanged) when: <paramref name="loopUnits"/> is null, the index is
-        /// not a unit member, the unit has no descent trigger, the index IS a descent member (its line comes only
-        /// from its own trigger-gated pass), RecordedDeorbitUT/CaptureShiftSeconds is NaN, captureShift is not
-        /// negative, or the window already ends at/before the shifted conic end. Pure; xUnit-testable without Unity.
+        /// not a unit member, the unit has no descent trigger, the index is NOT the destination transfer member
+        /// (the owner, every ride-along in a different/unshifted frame whose forward window must not be clipped at
+        /// the transfer member's geometry, or a descent-set member whose line comes only from its own trigger-gated
+        /// pass), RecordedDeorbitUT/CaptureShiftSeconds is NaN, captureShift is not negative, or the window already
+        /// ends at/before the shifted conic end. Pure; xUnit-testable without Unity.
         /// </summary>
         internal static double ClampChainDataEndForDescentTransfer(
             double chainDataEndUT, int recordingIndex, GhostPlaybackLogic.LoopUnitSet loopUnits)
         {
             if (loopUnits != null
                 && loopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit unit)
-                && unit.HasDescentTrigger && !IsDescentTriggerMember(recordingIndex, loopUnits)
+                && unit.HasDescentTrigger && recordingIndex == unit.TransferMemberIndex
                 && !double.IsNaN(unit.RecordedDeorbitUT) && !double.IsNaN(unit.CaptureShiftSeconds))
             {
                 double shiftedConicEndUT = unit.RecordedDeorbitUT + unit.CaptureShiftSeconds;
@@ -3565,15 +3568,18 @@ namespace Parsek.Display
                     // every non-launch-hold member / aligned loop (renderHidden false there), so this is unchanged.
                     if (primaryRenders)
                     {
-                    // I1 (re-aim descent "renders disconnected from the loiter"): for the NON-descent TRANSFER
-                    // member of a descent-trigger unit, the deorbit/approach legs that lead DOWN TO the seam live
-                    // INSIDE this member (not in the descent set) and would otherwise gate off entirely - the
-                    // loiter loopUT sits ~|captureShift| below their recorded UTs, so ShouldDrawLegAtHeadUT(...,
-                    // headUT) is false every frame, and during the descent this member is HIDDEN by the handoff.
-                    // Resolve a re-anchored deorbit head ONCE (Loiter-phase only); the per-leg gate below
-                    // substitutes it for the deorbit-tail legs so they sweep down to the seam and join the descent
-                    // member's first head at the trigger. Byte-identical-off for non-descent units (hasDeorbitHead
-                    // false) and for every phase other than Loiter on the transfer member.
+                    // I1 (re-aim descent "renders disconnected from the loiter"): for the DESTINATION transfer
+                    // member (TransferMemberIndex) of a descent-trigger unit, the deorbit/approach legs that lead
+                    // DOWN TO the seam live INSIDE this member (not in the descent set) and would otherwise gate
+                    // off entirely - the loiter loopUT sits ~|captureShift| below their recorded UTs, so
+                    // ShouldDrawLegAtHeadUT(..., headUT) is false every frame, and during the descent this member
+                    // is HIDDEN by the handoff. Resolve a re-anchored deorbit head ONCE (Loiter-phase only); the
+                    // per-leg gate below substitutes it for the deorbit-tail legs so they sweep down to the seam
+                    // and join the descent member's first head at the trigger. Gated on the EXACT transfer member
+                    // (not "every non-descent member"): the owner and every ride-along in a different/unshifted
+                    // frame (e.g. a launch-body-orbit probe) have no shifted deorbit tail and must not draw one.
+                    // Byte-identical-off for them, for non-re-aim units (hasDeorbitHead false), and for every phase
+                    // other than Loiter on the transfer member.
                     bool hasDeorbitHead = false;
                     double deorbitHead = double.NaN;
                     double deorbitSeamUT = double.NaN;
@@ -3581,7 +3587,7 @@ namespace Parsek.Display
                     if (loopUnits != null
                         && loopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit dtUnit)
                         && dtUnit.HasDescentTrigger
-                        && !IsDescentTriggerMember(recordingIndex, loopUnits))
+                        && recordingIndex == dtUnit.TransferMemberIndex)
                     {
                         hasDeorbitHead = GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
                             dtUnit, recordingIndex, currentUT, rec.StartUT, rec.EndUT,

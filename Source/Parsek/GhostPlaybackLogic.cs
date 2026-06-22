@@ -8508,8 +8508,9 @@ namespace Parsek
                 // atmospheric descent set takes over (continuous). Without this the icon circles the parking
                 // conic to conicEnd then JUMPS straight to atmo entry, skipping the orbit->entry deorbit. Reuses
                 // the I1 deorbit head + LoiterPeriodSeconds (both on the unit); the window is a first heuristic
-                // (the last parking period) to be tuned in-game. Byte-identical for non-descent / non-re-aim
-                // units (TryResolveTransferDeorbitIconHead returns false). NOTE: needs the deorbit-tail LINE to
+                // (the last parking period) to be tuned in-game. Byte-identical for the owner / ride-alongs /
+                // descent members / non-re-aim units (TryResolveTransferDeorbitIconHead returns false for
+                // everything but the destination transfer member). NOTE: needs the deorbit-tail LINE to
                 // draw under the icon during this window (the renderer's I1 head-gated sweep).
                 if (TryResolveTransferDeorbitIconHead(
                         unit, i, liveUT, memberStartUT, memberEndUT, out double deorbitIconHead))
@@ -8597,7 +8598,8 @@ namespace Parsek
 
         /// <summary>
         /// I1 (re-aim descent "renders disconnected from the loiter"): the re-anchored DEORBIT-tail head for the
-        /// NON-descent TRANSFER member of a descent-trigger unit, so the transfer member's contiguous deorbit /
+        /// DESTINATION transfer member (<see cref="LoopUnit.TransferMemberIndex"/>) of a descent-trigger unit, so
+        /// the transfer member's contiguous deorbit /
         /// approach legs (the Duna legs ending AT the seam) draw swept down to the seam during the LOITER phase
         /// and join the descent member's first head at the trigger - rendering continuous loiter -&gt; deorbit -&gt;
         /// entry -&gt; surface. Resolves the unit cycle through the SAME <see cref="DecideUnitMemberRender"/> path
@@ -8606,9 +8608,10 @@ namespace Parsek
         /// during Loiter. Also returns the shifted-parking-conic end <paramref name="conicEndUT"/> and the seam
         /// <paramref name="seamUT"/> so the caller's per-leg deorbit-tail predicate (a pure-UT window
         /// <c>conicEndUT &lt; legEndUT &lt;= seamUT + eps</c>) can select only the contiguous post-shifted-conic
-        /// destination tail. Returns false (byte-identical-off) for a null unit, a descent-set member, a unit
-        /// with no descent trigger, an unresolved span clock, or any phase other than Loiter. Pure: no logging
-        /// (the caller owns rate-limiting).
+        /// destination tail. Returns false (byte-identical-off) for a null unit, any member that is NOT the
+        /// destination transfer member (the owner, every ride-along in a different/unshifted frame, and every
+        /// descent-set member), a unit with no descent trigger, an unresolved span clock, or any phase other than
+        /// Loiter. Pure: no logging (the caller owns rate-limiting).
         /// </summary>
         internal static bool TryResolveTransferDeorbitHeadForMember(
             LoopUnit unit, int i, double liveUT, double memberStartUT, double memberEndUT,
@@ -8618,9 +8621,14 @@ namespace Parsek
             conicEndUT = double.NaN;
             seamUT = double.NaN;
 
-            // Only the NON-descent transfer/owner member of a descent-trigger unit carries the deorbit tail.
-            // The caller resolves the unit via TryGetUnitForMember, so it is always a real member here.
-            if (!unit.HasDescentTrigger || unit.IsDescentMember(i))
+            // ONLY the destination transfer member (= TransferMemberIndex, the member whose shifted parking conic
+            // and recorded deorbit tail exist) of a descent-trigger unit carries the deorbit tail. Gating on the
+            // exact index (NOT "every non-descent member") excludes the owner AND every ride-along in a
+            // DIFFERENT/unshifted frame (e.g. a launch-body-orbit probe) - they have no shifted deorbit tail and
+            // must not draw one. Mirrors IsDescentTransferMemberInLoiterGap / IsTransferMemberDescentContinuation.
+            // Byte-identical-off for non-re-aim units (HasDescentTrigger false) and the default
+            // TransferMemberIndex == -1. The caller resolves the unit via TryGetUnitForMember, so i is a real member.
+            if (!unit.HasDescentTrigger || i != unit.TransferMemberIndex)
                 return false;
 
             memberStartUT = unit.MemberStartUT(i, memberStartUT);
@@ -8655,15 +8663,19 @@ namespace Parsek
         /// descent set takes over. Without it the icon circles the parking conic and then jumps straight to atmo
         /// entry, skipping the orbit→entry deorbit (the user's C1). The deorbit window is a HEURISTIC first cut:
         /// the last <c>LoiterPeriodSeconds</c> (one parking orbit) before <c>triggerUT</c>; tune in-game. Returns
-        /// false (byte-identical) for a non-descent-trigger unit, a descent-set member, a non-Loiter phase, a
-        /// frame before the deorbit window, an unresolved span clock, or a degenerate trigger / loiter period.
-        /// Pure; no Unity (xUnit-testable).
+        /// false (byte-identical) for a non-descent-trigger unit, any member that is NOT the destination transfer
+        /// member (<see cref="LoopUnit.TransferMemberIndex"/>; the owner, every ride-along, and every descent-set
+        /// member), a non-Loiter phase, a frame before the deorbit window, an unresolved span clock, or a
+        /// degenerate trigger / loiter period. Pure; no Unity (xUnit-testable).
         /// </summary>
         internal static bool TryResolveTransferDeorbitIconHead(
             LoopUnit unit, int i, double liveUT, double memberStartUT, double memberEndUT, out double iconHead)
         {
             iconHead = double.NaN;
-            if (!unit.HasDescentTrigger || unit.IsDescentMember(i))
+            // ONLY the destination transfer member (= TransferMemberIndex) rides the deorbit tail; the owner and
+            // every ride-along in a different/unshifted frame are excluded (same gate as the I1 head + loiter-gap
+            // clamp). Byte-identical-off for non-re-aim units and TransferMemberIndex == -1.
+            if (!unit.HasDescentTrigger || i != unit.TransferMemberIndex)
                 return false;
 
             memberStartUT = unit.MemberStartUT(i, memberStartUT);
