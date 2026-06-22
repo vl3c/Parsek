@@ -817,13 +817,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Resolver_TransferMember_LoiterGap_ClampsHeadToParkingConicEnd()
+        public void Resolver_TransferMember_LoiterGap_WrapsHeadWithinParkingPeriod()
         {
             // The rogue-descent bug: during the Loiter the transfer member's raw loop clock sweeps PAST the
             // parking-conic end into the recorded deorbit -> descent region, but the LIVE descent has NOT triggered,
             // so the shared marker / line / polyline head (this resolver) drew a descending icon at the wrong time.
-            // The fix clamps the returned head to ParkingConicEndUT through the loiter (the icon stays on the
-            // parking conic) until the descent hands off.
+            // Step 2 WRAPS the returned head into the last recorded parking period [P - Tpark, P) through the loiter
+            // so the icon CIRCLES the parking conic (instead of freezing at the deorbit point) until the descent
+            // hands off.
             var on = BuildDescentUnit(engage: true);
             var off = BuildDescentUnit(engage: false);
 
@@ -836,32 +837,39 @@ namespace Parsek.Tests
             Assert.True(rawHead > ParkingConicEnd,
                 $"setup: the loop clock must be past the parking-conic end here (rawHead={rawHead}, parkingEnd={ParkingConicEnd})");
 
-            // Trigger ON: the head is clamped to the parking-conic end (no rogue descent), and the member still
-            // renders (it carries the parking-conic icon through the loiter).
+            // Trigger ON: the head is WRAPPED into [P - Tpark, P) (no rogue descent), and the member still renders
+            // (it carries the parking-conic icon, now circling, through the loiter).
             double clampedHead = Resolve(5, 27_000_000.0, Deorbit, tLoiter, on, out bool hOn);
             Assert.False(hOn, "the transfer member still renders during the loiter hold");
-            Assert.Equal(ParkingConicEnd, clampedHead, 3);
+            double expectedWrap = ParkingConicEnd - Tpark + ((rawHead - ParkingConicEnd) % Tpark);
+            Assert.Equal(expectedWrap, clampedHead, 3);
+            Assert.InRange(clampedHead, ParkingConicEnd - Tpark, ParkingConicEnd);
 
-            // Once the descent PLAYS the hand-off (transferUnitPhase == Descent) still wins — the clamp is placed
+            // Once the descent PLAYS the hand-off (transferUnitPhase == Descent) still wins — the wrap is placed
             // AFTER the hideForDescentHandoff check, so it never keeps the transfer member visible during the descent.
             double tDescent = TriggerUT(0) + 400.0;
             Resolve(5, 27_000_000.0, Deorbit, tDescent, on, out bool hDescent);
-            Assert.True(hDescent, "the descent hand-off (hidden) still takes precedence over the loiter-gap clamp");
+            Assert.True(hDescent, "the descent hand-off (hidden) still takes precedence over the loiter-gap wrap");
         }
 
         [Fact]
-        public void ClampTransferMemberHeadToLoiterGap_OnlyTransferMemberPastParkingEnd()
+        public void ClampTransferMemberHeadToLoiterGap_WrapsWithinParkingPeriod()
         {
-            var unit = DescentUnitFor(BuildDescentUnit(engage: true));   // TransferMemberIndex = 5
-            // Transfer member (5), head PAST the parking-conic end -> clamped to ParkingConicEnd.
-            Assert.Equal(ParkingConicEnd,
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));   // TransferMemberIndex = 5, Tpark = 7000
+            // Transfer member (5), head PAST the parking-conic end by less than one period (delta=1000 < Tpark)
+            // -> wrapped into [P - Tpark, P): P - Tpark + 1000 = 27_094_000.
+            Assert.Equal(ParkingConicEnd - Tpark + 1000.0,
                 GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 5, ParkingConicEnd + 1000.0), 3);
-            // Transfer member (5), head AT/BEFORE the parking-conic end -> unchanged (icon still on the conic).
+            // Transfer member (5), head PAST by MORE than one full period (Tpark + 500) -> wrap-around: the modulo
+            // collapses the extra period, so P - Tpark + 500 = 27_093_500 (proves a true wrap, not a single clamp).
+            Assert.Equal(ParkingConicEnd - Tpark + 500.0,
+                GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 5, ParkingConicEnd + Tpark + 500.0), 3);
+            // Transfer member (5), head AT/BEFORE the parking-conic end -> unchanged (gap predicate false).
             Assert.Equal(ParkingConicEnd - 1000.0,
                 GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 5, ParkingConicEnd - 1000.0), 3);
             Assert.Equal(ParkingConicEnd,
                 GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 5, ParkingConicEnd), 3);
-            // Owner (0) and the unshifted-frame ride-along (7): NEVER clamped, even past the boundary.
+            // Owner (0) and the unshifted-frame ride-along (7): NEVER wrapped, even past the boundary.
             Assert.Equal(ParkingConicEnd + 1000.0,
                 GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 0, ParkingConicEnd + 1000.0), 3);
             Assert.Equal(ParkingConicEnd + 1000.0,
@@ -869,10 +877,133 @@ namespace Parsek.Tests
             // Descent-set member (49): never the transfer member -> unchanged.
             Assert.Equal(ParkingConicEnd + 1000.0,
                 GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 49, ParkingConicEnd + 1000.0), 3);
-            // Trigger OFF (no descent trigger) -> byte-identical, never clamps.
+            // Trigger OFF (no descent trigger) -> byte-identical, never wraps.
             var off = DescentUnitFor(BuildDescentUnit(engage: false));
             Assert.Equal(ParkingConicEnd + 1000.0,
                 GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(off, 5, ParkingConicEnd + 1000.0), 3);
+        }
+
+        [Fact]
+        public void ClampTransferMemberHeadToLoiterGap_ContinuousAtEngage()
+        {
+            // Continuity proof at the instant the wrap ENGAGES (head crosses P). On a closed orbit of period Tpark
+            // the position at (P - Tpark) is identical to the position at P, so wrapping head=P+ to P-Tpark+ does not
+            // jump the icon. The UT-level assertion below proves the wrap arithmetic; the position equivalence is a
+            // recorded-orbit property (position(P - Tpark) == position(P), one full parking revolution apart).
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            const double eps = 1e-6;
+            // head exactly at P -> gap predicate false (head > P required) -> unchanged.
+            Assert.Equal(ParkingConicEnd,
+                GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 5, ParkingConicEnd), 3);
+            // head = P + eps -> wraps to P - Tpark + eps (one full period before P, the SAME orbital point).
+            double wrapped = GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 5, ParkingConicEnd + eps);
+            Assert.Equal(ParkingConicEnd - Tpark + eps, wrapped, 3);
+            Assert.Equal(ParkingConicEnd - Tpark, wrapped, 3); // ≈ P - Tpark at engage (eps negligible at 3 dp)
+        }
+
+        [Fact]
+        public void ClampTransferMemberHeadToLoiterGap_WrapBoundaryContinuous()
+        {
+            // Continuity proof at the WRAP-AROUND boundary (the head reaching P- and jumping to P-Tpark). The two
+            // wrapped UTs straddle the boundary by ~Tpark and map to the SAME orbital point (one period apart), so
+            // the icon does not jump as it laps the parking conic.
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            const double eps = 1e-3;
+            // head = P + Tpark - eps -> wrapped ≈ P - eps (just below P).
+            double justBelowP = GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(
+                unit, 5, ParkingConicEnd + Tpark - eps);
+            Assert.Equal(ParkingConicEnd - eps, justBelowP, 3);
+            // head = P + Tpark + eps -> wrapped ≈ P - Tpark + eps (just above P - Tpark).
+            double justAboveFloor = GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(
+                unit, 5, ParkingConicEnd + Tpark + eps);
+            Assert.Equal(ParkingConicEnd - Tpark + eps, justAboveFloor, 3);
+            // The two wrapped values straddle the boundary by ~Tpark (one parking period -> same orbital point).
+            Assert.Equal(Tpark, justBelowP - justAboveFloor, 2);
+        }
+
+        [Fact]
+        public void ClampTransferMemberHeadToLoiterGap_TparkNaNOrNonPositive_NeverWraps()
+        {
+            // Degenerate Tpark (NaN / zero / negative) makes HasDescentTrigger FALSE (it requires
+            // LoiterPeriodSeconds > 0), so IsDescentTransferMemberInLoiterGap returns false and the helper returns
+            // the head UNCHANGED (byte-identical-off) - the wrap is never reached and produces no NaN. The internal
+            // Tpark <= 0 / NaN guard inside ClampTransferMemberHeadToLoiterGap (fall back to the fixed P clamp) is
+            // therefore an UNREACHABLE-via-predicate defensive guard: the predicate short-circuits first. This test
+            // pins the reachable contract (no wrap, no NaN, head returned verbatim) for a degenerate-Tpark unit.
+            foreach (double tpark in new[] { double.NaN, 0.0, -100.0 })
+            {
+                var unit = DescentUnitFor(BuildDescentUnitWithLoiterPeriod(tpark));
+                Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 5, ParkingConicEnd + 1000.0),
+                    $"degenerate Tpark={tpark} disables the descent trigger, so the gap predicate is off");
+                Assert.Equal(ParkingConicEnd + 1000.0,
+                    GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 5, ParkingConicEnd + 1000.0), 3);
+                Assert.Equal(ParkingConicEnd + 50_000.0,
+                    GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, 5, ParkingConicEnd + 50_000.0), 3);
+            }
+        }
+
+        // --- Step-2 part-2: the PROTO orbit icon-drive (GhostOrbitIconDrivePatch.ResolveIconDriveDecision)
+        //     CIRCLES the parking conic during the loiter hold instead of freezing at the deorbit point.
+        //     The Prefix resolves loiterCircleActive + the wrapped recorded head (via the same
+        //     IsDescentTransferMemberInLoiterGap + ClampTransferMemberHeadToLoiterGap helpers the marker uses);
+        //     these tests pin the pure decision branch the Prefix feeds those into. ---
+
+        [Fact]
+        public void ResolveIconDriveDecision_LoiterCircleActive_ReturnsWrappedNonSuppressed()
+        {
+            // Past the (live-frame) window AND the loiter-circle override active: the icon must drive at the
+            // caller-resolved WRAPPED recorded head (in [P - Tpark, P) inside the parking conic) and stay
+            // SHOWN (suppressed:false) so the proto icon CIRCLES the conic instead of past-window-freezing.
+            double loiterCircleEffUT = ParkingConicEnd - Tpark + 1234.0;
+            var d = Parsek.Patches.GhostOrbitIconDrivePatch.ResolveIconDriveDecision(
+                liveUT: 1100.0, startUTShifted: 950.0, endUTShifted: 1050.0, shift: 600.0,
+                onArc: true, loiterCircleActive: true, loiterCircleEffUT: loiterCircleEffUT);
+            Assert.False(d.Suppressed);
+            Assert.Equal("loiter-circle", d.Reason);
+            Assert.Equal(loiterCircleEffUT, d.DriveUT, 3);
+        }
+
+        [Fact]
+        public void ResolveIconDriveDecision_LoiterCircleInactive_PastWindowUnchanged()
+        {
+            // The regression pin (ended recording / non-transfer member / non-re-aim unit): with the override
+            // OFF the past-window branch is BYTE-IDENTICAL to before - suppress + clamp to the raw recorded end
+            // (endUTShifted - shift). A normal closed-orbit ghost still freezes.
+            var d = Parsek.Patches.GhostOrbitIconDrivePatch.ResolveIconDriveDecision(
+                liveUT: 1100.0, startUTShifted: 950.0, endUTShifted: 1050.0, shift: 600.0,
+                onArc: true, loiterCircleActive: false, loiterCircleEffUT: double.NaN);
+            Assert.True(d.Suppressed);
+            Assert.Equal("past-window", d.Reason);
+            Assert.Equal(GhostMapPresence.MapLiveUTToEffUT(1050.0, 600.0), d.DriveUT, 3); // 1050 - 600 = 450
+        }
+
+        [Fact]
+        public void ResolveIconDriveDecision_LoiterCircleIgnoredWhenOnArc()
+        {
+            // The loiter-circle override only replaces the PAST-WINDOW freeze. Inside the window (on the visible
+            // arc) it must NOT leak: the decision is the normal on-arc drive at effUT, not loiter-circle.
+            double loiterCircleEffUT = ParkingConicEnd - Tpark + 1234.0;
+            var d = Parsek.Patches.GhostOrbitIconDrivePatch.ResolveIconDriveDecision(
+                liveUT: 1000.0, startUTShifted: 950.0, endUTShifted: 1050.0, shift: 600.0,
+                onArc: true, loiterCircleActive: true, loiterCircleEffUT: loiterCircleEffUT);
+            Assert.False(d.Suppressed);
+            Assert.Equal("on-arc-drive", d.Reason);
+            Assert.Equal(GhostMapPresence.MapLiveUTToEffUT(1000.0, 600.0), d.DriveUT, 3); // 1000 - 600 = 400
+        }
+
+        [Fact]
+        public void IconDriveLoiterCircleGate_NonTransferMembers_StayInactive()
+        {
+            // The Prefix gate is IsDescentTransferMemberInLoiterGap(unit, rec, rawEffUT). For every member that is
+            // NOT the destination transfer member (owner 0, unshifted ride-along 7, descent-set 49) the gate is
+            // false past the parking-conic end, so loiterCircleActive stays false and they keep the past-window
+            // freeze (byte-identical-off). This pins the Prefix's loiterCircleActive resolution stays off for them.
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 0, ParkingConicEnd + 1000.0));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 7, ParkingConicEnd + 1000.0));
+            Assert.False(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 49, ParkingConicEnd + 1000.0));
+            // The transfer member (5) past the parking end DOES gate active (the only loiter-circle member).
+            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, 5, ParkingConicEnd + 1000.0));
         }
 
         [Fact]
@@ -1788,6 +1919,40 @@ namespace Parsek.Tests
                 loiterPeriodSeconds: Tpark,
                 captureShiftSeconds: CapShift,
                 parkingConicEndUT: parkingConicEndUT,
+                transferMemberIndex: 5);
+            return new GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
+                new Dictionary<int, int> { { 0, 0 }, { 5, 0 }, { 7, 0 }, { 49, 0 }, { 50, 0 }, { 51, 0 } });
+        }
+
+        // A descent-trigger unit whose loiterPeriodSeconds (Tpark) can be set explicitly (Tpark NaN / non-positive
+        // wrap-guard coverage), otherwise identical to BuildDescentUnit(engage: true).
+        private static GhostPlaybackLogic.LoopUnitSet BuildDescentUnitWithLoiterPeriod(double loiterPeriodSeconds)
+        {
+            var windows = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>
+            {
+                { 0, new GhostPlaybackLogic.LoopUnit.MemberWindow(0.0, 500.0) },
+                { 5, new GhostPlaybackLogic.LoopUnit.MemberWindow(27_000_000.0, Deorbit) },
+                { 7, new GhostPlaybackLogic.LoopUnit.MemberWindow(RECORDED_PARKING_END - 5_000_000.0, RECORDED_PARKING_END + 5_000_000.0) },
+                { 49, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1Start, W1End) },
+                { 50, new GhostPlaybackLogic.LoopUnit.MemberWindow(W1End, W2End) },
+                { 51, new GhostPlaybackLogic.LoopUnit.MemberWindow(W2End, W3End) },
+            };
+            var plan = new Parsek.Reaim.ReaimMissionPlan { Supported = true };
+            var sched = new Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule { Valid = true };
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                0, new[] { 0, 5, 7, 49, 50, 51 }, SpanStart, DescentEnd, Cad, Pa, Cad, windows, null, plan, sched,
+                loiterCuts: null, arrivalHoldSeconds: 0.0, arrivalHoldAtUT: double.NaN,
+                arrivalAlignPeriodSeconds: double.NaN, arrivalAmberReason: null,
+                launchBodyRotationPeriodSeconds: double.NaN, launchHoldEngaged: false,
+                recordedSoiExitUT: double.NaN,
+                descentMemberIndices: new[] { 49, 50, 51 },
+                recordedDeorbitUT: Deorbit,
+                descentEndUT: DescentEnd,
+                destinationBodyRotationPeriodSeconds: DunaTrot,
+                loiterPeriodSeconds: loiterPeriodSeconds,
+                captureShiftSeconds: CapShift,
+                parkingConicEndUT: ParkingConicEnd,
                 transferMemberIndex: 5);
             return new GhostPlaybackLogic.LoopUnitSet(
                 new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },

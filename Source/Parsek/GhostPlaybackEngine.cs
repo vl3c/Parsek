@@ -2393,12 +2393,24 @@ namespace Parsek
             // stays positioned and the map marker rides source=mesh on the parking conic instead of falling back to
             // the descending trajectory head. No-op (byte-identical) for descent members / ride-alongs / non-re-aim
             // units (IsDescentTransferMemberInLoiterGap false) and gated on decision==Render (a hidden member's
-            // span clock is unused downstream). (Step 1: the ghost freezes at the deorbit point; circling the
-            // parking conic through the wait is the separate step-2 change.)
+            // span clock is unused downstream). (Step 2: ClampTransferMemberHeadToLoiterGap WRAPS the head into the
+            // last recorded parking period [P - LoiterPeriodSeconds, P) so the ghost CIRCLES the closed parking
+            // conic through the wait instead of freezing at the deorbit point - continuous at engage and wrap-around.)
             if (!descentMember
                 && decision == GhostPlaybackLogic.UnitMemberRenderDecision.Render)
             {
+                bool wrapEngaged = GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, i, spanLoopUT);
                 spanLoopUT = GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, i, spanLoopUT);
+                if (wrapEngaged)
+                {
+                    var lwdic = System.Globalization.CultureInfo.InvariantCulture;
+                    ParsekLog.VerboseRateLimited("ReaimDescent", "loiter-wrap-" + i.ToString(lwdic),
+                        "loiter-circle member=" + i.ToString(lwdic) + " head wrapped to " +
+                        spanLoopUT.ToString("R", lwdic) + " within Tpark=" +
+                        unit.LoiterPeriodSeconds.ToString("R", lwdic) +
+                        " (parking conic circling, parkingConicEnd=" +
+                        unit.ParkingConicEndUT.ToString("R", lwdic) + ")", 5.0);
+                }
             }
 
             // BOUNDARY-OVERLAP secondary decision (docs/dev/plan-launch-boundary-overlap.md 3.1/3.2),

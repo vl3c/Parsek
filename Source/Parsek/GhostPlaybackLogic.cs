@@ -8511,12 +8511,14 @@ namespace Parsek
                 // the destination transfer member (IsDescentTransferMemberInLoiterGap checks i == TransferMemberIndex
                 // && loopUT > ParkingConicEndUT) and placed BEFORE C1 so the hold wins over the deorbit-arc ride
                 // past the parking end. Byte-identical-off for the owner / ride-alongs / descent set / non-re-aim
-                // units. (Step 1 freezes the head at the deorbit point; circling the parking conic through the wait
-                // is the separate step-2 change.)
+                // units. (Step 2: ClampTransferMemberHeadToLoiterGap WRAPS the head into the last recorded parking
+                // period [P - Tpark, P) so the icon CIRCLES the closed parking conic through the wait instead of
+                // freezing at the deorbit point - continuous at engage and at wrap-around. One wrap formula shared
+                // with the FLIGHT engine drive-clock site.)
                 if (IsDescentTransferMemberInLoiterGap(unit, i, loopUT))
                 {
                     renderHidden = false;
-                    return unit.ParkingConicEndUT;
+                    return ClampTransferMemberHeadToLoiterGap(unit, i, loopUT);
                 }
 
                 // C1 (icon rides the deorbit arc, FIRST ITERATION): during the LAST parking-orbit-period of the
@@ -8912,20 +8914,44 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Loiter-gap HEAD clamp (the rogue-descent fix): for the destination transfer member
+        /// Loiter-gap HEAD wrap (the rogue-descent fix, step 2): for the destination transfer member
         /// (<see cref="LoopUnit.TransferMemberIndex"/>) of a re-aim descent-trigger unit, once the recorded loop
         /// clock <paramref name="head"/> has swept PAST the parking-conic end
-        /// (<see cref="IsDescentTransferMemberInLoiterGap(LoopUnit,int,double)"/>), return
-        /// <see cref="LoopUnit.ParkingConicEndUT"/> so every head-driven render surface (the FLIGHT engine ghost +
-        /// its projected map mesh, the map marker / line / polyline) stays on the parking conic through the loiter
-        /// hold instead of playing the recorded deorbit -&gt; descent at the wrong time (the LIVE descent has not
-        /// triggered yet). Returns <paramref name="head"/> unchanged for every other member / phase / non-re-aim
-        /// unit (byte-identical-off). Pure; no Unity (xUnit-testable). The map/TS resolver
-        /// (<see cref="ResolveTrackingStationSampleUT"/>) applies the same clamp inline (it needs the
-        /// <c>renderHidden</c> out-param too); this wrapper is the one-liner the FLIGHT engine drive-clock site uses.
+        /// (<see cref="IsDescentTransferMemberInLoiterGap(LoopUnit,int,double)"/>), WRAP the head backward into the
+        /// last recorded parking period <c>[P - Tpark, P)</c> (<c>P = <see cref="LoopUnit.ParkingConicEndUT"/></c>,
+        /// <c>Tpark = <see cref="LoopUnit.LoiterPeriodSeconds"/></c>) so every head-driven render surface (the FLIGHT
+        /// engine ghost + its projected map mesh, the map marker / line / polyline) keeps CIRCLING the closed parking
+        /// conic through the loiter hold instead of freezing at the deorbit point (step 1) or playing the recorded
+        /// deorbit -&gt; descent at the wrong time (the LIVE descent has not triggered yet). Continuous at engage
+        /// (<c>head = P</c> wraps to <c>P - Tpark</c>, the same orbital point one parking revolution earlier on the
+        /// closed orbit) and at wrap-around (<c>P-</c> ≡ <c>P - Tpark</c>), and stays inside the recorded parking
+        /// segment. If <c>Tpark</c> is NaN or non-positive the wrap is undefined, so it falls back to the step-1
+        /// fixed clamp (<c>return P</c>). Returns <paramref name="head"/> unchanged for every other member / phase /
+        /// non-re-aim unit (byte-identical-off). Pure; no Unity (xUnit-testable). The map/TS resolver
+        /// (<see cref="ResolveTrackingStationSampleUT"/>) calls this same helper inline (it needs the
+        /// <c>renderHidden</c> out-param too) so there is ONE wrap formula; the FLIGHT engine drive-clock site calls
+        /// it directly.
         /// </summary>
         internal static double ClampTransferMemberHeadToLoiterGap(LoopUnit unit, int i, double head)
-            => IsDescentTransferMemberInLoiterGap(unit, i, head) ? unit.ParkingConicEndUT : head;
+        {
+            if (!IsDescentTransferMemberInLoiterGap(unit, i, head))
+                return head;
+
+            double parkingConicEnd = unit.ParkingConicEndUT;
+            double tpark = unit.LoiterPeriodSeconds;
+
+            // Tpark degenerate -> fall back to the step-1 fixed clamp (freeze at the deorbit point).
+            if (double.IsNaN(tpark) || tpark <= 0.0)
+                return parkingConicEnd;
+
+            // Wrap the head backward into the last recorded parking period [P - Tpark, P) so the icon CIRCLES the
+            // closed parking conic during the loiter hold instead of freezing at the deorbit point. Continuous at
+            // engage (head=P -> P-Tpark, same orbital point one rev earlier) and at wrap-around (P- ≡ P-Tpark on a
+            // closed orbit). Stays inside the recorded parking segment.
+            double phase = (head - parkingConicEnd) % tpark; // head > P here, so phase in [0, Tpark)
+            if (phase < 0.0) phase += tpark;                  // defensive (head > P makes this unreachable)
+            return parkingConicEnd - tpark + phase;
+        }
 
         /// <summary>
         /// LOITER-GAP clamp value: returns the SHIFTED <see cref="LoopUnit.ParkingConicEndUT"/> (the destination
