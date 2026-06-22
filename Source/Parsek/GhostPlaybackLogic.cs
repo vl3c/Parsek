@@ -8501,6 +8501,36 @@ namespace Parsek
                     return liveUT;
                 }
 
+                // C1 (icon rides the deorbit arc): during the LAST parking-orbit-period of the Loiter (the
+                // deorbit transition), the transfer member's icon RIDES the re-anchored I1 deorbit head so it
+                // descends the recorded deorbit tail from the parking orbit down to the seam (atmo entry),
+                // reaching it exactly at the trigger, where the atmospheric descent set takes over (continuous).
+                // Without this the icon circles the parking conic to the deorbit point then JUMPS straight to atmo
+                // entry, skipping the orbit->entry deorbit - leaving the deorbit-arc LINE drawn with NO icon on it
+                // (the captured "no icon on the descent line" bug, log 2026-06-23_0005: rec 44's deorbit-arc leg
+                // 10 drew every loiter frame while its marker rode the far-away loiter head at ~-18 Gm).
+                //
+                // CHECKED BEFORE the loiter-gap clamp (this ORDER is the fix): the clamp's gate
+                // IsDescentTransferMemberInLoiterGap is loopUT > ParkingConicEndUT, which is TRUE for the ENTIRE
+                // loiter, so when the clamp was checked first it returned every frame and C1 was DEAD (never
+                // reached - 0 firings in the log). C1 is strictly self-gated (transfer member + Loiter phase +
+                // liveUT >= triggerUT - LoiterPeriodSeconds, i.e. only the last parking period) and returns false
+                // everywhere else, so the loiter-gap clamp below still owns the rest of the loiter unchanged; C1
+                // only takes over in its own narrow deorbit window. Its head is in the UNSHIFTED recorded frame
+                // (recordedDeorbitUT + (liveUT - triggerUT)), matching the drawn deorbit-tail leg's recorded UT,
+                // so the marker actually anchors to the arc (vs the clamp's captureShift-SHIFTED parking-circle
+                // head, which falls outside every unshifted leg -> ride=fallback-head-outside-legs -> the -18 Gm
+                // body-fixed head). Byte-identical for the owner / ride-alongs / descent members / non-re-aim
+                // units (TryResolveTransferDeorbitIconHead returns false for everything but the destination
+                // transfer member). NOTE: needs the deorbit-tail LINE to draw under the icon during this window
+                // (the renderer's I1 head-gated sweep, confirmed present in the log).
+                if (TryResolveTransferDeorbitIconHead(
+                        unit, i, liveUT, memberStartUT, memberEndUT, out double deorbitIconHead))
+                {
+                    renderHidden = false;
+                    return deorbitIconHead;
+                }
+
                 // Loiter-gap HEAD clamp (the rogue-descent fix): once the recorded loop clock sweeps PAST the
                 // parking-conic end, the raw loopUT return below would put this shared marker / line / polyline
                 // head in the recorded deorbit -> descent region - but the LIVE descent has NOT triggered (the unit
@@ -8509,34 +8539,17 @@ namespace Parsek
                 // head at the parking-conic end so every surface using this resolver stays on the parking conic
                 // through the loiter, matching the map-presence segment-lookup clamp + the orbit-line hold. Gated on
                 // the destination transfer member (IsDescentTransferMemberInLoiterGap checks i == TransferMemberIndex
-                // && loopUT > ParkingConicEndUT) and placed BEFORE C1 so the hold wins over the deorbit-arc ride
-                // past the parking end. Byte-identical-off for the owner / ride-alongs / descent set / non-re-aim
-                // units. (Step 2: ClampTransferMemberHeadToLoiterGap WRAPS the head into the last recorded parking
-                // period [P - Tpark, P) so the icon CIRCLES the closed parking conic through the wait instead of
-                // freezing at the deorbit point - continuous at engage and at wrap-around. One wrap formula shared
-                // with the FLIGHT engine drive-clock site.)
+                // && loopUT > ParkingConicEndUT). The C1 deorbit ride above already returned for the last parking
+                // period (the deorbit transition), so this clamp owns the loiter EXCEPT that final window.
+                // Byte-identical-off for the owner / ride-alongs / descent set / non-re-aim units. (Step 2:
+                // ClampTransferMemberHeadToLoiterGap WRAPS the head into the last recorded parking period
+                // [P - Tpark, P) so the icon CIRCLES the closed parking conic through the wait instead of freezing
+                // at the deorbit point - continuous at engage and at wrap-around. One wrap formula shared with the
+                // FLIGHT engine drive-clock site.)
                 if (IsDescentTransferMemberInLoiterGap(unit, i, loopUT))
                 {
                     renderHidden = false;
                     return ClampTransferMemberHeadToLoiterGap(unit, i, loopUT);
-                }
-
-                // C1 (icon rides the deorbit arc, FIRST ITERATION): during the LAST parking-orbit-period of the
-                // Loiter (the deorbit transition), the transfer member's icon RIDES the re-anchored I1 deorbit
-                // head instead of circling the parking conic - so it descends the recorded deorbit tail from the
-                // parking orbit down to the seam (atmo entry), reaching it exactly at the trigger, where the
-                // atmospheric descent set takes over (continuous). Without this the icon circles the parking
-                // conic to conicEnd then JUMPS straight to atmo entry, skipping the orbit->entry deorbit. Reuses
-                // the I1 deorbit head + LoiterPeriodSeconds (both on the unit); the window is a first heuristic
-                // (the last parking period) to be tuned in-game. Byte-identical for the owner / ride-alongs /
-                // descent members / non-re-aim units (TryResolveTransferDeorbitIconHead returns false for
-                // everything but the destination transfer member). NOTE: needs the deorbit-tail LINE to
-                // draw under the icon during this window (the renderer's I1 head-gated sweep).
-                if (TryResolveTransferDeorbitIconHead(
-                        unit, i, liveUT, memberStartUT, memberEndUT, out double deorbitIconHead))
-                {
-                    renderHidden = false;
-                    return deorbitIconHead;
                 }
             }
 

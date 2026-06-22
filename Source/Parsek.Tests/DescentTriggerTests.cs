@@ -853,6 +853,70 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Resolver_TransferMember_DeorbitWindow_RidesDeorbitArc_NotParkingWrap()
+        {
+            // The "no icon on the descent line" fix (log 2026-06-23_0005): in the LAST parking period before the
+            // trigger (the deorbit transition), the resolver hands the transfer member the C1 DEORBIT head so its
+            // icon descends the deorbit arc, NOT the loiter-gap parking-circle wrap. Before the fix the loiter-gap
+            // clamp was checked FIRST and short-circuited C1 for the WHOLE loiter (loopUT > ParkingConicEnd is true
+            // all loiter), so the icon never left the parking conic and the deorbit-arc LINE had no icon on it. The
+            // fix evaluates the self-gated C1 ride (transfer member + Loiter phase + last parking period) BEFORE the
+            // clamp; the clamp still owns the rest of the loiter (C1 returns false outside its window — proven by
+            // Resolver_TransferMember_LoiterGap_WrapsHeadWithinParkingPeriod still wrapping at EntryUT+100).
+            var units = BuildDescentUnit(engage: true);
+
+            // A Loiter-phase liveUT INSIDE the C1 deorbit window (>= triggerUT - Tpark): just before the trigger.
+            double tDeorbit = TriggerUT(0) - 100.0;
+
+            double resolved = Resolve(5, 27_000_000.0, Deorbit, tDeorbit, units, out bool hidden);
+            Assert.False(hidden, "the transfer member still renders during the deorbit transition");
+
+            // The resolver returns the C1 deorbit head (icon descends the arc toward the seam) ...
+            Assert.True(TransferDeorbitHead(tDeorbit, 0, out double deorbitHead));
+            Assert.True(deorbitHead < Deorbit, $"deorbit head {deorbitHead} must be below the seam {Deorbit} (descending)");
+            Assert.Equal(deorbitHead, resolved, 3);
+
+            // ... NOT the loiter-gap parking-circle wrap, which lives in [P - Tpark, P) in the SHIFTED ~27.1M frame,
+            // far below the unshifted deorbit head (~30M). resolved > ParkingConicEnd proves C1 won (the OLD
+            // ordering returned ~27.1M here).
+            Assert.True(resolved > ParkingConicEnd,
+                $"resolved {resolved} must be the unshifted deorbit head (> {ParkingConicEnd}), not the parking wrap");
+        }
+
+        [Fact]
+        public void Resolver_TransferMember_JustBeforeDeorbitWindow_StaysOnParkingConic_NoMidLoiterDescent()
+        {
+            // SAFETY against reintroducing the rogue MID-LOITER descent (the bug the loiter-gap clamp fixed, and
+            // the reason the reorder must not let C1 win early): the C1 deorbit ride is gated to the LAST parking
+            // period before the trigger (liveUT >= triggerUT - LoiterPeriodSeconds). JUST BEFORE that window -
+            // still Loiter, mid-loiter - the resolver must STAY on the parking-conic wrap and NOT descend the
+            // deorbit arc. The boundary is exactly triggerUT - LoiterPeriodSeconds.
+            var units = BuildDescentUnit(engage: true);
+            var unit = DescentUnitFor(units);
+
+            double justOutside = TriggerUT(0) - Tpark - 50.0;   // mid-loiter, just before the C1 window, still Loiter
+            Assert.True(justOutside > EntryUT(0), "setup: still in the Loiter phase (not Inert)");
+
+            // C1 must NOT fire here - the load-bearing guard against a mid-loiter descent.
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                    unit, 5, justOutside, 27_000_000.0, Deorbit, out _),
+                "the deorbit ride must NOT fire before its window - no mid-loiter descent");
+
+            // ... so the resolver returns the parking-circle wrap (shifted ~27.1M frame, < ParkingConicEnd), not
+            // the unshifted ~30M deorbit head.
+            double resolved = Resolve(5, 27_000_000.0, Deorbit, justOutside, units, out bool hidden);
+            Assert.False(hidden, "the transfer member still renders (circling the parking conic)");
+            Assert.True(resolved < ParkingConicEnd,
+                $"resolved {resolved} must be the parking wrap (< {ParkingConicEnd}), not the ~30M deorbit head");
+
+            // And just INSIDE the window the ride DOES fire - the boundary is exactly triggerUT - Tpark, so the
+            // descent begins at the start of the last parking period and not one tick sooner.
+            Assert.True(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                    unit, 5, TriggerUT(0) - Tpark + 50.0, 27_000_000.0, Deorbit, out _),
+                "the deorbit ride fires once inside its window (the last parking period)");
+        }
+
+        [Fact]
         public void ClampTransferMemberHeadToLoiterGap_WrapsWithinParkingPeriod()
         {
             var unit = DescentUnitFor(BuildDescentUnit(engage: true));   // TransferMemberIndex = 5, Tpark = 7000
