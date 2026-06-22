@@ -7127,8 +7127,9 @@ namespace Parsek
                 // segment lookups; every other effUT read below (checkpoint, gap-glide, logging, downstream orbit
                 // apply) still uses the live effUT. Layer B then stamps a per-pid line hold so GhostOrbitLinePatch
                 // keeps the FULL parking ellipse drawn until the live descent trigger. False (byte-identical) for
-                // every non-descent member / non-re-aim unit and once the descent trigger fires (the transfer
-                // member then retires elsewhere).
+                // every member except the destination transfer member (the owner, every ride-along in a
+                // different/unshifted frame, and every descent-set member), for non-re-aim units, and once the
+                // descent trigger fires (the transfer member then retires elsewhere).
                 double segmentLookupUT = effUT;
                 if (GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(loopUnits, idx, effUT))
                 {
@@ -13027,8 +13028,10 @@ namespace Parsek
                 // segment and the proto stays alive on it. The clamp applies ONLY to this segment lookup; every
                 // other read below still uses the live effUT. Layer B then stamps a per-pid line hold so
                 // GhostOrbitLinePatch keeps the FULL parking ellipse drawn until the live descent trigger. False
-                // (byte-identical) for every non-descent member / non-re-aim unit and once the descent trigger
-                // fires (the transfer member then retires via the live-clock continuation gate).
+                // (byte-identical) for every member except the destination transfer member (the owner, every
+                // ride-along in a different/unshifted frame, and every descent-set member), for non-re-aim units,
+                // and once the descent trigger fires (the transfer member then retires via the live-clock
+                // continuation gate).
                 double segmentLookupUT = effUT;
                 uint flightGhostPid = vesselsByRecordingIndex.TryGetValue(idx, out Vessel flightGhostVessel)
                         && flightGhostVessel != null
