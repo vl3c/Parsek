@@ -38,6 +38,32 @@ namespace Parsek.Tests
                 $"residual={residual} t={t}");
         }
 
+        // --- DescentWindowEndLiveUT: the recorded clip duration converted into the LIVE frame (the 2026-06-20
+        //     dead-warp-control bug). Recording-schema knowledge that stays on the descent side; the debug warp
+        //     control (MapRenderWarpControl) consumes only the resulting plain live-frame window. ---
+
+        [Fact]
+        public void DescentWindowEndLive_ConvertsRecordedClipIntoLiveFrame()
+        {
+            // triggerUT is LIVE (~3.96e9); deorbit/end are RECORDED (~2.57e9).
+            const double trigger = 3962534821.2722712;
+            const double deorbit = 2570542380.9910212;
+            const double recEnd = 2570562894.315805;
+            double liveEnd = DescentTrigger.DescentWindowEndLiveUT(trigger, deorbit, recEnd);
+            // Matches the DESCENT WINDOW log line's right bound (3962555334.597) within rounding.
+            Assert.Equal(3962555334.597, liveEnd, 3);
+            Assert.True(liveEnd > 3.9e9, "window end must be in the LIVE frame, not the recorded ~2.57e9 frame");
+            Assert.Equal(recEnd - deorbit, liveEnd - trigger, 6); // clip duration preserved exactly
+        }
+
+        [Fact]
+        public void DescentWindowEndLive_NaN_PropagatesNaN()
+        {
+            Assert.True(double.IsNaN(DescentTrigger.DescentWindowEndLiveUT(double.NaN, 1.0, 2.0)));
+            Assert.True(double.IsNaN(DescentTrigger.DescentWindowEndLiveUT(1.0, double.NaN, 2.0)));
+            Assert.True(double.IsNaN(DescentTrigger.DescentWindowEndLiveUT(1.0, 2.0, double.NaN)));
+        }
+
         [Fact]
         public void Trigger_EntryAlreadyAligned_FiresAtEntry()
         {

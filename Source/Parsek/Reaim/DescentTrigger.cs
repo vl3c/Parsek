@@ -51,6 +51,29 @@ namespace Parsek.Reaim
         }
 
         /// <summary>
+        /// The descent render window's END in the LIVE time frame: the (live) <paramref name="triggerUT"/> plus the
+        /// recorded clip duration (<paramref name="descentEndUT"/> - <paramref name="recordedDeorbitUT"/>, both
+        /// RECORDED-frame). The window is <c>[triggerUT, this]</c>. NaN if any input is NaN. Recording-schema
+        /// knowledge that stays on the descent side; the debug warp control
+        /// (<see cref="Parsek.MapRenderWarpControl"/>) takes only a plain live-frame window and knows nothing about
+        /// recorded vs live UT.
+        ///
+        /// <para>CRITICAL FRAME NOTE: <c>RecordedDeorbitUT</c> / <c>DescentEndUT</c> are RECORDED UT (~2.5e9 in a
+        /// mid-game save) while the live loop clock / <paramref name="triggerUT"/> are LIVE UT (~3.9e9). The window
+        /// end MUST be this live value, never the raw recorded <paramref name="descentEndUT"/>: a recorded UT is far
+        /// smaller than any live UT, so a cap comparing the live <c>currentUT</c> against the raw recorded end would
+        /// see <c>currentUT &gt;= descentEndUT</c> on EVERY frame and silently disable the control (the 2026-06-20
+        /// dead-warp-control bug — descent warped over all session).</para>
+        /// </summary>
+        internal static double DescentWindowEndLiveUT(
+            double triggerUT, double recordedDeorbitUT, double descentEndUT)
+        {
+            if (double.IsNaN(triggerUT) || double.IsNaN(recordedDeorbitUT) || double.IsNaN(descentEndUT))
+                return double.NaN;
+            return triggerUT + (descentEndUT - recordedDeorbitUT);
+        }
+
+        /// <summary>
         /// The descent member's RE-ANCHORED playback head at <paramref name="currentUT"/>: once the trigger
         /// has fired (<c>currentUT &gt;= triggerUT</c>), the recorded descent clip plays forward verbatim from
         /// its recorded deorbit UT at the live rate, <c>recordedDeorbitUT + (currentUT - triggerUT)</c>.
