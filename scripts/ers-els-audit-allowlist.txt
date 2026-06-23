@@ -289,8 +289,9 @@ Source/Parsek/RecordingTreeSplitter.cs
 # unit must source the identical snapshot or its dock-UT crossing detector would
 # silently index the wrong recording (plan "Highest Residual Risks" #2). A
 # supersede-aware ERS filter would re-index the list and break that alignment.
-# The orchestrator's only ELS interaction (IsDeliveryAlreadyInLedger) already
-# routes through EffectiveState.ComputeELS — this exemption is for the raw
+# The orchestrator's ELS interactions (IsDeliveryAlreadyInLedger,
+# IsDispatchAlreadyInLedger, IsRecoveryCreditAlreadyInLedger) all route through
+# EffectiveState.ComputeELS; this exemption is for the raw
 # CommittedRecordings/CommittedTrees read only. Documented at the call site with
 # an inline [ERS-exempt] comment.
 Source/Parsek/Logistics/RouteOrchestrator.cs

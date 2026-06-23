@@ -253,6 +253,11 @@ namespace Parsek
         /// (T = 2*pi*sqrt(a^3/mu)). Re-aim loiter compression. NaN for an unknown body.</summary>
         double GravParameter(string bodyName);
 
+        /// <summary>Physical body radius (metres) - the SAME value the map renderer's surface
+        /// provider reads (CelestialBody.Radius), so the descent-trigger builder can reproduce the
+        /// renderer's below-surface OrbitSegment classification at build time. NaN for an unknown body.</summary>
+        double Radius(string bodyName);
+
         /// <summary>Resolves a vessel by persistentId to its CURRENT orbit. False when the vessel
         /// does not exist in the save, has no orbit, the orbit is not closed (ecc &gt;= 1 /
         /// degenerate period), or <paramref name="recordedVesselGuid"/> conclusively differs from
@@ -2874,6 +2879,12 @@ namespace Parsek
         {
             CelestialBody b = Find(bodyName);
             return b != null ? b.gravParameter : double.NaN;
+        }
+
+        public double Radius(string bodyName)
+        {
+            CelestialBody b = Find(bodyName);
+            return b != null ? b.Radius : double.NaN;
         }
 
         public bool TryGetVesselOrbit(

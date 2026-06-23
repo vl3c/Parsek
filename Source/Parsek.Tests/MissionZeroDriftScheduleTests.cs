@@ -43,6 +43,7 @@ namespace Parsek.Tests
             public double SoiRadius(string b) => double.NaN;
             public double OrbitalVelocity(string b) => double.NaN;
             public double GravParameter(string b) => double.NaN;
+            public double Radius(string b) => 6.0e5;
             public bool TryGetVesselOrbit(uint pid, string recordedVesselGuid, out double periodSeconds, out string orbitBodyName)
             { periodSeconds = double.NaN; orbitBodyName = null; return false; }
         }
@@ -758,6 +759,7 @@ namespace Parsek.Tests
             public double SoiRadius(string b) => b == "Mun" ? 2429559.0 : double.NaN;
             public double OrbitalVelocity(string b) => b == "Mun" ? 543.0 : double.NaN;
             public double GravParameter(string b) => double.NaN;
+            public double Radius(string b) => 6.0e5;
             public bool TryGetVesselOrbit(uint pid, string recordedVesselGuid, out double periodSeconds, out string orbitBodyName)
             { periodSeconds = double.NaN; orbitBodyName = null; return false; }
         }

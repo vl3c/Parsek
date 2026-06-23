@@ -5,17 +5,28 @@ using System.Globalization;
 namespace Parsek.Logistics
 {
     /// <summary>
-    /// Production debit-writer bundle used by the physical origin debit
-    /// (M1; <see cref="RouteOrchestrator.EmitDispatchDebit"/> loop path).
+    /// Production debit-writer bundle used by the physical resource removal
+    /// (M1 origin debit; <see cref="RouteOrchestrator.EmitDispatchDebit"/> loop
+    /// path; M3 per-window pickup, <see cref="RouteOrchestrator.ApplyPickupDebit"/>).
     /// Mirror of <see cref="LiveDeliveryWriters"/> in the REMOVE direction:
-    /// drains the planned per-resource amounts from the ORIGIN vessel's
-    /// tanks, clamping at zero per tank, and owns the per-resource
-    /// actual-debited totals the <c>RouteCargoDebited</c> row is built from.
-    /// Created fresh per debit. Resources only - inventory debit is the M3
-    /// stock-slot-identity work (design D6).
+    /// drains the planned per-resource amounts from a TARGET vessel's tanks,
+    /// clamping at zero per tank, and owns the per-resource actual-debited
+    /// totals the <c>RouteCargoDebited</c> / <c>RouteCargoPickedUp</c> row is
+    /// built from. Created fresh per debit. Resources only - inventory debit is
+    /// the M3 Phase 5 stock-slot-identity work (design D7).
+    ///
+    /// <para><b>Manifest-agnostic (design D5):</b> the writer arithmetic is
+    /// independent of WHICH manifest produced the plan - it drains the prepared
+    /// <see cref="OriginDebitPlan"/> from the supplied <paramref name="vessel"/>
+    /// using the caller-captured <see cref="isLoaded"/> gate. The M1 path aims
+    /// it at the route ORIGIN vessel sourcing <c>route.CostManifest</c>; the M3
+    /// pickup path aims the SAME writer at the per-window pickup ENDPOINT vessel
+    /// sourcing a stop pickup manifest. Only the diagnostic
+    /// <see cref="routeIdForLog"/> ties the line back to a route; the removal is
+    /// vessel + plan only.</para>
     /// </summary>
     /// <remarks>
-    /// All origin-side KSP-state mutation funnels through this class; the
+    /// All target-side KSP-state mutation funnels through this class; the
     /// policy gates (<see cref="RouteOrchestrator.ShouldDeliverToResource"/>,
     /// <see cref="RouteOrchestrator.LookupResourceFlowMode"/>) are shared
     /// with <see cref="LiveOriginCargoProbe"/> so the probe counts only what
@@ -26,7 +37,11 @@ namespace Parsek.Logistics
         private const string Tag = RouteOrchestrator.Tag;
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
-        private readonly Route route;
+        // Diagnostic only: the route id stamped on the "Origin debit:" log
+        // line. The writer is decoupled from the Route (design D5) so the same
+        // bundle serves the M1 origin path and the M3 per-window pickup path;
+        // neither the removal arithmetic nor the tank-pool reads consult it.
+        private readonly string routeIdForLog;
         private readonly Vessel vessel;
         private readonly OriginDebitPlan plan;
         // Injected by the orchestrator (ApplyOriginDebit) - captured once per
@@ -39,10 +54,30 @@ namespace Parsek.Logistics
         internal readonly bool isLoaded;
         private readonly Dictionary<string, double> actualPerResource;
 
+        /// <summary>
+        /// M1 origin-debit ctor: stamps the log line with <paramref name="route"/>'s
+        /// id and aims the writer at <paramref name="originVessel"/>. Kept so the
+        /// M1 call site (<see cref="RouteOrchestrator.ApplyOriginDebit"/>) is
+        /// byte-behaviour-identical; delegates to the route-agnostic ctor.
+        /// </summary>
         internal LiveOriginDebitWriters(Route route, Vessel originVessel, OriginDebitPlan plan, bool isLoaded)
+            : this(route?.Id, originVessel, plan, isLoaded)
         {
-            this.route = route;
-            this.vessel = originVessel;
+        }
+
+        /// <summary>
+        /// Route-agnostic ctor (design D5): drains <paramref name="plan"/> from
+        /// <paramref name="targetVessel"/> using the caller-captured
+        /// <paramref name="isLoaded"/> gate, independent of which manifest
+        /// produced the plan. <paramref name="routeIdForLog"/> is diagnostic
+        /// only (the "Origin debit:" line). The M3 per-window pickup path
+        /// (<see cref="RouteOrchestrator.ApplyPickupDebit"/>) constructs the
+        /// writer this way pointed at the resolved endpoint vessel.
+        /// </summary>
+        internal LiveOriginDebitWriters(string routeIdForLog, Vessel targetVessel, OriginDebitPlan plan, bool isLoaded)
+        {
+            this.routeIdForLog = routeIdForLog;
+            this.vessel = targetVessel;
             this.plan = plan;
             this.isLoaded = isLoaded;
             this.actualPerResource = new Dictionary<string, double>(
@@ -105,7 +140,7 @@ namespace Parsek.Logistics
             // cycle), so Info is appropriate. debited==0 means the tanks were
             // already empty, NO_FLOW, or the resource is absent on the origin.
             ParsekLog.Info(Tag,
-                $"Origin debit: route={route?.Id ?? "<none>"} origin={vessel?.vesselName ?? "<none>"} " +
+                $"Origin debit: route={routeIdForLog ?? "<none>"} origin={vessel?.vesselName ?? "<none>"} " +
                 $"pid={(vessel != null ? vessel.persistentId : 0u).ToString(IC)} " +
                 $"resource={resourceName} requested={amount.ToString("R", IC)} " +
                 $"debited={actual.ToString("R", IC)} " +

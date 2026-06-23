@@ -210,11 +210,11 @@ namespace Parsek.Logistics
                 case RouteAnalysisStatus.MissingRouteProof:
                     return "Recording has no route proof - log the dock event to enable a Supply Route.";
                 case RouteAnalysisStatus.MultipleConnectionWindows:
-                    return "Multiple dock windows detected - multi-stop routes are not yet supported in v1.";
+                    return "Two transfers happened at the same recorded time and cannot be ordered. Re-record so each dock happens at a distinct moment.";
                 case RouteAnalysisStatus.NoDeliveryManifest:
                     return "No delivery payload detected - check that cargo actually moved from transport to destination.";
                 case RouteAnalysisStatus.MixedPickupDelivery:
-                    return "Mixed pickup and delivery detected - the transport ended this run with more of a resource than it started, so it picked the resource up instead of only delivering it. Supply Routes must be one-way delivery in v1. Re-record without taking any resource from the destination: if the destination was full, transfer that resource back out before undocking, or disable flow on the affected transport tanks before docking so nothing moves into the transport.";
+                    return "Unwitnessed inventory gain detected - the transport gained a stored part that the destination did not give it. Inventory is non-fungible, so only a stored part that visibly moved from the destination onto the transport can be picked up. Re-record so the picked-up part is the same one the destination held.";
                 case RouteAnalysisStatus.MissingEndpointProof:
                     return "Endpoint vessel could not be identified at dock time.";
                 case RouteAnalysisStatus.UndockedStartOrigin:
@@ -223,6 +223,12 @@ namespace Parsek.Logistics
                     return "The transport gained cargo during this run with no recorded source"
                         + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
                         + ". Only witnessed gains can route: record the mining with the drill or converter running, or re-record without the unexplained gain.";
+                case RouteAnalysisStatus.FlowDoesNotClose:
+                    return "This run's cargo does not add up: the transport ended with more of a resource than ever arrived"
+                        + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
+                        + ". The recorded loads, harvest, and deliveries cannot account for what was left aboard. Re-record so every resource that leaves the transport is matched by a recorded load, harvest, or delivery.";
+                case RouteAnalysisStatus.MidRecordingStartTrimUnsupported:
+                    return "This run starts between two docks. Routes must begin at launch or while docked to the origin; mid-flight start points are not supported yet.";
                 default:
                     return "Route source is not eligible (" + status + ").";
             }

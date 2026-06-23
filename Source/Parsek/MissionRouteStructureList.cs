@@ -579,7 +579,13 @@ namespace Parsek
                 {
                     UT = deliveryUT,
                     Kind = StructureStepKind.Delivery,
-                    Label = "Deliver" + num + FormatManifestSummary(stop.DeliveryManifest, stop.InventoryDeliveryManifest),
+                    // M3 Phase 4: the stop label is now direction-aware. A delivery
+                    // stop reads "Deliver (...)"; a PURE-pickup stop reads
+                    // "Pick up (...)" (a pure-pickup route was not dispatchable
+                    // before Phase 4, so this label was unreachable); a MIXED stop
+                    // reads "Deliver (...) / Pick up (...)". A degenerate empty stop
+                    // falls back to the bare "Deliver" label (unchanged).
+                    Label = FormatStopLabel(stop, num),
                     Status = StructureLocationFormatter.EndpointStatus(stop.Endpoint, false),
                     Location = StructureLocationFormatter.EndpointLocation(stop.Endpoint, false, biomeResolver),
                     VesselName = ""
@@ -606,6 +612,45 @@ namespace Parsek
                     $"ksc={route.IsKscOrigin} stops={route.Stops.Count} " +
                     $"window={(win != null ? "yes" : "no")} dockRec={(dockRec != null ? "yes" : "no")}");
             return steps;
+        }
+
+        /// <summary>
+        /// Builds the direction-aware stop label (M3 Phase 4): "Deliver{num} (...)"
+        /// for a delivery stop, "Pick up{num} (...)" for a PURE-pickup stop, and
+        /// "Deliver{num} (...) / Pick up (...)" for a MIXED stop. A degenerate
+        /// stop with neither manifest renders the bare "Deliver{num}" (the pre-M3
+        /// fallback). Pure / internal for direct testing. The pickup direction is
+        /// the resource <see cref="Logistics.RouteStop.PickupManifest"/> +
+        /// <see cref="Logistics.RouteStop.InventoryPickupManifest"/> (Phase 5
+        /// inventory still null in Phase 4).
+        /// </summary>
+        internal static string FormatStopLabel(Logistics.RouteStop stop, string num)
+        {
+            if (stop == null) return "Deliver" + (num ?? "");
+            num = num ?? "";
+
+            bool hasDelivery =
+                (stop.DeliveryManifest != null && stop.DeliveryManifest.Count > 0)
+                || (stop.InventoryDeliveryManifest != null && stop.InventoryDeliveryManifest.Count > 0);
+            bool hasPickup =
+                (stop.PickupManifest != null && stop.PickupManifest.Count > 0)
+                || (stop.InventoryPickupManifest != null && stop.InventoryPickupManifest.Count > 0);
+
+            // Pure-pickup: "Pick up (...)" instead of a "Deliver" describing nothing.
+            if (hasPickup && !hasDelivery)
+                return "Pick up" + num
+                    + FormatManifestSummary(stop.PickupManifest, stop.InventoryPickupManifest);
+
+            // Mixed deliver-and-pickup at one dock: both directions named.
+            if (hasPickup && hasDelivery)
+                return "Deliver" + num
+                    + FormatManifestSummary(stop.DeliveryManifest, stop.InventoryDeliveryManifest)
+                    + " / Pick up"
+                    + FormatManifestSummary(stop.PickupManifest, stop.InventoryPickupManifest);
+
+            // Delivery (or degenerate empty): the pre-M3 "Deliver (...)" label.
+            return "Deliver" + num
+                + FormatManifestSummary(stop.DeliveryManifest, stop.InventoryDeliveryManifest);
         }
 
         // Compact "(50 LiquidFuel, 20 Oxidizer, 2 parts)" suffix; empty when nothing.

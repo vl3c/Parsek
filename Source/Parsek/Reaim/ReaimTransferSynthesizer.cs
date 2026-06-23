@@ -94,7 +94,10 @@ namespace Parsek.Reaim
             CelestialBody launchBody, CelestialBody targetBody, double departureUT, double tofSeconds,
             bool prograde,
             out Orbit transferOrbit, out double soiEntryUT, out CelestialBody encounterBody,
-            out string failReason)
+            out string failReason,
+            Vector3d departureOverridePosUnswizzled = default(Vector3d),
+            Vector3d departureOverrideVelUnswizzled = default(Vector3d),
+            bool hasDepartureOverride = false)
         {
             transferOrbit = null;
             soiEntryUT = double.NaN;
@@ -134,7 +137,17 @@ namespace Parsek.Reaim
             // .xzy here and the .xzy below are a round-trip through the orbit API's native swizzled
             // frame - applied identically to r1 and v1, the conic is invariant. Dropping one .xzy would
             // silently corrupt the orbit. (Verified correct in-game by the C2 canary.)
-            Vector3d r1 = launchBody.orbit.getRelativePositionAtUT(departureUT).xzy;
+            //
+            // PARKING-DEPARTURE OVERRIDE (gated to the heliocentric-parking-departure path): for a two-burn
+            // departure the icon is coasting on the heliocentric PARK at the trans-target burn (the launch
+            // SOI escape happened far earlier), so the transfer must emanate from the vessel's re-phased
+            // PARK-END state, NOT the launch body's center. The caller passes r1 / vel ALREADY .xzy-unswizzled
+            // (same frame as the launchBody.getRelativePositionAtUT(...).xzy default below), evaluated on the
+            // LAN-rotated park at the RECORDED burn UT (see ReaimPlaybackResolver + DecideDepartureAnchor).
+            // Default args (hasDepartureOverride=false) reproduce the launch-center conic byte-for-byte.
+            Vector3d r1 = hasDepartureOverride
+                ? departureOverridePosUnswizzled
+                : launchBody.orbit.getRelativePositionAtUT(departureUT).xzy;
             Vector3d r2 = targetBody.orbit.getRelativePositionAtUT(arrivalUT).xzy;
 
             // Resolve the near-180-degree Lambert plane singularity by feeding the STABLE launch-plane
@@ -160,8 +173,13 @@ namespace Parsek.Reaim
             // a same-handedness sane conic declines to faithful (never a wrong conic). Because the offset is
             // no longer removed, re-aiming an inclined target is now bounded only by the downstream proximity
             // check (the target must still pass within its SOI), not by the projection.
-            Vector3d launchPlaneNormal = Vector3d.Cross(
-                r1, launchBody.orbit.getOrbitalVelocityAtUT(departureUT).xzy);
+            // The handedness axis comes from r1 x v at the SAME point r1 is anchored: for the parking-
+            // departure override that is the park-end velocity (caller-supplied, .xzy-unswizzled); for the
+            // direct path it is the launch body's velocity at departureUT. Keeping the velocity source
+            // consistent with r1 keeps launchPlaneNormal well-defined for the near-180 stabilization.
+            Vector3d launchPlaneNormal = hasDepartureOverride
+                ? Vector3d.Cross(r1, departureOverrideVelUnswizzled)
+                : Vector3d.Cross(r1, launchBody.orbit.getOrbitalVelocityAtUT(departureUT).xzy);
 
             if (!TransferSolver.Solve(mu, r1, r2, tofSeconds, prograde, launchPlaneNormal, out Vector3d v1, out _))
             {
@@ -214,7 +232,8 @@ namespace Parsek.Reaim
                 transferOrbit = transfer;
                 soiEntryUT = transfer.UTsoi;
                 encounterBody = targetBody;
-                LogSynthGeometry(transfer, launchBody, targetBody, departureUT, arrivalUT, soiEntryUT, "patched-conic");
+                LogSynthGeometry(transfer, launchBody, targetBody, departureUT, arrivalUT, soiEntryUT,
+                    "patched-conic", hasDepartureOverride, r1);
                 return true;
             }
 
@@ -229,7 +248,8 @@ namespace Parsek.Reaim
                 transferOrbit = transfer;
                 soiEntryUT = geomSoiUT;
                 encounterBody = targetBody;
-                LogSynthGeometry(transfer, launchBody, targetBody, departureUT, arrivalUT, soiEntryUT, "proximity");
+                LogSynthGeometry(transfer, launchBody, targetBody, departureUT, arrivalUT, soiEntryUT,
+                    "proximity", hasDepartureOverride, r1);
                 return true;
             }
 
@@ -239,19 +259,32 @@ namespace Parsek.Reaim
             return false;
         }
 
-        // Diagnostic: log the synthesized transfer's geometry against the bodies it must connect, so a
-        // mis-aimed transfer (arrives where the target is NOT) is caught at the source. All positions are
-        // parent-relative in the orbit API's native frame, so the distances are frame-consistent without
-        // any swizzle. xfer-vs-launch@depart and xfer-vs-target@arrival must be ~0 (the Lambert connects
-        // r1->r2 by construction); xfer-vs-target@soi must be <= the target SOI. Verbose, one-shot per
+        // Diagnostic: log the synthesized transfer's geometry against the bodies/points it connects.
+        // xfer-vs-{depart} and xfer-vs-target@arrival are ~0 BY CONSTRUCTION on BOTH paths (the Lambert
+        // connects r1->r2 exactly): for the DIRECT path the departure anchor r1 is the launch body's center
+        // (xfer-vs-launch@depart), for the PARKING-OVERRIDE path r1 is the caller-supplied park-end
+        // (xfer-vs-parkEnd@depart). These two lines are a FRAME-CONSISTENCY sanity canary - they catch a
+        // dropped/extra .xzy swizzle (which would make the round-trip miss), NOT a mis-aimed r1: r1 is
+        // whatever the caller passed, so the line cannot detect that the WRONG r1 was chosen. The ACTUAL
+        // departure-seam geometric proof (that r1 == the rendered park-end, evaluated at RecordedDepartureUT
+        // rather than departureUT) lives in the in-game r1==park-end gate (ReaimEndToEndInGameTest) + the
+        // pure DecideDepartureAnchor eval-UT unit test, not here. xfer-vs-target@soi must be <= the target
+        // SOI. All positions are parent-relative in the orbit API's native frame. Verbose, one-shot per
         // window resolve (the resolver caches the window).
         private static void LogSynthGeometry(
             Orbit transfer, CelestialBody launchBody, CelestialBody targetBody,
-            double departureUT, double arrivalUT, double soiEntryUT, string path)
+            double departureUT, double arrivalUT, double soiEntryUT, string path,
+            bool hasDepartureOverride, Vector3d departureOverridePosUnswizzled)
         {
             var ic = CultureInfo.InvariantCulture;
-            double depMiss = (transfer.getRelativePositionAtUT(departureUT)
-                - launchBody.orbit.getRelativePositionAtUT(departureUT)).magnitude;
+            // departureOverridePosUnswizzled is .xzy-unswizzled (the Lambert frame); the transfer position
+            // is in the orbit API's native (swizzled) frame, so re-swizzle the override (.xzy is its own
+            // inverse) before differencing - matching how r1.xzy was fed to UpdateFromStateVectors.
+            double depMiss = hasDepartureOverride
+                ? (transfer.getRelativePositionAtUT(departureUT) - departureOverridePosUnswizzled.xzy).magnitude
+                : (transfer.getRelativePositionAtUT(departureUT)
+                    - launchBody.orbit.getRelativePositionAtUT(departureUT)).magnitude;
+            string depAnchorLabel = hasDepartureOverride ? "parkEnd" : launchBody.bodyName;
             double arrMiss = (transfer.getRelativePositionAtUT(arrivalUT)
                 - targetBody.orbit.getRelativePositionAtUT(arrivalUT)).magnitude;
             double soiMiss = double.IsNaN(soiEntryUT) ? double.NaN
@@ -261,7 +294,7 @@ namespace Parsek.Reaim
                 $"synth geometry ({path}): departUT={departureUT.ToString("F0", ic)} " +
                 $"arrivalUT={arrivalUT.ToString("F0", ic)} soiEntryUT={soiEntryUT.ToString("F0", ic)} " +
                 $"sma={transfer.semiMajorAxis.ToString("R", ic)} ecc={transfer.eccentricity.ToString("F4", ic)} | " +
-                $"xfer-vs-{launchBody.bodyName}@depart={depMiss.ToString("F0", ic)}m (~0) | " +
+                $"xfer-vs-{depAnchorLabel}@depart={depMiss.ToString("F0", ic)}m (~0) | " +
                 $"xfer-vs-{targetBody.bodyName}@arrival={arrMiss.ToString("F0", ic)}m (~0) | " +
                 $"xfer-vs-{targetBody.bodyName}@soi={(double.IsNaN(soiMiss) ? "NaN" : soiMiss.ToString("F0", ic))}m " +
                 $"(SOI={targetBody.sphereOfInfluence.ToString("F0", ic)})");

@@ -165,6 +165,13 @@ namespace Parsek.Tests
             yield return new object[] { GameActionType.RoutePaused, false, false };
             yield return new object[] { GameActionType.RouteEndpointLost, false, false };
             yield return new object[] { GameActionType.RouteRecoveryCredited, false, false };
+            // RouteCargoPickedUp (logistics M3, integration site d): a
+            // scheduler-emitted per-window pickup debit row, not flight-recorder
+            // output. Its physical effect (cargo removed from the endpoint at emit)
+            // is reverted by the rewind quicksave, not the supersede block, so it
+            // neither strict-blocks nor retry-blocks an auto-seal - same as the
+            // other route rows.
+            yield return new object[] { GameActionType.RouteCargoPickedUp, false, false };
         }
 
         [Fact]

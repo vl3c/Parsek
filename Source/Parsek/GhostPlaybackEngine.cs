@@ -356,6 +356,14 @@ namespace Parsek
                 return false;
             }
 
+            // Forward the per-loop launch-alignment inputs so the watch clock is byte-identical to the
+            // engine render clock (UpdateUnitMemberPlayback -> DecideUnitMemberRender at the render call
+            // below). WITHOUT these, a launch-alignment-engaged re-aim member would resolve a different loopUT
+            // than the engine renders: the borrow-at-launch / repay-at-SOI-exit model launches delta_N earlier
+            // and inserts a delta_N coast hold at the SOI exit, so the resolved in-SOI loopUT and the SOI-exit
+            // dwell differ from the plain clock by up to T_sid (~6 h of recorded trajectory). There is NO
+            // pre-launch absence under borrow-repay (the launch is earlier, the repay is an in-window coast),
+            // so the watch clock always resolves an in-span UT.
             if (!GhostPlaybackLogic.TryComputeSpanLoopUT(
                     currentUT,
                     unit.PhaseAnchorUT,
@@ -369,7 +377,10 @@ namespace Parsek
                     unit.LoiterCuts,
                     unit.ArrivalHoldSeconds,
                     unit.ArrivalHoldAtUT,
-                    unit.ArrivalAlignPeriodSeconds))
+                    unit.ArrivalAlignPeriodSeconds,
+                    unit.LaunchBodyRotationPeriodSeconds,
+                    unit.LaunchHoldEngaged,
+                    unit.RecordedSoiExitUT))
             {
                 return false;
             }
@@ -1880,7 +1891,9 @@ namespace Parsek
                                 parentUnit.SpanEndUT, parentUnit.CadenceSeconds, out parentLoopUT,
                                 out parentCycle, out bool parentInInterCycleTail, parentUnit.RelaunchSchedule,
                                 parentUnit.LoiterCuts, parentUnit.ArrivalHoldSeconds, parentUnit.ArrivalHoldAtUT,
-                                parentUnit.ArrivalAlignPeriodSeconds))
+                                parentUnit.ArrivalAlignPeriodSeconds,
+                                parentUnit.LaunchBodyRotationPeriodSeconds, parentUnit.LaunchHoldEngaged,
+                                parentUnit.RecordedSoiExitUT))
                         {
                             GhostRenderTrace.EmitGuardSkip(
                                 traj, i, ctx.currentUT, "parent-unit-span-clock-unresolved");
@@ -2281,7 +2294,8 @@ namespace Parsek
                 ctx.currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
                 memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
                 out bool isInInterCycleTail, unit.RelaunchSchedule, unit.LoiterCuts,
-                unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds);
+                unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
+                unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
 
             // Cycle-wrap / camera-handoff diagnostics + watch retarget: the first member of the unit
             // to run this frame observes the unit-wide transition and acts once (rate-limited per
@@ -2302,6 +2316,131 @@ namespace Parsek
                 CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
                 return;
             }
+
+            // DESCENT TRIGGER (re-aim looped arrival, docs/dev/plans/reaim-descent-trigger.md): the FLIGHT
+            // engine must render a descent-set member EXACTLY like the map/TS resolver
+            // (ResolveTrackingStationSampleUT) - detach it from the raw loop clock and re-anchor the whole
+            // descent set to the first rotation-aligned moment after the icon reaches the parking-orbit deorbit
+            // point. Without this the engine kept driving the member on the raw span clock (decision +
+            // spanLoopUT from DecideUnitMemberRender), so in flight the descent member was HIDDEN the whole
+            // time (its raw loop slot lands at the WRONG destination rotation = outside its own window) and the
+            // ghost/icon never appeared. Re-resolve via the shared descent head and OVERRIDE the downstream
+            // span clock: when the trigger says render, force decision=Render and drive the ghost at the
+            // re-anchored descentHead; otherwise force a hide so the existing (3) teardown runs (the descent
+            // member NEVER rides the raw loop clock). Byte-identical for every non-descent member /
+            // non-re-aim unit (HasDescentTrigger false -> descentMember false -> this block is skipped).
+            bool descentMember = unit.HasDescentTrigger && unit.IsDescentMember(i);
+            if (descentMember)
+            {
+                GhostPlaybackLogic.DescentMemberEngineRender descentRender =
+                    GhostPlaybackLogic.ResolveDescentMemberEngineRender(
+                        unit, i, ctx.currentUT, unitCycle, memberStartUT, memberEndUT);
+
+                var dic = CultureInfo.InvariantCulture;
+                ParsekLog.VerboseRateLimited(
+                    "ReaimDescent",
+                    // Bounded by mission x member x phase (NOT frame count), matching the resolver key shape.
+                    "engine-descent-head." + unit.PhaseAnchorUT.ToString("R", dic) + "."
+                        + unit.SpanStartUT.ToString("R", dic) + "." + i.ToString(dic) + "." + descentRender.Phase,
+                    "engine descent trigger member=" + i.ToString(dic)
+                        + " cycle=" + unitCycle.ToString(dic) + " phase=" + descentRender.Phase
+                        + " render=" + descentRender.Render
+                        + " liveUT=" + ctx.currentUT.ToString("R", dic)
+                        + " head=" + descentRender.Head.ToString("R", dic)
+                        + " win=[" + memberStartUT.ToString("R", dic) + "," + memberEndUT.ToString("R", dic) + "]"
+                        + " deorbit=" + unit.RecordedDeorbitUT.ToString("R", dic)
+                        + " end=" + unit.DescentEndUT.ToString("R", dic)
+                        + " cs=" + unit.CaptureShiftSeconds.ToString("R", dic),
+                    5.0);
+
+                // NOTE: the always-on per-cycle lifecycle trace (DescentRenderTrace.Note -> DESCENT
+                // WINDOW/RENDERED/SKIPPED/REVERTED) is intentionally NOT emitted here. DescentRenderTrace holds
+                // ONE per-unit state machine keyed by (PhaseAnchorUT.SpanStartUT); the map/TS resolver
+                // (ResolveTrackingStationSampleUT, reached in FLIGHT every frame via the polyline Driver's
+                // ResolveTrackingStationSampleFrame walk) already feeds it. A second feeder from this engine in
+                // the SAME scene would interleave two currentUTs into one state and produce spurious
+                // Reverted/Skipped events. The engine-specific render decision is surfaced by the distinct
+                // "engine-descent-head" VerboseRateLimited line above (a non-colliding key).
+
+                if (descentRender.Render)
+                {
+                    // Drive the ghost at the re-anchored descent head: override the downstream span clock so
+                    // the warp gate, activation gate, cycle change, and RenderInRangeGhost all run against the
+                    // descentHead instead of the raw loopUT. FORCE decision=Render: the raw loop-clock decision
+                    // here is typically HiddenOutsideWindow (the descent member's raw slot lands at the wrong
+                    // rotation, out of window) — the trigger overrides it to render the re-anchored slice.
+                    spanLoopUT = descentRender.Head;
+                    decision = GhostPlaybackLogic.UnitMemberRenderDecision.Render;
+                }
+                else
+                {
+                    // Inert / Loiter / Done / outside this member's slice: HIDE. Force the out-of-window hide
+                    // so the existing (3) teardown runs (which also keeps the watched-owner-alive invariant) -
+                    // the descent member never drives its ghost on the raw loop clock (the transfer member's
+                    // shifted conic carries the icon during the wait).
+                    decision = GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow;
+                }
+            }
+
+            // Transfer-member loiter-gap clamp (the rogue-descent fix; the engine side of the
+            // ResolveTrackingStationSampleUT clamp): the NON-descent destination transfer member's raw span clock
+            // sweeps PAST the parking conic into the recorded deorbit -> descent arc while the LIVE descent trigger
+            // is still ~|captureShift| away, so without this the engine drives the 3D ghost (and its projected map
+            // mesh / non-proto marker) DOWN the recorded descent at the wrong time - the user's "rogue descending
+            // trajectory". Hold the ghost on the parking conic by clamping the drive clock to the parking-conic end
+            // through the loiter (matching the map-presence segment-lookup clamp + the orbit-line hold + the
+            // marker/line/polyline resolver clamp); this also keeps the loop clock short of EndOfData, so the mesh
+            // stays positioned and the map marker rides source=mesh on the parking conic instead of falling back to
+            // the descending trajectory head. No-op (byte-identical) for descent members / ride-alongs / non-re-aim
+            // units (IsDescentTransferMemberInLoiterGap false) and gated on decision==Render (a hidden member's
+            // span clock is unused downstream). (Step 2: ClampTransferMemberHeadToLoiterGap WRAPS the head into the
+            // last recorded parking period [P - LoiterPeriodSeconds, P) so the ghost CIRCLES the closed parking
+            // conic through the wait instead of freezing at the deorbit point - continuous at engage and wrap-around.)
+            if (!descentMember
+                && decision == GhostPlaybackLogic.UnitMemberRenderDecision.Render)
+            {
+                bool wrapEngaged = GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, i, spanLoopUT);
+                spanLoopUT = GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, i, spanLoopUT);
+                if (wrapEngaged)
+                {
+                    var lwdic = System.Globalization.CultureInfo.InvariantCulture;
+                    ParsekLog.VerboseRateLimited("ReaimDescent", "loiter-wrap-" + i.ToString(lwdic),
+                        "loiter-circle member=" + i.ToString(lwdic) + " head wrapped to " +
+                        spanLoopUT.ToString("R", lwdic) + " within Tpark=" +
+                        unit.LoiterPeriodSeconds.ToString("R", lwdic) +
+                        " (parking conic circling, parkingConicEnd=" +
+                        unit.ParkingConicEndUT.ToString("R", lwdic) + ")", 5.0);
+                }
+            }
+
+            // BOUNDARY-OVERLAP secondary decision (docs/dev/plan-launch-boundary-overlap.md 3.1/3.2),
+            // HOISTED above the (3) hide/destroy block (review H2). Resolve whether this member carries a
+            // live boundary-overlap secondary (the early-launching NEXT instance N+1) BEFORE the primary's
+            // out-of-window early returns below, because in a CHAIN launch member the primary (the continuing
+            // instance N) is months downstream near the destination - OUTSIDE this member's window - while the
+            // secondary is mid-ascent IN this member's window. If the decision stayed below the (3) block, the
+            // primary's HiddenOutsideWindow / HiddenInterCycleTail early return tore down overlapGhosts[i] (the
+            // secondary's 3D mesh) before it was ever dispatched. NoSecondary (every aligned loop /
+            // non-launch-hold member / single-recording launch whose primary IS in-window) leaves the (3)
+            // block byte-identical.
+            var boundarySecondaryDecision = GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.NoSecondary;
+            double boundarySecondaryLoopUT = unit.SpanStartUT;
+            long boundarySecondaryCycle = 0;
+            // Descent trigger R6 (mirrors ResolveTrackingStationSampleFrame): a descent-set member is governed
+            // ENTIRELY by the re-anchored descent head; it must NOT also emit a boundary-overlap SECONDARY (the
+            // secondary path does not descent-remap, so it would draw the body-fixed clip at the raw loop UT =
+            // the wrong rotation again). Suppress it for descent members.
+            if (unit.LaunchHoldEngaged && !descentMember)
+            {
+                boundarySecondaryDecision = GhostPlaybackLogic.DecideBoundaryOverlapSecondaryRender(
+                    ctx.currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                    memberStartUT, memberEndUT, out boundarySecondaryLoopUT, out boundarySecondaryCycle,
+                    unit.RelaunchSchedule, unit.LoiterCuts,
+                    unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+            }
+            bool boundarySecondaryLive =
+                boundarySecondaryDecision == GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render;
 
             // (3) Not in THIS member's window (the shared clock is outside [StartUT, EndUT]), or in
             // the inter-cycle tail-wait (cadence greater than span): hide / destroy THIS member's ghost.
@@ -2329,6 +2468,33 @@ namespace Parsek
                         5.0);
                 }
                 GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "mission-loop-unit-inactive");
+
+                // H2 (launch->escape seam render): a live boundary-overlap SECONDARY occupies
+                // overlapGhosts[i] even though the PRIMARY is OUTSIDE this member's window - the CHAIN case
+                // where the launch member spans two recordings and the continuing instance N is months
+                // downstream near the destination while the early-launching N+1 is mid-ascent in this
+                // member's window. Hide the primary mesh but DRIVE the secondary instead of tearing it down
+                // with the rest of the overlap storage: the secondary dispatch (7) sits AFTER this early
+                // return, so without this the secondary's 3D mesh is destroyed before it is ever positioned
+                // (flight 3D shows icon + trajectory but no ghost mesh during the borrow window). The primary
+                // is hidden, not destroyed, so a watching camera stays parented to a live (hidden) ghost
+                // exactly like the keep-watched-owner-alive fallback below. NoSecondary (every aligned loop /
+                // non-launch-hold member / single-recording launch whose primary IS in-window) skips this and
+                // takes the unchanged teardown below.
+                if (boundarySecondaryLive)
+                {
+                    if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                    {
+                        state.ghost.SetActive(false);
+                        ResetGhostAppearanceTracking(state);
+                    }
+                    UpdateBoundaryOverlapSecondary(
+                        i, traj, f, ctx, suppressGhosts, suppressVisualFx,
+                        boundarySecondaryLoopUT, boundarySecondaryCycle);
+                    CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
+                    return;
+                }
+
                 // Keep-watched-owner-alive fallback (design D5): if this hidden member is the one the
                 // camera is watching, hide its ghost WITHOUT destroying it so the camera never ends
                 // up parented to a deactivated/destroyed ghost even if the UnitHandoffRetarget to the
@@ -2426,12 +2592,18 @@ namespace Parsek
                 return;
             }
 
-            // The shared clock never produces overlap cycles (one cycle live), so a unit member
-            // should never carry overlap ghosts. Clear any stale ones left over from a prior
-            // standalone overlap-loop life (e.g. the member was just toggled into the unit
-            // mid-flight). Mirror the standalone path (~1031): Remove(i) after destroying so the
-            // (now empty) dict entry does not keep ContainsKey(i) true and rerun this every frame.
-            if (overlapGhosts.ContainsKey(i))
+            // (boundarySecondaryDecision / boundarySecondaryLive / boundarySecondaryLoopUT /
+            // boundarySecondaryCycle are resolved ABOVE, hoisted over the (3) hide/destroy block - review H2.)
+
+            // The shared clock never produces self-overlap cycles (one cycle live), so a unit member should never
+            // carry SELF-overlap ghosts. Clear any stale ones left over from a prior standalone overlap-loop life
+            // (e.g. the member was just toggled into the unit mid-flight). Mirror the standalone path (~1031):
+            // Remove(i) after destroying so the (now empty) dict entry does not keep ContainsKey(i) true and rerun
+            // this every frame. GATED on the boundary-overlap secondary (plan 3.2): when a live secondary occupies
+            // overlapGhosts[i] this frame, do NOT tear it down (it would thrash every frame across the borrow
+            // window); UpdateBoundaryOverlapSecondary below owns that storage. The secondary path NEVER calls
+            // UpdateOverlapPlayback / the expiry block, so it never confuses the self-overlap machinery.
+            if (!boundarySecondaryLive && overlapGhosts.ContainsKey(i))
             {
                 DestroyAllOverlapGhosts(i);
                 overlapGhosts.Remove(i);
@@ -2452,8 +2624,12 @@ namespace Parsek
             // units). The positioner derotates Absolute body-fixed point playback by it so vacuum
             // burn arcs land at their recorded INERTIAL positions instead of riding the planet's
             // extra rotation (the 2026-06-11 playtest's 46-degree teleports near the station).
+            // A descent-set member's head is ALREADY rotation-aligned by the descent trigger (spanLoopUT was
+            // overridden to descentHead above); the M4b phasing-knob body-fixed shift must NOT apply on top, or
+            // the descent would be double-shifted off the recorded site. Gate it off for descent members (the
+            // resolver path applies no such shift either, so this keeps engine/map parity).
             double bodyFixedShift = 0.0;
-            if (unit.RelaunchSchedule != null && unit.RelaunchSchedule.HasPhasingKnob
+            if (!descentMember && unit.RelaunchSchedule != null && unit.RelaunchSchedule.HasPhasingKnob
                 && unit.RelaunchSchedule.TryResolveActiveLaunch(
                     ctx.currentUT, out double knobLaunchUT, out _))
             {
@@ -2479,6 +2655,210 @@ namespace Parsek
                     // its fresh state object; stamp it now so the next frame derotates.
                     state.bodyFixedShiftSeconds = bodyFixedShift;
                 }
+            }
+
+            // (7) BOUNDARY-OVERLAP secondary (docs/dev/plan-launch-boundary-overlap.md 3.1/3.3): when this member
+            // carries a live boundary-overlap secondary this frame (the early-launching NEXT instance N+1, during
+            // the borrow window of a zero-slack re-aim launch loop), position ONE secondary ghost in
+            // overlapGhosts[i] at its own loopUT via a dedicated positioner. The previous (primary) instance is far
+            // downstream near the destination by now, so the two ghosts render at different places. When no live
+            // secondary, tear any down (the borrow window ended). This is engaged ONLY on the residual-seam loops;
+            // already-aligned loops never reach here with a live secondary (the gate guarantees byte-identical).
+            if (boundarySecondaryLive)
+            {
+                UpdateBoundaryOverlapSecondary(
+                    i, traj, f, syncCtx, suppressGhosts, suppressVisualFx,
+                    boundarySecondaryLoopUT, boundarySecondaryCycle);
+            }
+            else if (overlapGhosts.ContainsKey(i))
+            {
+                // No live secondary this frame but a stale boundary-overlap ghost lingers (e.g. the borrow window
+                // just ended, or warp suppression hid the primary above and returned early on a prior frame): tear
+                // it down. Mirror the standalone clear so the empty entry does not rerun every frame.
+                DestroyAllOverlapGhosts(i);
+                overlapGhosts.Remove(i);
+            }
+        }
+
+        /// <summary>
+        /// Positions the BOUNDARY-OVERLAP secondary ghost (the early-launching NEXT instance N+1) for unit member
+        /// <paramref name="index"/> at <paramref name="secondaryLoopUT"/> (docs/dev/plan-launch-boundary-overlap.md
+        /// 3.3). A thin adapter that BORROWS the <c>overlapGhosts[index]</c> storage but is NEVER the self-overlap
+        /// expiry path: it spawns exactly one secondary (rebuilt on a secondary-cycle change), stamps
+        /// <see cref="GhostPlaybackState.isBoundaryOverlapSecondary"/> (so the watch camera excludes it), and
+        /// positions it through the same in-range positioning pipeline the overlap primary uses
+        /// (ResolvePlaybackDistance -> ApplyZoneRendering -> PositionLoopAtPlaybackUT -> EmitPostPositionUpdate ->
+        /// ApplyFrameVisuals). It does NOT run the expiry block (no <see cref="OnOverlapCameraAction"/> /
+        /// <see cref="OnOverlapExpired"/>): the secondary never expires that way - it is destroyed by HasSecondary
+        /// going false at the boundary, where it has already become the next primary. The secondary's audio is muted
+        /// (overlap ghosts get no audio) via the OverlapPrimaryEnter demoted-shell lifecycle. At high warp the moving
+        /// secondary mesh is hidden (the same warp gate the moving overlap meshes use).
+        /// </summary>
+        private void UpdateBoundaryOverlapSecondary(
+            int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags, FrameContext ctx,
+            bool suppressGhosts, bool suppressVisualFx,
+            double secondaryLoopUT, long secondaryCycle)
+        {
+            // Warp suppression: the secondary is the in-SOI launching ghost (moving), so hide its MESH at high warp
+            // (mirrors the moving overlap-mesh gate). Destroy it so it re-spawns cleanly when warp drops.
+            if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(ctx.warpRate, traj, secondaryLoopUT))
+            {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT, "boundary-overlap-secondary-warp-hidden");
+                DestroyAllOverlapGhosts(index);
+                return;
+            }
+
+            if (!overlapGhosts.TryGetValue(index, out List<GhostPlaybackState> overlaps))
+            {
+                overlaps = new List<GhostPlaybackState>();
+                overlapGhosts[index] = overlaps;
+            }
+
+            // Exactly one secondary, keyed by the secondary cycle. Rebuild on a cycle change (the borrow window's
+            // instance advanced to the next N+1). Any leftover entry that is not the current secondary cycle is
+            // cleared first so the storage holds at most one boundary-overlap ghost.
+            GhostPlaybackState sec = null;
+            if (overlaps.Count > 0 && overlaps[0] != null
+                && overlaps[0].isBoundaryOverlapSecondary
+                && overlaps[0].loopCycleIndex == secondaryCycle)
+            {
+                sec = overlaps[0];
+            }
+            if (sec == null)
+            {
+                DestroyAllOverlapGhosts(index);
+                sec = SpawnBoundaryOverlapSecondary(index, traj, flags, secondaryLoopUT, secondaryCycle);
+                if (sec == null)
+                {
+                    // Visual build failed / deferred this frame; nothing to position yet.
+                    return;
+                }
+                overlaps.Add(sec);
+            }
+
+            PositionBoundaryOverlapSecondaryAt(index, traj, ctx, sec, secondaryLoopUT, suppressVisualFx);
+        }
+
+        /// <summary>
+        /// Spawns the boundary-overlap secondary shell for unit member <paramref name="index"/> at
+        /// <paramref name="secondaryLoopUT"/> (docs/dev/plan-launch-boundary-overlap.md 3.3). Reuses
+        /// <see cref="CreatePendingSpawnState"/> with the OverlapPrimaryEnter demoted-shell lifecycle (no
+        /// ghost-created / camera side effects), mutes the audio (overlap ghosts get no audio), stamps the
+        /// <see cref="GhostPlaybackState.isBoundaryOverlapSecondary"/> flag, and loads the visuals. Returns the
+        /// state, or null if the visual build failed / is still pending this frame (the caller positions next frame).
+        /// </summary>
+        private GhostPlaybackState SpawnBoundaryOverlapSecondary(
+            int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
+            double secondaryLoopUT, long secondaryCycle)
+        {
+            GhostPlaybackState sec = CreatePendingSpawnState(
+                traj, secondaryLoopUT, PendingSpawnLifecycle.OverlapPrimaryEnter, flags);
+            // Demote to a shell with no lifecycle side effects (mirror the demoted-overlap path): the secondary must
+            // fire no ghost-created / camera-retarget events. CreatePendingSpawnState sets the lifecycle to
+            // OverlapPrimaryEnter; null it so EnsureGhostVisualsLoaded does not fire a spawn event.
+            sec.pendingSpawnLifecycle = PendingSpawnLifecycle.None;
+            sec.pendingSpawnFlags = default(TrajectoryPlaybackFlags);
+            sec.loopCycleIndex = secondaryCycle;
+            sec.isBoundaryOverlapSecondary = true;
+
+            GhostVisualLoadStatus status = EnsureGhostVisualsLoaded(
+                index, traj, sec, secondaryLoopUT, "boundary-overlap secondary first spawn",
+                resetCompletedEventDedup: false);
+            if (sec.ghost != null)
+                GhostPlaybackLogic.MuteAllAudio(sec); // boundary-overlap secondary gets no audio
+            if (status == GhostVisualLoadStatus.Failed)
+            {
+                CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
+                DestroyOverlapGhostState(sec);
+                ParsekLog.Warn("Engine",
+                    $"Boundary-overlap secondary: SpawnGhost failed for #{index} cycle={secondaryCycle}");
+                return null;
+            }
+            if (status == GhostVisualLoadStatus.Pending)
+            {
+                // Build deferred (time-sliced over frames); position next frame when ready. Keep the shell so the
+                // caller's cycle-match check reuses it.
+                ParsekLog.VerboseRateLimited(
+                    "Engine", "boundary-overlap-secondary-pending-" + index.ToString(CultureInfo.InvariantCulture),
+                    $"Boundary-overlap secondary build pending for #{index} cycle={secondaryCycle} - position deferred",
+                    5.0);
+                return sec;
+            }
+            ParsekLog.VerboseRateLimited(
+                "Engine", "boundary-overlap-secondary-spawn-" + index.ToString(CultureInfo.InvariantCulture),
+                $"Boundary-overlap secondary spawned for #{index} cycle={secondaryCycle} loopUT={secondaryLoopUT.ToString("F2", CultureInfo.InvariantCulture)} (audio muted)",
+                5.0);
+            return sec;
+        }
+
+        /// <summary>
+        /// Positions the boundary-overlap secondary <paramref name="sec"/> at <paramref name="secondaryLoopUT"/>
+        /// through the same in-range positioning pipeline the overlap primary uses (factored from the overlap
+        /// primary positioning block), NEVER the expiry block. No <see cref="OnOverlapCameraAction"/> /
+        /// <see cref="OnOverlapExpired"/> fire from this path (docs/dev/plan-launch-boundary-overlap.md 3.3).
+        /// </summary>
+        private void PositionBoundaryOverlapSecondaryAt(
+            int index, IPlaybackTrajectory traj, FrameContext ctx, GhostPlaybackState sec,
+            double secondaryLoopUT, bool suppressVisualFx)
+        {
+            if (sec == null)
+                return;
+
+            double distance = ResolvePlaybackDistance(index, traj, sec, secondaryLoopUT, ctx.activeVesselPos);
+            double activeVesselDistance = ResolvePlaybackActiveVesselDistance(
+                index, traj, sec, secondaryLoopUT, ctx.activeVesselPos);
+            CachePlaybackDistances(sec, activeVesselDistance, distance);
+            var zoneResult = positioner.ApplyZoneRendering(
+                index, sec, traj, distance, secondaryLoopUT, ctx.protectedIndex);
+            if (zoneResult.hiddenByZone)
+            {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT,
+                    "boundary-overlap-secondary-hidden-by-zone distance=" + FormatPlaybackDistanceForLog(distance));
+                HandleHiddenGhostVisualState(
+                    index, traj, sec, secondaryLoopUT, ctx.warpRate, distance, overlapGhost: true,
+                    hiddenReason: $"boundary-overlap secondary hidden by distance LOD at {FormatPlaybackDistanceForLog(distance)}");
+                return;
+            }
+
+            if (!HasLoadedGhostVisuals(sec))
+            {
+                if (!TryReserveSpawnSlot(index, "boundary-overlap-secondary-rehydrate"))
+                    return;
+                GhostVisualLoadStatus status = EnsureGhostVisualsLoaded(
+                    index, traj, sec, secondaryLoopUT, "boundary-overlap secondary re-entered visible distance tier");
+                if (status == GhostVisualLoadStatus.Failed || status == GhostVisualLoadStatus.Pending)
+                {
+                    if (status == GhostVisualLoadStatus.Failed)
+                        CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
+                    return;
+                }
+            }
+
+            GhostPlaybackLogic.ApplyDistanceLodFidelity(sec, zoneResult.reduceFidelity);
+            bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
+            sec.anchorRetiredThisFrame = false;
+            GhostRenderTrace.BeginFrame(traj, index, ctx.currentUT, secondaryLoopUT, "boundary-overlap-secondary");
+            bool usedBodyFixed = PositionLoopAtPlaybackUT(
+                index, traj, sec, secondaryLoopUT, effectiveSuppressVisualFx,
+                "GhostPlaybackEngine.PositionBoundaryOverlapSecondaryAt");
+            bool retired = EmitPostPositionUpdate(
+                traj, index, ctx.currentUT, secondaryLoopUT, sec, "boundary-overlap-secondary",
+                usedBodyFixed, rawPlaybackUT: secondaryLoopUT);
+            if (retired)
+            {
+                ApplyFrameVisuals(index, traj, sec, secondaryLoopUT, ctx.warpRate,
+                    skipPartEvents: true, suppressVisualFx: true, allowTransientEffects: false);
+            }
+            else
+            {
+                bool activatedDeferredState = ActivateGhostVisualsIfNeeded(sec);
+                ApplyFrameVisuals(index, traj, sec, secondaryLoopUT, ctx.warpRate,
+                    zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                if (ShouldRestoreDeferredRuntimeFxState(activatedDeferredState, effectiveSuppressVisualFx))
+                    GhostPlaybackLogic.RestoreDeferredRuntimeFxState(sec);
+                TrackGhostAppearance(index, traj, sec, secondaryLoopUT, "boundary-overlap-secondary");
             }
         }
 
@@ -3173,7 +3553,16 @@ namespace Parsek
             {
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
                 GhostPlaybackLogic.RestoreAllRcsEmissions(state);
-                GhostPlaybackLogic.UnmuteAllAudio(state);
+                // Boundary-overlap secondary gets NO audio (plan invariant 3): it borrows the overlap
+                // STORAGE but must never be audible. The spawn-time MuteAllAudio is a one-shot flag, and
+                // this unsuppressed branch runs every visible (within-LOD) frame -- calling UnmuteAllAudio
+                // here would clear audioMuted and let UpdateAudioAtmosphere play the in-SOI ascending
+                // ghost's engine audio. Keep the secondary muted persistently; MuteAllAudio is idempotent
+                // and also covers the deferred-build case (spawn-time mute is guarded by sec.ghost != null).
+                if (state.isBoundaryOverlapSecondary)
+                    GhostPlaybackLogic.MuteAllAudio(state);
+                else
+                    GhostPlaybackLogic.UnmuteAllAudio(state);
 
                 // Engine FX are event-driven and StopAllEngineFx left them dark; nothing
                 // re-applies them per frame. On the suppressed -> unsuppressed transition,
@@ -6289,9 +6678,43 @@ namespace Parsek
             return state;
         }
 
+        // Render-EVENT (map-render-event-logging): flight-scene mesh APPEAR / DISAPPEAR. The engine fired
+        // OnGhostCreated / OnGhostDestroyed for the policy, but GhostRenderTrace logged a ghost's first frame
+        // only as a NEXT-frame FrameStart reason=first-seen and its retire only as a trailing retired=true -
+        // no clean lifecycle EVENT mirroring the map's GhostCreated / GhostDestroyed. Emit one here so the
+        // flight scene is greppable for spawn/despawn too (surface stays the GhostRenderTrace mesh surface;
+        // its prefix already carries rec=/recId=, so no recId threading). important=true => always emitted
+        // when enabled, routed to Info. Gated by GhostRenderTrace.IsEnabled so the Planetarium read + format
+        // never run in normal play (read-only observability).
+        private static void EmitMeshLifecycleTrace(
+            string phase, int index, IPlaybackTrajectory traj, GhostPlaybackState state, string reason)
+        {
+            string recId = traj?.RecordingId;
+            if (string.IsNullOrEmpty(recId))
+                recId = state?.recordingId;
+            if (string.IsNullOrEmpty(recId))
+                return;
+            // Enabled-gate via ShouldEmitPhase (GhostRenderTrace.IsEnabled is private): with important=true it
+            // returns the tracer's enabled state, so the Planetarium read + format below never run in normal
+            // (tracing-off) play. EmitPhase re-checks the same gate internally.
+            if (!GhostRenderTrace.ShouldEmitPhase(recId, 0.0, important: true))
+                return;
+            double ut = Planetarium.GetUniversalTime();
+            GhostRenderTrace.EmitPhase(
+                recId, index, ut, ut, phase,
+                FormattableString.Invariant(
+                    $"vessel={traj?.VesselName ?? state?.vesselName ?? "Unknown"} reason={reason ?? "lifecycle"}"),
+                important: true);
+        }
+
         private void QueueOrEmitGhostCreated(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state, TrajectoryPlaybackFlags flags)
         {
+            // Mesh APPEAR EVENT - emitted at the create funnel BEFORE the no-subscriber early-return so it
+            // fires regardless of whether a policy is attached (deferred vs immediate Invoke is only about
+            // WHEN the policy is notified, not when the ghost entered the scene).
+            EmitMeshLifecycleTrace("MeshSpawned", index, traj, state, "ghost-created");
+
             if (OnGhostCreated == null)
                 return;
 
@@ -8474,6 +8897,9 @@ namespace Parsek
             string name = state?.vesselName ?? traj?.VesselName ?? "Unknown";
             ParsekLog.VerboseRateLimited("Engine", $"destroy-{index}",
                 $"Ghost #{index} \"{name}\" destroyed ({reason ?? "unknown"})", 1.0);
+
+            // Mesh DISAPPEAR EVENT (map-render-event-logging): mirror the map's GhostDestroyed.
+            EmitMeshLifecycleTrace("MeshDestroyed", index, traj, state, reason);
 
             // Capture ghost root name before the GO is destroyed so we can clear the
             // per-ghost "AudioClip not found" dedupe set (#421). A fresh spawn of this

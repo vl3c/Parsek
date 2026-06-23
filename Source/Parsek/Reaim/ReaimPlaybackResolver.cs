@@ -29,16 +29,50 @@ namespace Parsek.Reaim
             public long Window;
             public bool Resolved;          // a cache entry exists for this window
             public List<OrbitSegment> Segments; // the re-aimed segment list, or null on a miss (=> faithful)
+            // The amount the parking-departure capture leg was shifted (review FIX #2): ResolveForFrame
+            // re-times the in-capture PartEvents (ut >= RecordedArrivalUT) by this same value so capture-phase
+            // FX stay aligned with the shifted geometry. 0 on the direct path / decline / miss => no re-time.
+            public double CaptureShiftSeconds;
+            public double RecordedArrivalUT;    // the boundary above which a PartEvent is "in-capture"
         }
 
-        // Keyed by the member recording id (stable across frames; the committed index can shuffle).
-        private readonly Dictionary<string, CacheEntry> cacheByMember = new Dictionary<string, CacheEntry>();
+        // Keyed by (member recording id, synodic window) - the member id is stable across frames (the
+        // committed index can shuffle) and the window discriminator means advancing the window inserts a
+        // new key rather than clobbering the prior window's entry. The live clock resolves ONE window per
+        // frame (cadence is now a whole synodic multiple, so each relaunch lands on a real window and the
+        // mission fits one cadence - a single instance, no overlap), but the band keeps the prior window
+        // briefly so a window-boundary frame is not a forced rebuild. CacheEntry.Window is kept (some
+        // entries are read back through it for diagnostics), but the tuple KEY is authoritative for which
+        // window an entry belongs to.
+        private readonly Dictionary<(string memberId, long window), CacheEntry> cacheByMemberWindow =
+            new Dictionary<(string memberId, long window), CacheEntry>();
+
+        // Test-only seam for the (member, window) cache keying / eviction / window-derivation contract.
+        // BuildWindowSegments is Unity-bound (it reads FlightGlobals.Bodies and reconstructs live orbits),
+        // so it cannot run headless; an xUnit test sets this to a pure synthetic builder to exercise the
+        // cache logic + tuple key + eviction band without Unity. NULL in production => the core calls the
+        // real BuildWindowSegments, so the live path is byte-identical (no branch, no behavior change).
+        // The args mirror BuildWindowSegments: (memberId, memberSegments, plan, schedule, window) ->
+        // (segments, captureShiftSeconds). Returning null models a window miss (=> faithful).
+        internal delegate List<OrbitSegment> WindowSegmentsBuilderForTesting(
+            string memberId, IReadOnlyList<OrbitSegment> memberSegments, ReaimMissionPlan plan,
+            ReaimWindowPlanner.ReaimWindowSchedule schedule, long window, out double captureShiftSeconds);
+        internal WindowSegmentsBuilderForTesting BuilderOverrideForTesting;
+
+        // Eviction band half-width (windows): on every insert, drop any of THIS member's cached windows
+        // whose index falls outside [currentWindow - CacheWindowBandHalfWidth, currentWindow +
+        // CacheWindowBandHalfWidth]. A symmetric +-1 band (3 windows max per member) is the smallest bound
+        // that (a) never evicts the window just inserted - it is the band center, so it is always kept -
+        // and keeps the immediately-prior window across a boundary frame, and (b) caps the per-member
+        // entry count at a small constant so a tuple dict cannot leak old windows at high warp between
+        // Clear() calls. Per-member: one member's eviction never touches another member's entries.
+        private const long CacheWindowBandHalfWidth = 1;
 
         /// <summary>Drops all cached window adapters (call when the committed set / missions change so a
         /// stale window adapter cannot survive a recording edit).</summary>
         internal void Clear()
         {
-            cacheByMember.Clear();
+            cacheByMemberWindow.Clear();
         }
 
         /// <summary>Test seam: drops all cached window adapters so a test that drove the
@@ -47,8 +81,8 @@ namespace Parsek.Reaim
         /// missions rebuild; tests should reset between runs.</summary>
         internal void ResetForTesting()
         {
-            int prevCount = cacheByMember.Count;
-            cacheByMember.Clear();
+            int prevCount = cacheByMemberWindow.Count;
+            cacheByMemberWindow.Clear();
             ParsekLog.Verbose("ReaimPlayback", $"ResetForTesting prevCount={prevCount}");
         }
 
@@ -80,7 +114,21 @@ namespace Parsek.Reaim
                     unitPhaseAnchorUT, unitSpanStartUT, unitSpanEndUT, unitCadenceSeconds, currentUT,
                     out List<OrbitSegment> segments, out windowIndex))
             {
-                return new ReaimedTrajectory(inner, segments);
+                // Re-time the in-capture PartEvents by the SAME shift the capture OrbitSegment moved (review
+                // FIX #2): the parking-departure F2 path arrives on the shorter Hohmann tof, so the capture
+                // leg + a capture-phase event (capture-burn / staging / decouple) move earlier together. The
+                // flight engine consumes ReaimedTrajectory.PartEvents for FX (GhostPlaybackLogic.ApplyPartEvents),
+                // so a non-zero shift here would otherwise fire capture FX |captureShift| off from the shifted
+                // geometry when the ghost is watched at the arrival. captureShift is 0 on the direct path /
+                // decline / miss (TryResolveWindowSegments only returns true with a cached resolved entry), so
+                // this is a no-op copy there. Map/TS paths read only OrbitSegments, never these PartEvents.
+                // Read the SAME (member, window) entry TryResolveWindowSegments just resolved this frame
+                // (windowIndex is its out-param), not a bare per-member slot - with two windows cached at
+                // once the per-member key alone is ambiguous.
+                cacheByMemberWindow.TryGetValue((memberId, windowIndex), out CacheEntry resolved);
+                List<PartEvent> retimedPartEvents = ReaimSegmentAssembler.ShiftCapturePartEvents(
+                    inner.PartEvents, resolved.RecordedArrivalUT, resolved.CaptureShiftSeconds);
+                return new ReaimedTrajectory(inner, segments, retimedPartEvents);
             }
             return inner;
         }
@@ -127,16 +175,50 @@ namespace Parsek.Reaim
             }
             windowIndex = cycleIndex;
 
-            if (!cacheByMember.TryGetValue(memberId, out CacheEntry entry)
-                || !entry.Resolved || entry.Window != cycleIndex)
+            // The window is derived; the lookup/build/cache for (memberId, cycleIndex) lives in the shared
+            // core so the cache keying / eviction stay in one place.
+            return TryResolveWindowSegmentsCore(
+                memberId, memberSegments, plan, schedule, cycleIndex, out segments);
+        }
+
+        // Shared lookup/build/cache core, keyed by (memberId, window). The currentUT path derives the
+        // window from the live clock, then passes it here. BuildWindowSegments is pure in its window
+        // argument (it reads schedule.DepartureUTForWindow(window) etc.), so the cached geometry matches
+        // what the live clock derives for that window.
+        private bool TryResolveWindowSegmentsCore(
+            string memberId,
+            IReadOnlyList<OrbitSegment> memberSegments,
+            ReaimMissionPlan plan,
+            ReaimWindowPlanner.ReaimWindowSchedule schedule,
+            long window,
+            out List<OrbitSegment> segments)
+        {
+            segments = null;
+
+            var key = (memberId, window);
+            if (!cacheByMemberWindow.TryGetValue(key, out CacheEntry entry) || !entry.Resolved)
             {
+                // BuilderOverrideForTesting is null in production => the real (Unity-bound) builder runs,
+                // byte-identical to before; only headless tests swap in a pure synthetic builder.
+                double captureShiftSeconds;
+                List<OrbitSegment> built = BuilderOverrideForTesting != null
+                    ? BuilderOverrideForTesting(
+                        memberId, memberSegments, plan, schedule, window, out captureShiftSeconds)
+                    : BuildWindowSegments(
+                        memberId, memberSegments, plan, schedule, window, out captureShiftSeconds);
                 entry = new CacheEntry
                 {
-                    Window = cycleIndex,
+                    Window = window,
                     Resolved = true,
-                    Segments = BuildWindowSegments(memberId, memberSegments, plan, schedule, cycleIndex)
+                    Segments = built,
+                    CaptureShiftSeconds = captureShiftSeconds,
+                    RecordedArrivalUT = plan.RecordedArrivalUT
                 };
-                cacheByMember[memberId] = entry;
+                cacheByMemberWindow[key] = entry;
+                // Cap the dict: drop THIS member's windows outside the +-CacheWindowBandHalfWidth band
+                // around the window just inserted (the band center is always kept). Per-member so another
+                // member's entries are untouched. Runs only on an insert (window advance), not per frame.
+                EvictStaleWindowsForMember(memberId, window);
             }
 
             if (entry.Segments == null)
@@ -145,13 +227,42 @@ namespace Parsek.Reaim
             return true;
         }
 
+        // Drops cached entries for THIS member whose window is outside the symmetric band
+        // [centerWindow - CacheWindowBandHalfWidth, centerWindow + CacheWindowBandHalfWidth]. Other
+        // members' entries are never inspected or removed. The center window (just inserted) is inside
+        // the band, so it is never evicted. Bounded scan: the dict holds at most a few windows per
+        // member between Clear()s, and the band keeps it that way.
+        private void EvictStaleWindowsForMember(string memberId, long centerWindow)
+        {
+            long lo = centerWindow - CacheWindowBandHalfWidth;
+            long hi = centerWindow + CacheWindowBandHalfWidth;
+            List<(string memberId, long window)> stale = null;
+            foreach (var kvp in cacheByMemberWindow)
+            {
+                if (kvp.Key.memberId != memberId)
+                    continue; // per-member: never evict another member's window
+                long w = kvp.Key.window;
+                if (w < lo || w > hi)
+                    (stale ?? (stale = new List<(string, long)>())).Add(kvp.Key);
+            }
+            if (stale == null)
+                return;
+            for (int i = 0; i < stale.Count; i++)
+                cacheByMemberWindow.Remove(stale[i]);
+        }
+
         // Synthesizes the window transfer and replaces the member's heliocentric leg with it. Returns null
         // (=> faithful) on any synthesis/replacement failure. One-shot per window (cached), so logs at Verbose.
         private static List<OrbitSegment> BuildWindowSegments(
             string memberId, IReadOnlyList<OrbitSegment> memberSegments, ReaimMissionPlan plan,
-            ReaimWindowPlanner.ReaimWindowSchedule schedule, long windowIndex)
+            ReaimWindowPlanner.ReaimWindowSchedule schedule, long windowIndex,
+            out double captureShiftSeconds)
         {
             var ic = CultureInfo.InvariantCulture;
+            // Default 0 for every fail/decline/miss return below (definite-assignment-safe); set on the
+            // success path so ResolveForFrame can re-time the in-capture PartEvents by the SAME shift the
+            // capture OrbitSegment moved (review FIX #2).
+            captureShiftSeconds = 0.0;
             double nominalDepartureUT = schedule.DepartureUTForWindow(windowIndex);
 
             CelestialBody launchBody = FindBody(plan.LaunchBody);
@@ -202,8 +313,112 @@ namespace Parsek.Reaim
                 launchBody.referenceBody != null ? launchBody.referenceBody.gravParameter : double.NaN);
             double eTarget = targetBody.orbit.eccentricity;
             double halfWidthFraction = ReaimTofSearch.HalfWidthFraction(eTarget);
-            IReadOnlyList<double> candidateTofs = ReaimTofSearch.BuildCandidateTofs(
-                schedule.TofSeconds, geomTofSeconds, eTarget);
+
+            // DEPARTURE-ANCHOR DECISION (moved BEFORE the tof loop so r1 is fixed for every candidate).
+            // For a heliocentric-PARKING departure the icon coasts on the heliocentric PARK at the burn, so
+            // the transfer must emanate from the vessel's re-phased PARK-END state, not the launch body's
+            // center. Resolve WHICH segment is the park (the SAME predicate the inc guard uses, via
+            // FindHeliocentricParkSegment) + the pure mode decision, then reconstruct the LAN-rotated park
+            // Sun orbit and evaluate r1 / vel at the RECORDED burn UT (BLOCKER 1: the rendered park-end the
+            // icon abuts is the LAN-rotated park at RecordedDepartureUT - the park is only LAN-rotated, NOT
+            // ShiftInTime'd, so it keeps its recorded epoch; evaluating at the future synodic departure D0
+            // would advance it N*synodic revs and re-open the seam).
+            //
+            // FAIL-CLOSED ORDER: a parking departure whose re-phase DECLINES returns faithful (null) HERE,
+            // BEFORE any synthesis - it must NEVER fall back to a launch-center r1 for a parking departure
+            // (that would render the original seam disguised as a fix). A direct transfer takes the
+            // launch-center path with hasDepartureOverride=false => byte-identical to main.
+            double parkReplayUT = schedule.RelaunchUTForWindow(windowIndex);
+            // Walk the member's segments ONCE: FindHeliocentricParkSegment is the single source for both the
+            // inc guard (DecideDepartureAnchor) and the r1 reconstruction below, so resolve the park segment
+            // here and reuse the same Nullable instead of also calling FindHeliocentricParkInclination (which
+            // would re-walk the list internally).
+            OrbitSegment? parkSeg = ReaimSegmentAssembler.FindHeliocentricParkSegment(
+                memberSegments, plan.CommonAncestor, plan.RecordedDepartureUT);
+            double parkInc = parkSeg.HasValue ? parkSeg.Value.inclination : double.NaN;
+            ReaimSegmentAssembler.DepartureAnchorDecision anchor =
+                ReaimSegmentAssembler.DecideDepartureAnchor(
+                    plan.DepartedFromHeliocentricPark, parkInc, parkReplayUT, plan.RecordedDepartureUT,
+                    launchBody.orbit != null ? launchBody.orbit.period : double.NaN);
+
+            if (anchor.Mode == ReaimSegmentAssembler.DepartureAnchorMode.DeclineToFaithful)
+            {
+                ParsekLog.Verbose("ReaimPlayback",
+                    $"member={memberId} window={windowIndex} park re-phase DECLINED -> faithful " +
+                    $"(parkInc={parkInc.ToString("F2", ic)} maxInc={ReaimSegmentAssembler.ParkRephaseMaxInclinationDeg.ToString("F1", ic)} " +
+                    $"launchPeriod={(launchBody.orbit != null ? launchBody.orbit.period.ToString("R", ic) : "NaN")})");
+                return null; // fail closed to faithful; never the verbatim ~239 deg park, never launch-center r1
+            }
+
+            // parkDeltaLonDeg (the #1172 park LAN re-phase) is computed from the anchor decision and applied
+            // at EVERY window REGARDLESS of the clock-coincidence gate below - the park render stays correct
+            // even when the F2 r1 override is gated off. ONLY the F2 SYNTH BUNDLE (r1 override +
+            // BuildParkingCandidateTofs + true-duration render bounds + captureShift) gates on coincidence.
+            double parkDeltaLonDeg = anchor.ParkDeltaLonDeg;
+
+            // The park-end r1 anchor is evaluated on the CADENCE clock (parkReplayUT == RelaunchUTForWindow)
+            // and the transfer aims on the DEPARTURE clock (nominalDepartureUT == DepartureUTForWindow). With
+            // the synodic-MULTIPLE cadence both clocks step by the same cadence, so they COINCIDE at EVERY
+            // window for EVERY mission (the every-window fix): the F2 bundle (r1 override +
+            // BuildParkingCandidateTofs + true-duration render bounds + captureShift) fires at every relaunch,
+            // aiming the transfer at the target's LIVE position each window, with no self-overlap (the mission
+            // fits one cadence). The coincidence gate is kept as a defensive belt - a degenerate / future
+            // schedule whose clocks somehow disagree still fails closed to the tested Increment-1 path (r1 =
+            // launch-body center, BuildCandidateTofs, NaN render bounds, captureShift 0) - a sane Kerbin->Duna
+            // conic, NOT wild - rather than producing the old span>synodic divergent override.
+            bool anchorWantsOverride = anchor.Mode == ReaimSegmentAssembler.DepartureAnchorMode.ParkEndOverride;
+            bool clocksCoincide = ReaimWindowPlanner.ParkEndOverrideClocksCoincide(parkReplayUT, nominalDepartureUT);
+            bool hasDepartureOverride = anchorWantsOverride && clocksCoincide;
+            if (anchorWantsOverride && !clocksCoincide)
+            {
+                ParsekLog.Verbose("ReaimPlayback",
+                    $"member={memberId} window={windowIndex} park-end override gated off (clocks diverge unexpectedly: " +
+                    $"parkReplayUT={parkReplayUT.ToString("R", ic)} - departUT={nominalDepartureUT.ToString("R", ic)} = " +
+                    $"{(parkReplayUT - nominalDepartureUT).ToString("R", ic)}s, cadence={schedule.CadenceSeconds.ToString("R", ic)} " +
+                    $"synodic={schedule.SynodicPeriodSeconds.ToString("R", ic)}) -> Increment-1 Kerbin-center fallback " +
+                    $"(sane, not wild); #1172 park re-phase still applies (parkDeltaLon={parkDeltaLonDeg.ToString("R", ic)}deg); " +
+                    $"clocks should coincide every window now (cadence is a synodic multiple)");
+            }
+            Vector3d parkEndPosUnswizzled = default(Vector3d);
+            Vector3d parkEndVelUnswizzled = default(Vector3d);
+            double parkEndOffLaunchCenter = double.NaN; // |parkEndPos - launchBody center| (window-0 proof)
+            if (hasDepartureOverride)
+            {
+                // Reconstruct the recorded park (the same Nullable resolved above), LAN-rotate it by the
+                // window's re-phase angle (same RotateLanForParkRephase the assembler applies to the rendered
+                // park leg), then evaluate r1 / vel on it at the RECORDED burn UT. getRelativePositionAtUT/.xzy
+                // match the synth frame (NEVER getPositionAtUT - that adds the Sun world offset and breaks the
+                // round-trip with UpdateFromStateVectors). Relies on the Sun being the root body (the
+                // common-ancestor leg).
+                if (!parkSeg.HasValue)
+                {
+                    // The mode decision said ParkEndOverride (inc was finite) but the segment vanished -
+                    // structural inconsistency; fail closed rather than silently anchoring on the launch center.
+                    ParsekLog.Warn("ReaimPlayback",
+                        $"member={memberId} window={windowIndex} park-end override requested but no park segment resolved - faithful this window");
+                    return null;
+                }
+                OrbitSegment rotatedPark = ReaimSegmentAssembler.RotateLanForParkRephase(
+                    parkSeg.Value, parkDeltaLonDeg);
+                if (!TryBuildParkEndState(rotatedPark, anchor.ParkEvalUT, launchBody,
+                        out parkEndPosUnswizzled, out parkEndVelUnswizzled, out parkEndOffLaunchCenter))
+                {
+                    ParsekLog.Warn("ReaimPlayback",
+                        $"member={memberId} window={windowIndex} park-end state reconstruction failed (body/elements) - faithful this window");
+                    return null;
+                }
+            }
+
+            // The tof candidate list is GATED on the parking path (F2). DIRECT transfer
+            // (hasDepartureOverride == false): byte-identical to main - the recorded-tof-centered band
+            // (BuildCandidateTofs). PARKING departure (hasDepartureOverride == true): the recorded tof is whatever
+            // the player flew (s15 ~1.44x Hohmann) and forcing it from the re-phased park-end makes a degenerate
+            // conic, so search around the GEOMETRIC Hohmann time instead (BuildParkingCandidateTofs, step 0 =
+            // geomTof). geomTofSeconds/eTarget are already computed above; the park-vs-Kerbin sma is ~2%, inside
+            // the band, so launchBody.orbit.semiMajorAxis is the right radius for the Hohmann time.
+            IReadOnlyList<double> candidateTofs = hasDepartureOverride
+                ? ReaimTofSearch.BuildParkingCandidateTofs(geomTofSeconds, eTarget)
+                : ReaimTofSearch.BuildCandidateTofs(schedule.TofSeconds, geomTofSeconds, eTarget);
 
             Orbit transferOrbit = null;
             double soiEntryUT = double.NaN;
@@ -216,7 +431,8 @@ namespace Parsek.Reaim
                 // ReaimTofSearch drops non-positive tofs already; keep the positivity guard as a backstop.
                 if (tof > 0.0 && ReaimTransferSynthesizer.TrySynthesizeTransfer(
                         launchBody, targetBody, departureUT, tof, progradeWanted,
-                        out transferOrbit, out soiEntryUT, out encounterBody, out failReason))
+                        out transferOrbit, out soiEntryUT, out encounterBody, out failReason,
+                        parkEndPosUnswizzled, parkEndVelUnswizzled, hasDepartureOverride))
                 {
                     usedTofSeconds = tof;
                     break;
@@ -240,22 +456,75 @@ namespace Parsek.Reaim
             // RecordedDepartureUT the orbit sits where it was at absolute departureUT.
             transferSeg = ReaimSegmentAssembler.ShiftInTime(transferSeg, shift);
 
-            // Render the re-aimed transfer over the FULL recorded heliocentric span
-            // [RecordedDepartureUT, RecordedArrivalUT] (NaN render bounds => no trim). That span is exactly
-            // where the member's recorded launch-escape leg ENDS and its recorded capture leg BEGINS, so the
-            // re-aimed transfer hands off seamlessly from the recorded escape - no gap. An earlier pass
-            // trimmed the launch side to the SYNTHESIZED center-to-center transfer's launch-SOI-exit UT,
-            // which lands ~0.9 day LATER (in recorded-span time) than where the recorded escape ends: that
-            // opened a gap right after the launch SOI exit where the orbit ghost was destroyed
-            // (gap-between-orbit-segments) and the transfer line restarted displaced by the launch body's own
-            // motion across the gap (the "transfer is in the wrong place right after Kerbin SOI exit"
-            // regression). Full-span render restores the seamless handoff; the brief in-SOI stub sits
-            // sub-pixel at the body centre at map scale, and the recorded escape / capture legs cover inside
-            // the SOI.
+            // Heliocentric-PARK re-phase (departure-side render). A two-burn departure escapes into a
+            // Sun-inertial PARKING orbit BEFORE the trans-target burn. That park renders verbatim at its
+            // RECORDED solar longitude (~239 deg off live Kerbin at the captured window) while the escape leg
+            // (body-relative) anchors to the LIVE launch body (KSP Orbit.getPositionAtUT adds the live
+            // referenceBody.position) - a teleport seam right at SOI exit. parkDeltaLonDeg (decided ABOVE
+            // via DecideDepartureAnchor, BEFORE the tof loop) rotates the recorded park's LAN by
+            // Delta_lon(window) = omega_parent * (replayUT - RecordedDepartureUT) so the Sun-inertial park
+            // re-phases into the live frame and sits next to the live launch body, connecting to the escape.
+            // The SAME rotated park supplies the transfer's r1 departure anchor (the override above), so the
+            // park-end and the transfer-start are the SAME point and the icon traverses park -> transfer
+            // continuously.
+            //
+            // CLOCK CHOICE: replayUT is the CADENCE-clock relaunch time (schedule.RelaunchUTForWindow =
+            // D0 + window*cadence). The loop ENGINE relaunches the ghost every CADENCE; the body-relative
+            // escape leg therefore follows the launch body at its position D0 + window*cadence, so the park
+            // must re-phase to the SAME time to meet it. With the synodic-MULTIPLE cadence the transfer's
+            // DEPARTURE clock (DepartureUTForWindow) ALSO steps by cadence, so the departure, the relaunch,
+            // and the park re-phase all share D0 + window*cadence at EVERY window. The park sits next to the
+            // live launch body AND the transfer is aimed at the same UT, so it reaches the target's LIVE
+            // position - the every-window transfer-aim fix (this supersedes the old span>synodic divergence,
+            // where the synodic-clock arrival drifted ~142 deg*window off the live launch body and only
+            // window 0 was correct). The residual launch-rotation seam (#1174's launch hold) and the
+            // cross-SOI ~62 deg encounter kink are separate and out of scope here.
+
+            // RENDER SPAN + CAPTURE RE-TIME (F2, parking path only). The parking-departure transfer now uses
+            // the GEOMETRIC Hohmann tof (much shorter than the recorded tof), so it ARRIVES earlier than the
+            // recorded arrival. Two coupled adjustments, both GATED on hasDepartureOverride:
+            //   (ii) render span = the TRUE transfer duration [RecordedDepartureUT, RecordedDepartureUT +
+            //        usedTof]. The launch side stays at RecordedDepartureUT (the recorded escape ends exactly
+            //        at the burn UT - no launch-side gap); the arrival side trims to the new (earlier) arrival
+            //        so the transfer line does not over-run to the stale recorded arrival. ReplaceHeliocentricLeg
+            //        clamps these into [recordedDeparture, recordedArrival] and falls back to the full leg if
+            //        invalid, so a degenerate usedTof cannot mis-render.
+            //   (iii) capture re-time: the recorded Duna capture leg, recorded to begin at RecordedArrivalUT,
+            //        must shift back by captureShift = newArrivalUT - RecordedArrivalUT (negative) so it begins
+            //        where the transfer now ends (seam closes). ShiftInTime moves startUT/endUT/epoch together.
+            //
+            // DIRECT path (hasDepartureOverride == false): renderStart/End stay NaN (full-leg, byte-identical)
+            // and captureShift/targetBody are 0/null (no-op) - exactly as on main. The full-recorded-span
+            // rationale below still applies to the direct path (the recorded escape/capture cover inside the SOI).
+            //
+            // Full-recorded-span (direct) rationale: the synthesized transfer is center-to-center, so its
+            // first/last stretches sit inside the launch/target SOI at the body center; the recorded escape /
+            // capture legs cover inside the SOI and the brief in-SOI stub sits sub-pixel at map scale. An
+            // earlier pass trimmed the LAUNCH side to the synthesized SOI-exit UT and opened a gap right after
+            // Kerbin SOI exit - the parking path here trims only the ARRIVAL side (the launch side stays at the
+            // burn UT, where the recorded escape ends), so it does not reintroduce that launch-side gap.
+            //
+            // COUPLING GUARD (review FIX #1): the render-end and the captureShift MUST be derived from the SAME
+            // arrival UT, or they desync into a real GAP. BuildParkingCandidateTofs allows usedTof up to the
+            // band cap (~1.20*geomTof), so a near-Hohmann two-burn (or an eccentric target where the cap binds)
+            // can yield usedTof > recordedTof => newArrivalUT > RecordedArrivalUT. If we passed that raw forward
+            // arrival, ReplaceHeliocentricLeg's render clamp (renderEnd > recordedArrival) would silently fall
+            // back to the FULL recorded span while captureShift stayed POSITIVE and ShiftInTime'd the capture
+            // FORWARD - opening a gap of (newArrivalUT - RecordedArrivalUT) between the (full-span) transfer end
+            // and the shifted capture start. Clamp newArrivalUT to <= RecordedArrivalUT FIRST and feed the
+            // clamped value to BOTH: usedTof > recordedTof then degrades cleanly to render-full-span +
+            // captureShift 0 (no gap, no forward shift); the s15 case (usedTof < recordedTof) is unchanged
+            // (newArrivalUT < RecordedArrivalUT, so the clamp is a no-op and the capture re-times earlier).
+            double rawArrivalUT = plan.RecordedDepartureUT + usedTofSeconds;
+            double newArrivalUT = rawArrivalUT < plan.RecordedArrivalUT ? rawArrivalUT : plan.RecordedArrivalUT;
+            double captureShift = hasDepartureOverride ? (newArrivalUT - plan.RecordedArrivalUT) : 0.0;
+            double renderStartUT = hasDepartureOverride ? plan.RecordedDepartureUT : double.NaN;
+            double renderEndUT = hasDepartureOverride ? newArrivalUT : double.NaN;
             List<OrbitSegment> assembled = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
                 memberSegments, transferSeg, plan.CommonAncestor,
                 plan.RecordedDepartureUT, plan.RecordedArrivalUT,
-                double.NaN, double.NaN);
+                renderStartUT, renderEndUT, parkDeltaLonDeg,
+                captureShift, hasDepartureOverride ? plan.TargetBody : null);
             if (assembled == null || assembled.Count == 0)
             {
                 ParsekLog.Warn("ReaimPlayback",
@@ -263,20 +532,35 @@ namespace Parsek.Reaim
                 return null;
             }
 
-            // usedTof deviation from BOTH centers (recorded tof = the band center / step 0; geomTof = the
-            // geometric Hohmann time the ecc band reaches toward) so an "Eeloo declined / drifted" report can
-            // be diagnosed straight from KSP.log: which center the resolved tof landed near tells whether the
-            // ecc band did the work. NaN-safe (geomTof can be NaN if the parent mu/SMAs are degenerate).
+            // usedTof deviation from BOTH centers (recorded tof = the direct-path band center / step 0; geomTof
+            // = the parking-path band center and the geometric Hohmann time) so an "Eeloo declined / drifted"
+            // report can be diagnosed straight from KSP.log. On the PARKING path the tof is centered on geomTof
+            // (F2), so devFromGeom should be ~0 and the recorded tof is NOT used for the band - the log carries
+            // both deltas regardless so the regression is visible either way. NaN-safe (geomTof can be NaN if
+            // the parent mu/SMAs are degenerate).
             double devFromRecorded = usedTofSeconds - schedule.TofSeconds;
             double devFromGeom = usedTofSeconds - geomTofSeconds;
             ParsekLog.Verbose("ReaimPlayback",
                 $"member={memberId} window={windowIndex} re-aimed transfer ready: departUT={departureUT.ToString("R", ic)} (nominal D_k) " +
-                $"tof={usedTofSeconds.ToString("R", ic)} (recorded={schedule.TofSeconds.ToString("R", ic)} geom={geomTofSeconds.ToString("R", ic)} " +
+                $"tof={usedTofSeconds.ToString("R", ic)} " +
+                (hasDepartureOverride
+                    ? $"(geom={geomTofSeconds.ToString("R", ic)} [parking band center; recorded NOT used] "
+                    : $"(recorded={schedule.TofSeconds.ToString("R", ic)} geom={geomTofSeconds.ToString("R", ic)} ") +
                 $"eTarget={eTarget.ToString("F4", ic)} halfWidthFraction={halfWidthFraction.ToString("F4", ic)} " +
                 $"devFromRecorded={devFromRecorded.ToString("R", ic)}s devFromGeom={devFromGeom.ToString("R", ic)}s) " +
                 $"soiEntryUT={soiEntryUT.ToString("R", ic)} " +
                 $"encounter={(encounterBody != null ? encounterBody.bodyName : "<none>")} segs={assembled.Count} " +
-                $"renderSpan=full-recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}]");
+                $"departAnchor={(hasDepartureOverride ? "parkEnd" : (anchorWantsOverride ? "launchCenter(gated:clocks-diverge,k>=1)" : "launchCenter"))} " +
+                (hasDepartureOverride
+                    ? $"parkEndOffLaunchCenter={parkEndOffLaunchCenter.ToString("R", ic)}m (r1 moved off {launchBody.bodyName}; evalUT={anchor.ParkEvalUT.ToString("R", ic)}=RecordedDepartureUT) "
+                    : "") +
+                $"parkDeltaLon={parkDeltaLonDeg.ToString("R", ic)}deg (parking={plan.DepartedFromHeliocentricPark} " +
+                $"parkReplayUT={parkReplayUT.ToString("R", ic)} cadence={schedule.CadenceSeconds.ToString("R", ic)} synodic={schedule.SynodicPeriodSeconds.ToString("R", ic)}) " +
+                (hasDepartureOverride
+                    ? $"renderSpan=[{plan.RecordedDepartureUT.ToString("R", ic)},{newArrivalUT.ToString("R", ic)}] (transfer-duration) " +
+                      $"captureShift={captureShift.ToString("R", ic)}s (recordedArrival={plan.RecordedArrivalUT.ToString("R", ic)} -> newArrival={newArrivalUT.ToString("R", ic)})"
+                    : $"renderSpan=full-recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}]"));
+            captureShiftSeconds = captureShift; // success: the capture leg moved by this; PartEvents re-time the same
             return assembled;
         }
 
@@ -298,6 +582,50 @@ namespace Parsek.Reaim
                     return s.inclination;
             }
             return double.NaN;
+        }
+
+        // Live (Unity-bound) reconstruction of the LAN-rotated park-end state used as the transfer's r1
+        // departure anchor. Rebuilds the Sun orbit from the rotated park's Kepler elements with the SAME
+        // new Orbit(inc, ecc, sma, LAN, argPe, mEp, epoch, body) field-order/units contract used in
+        // TrajectoryMath / ReaimOrbitSegmentConverter (inc/LAN/argPe degrees, mEp radians, epoch UT), then
+        // evaluates getRelativePositionAtUT / getOrbitalVelocityAtUT at evalUT (== RecordedDepartureUT) and
+        // un-swizzles with .xzy to match the synth's r1/r2 Lambert frame. NEVER getPositionAtUT (that adds
+        // the Sun world offset and breaks the round-trip with UpdateFromStateVectors). Relies on the
+        // common-ancestor body (the Sun) being the root. Returns false on a missing body / NaN result.
+        // offLaunchCenter = |parkEndPos - launchBody center| in the same .xzy frame (the window-0 proof that
+        // r1 actually moved off the launch body's center).
+        private static bool TryBuildParkEndState(
+            OrbitSegment rotatedPark, double evalUT, CelestialBody launchBody,
+            out Vector3d parkEndPosUnswizzled, out Vector3d parkEndVelUnswizzled, out double offLaunchCenter)
+        {
+            parkEndPosUnswizzled = default(Vector3d);
+            parkEndVelUnswizzled = default(Vector3d);
+            offLaunchCenter = double.NaN;
+
+            CelestialBody parent = FindBody(rotatedPark.bodyName);
+            if (parent == null)
+                return false;
+            try
+            {
+                Orbit park = new Orbit(
+                    rotatedPark.inclination, rotatedPark.eccentricity, rotatedPark.semiMajorAxis,
+                    rotatedPark.longitudeOfAscendingNode, rotatedPark.argumentOfPeriapsis,
+                    rotatedPark.meanAnomalyAtEpoch, rotatedPark.epoch, parent);
+                Vector3d pos = park.getRelativePositionAtUT(evalUT).xzy;
+                Vector3d vel = park.getOrbitalVelocityAtUT(evalUT).xzy;
+                if (double.IsNaN(pos.x) || double.IsNaN(pos.y) || double.IsNaN(pos.z)
+                    || double.IsNaN(vel.x) || double.IsNaN(vel.y) || double.IsNaN(vel.z))
+                    return false;
+                parkEndPosUnswizzled = pos;
+                parkEndVelUnswizzled = vel;
+                if (launchBody != null && launchBody.orbit != null)
+                    offLaunchCenter = (pos - launchBody.orbit.getRelativePositionAtUT(evalUT).xzy).magnitude;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static CelestialBody FindBody(string bodyName)

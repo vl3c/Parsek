@@ -69,6 +69,7 @@ namespace Parsek.Tests
             public double SoiRadius(string b) => Soi.TryGetValue(b ?? "", out double v) ? v : double.NaN;
             public double OrbitalVelocity(string b) => Velocity.TryGetValue(b ?? "", out double v) ? v : double.NaN;
             public double GravParameter(string b) => Mu.TryGetValue(b ?? "", out double v) ? v : double.NaN;
+            public double Radius(string b) => 6.0e5;
             // M4a: optional LIVE launch guid per pid; a recorded guid that conclusively
             // differs makes the pid a DIFFERENT launch of the same craft (craft-baked pid), so
             // it does not resolve. Absent entry = unknown live guid = pid-only fallback.

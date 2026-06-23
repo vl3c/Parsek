@@ -33,6 +33,15 @@ namespace Parsek
         private const string Tag = "MapMarker";
         private const int IconSize = 20;
         private const int ClickPadding = 6; // add to each side of the icon for easier hit-testing
+        // Right-click sticky-toggle hit rect uses a WIDER pad than the left-click handler rect. A labelled
+        // ghost icon can sweep its descent/atmospheric line fast across the screen at high time warp (125x
+        // measured in the 2026-06-23 descent-icon-interact playtest): the icon is drawn on-line and pixel-
+        // stable every frame (verified - drawnPos vs body-fixed trajPos agree to ~0.3 ppm of ~2.9e10 scaled
+        // units, far sub-pixel), but the 20px icon + 6px pad = 26px target moves too far between frames for a
+        // right-click to land - every successful label toggle in that log fired only at 1x / on a stationary
+        // loiter point, none during the 125x traversal. Widening ONLY the toggle hit rect keeps the fast-
+        // moving icon clickable without touching the icon draw, the label, or the left-click handler route.
+        private const int ToggleClickPadding = 24;
         private const float UnpinnedMarkerAlpha = 0.8f;
 
         // Tint for the atlas icon, chosen to match the stock map icon the same
@@ -219,10 +228,34 @@ namespace Parsek
 
             if (Event.current != null && AllowClickInteraction())
             {
+                // Tight rect for the LEFT-click handler route (TS popup) + hover-label reveal - unchanged.
                 Rect hitRect = new Rect(
                     iconRect.x - ClickPadding, iconRect.y - ClickPadding,
                     iconRect.width + ClickPadding * 2, iconRect.height + ClickPadding * 2);
                 mouseOver = hitRect.Contains(Event.current.mousePosition);
+
+                // Wider rect for the RIGHT-click sticky toggle only (fast-warping icon stays clickable).
+                bool toggleOver = ComputeToggleHitRect(iconRect).Contains(Event.current.mousePosition);
+
+                // CLICK DIAGNOSTIC (bug 1 - descent icon not clickable; confirm cause before trusting the
+                // wider rect): on a right-button DOWN/UP that reaches this ghost marker's OnGUI pass, log
+                // whether the cursor landed on the tight / wide hit rect, the icon + cursor screen positions,
+                // and the live warp rate. A miss at high warp with toggleOver=false = the cursor failing to
+                // catch a fast icon (the wider rect helps); a right-click the user made with NO probe line at
+                // all = the event never reached the marker (the map camera consumed it - a different fix).
+                // Sparse: only fires on a right-button down/up, so it does not spam normal play.
+                if (!string.IsNullOrEmpty(markerKey)
+                    && Event.current.isMouse
+                    && Event.current.button == 1
+                    && (Event.current.type == EventType.MouseDown || Event.current.type == EventType.MouseUp))
+                {
+                    ParsekLog.Verbose(Tag, string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Marker right-click probe: key={0} type={1} mouseOver={2} toggleOver={3} " +
+                        "iconScreen=({4:F0},{5:F0}) cursor=({6:F0},{7:F0}) warp={8:F0}x",
+                        markerKey, Event.current.type, mouseOver, toggleOver, x, y,
+                        Event.current.mousePosition.x, Event.current.mousePosition.y,
+                        TimeWarp.CurrentRate));
+                }
 
                 bool customHandled = false;
                 if (ShouldRouteMarkerClickToHandler(
@@ -243,7 +276,7 @@ namespace Parsek
                     }
                 }
                 if (!customHandled
-                    && mouseOver
+                    && toggleOver
                     && !string.IsNullOrEmpty(markerKey)
                     && IsToggleClick(Event.current.type, Event.current.button))
                 {
@@ -314,6 +347,19 @@ namespace Parsek
         /// </summary>
         internal static bool IsToggleClick(EventType type, int button)
             => type == EventType.MouseDown && button == 1;
+
+        /// <summary>
+        /// PURE: the right-click sticky-toggle hit rect for an icon drawn at <paramref name="iconRect"/>,
+        /// padded by <see cref="ToggleClickPadding"/> on every side (a wider target than the
+        /// <see cref="ClickPadding"/> left-click handler rect, so a fast-warping ghost icon stays
+        /// clickable). Internal-static so the padding contract is unit-testable without a Unity GUI context.
+        /// </summary>
+        internal static Rect ComputeToggleHitRect(Rect iconRect)
+            => new Rect(
+                iconRect.x - ToggleClickPadding,
+                iconRect.y - ToggleClickPadding,
+                iconRect.width + ToggleClickPadding * 2,
+                iconRect.height + ToggleClickPadding * 2);
 
         /// <summary>
         /// Pure: is this event a marker-menu click (MouseDown + left button)?

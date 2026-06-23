@@ -51,6 +51,11 @@ namespace Parsek.Reaim
         // discipline) before they are trusted. The tests assert the INVARIANTS (a-d), not these specific
         // numbers, so these may be re-pinned by the Eeloo measurement without breaking the test suite.
         //
+        // SECOND CONSUMER (F2): HalfWidthFraction now ALSO governs the parking-departure path via
+        // BuildParkingCandidateTofs (the band CENTERED on geomTof, no recorded-tof seed). A future re-pin must
+        // weigh BOTH consumers: a tighter cap shrinks how far a near-Hohmann two-burn departure can stretch its
+        // tof off geomTof (and thus how early the capture re-times), not just the eccentric-target reach.
+        //
         // EccGain: additional half-width fraction added per unit of target eccentricity. ~0.5 means an Eeloo
         // (ecc ~0.26) target widens by ~0.13 over the base, reaching ~0.19 before the cap - in the
         // neighbourhood of the geometric drift a high-eccentricity target shows across a synodic period.
@@ -151,6 +156,57 @@ namespace Parsek.Reaim
                     AddIfPositive(candidates, recordedTofSeconds + towardSign * k * step);
                     AddIfPositive(candidates, recordedTofSeconds - towardSign * k * step);
                 }
+            }
+
+            return candidates;
+        }
+
+        /// <summary>
+        /// Builds the ORDERED candidate time-of-flight list for the HELIOCENTRIC-PARKING-DEPARTURE path,
+        /// CENTERED on the GEOMETRIC Hohmann time <paramref name="geomTofSeconds"/> (NOT the recorded tof).
+        /// A two-burn departure's recorded tof is whatever the player flew (for the s15 mission ~1.44x the
+        /// Hohmann time), which makes a degenerate conic when forced from the re-phased park-end; the
+        /// geometric Hohmann time is the tof a clean transfer from that geometry actually takes, so step 0 is
+        /// geomTof. The band is symmetric +-<see cref="HalfWidthFraction"/>(eTarget) of geomTof (the same band
+        /// law as <see cref="BuildCandidateTofs"/> - base +-6% widening with target eccentricity, hard-capped
+        /// at <see cref="MaxHalfWidthFraction"/>), probed in +k,-k order. Mirrors BuildCandidateTofs'
+        /// structure exactly EXCEPT the center is geomTof and there is no recorded-tof seeding (the recorded
+        /// tof is deliberately unused on this path). A NaN / non-positive geomTof leaves nothing to search =>
+        /// empty list (fail closed - the caller declines to faithful). Non-positive tofs are dropped. Pure.
+        /// </summary>
+        /// <param name="geomTofSeconds">The geometric Hohmann tof for this mission's radii. The band CENTER
+        /// and step-0 candidate. NaN / non-positive => empty (fail closed).</param>
+        /// <param name="targetEccentricity">Target body eccentricity; widens the band (0 => base +-6%).</param>
+        /// <param name="stepFraction">Probe grid spacing as a fraction of geomTof
+        /// (<see cref="DefaultStepFraction"/> matches the resolver). Non-positive falls back to the default.</param>
+        internal static IReadOnlyList<double> BuildParkingCandidateTofs(
+            double geomTofSeconds, double targetEccentricity,
+            double stepFraction = DefaultStepFraction)
+        {
+            var candidates = new List<double>();
+
+            // A degenerate geomTof leaves nothing to search; fail closed (the caller declines to faithful).
+            if (double.IsNaN(geomTofSeconds) || geomTofSeconds <= 0.0)
+                return candidates;
+
+            if (double.IsNaN(stepFraction) || stepFraction <= 0.0)
+                stepFraction = DefaultStepFraction;
+
+            double step = geomTofSeconds * stepFraction;
+
+            // Step 0: the GEOMETRIC center, ALWAYS first - NOT the recorded tof. This is the F2 fix's core:
+            // the parking-departure transfer is solved from the re-phased park-end with the Hohmann tof.
+            AddIfPositive(candidates, geomTofSeconds);
+
+            // Symmetric +-HalfWidthFraction(eTarget) band of geomTof in +k,-k order. Reuses the same band law
+            // (base +-6% widening with eccentricity, capped at MaxHalfWidthFraction - invariant c). No
+            // preferred-side bias: the band is centered on geomTof, so both sides are probed symmetrically.
+            double halfWidthFraction = HalfWidthFraction(targetEccentricity);
+            int maxSteps = StepsForFraction(halfWidthFraction, stepFraction);
+            for (int k = 1; k <= maxSteps; k++)
+            {
+                AddIfPositive(candidates, geomTofSeconds + k * step);
+                AddIfPositive(candidates, geomTofSeconds - k * step);
             }
 
             return candidates;

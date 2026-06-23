@@ -561,32 +561,39 @@ namespace Parsek.Tests
             Assert.False(RecordingStore.PendingStashedThisTransition);
         }
 
-        // ── SanitizeDebrisLoopPlayback (load-time debris cleanup) ──
+        // ── SanitizeNonLoopableLoopPlayback (load-time non-loopable cleanup) ──
 
         [Fact]
-        public void SanitizeDebrisLoopPlayback_ClearsStaleDebrisFlags()
+        public void SanitizeNonLoopableLoopPlayback_ClearsDebrisAndCoast_KeepsLoopable()
         {
-            // Pre-PR #966 saves can carry a stale LoopPlayback=true on a debris
-            // recording (the per-row toggle existed before but had no effect at
-            // the engine, since debris rides its parent's loop clock). OnLoad's
-            // sanitization clears the flag; non-debris loop flags are kept.
+            // A stale LoopPlayback=true on a non-loopable recording (debris, or a
+            // pure orbital coast with no launch / atmo / approach / surface phase,
+            // no dock, no relative track) has no Recordings-tab toggle to clear it,
+            // so OnLoad's sweep clears it. A loopable recording (here a takeoff/
+            // landing via SegmentPhase "atmo") keeps its flag.
             var main = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Main");
+            main.SegmentPhase = "atmo"; // loopable (player-viewable)
             main.LoopPlayback = true;
+            var coast = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Transfer");
+            coast.SegmentPhase = "exo"; // pure orbital coast = not loopable
+            coast.LoopPlayback = true;
             var deb = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Booster");
             deb.IsDebris = true;
             deb.LoopPlayback = true;
             RecordingStore.CommitRecordingDirect(main);
+            RecordingStore.CommitRecordingDirect(coast);
             RecordingStore.CommitRecordingDirect(deb);
 
-            int cleared = RecordingStore.SanitizeDebrisLoopPlayback();
+            int cleared = RecordingStore.SanitizeNonLoopableLoopPlayback();
 
-            Assert.Equal(1, cleared);
+            Assert.Equal(2, cleared);
             Assert.True(main.LoopPlayback);
+            Assert.False(coast.LoopPlayback);
             Assert.False(deb.LoopPlayback);
         }
 
         [Fact]
-        public void SanitizeDebrisLoopPlayback_Idempotent()
+        public void SanitizeNonLoopableLoopPlayback_Idempotent()
         {
             // A second sweep on the same committed state clears nothing, so the
             // OnLoad call is safe to fire on every load (including saves that
@@ -596,8 +603,8 @@ namespace Parsek.Tests
             deb.LoopPlayback = true;
             RecordingStore.CommitRecordingDirect(deb);
 
-            int first = RecordingStore.SanitizeDebrisLoopPlayback();
-            int second = RecordingStore.SanitizeDebrisLoopPlayback();
+            int first = RecordingStore.SanitizeNonLoopableLoopPlayback();
+            int second = RecordingStore.SanitizeNonLoopableLoopPlayback();
 
             Assert.Equal(1, first);
             Assert.Equal(0, second);
@@ -605,18 +612,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SanitizeDebrisLoopPlayback_LeavesNonDebrisAlone()
+        public void SanitizeNonLoopableLoopPlayback_LeavesLoopableAlone()
         {
-            // The sweep targets debris only: a non-debris recording's
-            // LoopPlayback (true or false) survives unchanged.
+            // A loopable (player-viewable) recording's LoopPlayback (true or false)
+            // survives unchanged: the sweep only touches non-loopable rows.
             var loopShip = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Looper");
+            loopShip.SegmentPhase = "atmo";
             loopShip.LoopPlayback = true;
             var quietShip = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Quiet");
+            quietShip.SegmentPhase = "atmo";
             quietShip.LoopPlayback = false;
             RecordingStore.CommitRecordingDirect(loopShip);
             RecordingStore.CommitRecordingDirect(quietShip);
 
-            int cleared = RecordingStore.SanitizeDebrisLoopPlayback();
+            int cleared = RecordingStore.SanitizeNonLoopableLoopPlayback();
 
             Assert.Equal(0, cleared);
             Assert.True(loopShip.LoopPlayback);
