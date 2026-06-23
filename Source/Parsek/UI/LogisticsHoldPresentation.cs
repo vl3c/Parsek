@@ -73,6 +73,18 @@ namespace Parsek
                 case RouteDispatchEvaluator.EligibilityFailureKind.SourcesStale:
                     return "route source recordings are unavailable right now";
 
+                case RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner:
+                {
+                    // Round-trip linking (M4c Phase C1): the gate token is
+                    // "partner:<partnerName-or-id>". Name the linked route so the
+                    // player knows which run this one is waiting on. The route keeps
+                    // flying its loop (GhostDriving) while it waits.
+                    string partner = StripPrefix(detail, "partner:");
+                    return string.IsNullOrEmpty(partner)
+                        ? "waiting for the linked route to complete its run"
+                        : "waiting for the linked route '" + partner + "' to complete its run";
+                }
+
                 default:
                     return Fallback(kind, detail);
             }
@@ -146,10 +158,34 @@ namespace Parsek
             // wrapped token would render "origin is out of
             // origin-unresolved:..." (post-implementation review NIT 2).
             string token = StripPrefix(detail, "origin-lacks-");
-            if (string.Equals(token, "inventory-origin-debit-unsupported",
-                    System.StringComparison.Ordinal))
+            // M4b Phase B1 (plan D10 / OQ5): the per-PICKUP-SOURCE all-or-nothing
+            // gate names the SHORT source vessel, not just the resource. Token shape:
+            // "source:<pid>:<name>:<resource-or-inventory-token>". Render the source
+            // vessel name so the hold reads "X cannot supply Y" rather than naming
+            // only the resource (the player has several depots; which one is short
+            // matters). The unresolved-source variant ("pickup-source-unresolved:*")
+            // is a missing source vessel.
+            if (token != null
+                && token.StartsWith("pickup-source-unresolved:", System.StringComparison.Ordinal))
             {
-                return "this route carries stored inventory parts, which docked-origin routes cannot debit yet";
+                return "a pickup source vessel could not be found - it may have moved, been recovered, or been destroyed ("
+                    + token + ")";
+            }
+            if (token != null
+                && token.StartsWith("source:", System.StringComparison.Ordinal))
+            {
+                return DescribePickupSourceShort(token);
+            }
+            // M3 Phase 5 (D7 carve-out lift): the inventory-origin debit is now
+            // supported, so a non-KSC origin short of a witnessed STORED PART
+            // holds with an "inventory:<identityHash>" short token instead of the
+            // retired "inventory-origin-debit-unsupported" deferral marker. Render
+            // it as a missing-stored-part hold (the hash is not player-meaningful,
+            // so name the category rather than the opaque hash).
+            if (token != null
+                && token.StartsWith("inventory:", System.StringComparison.Ordinal))
+            {
+                return "origin is missing a required stored part - delivers when the origin holds it";
             }
             if (token != null
                 && token.StartsWith("origin-unresolved:", System.StringComparison.Ordinal))
@@ -162,6 +198,32 @@ namespace Parsek
             if (string.IsNullOrEmpty(token))
                 return Fallback(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, detail);
             return "origin is out of " + token + " - delivers when the origin has the full amount";
+        }
+
+        // M4b Phase B1: parse the "source:<pid>:<name>:<short>" pickup-source token
+        // and name the short source vessel. The name was sanitized of ':' at the
+        // emit site (RoutePickupSourceGate.BuildHoldToken), so the first three ':'
+        // delimit pid / name / short cleanly. Degrades to the generic origin text
+        // if the shape is unexpected (never throws, never blank).
+        private static string DescribePickupSourceShort(string token)
+        {
+            // token = "source:<pid>:<name>:<short...>"; split into at most 4 parts so
+            // a short token that itself contains ':' (e.g. "inventory:<hash>") keeps
+            // its colon in the tail.
+            string body = token.Substring("source:".Length);
+            string[] parts = body.Split(new[] { ':' }, 3);
+            if (parts.Length < 3)
+                return "a pickup source is missing required cargo - delivers when the source has the full amount";
+            string name = string.IsNullOrEmpty(parts[1]) ? "a pickup source" : parts[1];
+            string shortToken = parts[2];
+            if (shortToken != null
+                && shortToken.StartsWith("inventory:", System.StringComparison.Ordinal))
+            {
+                return name + " is missing a required stored part - delivers when it holds it";
+            }
+            if (string.IsNullOrEmpty(shortToken))
+                return name + " is missing required cargo - delivers when it has the full amount";
+            return name + " is out of " + shortToken + " - delivers when it has the full amount";
         }
 
         // Total fallback row: readable, never blank, never throws - new tokens

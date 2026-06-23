@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Parsek.Display;
 
 namespace Parsek.InGameTests
 {
@@ -489,6 +490,347 @@ namespace Parsek.InGameTests
                 $"Ghost body names: {checked_ - badBodies.Count}/{checked_} resolved");
             InGameAssert.IsTrue(badBodies.Count == 0,
                 $"Unresolvable ghost body names: {string.Join(", ", badBodies)}");
+        }
+
+        // ───────────────────────────────────────────────────────────────
+        //  Boundary-overlap launch render (docs/dev/plan-launch-boundary-overlap.md)
+        // ───────────────────────────────────────────────────────────────
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "Any boundary-overlap secondary ghost is audio-muted, flagged, and never bound by the watch camera")]
+        public void BoundaryOverlapSecondary_IsMutedFlaggedAndUnwatched()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            var loopUnits = flight.Engine.CurrentLoopUnits;
+            if (loopUnits == null || loopUnits.Count == 0)
+                InGameAssert.Skip("No Mission loop units active (load a zero-slack re-aim launch loop to exercise this)");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            int watchedIndex = flight.WatchMode != null ? flight.WatchMode.WatchedRecordingIndex : -1;
+            int secondariesFound = 0;
+            int violations = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (!flight.Engine.TryGetOverlapGhosts(i, out var overlaps) || overlaps == null)
+                    continue;
+                for (int k = 0; k < overlaps.Count; k++)
+                {
+                    var s = overlaps[k];
+                    if (s == null || !s.isBoundaryOverlapSecondary)
+                        continue;
+                    secondariesFound++;
+                    // Invariant 3: the secondary borrows the overlap STORAGE; it must be audio-muted (overlap
+                    // ghosts get no audio).
+                    if (!s.audioMuted)
+                    {
+                        violations++;
+                        ParsekLog.Warn("TestRunner",
+                            $"Boundary-overlap secondary #{i} cycle={s.loopCycleIndex} is NOT audio-muted");
+                    }
+                    // Invariant 4: the watch camera must NEVER bind a boundary-overlap secondary. The camera
+                    // follows the long-lived primary through-line; the secondary lives only in overlap storage.
+                    if (watchedIndex == i && flight.WatchMode != null
+                        && flight.WatchMode.WatchedLoopCycleIndex == s.loopCycleIndex)
+                    {
+                        violations++;
+                        ParsekLog.Warn("TestRunner",
+                            $"Watch camera bound the boundary-overlap secondary #{i} cycle={s.loopCycleIndex} (invariant 4 violation)");
+                    }
+                }
+            }
+
+            if (secondariesFound == 0)
+                InGameAssert.Skip("No boundary-overlap secondary ghost active this frame (warp through a zero-slack loop's borrow window)");
+
+            ParsekLog.Info("TestRunner",
+                $"Boundary-overlap secondary: {secondariesFound} found, {violations} invariant violation(s)");
+            InGameAssert.AreEqual(0, violations,
+                $"{violations} boundary-overlap secondary invariant violation(s) (muted/flagged/unwatched)");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "At most ONE boundary-overlap secondary ghost per recording index (the borrowed overlap storage holds one)")]
+        public void BoundaryOverlapSecondary_AtMostOnePerRecording()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            int checkedRecordings = 0;
+            int violations = 0;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (!flight.Engine.TryGetOverlapGhosts(i, out var overlaps) || overlaps == null)
+                    continue;
+                int secCount = 0;
+                for (int k = 0; k < overlaps.Count; k++)
+                    if (overlaps[k] != null && overlaps[k].isBoundaryOverlapSecondary)
+                        secCount++;
+                if (secCount == 0)
+                    continue;
+                checkedRecordings++;
+                if (secCount > 1)
+                {
+                    violations++;
+                    ParsekLog.Warn("TestRunner",
+                        $"Recording #{i} has {secCount} boundary-overlap secondaries (expected at most 1)");
+                }
+            }
+
+            if (checkedRecordings == 0)
+                InGameAssert.Skip("No boundary-overlap secondary ghost active this frame");
+
+            InGameAssert.AreEqual(0, violations,
+                $"{violations} recording(s) have more than one boundary-overlap secondary");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "A launch-hold re-aim member's map presence carries the boundary-overlap secondary as an overlap instance when its second head is live")]
+        public void BoundaryOverlapSecondary_MapInstanceMatchesSecondHead()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            var loopUnits = flight.Engine.CurrentLoopUnits;
+            if (loopUnits == null || loopUnits.Count == 0)
+                InGameAssert.Skip("No Mission loop units active");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            double currentUT = Planetarium.GetUniversalTime();
+            int checkedMembers = 0;
+            int mismatches = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (!loopUnits.TryGetUnitForMember(i, out var unit) || !unit.LaunchHoldEngaged)
+                    continue;
+                var rec = committed[i];
+                double memberStartUT = unit.MemberStartUT(i, rec.StartUT);
+                double memberEndUT = unit.MemberEndUT(i, rec.EndUT);
+                var decision = GhostPlaybackLogic.DecideBoundaryOverlapSecondaryRender(
+                    currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                    memberStartUT, memberEndUT, out double _, out long _,
+                    unit.RelaunchSchedule, unit.LoiterCuts,
+                    unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+                bool secondLive = decision == GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render;
+                if (!secondLive)
+                    continue;
+                checkedMembers++;
+                // When the second head is live the map sweep must carry an overlap instance for this index
+                // (the secondary's icon + escape conic). Throttled by MaxSpawnsPerFrame, so allow it to be one
+                // frame behind, but never absent for more than a transient.
+                int mapInstances = GhostMapPresence.GetOverlapInstanceCount(i);
+                if (mapInstances < 1)
+                {
+                    // Re-check next-frame transient leniency is not available in a one-shot test; log + warn-only
+                    // (the create can be deferred to the very frame the test ran). Treat 0 as a soft miss.
+                    ParsekLog.Warn("TestRunner",
+                        $"Launch-hold member #{i} has a live boundary-overlap second head but 0 map instances " +
+                        "(create may be deferred this frame - re-run if transient)");
+                    mismatches++;
+                }
+            }
+
+            if (checkedMembers == 0)
+                InGameAssert.Skip("No launch-hold member has a live boundary-overlap second head this frame");
+
+            ParsekLog.Info("TestRunner",
+                $"Boundary-overlap map instance: {checkedMembers - mismatches}/{checkedMembers} members carry the secondary instance");
+            InGameAssert.AreEqual(0, mismatches,
+                $"{mismatches} launch-hold member(s) have a live second head but no boundary-overlap map instance");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "The boundary-overlap secondary's ASCENT marker resolves on the map even before its escape OrbitSegment materializes (the pre-Segment gap the proto icon cannot cover)")]
+        public void BoundaryOverlapSecondary_MarkerResolvesDuringAscentGap()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            var loopUnits = flight.Engine.CurrentLoopUnits;
+            if (loopUnits == null || loopUnits.Count == 0)
+                InGameAssert.Skip("No Mission loop units active");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            double currentUT = Planetarium.GetUniversalTime();
+            int checkedMembers = 0;
+            int failures = 0;
+            int gapCovered = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (!loopUnits.TryGetUnitForMember(i, out var unit) || !unit.LaunchHoldEngaged)
+                    continue;
+
+                // The marker resolver is the EXACT gate the flight-map / TS marker passes call. When a
+                // second head is live it must return true regardless of whether the map-presence sweep has
+                // created the proto vessel yet - that is the whole point of the additive ascent marker
+                // (the proto icon cannot exist during atmospheric ascent: no orbit Segment to seed it).
+                bool draw = GhostMapPresence.TryResolveBoundaryOverlapSecondaryMarker(
+                    isMapSurface: true, committed[i], i, currentUT, loopUnits,
+                    out double secondaryUT, out long secondaryCycle);
+                if (!draw)
+                    continue; // no live secondary this frame for this member
+                checkedMembers++;
+
+                // The resolved ascent UT must lie within the member's recorded span (it is the in-SOI
+                // ascent phase, near spanStart), and the cycle must be the early-launching N+1.
+                if (secondaryUT < committed[i].StartUT - 1.0 || secondaryUT > committed[i].EndUT + 1.0)
+                {
+                    ParsekLog.Warn("TestRunner",
+                        $"Launch-hold member #{i} secondary marker UT {secondaryUT:F1} outside span " +
+                        $"[{committed[i].StartUT:F1},{committed[i].EndUT:F1}]");
+                    failures++;
+                }
+
+                // Pre-Segment gap evidence: when no map instance exists yet the marker resolver STILL
+                // surfaces the secondary, so the polyline marker is its sole icon for those minutes.
+                if (GhostMapPresence.GetOverlapInstanceCount(i) < 1)
+                    gapCovered++;
+            }
+
+            if (checkedMembers == 0)
+                InGameAssert.Skip("No launch-hold member has a live boundary-overlap second head this frame");
+
+            ParsekLog.Info("TestRunner",
+                $"Boundary-overlap ascent marker: {checkedMembers - failures}/{checkedMembers} resolve in-span, " +
+                $"{gapCovered} during the pre-Segment gap (no proto yet)");
+            InGameAssert.AreEqual(0, failures,
+                $"{failures} launch-hold secondary marker(s) resolved an out-of-span ascent UT");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "The engine keeps the boundary-overlap secondary's 3D mesh even when the launch member's PRIMARY is out of its window (the two-recording chain case, review H2)")]
+        public void BoundaryOverlapSecondary_EngineMeshSurvivesHiddenPrimary()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            var loopUnits = flight.Engine.CurrentLoopUnits;
+            if (loopUnits == null || loopUnits.Count == 0)
+                InGameAssert.Skip("No Mission loop units active");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            double currentUT = Planetarium.GetUniversalTime();
+            int checkedMembers = 0;
+            int missing = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (!loopUnits.TryGetUnitForMember(i, out var unit) || !unit.LaunchHoldEngaged)
+                    continue;
+                var rec = committed[i];
+                double memberStartUT = unit.MemberStartUT(i, rec.StartUT);
+                double memberEndUT = unit.MemberEndUT(i, rec.EndUT);
+                var decision = GhostPlaybackLogic.DecideBoundaryOverlapSecondaryRender(
+                    currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                    memberStartUT, memberEndUT, out double _, out long _,
+                    unit.RelaunchSchedule, unit.LoiterCuts,
+                    unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+                if (decision != GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render)
+                    continue;
+                checkedMembers++;
+                // When the second head is live the engine must carry a boundary-overlap secondary in
+                // overlapGhosts[i] WHETHER the primary is in-window (single-recording case) OR hidden
+                // out-of-window (the chain case H2 fixed: the dispatch used to sit AFTER the decision !=
+                // Render early return, which tore the secondary mesh down first). Throttled by
+                // MaxSpawnsPerFrame, so a one-frame build lag is possible; treat absence as a soft miss.
+                bool hasSecondaryMesh = false;
+                if (flight.Engine.TryGetOverlapGhosts(i, out var overlaps) && overlaps != null)
+                {
+                    for (int k = 0; k < overlaps.Count; k++)
+                        if (overlaps[k] != null && overlaps[k].isBoundaryOverlapSecondary)
+                        { hasSecondaryMesh = true; break; }
+                }
+                if (!hasSecondaryMesh)
+                {
+                    ParsekLog.Warn("TestRunner",
+                        $"Launch-hold member #{i} has a live second head but no boundary-overlap secondary in " +
+                        "overlapGhosts (engine mesh build may be deferred this frame - re-run if transient)");
+                    missing++;
+                }
+            }
+
+            if (checkedMembers == 0)
+                InGameAssert.Skip("No launch-hold member has a live boundary-overlap second head this frame");
+
+            ParsekLog.Info("TestRunner",
+                $"Boundary-overlap engine mesh: {checkedMembers - missing}/{checkedMembers} members carry the secondary 3D ghost");
+            InGameAssert.AreEqual(0, missing,
+                $"{missing} launch-hold member(s) have a live second head but no engine-side boundary-overlap secondary mesh");
+        }
+
+        [InGameTest(Category = "GhostLifecycle", Scene = GameScenes.FLIGHT,
+            Description = "The boundary-overlap secondary never shadows the launch recording's identity via GetGhostVesselPidForRecording (review M1)")]
+        public void BoundaryOverlapSecondary_DoesNotShadowRecordingPid()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            var loopUnits = flight.Engine.CurrentLoopUnits;
+            if (loopUnits == null || loopUnits.Count == 0)
+                InGameAssert.Skip("No Mission loop units active");
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+                InGameAssert.Skip("No committed recordings");
+
+            int checkedMembers = 0;
+            int shadows = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (!loopUnits.TryGetUnitForMember(i, out var unit) || !unit.LaunchHoldEngaged)
+                    continue;
+                // The UNFILTERED newest overlap-instance pid for this member IS the boundary-overlap
+                // secondary's (a launch-hold member is non-overlap, so its only instances are secondaries).
+                // Skip members with no live secondary instance this frame.
+                uint secondaryPid = GhostMapPresence.GetNewestOverlapInstancePidForRecording(
+                    i, excludeBoundarySecondary: false);
+                if (secondaryPid == 0)
+                    continue;
+                checkedMembers++;
+                // M1: the vesselsByRecordingIndex-reader identity for this index must NEVER be the
+                // secondary's pid (single-recording case -> the primary's own pid; chain case with a hidden
+                // primary -> 0). If it equals the secondary pid, the secondary has shadowed the launch
+                // recording, and watch focus / TS-Fly / marker suppression would bind to the wrong vessel.
+                uint identityPid = GhostMapPresence.GetGhostVesselPidForRecording(i);
+                if (identityPid == secondaryPid)
+                {
+                    ParsekLog.Warn("TestRunner",
+                        $"Launch-hold member #{i}: GetGhostVesselPidForRecording returned the boundary-overlap " +
+                        $"secondary pid {secondaryPid} (identity shadow)");
+                    shadows++;
+                }
+            }
+
+            if (checkedMembers == 0)
+                InGameAssert.Skip("No launch-hold member has a live boundary-overlap secondary instance this frame");
+
+            ParsekLog.Info("TestRunner",
+                $"Boundary-overlap pid shadow: {checkedMembers - shadows}/{checkedMembers} members keep the recording identity distinct from the secondary");
+            InGameAssert.AreEqual(0, shadows,
+                $"{shadows} launch-hold member(s) have the boundary-overlap secondary shadowing GetGhostVesselPidForRecording");
         }
     }
 
@@ -2066,5 +2408,70 @@ namespace Parsek.InGameTests
             }
         }
 
+    }
+
+    /// <summary>
+    /// Descent-icon decouple (Unity-coupled wiring of <see cref="GhostTrajectoryPolylineRenderer.ResolveUndrawnLegFallback"/>):
+    /// a NON-conic-anchored body-fixed leg (a descent / atmospheric / surface leg) that was not drawn THIS
+    /// frame must NOT pin the marker to a stale held position - the real <c>TryAnchorMarkerToPolyline</c>
+    /// must DECLINE the hold (return false) so the caller keeps its FRESH body-fixed head, while an ANCHORED
+    /// leg in the same not-drawn state still HOLDS its last on-line position (its drawn line is ~96 deg off
+    /// the body-fixed head, so a body-fixed fallback would jump off the line). The pure decision is
+    /// xUnit-covered (<c>GhostTrajectoryPolylineBuildTests</c>); this drives the real Unity-coupled ride
+    /// (<c>Time.frameCount</c> + the leg cache + the <c>wasAnchored</c> stamp) deterministically via the
+    /// test seam, so it proves the WIRING, not just the formula. Restores the cache on exit.
+    /// </summary>
+    public class MarkerRideFallbackInGameTests
+    {
+        [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
+            Description = "A non-anchored descent leg not drawn this frame declines the stale hold (fresh body-fixed head); an anchored leg holds")]
+        public void NonAnchoredUndrawnLeg_DeclinesStaleHold()
+        {
+            try
+            {
+                int frame = Time.frameCount;
+                int staleFrame = frame - 3;          // leg not drawn this frame -> enters the fallback branch
+                const double start = 1000.0, end = 1100.0, head = 1050.0;
+
+                // A last-good on-line cache that WOULD satisfy TryHoldLastGood (fresh frame, 0 s head delta)
+                // for BOTH ids, so a successful hold proves the GATE chose to hold - not that the cache was
+                // missing.
+                GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                    "ride-nonanchored", new Vector3(7f, 8f, 9f), head, frame, 0);
+                GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
+                    "ride-anchored", new Vector3(7f, 8f, 9f), head, frame, 0);
+
+                // NON-anchored leg, not drawn this frame: must DECLINE the hold (caller keeps fresh head).
+                GhostTrajectoryPolylineRenderer.SetLegForTesting(
+                    "ride-nonanchored", start, end, wasAnchored: false, lastDrawnFrame: staleFrame);
+                bool nonAnchoredRode = GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                    "ride-nonanchored", head, out _,
+                    out MapRenderTrace.MarkerRideReason nonAnchoredReason, out _);
+
+                // ANCHORED leg, identical not-drawn state: must HOLD its last on-line position.
+                GhostTrajectoryPolylineRenderer.SetLegForTesting(
+                    "ride-anchored", start, end, wasAnchored: true, lastDrawnFrame: staleFrame);
+                bool anchoredRode = GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                    "ride-anchored", head, out _,
+                    out MapRenderTrace.MarkerRideReason anchoredReason, out _);
+
+                ParsekLog.Info("TestRunner",
+                    $"Marker-ride fallback in-game: nonAnchored rode={nonAnchoredRode} reason={nonAnchoredReason}; " +
+                    $"anchored rode={anchoredRode} reason={anchoredReason}");
+
+                InGameAssert.IsFalse(nonAnchoredRode,
+                    "a non-anchored body-fixed leg not drawn this frame must decline the ride so the caller keeps the fresh body-fixed head");
+                InGameAssert.AreEqual(MapRenderTrace.MarkerRideReason.FallbackNonAnchoredUseHead, nonAnchoredReason,
+                    "the declined non-anchored ride must report fallback-non-anchored-use-head");
+                InGameAssert.IsTrue(anchoredRode,
+                    "an anchored leg not drawn this frame must HOLD its last on-line position (non-vacuity: only the anchor state differs)");
+                InGameAssert.AreEqual(MapRenderTrace.MarkerRideReason.HeldLastGood, anchoredReason,
+                    "the anchored hold must report held-last-good");
+            }
+            finally
+            {
+                GhostTrajectoryPolylineRenderer.Clear();
+            }
+        }
     }
 }

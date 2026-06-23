@@ -171,6 +171,14 @@ namespace Parsek.Logistics
             long prevObserved = route.LastObservedLoopCycleIndex;
             route.LastObservedLoopCycleIndex = -1;
 
+            // M4a A3 (OQ3 / C1): the per-stop fire sub-gates rebase with the
+            // route-level cursor. A multi-stop route's later windows would
+            // otherwise stall (N raised -> smaller cycleIndex never exceeds the
+            // stale per-stop LastFiredCycleIndex) or jump (N lowered) on the next
+            // crossing. Resetting all stops to -1 re-anchors the clock cleanly: each
+            // window's next in-span crossing fires exactly once, no double-fire.
+            RouteOrchestrator.ResetStopFireState(route);
+
             ParsekLog.Info("Route",
                 $"RouteCadence: route {ShortId(route.Id)} cadence {oldN}x->{clamped}x " +
                 $"interval {FormatR(oldInterval)}->{FormatR(route.DispatchInterval)} " +

@@ -511,6 +511,26 @@ namespace Parsek.Tests.Logistics
                 RouteProofHasher.ComputeRouteProofHashFromRecording(rec));
         }
 
+        // catches (M3 D9 byte-stability pin): the recording-side proof hash drifting
+        // because of the M3 pickup direction. M3 (plan D8/D9) adds the pickup
+        // direction as a DERIVED, per-stop ROUTE-shape field (RouteStop.PickupManifest
+        // serialized via RouteCodec, NOT a Recording field) - NO new hashed
+        // RouteConnectionWindow field, NO RouteProofHasher / RouteProofCodec /
+        // RouteProofMetadata change. So the recording proof hash MUST stay
+        // byte-identical to the pre-M2 / pre-M3 fingerprint, and
+        // RouteStore.RevalidateSources never flips a pre-M3 / delivery-only route to
+        // SourceChanged on load. The constant is the SAME as
+        // Hash_PreM2Recording_ByteStable on purpose: M3 touched nothing the hasher
+        // reads. A drift here means a pickup direction leaked into the recording proof.
+        [Fact]
+        public void Hash_PreM3Recording_ByteStable()
+        {
+            Recording rec = RecordingWithProof();
+            Assert.Equal(
+                "538f2b91a99a6139",
+                RouteProofHasher.ComputeRouteProofHashFromRecording(rec));
+        }
+
         // catches: the origin endpoint descriptor fields (M1 / D5) leaking into
         // the proof hash. They are DELIBERATELY excluded: the hash pins the
         // witnessed transfer, coordinates are resolution metadata. Including

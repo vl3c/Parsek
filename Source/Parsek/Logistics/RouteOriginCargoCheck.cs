@@ -69,18 +69,75 @@ namespace Parsek.Logistics
         /// <summary>
         /// True when the route would need an INVENTORY debit from a physical
         /// origin: non-KSC origin with a non-empty
-        /// <see cref="Route.InventoryCostManifest"/>. M1 debits resources
-        /// only (design D6 / OQ1) - removing exact STOREDPART payloads by
-        /// identity is the M3 stock-slot-identity work, and delivering items
-        /// without debiting them would duplicate matter. Routes matching this
-        /// predicate hold in WaitingForResources with reason
-        /// <c>inventory-origin-debit-unsupported</c>.
+        /// <see cref="Route.InventoryCostManifest"/>. Before M3 Phase 5 this
+        /// gated the <c>inventory-origin-debit-unsupported</c> HOLD (the M1 D6
+        /// carve-out). M3 Phase 5 lifts that hold by wiring the
+        /// <see cref="LiveInventoryPickupWriter"/> into the origin-dispatch path,
+        /// so this predicate is now only the SHAPE detector (does the route carry
+        /// an origin inventory cost?) - the gate proper is
+        /// <see cref="HasRequiredInventory"/>.
         /// </summary>
         internal static bool RequiresInventoryDebit(Route route)
         {
             if (route == null) return false;
             if (route.IsKscOrigin) return false;
             return route.InventoryCostManifest != null && route.InventoryCostManifest.Count > 0;
+        }
+
+        /// <summary>
+        /// M3 Phase 5 (design D7 carve-out lift): all-or-nothing inventory
+        /// presence gate, the inventory analogue of <see cref="HasRequired"/>.
+        /// True when <paramref name="storedCounter"/> reports at least the
+        /// witnessed quantity for EVERY positive-quantity item in
+        /// <paramref name="inventoryManifest"/> (matched by exact
+        /// <see cref="InventoryPayloadItem.IdentityHash"/>). On failure,
+        /// <paramref name="lackingIdentity"/> names the FIRST short identity in
+        /// ordinal hash order (deterministic) and <paramref name="shortQuantity"/>
+        /// carries <c>required - stored</c>. A null/empty manifest passes
+        /// (nothing to verify). No KSP statics, no mutation - the caller owns
+        /// side effects (the live count comes from
+        /// <see cref="LiveInventoryPickupWriter.CountStored"/>).
+        /// </summary>
+        internal static bool HasRequiredInventory(
+            List<InventoryPayloadItem> inventoryManifest,
+            Func<string, int> storedCounter,
+            out string lackingIdentity,
+            out int shortQuantity)
+        {
+            lackingIdentity = string.Empty;
+            shortQuantity = 0;
+
+            if (inventoryManifest == null || inventoryManifest.Count == 0)
+                return true;
+
+            if (storedCounter == null)
+            {
+                lackingIdentity = "null-stored-counter";
+                return false;
+            }
+
+            // Deterministic first-failure: order by identity hash so the named
+            // short identity does not depend on list order.
+            var ordered = new List<InventoryPayloadItem>(inventoryManifest);
+            ordered.Sort((a, b) => string.Compare(
+                a?.IdentityHash, b?.IdentityHash, StringComparison.Ordinal));
+
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                InventoryPayloadItem item = ordered[i];
+                if (item == null || string.IsNullOrEmpty(item.IdentityHash))
+                    continue;
+                int required = item.Quantity;
+                if (required <= 0) continue;
+                int stored = storedCounter(item.IdentityHash);
+                if (stored < required)
+                {
+                    lackingIdentity = item.IdentityHash;
+                    shortQuantity = required - stored;
+                    return false;
+                }
+            }
+            return true;
         }
     }
 }

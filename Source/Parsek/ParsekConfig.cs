@@ -377,4 +377,24 @@ namespace Parsek
         /// </summary>
         internal const int MaxPendingOverlapBridgeFrames = 3;
     }
+
+    /// <summary>
+    /// TEMPORARY developer debug toggles. These are NOT player-facing settings and some BREAK GAMEPLAY when on —
+    /// flip one to <c>true</c> here and rebuild to enable it, then flip it back (or delete the entry) when the
+    /// debugging is done. Deliberately code-only (never a GameParameters / Settings-UI checkbox) so a player can't
+    /// enable a gameplay-breaking aid by accident.
+    /// </summary>
+    internal static class DebugFlags
+    {
+        /// <summary>
+        /// Master gate for the temporary <see cref="MapRenderWarpControl"/> debug aid, which decelerates time-warp
+        /// before a registered map-render moment (a descent, a loiter→descent handoff, a specific ghost's render at a
+        /// UT, an SOI crossing) so it is observable instead of warped clean over. BREAKS GAMEPLAY when on (it forces
+        /// warp deceleration). Default FALSE — a normal install is never slowed. To use it: set this to <c>true</c>,
+        /// rebuild, AND turn on the map-render tracer (the <c>mapRenderTracing</c> setting); the control needs BOTH
+        /// (<see cref="MapRenderWarpControl.IsActive"/>). It MUST be removed once the map-render moment is debugged
+        /// (see the removal banner in MapRenderWarpControl.cs); never ship it enabled.
+        /// </summary>
+        internal const bool MapRenderWarpEnabled = false;
+    }
 }

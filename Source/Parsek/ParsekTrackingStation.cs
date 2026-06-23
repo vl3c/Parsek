@@ -424,8 +424,15 @@ namespace Parsek
                 // summary. Pass tsSkipReason=None on the draw path -> the optional field is omitted.
                 bool decDirectorTraced = false, decPolylineOwning = false,
                     decIconSuppressed = false, decShouldDraw = false;
+                // decisionEffUT: the REAL loop-shifted sample UT (ResolveTrackingStationSampleUT result)
+                // to thread into the trace line's effUT slot, NaN -> fall back to currentUT. The
+                // span-clock-substituted callers below (post-effUT-resolution) pass the true effUT so the
+                // line shows the loop-shifted UT the classifier used (e.g. the ~2.5e9 Duna-region UT) rather
+                // than mislabeling effUT==currentUT. The pre-effUT overlap-branch caller keeps the NaN
+                // default (its instance head is the live sample, byte-identical to before).
                 void EmitMarkerDecision(MapRenderTrace.MarkerOutcome outcome,
-                    AtmosphericMarkerSkipReason tsSkipReason = AtmosphericMarkerSkipReason.None)
+                    AtmosphericMarkerSkipReason tsSkipReason = AtmosphericMarkerSkipReason.None,
+                    double decisionEffUT = double.NaN)
                 {
                     if (!traceOn || rec == null || string.IsNullOrEmpty(rec.RecordingId))
                         return;
@@ -437,7 +444,8 @@ namespace Parsek
                             MapRenderTrace.MarkerRideReason.NotAttempted, -1, "traj",
                             tsSkipReason: tsSkipReason == AtmosphericMarkerSkipReason.None
                                 ? null
-                                : AtmosphericMarkerSkipReasonToken(tsSkipReason)));
+                                : AtmosphericMarkerSkipReasonToken(tsSkipReason)),
+                        decisionEffUT);
                 }
 
                 // ---- Slice (iii) TS port: per-instance overlap markers riding the ONE shared polyline ----
@@ -495,6 +503,22 @@ namespace Parsek
                     continue; // per-instance markers drew (or all skipped) — bypass effUT + 8c gate + tail
                 }
 
+                // ---- Boundary-overlap secondary marker (launch->escape seam render), TS port ----
+                // Mirror of the flight-map DrawMapMarkers branch: draw the early-launching instance N+1's
+                // in-SOI ASCENT icon riding the shared polyline during the borrow window of a zero-slack
+                // re-aim launch loop, covering the pre-Segment gap where the secondary's proto icon cannot
+                // exist yet (an atmospheric ascent has no orbit Segment to seed a map vessel). TS is always
+                // a map surface. NO continue: the primary marker still draws below. Inert for every
+                // non-launch-hold member / aligned loop (no live secondary head).
+                if (GhostMapPresence.TryResolveBoundaryOverlapSecondaryMarker(
+                        true, rec, i, currentUT, loopUnits,
+                        out double tsBoundarySecondaryUT, out long tsBoundarySecondaryCycle)
+                    && DrawOneTsOverlapInstanceMarker(
+                        i, committed, rec, tsBoundarySecondaryUT, tsBoundarySecondaryCycle))
+                {
+                    summary.Drawn++;
+                }
+
                 // Phase F: substitute the shared Mission span-clock loopUT for the live UT when this
                 // committed index is a loop-unit member. A member outside its loop window this cycle
                 // is skipped (no marker). Inert (effUT == currentUT, renderHidden false) for
@@ -505,7 +529,8 @@ namespace Parsek
                 if (renderHidden)
                 {
                     summary.LoopMemberHidden++;
-                    EmitMarkerDecision(MapRenderTrace.MarkerOutcome.SkippedLoopHidden);
+                    EmitMarkerDecision(MapRenderTrace.MarkerOutcome.SkippedLoopHidden,
+                        decisionEffUT: effUT);
                     continue;
                 }
 
@@ -528,7 +553,8 @@ namespace Parsek
                     CountAtmosphericMarkerSkip(ref summary, skipReason);
                     // C-1: pass the RAW skip reason so the finer TS taxonomy (folded away by
                     // MapSkipReasonToMarkerOutcome) survives as the tsSkip= field on this ghost's line.
-                    EmitMarkerDecision(MapSkipReasonToMarkerOutcome(skipReason), skipReason);
+                    EmitMarkerDecision(MapSkipReasonToMarkerOutcome(skipReason), skipReason,
+                        decisionEffUT: effUT);
                     continue;
                 }
 
@@ -536,39 +562,69 @@ namespace Parsek
                     atmosCachedIndices[i] = -1;
                 int cached = atmosCachedIndices[i];
                 bool rodePolyline = false;
+                Vector3d worldPos = default(Vector3d);
+                TrajectoryPoint sampledPoint = default(TrajectoryPoint);
+                string resolveReason = null;
+                bool resolved = false;
+
+                // COSMETIC fix (descent icon ride): a descent-SET member's marker rides the SAME re-anchored
+                // descent head the descent LINE uses. effUT here is the descentHead from
+                // ResolveTrackingStationSampleUT, and the polyline primary pass heads its descent legs off the
+                // same ResolveTrackingStationSampleFrame, so anchoring to the DRAWN polyline FIRST keeps the icon
+                // glued to the descent curve all the way to the landing. The body-fixed resolve at the descent
+                // head can pin off the gap-filled below-surface chord or bracket-miss (the icon vanishing / not
+                // following the descent down - the symptom this fixes), so for descent-set members try the ride
+                // first; only fall through to the unchanged body-fixed-first chain when the leg has not drawn
+                // this frame. Gated to descent-set members (IsDescentTriggerMember) so every other marker keeps
+                // body-fixed-first ordering, byte-identical. Overlap descent members never reach here (the
+                // per-instance overlap branch above already rides + continues), so this is the non-overlap gap.
+                bool isDescentSetMember =
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsDescentTriggerMember(i, loopUnits);
+                if (isDescentSetMember
+                    && Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                        rec.RecordingId, effUT, out Vector3 descentRiddenPos))
+                {
+                    worldPos = descentRiddenPos;
+                    rodePolyline = true;
+                    resolved = true;
+                }
+
                 // M4b: derotate body-fixed marker sampling by the member's per-launch shift
                 // (0 for non-members / knob-less schedules).
                 double tsBodyFixedShift =
                     GhostPlaybackLogic.ComputeUnitMemberBodyFixedShiftSeconds(
                         i, currentUT, effUT, loopUnits);
-                bool resolved = TryResolveRecordingWorldPosition(
-                    rec,
-                    effUT,
-                    ref cached,
-                    out Vector3d worldPos,
-                    out _,
-                    out TrajectoryPoint sampledPoint,
-                    out string resolveReason,
-                    tsBodyFixedShift);
-                if (resolved)
+                if (!resolved)
                 {
-                    atmosCachedIndices[i] = cached;
-                }
-                else if (Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
-                        rec.RecordingId, effUT, out Vector3 riddenWorldPos))
-                {
-                    // Playtest-12 follow-up (icon vanished on the gap-filled landing chord): the
-                    // recording-side resolver has nothing to bracket inside a FRAMELESS recorded span
-                    // (the OrbitalCheckpoint section under the below-surface descent), but the POLYLINE
-                    // is drawing that span - including the conic gap-fill points, which live only in
-                    // the renderer's leg cache. RIDE the drawn line (the same contract the flight-map
-                    // marker and the TS overlap-instance markers use) so the icon stays on the curve
-                    // instead of vanishing. The ride self-gates on the leg having drawn this frame
-                    // (or the short HeldLastGood pan-hold of a recently-on-line position), so this can
-                    // never paint a marker for an undrawn phase.
-                    worldPos = riddenWorldPos;
-                    rodePolyline = true;
-                    resolved = true;
+                    resolved = TryResolveRecordingWorldPosition(
+                        rec,
+                        effUT,
+                        ref cached,
+                        out worldPos,
+                        out _,
+                        out sampledPoint,
+                        out resolveReason,
+                        tsBodyFixedShift);
+                    if (resolved)
+                    {
+                        atmosCachedIndices[i] = cached;
+                    }
+                    else if (Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                            rec.RecordingId, effUT, out Vector3 riddenWorldPos))
+                    {
+                        // Playtest-12 follow-up (icon vanished on the gap-filled landing chord): the
+                        // recording-side resolver has nothing to bracket inside a FRAMELESS recorded span
+                        // (the OrbitalCheckpoint section under the below-surface descent), but the POLYLINE
+                        // is drawing that span - including the conic gap-fill points, which live only in
+                        // the renderer's leg cache. RIDE the drawn line (the same contract the flight-map
+                        // marker and the TS overlap-instance markers use) so the icon stays on the curve
+                        // instead of vanishing. The ride self-gates on the leg having drawn this frame
+                        // (or the short HeldLastGood pan-hold of a recently-on-line position), so this can
+                        // never paint a marker for an undrawn phase.
+                        worldPos = riddenWorldPos;
+                        rodePolyline = true;
+                        resolved = true;
+                    }
                 }
                 if (!resolved)
                 {
@@ -576,7 +632,8 @@ namespace Parsek
                         summary.MissingBody++;
                     else
                         summary.BracketMiss++;
-                    EmitMarkerDecision(MapRenderTrace.MarkerOutcome.SkippedPositionFail);
+                    EmitMarkerDecision(MapRenderTrace.MarkerOutcome.SkippedPositionFail,
+                        decisionEffUT: effUT);
                     continue;
                 }
 
@@ -594,7 +651,8 @@ namespace Parsek
                 summary.Drawn++;
 
                 // Tracer: the atmospheric (non-proto) marker drew.
-                EmitMarkerDecision(MapRenderTrace.MarkerOutcome.DrawnNonProto);
+                EmitMarkerDecision(MapRenderTrace.MarkerOutcome.DrawnNonProto,
+                    decisionEffUT: effUT);
 
                 ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
                     $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +

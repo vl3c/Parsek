@@ -163,6 +163,33 @@ namespace Parsek.Logistics
         /// <summary>Paired route for round-trip; null if standalone.</summary>
         public string LinkedRouteId;
 
+        /// <summary>
+        /// Round-trip linking alternation cursor (M4c Phase C1, plan D12 / OQ8):
+        /// the partner route's <see cref="CompletedCycles"/> value at the moment
+        /// THIS route last consumed a partner cycle (i.e. last dispatched under the
+        /// chain constraint). The partner gate
+        /// (<see cref="RouteDispatchEvaluator.PartnerConstraintSatisfied"/>) holds
+        /// this route <see cref="RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner"/>
+        /// while <c>partner.CompletedCycles &lt;= LastConsumedPartnerCycle</c>, i.e.
+        /// until the partner completes a NEW cycle; on a dispatch the orchestrator
+        /// advances it to the partner's current <see cref="CompletedCycles"/>, so
+        /// the route holds again until the partner completes ANOTHER cycle (strict
+        /// A-&gt;B-&gt;A alternation).
+        ///
+        /// <para><b>Default 0</b> (NOT -1): a fresh mutual chain has both routes at
+        /// 0 with the partner at 0 completions, so both compute <c>0 &lt;= 0</c> =
+        /// held - the deadlock the seed rule breaks. -1 would let both dispatch on
+        /// cycle 0 (<c>0 &lt;= -1</c> = false), breaking alternation. Only routes
+        /// with a non-null <see cref="LinkedRouteId"/> ever advance it; an unlinked
+        /// route keeps the 0 default forever.</para>
+        ///
+        /// <para>Sparse in the codec: omitted at the 0 default (mirrors the
+        /// <see cref="DispatchPriority"/> / <c>lastObservedLoopCycleIndex</c> sparse
+        /// convention), so an unlinked / pre-M4c route writes NOTHING new and
+        /// round-trips byte-identically.</para>
+        /// </summary>
+        public int LastConsumedPartnerCycle;
+
         // --- Status ---
 
         /// <summary>Lifecycle state. Always mutate through <see cref="TransitionTo"/>.</summary>
