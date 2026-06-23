@@ -136,8 +136,10 @@ namespace Parsek
             }
         }
 
-        /// <summary>Drop every registered window (also called on scene change so windows never accumulate across
-        /// scenes; a per-frame caller re-registers its window next frame).</summary>
+        /// <summary>Drop every registered window. Called from <see cref="Wire"/> on scene ENTRY (each addon's
+        /// Awake); a per-frame caller re-registers its window next frame. (Unwire/OnDestroy does not clear, so the
+        /// list persists in memory through a scene-transition gap until the next scene wires — harmless, since
+        /// past / NaN windows contribute +Infinity to the cap and are skipped by <see cref="SelectActiveWindow"/>.)</summary>
         internal static void Clear()
         {
             windows.Clear();
