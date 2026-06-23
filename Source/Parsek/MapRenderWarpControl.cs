@@ -10,11 +10,12 @@ namespace Parsek
     // GAMEPLAY when enabled: it forcibly decelerates the player's time-warp as a REGISTERED render moment nears, so
     // the moment (a descent, a loiter->descent handoff, a specific ghost's render at a specific UT, an SOI crossing)
     // is observable/capturable instead of being warped clean over. It is OFF by every normal install: the master
-    // code flag DebugWarpEnabled defaults false AND it is also gated on the map-render tracer (MapRenderTrace), so a
-    // shipped game never slows. An AI agent debugging a moment REGISTERS it in code (RegisterWatchWindow) and flips
-    // DebugWarpEnabled to true; the warp then decelerates into the window via a distance-proportional cap that a
-    // single laggy frame cannot overshoot. Caps DOWN only — the player may always warp slower and re-warp freely
-    // once past the window. NOT a shipping feature — do NOT keep a CHANGELOG entry for it.
+    // code config flag DebugFlags.MapRenderWarpEnabled defaults false AND it is also gated on the
+    // map-render tracer (MapRenderTrace), so a shipped game never slows. An agent debugging a moment REGISTERS it in
+    // code (RegisterWatchWindow), flips DebugFlags.MapRenderWarpEnabled to true and rebuilds (it is a
+    // code config flag, not a player setting); the warp then decelerates into the window via a distance-proportional
+    // cap that a single laggy frame cannot overshoot. Caps DOWN only — the player may always warp slower and re-warp
+    // freely once past the window. NOT a shipping feature — do NOT keep a CHANGELOG entry for it.
     //
     // REMOVAL RECIPE (after the rendering is debugged):
     //   1. Delete this file (Source/Parsek/MapRenderWarpControl.cs) + its tests
@@ -22,7 +23,8 @@ namespace Parsek
     //   2. Delete the RegisterWatchWindow call in GhostPlaybackLogic.ResolveTrackingStationSampleUT (the descent
     //      caller) and, if no other caller remains, the DescentTrigger.DescentWindowEndLiveUT helper + its
     //      regression test in DescentTriggerTests.cs.
-    //   3. Grep for any other RegisterWatchWindow / DebugWarpEnabled references and remove them.
+    //   3. Delete the DebugFlags.MapRenderWarpEnabled config flag in ParsekConfig.cs.
+    //   4. Grep for any other RegisterWatchWindow / DebugWarpEnabled references and remove them.
     // ============================================================================================================
 
     /// <summary>
@@ -76,15 +78,17 @@ namespace Parsek
         // far out and runs in ~2x faster.
         internal const double WorstFrameSeconds = 2.0;
 
-        // ---- Enable gate (CODE flags, never a settings-UI param) ----
+        // ---- Enable gate (CODE config flag, never a settings-UI param) ----
 
         /// <summary>
-        /// Master code flag. Default FALSE so normal gameplay is never slowed. An AI agent debugging a render moment
-        /// flips this to true (and registers a window) to make the moment reachable. Tied to the map-render tracer in
-        /// <see cref="IsActive"/> so deceleration needs BOTH this and the tracer — enabling the tracer alone never
-        /// slows warp.
+        /// Runtime master gate. Its default comes from the code config flag
+        /// <see cref="DebugFlags.MapRenderWarpEnabled"/> (default FALSE), so normal gameplay is never
+        /// slowed; a developer enables the aid by flipping that config constant and rebuilding. (Stays a settable
+        /// field rather than reading the const directly so xUnit can toggle it without a recompile.) Tied to the
+        /// map-render tracer in <see cref="IsActive"/> so deceleration needs BOTH this and the tracer — enabling the
+        /// tracer alone never slows warp.
         /// </summary>
-        internal static bool DebugWarpEnabled = false;
+        internal static bool DebugWarpEnabled = DebugFlags.MapRenderWarpEnabled;
 
         /// <summary>xUnit-only override of the tracer half of the gate so a fake-seam Tick test does not need a live
         /// <c>ParsekSettings</c>. Reset to false in test teardown.</summary>
