@@ -37,6 +37,9 @@ namespace Parsek.Tests
             ResetStatics();
             // Sibling Sequential tests leave SuppressLogging=true in teardown; re-enable so the action log is captured.
             ParsekLog.SuppressLogging = false;
+            // Force verbose on so the rate-limited `warp-cap` decision line is captured deterministically (a sibling
+            // test could otherwise leave VerboseOverrideForTesting=false). Reset to null in Dispose.
+            ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
 
@@ -280,6 +283,29 @@ namespace Parsek.Tests
             Assert.Equal(7, setCalls[0]);
             Assert.Contains(logLines, l => l.Contains("[MapRenderWarp]") && l.Contains("debug warp cap")
                                            && l.Contains("descent.test"));
+            // The rate-limited decision trace carries exactly the spec'd `warp-cap window=<label> cap=<n>x targetIdx=<i>`
+            // tokens (250,000 cap at 500,000 s out -> idx 7).
+            Assert.Contains(logLines, l => l.Contains("warp-cap window=descent.test cap=250000x targetIdx=7"));
+        }
+
+        [Fact]
+        public void Tick_InsideWindowLabel_ButTighterUpcomingWindowBindsTheMinCap()
+        {
+            // Locks the documented contract that the LABEL window (SelectActiveWindow, inside-preferred) can differ
+            // from the window supplying the binding MIN cap. INSIDE a window whose own in-window cap is loose
+            // (~1025x -> idx 5), a TIGHTER upcoming window 1000 s ahead supplies a smaller approaching cap
+            // (500 -> idx 4). Tick must apply the MIN (idx 4), not the chosen/label window's own cap (idx 5).
+            MapRenderWarpControl.ForceEnabledForTesting = true;
+            MapRenderWarpControl.DebugWarpEnabled = true;
+            var setCalls = WireFakeSeam(currentRate: 1_000_000f, currentIndex: 8);
+            const double cur = 1_000_000_000.0;
+            MapRenderWarpControl.RegisterWatchWindow(cur - 1.0, cur - 1.0 + Clip, "inside");   // in-window cap -> idx 5
+            MapRenderWarpControl.RegisterWatchWindow(cur + 1000.0, cur + 1000.0 + Clip, "upcoming"); // cap 500 -> idx 4
+            MapRenderWarpControl.Tick(cur);
+            Assert.Single(setCalls);
+            Assert.Equal(4, setCalls[0]); // MIN over all windows, NOT the chosen window's own cap (which is idx 5)
+            // The log labels the inside window (inside-preferred), even though the upcoming window bound the cap.
+            Assert.Contains(logLines, l => l.Contains("debug warp cap") && l.Contains("window=inside"));
         }
 
         [Fact]
