@@ -396,6 +396,16 @@ per-frame-advancing value).
 - **Double-logging vs the descent `SceneSnapshot`.** The new events are on-change; the
   descent dump is window-gated per-frame snapshots. They are complementary, but the doc
   notes the overlap so a reader knows which to grep.
+- **In-window `Snapshot` flood under a sustained anomaly (post-merge follow-up,
+  `fix-maprender-snapshot-spam`).** The pre-existing per-frame `EmitWindowSnapshot` is
+  emitted while a detailed window is open; a PERSISTENT anomaly (`gap-vs-retire` /
+  `icon-off-orbit` / `polyline-orbit-overlap`) refreshes that window every divergent frame,
+  so the snapshot floods per-frame for the whole anomalous stretch (a real looped-mission
+  capture: ~1900 `phase=Snapshot` lines = 80% of the trace). The probe now wall-clock
+  rate-limits the snapshot to `SnapshotMinIntervalSeconds = 0.5` per pid
+  (`PassesSnapshotRateLimit`, cleared on scene switch), sampling the window at ~2 Hz instead
+  of per-frame; the on-change truth lines still record every transition exactly, so no
+  transition detail is lost. Observability only.
 
 ## Open questions — RESOLVED by the clean-context review
 

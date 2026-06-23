@@ -60,6 +60,13 @@ namespace Parsek
         // sits off its line, enough to read the angle without flooding.
         private const double OffOrbitAnomalyMinIntervalSeconds = 1.0;
 
+        // Soft rate-limit on the in-window per-frame full snapshot (phase=Snapshot). A persistent
+        // anomaly keeps the detailed window open continuously, so an un-throttled snapshot floods
+        // the log per-frame for the whole stretch. Sample at ~2 Hz per pid - enough to capture the
+        // motion through a window while collapsing a sustained anomaly from per-frame to ~2/s; the
+        // on-change truth lines still record every transition exactly.
+        private const double SnapshotMinIntervalSeconds = 0.5;
+
         // Per-pid truth state, all cleared on scene change so a stale entry never
         // fires a spurious anomaly across a TS <-> flight transition. The probe
         // tracks last-value strings locally (rather than leaning on ParsekLog's
@@ -90,6 +97,8 @@ namespace Parsek
         private readonly Dictionary<uint, int> lastLineToggleFrame = new Dictionary<uint, int>();
         // Soft rate-limit timestamps for the per-pid jump anomaly.
         private readonly Dictionary<uint, double> lastJumpEmitRealtime = new Dictionary<uint, double>();
+        // Soft rate-limit timestamps for the per-pid in-window per-frame snapshot.
+        private readonly Dictionary<uint, double> lastSnapshotEmitRealtime = new Dictionary<uint, double>();
         // Soft rate-limit timestamps for the per-pid icon-off-orbit anomaly.
         private readonly Dictionary<uint, double> lastOffOrbitEmitRealtime = new Dictionary<uint, double>();
         // Soft rate-limit timestamps for the per-pid polyline-orbit-overlap anomaly (a PERSISTENT
@@ -161,6 +170,7 @@ namespace Parsek
             lastIconSuppressed.Clear();
             lastLineToggleFrame.Clear();
             lastJumpEmitRealtime.Clear();
+            lastSnapshotEmitRealtime.Clear();
             lastOffOrbitEmitRealtime.Clear();
             lastPolylineOverlapEmitRealtime.Clear();
             firstPositionEmittedPids.Clear();
@@ -727,11 +737,22 @@ namespace Parsek
             // --- In-window full per-frame snapshot (Tier-B detail) ---
             // While a detailed window is open for this pid (opened by a structural
             // event - GhostCreated / FirstPosition - or an anomaly), dump the full
-            // current truth every frame so the window captures continuous motion,
-            // not just the on-change transitions. No-op outside a window. The
-            // window check guards the string build so closed-window frames pay
-            // nothing.
-            if (MapRenderTrace.IsDetailedWindowOpen(pidKey, currentUT))
+            // current truth so the window captures continuous motion, not just the
+            // on-change transitions. No-op outside a window.
+            //
+            // Wall-clock rate-limit (SnapshotMinIntervalSeconds): a PERSISTENT anomaly
+            // (gap-vs-retire / icon-off-orbit / polyline-orbit-overlap) refreshes the
+            // detailed window every divergent frame, so an un-throttled per-frame snapshot
+            // floods the log for the whole anomalous stretch (a real looped-mission capture
+            // had ~1900 of these, 80% of the trace volume, from two sustained-anomaly
+            // ghosts). Sampling the snapshot at ~2 Hz per pid still captures the motion
+            // through the window while collapsing a sustained anomaly from per-frame to ~2/s.
+            // The on-change truth lines (line.active / drawIcons / body-orbit) still record
+            // every transition exactly, so no transition detail is lost. The rate-limit also
+            // gates the string build, so a throttled frame pays nothing. Warp-stable
+            // (wall-clock key, the #1063 rule).
+            if (MapRenderTrace.IsDetailedWindowOpen(pidKey, currentUT)
+                && PassesSnapshotRateLimit(pid, realtime))
             {
                 MapRenderTrace.EmitWindowSnapshot(
                     MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
@@ -794,6 +815,16 @@ namespace Parsek
                 && realtime - last < JumpAnomalyMinIntervalSeconds)
                 return false;
             lastJumpEmitRealtime[pid] = realtime;
+            return true;
+        }
+
+        private bool PassesSnapshotRateLimit(uint pid, double realtime)
+        {
+            double last;
+            if (lastSnapshotEmitRealtime.TryGetValue(pid, out last)
+                && realtime - last < SnapshotMinIntervalSeconds)
+                return false;
+            lastSnapshotEmitRealtime[pid] = realtime;
             return true;
         }
 
