@@ -8461,17 +8461,23 @@ namespace Parsek
                     unit.RecordedDeorbitUT, unit.DescentEndUT, unit.CadenceSeconds,
                     unit.DestinationBodyRotationPeriodSeconds);
 
-                // Auto-slow: drop time-warp to 1x as this descent leaves the loiter and starts, so the brief clip
-                // is watchable instead of being warped past (a tiny slice of the multi-hundred-day loop). Pure
-                // no-op in xUnit / non-flight scenes (the Unity seam is unwired there) and when the user setting is
-                // off. Fires once per descent cycle; reached in BOTH the tracking station and FLIGHT (the polyline
-                // Driver walks this resolver every frame in flight), so one call site covers both scenes.
-                // Pass the RECORDED deorbit + descent-end so the warp control can convert the descent window end into
-                // the LIVE frame (triggerUT + clip). Passing the raw recorded DescentEndUT as the window end compares
-                // a live currentUT against a recorded UT and disables the control every frame (dead-warp-control bug).
-                Parsek.Reaim.DescentWarpControl.NotifyDescentState(
-                    $"{unit.PhaseAnchorUT.ToString("R", dic)}.{unit.SpanStartUT.ToString("R", dic)}",
-                    unitCycle, descentPhase, liveUT, dscTriggerUT, unit.RecordedDeorbitUT, unit.DescentEndUT);
+                // DEBUG AID (MapRenderWarpControl): register this descent's render window so the general debug warp
+                // control can decelerate into it when an agent is debugging the descent render. The window end is the
+                // LIVE-frame conversion of the recorded clip duration (triggerUT + (descentEndUT - recordedDeorbitUT));
+                // RecordedDeorbitUT/DescentEndUT are RECORDED-frame (~2.5e9) while triggerUT/liveUT are LIVE (~3.9e9),
+                // so the raw recorded end would put the window end far below any live UT (the 2026-06-20
+                // dead-warp-control bug). That recorded->live conversion is recording-schema knowledge and stays here
+                // on the descent side; the warp control takes only a plain live-frame window. Registration is cheap
+                // and unconditional (idempotent upsert keyed by the stable mission label, re-registered every frame);
+                // the warp is only ever changed inside MapRenderWarpControl.Tick, which no-ops unless BOTH the
+                // DebugWarpEnabled code flag and the map-render tracer are on (both default off). Reached in BOTH the
+                // tracking station and FLIGHT (the polyline Driver walks this resolver every frame in flight), so one
+                // call site covers both scenes.
+                double dscWindowEndLiveUT = Parsek.Reaim.DescentTrigger.DescentWindowEndLiveUT(
+                    dscTriggerUT, unit.RecordedDeorbitUT, unit.DescentEndUT);
+                MapRenderWarpControl.RegisterWatchWindow(
+                    dscTriggerUT, dscWindowEndLiveUT,
+                    $"descent.{unit.PhaseAnchorUT.ToString("R", dic)}.{unit.SpanStartUT.ToString("R", dic)}");
 
                 if (renderDescent)
                 {

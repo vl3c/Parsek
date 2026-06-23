@@ -45,10 +45,6 @@ namespace Parsek
             toolTip = "When enabled, recordings are committed to the timeline automatically. When disabled, a confirmation dialog appears after each recording.")]
         public bool autoMerge = false;
 
-        [GameParameters.CustomParameterUI("Auto-slow warp for looped descents",
-            toolTip = "When a looped re-aim mission's destination descent (re-entry/landing or station dock) is about to start, automatically drop to 1x time-warp so the brief descent is watchable, then re-warp yourself. The descent is a tiny slice of the loop and is otherwise easy to warp past.")]
-        public bool autoDropWarpForDescent = true;
-
         [GameParameters.CustomParameterUI("Verbose logging",
             toolTip = "When enabled, write detailed diagnostics to KSP.log (default for development)")]
         public bool verboseLogging = true;
