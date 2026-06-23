@@ -17,7 +17,7 @@ namespace Parsek
     // once past the window. NOT a shipping feature — do NOT keep a CHANGELOG entry for it.
     //
     // REMOVAL RECIPE (after the rendering is debugged):
-    //   1. Delete this file (Source/Parsek/Debug/MapRenderWarpControl.cs) + its tests
+    //   1. Delete this file (Source/Parsek/MapRenderWarpControl.cs) + its tests
     //      (Source/Parsek.Tests/MapRenderWarpControlTests.cs).
     //   2. Delete the RegisterWatchWindow call in GhostPlaybackLogic.ResolveTrackingStationSampleUT (the descent
     //      caller) and, if no other caller remains, the DescentTrigger.DescentWindowEndLiveUT helper + its
