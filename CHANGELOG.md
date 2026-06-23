@@ -76,6 +76,7 @@ All notable changes to Parsek are documented here.
 ### Internals
 
 - Map/tracking-station render tracing (the off-by-default `mapRenderTracing` diagnostic) now records every on-screen render EVENT as a clean, greppable line: a trajectory polyline leg or forward-arc appearing/disappearing, the proto orbit line/icon visibility changing (with the reason), the proto icon being suppressed or restored, and a flight-scene ghost mesh spawning/despawning. Every line carries the ghost id, recording id, and the surface, so one grep reconstructs what appeared/disappeared/changed and when. Observability only — no render behavior changes.
+- Render tracing follow-up: the per-frame in-window detail snapshot is now sampled at ~2/s per ghost instead of every frame, so a ghost stuck in a sustained anomaly no longer floods the trace (a real looped-mission capture had ~1900 snapshot lines, 80% of the volume). Transitions are unaffected (the on-change lines still record every change exactly).
 - Re-aim Approach-A sub-PR 1 (dark, no behavior change): the mission loop builder can flip a span>synodic heliocentric-parking re-aim unit's overlap cadence to the synodic period, routing it onto the self-overlap path, behind the default-off `GhostPlayback.ReaimSelfOverlapEnabled` compile-time flag. Disabled by default, so builder output is byte-identical; the flag stays off until the per-frame body-following overlap refresh and launch-hold rotation port land.
 
 ---
