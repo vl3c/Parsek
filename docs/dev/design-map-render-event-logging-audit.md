@@ -405,7 +405,10 @@ per-frame-advancing value).
   rate-limits the snapshot to `SnapshotMinIntervalSeconds = 0.5` per pid
   (`PassesSnapshotRateLimit`, cleared on scene switch), sampling the window at ~2 Hz instead
   of per-frame; the on-change truth lines still record every transition exactly, so no
-  transition detail is lost. Observability only.
+  TRANSITION detail is lost. (The only per-frame-exclusive snapshot content — the continuous
+  `worldPos` / `drawMode` trace — is coarsened to ~2 Hz, but neither is a transition carrier:
+  a discrete icon jump stays on the unthrottled `icon-teleport` anomaly line and `drawMode`
+  changes rarely.) Observability only.
 
 ## Open questions — RESOLVED by the clean-context review
 

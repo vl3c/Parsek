@@ -748,9 +748,12 @@ namespace Parsek
             // ghosts). Sampling the snapshot at ~2 Hz per pid still captures the motion
             // through the window while collapsing a sustained anomaly from per-frame to ~2/s.
             // The on-change truth lines (line.active / drawIcons / body-orbit) still record
-            // every transition exactly, so no transition detail is lost. The rate-limit also
-            // gates the string build, so a throttled frame pays nothing. Warp-stable
-            // (wall-clock key, the #1063 rule).
+            // every transition exactly, so no TRANSITION detail is lost. What IS coarsened to
+            // ~2 Hz is the only per-frame-exclusive content of the snapshot - the continuous
+            // worldPos / drawMode trace - but neither is a transition carrier: a discrete icon
+            // jump stays on the unthrottled icon-teleport anomaly line, and drawMode changes
+            // rarely. The rate-limit also gates the string build, so a throttled frame pays
+            // nothing. Warp-stable (wall-clock key, the #1063 rule).
             if (MapRenderTrace.IsDetailedWindowOpen(pidKey, currentUT)
                 && PassesSnapshotRateLimit(pid, realtime))
             {
