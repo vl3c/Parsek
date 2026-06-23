@@ -611,6 +611,29 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Monotonic (never-shrink) combine of a single-segment arc-window EXPANSION with the window it
+        /// expanded. <see cref="TryExpandStoredSingleSegmentWindow"/> is purely ADDITIVE by contract: it
+        /// widens one applied fragment across its element-equivalent recorded neighbours so a same-orbit
+        /// coast draws in one frame. But its seed match keys on <c>startUT</c> only, so when the stored
+        /// window is a SYNTHESIZED (re-aimed) span whose start coincides with a recorded fragment but whose
+        /// end lies BEYOND that fragment's element-equivalent run (the recorded coast was split mid-course
+        /// by an element change &gt; the equivalence tolerance), the walk stops at the split and returns a
+        /// window NARROWER than the stored span - truncating the drawn arc partway to the target. Union the
+        /// expansion with the stored window so it can only ever WIDEN, never truncate.
+        /// <paramref name="clampedToStored"/> reports that the stored window dominated on at least one side
+        /// (the raw walk would have truncated) for diagnostics. Pure.
+        /// </summary>
+        internal static void UnionArcWindowWithStored(
+            double storedStartUT, double storedEndUT,
+            double expandedStartUT, double expandedEndUT,
+            out double startUT, out double endUT, out bool clampedToStored)
+        {
+            startUT = System.Math.Min(storedStartUT, expandedStartUT);
+            endUT = System.Math.Max(storedEndUT, expandedEndUT);
+            clampedToStored = expandedStartUT > storedStartUT || expandedEndUT < storedEndUT;
+        }
+
+        /// <summary>
         /// Map-view policy helper: return the active orbit segment for the given UT plus
         /// the merged visible time bounds to use for map-line/icon continuity.
         /// Equivalent same-body segments are expanded into one continuous visible window,

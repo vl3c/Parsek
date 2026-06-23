@@ -173,6 +173,12 @@ When asked to debug an issue, run `python scripts/collect-logs.py <label>` first
 
 Alt+F12 opens Unity debug console in-game.
 
+**Map-render warp debug aid (`MapRenderWarpControl`).** When debugging a map / tracking-station render moment that high time-warp keeps skipping over (a descent, a loiter→descent handoff, a specific ghost's render at a UT, an SOI crossing), this temporary aid decelerates time-warp into the moment so it is observable/capturable instead of warped clean over. It **ships OFF and BREAKS GAMEPLAY when on** — enable it only while debugging, behind a double gate:
+1. Set `DebugFlags.MapRenderWarpEnabled` (in `Source/Parsek/ParsekConfig.cs`) to `true` and rebuild — it is a code config flag, **not** a Settings-UI checkbox.
+2. Turn on the `mapRenderTracing` setting (Settings → Diagnostics). The aid needs BOTH (`MapRenderWarpControl.IsActive`).
+
+A re-aim **descent** auto-registers its window (no extra code needed). For any other moment, register it where the UT is known: `MapRenderWarpControl.RegisterWatchWindow(triggerUT, windowEndUT, "label")` (zero-width `windowEndUT == triggerUT` pins 1× at the instant; `windowEndUT = triggerUT + N` gives N observable seconds). It caps warp DOWN only — you can still drop to 1× to study the moment and re-warp freely once past it. Grep `[MapRenderWarp]` for the `wired` / `warp-cap …` / `debug warp cap: …` lines. **It is a TEMPORARY debug aid that must be removed once the render moment is debugged** — see the removal recipe banner at the top of `MapRenderWarpControl.cs`. Do NOT ship it enabled or add a CHANGELOG entry for it.
+
 ## Logging Requirements
 
 Every action, state transition, guard condition skip, and FX lifecycle event MUST be logged. The KSP.log is our primary debugging tool — if it didn't get logged, it didn't happen.
