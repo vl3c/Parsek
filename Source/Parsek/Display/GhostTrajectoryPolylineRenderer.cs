@@ -431,6 +431,38 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// Test-only seam: injects a single 2-point polyline leg into the cache so the marker-ride fallback
+        /// gate (<see cref="ResolveUndrawnLegFallback"/> inside
+        /// <see cref="TryAnchorMarkerToPolyline(string,double,out Vector3,out MapRenderTrace.MarkerRideReason,out int)"/>)
+        /// can be exercised end-to-end from an in-game test (the ride itself needs Unity's
+        /// <c>Time.frameCount</c> / <c>ScaledSpace</c>, so this cannot run in xUnit). The leg spans
+        /// <paramref name="startUT"/>..<paramref name="endUT"/> with the given conic-anchor state and
+        /// last-drawn frame; pass <paramref name="lastDrawnFrame"/> != the current frame to model the
+        /// "leg not drawn this frame" branch. Cleared by <see cref="Clear"/>.
+        /// </summary>
+        internal static void SetLegForTesting(
+            string recordingId, double startUT, double endUT, bool wasAnchored, int lastDrawnFrame)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            var leg = new LegPolyline
+            {
+                lats = new double[] { 0.0, 0.0 },
+                lons = new double[] { 0.0, 0.0 },
+                alts = new double[] { 0.0, 0.0 },
+                recordedUTs = new double[] { startUT, endUT },
+                scratchScaledSpace = new Vector3[] { Vector3.zero, Vector3.one },
+                bodyName = null,
+                startUT = startUT,
+                endUT = endUT,
+                vectorLine = null,
+                lastDrawnFrame = lastDrawnFrame,
+                wasAnchored = wasAnchored,
+                lineMode = 0,
+            };
+            polylineCache[recordingId] = new LegPolylineSet { legs = new[] { leg }, contentHash = 0 };
+        }
+
+        /// <summary>
         /// Test-only accessor: returns the live cache dictionary so the
         /// xUnit suite can assert on cache contents after a refresh.
         /// </summary>
@@ -440,6 +472,71 @@ namespace Parsek.Display
         /// Test-only accessor: returns the number of cached entries.
         /// </summary>
         internal static int CacheCountForTesting => polylineCache.Count;
+
+        /// <summary>
+        /// OBSERVABILITY (descent render-window tracing): emit one line per RENDERED polyline object - every
+        /// cached leg AND forward-arc whose Vectrosity <c>VectorLine</c> is live this frame (active, or drawn
+        /// this frame). These VectorLines are NOT in <see cref="GhostMapPresence.ghostMapVesselPids"/>, so the
+        /// per-pid <see cref="MapRenderProbe"/> never sees them - they are exactly the "rendered but not logged"
+        /// extra trajectory lines the per-frame map-scene snapshot exists to catch. <c>staleActive</c> flags a
+        /// VectorLine still <c>active</c> but NOT drawn this frame (a one-shot Draw3D mesh that the deactivation
+        /// sweep has not yet hidden - a candidate stray line). Walks both static caches; Unity-coupled (reads
+        /// <c>VectorLine.active</c>), so it is driven only from the live probe, never xUnit. Each line is handed
+        /// to <paramref name="emit"/>; the caller owns the surface/prefix.
+        /// </summary>
+        internal static void EmitRenderedPolylineSnapshot(int currentFrame, System.Action<string> emit)
+        {
+            if (emit == null) return;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+
+            // FRAME-LAG NOTE: this runs from MapRenderProbe.LateUpdate, but Draw3D + the per-frame deactivation
+            // sweep (RunDeactivationSweep) run LATER, in OnMapCameraPreCull. So a leg redrawn EVERY frame is
+            // stamped lastDrawnFrame == currentFrame-1 when read here (the prior frame's preCull), never
+            // currentFrame. "drawnRecently" therefore means lastDrawnFrame >= currentFrame-1 (the steady-state
+            // baseline for a continuously-drawn leg), and staleActive flags only a GENUINELY lingering mesh:
+            // active but NOT redrawn for 2+ frames (lastDrawnFrame < currentFrame-1) - the case the sweep should
+            // have hidden. (The earlier `== currentFrame` form flagged every redrawn leg as stale: 3825 false
+            // positives in the 2026-06-21 capture.)
+            foreach (var kv in polylineCache)
+            {
+                LegPolyline[] legs = kv.Value.legs;
+                if (legs == null) continue;
+                for (int l = 0; l < legs.Length; l++)
+                {
+                    LegPolyline leg = legs[l];
+                    bool hasLine = leg.vectorLine != null;
+                    bool active = hasLine && leg.vectorLine.active;
+                    bool drawnRecently = leg.lastDrawnFrame >= currentFrame - 1;
+                    if (!active && !drawnRecently) continue; // not rendered recently
+                    emit(string.Format(ic,
+                        "polyline-leg rec={0} leg={1}/{2} body={3} ut=[{4}-{5}] active={6} drawnRecently={7} "
+                        + "staleActive={8} pts={9} lastDrawnFrame={10}",
+                        kv.Key, l, legs.Length, leg.bodyName ?? "(null)",
+                        leg.startUT.ToString("F1", ic), leg.endUT.ToString("F1", ic),
+                        active, drawnRecently, active && !drawnRecently, leg.PointCount, leg.lastDrawnFrame));
+                }
+            }
+
+            foreach (var kv in forwardArcCache)
+            {
+                ForwardArc[] arcs = kv.Value.arcs;
+                if (arcs == null) continue;
+                for (int a = 0; a < arcs.Length; a++)
+                {
+                    ForwardArc arc = arcs[a];
+                    bool hasLine = arc.vectorLine != null;
+                    bool active = hasLine && arc.vectorLine.active;
+                    bool drawnRecently = arc.lastDrawnFrame >= currentFrame - 1;
+                    if (!active && !drawnRecently) continue; // not rendered recently
+                    emit(string.Format(ic,
+                        "forward-arc rec={0} arc={1}/{2} body={3} ut=[{4}-{5}] active={6} drawnRecently={7} "
+                        + "staleActive={8} lastDrawnFrame={9}",
+                        kv.Key, a, arcs.Length, arc.bodyName ?? "(null)",
+                        arc.startUT.ToString("F1", ic), arc.endUT.ToString("F1", ic),
+                        active, drawnRecently, active && !drawnRecently, arc.lastDrawnFrame));
+                }
+            }
+        }
 
         /// <summary>
         /// One body-coherent contiguous polyline leg covering a non-orbital
@@ -518,6 +615,19 @@ namespace Parsek.Display
             /// never hides a line on its own.
             /// </summary>
             public int lastDrawnFrame;
+
+            /// <summary>
+            /// Whether the LAST draw of this leg rotated its <see cref="scratchScaledSpace"/> onto the
+            /// bracketing conic seam (<see cref="TryAnchorLegToConicSeam"/> returned true). Stamped every
+            /// draw in <c>TryDrawLeg</c> and persisted via the same struct write-back as
+            /// <see cref="lastDrawnFrame"/>. The marker-ride fallback reads it: a conic-anchored leg's drawn
+            /// line sits ~96 deg off the body-fixed head under the loop shift, so when the leg is not drawn
+            /// this frame the marker must HOLD its last on-line position to stay on the line; a NON-anchored
+            /// body-fixed leg (descent / atmospheric / surface) draws the raw body-fixed points, so the
+            /// caller's fresh body-fixed head is already on the line and current and is preferred over a
+            /// stale hold. See <see cref="ResolveUndrawnLegFallback"/>.
+            /// </summary>
+            public bool wasAnchored;
 
             /// <summary>
             /// Map-line mode (0=unbuilt, 1=3D Draw3D, 2=2D Draw) <see cref="vectorLine"/> was last built
@@ -994,7 +1104,8 @@ namespace Parsek.Display
         /// <summary>
         /// Clamp B (re-aim descent trigger): cap a forward-run window's <paramref name="chainDataEndUT"/> at the
         /// unit's SHIFTED parking-conic end (<c>RecordedDeorbitUT + CaptureShiftSeconds</c>, captureShift NEGATIVE)
-        /// when <paramref name="recordingIndex"/> is the NON-descent transfer/owner member of a descent-trigger
+        /// when <paramref name="recordingIndex"/> is the DESTINATION transfer member
+        /// (<see cref="GhostPlaybackLogic.LoopUnit.TransferMemberIndex"/>) of a descent-trigger
         /// unit. PR #1177 shifts that member's destination parking conics ~|captureShift| EARLIER to meet the
         /// early-arriving re-aimed transfer, so the rendered conics end at <c>deorbit+captureShift</c>. Leaving the
         /// forward-run window at the UNSHIFTED <c>rec.EndUT</c> (~the seam, ~|captureShift| later) lets the
@@ -1004,16 +1115,18 @@ namespace Parsek.Display
         /// shifted conic end makes that guard FAIL the moment the icon leaves the shifted conic, killing the leak;
         /// the shifted parking conic the icon rides is untouched. Byte-identical (returns
         /// <paramref name="chainDataEndUT"/> unchanged) when: <paramref name="loopUnits"/> is null, the index is
-        /// not a unit member, the unit has no descent trigger, the index IS a descent member (its line comes only
-        /// from its own trigger-gated pass), RecordedDeorbitUT/CaptureShiftSeconds is NaN, captureShift is not
-        /// negative, or the window already ends at/before the shifted conic end. Pure; xUnit-testable without Unity.
+        /// not a unit member, the unit has no descent trigger, the index is NOT the destination transfer member
+        /// (the owner, every ride-along in a different/unshifted frame whose forward window must not be clipped at
+        /// the transfer member's geometry, or a descent-set member whose line comes only from its own trigger-gated
+        /// pass), RecordedDeorbitUT/CaptureShiftSeconds is NaN, captureShift is not negative, or the window already
+        /// ends at/before the shifted conic end. Pure; xUnit-testable without Unity.
         /// </summary>
         internal static double ClampChainDataEndForDescentTransfer(
             double chainDataEndUT, int recordingIndex, GhostPlaybackLogic.LoopUnitSet loopUnits)
         {
             if (loopUnits != null
                 && loopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit unit)
-                && unit.HasDescentTrigger && !IsDescentTriggerMember(recordingIndex, loopUnits)
+                && unit.HasDescentTrigger && recordingIndex == unit.TransferMemberIndex
                 && !double.IsNaN(unit.RecordedDeorbitUT) && !double.IsNaN(unit.CaptureShiftSeconds))
             {
                 double shiftedConicEndUT = unit.RecordedDeorbitUT + unit.CaptureShiftSeconds;
@@ -1822,6 +1935,41 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// What a marker riding the polyline should do when the leg whose head-UT span it covers was NOT
+        /// drawn this frame (its <see cref="LegPolyline.scratchScaledSpace"/> is stale).
+        /// </summary>
+        internal enum UndrawnLegFallback : byte
+        {
+            /// <summary>
+            /// Hold the last on-line position (the conic-anchored leg's drawn line is rotated off the
+            /// body-fixed head, so the caller's body-fixed fallback would land off the line).
+            /// </summary>
+            HoldLastGoodOnLine = 0,
+
+            /// <summary>
+            /// Let the caller keep its fresh body-fixed head (a non-anchored body-fixed leg draws the raw
+            /// body-fixed points, so the head is already on the line AND current - no stale hold needed).
+            /// </summary>
+            UseFreshBodyFixedHead = 1,
+        }
+
+        /// <summary>
+        /// PURE decision (descent-icon visibility): for a leg covering the marker's head UT that was NOT
+        /// drawn this frame, should the marker hold its last on-line position or fall through to the
+        /// caller's fresh body-fixed head? A CONIC-ANCHORED leg's drawn line is rotated ~96 deg off the
+        /// body-fixed head under the loop shift, so the body-fixed fallback would jump off the line -> HOLD.
+        /// A NON-anchored body-fixed leg (descent / atmospheric / surface) draws the raw body-fixed points,
+        /// so the caller's fresh body-fixed head is the SAME on-line point but current -> USE it (a
+        /// &lt;=5 s-stale hold would only lag the moving descent at warp / on the IMGUI Layout-pass dropout).
+        /// This decouples the descent marker's presence from whether the polyline leg happened to be redrawn
+        /// THIS frame, without moving the icon off the line. xUnit-testable without Unity.
+        /// </summary>
+        internal static UndrawnLegFallback ResolveUndrawnLegFallback(bool legWasConicAnchored)
+            => legWasConicAnchored
+                ? UndrawnLegFallback.HoldLastGoodOnLine
+                : UndrawnLegFallback.UseFreshBodyFixedHead;
+
+        /// <summary>
         /// Rides the polyline with a labeled marker (icon + label): returns the world position ON the
         /// drawn polyline at <paramref name="headUT"/> (recorded frame), so the marker sits exactly on the
         /// corrected burn line instead of the body-fixed head (~96 deg off under the loop shift). It
@@ -1876,17 +2024,27 @@ namespace Parsek.Display
                 }
                 if (leg.lastDrawnFrame != frame)
                 {
-                    // TRANSIENT dropout (the dominant active-pan case): the leg matched the head but was
-                    // not drawn this frame, so its scratch is stale. Instead of snapping to the body-fixed
-                    // head, hold the last on-line position if it is still fresh + near in UT. This keeps the
-                    // marker glued to the smoothly-redrawn line during a pan; a sustained stall expires the
-                    // hold (frame-age / UT bound) and falls through.
-                    if (TryHoldLastGood(recordingId, headUT, frame, out worldPos, out legIndex))
+                    // The leg matched the head but was not drawn this frame, so its scratch is stale.
+                    // ResolveUndrawnLegFallback decides what to do by the leg's anchor state:
+                    //  - CONIC-ANCHORED leg: the drawn line is rotated ~96 deg off the body-fixed head, so
+                    //    snapping the caller to the body-fixed head would jump it off the line. Hold the last
+                    //    on-line position if it is still fresh + near in UT (the dominant active-pan case);
+                    //    a sustained stall expires the hold (frame-age / UT bound) and falls through to false.
+                    //  - NON-anchored body-fixed leg (descent / atmospheric / surface): the drawn line IS the
+                    //    raw body-fixed points, so the caller's fresh body-fixed head is already on the line
+                    //    AND current. Return false WITHOUT a hold so the caller keeps that fresh head - the
+                    //    descent-icon decouple: a stale hold would only lag the moving descent at warp / on
+                    //    the IMGUI Layout-pass dropout. (TryHoldLastGood is skipped entirely, so the marker is
+                    //    never pinned to a <=5 s-old position for a body-fixed descent leg.)
+                    if (ResolveUndrawnLegFallback(leg.wasAnchored) == UndrawnLegFallback.HoldLastGoodOnLine
+                        && TryHoldLastGood(recordingId, headUT, frame, out worldPos, out legIndex))
                     {
                         rideReason = MapRenderTrace.MarkerRideReason.HeldLastGood;
                         return true;
                     }
-                    rideReason = MapRenderTrace.MarkerRideReason.FallbackLegNotDrawnThisFrame;
+                    rideReason = leg.wasAnchored
+                        ? MapRenderTrace.MarkerRideReason.FallbackLegNotDrawnThisFrame
+                        : MapRenderTrace.MarkerRideReason.FallbackNonAnchoredUseHead;
                     return false;
                 }
 
@@ -2701,6 +2859,11 @@ namespace Parsek.Display
             // ~96 deg off under the loop shift. No-op for legs not bracketed both sides (launch
             // ascent / descent-to-surface) and where body-fixed already matches the conic.
             bool anchored = TryAnchorLegToConicSeam(rec, leg, body, scaledXform);
+            // Persist this draw's anchor outcome so the marker-ride fallback knows whether the drawn line
+            // is conic-rotated off the body-fixed head (hold the last on-line point) or is the raw
+            // body-fixed points (the caller's fresh body-fixed head is already on the line). Written back
+            // into the cached leg via the same struct write-back as lastDrawnFrame below.
+            leg.wasAnchored = anchored;
 
             // RUN-LEG body-fixed hide (playtest-5 rule, 2026-06-09): a persistent run leg (icon NOT on
             // it, requireConicAnchor=true) that could not be anchored to the inertial conic seam would
@@ -3422,6 +3585,24 @@ namespace Parsek.Display
                         out bool hasSecondaryHead,
                         out double secondaryHeadUT,
                         out long secondaryHeadCycle);
+
+                    // OBSERVABILITY (mapRenderTracing): publish the descent render WINDOW (Loiter = the loiter
+                    // orbit, Descent = the descent-to-landing) for this frame so the end-of-frame MapRenderProbe
+                    // dumps EVERY rendered map object (orbit lines + polyline legs) during exactly those two
+                    // windows - catching extra / stale trajectory lines the per-pid change-based probe misses.
+                    // Computed before the renderHidden skip so it fires off whichever member renders this phase
+                    // (the transfer member during Loiter, the descent member during Descent). No-op when tracing
+                    // is off or this is not a descent-trigger unit member.
+                    if (MapRenderTrace.IsEnabled
+                        && GhostPlaybackLogic.TryGetDescentUnitRenderPhase(
+                            loopUnits, recordingIndex, currentUT, rec.StartUT, rec.EndUT,
+                            out Parsek.Reaim.DescentTrigger.DescentHeadPhase descentRenderPhase)
+                        && (descentRenderPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Loiter
+                            || descentRenderPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent))
+                    {
+                        MapRenderTrace.NoteDescentRenderWindow(
+                            Time.frameCount, descentRenderPhase.ToString(), rec.RecordingId);
+                    }
                     // PRIMARY-HIDDEN-BUT-SECONDARY-LIVE (launch->escape seam render fix): the primary head can be
                     // hidden (its loopUT is OUTSIDE this member's window - the continuing through-line instance N is
                     // months downstream near the destination, an orbital phase with no in-window non-orbital leg)
@@ -3482,15 +3663,18 @@ namespace Parsek.Display
                     // every non-launch-hold member / aligned loop (renderHidden false there), so this is unchanged.
                     if (primaryRenders)
                     {
-                    // I1 (re-aim descent "renders disconnected from the loiter"): for the NON-descent TRANSFER
-                    // member of a descent-trigger unit, the deorbit/approach legs that lead DOWN TO the seam live
-                    // INSIDE this member (not in the descent set) and would otherwise gate off entirely - the
-                    // loiter loopUT sits ~|captureShift| below their recorded UTs, so ShouldDrawLegAtHeadUT(...,
-                    // headUT) is false every frame, and during the descent this member is HIDDEN by the handoff.
-                    // Resolve a re-anchored deorbit head ONCE (Loiter-phase only); the per-leg gate below
-                    // substitutes it for the deorbit-tail legs so they sweep down to the seam and join the descent
-                    // member's first head at the trigger. Byte-identical-off for non-descent units (hasDeorbitHead
-                    // false) and for every phase other than Loiter on the transfer member.
+                    // I1 (re-aim descent "renders disconnected from the loiter"): for the DESTINATION transfer
+                    // member (TransferMemberIndex) of a descent-trigger unit, the deorbit/approach legs that lead
+                    // DOWN TO the seam live INSIDE this member (not in the descent set) and would otherwise gate
+                    // off entirely - the loiter loopUT sits ~|captureShift| below their recorded UTs, so
+                    // ShouldDrawLegAtHeadUT(..., headUT) is false every frame, and during the descent this member
+                    // is HIDDEN by the handoff. Resolve a re-anchored deorbit head ONCE (Loiter-phase only); the
+                    // per-leg gate below substitutes it for the deorbit-tail legs so they sweep down to the seam
+                    // and join the descent member's first head at the trigger. Gated on the EXACT transfer member
+                    // (not "every non-descent member"): the owner and every ride-along in a different/unshifted
+                    // frame (e.g. a launch-body-orbit probe) have no shifted deorbit tail and must not draw one.
+                    // Byte-identical-off for them, for non-re-aim units (hasDeorbitHead false), and for every phase
+                    // other than Loiter on the transfer member.
                     bool hasDeorbitHead = false;
                     double deorbitHead = double.NaN;
                     double deorbitSeamUT = double.NaN;
@@ -3498,7 +3682,7 @@ namespace Parsek.Display
                     if (loopUnits != null
                         && loopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit dtUnit)
                         && dtUnit.HasDescentTrigger
-                        && !IsDescentTriggerMember(recordingIndex, loopUnits))
+                        && recordingIndex == dtUnit.TransferMemberIndex)
                     {
                         hasDeorbitHead = GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
                             dtUnit, recordingIndex, currentUT, rec.StartUT, rec.EndUT,
@@ -4560,20 +4744,22 @@ namespace Parsek.Display
                     chainRunMemberReaimScratch.Add(memberReaimWindow);
                     if (memberCoalesced != null)
                         chainRunConcatScratch.AddRange(memberCoalesced);
-                    if (member.rec.EndUT > chainDataEndUT)
-                        chainDataEndUT = member.rec.EndUT;
+                    // Re-aim descent trigger (Clamp B, applied PER-MEMBER): cap a NON-descent transfer/owner
+                    // member's EndUT CONTRIBUTION at its SHIFTED parking-conic end (deorbit+captureShift) before
+                    // maxing, so the chain data end is clamped regardless of which member DRIVES the run. The
+                    // re-aim shifts that member's destination parking conics ~|captureShift| EARLIER (PR #1177);
+                    // leaving the window at the UNSHIFTED rec.EndUT lets ComputeForwardWindow's past-end branch
+                    // fire once the loiter/descent icon passes the shifted conic and paint the member's own
+                    // unshifted recorded approach tail as a spurious "second path". The OLD clamp (below) keyed on
+                    // recordingIndex only, so when a DESCENT member drove the chain pass (its Descent window) the
+                    // transfer member was a run member but never the recordingIndex and was never clamped - the
+                    // 2026-06-21 C4 stray heliocentric line beside the descent. Byte-identical for non-descent
+                    // members / non-re-aim chains (ClampChainDataEndForDescentTransfer returns the value unchanged).
+                    double memberEndUTClamped = ClampChainDataEndForDescentTransfer(
+                        member.rec.EndUT, member.index, loopUnits);
+                    if (memberEndUTClamped > chainDataEndUT)
+                        chainDataEndUT = memberEndUTClamped;
                 }
-
-                // Re-aim descent trigger: the re-aim shifts the transfer/owner member's destination parking conics
-                // ~|captureShift| EARLIER (PR #1177), so they end at deorbit+captureShift. If the forward-run
-                // window stays at the UNSHIFTED rec.EndUT (~the seam, ~|captureShift| later), the past-end branch
-                // fires once the loiter icon passes the shifted conic and paints the member's OWN unshifted
-                // recorded approach tail + a ~|captureShift|-gap bridge — a spurious "second path" beside the
-                // shifted parking the icon rides. Cap the forward window at the SHIFTED conic end so that past-end
-                // run never fires. Byte-identical for non-re-aim chains (HasDescentTrigger false) and for descent
-                // members themselves (excluded; their line comes only from their own trigger-gated pass).
-                chainDataEndUT = ClampChainDataEndForDescentTransfer(
-                    chainDataEndUT, recordingIndex, loopUnits);
 
                 // Window source: members are StartUT-ordered and partition the recorded-UT axis, so the
                 // concatenation is time-sorted. RE-coalesce the chain-wide list so a same-orbit coast
@@ -4598,6 +4784,21 @@ namespace Parsek.Display
                 // head-gated pass), keeping the additive pass from double-drawing it.
                 double winStart = window.RunStartUT;
                 double winStop = window.StopUT;
+
+                // C4 (re-aim descent "two lines next to each other during the loiter"): when the loiter head
+                // sits in a gap, ComputeForwardWindow takes the OPEN-element branch and returns StopUT=Infinity
+                // (the recorded trajectory continues forward), which the past-end chainDataEndUT clamp above does
+                // NOT guard. So the STATIC forward run-leg pass below paints the descent-trigger TRANSFER member's
+                // post-conic deorbit-tail legs (its recorded approach down to the seam) as a second line beside
+                // the parking conic for the ENTIRE loiter. Cap winStop at the transfer member's SHIFTED conic end
+                // PER chain-run member (so the clamp fires regardless of which member drives the run — mirroring
+                // the chainDataEndUT per-member clamp), so the forward run never reaches those legs; the I1
+                // head-gated primary pass is the only thing that sweeps the deorbit tail in near the trigger.
+                // Byte-identical for non-descent members / non-re-aim chains (ClampChainDataEndForDescentTransfer
+                // returns winStop unchanged), so an open-element non-descent run keeps StopUT=Infinity.
+                for (int mi = 0; mi < chainRunMemberScratch.Count; mi++)
+                    winStop = ClampChainDataEndForDescentTransfer(
+                        winStop, chainRunMemberScratch[mi].index, loopUnits);
 
                 // Body-fixed run legs hidden this decide pass (playtest-7 rule): only PAST body-fixed
                 // legs hide (they would rotate-sweep into the inertial line behind the icon); FUTURE

@@ -562,39 +562,69 @@ namespace Parsek
                     atmosCachedIndices[i] = -1;
                 int cached = atmosCachedIndices[i];
                 bool rodePolyline = false;
+                Vector3d worldPos = default(Vector3d);
+                TrajectoryPoint sampledPoint = default(TrajectoryPoint);
+                string resolveReason = null;
+                bool resolved = false;
+
+                // COSMETIC fix (descent icon ride): a descent-SET member's marker rides the SAME re-anchored
+                // descent head the descent LINE uses. effUT here is the descentHead from
+                // ResolveTrackingStationSampleUT, and the polyline primary pass heads its descent legs off the
+                // same ResolveTrackingStationSampleFrame, so anchoring to the DRAWN polyline FIRST keeps the icon
+                // glued to the descent curve all the way to the landing. The body-fixed resolve at the descent
+                // head can pin off the gap-filled below-surface chord or bracket-miss (the icon vanishing / not
+                // following the descent down - the symptom this fixes), so for descent-set members try the ride
+                // first; only fall through to the unchanged body-fixed-first chain when the leg has not drawn
+                // this frame. Gated to descent-set members (IsDescentTriggerMember) so every other marker keeps
+                // body-fixed-first ordering, byte-identical. Overlap descent members never reach here (the
+                // per-instance overlap branch above already rides + continues), so this is the non-overlap gap.
+                bool isDescentSetMember =
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsDescentTriggerMember(i, loopUnits);
+                if (isDescentSetMember
+                    && Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                        rec.RecordingId, effUT, out Vector3 descentRiddenPos))
+                {
+                    worldPos = descentRiddenPos;
+                    rodePolyline = true;
+                    resolved = true;
+                }
+
                 // M4b: derotate body-fixed marker sampling by the member's per-launch shift
                 // (0 for non-members / knob-less schedules).
                 double tsBodyFixedShift =
                     GhostPlaybackLogic.ComputeUnitMemberBodyFixedShiftSeconds(
                         i, currentUT, effUT, loopUnits);
-                bool resolved = TryResolveRecordingWorldPosition(
-                    rec,
-                    effUT,
-                    ref cached,
-                    out Vector3d worldPos,
-                    out _,
-                    out TrajectoryPoint sampledPoint,
-                    out string resolveReason,
-                    tsBodyFixedShift);
-                if (resolved)
+                if (!resolved)
                 {
-                    atmosCachedIndices[i] = cached;
-                }
-                else if (Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
-                        rec.RecordingId, effUT, out Vector3 riddenWorldPos))
-                {
-                    // Playtest-12 follow-up (icon vanished on the gap-filled landing chord): the
-                    // recording-side resolver has nothing to bracket inside a FRAMELESS recorded span
-                    // (the OrbitalCheckpoint section under the below-surface descent), but the POLYLINE
-                    // is drawing that span - including the conic gap-fill points, which live only in
-                    // the renderer's leg cache. RIDE the drawn line (the same contract the flight-map
-                    // marker and the TS overlap-instance markers use) so the icon stays on the curve
-                    // instead of vanishing. The ride self-gates on the leg having drawn this frame
-                    // (or the short HeldLastGood pan-hold of a recently-on-line position), so this can
-                    // never paint a marker for an undrawn phase.
-                    worldPos = riddenWorldPos;
-                    rodePolyline = true;
-                    resolved = true;
+                    resolved = TryResolveRecordingWorldPosition(
+                        rec,
+                        effUT,
+                        ref cached,
+                        out worldPos,
+                        out _,
+                        out sampledPoint,
+                        out resolveReason,
+                        tsBodyFixedShift);
+                    if (resolved)
+                    {
+                        atmosCachedIndices[i] = cached;
+                    }
+                    else if (Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                            rec.RecordingId, effUT, out Vector3 riddenWorldPos))
+                    {
+                        // Playtest-12 follow-up (icon vanished on the gap-filled landing chord): the
+                        // recording-side resolver has nothing to bracket inside a FRAMELESS recorded span
+                        // (the OrbitalCheckpoint section under the below-surface descent), but the POLYLINE
+                        // is drawing that span - including the conic gap-fill points, which live only in
+                        // the renderer's leg cache. RIDE the drawn line (the same contract the flight-map
+                        // marker and the TS overlap-instance markers use) so the icon stays on the curve
+                        // instead of vanishing. The ride self-gates on the leg having drawn this frame
+                        // (or the short HeldLastGood pan-hold of a recently-on-line position), so this can
+                        // never paint a marker for an undrawn phase.
+                        worldPos = riddenWorldPos;
+                        rodePolyline = true;
+                        resolved = true;
+                    }
                 }
                 if (!resolved)
                 {

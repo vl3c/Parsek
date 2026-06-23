@@ -67,13 +67,29 @@ namespace Parsek.Patches
             double startUTShifted,
             double endUTShifted,
             double shift,
-            bool onArc)
+            bool onArc,
+            bool loiterCircleActive,
+            double loiterCircleEffUT)
         {
-            // Past the recorded window → clamp to the last recorded position (raw end UT).
+            // Past the recorded window → normally clamp to the last recorded position (raw end UT) and
+            // suppress (the icon freezes at the recorded endpoint). Step-2 part-2 loiter-circle override:
+            // for the re-aim descent-trigger DESTINATION transfer member whose live clock has swept past
+            // the applied parking-conic segment during the captureShift loiter hold, the caller resolves
+            // a WRAPPED recorded-frame head (ClampTransferMemberHeadToLoiterGap, in [P-Tpark, P) inside
+            // the parking conic) and asks us to CIRCLE the parking conic (drive at that wrapped effUT,
+            // NOT suppressed) instead of freezing at the deorbit point. loiterCircleActive is false for
+            // every other member / non-re-aim unit / normal ended recording, so this is byte-identical
+            // to the prior past-window freeze in every non-gap case (pinned by
+            // ResolveIconDriveDecision_LoiterCircleInactive_PastWindowUnchanged).
             if (liveUT > endUTShifted)
+            {
+                if (loiterCircleActive)
+                    return new IconDriveDecision(
+                        loiterCircleEffUT, suppressed: false, reason: "loiter-circle");
                 return new IconDriveDecision(
                     GhostMapPresence.MapLiveUTToEffUT(endUTShifted, shift), suppressed: true,
                     reason: "past-window");
+            }
             // Before the recorded window → clamp to the first recorded position (raw start UT).
             if (liveUT < startUTShifted)
                 return new IconDriveDecision(
@@ -242,7 +258,52 @@ namespace Parsek.Patches
             // so treat hyperbolic as always-on-arc and let the window past/before clamp + suppress.
             bool onArc = hyperbolic
                 || GhostOrbitArcCheck.IsOnOrbitalArc(orbit, startUT, endUT, currentUT);
-            var decision = ResolveIconDriveDecision(currentUT, startUT, endUT, shift, onArc);
+
+            // Step-2 part-2 (loiter-circle): when the live clock has run PAST this proto's applied
+            // parking-conic segment (the freeze symptom), ResolveIconDriveDecision would past-window-
+            // freeze the icon at ParkingConicEnd (run-4: pid 10389808 frozen at driveUT=2567681308.9).
+            // For the re-aim descent-trigger DESTINATION transfer member in the captureShift loiter gap,
+            // instead WRAP the drive head into the last recorded parking period [P-Tpark, P) so the proto
+            // icon CIRCLES the parking conic in lockstep with the marker (which already wraps via
+            // ClampTransferMemberHeadToLoiterGap in ResolveTrackingStationSampleUT). This is computed
+            // independently of the reseed-pass loiter-gap clamp, which can MISS (run-4: clamp fired 0x
+            // because the reseed sampled effUT < ParkingConicEnd while warp carried THIS clock past it).
+            // Gated on IsDescentTransferMemberInLoiterGap so every other member / non-re-aim unit / ended
+            // recording stays on the byte-identical past-window freeze. Reading the LIVE engine loopUnits
+            // (not a cached field) is the same set the reseed/resolver use and avoids the stale-set
+            // hazard; null Instance/Engine (scene transition / TS scene) -> Empty -> byte-identical-off.
+            bool loiterCircleActive = false;
+            double loiterCircleEffUT = double.NaN;
+            {
+                int rec = GhostMapPresence.FindRecordingIndexByVesselPid(pid);
+                if (rec >= 0)
+                {
+                    GhostPlaybackLogic.LoopUnitSet loopUnits =
+                        ParsekFlight.Instance?.Engine?.CurrentLoopUnits
+                        ?? GhostPlaybackLogic.LoopUnitSet.Empty;
+                    if (loopUnits.TryGetUnitForMember(rec, out GhostPlaybackLogic.LoopUnit loiterUnit))
+                    {
+                        double rawEffUT = GhostMapPresence.MapLiveUTToEffUT(currentUT, shift);
+                        if (GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(loiterUnit, rec, rawEffUT))
+                        {
+                            loiterCircleActive = true;
+                            loiterCircleEffUT =
+                                GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(loiterUnit, rec, rawEffUT);
+                            ParsekLog.VerboseRateLimited("GhostOrbitIcon", "loiter-circle-" + pid,
+                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "Proto loiter-circle pid={0} member={1} rawEffUT={2:F1} wrappedEffUT={3:F1} "
+                                    + "parkingConicEnd={4:F1} Tpark={5:F1} (icon circles parking conic instead "
+                                    + "of freezing at deorbit point) scene={6}",
+                                    pid, rec, rawEffUT, loiterCircleEffUT, loiterUnit.ParkingConicEndUT,
+                                    loiterUnit.LoiterPeriodSeconds, HighLogic.LoadedScene),
+                                1.0);
+                        }
+                    }
+                }
+            }
+
+            var decision = ResolveIconDriveDecision(
+                currentUT, startUT, endUT, shift, onArc, loiterCircleActive, loiterCircleEffUT);
 
             double driveUT = decision.DriveUT;
             // The LIVE-frame UT the icon should be placed at this frame (currentUT on-arc; the live
@@ -255,6 +316,10 @@ namespace Parsek.Patches
             {
                 case "past-window": liveDriveUT = endUT; break;
                 case "before-window": liveDriveUT = startUT; break;
+                // Loiter-circle: the drive head is the WRAPPED recorded-frame effUT; the director-drive
+                // epoch-bake propagates at the LIVE clock, so map the wrapped recorded head back to live
+                // (liveDriveUT = loiterCircleEffUT + shift) so the proto icon circles in the live frame.
+                case "loiter-circle": liveDriveUT = GhostMapPresence.MapLiveUTToEffUT(loiterCircleEffUT, -shift); break;
                 default: liveDriveUT = currentUT; break; // on-arc-drive (off-arc overwrites below)
             }
             if (decision.Reason == "off-arc")
@@ -615,6 +680,26 @@ namespace Parsek.Patches
         /// period &gt; 0, both finite)? Only an elliptical arc has a meaningful
         /// shape to keep showing across transient boundary chatter.
         /// </summary>
+        /// <summary>
+        /// PURE (Layer B of the re-aim descent parking-conic render fix): should the
+        /// <c>past-body-frame-end</c> branch HOLD the orbit line visible instead of retiring it? True IFF the
+        /// ONLY reason to hide is that the LIVE currentUT is past the body-frame end (<paramref name="pastEnd"/>),
+        /// NOT below-atmosphere and NOT before the body-frame start, AND a parking-conic line hold is active for
+        /// this ghost (<paramref name="holdActive"/>, = TryGetParkingConicLineHold), AND there is a real finite
+        /// ellipse to keep drawing (<paramref name="orbitFiniteElliptical"/>). The hold is PAST-END only: a
+        /// below-atmosphere or before-start hide still retires (drag makes the conic meaningless; before-start the
+        /// arc is not yet this member's). When <paramref name="holdActive"/> is false (every non-held ghost) this
+        /// returns false, so the branch is byte-identical to the pre-fix retire. No Unity (xUnit-testable).
+        /// </summary>
+        internal static bool ShouldHoldParkingConicLine(
+            bool pastEnd, bool belowAtmosphere, bool beforeStart, bool holdActive, bool orbitFiniteElliptical)
+        {
+            if (!holdActive || !orbitFiniteElliptical)
+                return false;
+            // Only a pure past-end hide is held; below-atmosphere and before-start always retire.
+            return pastEnd && !belowAtmosphere && !beforeStart;
+        }
+
         internal static bool IsOrbitFiniteElliptical(Orbit orbit)
         {
             return orbit != null
@@ -890,15 +975,51 @@ namespace Parsek.Patches
             if (GhostMapPresence.TryGetBodyFrameOrbitBoundsForGhostVessel(
                 pid, currentUT, out double startUT, out double endUT))
             {
-                if (currentUT > endUT || currentUT < startUT || belowAtmosphere)
+                bool pastEnd = currentUT > endUT;
+                bool beforeStart = currentUT < startUT;
+                if (pastEnd || beforeStart || belowAtmosphere)
                 {
+                    // Layer B (re-aim descent parking-conic LINE HOLD): a descent-trigger TRANSFER member in the
+                    // captureShift loiter gap holds its FULL parking ellipse drawn through the whole loiter (the
+                    // seg-6 deorbit-arc window AND the post-seg-6 gap) until the live descent trigger fires - even
+                    // though the LIVE currentUT is past the parking conic's live-UT upper bound. The map-presence
+                    // reseed sites stamp the per-pid hold while the loiter-gap predicate is true and clear it the
+                    // instant it goes false (descent fired / loop wrapped), so the hold's deadline IS the trigger
+                    // UT and the line retires cleanly the same frame the descent set takes over. PAST-END ONLY:
+                    // below-atmosphere / before-start still retire. Byte-identical-off for every non-held ghost
+                    // (no stamp -> holdActive false -> the normal retire runs).
+                    bool holdActive =
+                        GhostMapPresence.TryGetParkingConicLineHold(pid, currentUT, out _);
+                    if (ShouldHoldParkingConicLine(
+                            pastEnd, belowAtmosphere, beforeStart, holdActive, orbitFiniteElliptical))
+                    {
+                        line.active = true;
+                        __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
+                        GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+                        // Re-stamp the grace deadline so a subsequent transient off-dip is still deferred while
+                        // the line is genuinely shown (same idiom as the visible-body-frame / terminal branches).
+                        GhostMapPresence.StampOrbitLineGrace(pid, Time.frameCount + OrbitLineGraceFrames);
+                        LogOrbitLineDecision(
+                            pid,
+                            "parking-conic-loiter-hold",
+                            line.active,
+                            __instance.drawIcons,
+                            GhostMapPresence.IsIconSuppressed(pid),
+                            belowAtmosphere: false,
+                            hasBounds: true,
+                            currentUT,
+                            startUT,
+                            endUT);
+                        return;
+                    }
+
                     line.active = false;
                     __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
                     if (belowAtmosphere)
                         GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                     string reason = belowAtmosphere
                         ? "below-atmosphere"
-                        : (currentUT > endUT ? "past-body-frame-end" : "before-body-frame-start");
+                        : (pastEnd ? "past-body-frame-end" : "before-body-frame-start");
                     LogOrbitLineDecision(
                         pid,
                         reason,

@@ -216,6 +216,91 @@ namespace Parsek
             // LateUpdate is already IsEnabled-gated; the per-recId soft rate-limit below keeps a
             // persistent unaccounted recording from flooding the log (the condition holds every frame).
             AssertDrawnRecordingsAccounted(currentUT, realtime);
+
+            // --- Descent render-window per-frame FULL map-object snapshot ---
+            // When the polyline Driver (exec-order -50, earlier this frame) published a descent render window
+            // (Loiter = the loiter orbit, Descent = the descent-to-landing), dump EVERY rendered map object this
+            // frame: all active scene orbit lines (the full FlightGlobals.Vessels walk, not just tracked ghosts)
+            // and every live Parsek polyline leg / forward arc (which are NOT in ghostMapVesselPids, so the
+            // per-pid loop above never sees them). Deliberately UN-rate-limited per-frame inside the window so a
+            // stray / extra trajectory line that renders for only a few frames is caught; the window itself
+            // bounds the volume to the loiter + descent phases. No-op every other frame.
+            if (MapRenderTrace.TryGetDescentRenderWindow(
+                    frame, out string descentPhase, out string descentRecId))
+                EmitMapSceneSnapshot(frame, currentUT, descentPhase, descentRecId);
+        }
+
+        // Per-frame full snapshot of every RENDERED map object, gated to the descent render window by the
+        // caller. Two parts: (1) all scene orbit lines whose VectorLine is active (catches an extra orbit
+        // ellipse on any vessel, ghost or not); (2) all live Parsek polyline legs / arcs (the "rendered but not
+        // logged" trajectory lines). One Verbose line each, phase=SceneSnapshot, so a log grep on
+        // "phase=SceneSnapshot" isolates the whole per-frame map state.
+        private void EmitMapSceneSnapshot(int frame, double currentUT, string phase, string recId)
+        {
+            string headerPid = string.IsNullOrEmpty(recId) ? "(none)" : recId;
+            MapRenderTrace.EmitRaw(false, "SceneSnapshot", MapRenderTrace.RenderSurface.Unknown,
+                headerPid, currentUT, currentUT,
+                string.Format(ic,
+                    "descentWindow phase={0} frame={1} -- per-frame full map-object dump (loiter/descent)",
+                    phase, frame));
+
+            // (1) Every scene orbit line that is actually drawn (active). Full FlightGlobals.Vessels walk so a
+            // non-ghost / unexpected orbit ellipse shows up too.
+            int activeOrbitLines = 0, vesselsScanned = 0;
+            var vessels = FlightGlobals.Vessels;
+            if (vessels != null)
+            {
+                for (int vi = 0; vi < vessels.Count; vi++)
+                {
+                    Vessel v = vessels[vi];
+                    if (v == null) continue;
+                    vesselsScanned++;
+                    OrbitRendererBase rb = v.orbitRenderer;
+                    string lineActive = ReadLineActive(rb);
+                    if (lineActive != "True") continue; // only RENDERED orbit lines
+                    activeOrbitLines++;
+
+                    OrbitDriver dr = v.orbitDriver;
+                    string bodyName = "(none)";
+                    double sma = double.NaN, ecc = double.NaN;
+                    if (dr != null && dr.orbit != null)
+                    {
+                        CelestialBody b = dr.orbit.referenceBody;
+                        if (b != null) bodyName = b.bodyName;
+                        sma = dr.orbit.semiMajorAxis;
+                        ecc = dr.orbit.eccentricity;
+                    }
+                    bool isGhost = GhostMapPresence.ghostMapVesselPids != null
+                        && GhostMapPresence.ghostMapVesselPids.Contains(v.persistentId);
+                    MapRenderTrace.EmitRaw(false, "SceneSnapshot",
+                        MapRenderTrace.RenderSurface.ProtoOrbitLine, v.persistentId.ToString(ic),
+                        currentUT, currentUT,
+                        string.Format(ic,
+                            "orbit-line vessel=\"{0}\" pid={1} isGhost={2} lineActive=True renderer.enabled={3} "
+                            + "drawMode={4} drawIcons={5} body={6} sma={7} ecc={8}",
+                            v.GetName(), v.persistentId, isGhost, rb != null && rb.enabled,
+                            rb != null ? rb.drawMode.ToString() : "(no-renderer)",
+                            rb != null ? rb.drawIcons.ToString() : "(no-renderer)", bodyName,
+                            MapRenderTrace.FormatDouble(sma, "F0"), MapRenderTrace.FormatDouble(ecc, "F4")));
+                }
+            }
+
+            // (2) Every live Parsek polyline leg / forward arc this frame.
+            int polylineLines = 0;
+            Parsek.Display.GhostTrajectoryPolylineRenderer.EmitRenderedPolylineSnapshot(
+                frame,
+                line =>
+                {
+                    polylineLines++;
+                    MapRenderTrace.EmitRaw(false, "SceneSnapshot",
+                        MapRenderTrace.RenderSurface.Polyline, headerPid, currentUT, currentUT, line);
+                });
+
+            MapRenderTrace.EmitRaw(false, "SceneSnapshot", MapRenderTrace.RenderSurface.Unknown,
+                headerPid, currentUT, currentUT,
+                string.Format(ic,
+                    "scene-snapshot end: vesselsScanned={0} activeOrbitLines={1} polylineLines={2}",
+                    vesselsScanned, activeOrbitLines, polylineLines));
         }
 
         private void AssertDrawnRecordingsAccounted(double currentUT, double realtime)

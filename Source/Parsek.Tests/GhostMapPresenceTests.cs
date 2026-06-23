@@ -4257,5 +4257,68 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ParkingConicLineHold release boundary (PR #1182 review follow-up)
+
+        // TryGetParkingConicLineHold is the parking-conic line-hold RELEASE decision: the parking-conic line
+        // retires the frame currentUT passes the stamped trigger UT (holdUntilUT), handing off to the descent
+        // set. Its consumer ShouldHoldParkingConicLine takes holdActive as a plain bool, so ONLY these tests
+        // pin the producer's boundary inclusivity and the stamp-exists / NaN guards (the code is correct today;
+        // these protect the handoff frame against a future <= -> < or a dropped NaN guard).
+
+        [Fact]
+        public void TryGetParkingConicLineHold_NoStamp_FalseAndNaN()
+        {
+            GhostMapPresence.ClearParkingConicLineHoldsForTesting();
+            Assert.False(GhostMapPresence.TryGetParkingConicLineHold(12345u, 1000.0, out double hold));
+            Assert.True(double.IsNaN(hold));
+        }
+
+        [Fact]
+        public void TryGetParkingConicLineHold_NaNStamp_False()
+        {
+            GhostMapPresence.ClearParkingConicLineHoldsForTesting();
+            GhostMapPresence.StampParkingConicLineHold(7u, double.NaN);
+            Assert.False(GhostMapPresence.TryGetParkingConicLineHold(7u, 1000.0, out double hold));
+            Assert.True(double.IsNaN(hold));
+        }
+
+        [Fact]
+        public void TryGetParkingConicLineHold_BeforeAndAtDeadline_HoldsInclusive()
+        {
+            GhostMapPresence.ClearParkingConicLineHoldsForTesting();
+            const double trigger = 2570542380.99;
+            GhostMapPresence.StampParkingConicLineHold(9u, trigger);
+            // Before the trigger -> held (the parking conic keeps rendering through the loiter).
+            Assert.True(GhostMapPresence.TryGetParkingConicLineHold(9u, trigger - 5000.0, out double h1));
+            Assert.Equal(trigger, h1, 3);
+            // AT the trigger -> STILL held (inclusive boundary: the line retires the frame AFTER the trigger,
+            // exactly when the descent set takes over — no one-frame flicker at the handoff).
+            Assert.True(GhostMapPresence.TryGetParkingConicLineHold(9u, trigger, out double h2));
+            Assert.Equal(trigger, h2, 3);
+        }
+
+        [Fact]
+        public void TryGetParkingConicLineHold_PastDeadline_Releases()
+        {
+            GhostMapPresence.ClearParkingConicLineHoldsForTesting();
+            const double trigger = 2570542380.99;
+            GhostMapPresence.StampParkingConicLineHold(9u, trigger);
+            Assert.False(GhostMapPresence.TryGetParkingConicLineHold(9u, trigger + 0.001, out double hold));
+            Assert.True(double.IsNaN(hold));
+        }
+
+        [Fact]
+        public void ClearParkingConicLineHold_RemovesStamp()
+        {
+            GhostMapPresence.ClearParkingConicLineHoldsForTesting();
+            GhostMapPresence.StampParkingConicLineHold(3u, 5000.0);
+            Assert.True(GhostMapPresence.TryGetParkingConicLineHold(3u, 4000.0, out _));
+            GhostMapPresence.ClearParkingConicLineHold(3u);
+            Assert.False(GhostMapPresence.TryGetParkingConicLineHold(3u, 4000.0, out double hold));
+            Assert.True(double.IsNaN(hold));
+        }
+
+        #endregion
     }
 }
