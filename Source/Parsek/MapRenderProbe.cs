@@ -81,6 +81,11 @@ namespace Parsek
         private readonly Dictionary<uint, string> lastRendererEnabled = new Dictionary<uint, string>();
         private readonly Dictionary<uint, string> lastDrawIcons = new Dictionary<uint, string>();
         private readonly Dictionary<uint, string> lastBodyOrbit = new Dictionary<uint, string>();
+        // Last-sampled proto-icon suppression truth per pid (ghostsWithSuppressedIcon membership), so the
+        // suppressed<->restored flip emits ONE on-change EVENT (surface=ProtoIcon) carrying recId + the
+        // before->after. The probe already iterates every ghost each frame and reads IsIconSuppressed as an
+        // anomaly guard, so this is a single extra dict read; no new observer. Cleared on scene switch.
+        private readonly Dictionary<uint, string> lastIconSuppressed = new Dictionary<uint, string>();
         // Frame of the last line.active toggle per pid (for the blink predicate).
         private readonly Dictionary<uint, int> lastLineToggleFrame = new Dictionary<uint, int>();
         // Soft rate-limit timestamps for the per-pid jump anomaly.
@@ -153,6 +158,7 @@ namespace Parsek
             lastRendererEnabled.Clear();
             lastDrawIcons.Clear();
             lastBodyOrbit.Clear();
+            lastIconSuppressed.Clear();
             lastLineToggleFrame.Clear();
             lastJumpEmitRealtime.Clear();
             lastOffOrbitEmitRealtime.Clear();
@@ -320,7 +326,8 @@ namespace Parsek
                         string.Format(ic,
                             "recId={0} drawnByAutonomousWalk=true protoBearing=false inProtoLessCoverage=false "
                             + "| protoBearingRecs={1} protoLessCoverageRecs={2} drawnRecs={3}",
-                            recId, protoBearingCount, protoLessCoverageCount, drawnCount));
+                            recId, protoBearingCount, protoLessCoverageCount, drawnCount),
+                        recId);
                 });
         }
 
@@ -362,6 +369,26 @@ namespace Parsek
             string lineActive = ReadLineActive(rendererBase);
 
             string pidKey = pid.ToString(ic);
+            // Resolve the recordingId for this ghost once per sample (the reverse map covers chain ghosts)
+            // so every truth / anomaly / suppression / first-position line carries recId= and one grep
+            // reconstructs a recording's whole render history. Null -> recId=<none> (e.g. a transient
+            // pre-registration frame).
+            string recId = GhostMapPresence.FindRecordingIdByVesselPid(pid);
+
+            // --- Tier-B: proto-icon suppression flip (suppressed<->restored) ---
+            // ghostsWithSuppressedIcon membership decides whether the proto icon is the visible indicator or
+            // the non-proto marker is; its flip is the "did the icon hand off to / from the trajectory
+            // marker" event. Emitted on-change (surface=ProtoIcon) carrying recId, BEFORE the field truth
+            // below so the flip reads first in the log.
+            EmitTruthOnChange(lastIconSuppressed, pid,
+                MapRenderTrace.Bool(GhostMapPresence.IsIconSuppressed(pid)),
+                MapRenderTrace.RenderSurface.ProtoIcon, pidKey, currentUT,
+                "icon-suppressed",
+                string.Format(ic,
+                    "iconSuppressed={0} drawIcons={1} lineActive={2} body={3}",
+                    MapRenderTrace.Bool(GhostMapPresence.IsIconSuppressed(pid)),
+                    drawIcons, lineActive, bodyName),
+                recId);
 
             // --- Tier-B change-based truth (one line per field on change) ---
             // First sample for this pid (including the first after a scene-change
@@ -382,21 +409,24 @@ namespace Parsek
                 string.Format(ic,
                     "lineActive={0} renderer.enabled={1} drawMode={2} drawIcons={3} body={4} sma={5} ecc={6}",
                     lineActive, rendererEnabled, drawMode, drawIcons, bodyName,
-                    MapRenderTrace.FormatDouble(sma, "F0"), MapRenderTrace.FormatDouble(ecc, "F4")));
+                    MapRenderTrace.FormatDouble(sma, "F0"), MapRenderTrace.FormatDouble(ecc, "F4")),
+                recId);
 
             EmitTruthOnChange(lastRendererEnabled, pid, rendererEnabled,
                 MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT,
                 "renderer.enabled",
                 string.Format(ic,
                     "renderer.enabled={0} lineActive={1} drawMode={2} body={3}",
-                    rendererEnabled, lineActive, drawMode, bodyName));
+                    rendererEnabled, lineActive, drawMode, bodyName),
+                recId);
 
             EmitTruthOnChange(lastDrawIcons, pid, drawIcons,
                 MapRenderTrace.RenderSurface.ProtoIcon, pidKey, currentUT,
                 "drawIcons",
                 string.Format(ic,
                     "drawIcons={0} lineActive={1} renderer.enabled={2} body={3}",
-                    drawIcons, lineActive, rendererEnabled, bodyName));
+                    drawIcons, lineActive, rendererEnabled, bodyName),
+                recId);
 
             string bodyOrbitKey = bodyName + "|"
                 + MapRenderTrace.FormatDouble(sma, "F0") + "|"
@@ -405,13 +435,20 @@ namespace Parsek
             // teleport line below can name BOTH orbits it jumped between (e.g. loiter -> synthesized
             // burn arc). "(first)" on the very first sample for this pid.
             string fromOrbit = lastBodyOrbit.TryGetValue(pid, out string priorOrbit) ? priorOrbit : "(first)";
+            // body-orbit on-change IS the proto "moves/rebinds" event: a body / sma / ecc change is the
+            // visible re-anchor of the line + icon onto a new orbit. Carry recId + the loop epoch shift so a
+            // looped re-aim rebind reads in one line (the decision-side SegmentApplied with source/segment
+            // index stays a documented second cut).
+            double loopShift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
             EmitTruthOnChange(lastBodyOrbit, pid, bodyOrbitKey,
                 MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT,
                 "body-orbit",
                 string.Format(ic,
-                    "body={0} sma={1} ecc={2} lineActive={3} renderer.enabled={4}",
+                    "body={0} sma={1} ecc={2} loopShift={3} from=[{4}] lineActive={5} renderer.enabled={6}",
                     bodyName, MapRenderTrace.FormatDouble(sma, "F0"),
-                    MapRenderTrace.FormatDouble(ecc, "F4"), lineActive, rendererEnabled));
+                    MapRenderTrace.FormatDouble(ecc, "F4"), MapRenderTrace.FormatDouble(loopShift, "F1"),
+                    fromOrbit, lineActive, rendererEnabled),
+                recId);
 
             // --- Tier-C decision-vs-truth reconciliation (proto orbit-line / icon) ---
             // If GhostOrbitLinePatch recorded an authoritative line/icon decision on THIS frame,
@@ -429,7 +466,8 @@ namespace Parsek
                         MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
                         "decision-vs-truth",
                         string.Format(ic, "{0} intentReason={1} sinceFrames={2}",
-                            mismatch, lineIntent.Reason, frame - lineIntent.Frame));
+                            mismatch, lineIntent.Reason, frame - lineIntent.Frame),
+                        recId);
             }
 
             // --- Tier-C polyline-orbit-overlap anomaly ---
@@ -449,7 +487,8 @@ namespace Parsek
                     "polyline-orbit-overlap",
                     string.Format(ic, "{0} icon-on-orbit sma={1} ecc={2} body={3} drawIcons={4} lineActive={5}",
                         overlap, MapRenderTrace.FormatDouble(sma, "F0"),
-                        MapRenderTrace.FormatDouble(ecc, "F4"), bodyName, drawIcons, lineActive));
+                        MapRenderTrace.FormatDouble(ecc, "F4"), bodyName, drawIcons, lineActive),
+                    recId);
 
             // --- Tier-C new-pipeline reconcile: intent (shadow) vs the OLD path's truth ---
             // If the new render pipeline recorded a GhostRenderIntent for this pid THIS frame
@@ -502,7 +541,8 @@ namespace Parsek
                     currentUT,
                     MapRenderTrace.InitialWindowSeconds,
                     MapRenderTrace.BuildFirstPositionDetails(
-                        worldPos, bodyName, sma, ecc, "first-truth-read"));
+                        worldPos, bodyName, sma, ecc, "first-truth-read"),
+                    recId);
                 firstPositionEmittedPids.Add(pid);
             }
 
@@ -579,7 +619,8 @@ namespace Parsek
                                 MapRenderTrace.FormatDouble(dPosWorld, "F0"),
                                 UnityWarpRate().ToString("F0", ic),
                                 UnityUnscaledDeltaTime().ToString("F4", ic),
-                                MapRenderTrace.FormatVector3d(bodyRelPos)));
+                                MapRenderTrace.FormatVector3d(bodyRelPos)),
+                            recId);
                     }
                 }
                 // --- Tier-C icon-off-orbit anomaly (is the icon ON its own orbit line?) ---
@@ -662,7 +703,8 @@ namespace Parsek
                                 MapRenderTrace.FormatDouble(offOrbit.argumentOfPeriapsis, "F3"),
                                 MapRenderTrace.FormatDouble(offOrbit.semiMajorAxis, "F0"),
                                 MapRenderTrace.FormatDouble(offOrbit.eccentricity, "F4"),
-                                bodyName));
+                                bodyName),
+                            recId);
                     }
                 }
 
@@ -697,7 +739,8 @@ namespace Parsek
                         "lineActive={0} renderer.enabled={1} drawMode={2} drawIcons={3} body={4} sma={5} ecc={6} worldPos={7}",
                         lineActive, rendererEnabled, drawMode, drawIcons, bodyName,
                         MapRenderTrace.FormatDouble(sma, "F0"), MapRenderTrace.FormatDouble(ecc, "F4"),
-                        MapRenderTrace.FormatVector3d(worldPos)));
+                        MapRenderTrace.FormatVector3d(worldPos)),
+                    recId);
             }
         }
 
@@ -709,7 +752,8 @@ namespace Parsek
             string pidKey,
             double currentUT,
             string fieldPhase,
-            string details)
+            string details,
+            string recId = null)
         {
             string last;
             bool had = store.TryGetValue(pid, out last);
@@ -721,7 +765,7 @@ namespace Parsek
                 // not re-gate, so the first post-scene-switch transition is not
                 // swallowed by stale state.
                 MapRenderTrace.EmitOnChange(
-                    fieldPhase, surface, pidKey, currentUT, currentUT, details);
+                    fieldPhase, surface, pidKey, currentUT, currentUT, details, recId);
                 store[pid] = currentValue;
             }
         }

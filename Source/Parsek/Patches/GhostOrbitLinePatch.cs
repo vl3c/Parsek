@@ -710,7 +710,26 @@ namespace Parsek.Patches
             // reconcile it against the actually-rendered state on this same frame (decision-vs-truth,
             // second cut). Guarded by IsEnabled so disabled play never pays the drawIcons.ToString().
             if (MapRenderTrace.IsEnabled)
+            {
                 MapRenderTrace.RecordLineIntent(vesselPid, lineActive, drawIcons.ToString(), reason);
+
+                // Unified LineVisibilityChange EVENT: pair the decision/reason side (recordingId + WHY the
+                // proto orbit line / icon appeared / disappeared / was suppressed) with the probe's pid-only
+                // line.active / drawIcons truth, under one surface=ProtoOrbitLine grep. Change-detection
+                // reuses the SAME BuildGhostOrbitLineDecisionStateKey signature as the GhostOrbitLine
+                // VerboseOnChange below, so it emits exactly when the decision changes - no new per-frame
+                // cost. This is the EVENT layer for the descent parking-conic-loiter-hold /
+                // director-traced-path-suppress / past-body-frame-end reasons too.
+                MapRenderTrace.EmitLineVisibilityOnChange(
+                    vesselPid.ToString(CultureInfo.InvariantCulture),
+                    GhostMapPresence.FindRecordingIdByVesselPid(vesselPid),
+                    currentUT,
+                    BuildGhostOrbitLineDecisionStateKey(
+                        lineActive, drawIcons, iconSuppressed, reason, hasBounds, startUT, endUT),
+                    FormatGhostOrbitLineDecision(
+                        vesselPid, reason, lineActive, drawIcons, iconSuppressed,
+                        belowAtmosphere, hasBounds, currentUT, startUT, endUT));
+            }
 
             ParsekLog.VerboseOnChange(Tag,
                 "pid-" + vesselPid.ToString(CultureInfo.InvariantCulture),

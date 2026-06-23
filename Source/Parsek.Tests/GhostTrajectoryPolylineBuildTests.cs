@@ -2840,5 +2840,81 @@ namespace Parsek.Tests
             Assert.True((outPts[merge] - arc[lastIdx - merge]).magnitude < 1.0,
                 "reversed-tail bridge must end exactly on the conic's tail merge sample");
         }
+
+        // ---- DiffDrawnSets (polyline render-EVENT appear/disappear set diff) ----
+
+        private static HashSet<string> Set(params string[] ids)
+            => new HashSet<string>(ids, StringComparer.Ordinal);
+
+        [Fact]
+        public void DiffDrawnSets_AppearsAndDisappears()
+        {
+            var prev = Set("A", "B");
+            var cur = Set("B", "C");
+            var appeared = new List<string>();
+            var disappeared = new List<string>();
+
+            GhostTrajectoryPolylineRenderer.DiffDrawnSets(prev, cur, appeared, disappeared);
+
+            // C is new (in current, not previous); A is gone (in previous, not current); B is steady.
+            Assert.Equal(new[] { "C" }, appeared);
+            Assert.Equal(new[] { "A" }, disappeared);
+        }
+
+        [Fact]
+        public void DiffDrawnSets_SameCountSwap_IsNotSilent()
+        {
+            // The count-keyed legacy "polyline.drawset" line misses a same-count swap (A->B, count stays 1);
+            // the set diff catches it as one disappear + one appear.
+            var prev = Set("A");
+            var cur = Set("B");
+            var appeared = new List<string>();
+            var disappeared = new List<string>();
+
+            GhostTrajectoryPolylineRenderer.DiffDrawnSets(prev, cur, appeared, disappeared);
+
+            Assert.Equal(new[] { "B" }, appeared);
+            Assert.Equal(new[] { "A" }, disappeared);
+        }
+
+        [Fact]
+        public void DiffDrawnSets_NoChange_EmptyDiff()
+        {
+            var prev = Set("A", "B");
+            var cur = Set("A", "B");
+            var appeared = new List<string>();
+            var disappeared = new List<string>();
+
+            GhostTrajectoryPolylineRenderer.DiffDrawnSets(prev, cur, appeared, disappeared);
+
+            Assert.Empty(appeared);
+            Assert.Empty(disappeared);
+        }
+
+        [Fact]
+        public void DiffDrawnSets_ClearsOutputsAndSortsOrdinal()
+        {
+            var appeared = new List<string> { "stale" };
+            var disappeared = new List<string> { "stale" };
+
+            GhostTrajectoryPolylineRenderer.DiffDrawnSets(
+                Set(), Set("zeta", "alpha", "mu"), appeared, disappeared);
+
+            // Output lists are cleared first (no stale entry) and sorted Ordinal for deterministic output.
+            Assert.Equal(new[] { "alpha", "mu", "zeta" }, appeared);
+            Assert.Empty(disappeared);
+        }
+
+        [Fact]
+        public void DiffDrawnSets_NullPreviousTreatedAsEmpty()
+        {
+            var appeared = new List<string>();
+            var disappeared = new List<string>();
+
+            GhostTrajectoryPolylineRenderer.DiffDrawnSets(null, Set("A"), appeared, disappeared);
+
+            Assert.Equal(new[] { "A" }, appeared);
+            Assert.Empty(disappeared);
+        }
     }
 }

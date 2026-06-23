@@ -109,6 +109,29 @@ namespace Parsek.Display
         private static readonly HashSet<string> drewNonOrbitalLegRecordings =
             new HashSet<string>(StringComparer.Ordinal);
 
+        // --- Render-EVENT diff (map-render-event-logging): appear / disappear of a recording's drawn
+        // polyline. The Driver already computes drewNonOrbitalLegRecordings (the current-element ownership
+        // set) per frame and an actual-draw forward set per onPreCull; diffing each against the prior frame
+        // emits ONE PolylineLegChange appear/disappear EVENT per recording (the count-keyed polyline.drawset
+        // VerboseOnChange misses a same-count swap and is on the Driver tag, not the unified MapRenderTrace).
+        // OBSERVABILITY ONLY - read-only diffs of sets the draw code already populated; no draw change.
+        // Maintained / diffed ONLY while mapRenderTracing is on; cleared on cross-save flush so a stale set
+        // never fires spurious events. Static to match drewNonOrbitalLegRecordings (the Driver is a DDOL
+        // singleton); the recordingId keys are stable across a scene switch, so a missed clear can only miss
+        // an event, never invent one.
+        private static readonly HashSet<string> previousDrewNonOrbitalLegRecordings =
+            new HashSet<string>(StringComparer.Ordinal);
+        // FORWARD-arc/leg actual-draw set this onPreCull + last onPreCull (the "extra line AHEAD of the
+        // ghost"), diffed under surface=PolylineForwardArc. currentDrewForwardArcRecordings is cleared at the
+        // top of OnMapCameraPreCull and populated where a forward leg / forward arc actually paints.
+        private static readonly HashSet<string> currentDrewForwardArcRecordings =
+            new HashSet<string>(StringComparer.Ordinal);
+        private static readonly HashSet<string> previousDrewForwardArcRecordings =
+            new HashSet<string>(StringComparer.Ordinal);
+        // Reusable scratch for the set diffs (allocated once; populated only when tracing is enabled).
+        private static readonly List<string> diffAppearedScratch = new List<string>();
+        private static readonly List<string> diffDisappearedScratch = new List<string>();
+
         // RecordingId -> per-recording FORWARD-ARC line set (Step 3 C, forward-trajectory-render plan).
         // Holds the sampled Vectrosity VectorLines for the orbit (StockConic) segments AHEAD of the icon up
         // to forwardStopUT, plus the cache key (currentElementIndex|bodyName|reaimWindowIndex) so a window
@@ -412,6 +435,71 @@ namespace Parsek.Display
             if (recordingId == null) return false;
             return ResolveNonOrbitalLegOwnership(
                 drewNonOrbitalLegRecordings.Contains(recordingId));
+        }
+
+        /// <summary>
+        /// PURE set diff for the polyline render-EVENT appear/disappear emit: given the recordings drawn on
+        /// the PREVIOUS frame (<paramref name="previous"/>) and the recordings drawn on the CURRENT frame
+        /// (<paramref name="current"/>), fills <paramref name="appeared"/> (in current, not previous) and
+        /// <paramref name="disappeared"/> (in previous, not current), each sorted Ordinal for deterministic
+        /// output. The output lists are cleared first. No Unity dependency, so it is unit-testable directly;
+        /// the caller owns updating <paramref name="previous"/> := <paramref name="current"/> after emitting.
+        /// </summary>
+        internal static void DiffDrawnSets(
+            HashSet<string> previous, HashSet<string> current,
+            List<string> appeared, List<string> disappeared)
+        {
+            appeared.Clear();
+            disappeared.Clear();
+            if (current != null)
+                foreach (string id in current)
+                    if (previous == null || !previous.Contains(id))
+                        appeared.Add(id);
+            if (previous != null)
+                foreach (string id in previous)
+                    if (current == null || !current.Contains(id))
+                        disappeared.Add(id);
+            appeared.Sort(StringComparer.Ordinal);
+            disappeared.Sort(StringComparer.Ordinal);
+        }
+
+        /// <summary>
+        /// Diff <paramref name="current"/> against <paramref name="previous"/> and emit ONE
+        /// <c>phase=PolylineLegChange event=appear|disappear</c> MapRenderTrace structural EVENT per
+        /// recording that started / stopped drawing on <paramref name="surface"/> (Polyline = current
+        /// element, PolylineForwardArc = the forward chain ahead of the icon), then copy current into
+        /// previous so the next frame diffs against this one. Each line carries the recordingId in BOTH the
+        /// pid= and recId= slots (the polyline is a recording-scoped surface that may have no proto ghost,
+        /// so the recordingId IS its identity). Emitted as IMPORTANT (no detailed-window open) so the
+        /// appear/disappear shows even with Verbose off, matching the GhostCreated/GhostDestroyed tier. The
+        /// whole method is IsEnabled-gated by the caller; the diff scratch lists are reused. Read-only.
+        /// </summary>
+        private static void EmitPolylineDrawSetChanges(
+            MapRenderTrace.RenderSurface surface,
+            HashSet<string> previous, HashSet<string> current, double currentUT)
+        {
+            DiffDrawnSets(previous, current, diffAppearedScratch, diffDisappearedScratch);
+            if (diffAppearedScratch.Count == 0 && diffDisappearedScratch.Count == 0)
+                return; // steady state: nothing changed, no copy needed (sets are equal)
+            for (int i = 0; i < diffAppearedScratch.Count; i++)
+                EmitPolylineLegChange(surface, diffAppearedScratch[i], "appear", currentUT);
+            for (int i = 0; i < diffDisappearedScratch.Count; i++)
+                EmitPolylineLegChange(surface, diffDisappearedScratch[i], "disappear", currentUT);
+            previous.Clear();
+            foreach (string id in current)
+                previous.Add(id);
+        }
+
+        private static void EmitPolylineLegChange(
+            MapRenderTrace.RenderSurface surface, string recordingId, string ev, double currentUT)
+        {
+            MapRenderTrace.EmitStructural(
+                "PolylineLegChange", surface, recordingId, currentUT, currentUT,
+                windowSeconds: 0.0,
+                details: string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "event={0} scene={1} warp={2:F0}x",
+                    ev, HighLogic.LoadedScene, TimeWarp.CurrentRate),
+                recId: recordingId);
         }
 
         /// <summary>
@@ -848,6 +936,12 @@ namespace Parsek.Display
             // cross-save flush / test reset never leaves a stale ownership behind. It is re-cleared
             // every LateUpdate, so this is belt-and-suspenders in normal play and the reset hook in tests.
             drewNonOrbitalLegRecordings.Clear();
+            // Render-EVENT diff baselines: drop the previous-frame drawn sets on the same cross-save / test
+            // reset lifecycle so a new save's first walk does not diff against a prior save's recordings (the
+            // recordingIds collide across saves). Re-baselined on the next walk.
+            previousDrewNonOrbitalLegRecordings.Clear();
+            currentDrewForwardArcRecordings.Clear();
+            previousDrewForwardArcRecordings.Clear();
             // Drop the marker hold cache on the same cross-save / test-reset lifecycle as the ownership
             // sets so a stale held on-line point never survives a save load or a scene switch.
             lastGoodOnLine.Clear();
@@ -3962,6 +4056,16 @@ namespace Parsek.Display
                                 sceneForLog, drawnCount, TimeWarp.CurrentRate, string.Join(",", drawnIds.ToArray()));
                         });
                 }
+
+                // Render-EVENT diff (map-render-event-logging): emit one PolylineLegChange appear/disappear
+                // per recording whose current-element leg started / stopped drawing this completed walk
+                // (vs the previous walk). Runs UNCONDITIONALLY here (not under frameDrawn>=1) so the
+                // all-disappeared transition is caught. Gated on IsEnabled so disabled play pays nothing.
+                if (MapRenderTrace.IsEnabled)
+                    EmitPolylineDrawSetChanges(
+                        MapRenderTrace.RenderSurface.Polyline,
+                        previousDrewNonOrbitalLegRecordings, drewNonOrbitalLegRecordings,
+                        Planetarium.GetUniversalTime());
             }
 
             /// <summary>
@@ -3986,6 +4090,12 @@ namespace Parsek.Display
                 if (pendingDrawsFrame != frame) return; // nothing decided this frame (early-returned LateUpdate)
                 if (precullDrawnFrame == frame) return;  // already drew this frame
                 precullDrawnFrame = frame;
+
+                // Render-EVENT diff (map-render-event-logging): clear this frame's forward-render actual-draw
+                // set before the draw loops populate it; diffed against the previous frame at the end of this
+                // method to emit PolylineForwardArc appear/disappear EVENTs. Only touched when tracing is on.
+                if (MapRenderTrace.IsEnabled)
+                    currentDrewForwardArcRecordings.Clear();
 
                 int drawn = 0;
                 // Draw-side instrumentation (run model): account RUN legs (forward=true) separately and
@@ -4041,7 +4151,11 @@ namespace Parsek.Display
                     if (fwd)
                     {
                         if (legDrawn) runDrawn++;
-                        else ParsekLog.VerboseRateLimited(DriverTag, "run-leg-nodraw." + p.recordingId,
+                        // Render-EVENT diff: a forward (run) leg that actually painted means the forward
+                        // trajectory chain is being drawn for this recording this frame.
+                        if (legDrawn && MapRenderTrace.IsEnabled)
+                            currentDrewForwardArcRecordings.Add(p.recordingId);
+                        if (!legDrawn) ParsekLog.VerboseRateLimited(DriverTag, "run-leg-nodraw." + p.recordingId,
                             string.Format(System.Globalization.CultureInfo.InvariantCulture,
                                 "Run leg NOT drawn (TryDrawLeg false): rec={0} leg={1} pts={2} body={3} bodyNull={4} " +
                                 "startUT={5:F1} endUT={6:F1}",
@@ -4069,7 +4183,8 @@ namespace Parsek.Display
                                 HighLogic.LoadedScene, p.legIndex,
                                 string.IsNullOrEmpty(leg.bodyName) ? "<none>" : leg.bodyName,
                                 leg.PointCount, p.ownedByTreatment, pendingTargetLayer,
-                                leg.startUT, leg.endUT));
+                                leg.startUT, leg.endUT),
+                            recId: p.recordingId);
                 }
                 pendingDraws.Clear();
 
@@ -4123,14 +4238,22 @@ namespace Parsek.Display
                     fset.arcs[fp.arcIndex] = arc; // persist the lastDrawnFrame stamp (same array ref)
 
                     if (arc.vectorLine != null && arc.lastDrawnFrame == frame && MapRenderTrace.IsEnabled)
+                    {
+                        // Render-EVENT diff: this forward arc actually painted for this recording this frame.
+                        currentDrewForwardArcRecordings.Add(fp.recordingId);
+                        // surface=PolylineForwardArc (was Polyline + a "FWD-ARC" string prefix): a distinct
+                        // surface so a grep separates "the extra predicted line ahead of the ghost" from the
+                        // current element.
                         MapRenderTrace.EmitMarker(
-                            MapRenderTrace.RenderSurface.Polyline, fp.recordingId,
+                            MapRenderTrace.RenderSurface.PolylineForwardArc, fp.recordingId,
                             Planetarium.GetUniversalTime(),
                             string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                "FWD-ARC scene={0} arc={1} body={2} startUT={3:F1} endUT={4:F1} layer={5}",
+                                "scene={0} arc={1} body={2} startUT={3:F1} endUT={4:F1} layer={5}",
                                 HighLogic.LoadedScene, fp.arcIndex,
                                 string.IsNullOrEmpty(arc.bodyName) ? "<none>" : arc.bodyName,
-                                arc.startUT, arc.endUT, pendingTargetLayer));
+                                arc.startUT, arc.endUT, pendingTargetLayer),
+                            recId: fp.recordingId);
+                    }
                 }
                 pendingForwardArcs.Clear();
                 if (fwdArcsDrawn > 0)
@@ -4172,6 +4295,15 @@ namespace Parsek.Display
                         fwdArcsDrawn, bridgeDrawn, lastSweepDeactivatedCount, fwdArcsDeactivated, frame,
                         TimeWarp.CurrentRate),
                     2.0);
+
+                // Render-EVENT diff (map-render-event-logging): emit PolylineForwardArc appear/disappear per
+                // recording whose forward (predicted) trajectory chain started / stopped painting this frame
+                // vs the previous onPreCull. Read-only diff of the actual-draw set populated above.
+                if (MapRenderTrace.IsEnabled)
+                    EmitPolylineDrawSetChanges(
+                        MapRenderTrace.RenderSurface.PolylineForwardArc,
+                        previousDrewForwardArcRecordings, currentDrewForwardArcRecordings,
+                        Planetarium.GetUniversalTime());
             }
 
             /// <summary>

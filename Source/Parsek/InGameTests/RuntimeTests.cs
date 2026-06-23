@@ -5988,6 +5988,41 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "map-render-event-logging: GhostMapPresence.FindRecordingIdByVesselPid resolves a live ghost's recordingId, the recId= every new render EVENT carries")]
+        public IEnumerator MapRenderTrace_ResolvesRecordingIdForLiveGhost()
+        {
+            // Every render-EVENT add (PolylineLegChange / LineVisibilityChange / icon-suppressed /
+            // body-orbit / the probe truth + anomaly lines) carries recId=<recordingId>, resolved at
+            // runtime via GhostMapPresence.FindRecordingIdByVesselPid(pid). That reverse map is the linchpin
+            // of the recId schema and is Unity-runtime (the ghost ProtoVessel must be loaded), so it cannot
+            // be unit-tested. Drive a live synthetic TS ghost and assert the reverse map returns the
+            // recording's RecordingId for the ghost's persistentId.
+            using (var scope = new SyntheticTrackingStationRecordingScope("maprender-recid"))
+            {
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+
+                // Let KSP run the ProtoVessel load over a few frames so the pid is registered.
+                yield return null;
+                yield return null;
+                yield return null;
+
+                uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
+                InGameAssert.IsTrue(ghostPid != 0,
+                    "Synthetic TS recording should have a ghost PID after the lifecycle tick");
+
+                string resolved = GhostMapPresence.FindRecordingIdByVesselPid(ghostPid);
+                InGameAssert.AreEqual(scope.Recording.RecordingId, resolved,
+                    "FindRecordingIdByVesselPid must resolve a live ghost pid back to its recordingId "
+                    + "(the recId= carried by every map render EVENT)");
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "MapRenderTrace_ResolvesRecordingIdForLiveGhost: ghostPid={0} recId={1}",
+                        ghostPid, resolved ?? "<null>"));
+            }
+        }
+
         [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION, RunLast = true,
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,

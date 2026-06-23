@@ -120,7 +120,8 @@ namespace Parsek
             ProtoIcon = 2,
 
             /// <summary>
-            /// The non-orbital <c>GhostTrajectoryPolylineRenderer</c> leg.
+            /// The non-orbital <c>GhostTrajectoryPolylineRenderer</c> leg (the CURRENT
+            /// element drawn at/behind the playback head).
             /// </summary>
             Polyline = 3,
 
@@ -133,6 +134,16 @@ namespace Parsek
             /// The TS <c>ParsekTrackingStation.DrawAtmosphericMarkers</c> marker.
             /// </summary>
             AtmosphericMarker = 5,
+
+            /// <summary>
+            /// The FORWARD predicted polyline arc / leg (the future-trajectory chain drawn
+            /// AHEAD of the icon by <c>DecideForwardWindowForRecording</c> /
+            /// <c>DrawForwardArc</c>). A distinct surface from <see cref="Polyline"/> so a
+            /// grep separates "the extra line ahead of the ghost" from the current element;
+            /// previously both shared <c>Polyline</c> and were told apart only by a fragile
+            /// <c>FWD-ARC</c> string prefix.
+            /// </summary>
+            PolylineForwardArc = 6,
         }
 
         private static string RenderSurfaceToken(RenderSurface surface)
@@ -144,6 +155,7 @@ namespace Parsek
                 case RenderSurface.Polyline: return "Polyline";
                 case RenderSurface.ImguiLabeledMarker: return "ImguiLabeledMarker";
                 case RenderSurface.AtmosphericMarker: return "AtmosphericMarker";
+                case RenderSurface.PolylineForwardArc: return "PolylineForwardArc";
                 default: return "unknown";
             }
         }
@@ -363,7 +375,55 @@ namespace Parsek
             // longer mislabels effUT==currentUT. Callers that do not pass effUT (the per-instance overlap
             // path, where the instance head IS the live sample) get the legacy effUT==currentUT behavior.
             double resolvedEffUT = double.IsNaN(effUT) ? currentUT : effUT;
-            EmitOnChange("MarkerDecision", surface, pidKey, currentUT, resolvedEffUT, signature);
+            // pidKey IS the recordingId on the marker surfaces (the per-recording convention), so carry it
+            // in the recId= slot too: a single grep on recId= then lights up the marker surfaces alongside
+            // the proto / polyline lines (which carry pid + recId separately).
+            EmitOnChange("MarkerDecision", surface, pidKey, currentUT, resolvedEffUT, signature, recId: pidKey);
+        }
+
+        // Per-pid (live ghost persistentId) last-emitted orbit-line/icon DECISION signature, mirroring
+        // lastMarkerDecisionSignatureByPid. CALLER-OWNED change detection: EmitLineVisibilityOnChange emits
+        // only when the composed signature differs from the last for that pid. The signature is the same
+        // BuildGhostOrbitLineDecisionStateKey the legacy GhostOrbitLine VerboseOnChange already uses, so this
+        // pairs the decision/reason side (recordingId + WHY the line/icon appeared/disappeared) with the
+        // probe's truth side under one surface=ProtoOrbitLine grep. Cleared in Reset() (scene switch),
+        // capped at MaxTrackedMarkerDecisionKeys for the same warp-safety reason.
+        private static readonly Dictionary<string, string> lastLineVisibilitySignatureByPid =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Test-only: current size of the line-visibility change-detection dict (warp-cap assert).</summary>
+        internal static int LineVisibilitySignatureCountForTesting => lastLineVisibilitySignatureByPid.Count;
+
+        /// <summary>
+        /// Change-based per-pid orbit-line/icon VISIBILITY decision emit (Tier-B, routed to Verbose via
+        /// <see cref="EmitOnChange"/>). Called from <c>GhostOrbitLinePatch.LogOrbitLineDecision</c> - the
+        /// single point every line.active / drawIcons decision routes through - so a unified
+        /// <c>phase=LineVisibilityChange surface=ProtoOrbitLine</c> EVENT carries the recordingId + the
+        /// decision <paramref name="reason"/> (visible-body-frame / polyline-owns-phase / below-atmosphere /
+        /// parking-conic-loiter-hold / director-traced-path-suppress / ...) that the probe's pid-only
+        /// line.active / drawIcons truth lines cannot. Emits ONE line only when the pre-built
+        /// <paramref name="signature"/> changed for this pid since its last emit. No-op when disabled.
+        /// </summary>
+        internal static void EmitLineVisibilityOnChange(
+            string pidKey, string recId, double currentUT, string signature, string details)
+        {
+            if (!IsEnabled)
+                return;
+            if (string.IsNullOrEmpty(pidKey))
+                return;
+
+            string last;
+            if (lastLineVisibilitySignatureByPid.TryGetValue(pidKey, out last)
+                && string.Equals(last, signature, StringComparison.Ordinal))
+                return; // unchanged decision for this ghost -> suppress
+
+            if (!lastLineVisibilitySignatureByPid.ContainsKey(pidKey)
+                && lastLineVisibilitySignatureByPid.Count >= MaxTrackedMarkerDecisionKeys)
+                lastLineVisibilitySignatureByPid.Clear();
+
+            lastLineVisibilitySignatureByPid[pidKey] = signature;
+            EmitOnChange("LineVisibilityChange", RenderSurface.ProtoOrbitLine, pidKey,
+                currentUT, currentUT, details, recId);
         }
 
         // MVP: detailed windows are keyed by pid.ToString(). recordingId keying
@@ -391,6 +451,7 @@ namespace Parsek
             lineIntentByPid.Clear();
             renderIntentByPid.Clear();
             lastMarkerDecisionSignatureByPid.Clear();
+            lastLineVisibilitySignatureByPid.Clear();
             descentRenderWindowFrame = -1;
             descentRenderWindowPhase = null;
             descentRenderWindowRecId = null;
@@ -701,12 +762,13 @@ namespace Parsek
             string pidKey,
             double currentUT,
             double effUT,
-            string details)
+            string details,
+            string recId = null)
         {
             if (!IsEnabled)
                 return;
 
-            string message = BuildPrefix(phase, surface, pidKey, currentUT, effUT, CurrentFrameCount())
+            string message = BuildPrefix(phase, surface, pidKey, currentUT, effUT, CurrentFrameCount(), recId)
                 + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
             if (important)
                 ParsekLog.Info(Tag, message);
@@ -737,9 +799,10 @@ namespace Parsek
             string pidKey,
             double currentUT,
             double effUT,
-            string details)
+            string details,
+            string recId = null)
         {
-            EmitRaw(false, phase, surface, pidKey, currentUT, effUT, details);
+            EmitRaw(false, phase, surface, pidKey, currentUT, effUT, details, recId);
         }
 
         /// <summary>
@@ -760,13 +823,14 @@ namespace Parsek
             string pidKey,
             double currentUT,
             double effUT,
-            string details)
+            string details,
+            string recId = null)
         {
             if (!IsEnabled)
                 return;
             if (!IsDetailedWindowOpen(pidKey, currentUT))
                 return;
-            EmitRaw(false, "Snapshot", surface, pidKey, currentUT, effUT, details);
+            EmitRaw(false, "Snapshot", surface, pidKey, currentUT, effUT, details, recId);
         }
 
         /// <summary>
@@ -787,7 +851,8 @@ namespace Parsek
             double currentUT,
             double effUT,
             double windowSeconds,
-            string details)
+            string details,
+            string recId = null)
         {
             if (!IsEnabled)
                 return;
@@ -795,7 +860,7 @@ namespace Parsek
             if (windowSeconds > 0.0)
                 OpenDetailedWindow(pidKey, currentUT, windowSeconds, phase);
 
-            EmitRaw(true, phase, surface, pidKey, currentUT, effUT, details);
+            EmitRaw(true, phase, surface, pidKey, currentUT, effUT, details, recId);
         }
 
         /// <summary>
@@ -859,7 +924,8 @@ namespace Parsek
             double currentUT,
             double effUT,
             string reason,
-            string details)
+            string details,
+            string recId = null)
         {
             if (!IsEnabled)
                 return;
@@ -868,7 +934,7 @@ namespace Parsek
 
             string combined = "reason=" + Token(reason)
                 + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
-            EmitRaw(true, "Anomaly", surface, pidKey, currentUT, effUT, combined);
+            EmitRaw(true, "Anomaly", surface, pidKey, currentUT, effUT, combined, recId);
         }
 
         /// <summary>IMGUI marker-surface decision emit (<c>ImguiLabeledMarker</c> /
@@ -880,11 +946,11 @@ namespace Parsek
         /// flood. Gated by <see cref="IsEnabled"/>.</summary>
         internal static void EmitMarker(
             RenderSurface surface, string key, double currentUT, string details,
-            double minIntervalSeconds = 2.0)
+            double minIntervalSeconds = 2.0, string recId = null)
         {
             if (!IsEnabled)
                 return;
-            string message = BuildPrefix("MarkerDraw", surface, key, currentUT, currentUT, CurrentFrameCount())
+            string message = BuildPrefix("MarkerDraw", surface, key, currentUT, currentUT, CurrentFrameCount(), recId)
                 + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
             ParsekLog.VerboseRateLimited(
                 Tag, "marker-" + RenderSurfaceToken(surface) + "-" + Token(key), message, minIntervalSeconds);
@@ -1080,11 +1146,13 @@ namespace Parsek
             string pidKey,
             double currentUT,
             double effUT,
-            int frame)
+            int frame,
+            string recId = null)
         {
             return "phase=" + Token(phase)
                 + " surface=" + RenderSurfaceToken(surface)
                 + " pid=" + Token(pidKey)
+                + " recId=" + Token(recId)
                 + " frame=" + frame.ToString(CultureInfo.InvariantCulture)
                 + " currentUT=" + FormatDouble(currentUT, "F3")
                 + " effUT=" + FormatDouble(effUT, "F3");
@@ -1095,9 +1163,10 @@ namespace Parsek
             RenderSurface surface,
             string pidKey,
             double currentUT,
-            double effUT)
+            double effUT,
+            string recId = null)
         {
-            return BuildPrefix(phase, surface, pidKey, currentUT, effUT, frame: 0);
+            return BuildPrefix(phase, surface, pidKey, currentUT, effUT, frame: 0, recId: recId);
         }
 
         private static GateDecision Decision(bool emit, bool important, string reason)

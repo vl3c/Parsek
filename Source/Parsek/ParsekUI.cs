@@ -1736,6 +1736,33 @@ namespace Parsek
             // paint a marker.
             if (isMapView)
             {
+                // Render-EVENT decision emit for the GHOSTLESS fallback marker (no live engine ghost state;
+                // the marker rides the drawn polyline leg). Without this the ghostless marker was invisible to
+                // the MapRenderTrace marker-decision tracer (only a GhostMap VerboseRateLimited narrative
+                // line), so its appear (DrawnNonProto) / in-candidate disappear (loop-hidden / ride-failed)
+                // were silent at the decision tier - the flight-map gap vs the clean TS path. Keyed by
+                // rec.RecordingId (the pid-less recording-scoped identity); mutually exclusive with the main
+                // pid-keyed walk's key (this loop only handles recordings with NO ghostState), so no thrash.
+                // The recording-level leg appear/disappear itself is the polyline ownership flip, already an
+                // EVENT via GhostTrajectoryPolylineRenderer's PolylineLegChange. Gated; read-only.
+                void EmitGhostlessDecision(
+                    Recording r, int idx, MapRenderTrace.MarkerOutcome outcome,
+                    MapRenderTrace.MarkerRideReason ride, string posSource, double decisionEffUT)
+                {
+                    if (!MapRenderTrace.IsEnabled || r == null || string.IsNullOrEmpty(r.RecordingId))
+                        return;
+                    MapRenderTrace.EmitMarkerDecisionOnChange(
+                        MapRenderTrace.RenderSurface.ImguiLabeledMarker, r.RecordingId, traceUT,
+                        MapRenderTrace.BuildMarkerDecisionSignature(
+                            idx, r.VesselName ?? "Ghost",
+                            directorTracedPathActive: false, polylineOwning: true,
+                            iconSuppressed: false, shouldDrawNonProto: true,
+                            outcome, ride, legIndex: -1, posSource),
+                        // The loop-shifted sample UT the ghostless head was resolved at (a looped re-aim
+                        // member's real ~2.5e9 region UT), so the line no longer mislabels effUT==currentUT.
+                        effUT: decisionEffUT);
+                }
+
                 for (int ri = 0; ri < committed.Count; ri++)
                 {
                     var rec = committed[ri];
@@ -1745,6 +1772,9 @@ namespace Parsek
                         continue; // covered (drawn or intentionally skipped) by the pid-keyed walk
                     if (!Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(
                             rec.RecordingId))
+                        // Not a ghostless candidate (the polyline does not own this phase). No decision emit:
+                        // the leg's disappear is the polyline ownership flip, already a PolylineLegChange
+                        // EVENT; emitting a Skipped here would burst over every inactive recording.
                         continue;
                     // Review MINOR-1: if this chain already drew a LABELED marker via the pid-keyed
                     // walk (warp handoff: a sibling member still holds a live ghost state), skip -
@@ -1756,15 +1786,26 @@ namespace Parsek
                     double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
                         ri, rec.StartUT, rec.EndUT, currentUT,
                         flight.Engine.CurrentLoopUnits, out bool ghostlessHidden);
-                    if (ghostlessHidden) continue;
+                    if (ghostlessHidden)
+                    {
+                        EmitGhostlessDecision(rec, ri, MapRenderTrace.MarkerOutcome.SkippedLoopHidden,
+                            MapRenderTrace.MarkerRideReason.NotAttempted, "polyline", effUT);
+                        continue;
+                    }
                     if (!Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
                             rec.RecordingId, effUT, out Vector3 onLinePos))
+                    {
+                        EmitGhostlessDecision(rec, ri, MapRenderTrace.MarkerOutcome.SkippedPositionFail,
+                            MapRenderTrace.MarkerRideReason.FallbackHeadOutsideLegs, "polyline", effUT);
                         continue;
+                    }
                     VesselType ghostlessType = GhostMapPresence.ResolveVesselType(rec.VesselSnapshot);
                     DrawMapMarkerAt(
                         onLinePos, rec.RecordingId, rec.VesselName ?? "Ghost",
                         GetGhostMarkerColorForType(ghostlessType), ghostlessType);
                     summary.Drawn++;
+                    EmitGhostlessDecision(rec, ri, MapRenderTrace.MarkerOutcome.DrawnNonProto,
+                        MapRenderTrace.MarkerRideReason.RodeLeg, "polyline", effUT);
                     ParsekLog.VerboseRateLimited("GhostMap",
                         "ghostless-polyline-marker." + rec.RecordingId,
                         string.Format(System.Globalization.CultureInfo.InvariantCulture,
