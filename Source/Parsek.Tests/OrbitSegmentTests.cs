@@ -1709,6 +1709,106 @@ namespace Parsek.Tests
             Assert.Equal(1, lastIndex);
         }
 
+        // A re-aimed heliocentric transfer fragment (Sun-bodied). sma varies so a recorded mid-course
+        // correction can break the element-equivalence walk, mirroring the live Duna One split.
+        private OrbitSegment MakeTransferFragment(double startUT, double endUT, double sma)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                inclination = 2.3573,
+                eccentricity = 0.2120,
+                semiMajorAxis = sma,
+                longitudeOfAscendingNode = 75.0,
+                argumentOfPeriapsis = 110.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = startUT,
+                bodyName = "Sun"
+            };
+        }
+
+        [Fact]
+        public void TryExpandStoredSingleSegmentWindow_ReaimedSpanCrossingMidCourseSplit_WalkNarrows()
+        {
+            // Live Duna One repro: the recorded heliocentric transfer was split mid-course into three
+            // fragments - two element-equivalent (seg#9/#10) then a third whose sma jumped by 772,410 m
+            // (> the max(10,|sma|*1e-6)=17,605 tolerance, a recorded mid-course correction). The re-aimed
+            // ghost stores the FULL synthesized [departure, arrival] span, whose startUT coincides with
+            // seg#9 but whose end lies beyond the equivalent run.
+            const double depUT = 64044032.73, arrUT = 70898646.06;
+            var segments = new List<OrbitSegment>
+            {
+                MakeTransferFragment(depUT, 65972902.0, 17604964389.0),       // seg#9
+                MakeTransferFragment(65972902.0, 67901772.51, 17604964389.0), // seg#10 (equivalent)
+                MakeTransferFragment(67901797.0, arrUT, 17604191979.80)       // seg#11 (sma jump stops walk)
+            };
+
+            // The walk seeds on seg#9 by startUT, merges seg#9+#10, then STOPS at the seg#11 split -
+            // returning an end ~3.0e6 s (~44% of the transfer) short of the true arrival.
+            bool expanded = TrajectoryMath.TryExpandStoredSingleSegmentWindow(
+                segments, depUT, arrUT,
+                out double rawStart, out double rawEnd,
+                out _, out _, out int fragmentCount);
+
+            Assert.True(expanded);
+            Assert.Equal(2, fragmentCount);
+            Assert.Equal(depUT, rawStart, 2);
+            Assert.Equal(67901772.51, rawEnd, 2);   // truncated short of arrUT - the Bug B truncation
+        }
+
+        [Fact]
+        public void UnionArcWindowWithStored_NarrowerExpansion_RestoresFullStoredSpanAndFlagsClamp()
+        {
+            // The monotonic union restores the full stored [departure, arrival] span the walk truncated.
+            const double depUT = 64044032.73, arrUT = 70898646.06;
+            TrajectoryMath.UnionArcWindowWithStored(
+                depUT, arrUT, depUT, 67901772.51,
+                out double startUT, out double endUT, out bool clampedToStored);
+
+            Assert.Equal(depUT, startUT, 2);
+            Assert.Equal(arrUT, endUT, 2);           // reaches the target again
+            Assert.True(clampedToStored);
+        }
+
+        [Fact]
+        public void UnionArcWindowWithStored_WiderExpansion_TakesExpandedNoClamp()
+        {
+            // The legit SOI-approach-hyperbola widening case: expansion is wider on both sides, so it wins.
+            TrajectoryMath.UnionArcWindowWithStored(
+                100.0, 200.0, 80.0, 260.0,
+                out double startUT, out double endUT, out bool clampedToStored);
+
+            Assert.Equal(80.0, startUT, 6);
+            Assert.Equal(260.0, endUT, 6);
+            Assert.False(clampedToStored);
+        }
+
+        [Fact]
+        public void UnionArcWindowWithStored_EqualWindows_Unchanged()
+        {
+            TrajectoryMath.UnionArcWindowWithStored(
+                100.0, 200.0, 100.0, 200.0,
+                out double startUT, out double endUT, out bool clampedToStored);
+
+            Assert.Equal(100.0, startUT, 6);
+            Assert.Equal(200.0, endUT, 6);
+            Assert.False(clampedToStored);
+        }
+
+        [Fact]
+        public void UnionArcWindowWithStored_ExpansionStartsLate_KeepsStoredStart()
+        {
+            // Expansion would clip the early part of the stored window: keep the stored start.
+            TrajectoryMath.UnionArcWindowWithStored(
+                100.0, 200.0, 120.0, 200.0,
+                out double startUT, out double endUT, out bool clampedToStored);
+
+            Assert.Equal(100.0, startUT, 6);
+            Assert.Equal(200.0, endUT, 6);
+            Assert.True(clampedToStored);
+        }
+
         #endregion
     }
 }
