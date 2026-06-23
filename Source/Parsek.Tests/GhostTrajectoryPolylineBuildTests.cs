@@ -1843,7 +1843,8 @@ namespace Parsek.Tests
         }
 
         // Builds a re-aim LoopUnit + set whose descent member set is the given committed indices, owner=2.
-        private static Parsek.GhostPlaybackLogic.LoopUnitSet MakeDescentUnitSet(int[] descentIndices, int[] memberIndices)
+        private static Parsek.GhostPlaybackLogic.LoopUnitSet MakeDescentUnitSet(
+            int[] descentIndices, int[] memberIndices, int transferMemberIndex = -1)
         {
             var plan = new Parsek.Reaim.ReaimMissionPlan { Supported = true };
             var sched = new Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule { Valid = true };
@@ -1853,7 +1854,8 @@ namespace Parsek.Tests
                 arrivalAlignPeriodSeconds: double.NaN, arrivalAmberReason: null,
                 launchBodyRotationPeriodSeconds: double.NaN, launchHoldEngaged: false, recordedSoiExitUT: double.NaN,
                 descentMemberIndices: descentIndices, recordedDeorbitUT: 500.0, descentEndUT: 600.0,
-                destinationBodyRotationPeriodSeconds: 65517.86, loiterPeriodSeconds: 4000.0, captureShiftSeconds: -100000.0);
+                destinationBodyRotationPeriodSeconds: 65517.86, loiterPeriodSeconds: 4000.0, captureShiftSeconds: -100000.0,
+                transferMemberIndex: transferMemberIndex);
             var ownerByIndex = new Dictionary<int, int>();
             foreach (int mi in memberIndices) ownerByIndex[mi] = 2;
             return new Parsek.GhostPlaybackLogic.LoopUnitSet(
@@ -1938,9 +1940,9 @@ namespace Parsek.Tests
         public void ClampChainDataEndForDescentTransfer_CapsTransferMemberAtShiftedConicEnd()
         {
             const double shiftedConicEnd = 500.0 + (-100000.0); // recordedDeorbit + captureShift = -99500
-            var units = MakeDescentUnitSet(new[] { 0 }, new[] { 0, 2 });
+            var units = MakeDescentUnitSet(new[] { 0 }, new[] { 0, 2 }, transferMemberIndex: 2);
 
-            // index 2 = non-descent transfer member, window end PAST the shifted conic end -> clamped down to it.
+            // index 2 = the destination transfer member, window end PAST the shifted conic end -> clamped down to it.
             double clamped = GhostTrajectoryPolylineRenderer.ClampChainDataEndForDescentTransfer(
                 600_000.0, 2, units);
             Assert.Equal(shiftedConicEnd, clamped, 6);
@@ -1955,10 +1957,10 @@ namespace Parsek.Tests
         public void ClampChainDataEndForDescentTransfer_UnchangedWhenGuardFalse()
         {
             const double endUT = 600_000.0;
-            var units = MakeDescentUnitSet(new[] { 0 }, new[] { 0, 2 });
+            var units = MakeDescentUnitSet(new[] { 0 }, new[] { 0, 2 }, transferMemberIndex: 2);
 
-            // index 0 IS a descent member -> excluded by the guard, returned unchanged (its descent line comes
-            // only from its own trigger-gated pass, not the transfer-member forward run).
+            // index 0 is NOT the destination transfer member (it is a descent member) -> excluded by the guard,
+            // returned unchanged (its descent line comes only from its own trigger-gated pass, not this clamp).
             Assert.Equal(endUT,
                 GhostTrajectoryPolylineRenderer.ClampChainDataEndForDescentTransfer(endUT, 0, units), 6);
 
@@ -1979,6 +1981,26 @@ namespace Parsek.Tests
                 new Dictionary<int, int> { { 0, 2 }, { 2, 2 } });
             Assert.Equal(endUT,
                 GhostTrajectoryPolylineRenderer.ClampChainDataEndForDescentTransfer(endUT, 2, noTrigger), 6);
+        }
+
+        // Clamp B is narrowed to the EXACT destination transfer member (TransferMemberIndex): a non-descent
+        // RIDE-ALONG member in a different/unshifted frame (member 3 here, the member-40 Kerbin-probe analogue) is
+        // NOT clamped - its forward-render window must not be clipped at the TRANSFER member's shifted conic end.
+        // The old "every non-descent member" gate (!IsDescentTriggerMember) wrongly clamped it.
+        [Fact]
+        public void ClampChainDataEndForDescentTransfer_RideAlongMemberNotClamped()
+        {
+            const double shiftedConicEnd = 500.0 + (-100000.0); // the transfer member's shifted conic end
+            // members = {0 descent, 2 transfer, 3 ride-along}; transfer = 2.
+            var units = MakeDescentUnitSet(new[] { 0 }, new[] { 0, 2, 3 }, transferMemberIndex: 2);
+
+            // Sanity: the transfer member (2) IS clamped down to the shifted conic end.
+            Assert.Equal(shiftedConicEnd,
+                GhostTrajectoryPolylineRenderer.ClampChainDataEndForDescentTransfer(600_000.0, 2, units), 6);
+            // The ride-along (3) - a non-descent, non-transfer member - is NOT clamped (unchanged), even with a
+            // window end far past the transfer member's shifted conic end.
+            Assert.Equal(600_000.0,
+                GhostTrajectoryPolylineRenderer.ClampChainDataEndForDescentTransfer(600_000.0, 3, units), 6);
         }
 
         // A chain recording missing from the committed list (detached caller input) falls back to the
@@ -2817,6 +2839,33 @@ namespace Parsek.Tests
                 "reversed-tail bridge must start exactly on the leg start");
             Assert.True((outPts[merge] - arc[lastIdx - merge]).magnitude < 1.0,
                 "reversed-tail bridge must end exactly on the conic's tail merge sample");
+        }
+
+        // --- Descent-icon decouple: ResolveUndrawnLegFallback (pure marker-ride fallback decision) ---
+        // When the leg covering the marker's head UT was NOT drawn this frame, a CONIC-ANCHORED leg's
+        // drawn line is ~96 deg off the body-fixed head, so the marker must HOLD its last on-line position;
+        // a NON-anchored body-fixed leg (descent / atmospheric / surface) draws the raw body-fixed points,
+        // so the caller's fresh body-fixed head is already on the line and is preferred (no stale hold).
+        // The Unity-coupled wiring (wasAnchored stamped in TryDrawLeg, read in TryAnchorMarkerToPolyline)
+        // is covered by the in-game test (project rule: Unity-coupled -> in-game).
+
+        [Fact]
+        public void UndrawnAnchoredLeg_HoldsLastGoodOnLine()
+        {
+            Assert.Equal(
+                GhostTrajectoryPolylineRenderer.UndrawnLegFallback.HoldLastGoodOnLine,
+                GhostTrajectoryPolylineRenderer.ResolveUndrawnLegFallback(legWasConicAnchored: true));
+        }
+
+        [Fact]
+        public void UndrawnNonAnchoredLeg_UsesFreshBodyFixedHead()
+        {
+            // The descent case: a body-fixed surface/atmospheric leg that was not redrawn this frame must
+            // fall through to the caller's fresh body-fixed head, NOT a <=5 s-stale hold, so the icon stays
+            // current and on the line at warp / on the IMGUI Layout-pass dropout.
+            Assert.Equal(
+                GhostTrajectoryPolylineRenderer.UndrawnLegFallback.UseFreshBodyFixedHead,
+                GhostTrajectoryPolylineRenderer.ResolveUndrawnLegFallback(legWasConicAnchored: false));
         }
     }
 }

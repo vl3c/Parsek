@@ -528,5 +528,34 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("different from resolved atlas"));
             Assert.DoesNotContain(logLines, l => l.Contains("skipping"));
         }
+
+        // --- Right-click toggle hit rect: wider than the left-click handler rect (fast-warp clickability) ---
+
+        [Fact]
+        public void ComputeToggleHitRect_InflatesByToggleClickPaddingPerSide()
+        {
+            // A 20px icon at (100,100): the toggle rect inflates by 24 per side -> (76,76,68,68).
+            var iconRect = new Rect(100f, 100f, 20f, 20f);
+            var toggle = MapMarkerRenderer.ComputeToggleHitRect(iconRect);
+            Assert.Equal(76f, toggle.x);
+            Assert.Equal(76f, toggle.y);
+            Assert.Equal(68f, toggle.width);
+            Assert.Equal(68f, toggle.height);
+        }
+
+        [Fact]
+        public void ComputeToggleHitRect_IsWiderThanTheTightHandlerRect()
+        {
+            // A cursor 30px from the icon edge lands inside the WIDE toggle rect but OUTSIDE the tight
+            // ClickPadding(6) handler rect — proving the right-click target genuinely widened while the
+            // left-click handler route stays on the tight rect (byte-identical).
+            var iconRect = new Rect(100f, 100f, 20f, 20f);
+            var tight = new Rect(iconRect.x - 6f, iconRect.y - 6f, iconRect.width + 12f, iconRect.height + 12f);
+            var toggle = MapMarkerRenderer.ComputeToggleHitRect(iconRect);
+
+            var farPoint = new Vector2(iconRect.x - 18f, iconRect.y + 10f); // 18px left of the icon edge
+            Assert.True(toggle.Contains(farPoint), "the wide toggle rect must catch a near-but-not-on-icon right-click");
+            Assert.False(tight.Contains(farPoint), "the tight handler rect must NOT (left-click route unchanged)");
+        }
     }
 }
