@@ -10490,23 +10490,36 @@ namespace Parsek
             if (fragmentCount <= 1)
                 return;
 
-            startUT = rawExpandedStart + shift;
-            endUT = rawExpandedEnd + shift;
+            // The expansion is purely ADDITIVE: it widens one applied fragment across its element-
+            // equivalent recorded neighbours so the same-orbit coast draws in one frame. It must NEVER
+            // shrink the stored window. A re-aimed loop transfer stores the FULL synthesized
+            // [departure, arrival] span, but the RAW recorded segments walked above were split mid-coast
+            // (a recorded mid-course element change > the equivalence tolerance), so the walk stops at the
+            // split and would otherwise truncate the drawn arc partway to the target. Union with the stored
+            // window (startUT/endUT still hold the caller's stored bounds here) so the expansion can only
+            // ever widen, never truncate.
+            TrajectoryMath.UnionArcWindowWithStored(
+                startUT, endUT,
+                rawExpandedStart + shift, rawExpandedEnd + shift,
+                out double widenedStartUT, out double widenedEndUT, out bool clampedToStored);
+            startUT = widenedStartUT;
+            endUT = widenedEndUT;
 
             // This resolves every render frame while a loop ghost approaches an SOI; emit only when the
             // coalesced window changes (VerboseOnChange) so the merge decision is captured without
             // per-frame spam, mirroring the stored-bounds VerboseOnChange site just above.
             ParsekLog.VerboseOnChange(Tag,
                 string.Format(ic, "loop-arc-coalesce|{0}|{1}", vesselPid, reason),
-                string.Format(ic, "coalesce|{0}|{1}-{2}|{3:F3}-{4:F3}",
-                    fragmentCount, firstVisibleIndex, lastVisibleIndex, startUT, endUT),
+                string.Format(ic, "coalesce|{0}|{1}-{2}|{3:F3}-{4:F3}|{5}",
+                    fragmentCount, firstVisibleIndex, lastVisibleIndex, startUT, endUT, clampedToStored),
                 string.Format(ic,
                     "Loop arc-window coalesced pid={0} recIndex={1} reason={2} fragments={3} " +
-                    "segIndices={4}-{5} rawWindowUT={6:F2}-{7:F2} shiftedWindowUT={8:F2}-{9:F2} loopShift={10:F2}",
+                    "segIndices={4}-{5} rawWindowUT={6:F2}-{7:F2} shiftedWindowUT={8:F2}-{9:F2} " +
+                    "clampedToStored={10} loopShift={11:F2}",
                     vesselPid, recordingIndex, reason, fragmentCount,
                     firstVisibleIndex, lastVisibleIndex,
                     rawExpandedStart, rawExpandedEnd,
-                    startUT, endUT, shift));
+                    startUT, endUT, clampedToStored, shift));
         }
 
         /// <summary>
