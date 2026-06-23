@@ -4641,9 +4641,12 @@ namespace Parsek.InGameTests
                 yield return new WaitForSeconds(0.25f);
                 yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
 
-                // Capture the focused parent recording id BEFORE staging.
-                var activeTreePre = RecordingStore.PendingTree;
-                InGameAssert.IsNotNull(activeTreePre, "PendingTree must exist before staging");
+                // Capture the focused parent recording id BEFORE staging. The live in-progress
+                // recording tree is the ACTIVE tree on ParsekFlight, NOT RecordingStore.PendingTree
+                // (which is null during steady FLIGHT recording — it only holds a tree stashed across a
+                // scene change, so reading it here always saw null and failed this precondition).
+                var activeTreePre = flight.ActiveTreeForSerialization;
+                InGameAssert.IsNotNull(activeTreePre, "active recording tree must exist before staging");
                 string parentRecId = activeTreePre?.ActiveRecordingId;
                 InGameAssert.IsFalse(string.IsNullOrEmpty(parentRecId),
                     "parent recording id required before staging");
@@ -4692,7 +4695,9 @@ namespace Parsek.InGameTests
             if (string.IsNullOrEmpty(parentRecId))
                 return null;
 
-            var activeTree = RecordingStore.PendingTree;
+            // The controlled-decoupled child lands in the live ACTIVE recording tree, not
+            // RecordingStore.PendingTree (null during steady FLIGHT recording).
+            var activeTree = ParsekFlight.Instance?.ActiveTreeForSerialization;
             if (activeTree?.Recordings == null)
                 return null;
 
@@ -10472,9 +10477,11 @@ namespace Parsek.InGameTests
         /// <summary>
         /// Marker pan-stability (FIX 2): a TRANSIENT ride dropout (the head's leg matched but was not
         /// drawn THIS frame - the dominant case while the map camera is actively panning) holds the last
-        /// on-line position instead of snapping to the body-fixed head. Seeds the polyline cache for a
-        /// recording (a fresh refresh leaves every leg's lastDrawnFrame=0, so a query at the live frame
-        /// takes the not-drawn-this-frame branch) plus a fresh last-good entry, then asserts
+        /// on-line position instead of snapping to the body-fixed head. Per the descent-icon contract
+        /// (<see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.ResolveUndrawnLegFallback(bool)"/>),
+        /// the hold fires ONLY for a CONIC-ANCHORED leg (a non-anchored body-fixed leg's fresh head is
+        /// already on the line, so it falls through to it). Seeds a stale conic-anchored leg covering the
+        /// head plus a fresh last-good entry, then asserts
         /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(string,double,out UnityEngine.Vector3,out MapRenderTrace.MarkerRideReason,out int)"/>
         /// returns the held position with reason HeldLastGood. xUnit cannot reach this end-to-end
         /// (Time.frameCount + the live cache); the freshness bounds are covered by the pure unit tests.
@@ -10486,32 +10493,17 @@ namespace Parsek.InGameTests
             const string recId = "ingame-marker-hold-1";
             Parsek.Display.GhostTrajectoryPolylineRenderer.ReleaseForRecording(recId);
 
-            var rec = new Recording { RecordingId = recId };
-            rec.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.Atmospheric,
-                referenceFrame = ReferenceFrame.Absolute,
-                source = TrackSectionSource.Active,
-                startUT = 100.0,
-                endUT = 600.0,
-                frames = new System.Collections.Generic.List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0, latitude = -0.1, longitude = -74.5, altitude = 70.0, bodyName = "Kerbin", rotation = Quaternion.identity },
-                    new TrajectoryPoint { ut = 200.0, latitude = -0.05, longitude = -74.5, altitude = 20000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
-                    new TrajectoryPoint { ut = 600.0, latitude = 0.0, longitude = -74.5, altitude = 100000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
-                },
-                checkpoints = new System.Collections.Generic.List<OrbitSegment>(),
-                bodyFixedFrames = null,
-                sampleRateHz = 10f,
-            });
-
             try
             {
-                // Populate the cache (fresh refresh -> every leg lastDrawnFrame=0, so a live-frame query
-                // hits the not-drawn-this-frame branch with a head inside the leg span).
-                Parsek.Display.GhostTrajectoryPolylineRenderer.RefreshForRecording(rec);
-
+                // Seed a CONIC-ANCHORED leg covering the head UT that was NOT drawn this frame (stale
+                // scratch: lastDrawnFrame != Time.frameCount). Only a conic-anchored leg holds last-good
+                // across a transient dropout (ResolveUndrawnLegFallback); RefreshForRecording builds
+                // non-anchored legs, so seed the anchored leg directly via the test seam.
                 double headUT = 300.0; // inside the leg [100,600]
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetLegForTesting(
+                    recId, /*startUT*/ 100.0, /*endUT*/ 600.0,
+                    wasAnchored: true, lastDrawnFrame: Time.frameCount - 1);
+
                 var heldPos = new Vector3(11f, 22f, 33f);
                 Parsek.Display.GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
                     recId, heldPos, headUT, Time.frameCount, /*legIndex*/ 0);
@@ -10520,7 +10512,7 @@ namespace Parsek.InGameTests
                     recId, headUT, out Vector3 outPos,
                     out MapRenderTrace.MarkerRideReason reason, out int legIndex);
 
-                InGameAssert.IsTrue(rode, "marker must ride (held) when a fresh last-good exists and the leg was not drawn this frame");
+                InGameAssert.IsTrue(rode, "marker must ride (held) when a fresh last-good exists and the conic-anchored leg was not drawn this frame");
                 InGameAssert.IsTrue(reason == MapRenderTrace.MarkerRideReason.HeldLastGood,
                     "ride reason must be HeldLastGood on a transient dropout, not a fallback");
                 InGameAssert.AreEqual(0, legIndex, "held leg index must be the cached one");
