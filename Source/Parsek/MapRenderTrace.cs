@@ -622,12 +622,24 @@ namespace Parsek
             int currentFrame,
             int floatingOriginShiftFrame,
             bool justReset,
-            bool bodyChanged)
+            bool bodyChanged,
+            bool suppressionLifted = false)
         {
             // No trustworthy previous position right after a per-pid reset
             // (scene transition / ghost-pid rebuild). A stale prevBodyRelPos
             // would otherwise fire a spurious jump on re-entry.
             if (justReset)
+                return false;
+
+            // The icon was SUPPRESSED on the previous sample (off-arc / past- or
+            // before-window / below-atmosphere / traced-path), so the proto was
+            // parked at a clamped endpoint while HIDDEN. The first visible frame
+            // after suppression lifts re-propagates the proto to its live phase,
+            // a position delta the user never saw (the icon was invisible the
+            // whole clamped interval). Mirrors justReset / bodyChanged: a
+            // suppressed-to-visible edge is not a teleport. Defaults false so
+            // every existing call site is byte-identical.
+            if (suppressionLifted)
                 return false;
 
             // The orbit's reference body changed this frame (e.g. SOI crossing
@@ -669,16 +681,32 @@ namespace Parsek
         /// (<paramref name="hasLastToggleFrame"/> false) is recorded by the caller
         /// but not reported here. Detectable from the truth read alone, so it is
         /// in the MVP.
+        ///
+        /// <para><paramref name="bodyChanged"/> suppresses the blink when the two
+        /// toggles straddle a reference-body / segment change (the caller compares
+        /// the body at this toggle against the body at the previous toggle): a line
+        /// that legitimately goes OFF on one orbital segment (e.g. past-body-frame-end
+        /// on a Kerbin escape hyperbola) and back ON on the NEXT segment (the Sun
+        /// heliocentric leg) across an SOI seam is two correct transitions, not a
+        /// flicker out-and-back at fixed geometry; under high warp those two toggles
+        /// can compress below the frame window and read as a blink. Mirrors the
+        /// <see cref="IsIconJump"/> bodyChanged guard. Defaults false so every
+        /// existing call site is byte-identical.</para>
         /// </summary>
         internal static bool IsLineBlink(
             bool toggled,
             bool hasLastToggleFrame,
             int lastToggleFrame,
-            int currentFrame)
+            int currentFrame,
+            bool bodyChanged = false)
         {
             if (!toggled)
                 return false;
             if (!hasLastToggleFrame)
+                return false;
+            // A toggle pair that crosses a reference-body / segment boundary is two
+            // legitimate transitions at a real geometry seam, not a flicker.
+            if (bodyChanged)
                 return false;
             int sinceLast = currentFrame - lastToggleFrame;
             return sinceLast >= 0 && sinceLast <= LineBlinkFrameWindow;
@@ -702,6 +730,45 @@ namespace Parsek
             if (double.IsNaN(angleDeg) || double.IsInfinity(angleDeg))
                 return false;
             return angleDeg > minAngleDeg;
+        }
+
+        /// <summary>
+        /// Pure: an UPPER BOUND on a Keplerian orbit's speed = the periapsis speed
+        /// <c>vp = sqrt(mu * (1 + e) / (a * (1 - e)))</c>. Holds for both elliptical
+        /// (0 &lt;= e &lt; 1, a &gt; 0) and hyperbolic (e &gt; 1, a &lt; 0, so
+        /// <c>a*(1-e)</c> is positive) orbits. The icon-jump caller multiplies this by
+        /// the ACTUAL per-frame UT advance to get the maximum arc the proto could have
+        /// traversed; the per-frame chord (the measured <c>dPos</c>) can never exceed
+        /// <c>vp * deltaUT</c>, so a threshold built on it never false-fires on real
+        /// orbital motion at any warp, while a genuine reseed / teleport (motion OFF the
+        /// orbit) still exceeds it. This replaces the old
+        /// <c>instantaneousSpeed * Time.unscaledDeltaTime * TimeWarp.CurrentRate</c>
+        /// estimate, which under-counted the real on-rails warp UT step by ~20x at high
+        /// warp and over-counted speed variation on eccentric orbits, producing false
+        /// icon-teleports on short-period / eccentric orbits. Falls back to the
+        /// instantaneous <paramref name="instantaneousSpeedMeters"/> when the periapsis
+        /// form is degenerate (parabolic e==1, non-finite elements, or a*(1-e) &lt;= 0),
+        /// so a degenerate orbit is no worse than the pre-fix instantaneous reading.
+        /// </summary>
+        internal static double ComputeMaxOrbitalSpeedMeters(
+            double semiMajorAxis, double eccentricity, double gravParameter,
+            double instantaneousSpeedMeters)
+        {
+            double denom = semiMajorAxis * (1.0 - eccentricity);
+            if (!double.IsNaN(denom) && !double.IsInfinity(denom) && denom > 0.0
+                && !double.IsNaN(eccentricity) && eccentricity >= 0.0
+                && !double.IsNaN(gravParameter) && !double.IsInfinity(gravParameter)
+                && gravParameter > 0.0)
+            {
+                double vpSquared = gravParameter * (1.0 + eccentricity) / denom;
+                if (!double.IsNaN(vpSquared) && !double.IsInfinity(vpSquared) && vpSquared >= 0.0)
+                    return Math.Sqrt(vpSquared);
+            }
+            // Degenerate orbit: fall back to the magnitude of the instantaneous speed
+            // (the pre-fix estimate's speed term), still combined with the real deltaUT
+            // by the caller.
+            double s = Math.Abs(instantaneousSpeedMeters);
+            return (double.IsNaN(s) || double.IsInfinity(s)) ? 0.0 : s;
         }
 
         /// <summary>

@@ -88,6 +88,21 @@ namespace Parsek
         private readonly Dictionary<uint, string> lastIconSuppressed = new Dictionary<uint, string>();
         // Frame of the last line.active toggle per pid (for the blink predicate).
         private readonly Dictionary<uint, int> lastLineToggleFrame = new Dictionary<uint, int>();
+        // Reference-body name at the last line.active toggle per pid, so the blink predicate can tell a
+        // legitimate cross-segment / SOI-seam toggle pair (line off on one orbit, on on the next body's
+        // orbit) from a true same-geometry flicker. Without this, a Kerbin-escape -> Sun-heliocentric
+        // handoff under high warp compresses two correct toggles below the frame window and reads as a blink.
+        private readonly Dictionary<uint, string> lastLineToggleBody = new Dictionary<uint, string>();
+        // Universal time at the previous sample per pid. The icon-jump expected-motion model uses the ACTUAL
+        // per-frame UT advance (currentUT - prevSampleUT) instead of Time.unscaledDeltaTime *
+        // TimeWarp.CurrentRate, which under-counts the real on-rails warp step by ~20x at high warp and
+        // produced false icon-teleports on short-period / eccentric orbits. Cleared on scene change.
+        private readonly Dictionary<uint, double> prevSampleUT = new Dictionary<uint, double>();
+        // Pids whose proto icon was SUPPRESSED on the PREVIOUS sample. While suppressed the proto is parked
+        // at a clamped endpoint UT and HIDDEN; the first visible frame after suppression lifts re-propagates
+        // it to its live phase, a position delta the user never saw. The teleport + off-orbit checks are
+        // skipped on that one lift frame (mirrors justReset / bodyChanged). Cleared on scene change.
+        private readonly HashSet<uint> suppressedLastSample = new HashSet<uint>();
         // Soft rate-limit timestamps for the per-pid jump anomaly.
         private readonly Dictionary<uint, double> lastJumpEmitRealtime = new Dictionary<uint, double>();
         // Soft rate-limit timestamps for the per-pid icon-off-orbit anomaly.
@@ -160,6 +175,9 @@ namespace Parsek
             lastBodyOrbit.Clear();
             lastIconSuppressed.Clear();
             lastLineToggleFrame.Clear();
+            lastLineToggleBody.Clear();
+            prevSampleUT.Clear();
+            suppressedLastSample.Clear();
             lastJumpEmitRealtime.Clear();
             lastOffOrbitEmitRealtime.Clear();
             lastPolylineOverlapEmitRealtime.Clear();
@@ -508,11 +526,18 @@ namespace Parsek
             {
                 int lastToggle;
                 bool hasLastToggle = lastLineToggleFrame.TryGetValue(pid, out lastToggle);
+                // The body at the PREVIOUS toggle: a toggle pair that straddles a reference-body /
+                // segment change (line off on one orbit, on on the next body's orbit) is two legitimate
+                // transitions at an SOI seam, not a same-geometry flicker. lastLineToggleBody holds the
+                // prior toggle's body; differs from the current body => cross-seam => not a blink.
+                bool toggleCrossedBody = lastLineToggleBody.TryGetValue(pid, out string priorToggleBody)
+                    && priorToggleBody != bodyName;
                 if (MapRenderTrace.IsLineBlink(
                         toggled: true,
                         hasLastToggleFrame: hasLastToggle,
                         lastToggleFrame: lastToggle,
-                        currentFrame: frame))
+                        currentFrame: frame,
+                        bodyChanged: toggleCrossedBody))
                 {
                     MapRenderTrace.EmitAnomaly(
                         MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
@@ -522,6 +547,7 @@ namespace Parsek
                             lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName));
                 }
                 lastLineToggleFrame[pid] = frame;
+                lastLineToggleBody[pid] = bodyName;
             }
 
             // --- Tier-A FirstPosition (probe-derived MVP variant) ---
@@ -571,22 +597,37 @@ namespace Parsek
                 bool bodyChanged = lastIconJumpBody.TryGetValue(pid, out lastJumpBody)
                     && lastJumpBody != bodyName;
 
+                // Suppression-lift edge: while suppressed the proto is parked at a clamped endpoint UT and
+                // HIDDEN, so the first VISIBLE frame after suppression lifts re-propagates it to its live
+                // phase - a position delta (teleport) and an icon-vs-orbit angle (off-orbit) the user never
+                // saw. Skip both checks on that single lift frame (mirrors justReset / bodyChanged).
+                bool iconSuppressedNow = GhostMapPresence.IsIconSuppressed(pid);
+                bool suppressionLifted = suppressedLastSample.Contains(pid) && !iconSuppressedNow;
+
                 Vector3d prevBodyRel;
                 if (prevBodyRelPos.TryGetValue(pid, out prevBodyRel))
                 {
                     double dPos = (bodyRelPos - prevBodyRel).magnitude;
-                    double expectedMotion = ComputeExpectedMotionMeters(driver, body);
+                    // Real per-frame UT advance for the expected-motion model: the actual on-rails warp
+                    // step, NOT Time.unscaledDeltaTime * CurrentRate (which under-counts it ~20x at high
+                    // warp and false-fired on short-period / eccentric orbits). prevSampleUT always has an
+                    // entry here (the first sample is guarded by justReset), so the lookup hits; 0.0 only
+                    // on the impossible miss, which yields expected=0 -> floor (matching the old degenerate).
+                    double prevUT;
+                    double deltaUT = prevSampleUT.TryGetValue(pid, out prevUT) ? currentUT - prevUT : 0.0;
+                    double expectedMotion = ComputeExpectedMotionMeters(driver, body, deltaUT);
                     if (MapRenderTrace.IsIconJump(
                             dPos: dPos,
                             expectedMotionMeters: expectedMotion,
                             currentFrame: frame,
                             floatingOriginShiftFrame: foShiftFrame,
                             justReset: justReset,
-                            bodyChanged: bodyChanged)
+                            bodyChanged: bodyChanged,
+                            suppressionLifted: suppressionLifted)
                         // Skip a SUPPRESSED icon: its proto position may still jump (stock propagates a
                         // phantom orbit) but it is not DRAWN, so it is not a visible teleport - only flag
                         // teleports the user can actually see (matches the icon-off-orbit guard).
-                        && !GhostMapPresence.IsIconSuppressed(pid)
+                        && !iconSuppressedNow
                         && PassesJumpRateLimit(pid, realtime))
                     {
                         // dPosWorld is the raw world-frame delta, logged only as
@@ -643,7 +684,11 @@ namespace Parsek
                 // this frame by the drive Prefix + the line Postfix, both before this
                 // order-10000 probe, so IsIconSuppressed is current. Only the actively
                 // driven (on-arc, line-shown) icon is checked - the genuine bug case.
-                if (offOrbit != null && !GhostMapPresence.IsIconSuppressed(pid))
+                // suppressionLifted additionally skips the FIRST visible frame after the
+                // icon un-suppresses: the per-frame drive has not re-propagated the icon
+                // onto the (often just-rebound) orbit yet, so the icon sits at its stale
+                // pre-suppression position for one frame - a transient the user never saw.
+                if (offOrbit != null && !iconSuppressedNow && !suppressionLifted)
                 {
                     // Compare against the UT the icon-drive ACTUALLY propagated the icon to this frame
                     // (recorded by GhostOrbitIconDrivePatch at the SetPosition site), not a clock this
@@ -724,6 +769,15 @@ namespace Parsek
             // Retain the raw world position for the dPosWorld context log above.
             prevWorldPos[pid] = worldPos;
 
+            // Record this frame's icon-suppression truth + UT for the NEXT sample's suppression-lift guard
+            // and real-deltaUT expected-motion model. Runs unconditionally (even on a body == null gap) so
+            // the suppression edge and UT cadence stay tracked across every frame.
+            if (GhostMapPresence.IsIconSuppressed(pid))
+                suppressedLastSample.Add(pid);
+            else
+                suppressedLastSample.Remove(pid);
+            prevSampleUT[pid] = currentUT;
+
             // --- In-window full per-frame snapshot (Tier-B detail) ---
             // While a detailed window is open for this pid (opened by a structural
             // event - GhostCreated / FirstPosition - or an anomaly), dump the full
@@ -770,21 +824,29 @@ namespace Parsek
             }
         }
 
-        // Orbit-derived expected per-frame motion: orbital speed * dt * warpRate.
-        // dt is the visual-frame Time.unscaledDeltaTime; warpRate is
-        // TimeWarp.CurrentRate. Returns 0 for a degenerate / unresolved orbit so
-        // the jump predicate falls back to the fixed floor.
-        private double ComputeExpectedMotionMeters(OrbitDriver driver, CelestialBody body)
+        // Orbit-derived UPPER BOUND on the proto's per-frame motion = the orbit's maximum
+        // (periapsis) speed * the ACTUAL per-frame UT advance (deltaUT, passed by the caller as
+        // currentUT - prevSampleUT). The earlier estimate used the INSTANTANEOUS orbital speed *
+        // Time.unscaledDeltaTime * TimeWarp.CurrentRate, which (a) under-counted the real on-rails warp
+        // UT step by ~20x at high warp and (b) used the instantaneous speed, which under-counts an
+        // eccentric orbit's faster periapsis arc - together producing false icon-teleports on
+        // short-period / eccentric orbits. The per-frame chord (the measured dPos) can never exceed
+        // maxSpeed * deltaUT, so the jump predicate (this * the fixed multiplier, floored) never
+        // false-fires on real orbital motion at any warp, while a genuine reseed / teleport off the
+        // orbit still exceeds it. Returns 0 for a degenerate / unresolved orbit or a non-positive
+        // deltaUT, so the jump predicate falls back to the fixed floor (matching the old behavior).
+        private double ComputeExpectedMotionMeters(OrbitDriver driver, CelestialBody body, double deltaUT)
         {
             if (driver == null || driver.orbit == null || body == null)
                 return 0.0;
-            double orbitalSpeed = driver.orbit.orbitalSpeed;
-            if (double.IsNaN(orbitalSpeed) || double.IsInfinity(orbitalSpeed))
+            if (double.IsNaN(deltaUT) || double.IsInfinity(deltaUT) || deltaUT <= 0.0)
                 return 0.0;
-            orbitalSpeed = System.Math.Abs(orbitalSpeed);
-            double dt = UnityUnscaledDeltaTime();
-            double warpRate = UnityWarpRate();
-            return orbitalSpeed * dt * warpRate;
+            double maxSpeed = MapRenderTrace.ComputeMaxOrbitalSpeedMeters(
+                driver.orbit.semiMajorAxis, driver.orbit.eccentricity, body.gravParameter,
+                driver.orbit.orbitalSpeed);
+            if (double.IsNaN(maxSpeed) || double.IsInfinity(maxSpeed))
+                return 0.0;
+            return maxSpeed * deltaUT;
         }
 
         private bool PassesJumpRateLimit(uint pid, double realtime)
