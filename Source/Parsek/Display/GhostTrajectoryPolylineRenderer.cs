@@ -131,6 +131,16 @@ namespace Parsek.Display
         // Reusable scratch for the set diffs (allocated once; populated only when tracing is enabled).
         private static readonly List<string> diffAppearedScratch = new List<string>();
         private static readonly List<string> diffDisappearedScratch = new List<string>();
+        // Per-(surface, recordingId, event) wall-clock floor for the PolylineLegChange appear/disappear EVENT.
+        // The draw-set CAN oscillate drawn<->not-drawn every frame at high warp (the documented warp-reseed-lag
+        // line-blink), which would otherwise re-emit an appear+disappear pair to Info every frame - per-frame
+        // spam, and worst of all on exactly the bug a maintainer enables the tracer to debug. The floor
+        // collapses a sustained oscillation to onset + a ~1/s heartbeat per event; a stable appear/disappear
+        // still emits immediately (its key's floor is long expired). Keyed by wall-clock (warp-stable, the
+        // #1063 rule); cleared on cross-save flush + capped for warp safety. Only touched when tracing is on.
+        private const double LegChangeEmitMinIntervalSeconds = 1.0;
+        private static readonly Dictionary<string, double> legChangeLastEmitRealtime =
+            new Dictionary<string, double>(StringComparer.Ordinal);
 
         // RecordingId -> per-recording FORWARD-ARC line set (Step 3 C, forward-trajectory-render plan).
         // Holds the sampled Vectrosity VectorLines for the orbit (StockConic) segments AHEAD of the icon up
@@ -493,6 +503,23 @@ namespace Parsek.Display
         private static void EmitPolylineLegChange(
             MapRenderTrace.RenderSurface surface, string recordingId, string ev, double currentUT)
         {
+            // Soft per-(surface, recordingId, event) wall-clock floor so a per-frame oscillating draw-set
+            // (warp-reseed-lag line-blink) collapses to onset + a ~1/s heartbeat instead of flooding Info
+            // every frame; a stable appear/disappear emits immediately (floor long expired). The caller copies
+            // previous:=current regardless, so a throttled transition is simply not re-detected. Only reached
+            // when MapRenderTrace.IsEnabled (caller-gated), so disabled play pays nothing for this.
+            string key = ((int)surface).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + "|" + recordingId + "|" + ev;
+            double now = UnityEngine.Time.realtimeSinceStartup;
+            if (legChangeLastEmitRealtime.TryGetValue(key, out double last)
+                && now - last < LegChangeEmitMinIntervalSeconds)
+                return;
+            // Warp safeguard: bound the dict before inserting a NEW key (recordingIds are stable, so this is
+            // belt-and-braces; clearing only drops other keys' floors, harmless - they re-emit on next change).
+            if (!legChangeLastEmitRealtime.ContainsKey(key) && legChangeLastEmitRealtime.Count >= 4096)
+                legChangeLastEmitRealtime.Clear();
+            legChangeLastEmitRealtime[key] = now;
+
             MapRenderTrace.EmitStructural(
                 "PolylineLegChange", surface, recordingId, currentUT, currentUT,
                 windowSeconds: 0.0,
@@ -987,6 +1014,7 @@ namespace Parsek.Display
             previousDrewNonOrbitalLegRecordings.Clear();
             currentDrewForwardArcRecordings.Clear();
             previousDrewForwardArcRecordings.Clear();
+            legChangeLastEmitRealtime.Clear();
             // Drop the marker hold cache on the same cross-save / test-reset lifecycle as the ownership
             // sets so a stale held on-line point never survives a save load or a scene switch.
             lastGoodOnLine.Clear();

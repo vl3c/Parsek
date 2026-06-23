@@ -243,10 +243,14 @@ line per recording that **appeared** (in new, not previous) and per recording th
 - Pure helper `DiffDrawnSets(prev, cur)` → `(appeared[], disappeared[])`, unit-tested.
 - Read-only: the diff consumes the set the Driver already computed; no draw change.
 - **Lifecycle (review fix):** the `previous*` sets are updated once per `LateUpdate`
-  AFTER the diff (so a churning set at warp does not re-emit every frame), and CLEARED on
-  scene switch / `OnGameStateLoad` alongside the Driver's existing `pendingDraws.Clear()`
-  (`:3315-3320`). The live sets are already `Clear()`-ed every frame, so no 4096-cap is
-  needed here.
+  AFTER the diff and CLEARED on cross-save flush (`Clear()` / `OnGameStateLoad`). The
+  `previous:=current` copy only suppresses RE-DETECTION of a STABLE set (an unchanged set
+  diffs empty) — it does NOT suppress a genuinely oscillating draw-set (the documented
+  warp-reseed-lag line-blink, which toggles drawn↔not-drawn every frame and would re-emit
+  an appear+disappear pair every frame). That churn is throttled separately: `EmitPolylineLegChange`
+  applies a per-`(surface, recordingId, event)` ~1 s wall-clock floor (`legChangeLastEmitRealtime`,
+  4096-capped, cleared on cross-save), so an oscillation collapses to onset + a ~1/s
+  heartbeat per event while a stable appear/disappear still emits immediately.
 
 **B. `LineVisibilityChange` EVENT (proto orbit line + icon) folded into MapRenderTrace.**
 At `GhostOrbitLinePatch.LogOrbitLineDecision` (the single point every line/icon decision
@@ -296,11 +300,14 @@ pid-less case: no proto ghost), and build a FULL `BuildMarkerDecisionSignature` 
 real `MarkerOutcome` (`DrawnNonProto` for the ride; a `Skipped*` outcome for each skip) —
 NOT defaulted args (defaults thrash the signature). Match the TS contract: emit BEFORE
 each `continue`. Pure read-only emit; must not change which markers draw (in-game-validate
-the draw set is identical with tracing on vs off). **Also pull in** the
-boundary-overlap-secondary silent appear/disappear (`ParsekUI.cs:1421`,
-`DrawOneOverlapInstanceMarker` false-return) — it is a single bool-return site on a
-launch-seam debugging surface, so it is cheap to close. The `state == null` skip
-(`:1302`) stays lower-value (a transient race) — address only if trivially clean.
+the draw set is identical with tracing on vs off). The boundary-overlap-secondary marker
+(`ParsekUI.cs:1421`, `DrawOneOverlapInstanceMarker` false-return) is **DEFERRED** (not
+shipped): it has "NO continue" — the recording's MAIN decision still emits for the same
+`recordingId` later in the loop, and `EmitMarkerDecisionOnChange` is keyed by
+`recordingId`, so a secondary emit would thrash the same on-change key as the main
+decision; and the secondary's underlying line is already covered by a
+`PolylineLegChange` / `PolylineForwardArc` EVENT. The `state == null` skip (`:1302`) stays
+lower-value (a transient race) — deferred too.
 
 ### P3 — Flight-scene mesh parity with the map
 
@@ -328,20 +335,29 @@ full re-hide coverage is a larger, separately-validated change.
 
 ## Log schema (new / changed lines)
 
+Representative lines as ACTUALLY emitted (the `MapRenderTrace` prefix is
+`phase= surface= pid= recId= frame= currentUT= effUT=`; for the polyline / marker
+surfaces the `pid=` slot carries the recordingId). The `…` fields elide numeric values:
+
 ```
-phase=PolylineLegChange  surface=Polyline          pid=100037 recId=ab12cd34 event=appear   leg=2 body=Kerbin span=320s owned=true  frame=… currentUT=…
-phase=PolylineLegChange  surface=PolylineForwardArc pid=100037 recId=ab12cd34 event=disappear arc=0 body=Mun frame=… currentUT=…
-phase=LineVisibilityChange surface=ProtoOrbitLine   pid=100037 recId=ab12cd34 lineActive=false drawIcons=NONE iconSuppressed=true reason=polyline-owns-phase bounds=[…]  (IMPORTANT)
-phase=icon-suppressed    surface=ProtoIcon         pid=100037 recId=ab12cd34 iconSuppressed=true prev=false body=Mun
-phase=OrbitRebind        surface=ProtoOrbitLine    pid=100037 recId=ab12cd34 body=Mun sma=… ecc=… loopShift=… prevBody=Kerbin
-phase=MarkerDecision     surface=ImguiLabeledMarker pid=ab12cd34 recId=ab12cd34 outcome=drawn-non-proto ride=… posSource=polyline (ghostless)
-phase=MeshSpawned        surface=Hidden            recId=ab12cd34 ghostIndex=0 worldPos=(…) reason=loop-primary   (GhostRenderTrace, IMPORTANT)
-phase=MeshDestroyed      surface=Hidden            recId=ab12cd34 ghostIndex=0 reason=retire-out-of-window         (GhostRenderTrace, IMPORTANT)
+# MapRenderTrace surfaces (tag [MapRenderTrace]; Info for the IMPORTANT lines, else Verbose)
+phase=PolylineLegChange   surface=Polyline           pid=ab12cd34 recId=ab12cd34 frame=… currentUT=… effUT=… event=appear scene=FLIGHT warp=1x        (IMPORTANT; per-(surface,recId,event) ~1s floor)
+phase=PolylineLegChange   surface=PolylineForwardArc pid=ab12cd34 recId=ab12cd34 frame=… currentUT=… effUT=… event=disappear scene=FLIGHT warp=1x      (IMPORTANT; throttled)
+phase=LineVisibilityChange surface=ProtoOrbitLine    pid=100037 recId=ab12cd34 frame=… currentUT=… effUT=… Orbit line decision: pid=100037 reason=polyline-owns-phase lineActive=False drawIcons=NONE iconSuppressed=True belowAtmosphere=False hasBounds=False currentUT=… bounds=[…] scene=…   (Verbose, on-change)
+phase=icon-suppressed     surface=ProtoIcon          pid=100037 recId=ab12cd34 frame=… currentUT=… effUT=… iconSuppressed=true drawIcons=NONE lineActive=False body=Mun   (Verbose, on-change)
+phase=body-orbit          surface=ProtoOrbitLine     pid=100037 recId=ab12cd34 frame=… currentUT=… effUT=… body=Mun sma=… ecc=… loopShift=… from=[Kerbin] lineActive=False renderer.enabled=True   (Verbose, on-change — the proto rebind)
+phase=MarkerDecision      surface=ImguiLabeledMarker pid=ab12cd34 recId=ab12cd34 frame=… currentUT=… effUT=… rec=3 vessel=… directorTracedPathActive=false polylineOwning=true iconSuppressed=false shouldDrawNonProto=true outcome=drawn-non-proto ride=rode-leg-1 posSource=polyline   (Verbose, on-change; ghostless fallback)
+
+# Flight-scene mesh (tag [GhostRenderTrace]; prefix is phase= rec= recId= ghostIndex= frame= currentUT= playbackUT= — NO surface= field)
+phase=MeshSpawned   rec=ab12cd34 recId=ab12cd34 ghostIndex=0 frame=… currentUT=… playbackUT=… vessel=Munar_Probe reason=ghost-created          (Info)
+phase=MeshDestroyed rec=ab12cd34 recId=ab12cd34 ghostIndex=0 frame=… currentUT=… playbackUT=… vessel=Munar_Probe reason=retire-out-of-window   (Info)
 ```
 
-Tier-A (structural) + IMPORTANT lines → `ParsekLog.Info`; on-change truth / decision →
-`Verbose`. All new lines obey the existing gates and the warp-stable rate-limit-key rule
-(never key a rate-limit on a per-frame-advancing value).
+IMPORTANT lines (`PolylineLegChange`, `GhostCreated`/`GhostDestroyed`, `MeshSpawned`/`MeshDestroyed`,
+anomalies) → `ParsekLog.Info`; on-change truth / decision (`LineVisibilityChange`,
+`icon-suppressed`, `body-orbit`, `MarkerDecision`) → `Verbose`. All new lines obey the
+existing gates and the warp-stable rate-limit-key rule (never key a rate-limit on a
+per-frame-advancing value).
 
 ---
 
@@ -356,11 +372,17 @@ Tier-A (structural) + IMPORTANT lines → `ParsekLog.Info`; on-change truth / de
 - **Log-assertion xUnit**: feed the probe/driver decision sequences and assert each
   `phase=` + `event=` + `recId=` token emits exactly once per transition (and is
   suppressed when unchanged).
-- **In-game** (`InGameTests/RuntimeTests.cs`, where live KSP is needed): flip
-  `mapRenderTracing` on, spawn a ghost whose polyline owns a phase, assert a
-  `PolylineLegChange event=appear` then `event=disappear` is captured; assert
-  `LineVisibilityChange` + `icon-suppressed` fire on the proto surface; restore the
-  setting. Flight-scene `MeshSpawned`/`MeshDestroyed` smoke test under `ghostRenderTracing`.
+- **In-game** (`InGameTests/RuntimeTests.cs`, where live KSP is needed): two TS tests
+  shipped — `MapRenderTrace_ResolvesRecordingIdForLiveGhost` (the live reverse-map that
+  every `recId=` depends on) and `MapRenderTrace_EmitsRenderEventsForLiveGhost` (the
+  emit-WIRING the pure tests cannot reach: with `mapRenderTracing` forced on it tees
+  `ParsekLog` and asserts real `[MapRenderTrace]` EVENT lines carry the ghost's `recId`,
+  and — when the renderer built its OrbitLine — that `phase=LineVisibilityChange` fires,
+  proving the probe + `GhostOrbitLinePatch` call-sites are wired). The polyline
+  `PolylineLegChange` appear/disappear and flight `MeshSpawned`/`MeshDestroyed` call-sites
+  are not driven in-TS (they need a non-orbital leg draw / a flight mesh spawn); their
+  wiring is confirmed at code level by the merge-verification review and left to a future
+  flight-scene in-game test.
 - `dotnet test` green (incl. `GhostRenderTrace` tests after the flight-scene add).
 
 ## Risks
@@ -383,5 +405,9 @@ Tier-A (structural) + IMPORTANT lines → `ParsekLog.Info`; on-change truth / de
 3. P3 (F): **spawn/despawn only this PR**; re-hide / loop-cycle rebind deferred. ✓
 4. `recId` in the prefix for all `MapRenderTrace` lines (`MapRenderTrace`-only; the
    existing substring prefix test survives, add a new `recId=` assertion). ✓
-5. Pull the flight boundary-overlap-secondary silent appear/disappear
-   (`ParsekUI.cs:1421`) into P2.E (cheap, launch-seam surface). ✓
+5. Flight boundary-overlap-secondary marker (`ParsekUI.cs:1421`): **DEFERRED, not
+   shipped** — it shares the `recordingId` on-change key with the recording's main marker
+   decision (which has "NO continue" and still emits), so a secondary emit would thrash
+   that key; its underlying line is already a `PolylineLegChange`/`PolylineForwardArc`
+   EVENT. (The initial plan to pull it into P2.E was reverted after the implementation
+   review surfaced the key-collision.)
