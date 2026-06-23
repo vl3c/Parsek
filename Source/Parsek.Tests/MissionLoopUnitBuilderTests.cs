@@ -890,5 +890,61 @@ namespace Parsek.Tests
                 });
         }
 
+        // --- SelectDeorbitTailLegStartUT (loiter-line regression pin, 2026-06-23) ---
+        //
+        // The C1 icon-engage bound (LoopUnit.FirstDeorbitLegStartUT) must be the deorbit-arc leg ENDING AT
+        // the seam (the renderer's leg 10), NOT the min-startUT leg in the wide (seam+captureShift, seam]
+        // window. The regression: rec 44 (mission "Kerbal X #2") had an earlier Duna approach leg starting
+        // ~51,521 s (about 12.9 parking periods) before the seam; min-startUT picked it, so C1 engaged ~51k s
+        // early and the icon left the parking conic across most of the loiter — killing the parking line
+        // while no deorbit leg had drawn yet. Max-endUT (the seam-terminating leg) is the fix.
+
+        private static Parsek.Display.GhostTrajectoryPolylineRenderer.LegPolyline Leg(string body, double start, double end)
+            => new Parsek.Display.GhostTrajectoryPolylineRenderer.LegPolyline { bodyName = body, startUT = start, endUT = end };
+
+        [Fact]
+        public void SelectDeorbitTailLegStartUT_PicksSeamEndingLeg_NotEarliestApproachLeg()
+        {
+            // The real rec-44 leg set (from log 2026-06-23_1927): the ascent leg on Kerbin, an earlier Duna
+            // approach leg [2570490859, ...] (the regression's bad min-startUT pick), and the deorbit arc
+            // [2570541342, 2570542381] ENDING at the seam (= leg 10, the one the renderer actually rides).
+            const double seam = 2570542380.9910212;
+            var legs = new List<Parsek.Display.GhostTrajectoryPolylineRenderer.LegPolyline>
+            {
+                Leg("Kerbin", 2547277637.2, 2547277750.6),       // ascent — wrong body, ignored
+                Leg("Duna",   2570490859.2804718, 2570500000.0), // earlier approach leg (the bad pick)
+                Leg("Duna",   2570541342.0, 2570542381.0),       // the deorbit arc ENDING at the seam (leg 10)
+            };
+            // Max-endUT <= seam+eps -> the seam-terminating leg's start, NOT the earlier approach leg.
+            Assert.Equal(2570541342.0,
+                MissionLoopUnitBuilder.SelectDeorbitTailLegStartUT(legs, "Duna", seam, 1.0), 3);
+        }
+
+        [Fact]
+        public void SelectDeorbitTailLegStartUT_FiltersBodyAndPostSeamLegs()
+        {
+            const double seam = 1000.0;
+            var legs = new List<Parsek.Display.GhostTrajectoryPolylineRenderer.LegPolyline>
+            {
+                Leg("Duna",   100.0, 1500.0),  // ends AFTER seam+eps -> excluded
+                Leg("Kerbin", 200.0, 1000.0),  // ends at seam but WRONG body -> excluded
+                Leg("Duna",    50.0,  900.0),  // valid: ends below the seam
+                Leg("Duna",   300.0,  999.5),  // valid AND ends closer to the seam -> selected (max endUT)
+            };
+            Assert.Equal(300.0, MissionLoopUnitBuilder.SelectDeorbitTailLegStartUT(legs, "Duna", seam, 1.0), 3);
+        }
+
+        [Fact]
+        public void SelectDeorbitTailLegStartUT_NoMatch_ReturnsNaN()
+        {
+            var none = new List<Parsek.Display.GhostTrajectoryPolylineRenderer.LegPolyline>
+            {
+                Leg("Kerbin", 0.0, 100.0),   // wrong body
+                Leg("Duna",   0.0, 5000.0),  // ends well after seam+eps
+            };
+            Assert.True(double.IsNaN(MissionLoopUnitBuilder.SelectDeorbitTailLegStartUT(none, "Duna", 1000.0, 1.0)));
+            Assert.True(double.IsNaN(MissionLoopUnitBuilder.SelectDeorbitTailLegStartUT(null, "Duna", 1000.0, 1.0)));
+        }
+
     }
 }

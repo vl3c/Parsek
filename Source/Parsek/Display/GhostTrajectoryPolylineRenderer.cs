@@ -519,6 +519,38 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// Test-only seam: injects a single 2-point polyline leg into the cache so the marker-ride fallback
+        /// gate (<see cref="ResolveUndrawnLegFallback"/> inside
+        /// <see cref="TryAnchorMarkerToPolyline(string,double,out Vector3,out MapRenderTrace.MarkerRideReason,out int)"/>)
+        /// can be exercised end-to-end from an in-game test (the ride itself needs Unity's
+        /// <c>Time.frameCount</c> / <c>ScaledSpace</c>, so this cannot run in xUnit). The leg spans
+        /// <paramref name="startUT"/>..<paramref name="endUT"/> with the given conic-anchor state and
+        /// last-drawn frame; pass <paramref name="lastDrawnFrame"/> != the current frame to model the
+        /// "leg not drawn this frame" branch. Cleared by <see cref="Clear"/>.
+        /// </summary>
+        internal static void SetLegForTesting(
+            string recordingId, double startUT, double endUT, bool wasAnchored, int lastDrawnFrame)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            var leg = new LegPolyline
+            {
+                lats = new double[] { 0.0, 0.0 },
+                lons = new double[] { 0.0, 0.0 },
+                alts = new double[] { 0.0, 0.0 },
+                recordedUTs = new double[] { startUT, endUT },
+                scratchScaledSpace = new Vector3[] { Vector3.zero, Vector3.one },
+                bodyName = null,
+                startUT = startUT,
+                endUT = endUT,
+                vectorLine = null,
+                lastDrawnFrame = lastDrawnFrame,
+                wasAnchored = wasAnchored,
+                lineMode = 0,
+            };
+            polylineCache[recordingId] = new LegPolylineSet { legs = new[] { leg }, contentHash = 0 };
+        }
+
+        /// <summary>
         /// Test-only accessor: returns the live cache dictionary so the
         /// xUnit suite can assert on cache contents after a refresh.
         /// </summary>
@@ -671,6 +703,19 @@ namespace Parsek.Display
             /// never hides a line on its own.
             /// </summary>
             public int lastDrawnFrame;
+
+            /// <summary>
+            /// Whether the LAST draw of this leg rotated its <see cref="scratchScaledSpace"/> onto the
+            /// bracketing conic seam (<see cref="TryAnchorLegToConicSeam"/> returned true). Stamped every
+            /// draw in <c>TryDrawLeg</c> and persisted via the same struct write-back as
+            /// <see cref="lastDrawnFrame"/>. The marker-ride fallback reads it: a conic-anchored leg's drawn
+            /// line sits ~96 deg off the body-fixed head under the loop shift, so when the leg is not drawn
+            /// this frame the marker must HOLD its last on-line position to stay on the line; a NON-anchored
+            /// body-fixed leg (descent / atmospheric / surface) draws the raw body-fixed points, so the
+            /// caller's fresh body-fixed head is already on the line and current and is preferred over a
+            /// stale hold. See <see cref="ResolveUndrawnLegFallback"/>.
+            /// </summary>
+            public bool wasAnchored;
 
             /// <summary>
             /// Map-line mode (0=unbuilt, 1=3D Draw3D, 2=2D Draw) <see cref="vectorLine"/> was last built
@@ -1984,6 +2029,41 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// What a marker riding the polyline should do when the leg whose head-UT span it covers was NOT
+        /// drawn this frame (its <see cref="LegPolyline.scratchScaledSpace"/> is stale).
+        /// </summary>
+        internal enum UndrawnLegFallback : byte
+        {
+            /// <summary>
+            /// Hold the last on-line position (the conic-anchored leg's drawn line is rotated off the
+            /// body-fixed head, so the caller's body-fixed fallback would land off the line).
+            /// </summary>
+            HoldLastGoodOnLine = 0,
+
+            /// <summary>
+            /// Let the caller keep its fresh body-fixed head (a non-anchored body-fixed leg draws the raw
+            /// body-fixed points, so the head is already on the line AND current - no stale hold needed).
+            /// </summary>
+            UseFreshBodyFixedHead = 1,
+        }
+
+        /// <summary>
+        /// PURE decision (descent-icon visibility): for a leg covering the marker's head UT that was NOT
+        /// drawn this frame, should the marker hold its last on-line position or fall through to the
+        /// caller's fresh body-fixed head? A CONIC-ANCHORED leg's drawn line is rotated ~96 deg off the
+        /// body-fixed head under the loop shift, so the body-fixed fallback would jump off the line -> HOLD.
+        /// A NON-anchored body-fixed leg (descent / atmospheric / surface) draws the raw body-fixed points,
+        /// so the caller's fresh body-fixed head is the SAME on-line point but current -> USE it (a
+        /// &lt;=5 s-stale hold would only lag the moving descent at warp / on the IMGUI Layout-pass dropout).
+        /// This decouples the descent marker's presence from whether the polyline leg happened to be redrawn
+        /// THIS frame, without moving the icon off the line. xUnit-testable without Unity.
+        /// </summary>
+        internal static UndrawnLegFallback ResolveUndrawnLegFallback(bool legWasConicAnchored)
+            => legWasConicAnchored
+                ? UndrawnLegFallback.HoldLastGoodOnLine
+                : UndrawnLegFallback.UseFreshBodyFixedHead;
+
+        /// <summary>
         /// Rides the polyline with a labeled marker (icon + label): returns the world position ON the
         /// drawn polyline at <paramref name="headUT"/> (recorded frame), so the marker sits exactly on the
         /// corrected burn line instead of the body-fixed head (~96 deg off under the loop shift). It
@@ -2038,17 +2118,27 @@ namespace Parsek.Display
                 }
                 if (leg.lastDrawnFrame != frame)
                 {
-                    // TRANSIENT dropout (the dominant active-pan case): the leg matched the head but was
-                    // not drawn this frame, so its scratch is stale. Instead of snapping to the body-fixed
-                    // head, hold the last on-line position if it is still fresh + near in UT. This keeps the
-                    // marker glued to the smoothly-redrawn line during a pan; a sustained stall expires the
-                    // hold (frame-age / UT bound) and falls through.
-                    if (TryHoldLastGood(recordingId, headUT, frame, out worldPos, out legIndex))
+                    // The leg matched the head but was not drawn this frame, so its scratch is stale.
+                    // ResolveUndrawnLegFallback decides what to do by the leg's anchor state:
+                    //  - CONIC-ANCHORED leg: the drawn line is rotated ~96 deg off the body-fixed head, so
+                    //    snapping the caller to the body-fixed head would jump it off the line. Hold the last
+                    //    on-line position if it is still fresh + near in UT (the dominant active-pan case);
+                    //    a sustained stall expires the hold (frame-age / UT bound) and falls through to false.
+                    //  - NON-anchored body-fixed leg (descent / atmospheric / surface): the drawn line IS the
+                    //    raw body-fixed points, so the caller's fresh body-fixed head is already on the line
+                    //    AND current. Return false WITHOUT a hold so the caller keeps that fresh head - the
+                    //    descent-icon decouple: a stale hold would only lag the moving descent at warp / on
+                    //    the IMGUI Layout-pass dropout. (TryHoldLastGood is skipped entirely, so the marker is
+                    //    never pinned to a <=5 s-old position for a body-fixed descent leg.)
+                    if (ResolveUndrawnLegFallback(leg.wasAnchored) == UndrawnLegFallback.HoldLastGoodOnLine
+                        && TryHoldLastGood(recordingId, headUT, frame, out worldPos, out legIndex))
                     {
                         rideReason = MapRenderTrace.MarkerRideReason.HeldLastGood;
                         return true;
                     }
-                    rideReason = MapRenderTrace.MarkerRideReason.FallbackLegNotDrawnThisFrame;
+                    rideReason = leg.wasAnchored
+                        ? MapRenderTrace.MarkerRideReason.FallbackLegNotDrawnThisFrame
+                        : MapRenderTrace.MarkerRideReason.FallbackNonAnchoredUseHead;
                     return false;
                 }
 
@@ -2863,6 +2953,11 @@ namespace Parsek.Display
             // ~96 deg off under the loop shift. No-op for legs not bracketed both sides (launch
             // ascent / descent-to-surface) and where body-fixed already matches the conic.
             bool anchored = TryAnchorLegToConicSeam(rec, leg, body, scaledXform);
+            // Persist this draw's anchor outcome so the marker-ride fallback knows whether the drawn line
+            // is conic-rotated off the body-fixed head (hold the last on-line point) or is the raw
+            // body-fixed points (the caller's fresh body-fixed head is already on the line). Written back
+            // into the cached leg via the same struct write-back as lastDrawnFrame below.
+            leg.wasAnchored = anchored;
 
             // RUN-LEG body-fixed hide (playtest-5 rule, 2026-06-09): a persistent run leg (icon NOT on
             // it, requireConicAnchor=true) that could not be anchored to the inertial conic seam would

@@ -2382,6 +2382,37 @@ namespace Parsek
                 }
             }
 
+            // Transfer-member loiter-gap clamp (the rogue-descent fix; the engine side of the
+            // ResolveTrackingStationSampleUT clamp): the NON-descent destination transfer member's raw span clock
+            // sweeps PAST the parking conic into the recorded deorbit -> descent arc while the LIVE descent trigger
+            // is still ~|captureShift| away, so without this the engine drives the 3D ghost (and its projected map
+            // mesh / non-proto marker) DOWN the recorded descent at the wrong time - the user's "rogue descending
+            // trajectory". Hold the ghost on the parking conic by clamping the drive clock to the parking-conic end
+            // through the loiter (matching the map-presence segment-lookup clamp + the orbit-line hold + the
+            // marker/line/polyline resolver clamp); this also keeps the loop clock short of EndOfData, so the mesh
+            // stays positioned and the map marker rides source=mesh on the parking conic instead of falling back to
+            // the descending trajectory head. No-op (byte-identical) for descent members / ride-alongs / non-re-aim
+            // units (IsDescentTransferMemberInLoiterGap false) and gated on decision==Render (a hidden member's
+            // span clock is unused downstream). (Step 2: ClampTransferMemberHeadToLoiterGap WRAPS the head into the
+            // last recorded parking period [P - LoiterPeriodSeconds, P) so the ghost CIRCLES the closed parking
+            // conic through the wait instead of freezing at the deorbit point - continuous at engage and wrap-around.)
+            if (!descentMember
+                && decision == GhostPlaybackLogic.UnitMemberRenderDecision.Render)
+            {
+                bool wrapEngaged = GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(unit, i, spanLoopUT);
+                spanLoopUT = GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(unit, i, spanLoopUT);
+                if (wrapEngaged)
+                {
+                    var lwdic = System.Globalization.CultureInfo.InvariantCulture;
+                    ParsekLog.VerboseRateLimited("ReaimDescent", "loiter-wrap-" + i.ToString(lwdic),
+                        "loiter-circle member=" + i.ToString(lwdic) + " head wrapped to " +
+                        spanLoopUT.ToString("R", lwdic) + " within Tpark=" +
+                        unit.LoiterPeriodSeconds.ToString("R", lwdic) +
+                        " (parking conic circling, parkingConicEnd=" +
+                        unit.ParkingConicEndUT.ToString("R", lwdic) + ")", 5.0);
+                }
+            }
+
             // BOUNDARY-OVERLAP secondary decision (docs/dev/plan-launch-boundary-overlap.md 3.1/3.2),
             // HOISTED above the (3) hide/destroy block (review H2). Resolve whether this member carries a
             // live boundary-overlap secondary (the early-launching NEXT instance N+1) BEFORE the primary's

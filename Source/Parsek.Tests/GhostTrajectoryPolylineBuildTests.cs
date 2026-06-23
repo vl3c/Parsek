@@ -2916,5 +2916,32 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "A" }, appeared);
             Assert.Empty(disappeared);
         }
+
+        // --- Descent-icon decouple: ResolveUndrawnLegFallback (pure marker-ride fallback decision) ---
+        // When the leg covering the marker's head UT was NOT drawn this frame, a CONIC-ANCHORED leg's
+        // drawn line is ~96 deg off the body-fixed head, so the marker must HOLD its last on-line position;
+        // a NON-anchored body-fixed leg (descent / atmospheric / surface) draws the raw body-fixed points,
+        // so the caller's fresh body-fixed head is already on the line and is preferred (no stale hold).
+        // The Unity-coupled wiring (wasAnchored stamped in TryDrawLeg, read in TryAnchorMarkerToPolyline)
+        // is covered by the in-game test (project rule: Unity-coupled -> in-game).
+
+        [Fact]
+        public void UndrawnAnchoredLeg_HoldsLastGoodOnLine()
+        {
+            Assert.Equal(
+                GhostTrajectoryPolylineRenderer.UndrawnLegFallback.HoldLastGoodOnLine,
+                GhostTrajectoryPolylineRenderer.ResolveUndrawnLegFallback(legWasConicAnchored: true));
+        }
+
+        [Fact]
+        public void UndrawnNonAnchoredLeg_UsesFreshBodyFixedHead()
+        {
+            // The descent case: a body-fixed surface/atmospheric leg that was not redrawn this frame must
+            // fall through to the caller's fresh body-fixed head, NOT a <=5 s-stale hold, so the icon stays
+            // current and on the line at warp / on the IMGUI Layout-pass dropout.
+            Assert.Equal(
+                GhostTrajectoryPolylineRenderer.UndrawnLegFallback.UseFreshBodyFixedHead,
+                GhostTrajectoryPolylineRenderer.ResolveUndrawnLegFallback(legWasConicAnchored: false));
+        }
     }
 }

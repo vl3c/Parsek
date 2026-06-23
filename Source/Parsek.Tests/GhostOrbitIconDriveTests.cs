@@ -89,7 +89,7 @@ namespace Parsek.Tests
             // recorded-clock effUT = liveUT - shift (here 1000 - 600 = 400), NOT clamped.
             var d = GhostOrbitIconDrivePatch.ResolveIconDriveDecision(
                 liveUT: 1000.0, startUTShifted: 950.0, endUTShifted: 1050.0, shift: 600.0,
-                onArc: true);
+                onArc: true, loiterCircleActive: false, loiterCircleEffUT: double.NaN);
             Assert.False(d.Suppressed);
             Assert.Equal("on-arc-drive", d.Reason);
             Assert.Equal(400.0, d.DriveUT);
@@ -101,7 +101,7 @@ namespace Parsek.Tests
             // Non-loop ghost: drive UT == live UT (byte-identical to stock live propagation).
             var d = GhostOrbitIconDrivePatch.ResolveIconDriveDecision(
                 liveUT: 500.0, startUTShifted: 400.0, endUTShifted: 600.0, shift: 0.0,
-                onArc: true);
+                onArc: true, loiterCircleActive: false, loiterCircleEffUT: double.NaN);
             Assert.False(d.Suppressed);
             Assert.Equal("on-arc-drive", d.Reason);
             Assert.Equal(500.0, d.DriveUT);
@@ -115,7 +115,7 @@ namespace Parsek.Tests
             // liveUT past the shifted window => clamp to the recorded end (endUTShifted - shift).
             var d = GhostOrbitIconDrivePatch.ResolveIconDriveDecision(
                 liveUT: 1100.0, startUTShifted: 950.0, endUTShifted: 1050.0, shift: 600.0,
-                onArc: true);
+                onArc: true, loiterCircleActive: false, loiterCircleEffUT: double.NaN);
             Assert.True(d.Suppressed);
             Assert.Equal("past-window", d.Reason);
             Assert.Equal(450.0, d.DriveUT); // 1050 - 600
@@ -126,7 +126,7 @@ namespace Parsek.Tests
         {
             var d = GhostOrbitIconDrivePatch.ResolveIconDriveDecision(
                 liveUT: 900.0, startUTShifted: 950.0, endUTShifted: 1050.0, shift: 600.0,
-                onArc: true);
+                onArc: true, loiterCircleActive: false, loiterCircleEffUT: double.NaN);
             Assert.True(d.Suppressed);
             Assert.Equal("before-window", d.Reason);
             Assert.Equal(350.0, d.DriveUT); // 950 - 600
@@ -138,7 +138,7 @@ namespace Parsek.Tests
             // Past-window is checked before the on-arc branch, so onArc is irrelevant there.
             var d = GhostOrbitIconDrivePatch.ResolveIconDriveDecision(
                 liveUT: 1100.0, startUTShifted: 950.0, endUTShifted: 1050.0, shift: 0.0,
-                onArc: false);
+                onArc: false, loiterCircleActive: false, loiterCircleEffUT: double.NaN);
             Assert.True(d.Suppressed);
             Assert.Equal("past-window", d.Reason);
             Assert.Equal(1050.0, d.DriveUT);
@@ -154,7 +154,7 @@ namespace Parsek.Tests
             // clamp from the Orbit; the icon is suppressed for the custom-icon handoff.
             var d = GhostOrbitIconDrivePatch.ResolveIconDriveDecision(
                 liveUT: 1000.0, startUTShifted: 950.0, endUTShifted: 1050.0, shift: 600.0,
-                onArc: false);
+                onArc: false, loiterCircleActive: false, loiterCircleEffUT: double.NaN);
             Assert.True(d.Suppressed);
             Assert.Equal("off-arc", d.Reason);
             Assert.True(double.IsNaN(d.DriveUT));
@@ -167,7 +167,7 @@ namespace Parsek.Tests
         {
             var d = GhostOrbitIconDrivePatch.ResolveIconDriveDecision(
                 liveUT: 1050.0, startUTShifted: 950.0, endUTShifted: 1050.0, shift: 600.0,
-                onArc: true);
+                onArc: true, loiterCircleActive: false, loiterCircleEffUT: double.NaN);
             Assert.False(d.Suppressed);
             Assert.Equal("on-arc-drive", d.Reason);
             Assert.Equal(450.0, d.DriveUT);
@@ -178,7 +178,7 @@ namespace Parsek.Tests
         {
             var d = GhostOrbitIconDrivePatch.ResolveIconDriveDecision(
                 liveUT: 950.0, startUTShifted: 950.0, endUTShifted: 1050.0, shift: 600.0,
-                onArc: true);
+                onArc: true, loiterCircleActive: false, loiterCircleEffUT: double.NaN);
             Assert.False(d.Suppressed);
             Assert.Equal("on-arc-drive", d.Reason);
             Assert.Equal(350.0, d.DriveUT);
@@ -197,7 +197,8 @@ namespace Parsek.Tests
             const double liveUT = 1000.0;
 
             var icon = GhostOrbitIconDrivePatch.ResolveIconDriveDecision(
-                liveUT, startUTShifted, endUTShifted, shift, onArc: true);
+                liveUT, startUTShifted, endUTShifted, shift, onArc: true,
+                loiterCircleActive: false, loiterCircleEffUT: double.NaN);
 
             double arcStartRaw = GhostMapPresence.MapLiveUTToEffUT(startUTShifted, shift);
             double arcEndRaw = GhostMapPresence.MapLiveUTToEffUT(endUTShifted, shift);

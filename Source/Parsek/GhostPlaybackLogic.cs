@@ -6843,7 +6843,8 @@ namespace Parsek
                 double loiterPeriodSeconds = double.NaN,
                 double captureShiftSeconds = double.NaN,
                 double parkingConicEndUT = double.NaN,
-                int transferMemberIndex = -1)
+                int transferMemberIndex = -1,
+                double firstDeorbitLegStartUT = double.NaN)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6872,6 +6873,7 @@ namespace Parsek
                 CaptureShiftSeconds = captureShiftSeconds;
                 ParkingConicEndUT = parkingConicEndUT;
                 TransferMemberIndex = transferMemberIndex;
+                FirstDeorbitLegStartUT = firstDeorbitLegStartUT;
             }
 
             /// <summary>
@@ -7126,6 +7128,21 @@ namespace Parsek
             /// non-descent-trigger unit.
             /// </summary>
             internal int TransferMemberIndex { get; }
+
+            /// <summary>
+            /// The recorded UT (UNSHIFTED, same frame as <see cref="RecordedDeorbitUT"/>) of the FIRST
+            /// deorbit-arc polyline leg the map renderer draws for the transfer member — i.e. the startUT of
+            /// the first non-orbital descent leg <c>GhostTrajectoryPolylineRenderer.BuildLegsForRecording</c>
+            /// emits for this member whose recorded window is the post-shifted-conic deorbit tail
+            /// (leg.endUT in (seam + captureShift, seam + 1s]). The C1 icon-ride gate
+            /// (<see cref="TryResolveTransferDeorbitIconHead"/>) engages only once the re-anchored deorbit head
+            /// reaches this UT, so the parking conic keeps rendering until — and the proto retires exactly
+            /// when — that leg first draws (zero loiter-orbit gap, no double-draw). Computed at build time by
+            /// calling the SAME leg builder the Driver calls, so it equals the renderer's leg.startUT to the
+            /// UT. NaN when the descent trigger is not engaged or no deorbit leg was found; the gate then
+            /// falls back to the legacy triggerUT − LoiterPeriodSeconds heuristic (byte-identical-off).
+            /// </summary>
+            internal double FirstDeorbitLegStartUT { get; }
 
             /// <summary>True only when this unit carries a fully-resolved descent trigger (a re-aim looped
             /// arrival with a non-empty descent member set, an early arrival, and valid periods).</summary>
@@ -8501,22 +8518,55 @@ namespace Parsek
                     return liveUT;
                 }
 
-                // C1 (icon rides the deorbit arc, FIRST ITERATION): during the LAST parking-orbit-period of the
-                // Loiter (the deorbit transition), the transfer member's icon RIDES the re-anchored I1 deorbit
-                // head instead of circling the parking conic - so it descends the recorded deorbit tail from the
-                // parking orbit down to the seam (atmo entry), reaching it exactly at the trigger, where the
-                // atmospheric descent set takes over (continuous). Without this the icon circles the parking
-                // conic to conicEnd then JUMPS straight to atmo entry, skipping the orbit->entry deorbit. Reuses
-                // the I1 deorbit head + LoiterPeriodSeconds (both on the unit); the window is a first heuristic
-                // (the last parking period) to be tuned in-game. Byte-identical for the owner / ride-alongs /
-                // descent members / non-re-aim units (TryResolveTransferDeorbitIconHead returns false for
-                // everything but the destination transfer member). NOTE: needs the deorbit-tail LINE to
-                // draw under the icon during this window (the renderer's I1 head-gated sweep).
+                // C1 (icon rides the deorbit arc): during the LAST parking-orbit-period of the Loiter (the
+                // deorbit transition), the transfer member's icon RIDES the re-anchored I1 deorbit head so it
+                // descends the recorded deorbit tail from the parking orbit down to the seam (atmo entry),
+                // reaching it exactly at the trigger, where the atmospheric descent set takes over (continuous).
+                // Without this the icon circles the parking conic to the deorbit point then JUMPS straight to atmo
+                // entry, skipping the orbit->entry deorbit - leaving the deorbit-arc LINE drawn with NO icon on it
+                // (the captured "no icon on the descent line" bug, log 2026-06-23_0005: rec 44's deorbit-arc leg
+                // 10 drew every loiter frame while its marker rode the far-away loiter head at ~-18 Gm).
+                //
+                // CHECKED BEFORE the loiter-gap clamp (this ORDER is the fix): the clamp's gate
+                // IsDescentTransferMemberInLoiterGap is loopUT > ParkingConicEndUT, which is TRUE for the ENTIRE
+                // loiter, so when the clamp was checked first it returned every frame and C1 was DEAD (never
+                // reached - 0 firings in the log). C1 is strictly self-gated (transfer member + Loiter phase +
+                // liveUT >= triggerUT - LoiterPeriodSeconds, i.e. only the last parking period) and returns false
+                // everywhere else, so the loiter-gap clamp below still owns the rest of the loiter unchanged; C1
+                // only takes over in its own narrow deorbit window. Its head is in the UNSHIFTED recorded frame
+                // (recordedDeorbitUT + (liveUT - triggerUT)), matching the drawn deorbit-tail leg's recorded UT,
+                // so the marker actually anchors to the arc (vs the clamp's captureShift-SHIFTED parking-circle
+                // head, which falls outside every unshifted leg -> ride=fallback-head-outside-legs -> the -18 Gm
+                // body-fixed head). Byte-identical for the owner / ride-alongs / descent members / non-re-aim
+                // units (TryResolveTransferDeorbitIconHead returns false for everything but the destination
+                // transfer member). NOTE: needs the deorbit-tail LINE to draw under the icon during this window
+                // (the renderer's I1 head-gated sweep, confirmed present in the log).
                 if (TryResolveTransferDeorbitIconHead(
                         unit, i, liveUT, memberStartUT, memberEndUT, out double deorbitIconHead))
                 {
                     renderHidden = false;
                     return deorbitIconHead;
+                }
+
+                // Loiter-gap HEAD clamp (the rogue-descent fix): once the recorded loop clock sweeps PAST the
+                // parking-conic end, the raw loopUT return below would put this shared marker / line / polyline
+                // head in the recorded deorbit -> descent region - but the LIVE descent has NOT triggered (the unit
+                // phase is Inert / Loiter, the trigger is ~|captureShift| later), so the ghost renders a descending
+                // icon at the wrong time (the user's "rogue descending trajectory, only icon, no line"). Hold the
+                // head at the parking-conic end so every surface using this resolver stays on the parking conic
+                // through the loiter, matching the map-presence segment-lookup clamp + the orbit-line hold. Gated on
+                // the destination transfer member (IsDescentTransferMemberInLoiterGap checks i == TransferMemberIndex
+                // && loopUT > ParkingConicEndUT). The C1 deorbit ride above already returned for the last parking
+                // period (the deorbit transition), so this clamp owns the loiter EXCEPT that final window.
+                // Byte-identical-off for the owner / ride-alongs / descent set / non-re-aim units. (Step 2:
+                // ClampTransferMemberHeadToLoiterGap WRAPS the head into the last recorded parking period
+                // [P - Tpark, P) so the icon CIRCLES the closed parking conic through the wait instead of freezing
+                // at the deorbit point - continuous at engage and at wrap-around. One wrap formula shared with the
+                // FLIGHT engine drive-clock site.)
+                if (IsDescentTransferMemberInLoiterGap(unit, i, loopUT))
+                {
+                    renderHidden = false;
+                    return ClampTransferMemberHeadToLoiterGap(unit, i, loopUT);
                 }
             }
 
@@ -8698,16 +8748,43 @@ namespace Parsek
             if (phase != Parsek.Reaim.DescentTrigger.DescentHeadPhase.Loiter)
                 return false; // the icon only descends the deorbit tail during the loiter's run-up to the trigger
 
-            // The deorbit window = the last parking-orbit-period before the trigger (a first heuristic).
+            // Engage C1 only once the re-anchored deorbit head reaches the RENDERER's deorbit-arc leg start
+            // (FirstDeorbitLegStartUT, UNSHIFTED). The I1 deorbit head during Loiter is
+            // deorbitHead = RecordedDeorbitUT + (liveUT - triggerUT) (DescentTrigger.TryComputeTransferDeorbitHead).
+            // The renderer draws / the marker rides the first deorbit-tail leg when deorbitHead >= leg.startUT
+            // (ShouldDrawLegAtHeadUT), i.e. liveUT >= triggerUT + (FirstDeorbitLegStartUT - RecordedDeorbitUT).
+            // Before that the resolver falls through to the loiter-gap clamp (the parking conic renders
+            // normally, no proto retire); at this UT the deorbit line draws the SAME frame and TracedPath
+            // takes over => continuous handoff, no loiter-orbit gap, no double-draw. FirstDeorbitLegStartUT
+            // <= seam = RecordedDeorbitUT, so the offset is <= 0 and C1 still engages DURING Loiter
+            // (liveUT < triggerUT). NaN/degenerate -> the legacy triggerUT - LoiterPeriodSeconds heuristic
+            // (byte-identical-off). FirstDeorbitLegStartUT is computed in the builder by calling the SAME leg
+            // builder the Driver calls, so this engage UT coincides with the leg-draw frame to the UT.
             Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
                 unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT, unit.RecordedDeorbitUT,
                 unit.DestinationBodyRotationPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
                 out _, out _, out double triggerUT);
-            if (double.IsNaN(triggerUT)
-                || double.IsNaN(unit.LoiterPeriodSeconds) || unit.LoiterPeriodSeconds <= 0.0)
+            if (double.IsNaN(triggerUT))
                 return false;
-            if (liveUT < triggerUT - unit.LoiterPeriodSeconds)
-                return false; // not yet in the deorbit transition — keep circling the parking conic
+
+            double iconEngageUT;
+            if (!double.IsNaN(unit.FirstDeorbitLegStartUT)
+                && !double.IsInfinity(unit.FirstDeorbitLegStartUT)
+                && !double.IsNaN(unit.RecordedDeorbitUT))
+            {
+                // deorbitHead >= leg.startUT  <=>  liveUT >= triggerUT + (legStart - seam)
+                iconEngageUT = triggerUT + (unit.FirstDeorbitLegStartUT - unit.RecordedDeorbitUT);
+            }
+            else if (!double.IsNaN(unit.LoiterPeriodSeconds) && unit.LoiterPeriodSeconds > 0.0)
+            {
+                iconEngageUT = triggerUT - unit.LoiterPeriodSeconds; // legacy heuristic fallback
+            }
+            else
+            {
+                return false; // degenerate loiter period AND no leg start -> identical to today's return
+            }
+            if (liveUT < iconEngageUT)
+                return false; // not yet at the deorbit-arc leg start — keep circling the parking conic
 
             return Parsek.Reaim.DescentTrigger.TryComputeTransferDeorbitHead(
                 liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
@@ -8891,6 +8968,46 @@ namespace Parsek
             if (units == null || !units.TryGetUnitForMember(i, out LoopUnit unit))
                 return false;
             return IsDescentTransferMemberInLoiterGap(unit, i, loopUT);
+        }
+
+        /// <summary>
+        /// Loiter-gap HEAD wrap (the rogue-descent fix, step 2): for the destination transfer member
+        /// (<see cref="LoopUnit.TransferMemberIndex"/>) of a re-aim descent-trigger unit, once the recorded loop
+        /// clock <paramref name="head"/> has swept PAST the parking-conic end
+        /// (<see cref="IsDescentTransferMemberInLoiterGap(LoopUnit,int,double)"/>), WRAP the head backward into the
+        /// last recorded parking period <c>[P - Tpark, P)</c> (<c>P = <see cref="LoopUnit.ParkingConicEndUT"/></c>,
+        /// <c>Tpark = <see cref="LoopUnit.LoiterPeriodSeconds"/></c>) so every head-driven render surface (the FLIGHT
+        /// engine ghost + its projected map mesh, the map marker / line / polyline) keeps CIRCLING the closed parking
+        /// conic through the loiter hold instead of freezing at the deorbit point (step 1) or playing the recorded
+        /// deorbit -&gt; descent at the wrong time (the LIVE descent has not triggered yet). Continuous at engage
+        /// (<c>head = P</c> wraps to <c>P - Tpark</c>, the same orbital point one parking revolution earlier on the
+        /// closed orbit) and at wrap-around (<c>P-</c> ≡ <c>P - Tpark</c>), and stays inside the recorded parking
+        /// segment. If <c>Tpark</c> is NaN or non-positive the wrap is undefined, so it falls back to the step-1
+        /// fixed clamp (<c>return P</c>). Returns <paramref name="head"/> unchanged for every other member / phase /
+        /// non-re-aim unit (byte-identical-off). Pure; no Unity (xUnit-testable). The map/TS resolver
+        /// (<see cref="ResolveTrackingStationSampleUT"/>) calls this same helper inline (it needs the
+        /// <c>renderHidden</c> out-param too) so there is ONE wrap formula; the FLIGHT engine drive-clock site calls
+        /// it directly.
+        /// </summary>
+        internal static double ClampTransferMemberHeadToLoiterGap(LoopUnit unit, int i, double head)
+        {
+            if (!IsDescentTransferMemberInLoiterGap(unit, i, head))
+                return head;
+
+            double parkingConicEnd = unit.ParkingConicEndUT;
+            double tpark = unit.LoiterPeriodSeconds;
+
+            // Tpark degenerate -> fall back to the step-1 fixed clamp (freeze at the deorbit point).
+            if (double.IsNaN(tpark) || tpark <= 0.0)
+                return parkingConicEnd;
+
+            // Wrap the head backward into the last recorded parking period [P - Tpark, P) so the icon CIRCLES the
+            // closed parking conic during the loiter hold instead of freezing at the deorbit point. Continuous at
+            // engage (head=P -> P-Tpark, same orbital point one rev earlier) and at wrap-around (P- ≡ P-Tpark on a
+            // closed orbit). Stays inside the recorded parking segment.
+            double phase = (head - parkingConicEnd) % tpark; // head > P here, so phase in [0, Tpark)
+            if (phase < 0.0) phase += tpark;                  // defensive (head > P makes this unreachable)
+            return parkingConicEnd - tpark + phase;
         }
 
         /// <summary>
