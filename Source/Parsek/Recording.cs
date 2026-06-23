@@ -157,7 +157,7 @@ namespace Parsek
         [NonSerialized] private Recording cachedPreReFlyAnchorRecording;
 
         // Atmosphere segment metadata
-        public string SegmentPhase;      // "atmo", "exo", or "approach" (null = untagged/legacy)
+        public string SegmentPhase;      // "atmo", "exo", "approach", or "surface" (null = untagged/legacy)
         public string SegmentBodyName;   // body name at split point (e.g., "Kerbin", "Duna")
 
         // Location context (Phase 10) — body, biome, situation at recording start and end
@@ -1198,9 +1198,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if this recording is "logically loopable" — a launch, atmospheric
-        /// descent, surface departure, or docking segment whose loop replay has visual value.
-        /// Used by the timeline L button to decide which entries get a loop toggle.
+        /// Returns true if this recording is "logically loopable" — meaning it is
+        /// actually viewable by the player as a flying ghost: a launch, atmospheric
+        /// descent, airless-body approach, surface departure/landing, a docking
+        /// segment, or a valid relative track (an orbital rendezvous / flyby
+        /// approaching a base or station). Recordings that are only a pure orbital
+        /// coast (a map line, with no watchable flying phase) return false. Used by
+        /// the Recordings table to decide which rows get a loop toggle + period cell
+        /// (see <c>RecordingsTableUI.ShouldSuppressRowLoopUi</c> and the loop
+        /// aggregate / bulk-write helpers, which exclude non-loopable rows the same
+        /// way they exclude debris).
         /// </summary>
         internal static bool IsLoopableRecording(Recording rec)
         {
@@ -1215,16 +1222,55 @@ namespace Parsek
             if (rec.StartSituation == "Prelaunch")
                 return true;
 
-            // Atmospheric entry/exit or high-altitude approach
+            // Atmospheric entry/exit, airless-body approach, or surface departure/landing
             if (rec.SegmentPhase == "atmo" || rec.SegmentPhase == "approach" || rec.SegmentPhase == "surface")
                 return true;
 
             // Actual docking segments record the other vessel's PID at the boundary.
             // A plain Docked terminal state is too broad: some recordings simply stay
-            // docked in orbit and should not get the timeline loop toggle.
+            // docked in orbit and should not get the loop toggle.
             if (rec.DockTargetVesselPid != 0)
                 return true;
 
+            // A valid relative track toward a separately-recorded anchor — e.g. an
+            // orbital rendezvous or flyby approaching a base or station that never
+            // ends in a hard dock (so DockTargetVesselPid stays 0). Parent-anchored
+            // children and debris also carry RELATIVE sections, but those track their
+            // own parent rather than an independent base/station; they are excluded
+            // here (debris returns false above, and a controlled child that actually
+            // lands is already covered by its surface/approach/atmo phase).
+            if (rec.ParentAnchorRecordingId == null && HasViewableRelativeTrack(rec))
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns true if this recording carries at least one RELATIVE TrackSection
+        /// with a resolvable anchor (a recorded anchor trajectory, a live anchor
+        /// vessel, or a loop anchor). Such a section is a watchable approach toward
+        /// the anchor (a base or station); a RELATIVE section with no anchor at all
+        /// cannot be positioned and does not count. Pure/static for testability.
+        /// </summary>
+        internal static bool HasViewableRelativeTrack(Recording rec)
+        {
+            if (rec == null || rec.TrackSections == null)
+                return false;
+
+            // Recording-level loop anchor is invariant across sections, so any
+            // RELATIVE section is renderable when it is set; read it once.
+            bool hasLoopAnchor = rec.LoopAnchorVesselId != 0;
+
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                var s = rec.TrackSections[i];
+                if (s.referenceFrame != ReferenceFrame.Relative)
+                    continue;
+                if (hasLoopAnchor
+                    || !string.IsNullOrEmpty(s.anchorRecordingId)
+                    || s.anchorVesselId != 0)
+                    return true;
+            }
             return false;
         }
 
@@ -1270,14 +1316,14 @@ namespace Parsek
         // Model-layer guard: parent-anchored debris rides its parent's loop
         // clock (GhostPlaybackEngine.TryUpdateLoopSyncedDebris) and never
         // dispatches its own loop. ParsekScenario.OnLoad's
-        // RecordingStore.SanitizeDebrisLoopPlayback already clears any stale
-        // LoopPlayback=true on debris at load, so in practice this expression
-        // collapses to LoopPlayback. The masking stays for defense in depth:
-        // any future path that ever sets LoopPlayback=true on a debris
-        // recording without going through the table UI's BulkSetLoopPlayback
-        // (which skips debris) still surfaces as a false at the engine
-        // boundary, so GhostPlaybackEngine.ShouldLoopPlayback(traj) can
-        // remain debris-naive.
+        // RecordingStore.SanitizeNonLoopableLoopPlayback already clears any
+        // stale LoopPlayback=true on non-loopable recordings (debris and pure
+        // orbital coasts) at load, so in practice this expression collapses to
+        // LoopPlayback. The masking stays for defense in depth: any future path
+        // that ever sets LoopPlayback=true on a debris recording without going
+        // through the table UI's BulkSetLoopPlayback (which skips non-loopable
+        // rows) still surfaces as a false at the engine boundary, so
+        // GhostPlaybackEngine.ShouldLoopPlayback(traj) can remain debris-naive.
         bool IPlaybackTrajectory.LoopPlayback => !IsDebris && LoopPlayback;
         double IPlaybackTrajectory.LoopIntervalSeconds => LoopIntervalSeconds;
         LoopTimeUnit IPlaybackTrajectory.LoopTimeUnit => LoopTimeUnit;

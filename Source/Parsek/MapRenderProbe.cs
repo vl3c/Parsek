@@ -60,6 +60,13 @@ namespace Parsek
         // sits off its line, enough to read the angle without flooding.
         private const double OffOrbitAnomalyMinIntervalSeconds = 1.0;
 
+        // Soft rate-limit on the in-window per-frame full snapshot (phase=Snapshot). A persistent
+        // anomaly keeps the detailed window open continuously, so an un-throttled snapshot floods
+        // the log per-frame for the whole stretch. Sample at ~2 Hz per pid - enough to capture the
+        // motion through a window while collapsing a sustained anomaly from per-frame to ~2/s; the
+        // on-change truth lines still record every transition exactly.
+        private const double SnapshotMinIntervalSeconds = 0.5;
+
         // Per-pid truth state, all cleared on scene change so a stale entry never
         // fires a spurious anomaly across a TS <-> flight transition. The probe
         // tracks last-value strings locally (rather than leaning on ParsekLog's
@@ -81,10 +88,32 @@ namespace Parsek
         private readonly Dictionary<uint, string> lastRendererEnabled = new Dictionary<uint, string>();
         private readonly Dictionary<uint, string> lastDrawIcons = new Dictionary<uint, string>();
         private readonly Dictionary<uint, string> lastBodyOrbit = new Dictionary<uint, string>();
+        // Last-sampled proto-icon suppression truth per pid (ghostsWithSuppressedIcon membership), so the
+        // suppressed<->restored flip emits ONE on-change EVENT (surface=ProtoIcon) carrying recId + the
+        // before->after. The probe already iterates every ghost each frame and reads IsIconSuppressed as an
+        // anomaly guard, so this is a single extra dict read; no new observer. Cleared on scene switch.
+        private readonly Dictionary<uint, string> lastIconSuppressed = new Dictionary<uint, string>();
         // Frame of the last line.active toggle per pid (for the blink predicate).
         private readonly Dictionary<uint, int> lastLineToggleFrame = new Dictionary<uint, int>();
+        // Reference-body name at the last line.active toggle per pid, so the blink predicate can tell a
+        // legitimate cross-segment / SOI-seam toggle pair (line off on one orbit, on on the next body's
+        // orbit) from a true same-geometry flicker. Without this, a Kerbin-escape -> Sun-heliocentric
+        // handoff under high warp compresses two correct toggles below the frame window and reads as a blink.
+        private readonly Dictionary<uint, string> lastLineToggleBody = new Dictionary<uint, string>();
+        // Universal time at the previous sample per pid. The icon-jump expected-motion model uses the ACTUAL
+        // per-frame UT advance (currentUT - prevSampleUT) instead of Time.unscaledDeltaTime *
+        // TimeWarp.CurrentRate, which under-counts the real on-rails warp step by ~20x at high warp and
+        // produced false icon-teleports on short-period / eccentric orbits. Cleared on scene change.
+        private readonly Dictionary<uint, double> prevSampleUT = new Dictionary<uint, double>();
+        // Pids whose proto icon was SUPPRESSED on the PREVIOUS sample. While suppressed the proto is parked
+        // at a clamped endpoint UT and HIDDEN; the first visible frame after suppression lifts re-propagates
+        // it to its live phase, a position delta the user never saw. The teleport + off-orbit checks are
+        // skipped on that one lift frame (mirrors justReset / bodyChanged). Cleared on scene change.
+        private readonly HashSet<uint> suppressedLastSample = new HashSet<uint>();
         // Soft rate-limit timestamps for the per-pid jump anomaly.
         private readonly Dictionary<uint, double> lastJumpEmitRealtime = new Dictionary<uint, double>();
+        // Soft rate-limit timestamps for the per-pid in-window per-frame snapshot.
+        private readonly Dictionary<uint, double> lastSnapshotEmitRealtime = new Dictionary<uint, double>();
         // Soft rate-limit timestamps for the per-pid icon-off-orbit anomaly.
         private readonly Dictionary<uint, double> lastOffOrbitEmitRealtime = new Dictionary<uint, double>();
         // Soft rate-limit timestamps for the per-pid polyline-orbit-overlap anomaly (a PERSISTENT
@@ -153,8 +182,13 @@ namespace Parsek
             lastRendererEnabled.Clear();
             lastDrawIcons.Clear();
             lastBodyOrbit.Clear();
+            lastIconSuppressed.Clear();
             lastLineToggleFrame.Clear();
+            lastLineToggleBody.Clear();
+            prevSampleUT.Clear();
+            suppressedLastSample.Clear();
             lastJumpEmitRealtime.Clear();
+            lastSnapshotEmitRealtime.Clear();
             lastOffOrbitEmitRealtime.Clear();
             lastPolylineOverlapEmitRealtime.Clear();
             firstPositionEmittedPids.Clear();
@@ -216,6 +250,91 @@ namespace Parsek
             // LateUpdate is already IsEnabled-gated; the per-recId soft rate-limit below keeps a
             // persistent unaccounted recording from flooding the log (the condition holds every frame).
             AssertDrawnRecordingsAccounted(currentUT, realtime);
+
+            // --- Descent render-window per-frame FULL map-object snapshot ---
+            // When the polyline Driver (exec-order -50, earlier this frame) published a descent render window
+            // (Loiter = the loiter orbit, Descent = the descent-to-landing), dump EVERY rendered map object this
+            // frame: all active scene orbit lines (the full FlightGlobals.Vessels walk, not just tracked ghosts)
+            // and every live Parsek polyline leg / forward arc (which are NOT in ghostMapVesselPids, so the
+            // per-pid loop above never sees them). Deliberately UN-rate-limited per-frame inside the window so a
+            // stray / extra trajectory line that renders for only a few frames is caught; the window itself
+            // bounds the volume to the loiter + descent phases. No-op every other frame.
+            if (MapRenderTrace.TryGetDescentRenderWindow(
+                    frame, out string descentPhase, out string descentRecId))
+                EmitMapSceneSnapshot(frame, currentUT, descentPhase, descentRecId);
+        }
+
+        // Per-frame full snapshot of every RENDERED map object, gated to the descent render window by the
+        // caller. Two parts: (1) all scene orbit lines whose VectorLine is active (catches an extra orbit
+        // ellipse on any vessel, ghost or not); (2) all live Parsek polyline legs / arcs (the "rendered but not
+        // logged" trajectory lines). One Verbose line each, phase=SceneSnapshot, so a log grep on
+        // "phase=SceneSnapshot" isolates the whole per-frame map state.
+        private void EmitMapSceneSnapshot(int frame, double currentUT, string phase, string recId)
+        {
+            string headerPid = string.IsNullOrEmpty(recId) ? "(none)" : recId;
+            MapRenderTrace.EmitRaw(false, "SceneSnapshot", MapRenderTrace.RenderSurface.Unknown,
+                headerPid, currentUT, currentUT,
+                string.Format(ic,
+                    "descentWindow phase={0} frame={1} -- per-frame full map-object dump (loiter/descent)",
+                    phase, frame));
+
+            // (1) Every scene orbit line that is actually drawn (active). Full FlightGlobals.Vessels walk so a
+            // non-ghost / unexpected orbit ellipse shows up too.
+            int activeOrbitLines = 0, vesselsScanned = 0;
+            var vessels = FlightGlobals.Vessels;
+            if (vessels != null)
+            {
+                for (int vi = 0; vi < vessels.Count; vi++)
+                {
+                    Vessel v = vessels[vi];
+                    if (v == null) continue;
+                    vesselsScanned++;
+                    OrbitRendererBase rb = v.orbitRenderer;
+                    string lineActive = ReadLineActive(rb);
+                    if (lineActive != "True") continue; // only RENDERED orbit lines
+                    activeOrbitLines++;
+
+                    OrbitDriver dr = v.orbitDriver;
+                    string bodyName = "(none)";
+                    double sma = double.NaN, ecc = double.NaN;
+                    if (dr != null && dr.orbit != null)
+                    {
+                        CelestialBody b = dr.orbit.referenceBody;
+                        if (b != null) bodyName = b.bodyName;
+                        sma = dr.orbit.semiMajorAxis;
+                        ecc = dr.orbit.eccentricity;
+                    }
+                    bool isGhost = GhostMapPresence.ghostMapVesselPids != null
+                        && GhostMapPresence.ghostMapVesselPids.Contains(v.persistentId);
+                    MapRenderTrace.EmitRaw(false, "SceneSnapshot",
+                        MapRenderTrace.RenderSurface.ProtoOrbitLine, v.persistentId.ToString(ic),
+                        currentUT, currentUT,
+                        string.Format(ic,
+                            "orbit-line vessel=\"{0}\" pid={1} isGhost={2} lineActive=True renderer.enabled={3} "
+                            + "drawMode={4} drawIcons={5} body={6} sma={7} ecc={8}",
+                            v.GetName(), v.persistentId, isGhost, rb != null && rb.enabled,
+                            rb != null ? rb.drawMode.ToString() : "(no-renderer)",
+                            rb != null ? rb.drawIcons.ToString() : "(no-renderer)", bodyName,
+                            MapRenderTrace.FormatDouble(sma, "F0"), MapRenderTrace.FormatDouble(ecc, "F4")));
+                }
+            }
+
+            // (2) Every live Parsek polyline leg / forward arc this frame.
+            int polylineLines = 0;
+            Parsek.Display.GhostTrajectoryPolylineRenderer.EmitRenderedPolylineSnapshot(
+                frame,
+                line =>
+                {
+                    polylineLines++;
+                    MapRenderTrace.EmitRaw(false, "SceneSnapshot",
+                        MapRenderTrace.RenderSurface.Polyline, headerPid, currentUT, currentUT, line);
+                });
+
+            MapRenderTrace.EmitRaw(false, "SceneSnapshot", MapRenderTrace.RenderSurface.Unknown,
+                headerPid, currentUT, currentUT,
+                string.Format(ic,
+                    "scene-snapshot end: vesselsScanned={0} activeOrbitLines={1} polylineLines={2}",
+                    vesselsScanned, activeOrbitLines, polylineLines));
         }
 
         private void AssertDrawnRecordingsAccounted(double currentUT, double realtime)
@@ -235,7 +354,8 @@ namespace Parsek
                         string.Format(ic,
                             "recId={0} drawnByAutonomousWalk=true protoBearing=false inProtoLessCoverage=false "
                             + "| protoBearingRecs={1} protoLessCoverageRecs={2} drawnRecs={3}",
-                            recId, protoBearingCount, protoLessCoverageCount, drawnCount));
+                            recId, protoBearingCount, protoLessCoverageCount, drawnCount),
+                        recId);
                 });
         }
 
@@ -277,6 +397,26 @@ namespace Parsek
             string lineActive = ReadLineActive(rendererBase);
 
             string pidKey = pid.ToString(ic);
+            // Resolve the recordingId for this ghost once per sample (the reverse map covers chain ghosts)
+            // so every truth / anomaly / suppression / first-position line carries recId= and one grep
+            // reconstructs a recording's whole render history. Null -> recId=<none> (e.g. a transient
+            // pre-registration frame).
+            string recId = GhostMapPresence.FindRecordingIdByVesselPid(pid);
+
+            // --- Tier-B: proto-icon suppression flip (suppressed<->restored) ---
+            // ghostsWithSuppressedIcon membership decides whether the proto icon is the visible indicator or
+            // the non-proto marker is; its flip is the "did the icon hand off to / from the trajectory
+            // marker" event. Emitted on-change (surface=ProtoIcon) carrying recId, BEFORE the field truth
+            // below so the flip reads first in the log.
+            EmitTruthOnChange(lastIconSuppressed, pid,
+                MapRenderTrace.Bool(GhostMapPresence.IsIconSuppressed(pid)),
+                MapRenderTrace.RenderSurface.ProtoIcon, pidKey, currentUT,
+                "icon-suppressed",
+                string.Format(ic,
+                    "iconSuppressed={0} drawIcons={1} lineActive={2} body={3}",
+                    MapRenderTrace.Bool(GhostMapPresence.IsIconSuppressed(pid)),
+                    drawIcons, lineActive, bodyName),
+                recId);
 
             // --- Tier-B change-based truth (one line per field on change) ---
             // First sample for this pid (including the first after a scene-change
@@ -297,21 +437,24 @@ namespace Parsek
                 string.Format(ic,
                     "lineActive={0} renderer.enabled={1} drawMode={2} drawIcons={3} body={4} sma={5} ecc={6}",
                     lineActive, rendererEnabled, drawMode, drawIcons, bodyName,
-                    MapRenderTrace.FormatDouble(sma, "F0"), MapRenderTrace.FormatDouble(ecc, "F4")));
+                    MapRenderTrace.FormatDouble(sma, "F0"), MapRenderTrace.FormatDouble(ecc, "F4")),
+                recId);
 
             EmitTruthOnChange(lastRendererEnabled, pid, rendererEnabled,
                 MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT,
                 "renderer.enabled",
                 string.Format(ic,
                     "renderer.enabled={0} lineActive={1} drawMode={2} body={3}",
-                    rendererEnabled, lineActive, drawMode, bodyName));
+                    rendererEnabled, lineActive, drawMode, bodyName),
+                recId);
 
             EmitTruthOnChange(lastDrawIcons, pid, drawIcons,
                 MapRenderTrace.RenderSurface.ProtoIcon, pidKey, currentUT,
                 "drawIcons",
                 string.Format(ic,
                     "drawIcons={0} lineActive={1} renderer.enabled={2} body={3}",
-                    drawIcons, lineActive, rendererEnabled, bodyName));
+                    drawIcons, lineActive, rendererEnabled, bodyName),
+                recId);
 
             string bodyOrbitKey = bodyName + "|"
                 + MapRenderTrace.FormatDouble(sma, "F0") + "|"
@@ -320,13 +463,20 @@ namespace Parsek
             // teleport line below can name BOTH orbits it jumped between (e.g. loiter -> synthesized
             // burn arc). "(first)" on the very first sample for this pid.
             string fromOrbit = lastBodyOrbit.TryGetValue(pid, out string priorOrbit) ? priorOrbit : "(first)";
+            // body-orbit on-change IS the proto "moves/rebinds" event: a body / sma / ecc change is the
+            // visible re-anchor of the line + icon onto a new orbit. Carry recId + the loop epoch shift so a
+            // looped re-aim rebind reads in one line (the decision-side SegmentApplied with source/segment
+            // index stays a documented second cut).
+            double loopShift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
             EmitTruthOnChange(lastBodyOrbit, pid, bodyOrbitKey,
                 MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT,
                 "body-orbit",
                 string.Format(ic,
-                    "body={0} sma={1} ecc={2} lineActive={3} renderer.enabled={4}",
+                    "body={0} sma={1} ecc={2} loopShift={3} from=[{4}] lineActive={5} renderer.enabled={6}",
                     bodyName, MapRenderTrace.FormatDouble(sma, "F0"),
-                    MapRenderTrace.FormatDouble(ecc, "F4"), lineActive, rendererEnabled));
+                    MapRenderTrace.FormatDouble(ecc, "F4"), MapRenderTrace.FormatDouble(loopShift, "F1"),
+                    fromOrbit, lineActive, rendererEnabled),
+                recId);
 
             // --- Tier-C decision-vs-truth reconciliation (proto orbit-line / icon) ---
             // If GhostOrbitLinePatch recorded an authoritative line/icon decision on THIS frame,
@@ -344,7 +494,8 @@ namespace Parsek
                         MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
                         "decision-vs-truth",
                         string.Format(ic, "{0} intentReason={1} sinceFrames={2}",
-                            mismatch, lineIntent.Reason, frame - lineIntent.Frame));
+                            mismatch, lineIntent.Reason, frame - lineIntent.Frame),
+                        recId);
             }
 
             // --- Tier-C polyline-orbit-overlap anomaly ---
@@ -364,7 +515,8 @@ namespace Parsek
                     "polyline-orbit-overlap",
                     string.Format(ic, "{0} icon-on-orbit sma={1} ecc={2} body={3} drawIcons={4} lineActive={5}",
                         overlap, MapRenderTrace.FormatDouble(sma, "F0"),
-                        MapRenderTrace.FormatDouble(ecc, "F4"), bodyName, drawIcons, lineActive));
+                        MapRenderTrace.FormatDouble(ecc, "F4"), bodyName, drawIcons, lineActive),
+                    recId);
 
             // --- Tier-C new-pipeline reconcile: intent (shadow) vs the OLD path's truth ---
             // If the new render pipeline recorded a GhostRenderIntent for this pid THIS frame
@@ -384,11 +536,18 @@ namespace Parsek
             {
                 int lastToggle;
                 bool hasLastToggle = lastLineToggleFrame.TryGetValue(pid, out lastToggle);
+                // The body at the PREVIOUS toggle: a toggle pair that straddles a reference-body /
+                // segment change (line off on one orbit, on on the next body's orbit) is two legitimate
+                // transitions at an SOI seam, not a same-geometry flicker. lastLineToggleBody holds the
+                // prior toggle's body; differs from the current body => cross-seam => not a blink.
+                bool toggleCrossedBody = lastLineToggleBody.TryGetValue(pid, out string priorToggleBody)
+                    && priorToggleBody != bodyName;
                 if (MapRenderTrace.IsLineBlink(
                         toggled: true,
                         hasLastToggleFrame: hasLastToggle,
                         lastToggleFrame: lastToggle,
-                        currentFrame: frame))
+                        currentFrame: frame,
+                        bodyChanged: toggleCrossedBody))
                 {
                     MapRenderTrace.EmitAnomaly(
                         MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
@@ -398,6 +557,7 @@ namespace Parsek
                             lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName));
                 }
                 lastLineToggleFrame[pid] = frame;
+                lastLineToggleBody[pid] = bodyName;
             }
 
             // --- Tier-A FirstPosition (probe-derived MVP variant) ---
@@ -417,7 +577,8 @@ namespace Parsek
                     currentUT,
                     MapRenderTrace.InitialWindowSeconds,
                     MapRenderTrace.BuildFirstPositionDetails(
-                        worldPos, bodyName, sma, ecc, "first-truth-read"));
+                        worldPos, bodyName, sma, ecc, "first-truth-read"),
+                    recId);
                 firstPositionEmittedPids.Add(pid);
             }
 
@@ -446,22 +607,37 @@ namespace Parsek
                 bool bodyChanged = lastIconJumpBody.TryGetValue(pid, out lastJumpBody)
                     && lastJumpBody != bodyName;
 
+                // Suppression-lift edge: while suppressed the proto is parked at a clamped endpoint UT and
+                // HIDDEN, so the first VISIBLE frame after suppression lifts re-propagates it to its live
+                // phase - a position delta (teleport) and an icon-vs-orbit angle (off-orbit) the user never
+                // saw. Skip both checks on that single lift frame (mirrors justReset / bodyChanged).
+                bool iconSuppressedNow = GhostMapPresence.IsIconSuppressed(pid);
+                bool suppressionLifted = suppressedLastSample.Contains(pid) && !iconSuppressedNow;
+
                 Vector3d prevBodyRel;
                 if (prevBodyRelPos.TryGetValue(pid, out prevBodyRel))
                 {
                     double dPos = (bodyRelPos - prevBodyRel).magnitude;
-                    double expectedMotion = ComputeExpectedMotionMeters(driver, body);
+                    // Real per-frame UT advance for the expected-motion model: the actual on-rails warp
+                    // step, NOT Time.unscaledDeltaTime * CurrentRate (which under-counts it ~20x at high
+                    // warp and false-fired on short-period / eccentric orbits). prevSampleUT always has an
+                    // entry here (the first sample is guarded by justReset), so the lookup hits; 0.0 only
+                    // on the impossible miss, which yields expected=0 -> floor (matching the old degenerate).
+                    double prevUT;
+                    double deltaUT = prevSampleUT.TryGetValue(pid, out prevUT) ? currentUT - prevUT : 0.0;
+                    double expectedMotion = ComputeExpectedMotionMeters(driver, body, deltaUT);
                     if (MapRenderTrace.IsIconJump(
                             dPos: dPos,
                             expectedMotionMeters: expectedMotion,
                             currentFrame: frame,
                             floatingOriginShiftFrame: foShiftFrame,
                             justReset: justReset,
-                            bodyChanged: bodyChanged)
+                            bodyChanged: bodyChanged,
+                            suppressionLifted: suppressionLifted)
                         // Skip a SUPPRESSED icon: its proto position may still jump (stock propagates a
                         // phantom orbit) but it is not DRAWN, so it is not a visible teleport - only flag
                         // teleports the user can actually see (matches the icon-off-orbit guard).
-                        && !GhostMapPresence.IsIconSuppressed(pid)
+                        && !iconSuppressedNow
                         && PassesJumpRateLimit(pid, realtime))
                     {
                         // dPosWorld is the raw world-frame delta, logged only as
@@ -494,7 +670,8 @@ namespace Parsek
                                 MapRenderTrace.FormatDouble(dPosWorld, "F0"),
                                 UnityWarpRate().ToString("F0", ic),
                                 UnityUnscaledDeltaTime().ToString("F4", ic),
-                                MapRenderTrace.FormatVector3d(bodyRelPos)));
+                                MapRenderTrace.FormatVector3d(bodyRelPos)),
+                            recId);
                     }
                 }
                 // --- Tier-C icon-off-orbit anomaly (is the icon ON its own orbit line?) ---
@@ -517,7 +694,11 @@ namespace Parsek
                 // this frame by the drive Prefix + the line Postfix, both before this
                 // order-10000 probe, so IsIconSuppressed is current. Only the actively
                 // driven (on-arc, line-shown) icon is checked - the genuine bug case.
-                if (offOrbit != null && !GhostMapPresence.IsIconSuppressed(pid))
+                // suppressionLifted additionally skips the FIRST visible frame after the
+                // icon un-suppresses: the per-frame drive has not re-propagated the icon
+                // onto the (often just-rebound) orbit yet, so the icon sits at its stale
+                // pre-suppression position for one frame - a transient the user never saw.
+                if (offOrbit != null && !iconSuppressedNow && !suppressionLifted)
                 {
                     // Compare against the UT the icon-drive ACTUALLY propagated the icon to this frame
                     // (recorded by GhostOrbitIconDrivePatch at the SetPosition site), not a clock this
@@ -577,7 +758,8 @@ namespace Parsek
                                 MapRenderTrace.FormatDouble(offOrbit.argumentOfPeriapsis, "F3"),
                                 MapRenderTrace.FormatDouble(offOrbit.semiMajorAxis, "F0"),
                                 MapRenderTrace.FormatDouble(offOrbit.eccentricity, "F4"),
-                                bodyName));
+                                bodyName),
+                            recId);
                     }
                 }
 
@@ -597,14 +779,37 @@ namespace Parsek
             // Retain the raw world position for the dPosWorld context log above.
             prevWorldPos[pid] = worldPos;
 
+            // Record this frame's icon-suppression truth + UT for the NEXT sample's suppression-lift guard
+            // and real-deltaUT expected-motion model. Runs unconditionally (even on a body == null gap) so
+            // the suppression edge and UT cadence stay tracked across every frame.
+            if (GhostMapPresence.IsIconSuppressed(pid))
+                suppressedLastSample.Add(pid);
+            else
+                suppressedLastSample.Remove(pid);
+            prevSampleUT[pid] = currentUT;
+
             // --- In-window full per-frame snapshot (Tier-B detail) ---
             // While a detailed window is open for this pid (opened by a structural
             // event - GhostCreated / FirstPosition - or an anomaly), dump the full
-            // current truth every frame so the window captures continuous motion,
-            // not just the on-change transitions. No-op outside a window. The
-            // window check guards the string build so closed-window frames pay
-            // nothing.
-            if (MapRenderTrace.IsDetailedWindowOpen(pidKey, currentUT))
+            // current truth so the window captures continuous motion, not just the
+            // on-change transitions. No-op outside a window.
+            //
+            // Wall-clock rate-limit (SnapshotMinIntervalSeconds): a PERSISTENT anomaly
+            // (gap-vs-retire / icon-off-orbit / polyline-orbit-overlap) refreshes the
+            // detailed window every divergent frame, so an un-throttled per-frame snapshot
+            // floods the log for the whole anomalous stretch (a real looped-mission capture
+            // had ~1900 of these, 80% of the trace volume, from two sustained-anomaly
+            // ghosts). Sampling the snapshot at ~2 Hz per pid still captures the motion
+            // through the window while collapsing a sustained anomaly from per-frame to ~2/s.
+            // The on-change truth lines (line.active / drawIcons / body-orbit) still record
+            // every transition exactly, so no TRANSITION detail is lost. What IS coarsened to
+            // ~2 Hz is the only per-frame-exclusive content of the snapshot - the continuous
+            // worldPos / drawMode trace - but neither is a transition carrier: a discrete icon
+            // jump stays on the unthrottled icon-teleport anomaly line, and drawMode changes
+            // rarely. The rate-limit also gates the string build, so a throttled frame pays
+            // nothing. Warp-stable (wall-clock key, the #1063 rule).
+            if (MapRenderTrace.IsDetailedWindowOpen(pidKey, currentUT)
+                && PassesSnapshotRateLimit(pid, realtime))
             {
                 MapRenderTrace.EmitWindowSnapshot(
                     MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
@@ -612,7 +817,8 @@ namespace Parsek
                         "lineActive={0} renderer.enabled={1} drawMode={2} drawIcons={3} body={4} sma={5} ecc={6} worldPos={7}",
                         lineActive, rendererEnabled, drawMode, drawIcons, bodyName,
                         MapRenderTrace.FormatDouble(sma, "F0"), MapRenderTrace.FormatDouble(ecc, "F4"),
-                        MapRenderTrace.FormatVector3d(worldPos)));
+                        MapRenderTrace.FormatVector3d(worldPos)),
+                    recId);
             }
         }
 
@@ -624,7 +830,8 @@ namespace Parsek
             string pidKey,
             double currentUT,
             string fieldPhase,
-            string details)
+            string details,
+            string recId = null)
         {
             string last;
             bool had = store.TryGetValue(pid, out last);
@@ -636,26 +843,34 @@ namespace Parsek
                 // not re-gate, so the first post-scene-switch transition is not
                 // swallowed by stale state.
                 MapRenderTrace.EmitOnChange(
-                    fieldPhase, surface, pidKey, currentUT, currentUT, details);
+                    fieldPhase, surface, pidKey, currentUT, currentUT, details, recId);
                 store[pid] = currentValue;
             }
         }
 
-        // Orbit-derived expected per-frame motion: orbital speed * dt * warpRate.
-        // dt is the visual-frame Time.unscaledDeltaTime; warpRate is
-        // TimeWarp.CurrentRate. Returns 0 for a degenerate / unresolved orbit so
-        // the jump predicate falls back to the fixed floor.
-        private double ComputeExpectedMotionMeters(OrbitDriver driver, CelestialBody body)
+        // Orbit-derived UPPER BOUND on the proto's per-frame motion = the orbit's maximum
+        // (periapsis) speed * the ACTUAL per-frame UT advance (deltaUT, passed by the caller as
+        // currentUT - prevSampleUT). The earlier estimate used the INSTANTANEOUS orbital speed *
+        // Time.unscaledDeltaTime * TimeWarp.CurrentRate, which (a) under-counted the real on-rails warp
+        // UT step by ~20x at high warp and (b) used the instantaneous speed, which under-counts an
+        // eccentric orbit's faster periapsis arc - together producing false icon-teleports on
+        // short-period / eccentric orbits. The per-frame chord (the measured dPos) can never exceed
+        // maxSpeed * deltaUT, so the jump predicate (this * the fixed multiplier, floored) never
+        // false-fires on real orbital motion at any warp, while a genuine reseed / teleport off the
+        // orbit still exceeds it. Returns 0 for a degenerate / unresolved orbit or a non-positive
+        // deltaUT, so the jump predicate falls back to the fixed floor (matching the old behavior).
+        private double ComputeExpectedMotionMeters(OrbitDriver driver, CelestialBody body, double deltaUT)
         {
             if (driver == null || driver.orbit == null || body == null)
                 return 0.0;
-            double orbitalSpeed = driver.orbit.orbitalSpeed;
-            if (double.IsNaN(orbitalSpeed) || double.IsInfinity(orbitalSpeed))
+            if (double.IsNaN(deltaUT) || double.IsInfinity(deltaUT) || deltaUT <= 0.0)
                 return 0.0;
-            orbitalSpeed = System.Math.Abs(orbitalSpeed);
-            double dt = UnityUnscaledDeltaTime();
-            double warpRate = UnityWarpRate();
-            return orbitalSpeed * dt * warpRate;
+            double maxSpeed = MapRenderTrace.ComputeMaxOrbitalSpeedMeters(
+                driver.orbit.semiMajorAxis, driver.orbit.eccentricity, body.gravParameter,
+                driver.orbit.orbitalSpeed);
+            if (double.IsNaN(maxSpeed) || double.IsInfinity(maxSpeed))
+                return 0.0;
+            return maxSpeed * deltaUT;
         }
 
         private bool PassesJumpRateLimit(uint pid, double realtime)
@@ -665,6 +880,16 @@ namespace Parsek
                 && realtime - last < JumpAnomalyMinIntervalSeconds)
                 return false;
             lastJumpEmitRealtime[pid] = realtime;
+            return true;
+        }
+
+        private bool PassesSnapshotRateLimit(uint pid, double realtime)
+        {
+            double last;
+            if (lastSnapshotEmitRealtime.TryGetValue(pid, out last)
+                && realtime - last < SnapshotMinIntervalSeconds)
+                return false;
+            lastSnapshotEmitRealtime[pid] = realtime;
             return true;
         }
 

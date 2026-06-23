@@ -236,6 +236,23 @@ namespace Parsek
         private bool renamingRouteFocused;
         private Rect renamingRouteRect;
 
+        // M4c round-trip link picker (synchronous IMGUI popup, GroupPickerUI idiom).
+        // Persistent state (deliberately NOT in the frame-top pending reset): armed by
+        // the detail-panel "Link round-trip..." button, drawn as its OWN window from
+        // DrawIfOpen after the main window (a nested GUILayoutWindow is illegal), and
+        // committed inline on the Link button (RouteStore.LinkRoutes) so the QW2
+        // deferred-field trap does not apply (the commit runs inside the draw pass).
+        private bool linkPickerOpen;
+        private string linkPickerSourceRouteId;
+        private string linkPickerSourceName;
+        private string linkPickerSelectedId;
+        private Vector2 linkPickerPosition;
+        private Rect linkPickerRect;
+        private bool linkPickerResizing;
+        private Vector2 linkPickerScroll;
+        private const float LinkPickerMinW = 240f;
+        private const float LinkPickerMinH = 180f;
+
         // Status text styles (lazy; mirrors RecordingsTableUI.EnsureStatusStyles).
         private GUIStyle statusStyleGreen;   // Active / InTransit
         private GUIStyle statusStyleYellow;  // WaitingForResources / WaitingForFunds / DestinationFull
@@ -293,7 +310,12 @@ namespace Parsek
         public bool IsOpen
         {
             get { return showWindow; }
-            set { showWindow = value; }
+            // M4c: closing the window must also dismiss the round-trip link picker
+            // (it draws as its own window from DrawIfOpen, which is skipped while the
+            // host is closed). Without this, re-opening the window the same scene
+            // re-pops a picker armed with stale source state — the leak the mirrored
+            // GroupPickerUI idiom avoids via its host's Close() calls.
+            set { showWindow = value; if (!value) linkPickerOpen = false; }
         }
 
         internal LogisticsWindowUI(ParsekUI parentUI)
@@ -353,6 +375,11 @@ namespace Parsek
             // Capture the (possibly moved or resized) rect so it survives the next
             // scene change and is restored by the constructor of the next instance.
             sessionWindowRect = windowRect;
+
+            // M4c: the round-trip link picker draws as its own window on top of the
+            // logistics window (the GroupPickerUI idiom — drawn after the host window).
+            // Armed from the detail panel; commits synchronously on Link.
+            DrawLinkPicker();
 
             if (windowRect.Contains(Event.current.mousePosition))
             {
@@ -445,6 +472,7 @@ namespace Parsek
             if (GUILayout.Button("Close"))
             {
                 showWindow = false;
+                linkPickerOpen = false; // M4c: dismiss the link picker with the window.
                 ParsekLog.Verbose("UI", "Logistics window closed");
             }
 
@@ -1221,6 +1249,11 @@ namespace Parsek
             // only on expand).
             DrawRouteOwnsTreeNote(route);
 
+            // M4c: round-trip pairing note, shown only when this route is linked.
+            // Resolves the partner's display name from the store (cheap, drawn only on
+            // expand).
+            DrawRouteLinkNote(route);
+
             // M4: for a DestinationFull route, the live free-capacity context line
             // ("Munar Station tanks full: 0.0 of 150.0 LiquidFuel free") so the player
             // can tell full tanks apart from a misrouted delivery. Computed in the
@@ -1294,6 +1327,165 @@ namespace Parsek
                 return;
             string treeName = ResolveTreeDisplayName(treeId);
             DetailLine(LogisticsCreatePresentation.FormatRouteOwnsTreeNote(treeName));
+        }
+
+        /// <summary>
+        /// Draws the M4c round-trip pairing note when <paramref name="route"/> is
+        /// linked to a partner. Resolves the partner's display name via
+        /// <see cref="RouteStore.TryGetRoute"/> (falling back to the short id when the
+        /// partner cannot resolve, e.g. it was just deleted and the dangling link not
+        /// yet swept), then renders the pure
+        /// <see cref="LogisticsLinkPresentation.FormatLinkedNote"/> line. Drawn only on
+        /// expand, so the by-id store lookup is off the per-frame hot path.
+        /// </summary>
+        private void DrawRouteLinkNote(Route route)
+        {
+            if (route == null || string.IsNullOrEmpty(route.LinkedRouteId))
+                return;
+            string partnerName =
+                RouteStore.TryGetRoute(route.LinkedRouteId, out Route partner)
+                    && partner != null && !string.IsNullOrEmpty(partner.Name)
+                ? partner.Name
+                : ShortId(route.LinkedRouteId);
+            DetailLine(LogisticsLinkPresentation.FormatLinkedNote(partnerName));
+        }
+
+        /// <summary>
+        /// Arms the M4c round-trip link picker for <paramref name="source"/> (the
+        /// route whose "Link round-trip..." button was clicked). Sets the persistent
+        /// popup state read by <see cref="DrawLinkPicker"/>; the popup is drawn from
+        /// <see cref="DrawIfOpen"/> after the main window. Does NOT itself mutate the
+        /// store — the partner is chosen + committed in the popup.
+        /// </summary>
+        private void OpenLinkPicker(Route source, Vector2 mousePos)
+        {
+            if (source == null || string.IsNullOrEmpty(source.Id))
+                return;
+            linkPickerOpen = true;
+            linkPickerSourceRouteId = source.Id;
+            linkPickerSourceName = source.Name ?? "<unnamed>";
+            linkPickerSelectedId = null;
+            linkPickerPosition = mousePos;
+            linkPickerRect = new Rect(0, 0, 0, 0);
+            linkPickerResizing = false;
+            linkPickerScroll = Vector2.zero;
+            ParsekLog.Verbose("UI", $"Logistics: link picker opened source={ShortId(source.Id)}");
+        }
+
+        /// <summary>
+        /// Draws the M4c round-trip link picker as its own window on top of the
+        /// logistics window when armed (mirrors <c>GroupPickerUI.Draw</c>: a separate
+        /// <see cref="ClickThruBlocker.GUILayoutWindow"/> rather than a nested one).
+        /// Synchronous — the Link button commits through <see cref="RouteStore.LinkRoutes"/>
+        /// inside the draw pass, so the deferred-field trap does not apply.
+        /// </summary>
+        private void DrawLinkPicker()
+        {
+            if (!linkPickerOpen) return;
+
+            ParsekUI.HandleResizeDrag(ref linkPickerRect, ref linkPickerResizing,
+                LinkPickerMinW, LinkPickerMinH, null);
+
+            if (linkPickerRect.width < 1f)
+            {
+                linkPickerRect = new Rect(
+                    Mathf.Clamp(linkPickerPosition.x, 0, Screen.width - 340f),
+                    Mathf.Clamp(linkPickerPosition.y, 0, Screen.height - 380f),
+                    340f, 380f);
+            }
+
+            var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
+            if (opaqueWindowStyle == null)
+                return;
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                linkPickerRect = ClickThruBlocker.GUILayoutWindow(
+                    "ParsekLogiLinkPicker".GetHashCode(),
+                    linkPickerRect,
+                    DrawLinkPickerContents,
+                    "Link round-trip partner",
+                    opaqueWindowStyle,
+                    GUILayout.Width(linkPickerRect.width),
+                    GUILayout.Height(linkPickerRect.height));
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
+        }
+
+        /// <summary>
+        /// Window-body callback for the link picker: a single-select list of eligible
+        /// partner routes (<see cref="LogisticsLinkPresentation.BuildLinkCandidates"/>:
+        /// other routes that are not already linked) plus Link / Cancel. Link commits
+        /// <see cref="RouteStore.LinkRoutes"/> directly and dirties the legibility
+        /// cache so both routes' rows refresh; Cancel just closes. Both close the popup.
+        /// </summary>
+        private void DrawLinkPickerContents(int windowID)
+        {
+            EnsureStyles();
+            GUILayout.Label($"Link '{linkPickerSourceName}' with:", detailStyle);
+            GUILayout.Space(3);
+
+            List<LogisticsLinkPresentation.LinkCandidate> candidates =
+                LogisticsLinkPresentation.BuildLinkCandidates(RouteStore.CommittedRoutes, linkPickerSourceRouteId);
+
+            linkPickerScroll = GUILayout.BeginScrollView(linkPickerScroll, GUILayout.ExpandHeight(true));
+            if (candidates.Count == 0)
+            {
+                GUILayout.Label(
+                    "No eligible routes. A partner must be another route that is not already linked.",
+                    detailStyle);
+            }
+            else
+            {
+                for (int i = 0; i < candidates.Count; i++)
+                {
+                    LogisticsLinkPresentation.LinkCandidate c = candidates[i];
+                    bool selected = string.Equals(linkPickerSelectedId, c.Id, System.StringComparison.Ordinal);
+                    bool now = GUILayout.Toggle(selected, "  " + c.Name);
+                    if (now && !selected)
+                        linkPickerSelectedId = c.Id;
+                    else if (!now && selected)
+                        linkPickerSelectedId = null;
+                }
+            }
+            GUILayout.EndScrollView();
+
+            GUILayout.Space(3);
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+
+            bool prevEnabled = GUI.enabled;
+            GUI.enabled = !string.IsNullOrEmpty(linkPickerSelectedId);
+            if (GUILayout.Button(new GUIContent("Link",
+                    "Pair these two routes as a round-trip: they alternate, each dispatching only after its partner completes a run."),
+                    GUILayout.Width(70)))
+            {
+                string src = linkPickerSourceRouteId;
+                string sel = linkPickerSelectedId;
+                if (RouteStore.LinkRoutes(src, sel))
+                {
+                    ParsekLog.Info("UI",
+                        $"Logistics: round-trip linked source={ShortId(src)} partner={ShortId(sel)} (via picker)");
+                    lastLegibilityComputeRealtime = -1f;
+                }
+                linkPickerOpen = false;
+            }
+            GUI.enabled = prevEnabled;
+
+            if (GUILayout.Button("Cancel", GUILayout.Width(70)))
+            {
+                ParsekLog.Verbose("UI", $"Logistics: link picker cancelled source={ShortId(linkPickerSourceRouteId)}");
+                linkPickerOpen = false;
+            }
+
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+
+            ParsekUI.DrawResizeHandle(linkPickerRect, ref linkPickerResizing, null);
+            GUI.DragWindow();
         }
 
         /// <summary>
@@ -1473,6 +1665,35 @@ namespace Parsek
                     parentUI.OpenStructureWindowForMission(sourceTreeId, ResolveTreeDisplayName(sourceTreeId));
                 }
                 GUI.enabled = true;
+
+                // M4c round-trip link control (the missing C1 deliverable). When the
+                // route is unlinked, a "Link round-trip..." button arms the partner
+                // picker; when linked, an "Unlink" button breaks the pair inline. The
+                // unlink runs DIRECTLY in the click branch (synchronous draw path, like
+                // the EndpointRescan inline action), so the QW2 async-callback trap does
+                // not apply; the link goes through the picker (also synchronous). After
+                // either, dirty the legibility cache so the row/detail refresh next frame.
+                if (string.IsNullOrEmpty(route.LinkedRouteId))
+                {
+                    if (GUILayout.Button(new GUIContent("Link round-trip...",
+                            "Pair this route with another so they alternate: each dispatches only after its partner completes a run (a single reused transport flying out and back)."),
+                            GUILayout.Width(RouteDetailButtonWidth)))
+                    {
+                        OpenLinkPicker(route, Event.current.mousePosition);
+                    }
+                }
+                else
+                {
+                    if (GUILayout.Button(new GUIContent("Unlink",
+                            "Break this route's round-trip pairing; both routes return to dispatching on their own schedule."),
+                            GUILayout.Width(RouteDetailButtonWidth)))
+                    {
+                        ParsekLog.Info("UI",
+                            $"Logistics: unlink button route={ShortId(route.Id)} partner={ShortId(route.LinkedRouteId)}");
+                        RouteStore.UnlinkRoute(route.Id);
+                        lastLegibilityComputeRealtime = -1f;
+                    }
+                }
             }
             else
             {

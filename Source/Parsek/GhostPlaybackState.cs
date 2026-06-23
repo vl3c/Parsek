@@ -28,6 +28,14 @@ namespace Parsek
         public int kscPlaybackFrameSourceKey;
         public int partEventIndex;
         public long loopCycleIndex = -1;
+        // BOUNDARY-OVERLAP launch render (docs/dev/plan-launch-boundary-overlap.md): true ONLY for the
+        // secondary ghost the engine spawns during the borrow window of a zero-slack re-aim launch loop -
+        // the early-launching NEXT instance (N+1) that renders concurrently with the still-live previous
+        // instance (the primary). It lives in overlapGhosts[i] STORAGE but is driven by
+        // UpdateBoundaryOverlapSecondary, NEVER the self-overlap UpdateOverlapPlayback / expiry path. The
+        // watch camera EXCLUDES any state with this flag set (the camera always follows the long-lived
+        // primary through-line). Never persisted; reset per scene with the ghost.
+        public bool isBoundaryOverlapSecondary;
         // M4b phasing knob: the per-frame body-fixed time shift (seconds) of the launch this unit
         // member is currently replaying (loiter cut < 0, extension > 0; 0 for everything else).
         // Set by GhostPlaybackEngine.UpdateUnitMemberPlayback each frame; the positioner derotates

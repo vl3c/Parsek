@@ -6,11 +6,22 @@ namespace Parsek.Logistics
 {
     /// <summary>
     /// The ONE backing-mission helper for Supply Routes (design §0; plan Phase 0
-    /// task 4 / Phase 1). A v0 route renders as a looped Mission segment over its
-    /// source tree's <c>[launch .. dock]</c> path: rendering STOPS at the docking
-    /// moment (playtest follow-up), so the docked-together combined vessel (the
-    /// dock-merged child, which spans dock..undock) is NOT rendered. This helper
-    /// owns the route-side derivations:
+    /// task 4 / Phase 1). A v0 single-stop route renders as a looped Mission
+    /// segment over its source tree's <c>[launch .. dock]</c> path: rendering STOPS
+    /// at the docking moment (playtest follow-up), so the docked-together combined
+    /// vessel (the dock-merged child, which spans dock..undock) is NOT rendered.
+    /// <para>
+    /// N-stop note (M4a): a multi-stop route renders <c>[launch .. LAST dock]</c>.
+    /// The caller passes the LAST stop's dock UT as <c>segmentEndUT</c>, which
+    /// production aligns with the route's terminal structural boundary (the last
+    /// undock the folded transport through-line spans to), so the same single-UT
+    /// end-trim covers everything at/after the last dock (the post-last-dock tail
+    /// + the terminal peel) while the intermediate-undock survivor leg and the
+    /// last dock's combined leg stay rendered. The <c>segmentEndUT</c> /
+    /// "DOCK UT" wording below is the single-stop case; for N stops read it as the
+    /// LAST dock / terminal boundary.
+    /// </para>
+    /// This helper owns the route-side derivations:
     /// <list type="number">
     ///   <item><see cref="ComputeExcludedIntervalKeys"/> — which composition
     ///   intervals to drop so the rendered window end-trims to
@@ -73,7 +84,15 @@ namespace Parsek.Logistics
         /// mission renders only <c>[launchUT .. segmentEndUT]</c>. Pure.
         /// </summary>
         /// <param name="tree">Source recording tree (read-only).</param>
-        /// <param name="segmentEndUT">End of the route segment (v0: the recorded DOCK UT, so the docked combined-vessel tail is excluded).</param>
+        /// <param name="segmentEndUT">End of the route segment. For a single-stop v0
+        /// route this is the recorded DOCK UT (the docked combined-vessel tail is
+        /// excluded). For an N-stop route (M4a) the caller passes the LAST stop's
+        /// dock UT, which production aligns with the route's terminal structural
+        /// boundary (the last undock the folded transport through-line spans to); a
+        /// dock and its following undock bracket no selectable interval start, so
+        /// passing either yields the same excluded set. Everything at/after this UT
+        /// — the post-last-dock tail and the terminal peel — is excluded; the
+        /// intermediate-undock survivor leg (StartUT before this UT) stays rendered.</param>
         /// <param name="launchUT">Start of the route segment (tree ROOT launch UT).</param>
         /// <returns>
         /// Excluded interval keys. Empty set on any guard failure (NaN inputs,
@@ -172,7 +191,13 @@ namespace Parsek.Logistics
         /// <see cref="ComputeExcludedIntervalKeys"/>.
         /// </summary>
         /// <param name="tree">Source recording tree (read-only).</param>
-        /// <param name="segmentEndUT">End of the route segment (v0: the recorded DOCK UT, so the docked combined-vessel tail is excluded).</param>
+        /// <param name="segmentEndUT">End of the route segment. Single-stop v0: the
+        /// recorded DOCK UT (the docked combined-vessel tail is excluded). N-stop
+        /// (M4a): the LAST stop's dock UT, which production aligns with the terminal
+        /// structural boundary (the last undock the folded through-line spans to),
+        /// so the member set covers the whole <c>[launch .. last dock]</c> rendered
+        /// path including the intermediate-undock survivor + the depot-B docked
+        /// combined leg.</param>
         /// <param name="launchUT">Start of the route segment (tree ROOT launch UT).</param>
         /// <returns>
         /// Member recording ids for the kept intervals. On any guard failure (the

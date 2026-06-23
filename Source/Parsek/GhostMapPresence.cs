@@ -888,6 +888,100 @@ namespace Parsek
         }
 
         /// <summary>
+        /// LOITER-GAP LINE HOLD (Layer B of the re-aim descent parking-conic render fix): per-pid LIVE-frame UT
+        /// the parking-conic orbit line must stay visible until (= the live descent trigger UT). Stamped by the
+        /// flight + TS reseed sites whenever the descent-trigger TRANSFER member is in the loiter gap
+        /// (GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap true), and REMOVED the instant the predicate
+        /// goes false (descent fired OR the loop wrapped). GhostOrbitLinePatch consults it in the
+        /// past-body-frame-end branch (via <see cref="TryGetParkingConicLineHold"/>) to HOLD the full parking
+        /// ellipse drawn through the seg-6 window and the post-seg-6 gap instead of retiring the line because the
+        /// LIVE currentUT is past the parking conic's live-UT upper bound. Cleared on every scene reset / teardown
+        /// alongside <see cref="vesselPidToRecordingId"/>. Empty for every non-held ghost, so the past-end retire
+        /// is byte-identical for all other ghosts.
+        /// </summary>
+        private static readonly Dictionary<uint, double> ghostParkingConicLineHoldUntilUT =
+            new Dictionary<uint, double>();
+
+        /// <summary>
+        /// Stamps the parking-conic line-hold deadline for <paramref name="pid"/> at LIVE UT
+        /// <paramref name="holdUntilUT"/> (the live descent trigger UT). Called by the flight + TS reseed sites
+        /// while the descent-trigger transfer member is in the loiter gap.
+        /// </summary>
+        internal static void StampParkingConicLineHold(uint pid, double holdUntilUT)
+        {
+            ghostParkingConicLineHoldUntilUT[pid] = holdUntilUT;
+        }
+
+        /// <summary>
+        /// Clears any parking-conic line-hold stamp for <paramref name="pid"/>. Called by the reseed sites the
+        /// instant the loiter-gap predicate goes false for the held pid, so a stale hold never keeps the parking
+        /// conic drawn into the next phase.
+        /// </summary>
+        internal static void ClearParkingConicLineHold(uint pid)
+        {
+            ghostParkingConicLineHoldUntilUT.Remove(pid);
+        }
+
+        /// <summary>
+        /// True iff a parking-conic line-hold stamp exists for <paramref name="pid"/> AND
+        /// <paramref name="currentUT"/> is at or before the stamped hold deadline (<paramref name="holdUntilUT"/>
+        /// = the live descent trigger UT). False once the trigger UT is reached, so the line retires cleanly the
+        /// same frame the descent set takes over. Pure read; no side effects.
+        /// </summary>
+        internal static bool TryGetParkingConicLineHold(uint pid, double currentUT, out double holdUntilUT)
+        {
+            if (ghostParkingConicLineHoldUntilUT.TryGetValue(pid, out holdUntilUT)
+                && !double.IsNaN(holdUntilUT)
+                && currentUT <= holdUntilUT)
+                return true;
+            holdUntilUT = double.NaN;
+            return false;
+        }
+
+        /// <summary>Test-only: clear the parking-conic line-hold stamps.</summary>
+        internal static void ClearParkingConicLineHoldsForTesting()
+        {
+            ghostParkingConicLineHoldUntilUT.Clear();
+        }
+
+        /// <summary>
+        /// Shared flight + TS reseed-site helper for the parking-conic LINE HOLD (Layer B). Resolves the LIVE
+        /// descent-trigger UT for the in-loiter-gap transfer member <paramref name="idx"/> (via
+        /// <see cref="GhostPlaybackLogic.TryResolveLoiterGapHoldTriggerUT"/>, using the SAME cycle the reseed loop
+        /// is on this frame) and STAMPS the per-pid line hold so GhostOrbitLinePatch keeps the full parking
+        /// ellipse drawn through the loiter until that trigger. Call ONLY when the loiter-gap predicate is true
+        /// for <paramref name="idx"/>. Keeps the flight + TS sites byte-identical to each other. Logs via the
+        /// caller-supplied rate-limit key/tag so the flight vs TS lines stay distinguishable.
+        /// </summary>
+        private static void StampParkingConicLineHoldForLoiterGap(
+            int idx, uint ghostPid, double currentUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
+            double recStartUT, double recEndUT,
+            string sceneTag, string logKeyPrefix)
+        {
+            if (ghostPid == 0)
+                return;
+            if (GhostPlaybackLogic.TryResolveLoiterGapHoldTriggerUT(
+                    loopUnits, idx, currentUT, recStartUT, recEndUT, out double triggerUT))
+            {
+                StampParkingConicLineHold(ghostPid, triggerUT);
+                ParsekLog.VerboseRateLimited(sceneTag,
+                    logKeyPrefix + idx,
+                    string.Format(ic,
+                        "{0} parking-conic line hold: member={1} pid={2} currentUT={3:F1} holdUntilUT(triggerUT)={4:F1} "
+                        + "(parking ellipse held visible through loiter until live descent trigger)",
+                        sceneTag, idx, ghostPid, currentUT, triggerUT),
+                    5.0);
+            }
+            else
+            {
+                // Defensive: in the gap but the trigger could not resolve (span clock unresolved this frame).
+                // Drop any prior hold so a stale deadline never lingers; the past-end retire then runs normally.
+                ClearParkingConicLineHold(ghostPid);
+            }
+        }
+
+        /// <summary>
         /// Map from chain PID (OriginalVesselPid) to the ghost Vessel object.
         /// Used for orbit updates, cleanup, and target transfer.
         /// </summary>
@@ -924,6 +1018,19 @@ namespace Parsek
         /// </summary>
         private static readonly Dictionary<(int recIdx, long cycle), Vessel> overlapInstanceVessels =
             new Dictionary<(int, long), Vessel>();
+
+        // BOUNDARY-OVERLAP secondary instance pids (launch->escape seam render, review M1). The
+        // launch->escape boundary-overlap secondary (the early-launching N+1 instance) is stored in
+        // overlapInstanceVessels like any per-instance map ghost, but it must NOT shadow the launch
+        // recording's identity for the vesselsByRecordingIndex-reader fall-through (watch-camera focus,
+        // TS-Fly, UI marker suppression): a launch-hold member is NON-overlap, so its ONLY
+        // overlapInstanceVessels entries ARE boundary-secondaries, and when its primary is renderHidden (the
+        // chain case, no vesselsByRecordingIndex entry) GetGhostVesselPidForRecording would otherwise fall
+        // through to the secondary's pid. Membership here lets that fall-through skip the secondary and report
+        // pid 0 (no ghost) instead. The polyline's DIRECT GetNewestOverlapInstancePidForRecording call (which
+        // WANTS the secondary pid for the second-head leg) passes excludeBoundarySecondary:false, so it is
+        // unaffected.
+        private static readonly HashSet<uint> boundaryOverlapSecondaryPids = new HashSet<uint>();
 
         private static readonly Dictionary<int, IPlaybackTrajectory> trackingStationStateVectorOrbitTrajectories =
             new Dictionary<int, IPlaybackTrajectory>();
@@ -2675,6 +2782,7 @@ namespace Parsek
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
             ghostOrbitEpochShift.Remove(ghostPid);
             ghostIconDrivePropagation.Remove(ghostPid);
+            ghostParkingConicLineHoldUntilUT.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
             lastKnownByChainPid.Remove(chainPid);
@@ -2714,7 +2822,9 @@ namespace Parsek
                         hadLastKnown ? last.Body : null,
                         HighLogic.LoadedScene.ToString(),
                         hadLastKnown ? (Vector3d?)last.WorldPos : null,
-                        string.Format(ic, "{0} chainPid={1}", reason ?? "(none)", chainPid)));
+                        // Carry the recordingId for pid<->recordingId correlation (see the index-keyed destroy).
+                        string.Format(ic, "{0} chainPid={1} rec={2}", reason ?? "(none)", chainPid,
+                            hadLastKnown ? (last.RecordingId ?? "<none>") : "<none>")));
             }
 
             return wasTarget;
@@ -3750,8 +3860,10 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             overlapInstanceVessels.Clear();
+            boundaryOverlapSecondaryPids.Clear(); // M1
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
+            ghostParkingConicLineHoldUntilUT.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
             activeReFlyDeferredStateVectorGhostSessions.Clear();
@@ -4179,6 +4291,7 @@ namespace Parsek
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
             ghostOrbitEpochShift.Remove(ghostPid);
             ghostIconDrivePropagation.Remove(ghostPid);
+            ghostParkingConicLineHoldUntilUT.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
@@ -4239,7 +4352,11 @@ namespace Parsek
                         hadLastKnown ? last.Body : null,
                         HighLogic.LoadedScene.ToString(),
                         hadLastKnown ? (Vector3d?)last.WorldPos : null,
-                        string.Format(ic, "{0} index={1}", reason ?? "(none)", recordingIndex)));
+                        // Carry the recordingId so a GhostDestroyed line is greppable back to its recording
+                        // (and thus to the [ReaimDescent] descent-member lines and the always-on [GhostMap]
+                        // destroy decision line, which already names the recordingId + the descent-member tag).
+                        string.Format(ic, "{0} index={1} rec={2}", reason ?? "(none)", recordingIndex,
+                            hadLastKnown ? (last.RecordingId ?? "<none>") : "<none>")));
             }
         }
 
@@ -5160,7 +5277,8 @@ namespace Parsek
             string expectedSoiGapBody = null,
             bool acceptTerminalOrbitForLoopSynthesis = false,
             bool loopMemberInWindow = false,
-            bool liveLaunchMatchedAnchorOfActiveMember = false)
+            bool liveLaunchMatchedAnchorOfActiveMember = false,
+            bool transferMemberDescentContinuation = false)
         {
             segment = default(OrbitSegment);
             stateVectorPoint = default(TrajectoryPoint);
@@ -5321,6 +5439,28 @@ namespace Parsek
 
             double activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
             bool terminalMapPresenceRegion = IsTerminalMapPresenceRegion(traj, currentUT);
+
+            // COSMETIC fix (re-aim descent "post-landing suborbital looping ghost"): the descent-trigger
+            // TRANSFER member, once the shared descent has handed off / landed (descent phase Descent or Done,
+            // computed at the LIVE clock by the caller via
+            // GhostPlaybackLogic.IsTransferMemberDescentContinuation), has finished its recorded journey at the
+            // shifted parking deorbit point. With no covering OrbitSegment past that conic it would otherwise
+            // synthesize an EndpointTail coast from the recorded deorbit endpoint = a sub-surface ellipse drawn
+            // as a closed loop. RETIRE the ghost cleanly here, BEFORE the covering-segment / EndpointTail /
+            // Segment resolution below, so there is NOTHING to fall back to (this is the J2 trap the reverted
+            // 9fecdfcb6 hit: a decline INSIDE the endpoint-tail resolver fell through to a stale launch/transfer
+            // Segment - Sun/Ike - and put a clickable ghost on the wrong body). The pre-seam loiter parking conic
+            // is preserved because the flag is FALSE in Inert/Loiter, so the normal covering-segment branch runs
+            // unchanged. Default false keeps every non-opted-in caller byte-identical.
+            if (transferMemberDescentContinuation)
+            {
+                skipReason = "transfer-member-descent-continuation";
+                return ReturnDecision(
+                    TrackingStationGhostSource.None,
+                    skipReason,
+                    "descent-trigger transfer member handed off / landed: retire cleanly; "
+                        + "the descent set owns the visual (no sub-surface endpoint-tail, no wrong-segment fallback)");
+            }
 
             string checkpointFallbackDetail = null;
             string checkpointFallbackRejectReason = null;
@@ -6595,7 +6735,16 @@ namespace Parsek
                     // Loop member replaying in its window (effUT != live currentUT): allow the
                     // map ghost to be created alongside any persisted real terminal vessel.
                     loopMemberInWindow: (currentUT - effUT) != 0.0,
-                    liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
+                    liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember,
+                    // COSMETIC fix: retire ONLY the descent-trigger DESTINATION transfer member's ghost
+                    // (TransferMemberIndex) once the shared descent has handed off / landed (phase Descent/Done, at
+                    // the LIVE currentUT - NOT effUT) so it does not synthesize the sub-surface endpoint-tail
+                    // looping ghost. False (byte-identical) for the owner, every ride-along in a different/unshifted
+                    // frame (e.g. a launch-body-orbit probe - it must keep rendering), every descent-set member,
+                    // and any non-re-aim unit, plus Inert/Loiter (loiter conic preserved).
+                    transferMemberDescentContinuation:
+                        GhostPlaybackLogic.IsTransferMemberDescentContinuation(
+                            loopUnits, i, currentUT, rec.StartUT, rec.EndUT));
                 trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None) continue;
 
@@ -6917,7 +7066,13 @@ namespace Parsek
                 if (renderHidden)
                 {
                     if (toRemove == null) toRemove = new List<(int, string)>();
-                    toRemove.Add((idx, "mission-loop-out-of-window"));
+                    // Enrich the teardown reason with the loop role. This is the TRACKING-STATION teardown
+                    // site (where the descent-revert bug was observed): a descent member tearing down here is
+                    // the descent ghost being destroyed as its head leaves the descent clip and the loiter
+                    // member takes the icon, so name it for correlation with the [ReaimDescent] DESCENT
+                    // REVERTED line. Empty (byte-identical reason) for every non-descent member.
+                    toRemove.Add((idx, "mission-loop-out-of-window"
+                        + GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(idx, loopUnits)));
                     continue;
                 }
 
@@ -6959,13 +7114,55 @@ namespace Parsek
                 // transfer/coast OrbitalCheckpoint section, freezing the orbit on its last segment
                 // instead of advancing through the mission's later segments. The checkpoint path
                 // stays available only for a genuine segment gap (no covering segment at effUT).
+                // LOITER-GAP map-presence clamp (re-aim looped LANDING destination loiter), Tracking-Station
+                // mirror of the flight path: the descent-trigger TRANSFER member's recorded loop clock (effUT)
+                // sweeps the parking conic up to its end (ParkingConicEndUT = the destination loiter run end =
+                // the deorbit point). PAST that point an UNCLAMPED lookup walks INTO the CONTIGUOUS
+                // deorbit-transition OrbitSegment and draws that deorbit arc as the loiter orbit (the user sees
+                // ~1/3 of an ellipse), then past the deorbit-arc end no segment covers effUT and the ghost is
+                // removed ("tracking-station-expired") mid-loiter, so the parking conic stops rendering until the
+                // descent fires. HOLD the segment-lookup sample UT at ParkingConicEndUT inside the gap (for the
+                // covering-segment query AND the removal-reason query) so both keep returning the real recorded
+                // PARKING-conic segment and the ghost stays alive on it. The clamp applies ONLY to these two
+                // segment lookups; every other effUT read below (checkpoint, gap-glide, logging, downstream orbit
+                // apply) still uses the live effUT. Layer B then stamps a per-pid line hold so GhostOrbitLinePatch
+                // keeps the FULL parking ellipse drawn until the live descent trigger. False (byte-identical) for
+                // every member except the destination transfer member (the owner, every ride-along in a
+                // different/unshifted frame, and every descent-set member), for non-re-aim units, and once the
+                // descent trigger fires (the transfer member then retires elsewhere).
+                double segmentLookupUT = effUT;
+                if (GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(loopUnits, idx, effUT))
+                {
+                    segmentLookupUT = GhostPlaybackLogic.ResolveLoiterGapConicEndUT(loopUnits, idx);
+                    ParsekLog.VerboseRateLimited(Tag,
+                        "ts-loiter-gap-clamp-" + idx,
+                        string.Format(ic,
+                            "TS loiter-gap clamp: member={0} effUT={1:F1} held segment-lookup UT at parkingConicEnd={2:F1} "
+                            + "(re-aim descent transfer member in captureShift loiter gap; parking conic kept rendering)",
+                            idx, effUT, segmentLookupUT),
+                        5.0);
+                    // Layer B: hold the parking-conic LINE visible through the loiter (past the live parking-conic
+                    // bound) until the live descent trigger; GhostOrbitLinePatch consults the stamp.
+                    StampParkingConicLineHoldForLoiterGap(
+                        idx, pid, currentUT, loopUnits,
+                        rec != null ? rec.StartUT : currentUT,
+                        rec != null ? rec.EndUT : currentUT,
+                        "TS", "ts-parking-conic-line-hold-");
+                }
+                else
+                {
+                    // Not in the gap (still on the conic, or the descent fired / loop wrapped): tear down any
+                    // line hold for this ghost so the stamp never lingers into the next phase.
+                    ClearParkingConicLineHold(pid);
+                }
+
                 // Same-body carry: a brief drop between two non-orbit-equivalent segments
                 // in the same body frame (e.g., capture burn between two Mun orbits) used to
                 // tear down and recreate the ProtoVessel, flashing the icon and orbit line.
                 // Carry the previous segment across same-body intra-block gaps so the ghost
                 // stays alive and only blinks when the body actually changes (SOI crossing).
                 OrbitSegment? coveringSegment = (rec != null && effectiveSegments != null)
-                    ? TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT)
+                    ? TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, segmentLookupUT)
                     : (OrbitSegment?)null;
                 bool segmentCoversEffUT = coveringSegment.HasValue;
 
@@ -7011,13 +7208,17 @@ namespace Parsek
                         2.0);
                 }
 
+                // LOITER-GAP clamp: pass segmentLookupUT (= conicEnd inside the gap, effUT otherwise) so the
+                // removal-reason's internal FindOrbitSegmentOrSameBodyCarry keeps finding the parking conic and
+                // does not expire the ghost in the captureShift gap. In the gap conicEnd < rec.EndUT, so the
+                // state-vector branch (currentUT > rec.EndUT) is unaffected (effUT is also < rec.EndUT there).
                 string removeReason = GetTrackingStationGhostRemovalReason(
                     rec,
                     isSuppressed,
                     alreadyMaterialized,
                     hasOrbitBounds,
                     isStateVector || fromCheckpoint,
-                    effUT,
+                    segmentLookupUT,
                     // Loop member replaying in its window: keep the ghost alongside any
                     // persisted real terminal vessel (mirrors the create-path bypass).
                     loopMemberInWindow: tsLoopEpochShift != 0.0,
@@ -9248,7 +9449,8 @@ namespace Parsek
             int recordingIndex,
             string context,
             bool loopMemberInWindow = false,
-            bool liveLaunchMatchedAnchorOfActiveMember = false)
+            bool liveLaunchMatchedAnchorOfActiveMember = false,
+            bool transferMemberDescentContinuation = false)
         {
             // Both create callers (the per-frame lifecycle pass AND the one-shot startup create)
             // now sample at the loop-mapped effUT and pass loopMemberInWindow, so for an in-window
@@ -9275,7 +9477,8 @@ namespace Parsek
                 recordingIndex: recordingIndex,
                 acceptTerminalOrbitForLoopSynthesis: false,
                 loopMemberInWindow: loopMemberInWindow,
-                liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
+                liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember,
+                transferMemberDescentContinuation: transferMemberDescentContinuation);
 
             // BUG-B: in the live tracking-station create paths (batch != null), a committed recording
             // that WOULD seed a map icon (source != None) but is purely historical (the player only ever
@@ -9524,7 +9727,15 @@ namespace Parsek
                     // Loop member replaying in its window (effUT != live currentUT): allow the map ghost
                     // to be created alongside any persisted real terminal vessel, matching the lifecycle pass.
                     loopMemberInWindow: (currentUT - effUT) != 0.0,
-                    liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
+                    liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember,
+                    // COSMETIC fix: retire ONLY the descent-trigger DESTINATION transfer member's ghost
+                    // (TransferMemberIndex) once the shared descent has handed off / landed (phase Descent/Done at
+                    // the LIVE currentUT) so the one-shot startup create never seeds the sub-surface endpoint-tail
+                    // looping ghost. Byte-identical off for the owner / ride-alongs (different/unshifted frame) /
+                    // descent-set members / non-re-aim unit, and pre-seam.
+                    transferMemberDescentContinuation:
+                        GhostPlaybackLogic.IsTransferMemberDescentContinuation(
+                            loopUnits, i, currentUT, rec.StartUT, rec.EndUT));
                 trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None)
                 {
@@ -9810,7 +10021,9 @@ namespace Parsek
             // vesselsByRecordingIndex. Fall through to the newest live instance so watch-camera
             // focus / TS-Fly / UI marker suppression / polyline owner resolution see a ghost
             // (matching the legacy "one icon == newest cycle" behavior) instead of "no ghost".
-            return GetNewestOverlapInstancePidForRecording(recordingIndex) != 0;
+            // M1: EXCLUDE the boundary-overlap secondary so a launch-hold member whose primary is
+            // renderHidden reports "no ghost" rather than the secondary's identity.
+            return GetNewestOverlapInstancePidForRecording(recordingIndex, excludeBoundarySecondary: true) != 0;
         }
 
         /// <summary>
@@ -9824,7 +10037,9 @@ namespace Parsek
             // Overlap recordings: fall through to the NEWEST live overlap instance's pid (the cycle
             // the legacy single-icon path represented). FindRecordingIndexByVesselPid still works for
             // EVERY instance (vesselPidToRecordingIndex is populated per instance).
-            return GetNewestOverlapInstancePidForRecording(recordingIndex);
+            // M1: EXCLUDE the boundary-overlap secondary so it never shadows the launch recording's pid
+            // (the chain case where the launch member's primary has no vesselsByRecordingIndex entry).
+            return GetNewestOverlapInstancePidForRecording(recordingIndex, excludeBoundarySecondary: true);
         }
 
         // ---- Phase 8e S0 Instrument 1: coverage-closure accounting (PURELY ADDITIVE) ----
@@ -10275,23 +10490,36 @@ namespace Parsek
             if (fragmentCount <= 1)
                 return;
 
-            startUT = rawExpandedStart + shift;
-            endUT = rawExpandedEnd + shift;
+            // The expansion is purely ADDITIVE: it widens one applied fragment across its element-
+            // equivalent recorded neighbours so the same-orbit coast draws in one frame. It must NEVER
+            // shrink the stored window. A re-aimed loop transfer stores the FULL synthesized
+            // [departure, arrival] span, but the RAW recorded segments walked above were split mid-coast
+            // (a recorded mid-course element change > the equivalence tolerance), so the walk stops at the
+            // split and would otherwise truncate the drawn arc partway to the target. Union with the stored
+            // window (startUT/endUT still hold the caller's stored bounds here) so the expansion can only
+            // ever widen, never truncate.
+            TrajectoryMath.UnionArcWindowWithStored(
+                startUT, endUT,
+                rawExpandedStart + shift, rawExpandedEnd + shift,
+                out double widenedStartUT, out double widenedEndUT, out bool clampedToStored);
+            startUT = widenedStartUT;
+            endUT = widenedEndUT;
 
             // This resolves every render frame while a loop ghost approaches an SOI; emit only when the
             // coalesced window changes (VerboseOnChange) so the merge decision is captured without
             // per-frame spam, mirroring the stored-bounds VerboseOnChange site just above.
             ParsekLog.VerboseOnChange(Tag,
                 string.Format(ic, "loop-arc-coalesce|{0}|{1}", vesselPid, reason),
-                string.Format(ic, "coalesce|{0}|{1}-{2}|{3:F3}-{4:F3}",
-                    fragmentCount, firstVisibleIndex, lastVisibleIndex, startUT, endUT),
+                string.Format(ic, "coalesce|{0}|{1}-{2}|{3:F3}-{4:F3}|{5}",
+                    fragmentCount, firstVisibleIndex, lastVisibleIndex, startUT, endUT, clampedToStored),
                 string.Format(ic,
                     "Loop arc-window coalesced pid={0} recIndex={1} reason={2} fragments={3} " +
-                    "segIndices={4}-{5} rawWindowUT={6:F2}-{7:F2} shiftedWindowUT={8:F2}-{9:F2} loopShift={10:F2}",
+                    "segIndices={4}-{5} rawWindowUT={6:F2}-{7:F2} shiftedWindowUT={8:F2}-{9:F2} " +
+                    "clampedToStored={10} loopShift={11:F2}",
                     vesselPid, recordingIndex, reason, fragmentCount,
                     firstVisibleIndex, lastVisibleIndex,
                     rawExpandedStart, rawExpandedEnd,
-                    startUT, endUT, shift));
+                    startUT, endUT, clampedToStored, shift));
         }
 
         /// <summary>
@@ -10317,8 +10545,10 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             overlapInstanceVessels.Clear();
+            boundaryOverlapSecondaryPids.Clear(); // M1
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
+            ClearParkingConicLineHoldsForTesting();
             ResetCoverageSetsForTesting();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
@@ -10390,8 +10620,10 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             overlapInstanceVessels.Clear();
+            boundaryOverlapSecondaryPids.Clear(); // M1
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
+            ghostParkingConicLineHoldUntilUT.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
             trackingStationStateVectorCachedIndices.Clear();
             activeReFlyDeferredStateVectorGhostSessions.Clear();
@@ -10972,7 +11204,11 @@ namespace Parsek
                             body.name,
                             HighLogic.LoadedScene.ToString(),
                             v.GetWorldPos3D(),
-                            logContext));
+                            // Correlation key: carry the recordingId in the reason so a GhostCreated line is
+                            // greppable back to its recording (the pid<->recordingId map is otherwise only in
+                            // the separate vesselPidToRecordingId writes). Ties the ghost-create TRUTH to the
+                            // descent DECISION ([ReaimDescent] is recordingId/member-keyed) for one grep.
+                            "rec=" + (traj != null ? traj.RecordingId : "<none>") + " " + logContext));
                 }
 
                 return v;
@@ -11724,7 +11960,25 @@ namespace Parsek
                     LogOverlapGateDecision(i, rec, committed, loopUnits, gateOn, shouldDrive);
 
                     if (!shouldDrive)
+                    {
+                        // BOUNDARY-OVERLAP secondary (docs/dev/plan-launch-boundary-overlap.md 5.1): a launch-hold
+                        // re-aim unit member is NON-overlap (ShouldDriveOverlapPerInstance is false), so its PRIMARY
+                        // map vessel lives in vesselsByRecordingIndex via the per-index create path. During the
+                        // borrow window of a zero-slack loop the early-launching NEXT instance N+1 needs its own map
+                        // ProtoVessel (icon + escape conic). Create it INSIDE this sweep so the reaper below spares
+                        // it (register the index in drivenThisFrame) and tears it down automatically the frame the
+                        // borrow window ends. This reuses the create/seed/reap plumbing verbatim - the secondary's
+                        // in-SOI escape conic resolves to a Segment source (verified for aa48920e), so it is
+                        // loop-shift driven exactly like an overlap instance. Inert (NoSecondary) for every
+                        // non-launch-hold member and every already-aligned loop.
+                        if (TryEnsureBoundaryOverlapSecondaryInstance(
+                                i, rec, currentUT, committed, loopUnits, ref frameSpawnCount))
+                        {
+                            if (drivenThisFrame == null) drivenThisFrame = new HashSet<int>();
+                            drivenThisFrame.Add(i);
+                        }
                         continue;
+                    }
                     EnsureOverlapInstances(i, rec, currentUT, committed, loopUnits, ref frameSpawnCount);
                     if (drivenThisFrame == null) drivenThisFrame = new HashSet<int>();
                     drivenThisFrame.Add(i);
@@ -11744,6 +11998,151 @@ namespace Parsek
                     DestroyAllOverlapInstancesForRecording(idx, "overlap-no-longer-per-instance");
                 }
             }
+        }
+
+        /// <summary>
+        /// BOUNDARY-OVERLAP secondary map presence (docs/dev/plan-launch-boundary-overlap.md 5.1): when committed
+        /// recording <paramref name="recIdx"/> is a launch-hold re-aim unit member that carries a live
+        /// boundary-overlap secondary this frame (the early-launching NEXT instance N+1, during the borrow window of
+        /// a zero-slack loop), ensure ONE <see cref="overlapInstanceVessels"/> entry keyed (recIdx, secondaryCycle)
+        /// seeded at the secondary's loop-mapped sample UT, and reap any stale secondary cycle for this index. Reuses
+        /// <see cref="CreateOverlapInstanceVessel"/> (so the in-SOI escape conic resolves to a Segment source and is
+        /// loop-shift driven exactly like an overlap instance). Returns true when this index has a live
+        /// boundary-overlap secondary this frame (so the caller registers it in <c>drivenThisFrame</c> and the
+        /// reaper spares it); false otherwise (NoSecondary -> nothing created, any stale secondary already reaped).
+        /// Inert for every non-member, every non-launch-hold member, and every already-aligned loop. Single-ownership
+        /// is preserved: the PRIMARY stays in <see cref="vesselsByRecordingIndex"/>; the secondary lives ONLY here.
+        /// </summary>
+        private static bool TryEnsureBoundaryOverlapSecondaryInstance(
+            int recIdx, Recording rec, double currentUT,
+            IReadOnlyList<Recording> committed,
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
+            ref int frameSpawnCount)
+        {
+            if (rec == null || loopUnits == null || loopUnits.Count == 0)
+                return false;
+            if (!loopUnits.TryGetUnitForMember(recIdx, out GhostPlaybackLogic.LoopUnit unit))
+                return false;
+            if (!unit.LaunchHoldEngaged)
+                return false;
+
+            // Resolve the dual-clock frame for THIS member: primary sample UT + the optional boundary-overlap
+            // secondary in this member's window. The PRIMARY is handled by the per-index create path (this method
+            // only owns the secondary). NoSecondary -> reap any stale secondary for this index and return false.
+            double memberStartUT = unit.MemberStartUT(recIdx, rec.StartUT);
+            double memberEndUT = unit.MemberEndUT(recIdx, rec.EndUT);
+            GhostPlaybackLogic.BoundaryOverlapSecondaryDecision decision =
+                GhostPlaybackLogic.DecideBoundaryOverlapSecondaryRender(
+                    currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                    memberStartUT, memberEndUT, out double secondaryUT, out long secondaryCycle,
+                    unit.RelaunchSchedule, unit.LoiterCuts,
+                    unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+
+            if (decision != GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render)
+            {
+                // No live secondary this frame: reap any stale boundary-secondary instance for this index. (The
+                // outer reaper would also catch it via drivenThisFrame, but tear it down here so a NoSecondary frame
+                // does not leave a lingering icon for one extra frame.)
+                ReapBoundaryOverlapSecondaryInstances(recIdx, secondaryCycle: long.MinValue,
+                    reason: "boundary-overlap-secondary-window-ended");
+                return false;
+            }
+
+            // Reap any stale secondary cycle for this index (the borrow window's instance advanced to the next
+            // N+1), keeping only the current secondaryCycle.
+            ReapBoundaryOverlapSecondaryInstances(recIdx, secondaryCycle,
+                reason: "boundary-overlap-secondary-cycle-advanced");
+
+            // Already live for this cycle: nothing to create, but report the live secondary so the reaper spares it.
+            if (overlapInstanceVessels.ContainsKey((recIdx, secondaryCycle)))
+                return true;
+
+            // Respect the shared per-frame spawn throttle exactly like EnsureOverlapInstances.
+            if (GhostPlaybackLogic.ShouldThrottleSpawn(frameSpawnCount, GhostPlayback.MaxSpawnsPerFrame))
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    string.Format(ic, "boundary-overlap-secondary-throttle-{0}", recIdx),
+                    string.Format(ic,
+                        "Boundary-overlap secondary create throttled rec=#{0} \"{1}\" cycle={2} " +
+                        "(used {3}/{4} spawns this frame)",
+                        recIdx, rec.VesselName ?? "(null)", secondaryCycle,
+                        frameSpawnCount, GhostPlayback.MaxSpawnsPerFrame),
+                    1.0);
+                // Still report the secondary live so the reaper does not destroy a (deferred) create next frame.
+                return true;
+            }
+
+            double loopEpochShiftSeconds = currentUT - secondaryUT;
+            Vessel inst = CreateOverlapInstanceVessel(
+                recIdx, rec, secondaryCycle, secondaryUT, loopEpochShiftSeconds,
+                out TrackingStationGhostSource diagSource, out OrbitSegment diagSegment,
+                liveLaunchMatchedAnchorOfActiveMember: false);
+
+            // SEAM-RENDER OBSERVABILITY 2 (docs/dev/design-reaim-launch-hold-seam.md): the secondary's MAP
+            // presence (icon + escape conic) first-create truth, INCLUDING the create-returned-null /
+            // no-accepted-source case (the leading-hypothesis smoking gun). created=false + source=none means
+            // the post-ascent in-SOI escape window has NO accepted Segment yet, so the icon/conic only
+            // materializes once the secondaryLoopUT reaches the recorded escape Segment - that lag (the few
+            // minutes the prompt reports) is lagFromSpanStartSec = secondaryLoopUT - spanStart at the moment of
+            // create. segmentUT names the covering Segment span when one resolved. Rate-limited per
+            // (recIdx, secondaryCycle) so each borrow window's first-create truth is captured exactly once;
+            // logging-only, no control-flow effect (created is read from the create result, not a new gate).
+            string segUtStr = (diagSource == TrackingStationGhostSource.Segment
+                               || diagSource == TrackingStationGhostSource.EndpointTail)
+                ? string.Format(ic, "{0:F1}-{1:F1}", diagSegment.startUT, diagSegment.endUT)
+                : "n/a";
+            double lagFromSpanStart = secondaryUT - unit.SpanStartUT;
+            ParsekLog.VerboseRateLimited(Tag,
+                string.Format(ic, "boundary-overlap-secondary-map-presence-{0}-{1}", recIdx, secondaryCycle),
+                string.Format(ic,
+                    "boundary-overlap secondary map-presence: created={0} currentUT={1:R} secondaryLoopUT={2:R} " +
+                    "source={3} segmentUT={4} lagFromSpanStartSec={5:R} rec=#{6} \"{7}\" cycle={8}",
+                    inst != null, currentUT, secondaryUT, diagSource, segUtStr, lagFromSpanStart,
+                    recIdx, rec.VesselName ?? "(null)", secondaryCycle),
+                2.0);
+
+            if (inst != null)
+            {
+                // M1: tag this pid so the vesselsByRecordingIndex-reader fall-through
+                // (GetGhostVesselPidForRecording / HasGhostVesselForRecording) does not let the secondary
+                // shadow the launch recording's identity. Dropped on reap in RemoveOverlapInstance.
+                boundaryOverlapSecondaryPids.Add(inst.persistentId);
+                frameSpawnCount++;
+                ParsekLog.VerboseRateLimited(Tag,
+                    string.Format(ic, "boundary-overlap-secondary-create-{0}", recIdx),
+                    string.Format(ic,
+                        "Created boundary-overlap secondary map vessel rec=#{0} \"{1}\" cycle={2} " +
+                        "secondaryUT={3:F1} loopShift={4:F1}",
+                        recIdx, rec.VesselName ?? "(null)", secondaryCycle, secondaryUT, loopEpochShiftSeconds),
+                    2.0);
+            }
+            // Report live even if the create deferred (no Segment yet): the reaper must not tear down a pending one.
+            return true;
+        }
+
+        /// <summary>
+        /// Reaps boundary-overlap secondary instances for <paramref name="recIdx"/>, destroying every per-instance
+        /// vessel for this index whose cycle is NOT <paramref name="secondaryCycle"/> (pass <c>long.MinValue</c> to
+        /// reap all). Only touches entries whose cycle differs from the live secondary cycle, so it never destroys a
+        /// genuine self-overlap instance (a launch-hold unit member never has self-overlap instances anyway). The
+        /// primary in <see cref="vesselsByRecordingIndex"/> is untouched.
+        /// </summary>
+        private static void ReapBoundaryOverlapSecondaryInstances(int recIdx, long secondaryCycle, string reason)
+        {
+            List<long> stale = null;
+            foreach (var kvp in overlapInstanceVessels)
+            {
+                if (kvp.Key.recIdx == recIdx && kvp.Key.cycle != secondaryCycle)
+                {
+                    if (stale == null) stale = new List<long>();
+                    stale.Add(kvp.Key.cycle);
+                }
+            }
+            if (stale == null)
+                return;
+            for (int i = 0; i < stale.Count; i++)
+                RemoveOverlapInstance(recIdx, stale[i], reason);
         }
 
         /// <summary>
@@ -11852,6 +12251,23 @@ namespace Parsek
             int recIdx, Recording rec, long cycle, double effUT, double loopEpochShiftSeconds,
             bool liveLaunchMatchedAnchorOfActiveMember = false)
         {
+            // Diagnostic-only overload-style wrapper: the boundary-overlap secondary create
+            // (TryEnsureBoundaryOverlapSecondaryInstance) reads back the resolved source / covering
+            // segment to emit observability 2 (the map-presence pre-Segment gap). The regular overlap
+            // sweep does not need them, so it routes through this thin wrapper that discards them.
+            return CreateOverlapInstanceVessel(
+                recIdx, rec, cycle, effUT, loopEpochShiftSeconds,
+                out _, out _, liveLaunchMatchedAnchorOfActiveMember);
+        }
+
+        private static Vessel CreateOverlapInstanceVessel(
+            int recIdx, Recording rec, long cycle, double effUT, double loopEpochShiftSeconds,
+            out TrackingStationGhostSource diagSource, out OrbitSegment diagSegment,
+            bool liveLaunchMatchedAnchorOfActiveMember = false)
+        {
+            diagSource = TrackingStationGhostSource.None;
+            diagSegment = default(OrbitSegment);
+
             if (overlapInstanceVessels.ContainsKey((recIdx, cycle)))
                 return overlapInstanceVessels[(recIdx, cycle)];
 
@@ -11873,6 +12289,12 @@ namespace Parsek
                 // A live overlap instance always has a non-zero epoch shift, so it is "in window".
                 loopMemberInWindow: true,
                 liveLaunchMatchedAnchorOfActiveMember: liveLaunchMatchedAnchorOfActiveMember);
+
+            // Read-back-only: expose the resolved source + covering segment to the boundary-overlap
+            // secondary diagnostic. No control-flow effect (the create decisions below read `source` /
+            // `segment` directly, exactly as before).
+            diagSource = source;
+            diagSegment = segment;
 
             if (!IsMapCreateAcceptedSource(source))
             {
@@ -11998,6 +12420,7 @@ namespace Parsek
 
             if (ghostPid != 0)
             {
+                boundaryOverlapSecondaryPids.Remove(ghostPid); // M1: no-op for genuine self-overlap instances
                 ghostMapVesselPids.Remove(ghostPid);
                 ghostsWithSuppressedIcon.Remove(ghostPid);
                 ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
@@ -12066,7 +12489,8 @@ namespace Parsek
         /// watch-camera focus, TS-Fly, UI marker suppression, and the polyline owner resolve get the
         /// newest instance's pid (matching the legacy "one icon == newest cycle" behavior) instead of 0.
         /// </summary>
-        internal static uint GetNewestOverlapInstancePidForRecording(int recIdx)
+        internal static uint GetNewestOverlapInstancePidForRecording(
+            int recIdx, bool excludeBoundarySecondary = false)
         {
             uint newestPid = 0;
             long newestCycle = long.MinValue;
@@ -12075,6 +12499,11 @@ namespace Parsek
                 if (kvp.Key.recIdx != recIdx)
                     continue;
                 if (kvp.Value == null)
+                    continue;
+                // M1: the vesselsByRecordingIndex-reader fall-through excludes the boundary-overlap secondary
+                // so it never shadows the launch recording's identity (the polyline's second-head resolution
+                // passes false and still gets it). No-op for genuine self-overlap instances (not in the set).
+                if (excludeBoundarySecondary && boundaryOverlapSecondaryPids.Contains(kvp.Value.persistentId))
                     continue;
                 if (kvp.Key.cycle > newestCycle)
                 {
@@ -12176,6 +12605,41 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Launch-&gt;escape seam render: resolve whether a launch-hold re-aim member has a LIVE
+        /// boundary-overlap SECONDARY head this frame whose in-SOI ASCENT icon must be drawn as an
+        /// ADDITIVE non-proto polyline marker (the early-launching instance N+1's ascent during the
+        /// borrow window of a zero-slack re-aim launch loop). The secondary's own proto icon + escape
+        /// conic come from the map-presence sweep ONCE its escape <c>OrbitSegment</c> materializes;
+        /// this only covers the PRE-SEGMENT ascent gap, where no proto can exist (an atmospheric ascent
+        /// has no orbit, so <c>ResolveMapPresenceGhostSource</c> returns None and the create defers).
+        /// The caller rides this UT on the SHARED polyline via <c>DrawOneOverlapInstanceMarker</c> /
+        /// <c>DrawOneTsOverlapInstanceMarker</c>, which self-gates per cycle (a live non-suppressed
+        /// proto icon for the cycle skips the marker, so there is no double once the Segment exists).
+        ///
+        /// Returns false - with <paramref name="secondaryUT"/>/<paramref name="secondaryCycle"/>
+        /// defaulted - for every non-map surface, debris recording, null recording, and any member
+        /// without a live secondary head this frame (every non-launch-hold member and every ALIGNED
+        /// loop, where <c>ResolveTrackingStationSampleFrame</c> reports <c>hasSecondary=false</c>), so
+        /// the caller's additive marker draw stays inert there. Map-surface only because the secondary
+        /// head needs the live UT + the shared map polyline to ride (flight view passes currentUT=0 and
+        /// has no map polyline).
+        /// </summary>
+        internal static bool TryResolveBoundaryOverlapSecondaryMarker(
+            bool isMapSurface, Recording rec, int recIdx, double liveUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
+            out double secondaryUT, out long secondaryCycle)
+        {
+            secondaryUT = liveUT;
+            secondaryCycle = 0;
+            if (!isMapSurface || rec == null || rec.IsDebris)
+                return false;
+            GhostPlaybackLogic.ResolveTrackingStationSampleFrame(
+                recIdx, rec.StartUT, rec.EndUT, liveUT, loopUnits,
+                out _, out bool hasSecondary, out secondaryUT, out secondaryCycle);
+            return hasSecondary;
         }
 
         /// <summary>
@@ -12538,7 +13002,13 @@ namespace Parsek
                     out bool renderHidden, out double loopEpochShiftSeconds);
                 if (renderHidden)
                 {
-                    GhostMapPresence.RemoveGhostVesselForRecording(idx, "mission-loop-out-of-window");
+                    // Enrich the teardown reason with the loop role: a descent member tearing down here is the
+                    // descent-revert/finish path (the icon falls back to the loiter conic), so the destroy line
+                    // names it for correlation with the [ReaimDescent] DESCENT REVERTED/SKIPPED line. Empty (=>
+                    // byte-identical reason) for every non-descent member.
+                    GhostMapPresence.RemoveGhostVesselForRecording(idx,
+                        "mission-loop-out-of-window"
+                        + GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(idx, loopUnits));
                     if (toRemoveFromMap == null) toRemoveFromMap = new List<int>();
                     toRemoveFromMap.Add(idx);
                     // Re-queue to pendingMapVessels so the create pass re-materializes the orbit
@@ -12560,6 +13030,49 @@ namespace Parsek
                 List<OrbitSegment> effectiveSegments = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
                     idx, rec.RecordingId, rec.OrbitSegments, currentUT, loopUnits);
 
+                // LOITER-GAP map-presence clamp (re-aim looped LANDING destination loiter): the descent-trigger
+                // TRANSFER member's recorded loop clock (effUT) sweeps the parking conic up to its end
+                // (ParkingConicEndUT = the destination loiter run end = the deorbit point). PAST that point an
+                // UNCLAMPED FindOrbitSegmentOrSameBodyCarry walks INTO the CONTIGUOUS deorbit-transition
+                // OrbitSegment and draws that deorbit arc as the loiter orbit (~1/3 of an ellipse), then past the
+                // deorbit-arc end no segment covers effUT and the proto is destroyed ("left-orbit-segments"), so
+                // the parking conic stops rendering until the descent fires. HOLD the segment-lookup sample UT at
+                // ParkingConicEndUT inside the gap so the lookup keeps returning the real recorded PARKING-conic
+                // segment and the proto stays alive on it. The clamp applies ONLY to this segment lookup; every
+                // other read below still uses the live effUT. Layer B then stamps a per-pid line hold so
+                // GhostOrbitLinePatch keeps the FULL parking ellipse drawn until the live descent trigger. False
+                // (byte-identical) for every member except the destination transfer member (the owner, every
+                // ride-along in a different/unshifted frame, and every descent-set member), for non-re-aim units,
+                // and once the descent trigger fires (the transfer member then retires via the live-clock
+                // continuation gate).
+                double segmentLookupUT = effUT;
+                uint flightGhostPid = vesselsByRecordingIndex.TryGetValue(idx, out Vessel flightGhostVessel)
+                        && flightGhostVessel != null
+                    ? flightGhostVessel.persistentId
+                    : 0u;
+                if (GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(loopUnits, idx, effUT))
+                {
+                    segmentLookupUT = GhostPlaybackLogic.ResolveLoiterGapConicEndUT(loopUnits, idx);
+                    ParsekLog.VerboseRateLimited("Policy",
+                        "flight-loiter-gap-clamp-" + idx,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Flight loiter-gap clamp: member={0} effUT={1:F1} held segment-lookup UT at parkingConicEnd={2:F1} "
+                            + "(re-aim descent transfer member in captureShift loiter gap; parking conic kept rendering)",
+                            idx, effUT, segmentLookupUT),
+                        5.0);
+                    // Layer B: hold the parking-conic LINE visible through the loiter (past the live parking-conic
+                    // bound) until the live descent trigger; GhostOrbitLinePatch consults the stamp.
+                    StampParkingConicLineHoldForLoiterGap(
+                        idx, flightGhostPid, currentUT, loopUnits,
+                        rec.StartUT, rec.EndUT, "FLIGHT", "flight-parking-conic-line-hold-");
+                }
+                else if (flightGhostPid != 0)
+                {
+                    // Not in the gap (still on the conic, or the descent fired / loop wrapped): tear down any
+                    // line hold for this ghost so the stamp never lingers into the next phase.
+                    ClearParkingConicLineHold(flightGhostPid);
+                }
+
                 // Same-body carry: while the playback head is inside a body frame, briefly
                 // dropping the ghost between two non-orbit-equivalent segments (e.g., capture
                 // burn between two Mun orbits) would tear down and recreate the ProtoVessel,
@@ -12567,7 +13080,7 @@ namespace Parsek
                 // to drop the ghost when the body actually changes (SOI / frame change) or
                 // when the recording is truly past its last segment. Body-frame carry keeps
                 // the previous segment's orbit active until UT enters the next segment.
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT);
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, segmentLookupUT);
 
                 // Gap-points glide: FindOrbitSegmentOrSameBodyCarry keeps seg.HasValue true across a
                 // same-body inter-segment gap by carrying the PREVIOUS segment forward. That is correct
@@ -12820,7 +13333,12 @@ namespace Parsek
                         out bool renderHidden, out double loopEpochShiftSeconds);
                     if (renderHidden)
                     {
-                        GhostMapPresence.RemoveGhostVesselForRecording(idx, "mission-loop-out-of-window");
+                        // Enrich the teardown reason with the loop role (descent member => the descent
+                        // revert/finish path) so the destroy line correlates with the [ReaimDescent] line.
+                        // Empty (byte-identical reason) for every non-descent member.
+                        GhostMapPresence.RemoveGhostVesselForRecording(idx,
+                            "mission-loop-out-of-window"
+                            + GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(idx, loopUnits));
                         if (toReDefer == null) toReDefer = new List<int>();
                         toReDefer.Add(idx);
                         continue;

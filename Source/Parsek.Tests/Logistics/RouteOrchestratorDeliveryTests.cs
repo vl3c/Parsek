@@ -146,7 +146,8 @@ namespace Parsek.Tests.Logistics
             int stopIndex = 0,
             bool isCareer = true,
             bool isKscOrigin = true,
-            double kscFundsCost = 1000.0)
+            double kscFundsCost = 1000.0,
+            bool bumpCompletedCycle = true)
         {
             return new RouteOrchestrator.ApplyDeliveryContext
             {
@@ -162,6 +163,11 @@ namespace Parsek.Tests.Logistics
                 InventoryActualCountReader = writers.ReadInventoryActualCount,
                 FundsDebiter = writers.DebitFunds,
                 LedgerEmitter = writers.EmitAction,
+                // M4a A3 (Horn A): the direct ApplyDeliveryFromPlan tests model a
+                // single complete delivery, so the cycle-complete CompletedCycles
+                // bump fires (the pre-A3 unconditional behaviour). Multi-stop earlier
+                // windows would pass false; no direct-core test exercises that.
+                BumpCompletedCycle = bumpCompletedCycle,
             };
         }
 
@@ -211,6 +217,42 @@ namespace Parsek.Tests.Logistics
             Assert.False(route.PendingDeliveryUT.HasValue);
             Assert.Equal(-1, route.PendingStopIndex);
             Assert.Equal(RouteStatus.Active, route.Status);
+        }
+
+        // C-3: closes the production-stride coverage gap. The multi-stop fire tests
+        // use the DeliveryRowEmitterForTesting seam, which MIRRORS the production
+        // stride (stopIndex*8 + 3) rather than RUNNING ApplyDeliveryFromPlan's own
+        // stride computation. This drives the REAL ApplyDeliveryFromPlan with
+        // ctx.StopIndex = 1 and asserts the emitted RouteCargoDelivered row carries
+        // RouteStopIndex == 1 and Sequence == 11 (1*SeqStride + 3) - the actual
+        // production-side stride, not a test mirror.
+        [Fact]
+        public void ApplyDeliveryFromPlan_StopIndex1_EmitsStopIndex1AndSequence11()
+        {
+            var route = BuildInTransitKscRoute(kscFundsCost: 500.0);
+            var plan = BuildFullFillPlan(route.Stops[0].DeliveryManifest);
+            var writers = new CapturingWriters();
+            // ctx.StopIndex = 1: the second window of a multi-stop cycle. The stride
+            // base is ctx.StopIndex * SeqStride, so the delivery row's Sequence is
+            // 1*8 + 3 = 11. bumpCompletedCycle false models an EARLIER multi-stop
+            // window (the caller owns the once-per-cycle bump).
+            var ctx = BuildContext(
+                writers, stopIndex: 1, isCareer: true, isKscOrigin: true,
+                kscFundsCost: 500.0, bumpCompletedCycle: false);
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
+
+            Assert.Single(writers.EmittedActions);
+            GameAction a = writers.EmittedActions[0];
+            Assert.Equal(GameActionType.RouteCargoDelivered, a.Type);
+            Assert.Equal(1, a.RouteStopIndex);
+            // Production stride: ctx.StopIndex(1) * SeqStride(8) + delivery offset(3).
+            Assert.Equal(1 * RouteOrchestrator.SeqStride + 3, a.Sequence);
+            Assert.Equal(11, a.Sequence);
+            // Earlier window: the caller (ProcessMultiStopCrossings) owns the bump,
+            // so ApplyDeliveryFromPlan with bumpCompletedCycle=false leaves the
+            // counter alone (the cycleId the later windows compute stays stable).
+            Assert.Equal(0, route.CompletedCycles);
         }
 
         // catches: unconditional funds debit leaking to Sandbox.

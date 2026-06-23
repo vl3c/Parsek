@@ -145,6 +145,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveMapPresenceGhostSource_TransferMemberDescentContinuation_RetiresCleanlyNoEndpointTailNoSegment()
+        {
+            // COSMETIC 2: the SAME recording that (above) synthesizes a sub-surface EndpointTail. When the caller
+            // signals the descent-trigger transfer member has handed off / landed, the resolver must RETIRE the
+            // ghost cleanly (source=None) BEFORE the covering-segment / EndpointTail / Segment resolution, so it
+            // never paints the sub-surface looping ghost AND never falls back to a stale Segment (the J2 trap).
+            Recording rec = BuildEndpointRecording(Segment(startUT: 120.0, endUT: 150.0));
+            bool seamCalled = false;
+            OrbitSeedResolver.TailSeedResolverForTesting =
+                (IPlaybackTrajectory traj, CelestialBody body, double currentUT, TailSeedUse use, out TailDerivedOrbitSeed seed) =>
+                {
+                    seamCalled = true;
+                    seed = AcceptedTailSeed(
+                        tailUT: 453.66,
+                        latestStoredSegmentEndUT: 150.0,
+                        rotationDriftSeconds: currentUT - 453.66);
+                    return true;
+                };
+
+            int cached = -1;
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveMapPresenceGhostSource(
+                    rec,
+                    isSuppressed: false,
+                    alreadyMaterialized: false,
+                    currentUT: 135.7,
+                    allowTerminalOrbitFallback: true,
+                    logOperationName: "test-descent-continuation",
+                    ref cached,
+                    out OrbitSegment segment,
+                    out _,
+                    out string skipReason,
+                    transferMemberDescentContinuation: true);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal("transfer-member-descent-continuation", skipReason);
+            Assert.False(seamCalled, "the gate fires BEFORE the endpoint-tail seam — no tail synthesis attempted");
+            Assert.Equal(default(OrbitSegment).startUT, segment.startUT); // no segment populated (no fallback)
+        }
+
+        [Fact]
         public void ResolveMapPresenceGhostSource_HistoricalTailDeclines_KeepsVisibleSegment()
         {
             Recording rec = BuildEndpointRecording(Segment(startUT: 120.0, endUT: 150.0));

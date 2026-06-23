@@ -4,8 +4,19 @@ namespace Parsek.Logistics
     /// Pure decision engine for the dispatch scheduler. Given a route, the
     /// current UT, and an <see cref="IRouteRuntimeEnvironment"/>, returns a
     /// <see cref="RouteDispatchDecision"/> describing what the orchestrator
-    /// should do. No KSP statics, no logging, no mutation — the orchestrator
-    /// owns side effects.
+    /// should do. No KSP statics, no mutation — the orchestrator owns the
+    /// physical side effects (ledger rows, debits, transitions).
+    ///
+    /// <para>ONE deliberate exception to "no logging": the round-trip linking
+    /// partner gate (<see cref="PartnerConstraintSatisfied"/>, M4c Phase C1)
+    /// emits a Verbose audit line for its hold / seed / bypass decision. The gate
+    /// runs once per dock crossing (not per frame), the project's logging policy
+    /// requires every guard decision to be auditable, and the seed / bypass
+    /// branches are otherwise invisible to the orchestrator (they return an
+    /// ELIGIBLE result, so no hold is recorded downstream). It also resolves the
+    /// partner via the <see cref="RouteStore"/> static (committedRoutes only - NOT
+    /// the ERS/ELS surfaces), the same seam M4b used to read escrow, to avoid
+    /// growing <see cref="IRouteRuntimeEnvironment"/> (plan RANK-10).</para>
     /// </summary>
     internal static class RouteDispatchEvaluator
     {
@@ -31,6 +42,21 @@ namespace Parsek.Logistics
             FundsShort,
             /// <summary>Destination has no capacity for the cost manifest.</summary>
             DestinationFull,
+            /// <summary>
+            /// Round-trip linking (M4c Phase C1, plan D12 / OQ8): this route is
+            /// linked to a partner route (<see cref="Route.LinkedRouteId"/>) and
+            /// the partner has NOT completed a new cycle since this route last
+            /// consumed one (<c>partner.CompletedCycles &lt;= route.LastConsumedPartnerCycle</c>),
+            /// so the chain constraint holds the route this cycle. NOT a
+            /// <see cref="RouteStatus"/> - the route stays Active / GhostDriving and
+            /// renders its loop while waiting; only the hold reason names the wait.
+            /// Appended LAST so the three <c>RouteStatusPolicy</c> throw-on-default
+            /// switches are untouched (they switch on <see cref="RouteStatus"/>, not
+            /// this evaluator enum) and a genuinely-blocked route surfaces its real
+            /// blocker first (the partner gate is ordered last in
+            /// <see cref="CheckEligibility"/>).
+            /// </summary>
+            WaitingForPartner,
         }
 
         /// <summary>
@@ -140,6 +166,16 @@ namespace Parsek.Logistics
                         currentUT + RouteOrchestrator.WaitRetryIntervalSec,
                         elig.Reason);
 
+                case EligibilityFailureKind.WaitingForPartner:
+                    // Round-trip linking (M4c, D12). v0 has no non-loop dispatch
+                    // model, so the legacy self-timer path is dead for every loop
+                    // route; a chain-linked route is always a loop route. Map the
+                    // wait to a plain Skip (the chain constraint is not a route
+                    // STATUS, so there is no Wait* decision for it) - the route
+                    // simply does not dispatch this evaluation. The loop-clock path
+                    // (ProcessLoopRoute) is the live consumer; it records the hold.
+                    return RouteDispatchDecision.Skip(elig.Reason);
+
                 default:
                     return RouteDispatchDecision.Skip("eligibility-unknown");
             }
@@ -223,8 +259,165 @@ namespace Parsek.Logistics
                     EligibilityFailureKind.DestinationFull, fullResource, 0.0);
             }
 
+            // 9. Round-trip linking chain constraint (M4c Phase C1, plan D12 / OQ8).
+            //    Ordered LAST so a genuinely-blocked route (sources / endpoint /
+            //    cargo / funds / capacity) surfaces its real blocker first - the
+            //    partner wait is the lowest-priority hold. Resolved via
+            //    RouteStore.TryGetRoute (a static, the same seam B1 used to read
+            //    escrow) rather than a new IRouteRuntimeEnvironment member, so the
+            //    ~14 env fakes are untouched (plan RANK-10). RouteStore reads its
+            //    own committedRoutes list only (not the recording / ledger action
+            //    surfaces the ERS/ELS audit gate guards), so there is no audit-gate
+            //    concern.
+            if (!PartnerConstraintSatisfied(route, out string partnerReason))
+            {
+                return new EligibilityResult(
+                    EligibilityFailureKind.WaitingForPartner, partnerReason, 0.0);
+            }
+
             // All conditions met.
             return EligibilityResult.Ok();
+        }
+
+        /// <summary>
+        /// Round-trip linking chain constraint (M4c Phase C1, plan D12 / OQ8).
+        /// Returns TRUE when this route is free to dispatch with respect to its
+        /// linked partner, FALSE (with <paramref name="reason"/> set to a
+        /// <c>partner:</c>-prefixed hold token) when the chain constraint holds it.
+        ///
+        /// <para><b>Unlinked routes are byte-behaviour-identical.</b> A null /
+        /// empty <see cref="Route.LinkedRouteId"/> returns true immediately
+        /// (no RouteStore read, no log), so pre-M4c routes behave exactly as
+        /// before.</para>
+        ///
+        /// <para><b>Bypass when the partner is missing / Paused / not
+        /// dispatching</b> (design 10.14): if the partner cannot be resolved
+        /// (<see cref="RouteStore.TryGetRoute"/> false), or it is Paused, or it is
+        /// in a non-ghost-driving status (the three Broken states), the constraint
+        /// does NOT apply - this route dispatches on its own schedule. The bypass
+        /// set is precisely <c>!RouteStatusPolicy.GhostDriving(partner.Status)</c>
+        /// (Paused + EndpointLost + MissingSourceRecording + SourceChanged), which
+        /// is exactly the set of partners that will never complete a cycle to
+        /// satisfy the constraint, so holding on them would stall this route
+        /// forever.</para>
+        ///
+        /// <para><b>The hold</b>: a linked, live partner that has NOT completed a
+        /// new cycle since this route last consumed one
+        /// (<c>partner.CompletedCycles &lt;= route.LastConsumedPartnerCycle</c>)
+        /// holds the route. The default <see cref="Route.LastConsumedPartnerCycle"/>
+        /// is 0, so a never-dispatched pair both compute <c>0 &lt;= 0</c> = held -
+        /// the mutual-link deadlock the seed rule below breaks.</para>
+        ///
+        /// <para><b>Deadlock seed</b>: when BOTH routes are linked and neither has
+        /// completed a cycle (<c>partner.CompletedCycles == 0</c>), without a seed
+        /// both wait forever. The SEED (the route that sorts first by
+        /// <see cref="IsChainSeed"/> - lower <see cref="Route.DispatchPriority"/>,
+        /// then ordinal <see cref="Route.Id"/>) treats the constraint as satisfied
+        /// and dispatches first, breaking the cycle. The non-seed waits for the
+        /// seed's first completion. The guard is scoped to
+        /// <c>partner.CompletedCycles == 0</c> so it only ever fires on the very
+        /// first cycle of a fresh chain; after the seed completes once, ordinary
+        /// alternation takes over.</para>
+        ///
+        /// <para>Logs the gate decision (partner name, partner.CompletedCycles vs
+        /// LastConsumedPartnerCycle, seed/bypass) at Verbose. Called once per
+        /// crossing (not per frame), so this is not per-frame spam.</para>
+        /// </summary>
+        internal static bool PartnerConstraintSatisfied(Route route, out string reason)
+        {
+            reason = null;
+
+            if (route == null || string.IsNullOrEmpty(route.LinkedRouteId))
+                return true; // unlinked: byte-behaviour-identical, no RouteStore read
+
+            if (!RouteStore.TryGetRoute(route.LinkedRouteId, out Route partner) || partner == null)
+            {
+                // Partner gone (deleted / tombstoned / never created): bypass the
+                // constraint - the route dispatches on its own schedule (10.14
+                // analogue: a partner that cannot complete a cycle must not stall us).
+                ParsekLog.Verbose("Route",
+                    $"PartnerGate: route {ShortId(route.Id)} linkedRouteId={ShortId(route.LinkedRouteId)} " +
+                    "unresolved - bypassing chain constraint (dispatch allowed)");
+                return true;
+            }
+
+            // Bypass when the partner is Paused / Broken (design 10.14): a partner
+            // that is not ghost-driving will never advance CompletedCycles, so the
+            // constraint would stall this route forever - the partner dispatches /
+            // resumes on its own schedule.
+            if (!RouteStatusPolicy.GhostDriving(partner.Status))
+            {
+                ParsekLog.Verbose("Route",
+                    $"PartnerGate: route {ShortId(route.Id)} partner={ShortId(partner.Id)} " +
+                    $"status={partner.Status} not ghost-driving - bypassing chain constraint (dispatch allowed)");
+                return true;
+            }
+
+            // Deadlock seed: a fresh mutual chain (NEITHER route has completed a
+            // cycle yet) would have BOTH routes hold at the default
+            // LastConsumedPartnerCycle (both compute 0 <= 0). The SEED dispatches
+            // its FIRST cycle to break the deadlock. Scoped to BOTH counts at 0
+            // (route.CompletedCycles == 0 && partner.CompletedCycles == 0) so the
+            // bypass fires ONCE - the seed's very first cycle. After the seed
+            // completes that cycle (CompletedCycles -> 1), this guard no longer
+            // fires and the seed falls to the normal alternation gate below, holding
+            // until the partner completes a cycle. Without the route.CompletedCycles
+            // == 0 clause the seed would re-dispatch every cycle while the partner
+            // stayed at 0, starving the partner and breaking alternation.
+            if (route.CompletedCycles == 0 && partner.CompletedCycles == 0
+                && IsChainSeed(route, partner))
+            {
+                ParsekLog.Verbose("Route",
+                    $"PartnerGate: route {ShortId(route.Id)} is the chain SEED " +
+                    $"(prio={route.DispatchPriority} id<={ShortId(route.Id)}) and partner={ShortId(partner.Id)} " +
+                    "has completed no cycle - dispatch allowed (deadlock break)");
+                return true;
+            }
+
+            // Core alternation gate: hold until the partner completes a NEW cycle
+            // since this route last consumed one.
+            if (partner.CompletedCycles <= route.LastConsumedPartnerCycle)
+            {
+                reason = "partner:" + (partner.Name ?? partner.Id ?? "<unknown>");
+                ParsekLog.Verbose("Route",
+                    $"PartnerGate: route {ShortId(route.Id)} HOLD WaitingForPartner partner={ShortId(partner.Id)} " +
+                    $"partnerCompleted={partner.CompletedCycles} lastConsumed={route.LastConsumedPartnerCycle} " +
+                    $"(needs partnerCompleted > lastConsumed)");
+                return false;
+            }
+
+            ParsekLog.Verbose("Route",
+                $"PartnerGate: route {ShortId(route.Id)} CLEAR partner={ShortId(partner.Id)} " +
+                $"partnerCompleted={partner.CompletedCycles} lastConsumed={route.LastConsumedPartnerCycle} - dispatch allowed");
+            return true;
+        }
+
+        /// <summary>
+        /// Deterministic chain-seed predicate (M4c, plan D12 deadlock guard): TRUE
+        /// when <paramref name="route"/> sorts strictly before
+        /// <paramref name="partner"/> by lower <see cref="Route.DispatchPriority"/>,
+        /// then ordinal <see cref="Route.Id"/>. Mirrors the first + last keys of
+        /// <see cref="RouteOrchestrator.CompareRoutesForTick"/> but deliberately
+        /// OMITS the schedule-state <c>NextDispatchUT</c> middle key, so the seed is
+        /// a STABLE structural property of the pair (it does not flip as the routes'
+        /// schedules drift across cycles). Total / deterministic for distinct ids
+        /// (the ordinal-id final key is unique). Pure.
+        /// </summary>
+        internal static bool IsChainSeed(Route route, Route partner)
+        {
+            if (route == null) return false;
+            if (partner == null) return true;
+
+            int byPriority = route.DispatchPriority.CompareTo(partner.DispatchPriority);
+            if (byPriority != 0) return byPriority < 0;
+
+            return string.CompareOrdinal(route.Id, partner.Id) < 0;
+        }
+
+        private static string ShortId(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "<no-id>";
+            return id.Length > 8 ? id.Substring(0, 8) : id;
         }
     }
 }

@@ -1212,7 +1212,9 @@ namespace Parsek
             // shows the synodic cadence + a "(<target> transfer)" basis and the T- cell counts down to
             // the next window (NextRelaunchUT is already the uniform synodic anchor + n*cadence).
             public bool IsReaim;
-            public double ReaimSynodicSeconds;   // the synodic relaunch cadence (NaN when not re-aim)
+            public double ReaimSynodicSeconds;   // the relaunch cadence (CadenceSeconds = smallest whole
+                                                 // synodic multiple >= span; NaN when not re-aim). Matches
+                                                 // the T-minus countdown so the two cells agree.
             public string ReaimTargetBody;        // the interplanetary destination (null when not re-aim)
         }
 
@@ -1305,8 +1307,14 @@ namespace Parsek
             // periodicity Solve cannot represent (it reports UnsupportedCrossParent). Surface it so the
             // cells show the ~synodic cadence + a window countdown instead of "not aligned".
             result.IsReaim = result.UnitBuilt && unit.IsReaim;
+            // Show the ACTUAL relaunch cadence (CadenceSeconds = the smallest whole synodic multiple >=
+            // span), NOT the bare 1*synodic period: the cadence is what the engine relaunches on and what
+            // ComputeNextRelaunchUT counts the T-minus down to, so pointing the period cell at the synodic
+            // period (1.05y) while the countdown uses the cadence (e.g. 2.1y for span>synodic) would make
+            // the two cells DISAGREE by the multiple. For a normal mission cadence == synodic, so the cell
+            // is unchanged.
             result.ReaimSynodicSeconds = result.IsReaim
-                ? unit.ReaimSchedule.Value.SynodicPeriodSeconds
+                ? unit.CadenceSeconds
                 : double.NaN;
             result.ReaimTargetBody = result.IsReaim ? unit.ReaimPlan.Value.TargetBody : null;
             // M4c arrival amber: carried by the unit the builder produced (same inputs as the
@@ -1322,6 +1330,25 @@ namespace Parsek
                 $"nextRelaunch={result.NextRelaunchUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"now={nowUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}",
                 3.0);
+
+            // SEAM-RENDER OBSERVABILITY 4 (docs/dev/design-reaim-launch-hold-seam.md): the displayed T-minus
+            // countdown target, so the next playtest can confirm the countdown targets the SAME advanced launch
+            // UT as ComputeNextRelaunchUT / the warp (ruling out a countdown-vs-warp mismatch as the source of
+            // the few-minutes offset). targetUT is result.NextRelaunchUT (the same value BuildTMinusCellText
+            // counts down to, == L_N - ComputeBoundaryOverlapAdvanceSeconds for an engaged loop). Gated on the
+            // launch-hold unit (the seam regime) and keyed per mission identity (phaseAnchorUT + spanStartUT,
+            // matching the clock's per-loop keys) so the key set stays bounded by mission count. Logging-only.
+            if (result.UnitBuilt && unit.LaunchHoldEngaged)
+            {
+                var mic = System.Globalization.CultureInfo.InvariantCulture;
+                double tMinusSec = result.NextRelaunchUT - nowUT;
+                ParsekLog.VerboseRateLimited(
+                    "Mission",
+                    $"missions-tminus-cell.{unit.PhaseAnchorUT.ToString("R", mic)}.{unit.SpanStartUT.ToString("R", mic)}",
+                    $"missions T-minus cell: targetUT={result.NextRelaunchUT.ToString("R", mic)} " +
+                    $"now={nowUT.ToString("R", mic)} tMinusSec={tMinusSec.ToString("R", mic)}",
+                    3.0);
+            }
 
             return result;
         }
@@ -1516,6 +1543,40 @@ namespace Parsek
             // Floating-point guard: keep the result at or after now (and not a whole interval past).
             if (next < nowUT - 1e-6)
                 next += interval;
+
+            // Per-loop launch alignment (borrow-at-launch / repay-at-SOI-exit + boundary-overlap launch render):
+            // when the unit's launch alignment is engaged the ghost launches delta_N EARLIER than the nominal
+            // window L_N (the launch-body rotates back under the recorded path), so the actual launch instant the
+            // engine RENDERS is L_N - ComputeBoundaryOverlapAdvanceSeconds(...): on an already-aligned (slack>0)
+            // loop this equals the OLD capped advance (no change); on a zero-slack residual-seam loop the boundary
+            // overlap uses the FULL raw delta (uncapped) - the launch realigns fully and the secondary renders, so
+            // the navigable warp-to must point at the EARLIER (uncapped) launch the ghost actually lifts off at.
+            // Using the capped advance here would point a few hours too LATE on the engaged loops (the cap-truncated
+            // launch the engine no longer uses). This returns the ACTUAL launch instant L_N - boundaryOverlapAdvance:
+            // subtract the advance for window n; if that advanced launch already passed, fall forward to window n+1's
+            // advanced launch. The 15 s warp lead is NOT applied here - it is applied ONCE at the warp site by
+            // TimeJumpManager.ApplyJumpLead(relaunchUT, ...) in ShowMissionWarpToWindowConfirmation, so the warp lands
+            // the player on the pad just before lift-off (applying it here too would double-lead the warp ~30 s
+            // early). No-op when the launch alignment is not engaged (a degenerate T_sid yields delta_N == 0).
+            // PhaseAnchorUT / cadence / the window index are untouched (targeting is unchanged) - only the displayed
+            // launch time shifts.
+            if (unit.LaunchHoldEngaged)
+            {
+                long win = (long)System.Math.Round((next - anchor) / interval);
+                double delta = GhostPlaybackLogic.ComputeBoundaryOverlapAdvanceSeconds(
+                    anchor, unit.SpanStartUT, unit.SpanEndUT, interval, win,
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LoiterCuts,
+                    unit.ArrivalHoldSeconds, unit.ArrivalAlignPeriodSeconds);
+                next = next - delta;
+                if (next < nowUT - 1e-6)
+                {
+                    double deltaNext = GhostPlaybackLogic.ComputeBoundaryOverlapAdvanceSeconds(
+                        anchor, unit.SpanStartUT, unit.SpanEndUT, interval, win + 1,
+                        unit.LaunchBodyRotationPeriodSeconds, unit.LoiterCuts,
+                        unit.ArrivalHoldSeconds, unit.ArrivalAlignPeriodSeconds);
+                    next = anchor + (win + 1) * interval - deltaNext;
+                }
+            }
             return next;
         }
 

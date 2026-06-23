@@ -58,6 +58,14 @@ namespace Parsek.InGameTests
         private const double DefaultDebitAmount = 5.0;
         private const double MinMeaningfulDebit = 0.1;
         private const double ResourceTolerance = 0.01;
+
+        // Auto-spawn fixture floors for the unloaded-origin tests: enough stored
+        // LiquidFuel to debit the default amount with margin, and a little free
+        // capacity (the origin debit only removes, but the shared fixture is also
+        // used by the delivery-side tests which need headroom; keeping one floor
+        // keeps the spawned craft uniform).
+        private const double FixtureMinStoredLf = DefaultDebitAmount + 5.0;
+        private const double FixtureMinFreeCapacity = 1.0;
         private const string TestSaveSlotPrefix = "parsek_origindebit_ingame_test_";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
@@ -239,42 +247,62 @@ namespace Parsek.InGameTests
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = IsolatedOnlyBatchSkipReason,
-            Description = "A non-KSC loop-route crossing whose origin is an UNLOADED on-rails vessel drains ProtoPartResourceSnapshot.amount through the production unloaded writer path; the RouteCargoDebited row carries the actuals + origin pid. Sources an existing unloaded vessel from the save (no spawn) and skips with a named reason when none exists")]
-        public void OriginDebit_UnloadedOriginVessel_WritesProtoSnapshot()
+            Description = "A non-KSC loop-route crossing whose origin is an UNLOADED on-rails vessel drains ProtoPartResourceSnapshot.amount through the production unloaded writer path; the RouteCargoDebited row carries the actuals + origin pid. Auto-spawns an unloaded LiquidFuel vessel (a fresh-identity copy of the pad rocket in a high parking orbit) when the save has none, reuses an existing one when present, and skips only when neither can be provided")]
+        public IEnumerator OriginDebit_UnloadedOriginVessel_WritesProtoSnapshot()
         {
+            // Post-restore unpack wait (yields BEFORE any seam/mutation). The
+            // donor snapshot is taken from the active vessel below, so it must be
+            // loaded+unpacked first.
+            IEnumerator unpackWait = WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
             // PRECONDITIONS --------------------------------------------------
             if (FlightGlobals.ActiveVessel == null)
                 InGameAssert.Skip("FlightGlobals.ActiveVessel is null; need a live destination vessel for the stop endpoint");
             Vessel destVessel = FlightGlobals.ActiveVessel;
 
-            if (!TryFindUnloadedLiquidFuelVessel(out Vessel originVessel, out double storedBefore))
-                InGameAssert.Skip(
-                    "PRECONDITION: no unloaded non-ghost vessel with >= " +
-                    $"{MinMeaningfulDebit.ToString("R", IC)} debitable LiquidFuel in this save. " +
-                    "The unloaded-origin fixture sources an EXISTING on-rails vessel (plan finding 6: " +
-                    "spawn-based fixtures are unproven ground); load a save with a distant fuel-carrying " +
-                    "vessel (e.g. an orbiting depot) to run this test");
-            double debitAmount = Math.Min(DefaultDebitAmount, storedBefore);
+            // Auto-spawn (or reuse) an unloaded LiquidFuel vessel so the player
+            // only needs a fueled pad rocket; the helper falls back to null when
+            // neither path works (caller then skips, never worse than before).
+            var fixture = new UnloadedFuelVesselFixture.EnsureResult();
+            IEnumerator ensure = UnloadedFuelVesselFixture.EnsureUnloadedLiquidFuelVessel(
+                FixtureMinStoredLf, FixtureMinFreeCapacity, fixture);
+            while (ensure.MoveNext())
+                yield return ensure.Current;
 
-            string treeId = "ingame-od-proto-tree-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            string routeId = "ingame-od-proto-id-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            try
+            {
+                if (fixture.Vessel == null)
+                    InGameAssert.Skip(
+                        "PRECONDITION: could not provide an unloaded non-ghost vessel with >= " +
+                        $"{FixtureMinStoredLf.ToString("R", IC)} debitable LiquidFuel - no suitable " +
+                        "pre-existing on-rails vessel AND the auto-spawn from the active pad rocket did not " +
+                        "settle unloaded (see the TestHelper log lines). Provide a fueled PRELAUNCH pad rocket " +
+                        "so the fixture can spawn an orbiting copy");
+                Vessel originVessel = fixture.Vessel;
+                double storedBefore = fixture.StoredLiquidFuel;
+                double debitAmount = Math.Min(DefaultDebitAmount, storedBefore);
 
-            List<Route> preExistingRoutes = SnapshotRoutes();
-            List<KeyValuePair<ProtoPartResourceSnapshot, double>> protoSnapshot =
-                SnapshotProtoLiquidFuel(originVessel);
-            int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                string treeId = "ingame-od-proto-tree-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                string routeId = "ingame-od-proto-id-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
-            RunOriginDebitCrossing(
-                label: "OriginDebit_Unloaded",
-                treeId: treeId,
-                routeId: routeId,
-                originVesselForRoute: originVessel,
-                destVessel: destVessel,
-                debitAmount: debitAmount,
-                preExistingRoutes: preExistingRoutes,
-                restoreOriginState: () => RestoreProtoLiquidFuel(protoSnapshot),
-                assertions: capturedLog =>
-                {
+                List<Route> preExistingRoutes = SnapshotRoutes();
+                List<KeyValuePair<ProtoPartResourceSnapshot, double>> protoSnapshot =
+                    SnapshotProtoLiquidFuel(originVessel);
+                int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+
+                RunOriginDebitCrossing(
+                    label: "OriginDebit_Unloaded",
+                    treeId: treeId,
+                    routeId: routeId,
+                    originVesselForRoute: originVessel,
+                    destVessel: destVessel,
+                    debitAmount: debitAmount,
+                    preExistingRoutes: preExistingRoutes,
+                    restoreOriginState: () => RestoreProtoLiquidFuel(protoSnapshot),
+                    assertions: capturedLog =>
+                    {
                     // 1. Proto snapshots: the deliverable pool dropped by the
                     //    manifest amount (production probe, unloaded branch).
                     double storedAfter = new LiveOriginCargoProbe(originVessel, false)
@@ -313,7 +341,15 @@ namespace Parsek.InGameTests
                         $"originPid={originVessel.persistentId.ToString(IC)} " +
                         $"storedBefore={storedBefore.ToString("R", IC)} storedAfter={storedAfter.ToString("R", IC)} " +
                         $"debit={debitAmount.ToString("R", IC)}");
-                });
+                    });
+            }
+            finally
+            {
+                // Remove the auto-spawned fixture vessel (no-op for a reused
+                // pre-existing one). The batch baseline restore is the backstop;
+                // single runs must not litter.
+                UnloadedFuelVesselFixture.Cleanup(fixture);
+            }
         }
 
         // ==================================================================
@@ -324,9 +360,16 @@ namespace Parsek.InGameTests
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = IsolatedOnlyBatchSkipReason,
-            Description = "A proto-snapshot origin debit (production LiveOriginDebitWriters, unloaded path) persists through a real GamePersistence.SaveGame: the saved .sfs VESSEL node's LiquidFuel RESOURCE amounts reflect the post-debit totals. Pauses time warp across the save; restores tanks and deletes the disposable slot in finally")]
+            Description = "A proto-snapshot origin debit (production LiveOriginDebitWriters, unloaded path) persists through a real GamePersistence.SaveGame: the saved .sfs VESSEL node's LiquidFuel RESOURCE amounts reflect the post-debit totals. Auto-spawns an unloaded LiquidFuel vessel (fresh-identity pad-rocket copy in a parking orbit) when the save lacks one, reuses an existing one when present. Pauses time warp across the save; restores tanks, removes the spawned vessel, and deletes the disposable slot in finally")]
         public IEnumerator OriginDebit_UnloadedDebit_SurvivesKspSaveRoundTrip()
         {
+            // Post-restore unpack wait (yields BEFORE any seam/mutation). The
+            // donor snapshot the fixture spawns from is the active vessel, so it
+            // must be loaded+unpacked first.
+            IEnumerator unpackWait = WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
             // PRECONDITIONS --------------------------------------------------
             if (HighLogic.CurrentGame == null)
                 InGameAssert.Skip("HighLogic.CurrentGame is null; cannot drive GamePersistence.SaveGame");
@@ -335,12 +378,22 @@ namespace Parsek.InGameTests
             if (string.IsNullOrEmpty(KSPUtil.ApplicationRootPath))
                 InGameAssert.Skip("KSPUtil.ApplicationRootPath is null/empty; cannot resolve .sfs path");
 
-            if (!TryFindUnloadedLiquidFuelVessel(out Vessel originVessel, out double storedBefore))
+            // Auto-spawn (or reuse) an unloaded LiquidFuel vessel. The spawned copy
+            // is a real on-rails vessel, so it is serialized into the .sfs this test
+            // reads back. Cleanup happens in the finally below.
+            var fixture = new UnloadedFuelVesselFixture.EnsureResult();
+            IEnumerator ensure = UnloadedFuelVesselFixture.EnsureUnloadedLiquidFuelVessel(
+                FixtureMinStoredLf, FixtureMinFreeCapacity, fixture);
+            while (ensure.MoveNext())
+                yield return ensure.Current;
+            if (fixture.Vessel == null)
                 InGameAssert.Skip(
-                    "PRECONDITION: no unloaded non-ghost vessel with >= " +
-                    $"{MinMeaningfulDebit.ToString("R", IC)} debitable LiquidFuel in this save. " +
-                    "The unloaded-origin fixture sources an EXISTING on-rails vessel (plan finding 6); " +
-                    "load a save with a distant fuel-carrying vessel to run this test");
+                    "PRECONDITION: could not provide an unloaded non-ghost vessel with >= " +
+                    $"{FixtureMinStoredLf.ToString("R", IC)} debitable LiquidFuel - no suitable pre-existing " +
+                    "on-rails vessel AND the auto-spawn from the active pad rocket did not settle unloaded " +
+                    "(see the TestHelper log lines). Provide a fueled PRELAUNCH pad rocket to run this test");
+            Vessel originVessel = fixture.Vessel;
+            double storedBefore = fixture.StoredLiquidFuel;
             double debitAmount = Math.Min(DefaultDebitAmount, storedBefore);
 
             string saveSlot = TestSaveSlotPrefix + Guid.NewGuid().ToString("N").Substring(0, 8);
@@ -457,9 +510,11 @@ namespace Parsek.InGameTests
             finally
             {
                 // TEARDOWN: restore the mutated proto amounts, delete the
-                // disposable slot (sidecar-safe), restore time warp.
+                // disposable slot (sidecar-safe), remove the auto-spawned fixture
+                // vessel (no-op for a reused pre-existing one), restore time warp.
                 RestoreProtoLiquidFuel(protoSnapshot);
                 QuickloadResumeHelpers.TryDeleteSaveSlot(saveSlot);
+                UnloadedFuelVesselFixture.Cleanup(fixture);
                 if (warpPaused)
                 {
                     try
@@ -952,40 +1007,6 @@ namespace Parsek.InGameTests
                 }
             }
             return total;
-        }
-
-        /// <summary>
-        /// Finds an existing UNLOADED, non-ghost, non-active vessel holding at
-        /// least <see cref="MinMeaningfulDebit"/> debitable LiquidFuel per the
-        /// production <see cref="LiveOriginCargoProbe"/> (unloaded branch).
-        /// Existing-vessel sourcing instead of a spawn-based fixture - plan
-        /// finding 6 flagged distant spawning as unproven ground.
-        /// </summary>
-        private static bool TryFindUnloadedLiquidFuelVessel(out Vessel candidate, out double stored)
-        {
-            candidate = null;
-            stored = 0.0;
-            List<Vessel> vessels = FlightGlobals.Vessels;
-            if (vessels == null) return false;
-            HashSet<uint> ghostPids = GhostMapPresence.ghostMapVesselPids;
-            Vessel active = FlightGlobals.ActiveVessel;
-
-            for (int i = 0; i < vessels.Count; i++)
-            {
-                Vessel v = vessels[i];
-                if (v == null || v.loaded) continue;
-                if (active != null && ReferenceEquals(v, active)) continue;
-                if (ghostPids != null && ghostPids.Contains(v.persistentId)) continue;
-                if (v.protoVessel == null || v.protoVessel.protoPartSnapshots == null) continue;
-
-                double s = new LiveOriginCargoProbe(v, false).ProbeResourceStored(LiquidFuelName);
-                if (s < MinMeaningfulDebit) continue;
-
-                candidate = v;
-                stored = s;
-                return true;
-            }
-            return false;
         }
 
         // ==================================================================

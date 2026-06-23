@@ -949,5 +949,28 @@ namespace Parsek.Tests.Logistics
 
             Assert.False(worldStateChanging);
         }
+
+        // catches (M3, integration site d): a NEW type does NOT inherit the existing
+        // route-rows-return-false. Without an explicit case in
+        // IsWorldStateChangingRecordingAction, RouteCargoPickedUp would fall through
+        // to `return true` and supersede would strict-block / retry on a pickup row.
+        [Fact]
+        public void RouteCargoPickedUp_ExcludedFromWorldStateChangingPredicate()
+        {
+            var pickedUp = new GameAction
+            {
+                Type = GameActionType.RouteCargoPickedUp,
+                RouteId = "route-pickup",
+                RouteCycleId = "cycle-0",
+                RecordingId = "rec-attached", // even with a synthetic RecordingId
+                RouteResourceManifest = new Dictionary<string, double> { { "Ore", 50.0 } },
+                RouteOriginVesselPid = 777u,
+            };
+
+            bool worldStateChanging = SupersedeCommit.IsWorldStateChangingRecordingAction(
+                pickedUp, new List<GameAction>());
+
+            Assert.False(worldStateChanging);
+        }
     }
 }
