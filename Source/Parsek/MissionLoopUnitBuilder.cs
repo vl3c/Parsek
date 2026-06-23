@@ -902,21 +902,16 @@ namespace Parsek
                                     var deorbitLegs = Parsek.Display.GhostTrajectoryPolylineRenderer
                                         .BuildLegsForRecording(committed[transferMemberIndex], surf, null);
                                     const double deorbitTailEpsSeconds = 1.0; // matches ResolveTransferLegHeadUT eps
-                                    double conicEndUnshifted = seamUT + descCaptureShift; // = renderer deorbitConicEndUT
+                                    // The deorbit-arc leg the renderer rides as the descent tail is the one ENDING
+                                    // AT the seam (the transfer member's recorded trajectory terminates there, where
+                                    // the descent set takes over). Select it by MAX endUT <= seam+eps — NOT the
+                                    // min-startUT leg in a wide (seam+captureShift, seam] window, which grabbed an
+                                    // earlier ~12-parking-period approach leg and engaged C1 ~51k s too early (the
+                                    // loiter-line regression: the icon left the parking conic across most of the
+                                    // loiter, killing the parking line while no deorbit leg had drawn yet).
                                     if (deorbitLegs != null)
-                                    {
-                                        for (int lgi = 0; lgi < deorbitLegs.Count; lgi++)
-                                        {
-                                            var lg = deorbitLegs[lgi];
-                                            if (!string.Equals(lg.bodyName, targetBody, StringComparison.Ordinal))
-                                                continue;
-                                            if (lg.endUT > conicEndUnshifted
-                                                && lg.endUT <= seamUT + deorbitTailEpsSeconds
-                                                && (double.IsNaN(descentFirstDeorbitLegStartUT)
-                                                    || lg.startUT < descentFirstDeorbitLegStartUT))
-                                                descentFirstDeorbitLegStartUT = lg.startUT;
-                                        }
-                                    }
+                                        descentFirstDeorbitLegStartUT = SelectDeorbitTailLegStartUT(
+                                            deorbitLegs, targetBody, seamUT, deorbitTailEpsSeconds);
                                     // Frame sanity (warn-only): the leg start must sit at or before the seam in
                                     // the same UNSHIFTED frame; a value past the seam means a frame mix-up.
                                     if (!double.IsNaN(descentFirstDeorbitLegStartUT)
@@ -1065,6 +1060,42 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Selects the deorbit-arc leg the map renderer rides as the descent tail: the leg ENDING AT the
+        /// seam (the transfer member's recorded trajectory terminates there, where the descent set takes
+        /// over) — i.e. the leg with the MAXIMUM <c>endUT</c> that is at/below <paramref name="seamUT"/> +
+        /// <paramref name="epsSeconds"/>, on <paramref name="targetBody"/>. Returns its <c>startUT</c>, or
+        /// NaN when no such leg exists. This is the C1 icon-engage bound
+        /// (<see cref="GhostPlaybackLogic.LoopUnit.FirstDeorbitLegStartUT"/>): selecting by max-endUT (the
+        /// seam-terminating leg) instead of min-startUT in the wide (seam+captureShift, seam] window is what
+        /// keeps C1 from engaging ~a dozen parking periods early on an earlier approach leg — the loiter-line
+        /// regression where the icon left the parking conic across most of the loiter and killed the parking
+        /// line while no deorbit leg had drawn yet. Pure; xUnit-testable without Unity.
+        /// </summary>
+        internal static double SelectDeorbitTailLegStartUT(
+            IReadOnlyList<Parsek.Display.GhostTrajectoryPolylineRenderer.LegPolyline> legs,
+            string targetBody, double seamUT, double epsSeconds)
+        {
+            if (legs == null)
+                return double.NaN;
+            double bestStart = double.NaN;
+            double bestEnd = double.NaN;
+            for (int i = 0; i < legs.Count; i++)
+            {
+                var lg = legs[i];
+                if (!string.Equals(lg.bodyName, targetBody, StringComparison.Ordinal))
+                    continue;
+                if (lg.endUT > seamUT + epsSeconds)
+                    continue; // ends after the seam (+eps) -> not the deorbit tail
+                if (double.IsNaN(bestEnd) || lg.endUT > bestEnd)
+                {
+                    bestEnd = lg.endUT;   // the leg ending closest to (== at) the seam
+                    bestStart = lg.startUT;
+                }
+            }
+            return bestStart;
         }
 
         /// <summary>
