@@ -6843,7 +6843,8 @@ namespace Parsek
                 double loiterPeriodSeconds = double.NaN,
                 double captureShiftSeconds = double.NaN,
                 double parkingConicEndUT = double.NaN,
-                int transferMemberIndex = -1)
+                int transferMemberIndex = -1,
+                double firstDeorbitLegStartUT = double.NaN)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6872,6 +6873,7 @@ namespace Parsek
                 CaptureShiftSeconds = captureShiftSeconds;
                 ParkingConicEndUT = parkingConicEndUT;
                 TransferMemberIndex = transferMemberIndex;
+                FirstDeorbitLegStartUT = firstDeorbitLegStartUT;
             }
 
             /// <summary>
@@ -7126,6 +7128,21 @@ namespace Parsek
             /// non-descent-trigger unit.
             /// </summary>
             internal int TransferMemberIndex { get; }
+
+            /// <summary>
+            /// The recorded UT (UNSHIFTED, same frame as <see cref="RecordedDeorbitUT"/>) of the FIRST
+            /// deorbit-arc polyline leg the map renderer draws for the transfer member — i.e. the startUT of
+            /// the first non-orbital descent leg <c>GhostTrajectoryPolylineRenderer.BuildLegsForRecording</c>
+            /// emits for this member whose recorded window is the post-shifted-conic deorbit tail
+            /// (leg.endUT in (seam + captureShift, seam + 1s]). The C1 icon-ride gate
+            /// (<see cref="TryResolveTransferDeorbitIconHead"/>) engages only once the re-anchored deorbit head
+            /// reaches this UT, so the parking conic keeps rendering until — and the proto retires exactly
+            /// when — that leg first draws (zero loiter-orbit gap, no double-draw). Computed at build time by
+            /// calling the SAME leg builder the Driver calls, so it equals the renderer's leg.startUT to the
+            /// UT. NaN when the descent trigger is not engaged or no deorbit leg was found; the gate then
+            /// falls back to the legacy triggerUT − LoiterPeriodSeconds heuristic (byte-identical-off).
+            /// </summary>
+            internal double FirstDeorbitLegStartUT { get; }
 
             /// <summary>True only when this unit carries a fully-resolved descent trigger (a re-aim looped
             /// arrival with a non-empty descent member set, an early arrival, and valid periods).</summary>
@@ -8731,16 +8748,43 @@ namespace Parsek
             if (phase != Parsek.Reaim.DescentTrigger.DescentHeadPhase.Loiter)
                 return false; // the icon only descends the deorbit tail during the loiter's run-up to the trigger
 
-            // The deorbit window = the last parking-orbit-period before the trigger (a first heuristic).
+            // Engage C1 only once the re-anchored deorbit head reaches the RENDERER's deorbit-arc leg start
+            // (FirstDeorbitLegStartUT, UNSHIFTED). The I1 deorbit head during Loiter is
+            // deorbitHead = RecordedDeorbitUT + (liveUT - triggerUT) (DescentTrigger.TryComputeTransferDeorbitHead).
+            // The renderer draws / the marker rides the first deorbit-tail leg when deorbitHead >= leg.startUT
+            // (ShouldDrawLegAtHeadUT), i.e. liveUT >= triggerUT + (FirstDeorbitLegStartUT - RecordedDeorbitUT).
+            // Before that the resolver falls through to the loiter-gap clamp (the parking conic renders
+            // normally, no proto retire); at this UT the deorbit line draws the SAME frame and TracedPath
+            // takes over => continuous handoff, no loiter-orbit gap, no double-draw. FirstDeorbitLegStartUT
+            // <= seam = RecordedDeorbitUT, so the offset is <= 0 and C1 still engages DURING Loiter
+            // (liveUT < triggerUT). NaN/degenerate -> the legacy triggerUT - LoiterPeriodSeconds heuristic
+            // (byte-identical-off). FirstDeorbitLegStartUT is computed in the builder by calling the SAME leg
+            // builder the Driver calls, so this engage UT coincides with the leg-draw frame to the UT.
             Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
                 unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT, unit.RecordedDeorbitUT,
                 unit.DestinationBodyRotationPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
                 out _, out _, out double triggerUT);
-            if (double.IsNaN(triggerUT)
-                || double.IsNaN(unit.LoiterPeriodSeconds) || unit.LoiterPeriodSeconds <= 0.0)
+            if (double.IsNaN(triggerUT))
                 return false;
-            if (liveUT < triggerUT - unit.LoiterPeriodSeconds)
-                return false; // not yet in the deorbit transition — keep circling the parking conic
+
+            double iconEngageUT;
+            if (!double.IsNaN(unit.FirstDeorbitLegStartUT)
+                && !double.IsInfinity(unit.FirstDeorbitLegStartUT)
+                && !double.IsNaN(unit.RecordedDeorbitUT))
+            {
+                // deorbitHead >= leg.startUT  <=>  liveUT >= triggerUT + (legStart - seam)
+                iconEngageUT = triggerUT + (unit.FirstDeorbitLegStartUT - unit.RecordedDeorbitUT);
+            }
+            else if (!double.IsNaN(unit.LoiterPeriodSeconds) && unit.LoiterPeriodSeconds > 0.0)
+            {
+                iconEngageUT = triggerUT - unit.LoiterPeriodSeconds; // legacy heuristic fallback
+            }
+            else
+            {
+                return false; // degenerate loiter period AND no leg start -> identical to today's return
+            }
+            if (liveUT < iconEngageUT)
+                return false; // not yet at the deorbit-arc leg start — keep circling the parking conic
 
             return Parsek.Reaim.DescentTrigger.TryComputeTransferDeorbitHead(
                 liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,

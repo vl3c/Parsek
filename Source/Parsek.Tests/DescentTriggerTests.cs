@@ -684,6 +684,11 @@ namespace Parsek.Tests
         // exactly ONE member (the highest index), so no double icon.
         private static GhostPlaybackLogic.LoopUnitSet BuildDescentUnit(bool engage, bool overlapDescentWindows)
         {
+            return BuildDescentUnit(engage, overlapDescentWindows, double.NaN);
+        }
+
+        private static GhostPlaybackLogic.LoopUnitSet BuildDescentUnit(bool engage, bool overlapDescentWindows, double firstDeorbitLegStartUT)
+        {
             var windows = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>
             {
                 { 0, new GhostPlaybackLogic.LoopUnit.MemberWindow(0.0, 500.0) },        // owner (non-descent, span start)
@@ -723,7 +728,10 @@ namespace Parsek.Tests
                 parkingConicEndUT: engage ? ParkingConicEnd : double.NaN,
                 // The destination transfer member = member 5 (the one whose shifted parking conic exists). -1 when
                 // the descent trigger is not engaged, so the loiter-gap clamp is byte-identical-off.
-                transferMemberIndex: engage ? 5 : -1);
+                transferMemberIndex: engage ? 5 : -1,
+                // C1 icon engages exactly when the renderer's deorbit-arc leg first draws (builder-sourced from
+                // BuildLegsForRecording). UNSHIFTED frame (same as RecordedDeorbitUT). NaN → old LoiterPeriod fallback.
+                firstDeorbitLegStartUT: firstDeorbitLegStartUT);
             return new GhostPlaybackLogic.LoopUnitSet(
                 new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
                 new Dictionary<int, int> { { 0, 0 }, { 5, 0 }, { 7, 0 }, { 49, 0 }, { 50, 0 }, { 51, 0 } });
@@ -1428,6 +1436,81 @@ namespace Parsek.Tests
             foreach (int idx in new[] { 0, 7 })
                 Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
                     unit, idx, tLate, 27_000_000.0, Deorbit, out _));
+        }
+
+        // === C1 engage bound = the renderer's deorbit-arc leg start (loiter-orbit-gap fix, bug 2) =========
+        //
+        // The loiter orbit must keep rendering until the deorbit-arc LINE first draws; then the icon leaves
+        // the parking conic onto the descent line in the SAME frame (no gap, no double-draw). The C1 engage
+        // bound is sourced from the renderer's OWN leg builder (LoopUnit.FirstDeorbitLegStartUT, UNSHIFTED,
+        // <= seam): C1 engages at triggerUT + (FirstDeorbitLegStartUT - RecordedDeorbitUT), NOT the legacy
+        // triggerUT - LoiterPeriodSeconds. NaN leg start -> the legacy bound (byte-identical-off).
+
+        [Fact]
+        public void TransferDeorbitIconHead_EngagesAtFirstDeorbitLegStart_NotLoiterPeriod()
+        {
+            // FirstDeorbitLegStartUT = seam - 2000 (recorded frame). The new engage bound is triggerUT - 2000,
+            // LATER than the legacy triggerUT - Tpark (= triggerUT - 7000): the loiter orbit keeps rendering
+            // for the extra ~5000 s instead of the icon leaving the parking conic a whole parking period early
+            // (the bug-2 gap). All three frames below are in the Loiter phase, so the iconEngage check decides.
+            double legStart = Deorbit - 2000.0;
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true, overlapDescentWindows: false, firstDeorbitLegStartUT: legStart));
+            double engageUT = TriggerUT(0) + (legStart - Deorbit);   // = TriggerUT(0) - 2000
+
+            // Inside the LEGACY window but BEFORE the new engage bound: the OLD gate rode here (icon already
+            // descending, loiter orbit gone — the bug), the NEW gate must NOT. Regression pin for bug 2.
+            double inOldWindowNotNew = TriggerUT(0) - 5000.0;
+            Assert.True(inOldWindowNotNew >= TriggerUT(0) - Tpark, "setup: inside the legacy triggerUT - Tpark window");
+            Assert.True(inOldWindowNotNew < engageUT, "setup: before the new (later) engage bound");
+            Assert.True(inOldWindowNotNew > EntryUT(0), "setup: still the Loiter phase");
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                    unit, 5, inOldWindowNotNew, 27_000_000.0, Deorbit, out _),
+                "C1 must NOT engage before the renderer's deorbit-arc leg start (loiter orbit keeps rendering)");
+
+            // Just BELOW the engage bound -> still false (the boundary is exactly engageUT).
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                unit, 5, engageUT - 1.0, 27_000_000.0, Deorbit, out _));
+
+            // At / past the engage bound -> rides the deorbit head (the descent line now draws under it).
+            Assert.True(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                unit, 5, engageUT + 1.0, 27_000_000.0, Deorbit, out _));
+        }
+
+        [Fact]
+        public void TransferDeorbitIconHead_AtEngage_IconSitsExactlyAtLegStart()
+        {
+            // The load-bearing coincidence: at the engage instant the re-anchored deorbit head EQUALS
+            // FirstDeorbitLegStartUT (the icon is AT the start of the deorbit-arc line exactly when the gate
+            // opens), and tracks the leg 1:1 afterward (head = legStart + (liveUT - engageUT)). Proven for two
+            // distinct leg starts. This is why the handoff is gapless: the parking conic ends and the descent
+            // line begins at the SAME icon position, the SAME frame.
+            foreach (double legStart in new[] { Deorbit - 2000.0, Deorbit - 6000.0 })
+            {
+                var unit = DescentUnitFor(BuildDescentUnit(engage: true, overlapDescentWindows: false, firstDeorbitLegStartUT: legStart));
+                double engageUT = TriggerUT(0) + (legStart - Deorbit);
+                Assert.True(engageUT > EntryUT(0), $"setup: engage {engageUT} in the Loiter phase (legStart {legStart})");
+
+                // One second past engage: the icon is one second down the deorbit arc from its start, so the
+                // head = legStart + 1 — proving it crossed legStart AT engage (coincidence), 1:1 thereafter.
+                Assert.True(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                    unit, 5, engageUT + 1.0, 27_000_000.0, Deorbit, out double head));
+                Assert.Equal(legStart + 1.0, head, 3);
+                Assert.True(head < Deorbit, $"head {head} below the seam {Deorbit} (descending the arc)");
+            }
+        }
+
+        [Fact]
+        public void TransferDeorbitIconHead_NaNLegStart_FallsBackToLoiterPeriodBound()
+        {
+            // No deorbit leg found (FirstDeorbitLegStartUT = NaN) -> the gate falls back to the legacy
+            // triggerUT - LoiterPeriodSeconds bound, byte-identical to the pre-fix behavior.
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true, overlapDescentWindows: false, firstDeorbitLegStartUT: double.NaN));
+            // Just before triggerUT - Tpark -> false (legacy boundary).
+            Assert.False(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                unit, 5, TriggerUT(0) - Tpark - 50.0, 27_000_000.0, Deorbit, out _));
+            // Just inside -> true.
+            Assert.True(GhostPlaybackLogic.TryResolveTransferDeorbitIconHead(
+                unit, 5, TriggerUT(0) - Tpark + 50.0, 27_000_000.0, Deorbit, out _));
         }
 
         // --- FLIGHT-engine integration: GhostPlaybackLogic.ResolveDescentMemberEngineRender (Defect 3) ---

@@ -280,6 +280,11 @@ namespace Parsek
             // DIFFERENT/unshifted frame) never fires the clamp. -1 until the supported plan is captured; stays -1
             // on every non-re-aim / declined unit (keeping the predicate byte-identical-off).
             int transferMemberIndex = -1;
+            // The renderer's FIRST deorbit-arc polyline leg startUT for the transfer member (UNSHIFTED, same
+            // frame as descentRecordedDeorbitUT). Computed below by calling the SAME leg builder the map
+            // Driver calls, so the C1 icon-ride gate engages exactly when that leg first draws. NaN keeps
+            // every non-descent unit byte-identical.
+            double descentFirstDeorbitLegStartUT = double.NaN;
             if (bodyInfo != null)
             {
                 ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
@@ -865,6 +870,66 @@ namespace Parsek
                                         + "shifted frame; likely a missing captureShift on parkingConicEnd).",
                                         mission.Name, descentParkingConicEndUT, conicEndRecorded));
                                 }
+
+                                // C1 engage bound (loiter-orbit-gap fix): the recorded UT of the FIRST
+                                // deorbit-arc polyline leg the MAP renderer draws for this transfer member.
+                                // Source it from the renderer's OWN leg builder over the SAME recording so it
+                                // equals the Driver's leg.startUT to the UT — sourcing it from the first
+                                // below-surface OrbitSegment.startUT instead is the WRONG quantity (the
+                                // renderer's leg.startUT is the first non-orbital SAMPLE UT, not a segment
+                                // boundary). A bodyInfo.Radius-backed surface provider reproduces
+                                // IsOrbitSegmentBelowSurface byte-for-byte (same CelestialBody.Radius); a NULL
+                                // gap sampler is safe (FillFramelessGapsFromConics only inserts points INTERIOR
+                                // to a gap, never before the first sample, so leg.startUT is identical). Select
+                                // the FIRST (min-startUT) leg matching the renderer's deorbit-tail predicate
+                                // (leg.bodyName == TargetBody && leg.endUT > seam + captureShift &&
+                                // leg.endUT <= seam + 1s) — the exact window the renderer pairs to the
+                                // re-anchored deorbit head.
+                                if (transferMemberIndex >= 0 && transferMemberIndex < committed.Count
+                                    && committed[transferMemberIndex] != null)
+                                {
+                                    string targetBody = plan.TargetBody;
+                                    Parsek.Display.GhostTrajectoryPolylineRenderer.BodySurfaceProvider surf =
+                                        (string bn, out Parsek.Display.GhostTrajectoryPolylineRenderer.BodySurfaceInfo bi) =>
+                                        {
+                                            bi = default(Parsek.Display.GhostTrajectoryPolylineRenderer.BodySurfaceInfo);
+                                            double r = bodyInfo.Radius(bn);
+                                            if (double.IsNaN(r) || double.IsInfinity(r) || r <= 0.0)
+                                                return false;
+                                            bi.radius = r;
+                                            return true;
+                                        };
+                                    var deorbitLegs = Parsek.Display.GhostTrajectoryPolylineRenderer
+                                        .BuildLegsForRecording(committed[transferMemberIndex], surf, null);
+                                    const double deorbitTailEpsSeconds = 1.0; // matches ResolveTransferLegHeadUT eps
+                                    double conicEndUnshifted = seamUT + descCaptureShift; // = renderer deorbitConicEndUT
+                                    if (deorbitLegs != null)
+                                    {
+                                        for (int lgi = 0; lgi < deorbitLegs.Count; lgi++)
+                                        {
+                                            var lg = deorbitLegs[lgi];
+                                            if (!string.Equals(lg.bodyName, targetBody, StringComparison.Ordinal))
+                                                continue;
+                                            if (lg.endUT > conicEndUnshifted
+                                                && lg.endUT <= seamUT + deorbitTailEpsSeconds
+                                                && (double.IsNaN(descentFirstDeorbitLegStartUT)
+                                                    || lg.startUT < descentFirstDeorbitLegStartUT))
+                                                descentFirstDeorbitLegStartUT = lg.startUT;
+                                        }
+                                    }
+                                    // Frame sanity (warn-only): the leg start must sit at or before the seam in
+                                    // the same UNSHIFTED frame; a value past the seam means a frame mix-up.
+                                    if (!double.IsNaN(descentFirstDeorbitLegStartUT)
+                                        && descentFirstDeorbitLegStartUT > seamUT + deorbitTailEpsSeconds)
+                                    {
+                                        ParsekLog.Warn("ReaimDescent", string.Format(CultureInfo.InvariantCulture,
+                                            "MissionLoopUnit: mission='{0}' firstDeorbitLegStart={1:R} > seam={2:R} "
+                                            + "(must be <= seam in the unshifted frame); ignoring (C1 falls back).",
+                                            mission.Name, descentFirstDeorbitLegStartUT, seamUT));
+                                        descentFirstDeorbitLegStartUT = double.NaN;
+                                    }
+                                }
+
                                 if (!SuppressLogging)
                                 {
                                     var dic = CultureInfo.InvariantCulture;
@@ -879,6 +944,7 @@ namespace Parsek
                                         $"Tpark={descentLoiterPeriod.ToString("R", dic)}s " +
                                         $"parkRevs={descentRun.WholeRevs.ToString(dic)} " +
                                         $"parkingConicEnd={descentParkingConicEndUT.ToString("R", dic)} " +
+                                        $"firstDeorbitLegStart={descentFirstDeorbitLegStartUT.ToString("R", dic)} " +
                                         $"captureShift={descentCaptureShift.ToString("R", dic)}s " +
                                         $"conicEnd={conicEndRecorded.ToString("R", dic)} " +
                                         $"(geomTof={descGeomTof.ToString("F0", dic)} recordedTof={plan.RecordedTransferTofSeconds.ToString("F0", dic)})");
@@ -941,7 +1007,7 @@ namespace Parsek
                 launchHoldRotationPeriod, launchHoldEngaged, launchHoldSoiExitUT,
                 descentMemberIndices, descentRecordedDeorbitUT, descentEndUT,
                 descentRotationPeriod, descentLoiterPeriod, descentCaptureShift,
-                descentParkingConicEndUT, transferMemberIndex);
+                descentParkingConicEndUT, transferMemberIndex, descentFirstDeorbitLegStartUT);
 
             if (!SuppressLogging)
             {
