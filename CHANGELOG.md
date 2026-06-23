@@ -4,7 +4,7 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## Unreleased
+## 0.10.1
 
 ### Features
 
@@ -43,6 +43,15 @@ All notable changes to Parsek are documented here.
 - Mining routes: a supply run that drills or converts cargo during the run (stock and modded drills, including asteroid and comet drills on an already-grappled asteroid) now records the harvest and becomes a valid route, with no depot debit for harvested cargo; a cargo gain with no recorded source is rejected with the exact unaccounted amount named.
 - The per-cycle funds charge for KSC routes built from new recordings is now based on what was aboard at launch instead of what remained at docking, so harvested cargo is never billed and burned transit fuel is no longer free; existing routes keep their old cost.
 - In the Recordings tab, the Loop checkbox and Period cell now appear only for recordings you can actually watch fly: a takeoff or landing, a docking, or an approach toward a base or station. Recordings that are only a coast through space (shown as a map line, with nothing to watch up close) and debris no longer offer a loop toggle, and the group/select-all loop toggles count and set only the watchable recordings to match. Any leftover loop flag on one of these non-watchable recordings (from an older save) is cleared on load so it no longer loops with no way to turn it off; looping of whole Missions is unchanged.
+- Added a step-by-step run log, opened from a "Log" button on each mission (Missions tab) and each supply route (Logistics window): it lists launch, staging, dock and undock, deliveries, and the run's end, each with its time, status, and location. Identical events that happen at the same instant (like several boosters separating at once) collapse into a single "xN" line.
+
+### UI
+
+- Removed the per-recording loop (`L`) toggle from the Timeline window rows; it cluttered the list without a way to set the required loop interval. Manage looping (and its interval) from the Recordings tab as before.
+
+### Settings
+
+- Removed four developer-only toggles (smoothing splines, anchor correction, anchor taxonomy, and outlier rejection) from the career Parsek settings tab. These were rollout gates that had settled on their on-by-default behavior, so the ghost-trajectory rendering pipeline is now always on with no toggle to flip.
 
 ### Fixes
 
@@ -73,33 +82,6 @@ All notable changes to Parsek are documented here.
 - A launch recorded as two back-to-back ascent legs (pad climb then continuation to orbit) no longer draws a stray curved connector from the first leg straight to the escape orbit, shortcutting over the continuation leg; only the ascent leg that actually meets the escape orbit connects to it.
 - A looped re-aimed interplanetary transfer (such as a Duna run) now draws its trajectory line all the way to the destination instead of stopping partway across deep space. When the recorded flight contained a mid-course correction, the map's same-orbit arc-window widening could shrink the re-aimed transfer to that recorded split point, cutting the line short of the target.
 - Returning to the main menu now reliably resets Parsek's in-memory session state, so loading a different save without restarting KSP no longer risks carrying stale recording and playback state between saves. The reset hook had silently never registered.
-
-### Internals
-
-- Map/tracking-station render tracing (the off-by-default `mapRenderTracing` diagnostic) now records every on-screen render EVENT as a clean, greppable line: a trajectory polyline leg or forward-arc appearing/disappearing, the proto orbit line/icon visibility changing (with the reason), the proto icon being suppressed or restored, and a flight-scene ghost mesh spawning/despawning. Every line carries the ghost id, recording id, and the surface, so one grep reconstructs what appeared/disappeared/changed and when. Observability only — no render behavior changes.
-- Render tracing follow-up: the per-frame in-window detail snapshot is now sampled at ~2/s per ghost instead of every frame, so a ghost stuck in a sustained anomaly no longer floods the trace (a real looped-mission capture had ~1900 snapshot lines, 80% of the volume). Transitions are unaffected (the on-change lines still record every change exactly).
-- Re-aim Approach-A sub-PR 1 (dark, no behavior change): the mission loop builder can flip a span>synodic heliocentric-parking re-aim unit's overlap cadence to the synodic period, routing it onto the self-overlap path, behind the default-off `GhostPlayback.ReaimSelfOverlapEnabled` compile-time flag. Disabled by default, so builder output is byte-identical; the flag stays off until the per-frame body-following overlap refresh and launch-hold rotation port land.
-
----
-
-## 0.10.1
-
-- Maintenance and bug-fix release following up on issues found in post-0.10.0 career playtesting.
-
-### Features
-
-- Added a step-by-step run log, opened from a "Log" button on each mission (Missions tab) and each supply route (Logistics window): it lists launch, staging, dock and undock, deliveries, and the run's end, each with its time, status, and location. Identical events that happen at the same instant (like several boosters separating at once) collapse into a single "xN" line.
-
-### UI
-
-- Removed the per-recording loop (`L`) toggle from the Timeline window rows; it cluttered the list without a way to set the required loop interval. Manage looping (and its interval) from the Recordings tab as before.
-
-### Settings
-
-- Removed four developer-only toggles (smoothing splines, anchor correction, anchor taxonomy, and outlier rejection) from the career Parsek settings tab. These were rollout gates that had settled on their on-by-default behavior, so the ghost-trajectory rendering pipeline is now always on with no toggle to flip.
-
-### Bug Fixes
-
 - Fixed a bug where a clean cargo-delivery Supply Run could be wrongly rejected as a mixed pickup/delivery run when the transport and the destination shared a fuel type that stock crossfeed equalised during docking. Route eligibility now reads the transport's fuel level from just before docking, so the equalisation no longer looks like the transport picking cargo back up.
 - Fixed a critical data-loss bug where reverting a flight (stock Revert to Launch or Prelaunch) could silently delete your real, separately launched landed or orbiting craft from unrelated missions. A revert now only undoes the flight you actually reverted, and it identifies vessels by their unique launch rather than the craft name, so other craft that merely share a vessel design or its baked id are never removed.
 - Fixed a critical bug where cold-loading (Resume Saved Game) an established career wiped the stock economy: funds collapsed to the starting seed and science dropped to zero, even with no Parsek feature in use. On a fresh load the universe clock is not ready yet, so the ledger replay was cutting the entire career off at time zero; it now replays the full committed history and only applies a time-based cutoff once the clock is valid, which still keeps post-rewind future rewards from being paid out early.
@@ -125,6 +107,9 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- Map/tracking-station render tracing (the off-by-default `mapRenderTracing` diagnostic) now records every on-screen render EVENT as a clean, greppable line: a trajectory polyline leg or forward-arc appearing/disappearing, the proto orbit line/icon visibility changing (with the reason), the proto icon being suppressed or restored, and a flight-scene ghost mesh spawning/despawning. Every line carries the ghost id, recording id, and the surface, so one grep reconstructs what appeared/disappeared/changed and when. Observability only — no render behavior changes.
+- Render tracing follow-up: the per-frame in-window detail snapshot is now sampled at ~2/s per ghost instead of every frame, so a ghost stuck in a sustained anomaly no longer floods the trace (a real looped-mission capture had ~1900 snapshot lines, 80% of the volume). Transitions are unaffected (the on-change lines still record every change exactly).
+- Re-aim Approach-A sub-PR 1 (dark, no behavior change): the mission loop builder can flip a span>synodic heliocentric-parking re-aim unit's overlap cadence to the synodic period, routing it onto the self-overlap path, behind the default-off `GhostPlayback.ReaimSelfOverlapEnabled` compile-time flag. Disabled by default, so builder output is byte-identical; the flag stays off until the per-frame body-following overlap refresh and launch-hold rotation port land.
 - Re-aim playback resolver now caches per launch window per mission member instead of one window per member, so two consecutive windows can be held at once for a follow-up that overlaps a looping interplanetary mission with itself. Dark refactor with no caller and no gameplay change; behavior of the existing single-window path is unchanged.
 - Added an in-game ledger ground-truth verification harness: it quicksaves the live career, parses that save independently of Parsek's bookkeeping, runs the career-state reconstruction, and reports any disagreement between the two. This is the closed self-check that catches a reconstruction drifting from your actual funds, science, reputation, or recovered vessels. Run it from the in-game test runner (Ctrl+Shift+T) under the `LedgerGroundTruth` category.
 - Added headless test coverage for the career-state apply boundary (the step that writes your funds, science, reputation, tech tree, and facility levels when Parsek rebuilds career state), so its value and clamp decisions are now verified directly in unit tests rather than only in the live game. No gameplay change.
