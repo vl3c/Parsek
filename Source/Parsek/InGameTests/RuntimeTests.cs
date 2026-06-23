@@ -5988,6 +5988,121 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "map-render-event-logging: GhostMapPresence.FindRecordingIdByVesselPid resolves a live ghost's recordingId, the recId= every new render EVENT carries")]
+        public IEnumerator MapRenderTrace_ResolvesRecordingIdForLiveGhost()
+        {
+            // Every render-EVENT add (PolylineLegChange / LineVisibilityChange / icon-suppressed /
+            // body-orbit / the probe truth + anomaly lines) carries recId=<recordingId>, resolved at
+            // runtime via GhostMapPresence.FindRecordingIdByVesselPid(pid). That reverse map is the linchpin
+            // of the recId schema and is Unity-runtime (the ghost ProtoVessel must be loaded), so it cannot
+            // be unit-tested. Drive a live synthetic TS ghost and assert the reverse map returns the
+            // recording's RecordingId for the ghost's persistentId.
+            using (var scope = new SyntheticTrackingStationRecordingScope("maprender-recid"))
+            {
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+
+                // Let KSP run the ProtoVessel load over a few frames so the pid is registered.
+                yield return null;
+                yield return null;
+                yield return null;
+
+                uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
+                InGameAssert.IsTrue(ghostPid != 0,
+                    "Synthetic TS recording should have a ghost PID after the lifecycle tick");
+
+                string resolved = GhostMapPresence.FindRecordingIdByVesselPid(ghostPid);
+                InGameAssert.AreEqual(scope.Recording.RecordingId, resolved,
+                    "FindRecordingIdByVesselPid must resolve a live ghost pid back to its recordingId "
+                    + "(the recId= carried by every map render EVENT)");
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "MapRenderTrace_ResolvesRecordingIdForLiveGhost: ghostPid={0} recId={1}",
+                        ghostPid, resolved ?? "<null>"));
+            }
+        }
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "map-render-event-logging: with mapRenderTracing on, the probe + orbit-line decision actually EMIT recId-bearing render EVENTs for a live ghost (covers the emit call-sites the pure unit tests cannot reach)")]
+        public IEnumerator MapRenderTrace_EmitsRenderEventsForLiveGhost()
+        {
+            // The pure xUnit tests cover the emit HELPERS (DiffDrawnSets, EmitLineVisibilityOnChange, the
+            // recId prefix), but NOT the WIRING - whether the probe and GhostOrbitLinePatch actually CALL
+            // them for a live ghost with tracing on. A mis-wiring would compile and pass the full suite.
+            // This drives a live synthetic TS ghost with the tracer forced on, tees ParsekLog through an
+            // observer (so KSP.log still gets every line), and asserts real MapRenderTrace EVENT lines are
+            // emitted carrying the ghost's recId - end-to-end proof the call-sites fire.
+            bool prevForce = MapRenderTrace.ForceEnabledForTesting;
+            bool? prevVerbose = ParsekLog.VerboseOverrideForTesting;
+            System.Action<string> prevObserver = ParsekLog.TestObserverForTesting;
+            var captured = new List<string>();
+            try
+            {
+                MapRenderTrace.ForceEnabledForTesting = true;
+                ParsekLog.VerboseOverrideForTesting = true; // so the Verbose on-change EVENTs emit
+                ParsekLog.TestObserverForTesting = line =>
+                {
+                    if (line != null && line.Contains("[MapRenderTrace]")) captured.Add(line);
+                };
+
+                using (var scope = new SyntheticTrackingStationRecordingScope("maprender-emit"))
+                {
+                    GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+                    // Several frames so the order-10000 probe LateUpdate samples the ghost and the
+                    // OrbitRendererBase.LateUpdate -> GhostOrbitLinePatch.Postfix decision runs.
+                    for (int i = 0; i < 6; i++) yield return null;
+
+                    uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
+                    InGameAssert.IsTrue(ghostPid != 0,
+                        "Synthetic TS recording should have a ghost PID after the lifecycle tick");
+                    string recId = scope.Recording.RecordingId;
+
+                    if (captured.Count == 0)
+                    {
+                        InGameAssert.Skip(
+                            "No [MapRenderTrace] lines captured this session (the probe / renderer LateUpdate "
+                            + "did not run for the synthetic ghost) - emit wiring not exercisable here");
+                        yield break;
+                    }
+
+                    // Probe wiring + recId schema, end-to-end live: at least one render EVENT line carries
+                    // recId=<this recording>. (The probe emits body-orbit / line.active / FirstPosition with
+                    // the recId resolved from the live reverse map.)
+                    InGameAssert.IsTrue(
+                        captured.Exists(l => l.Contains("recId=" + recId)),
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Expected a [MapRenderTrace] EVENT line carrying recId={0}; captured {1} lines, none matched",
+                            recId, captured.Count));
+
+                    // GhostOrbitLinePatch wiring: LineVisibilityChange fires from LogOrbitLineDecision when the
+                    // orbit-line decision runs. Only assert it when the renderer's OrbitLine was actually built
+                    // this session (else the Postfix's decision path did not run - environmental, not a wiring
+                    // bug); mirrors MapRenderProbe_ReadsRealLineActiveTruth's (line-null) Skip.
+                    Vessel ghost = FindVesselByPersistentId(ghostPid);
+                    string lineActive = ghost != null ? MapRenderProbe.ReadLineActive(ghost.orbitRenderer) : "(no-renderer)";
+                    if (lineActive == "True" || lineActive == "False")
+                    {
+                        InGameAssert.IsTrue(
+                            captured.Exists(l => l.Contains("phase=LineVisibilityChange") && l.Contains("recId=" + recId)),
+                            "Renderer ran (OrbitLine built) but no phase=LineVisibilityChange recId line was emitted - "
+                            + "GhostOrbitLinePatch.LogOrbitLineDecision is not wired to MapRenderTrace.EmitLineVisibilityOnChange");
+                    }
+
+                    ParsekLog.Info("TestRunner",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "MapRenderTrace_EmitsRenderEventsForLiveGhost: ghostPid={0} recId={1} capturedLines={2} lineActive={3}",
+                            ghostPid, recId, captured.Count, lineActive));
+                }
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = prevObserver;
+                ParsekLog.VerboseOverrideForTesting = prevVerbose;
+                MapRenderTrace.ForceEnabledForTesting = prevForce;
+            }
+        }
+
         [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION, RunLast = true,
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,

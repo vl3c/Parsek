@@ -6678,9 +6678,43 @@ namespace Parsek
             return state;
         }
 
+        // Render-EVENT (map-render-event-logging): flight-scene mesh APPEAR / DISAPPEAR. The engine fired
+        // OnGhostCreated / OnGhostDestroyed for the policy, but GhostRenderTrace logged a ghost's first frame
+        // only as a NEXT-frame FrameStart reason=first-seen and its retire only as a trailing retired=true -
+        // no clean lifecycle EVENT mirroring the map's GhostCreated / GhostDestroyed. Emit one here so the
+        // flight scene is greppable for spawn/despawn too (surface stays the GhostRenderTrace mesh surface;
+        // its prefix already carries rec=/recId=, so no recId threading). important=true => always emitted
+        // when enabled, routed to Info. Gated by GhostRenderTrace.IsEnabled so the Planetarium read + format
+        // never run in normal play (read-only observability).
+        private static void EmitMeshLifecycleTrace(
+            string phase, int index, IPlaybackTrajectory traj, GhostPlaybackState state, string reason)
+        {
+            string recId = traj?.RecordingId;
+            if (string.IsNullOrEmpty(recId))
+                recId = state?.recordingId;
+            if (string.IsNullOrEmpty(recId))
+                return;
+            // Enabled-gate via ShouldEmitPhase (GhostRenderTrace.IsEnabled is private): with important=true it
+            // returns the tracer's enabled state, so the Planetarium read + format below never run in normal
+            // (tracing-off) play. EmitPhase re-checks the same gate internally.
+            if (!GhostRenderTrace.ShouldEmitPhase(recId, 0.0, important: true))
+                return;
+            double ut = Planetarium.GetUniversalTime();
+            GhostRenderTrace.EmitPhase(
+                recId, index, ut, ut, phase,
+                FormattableString.Invariant(
+                    $"vessel={traj?.VesselName ?? state?.vesselName ?? "Unknown"} reason={reason ?? "lifecycle"}"),
+                important: true);
+        }
+
         private void QueueOrEmitGhostCreated(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state, TrajectoryPlaybackFlags flags)
         {
+            // Mesh APPEAR EVENT - emitted at the create funnel BEFORE the no-subscriber early-return so it
+            // fires regardless of whether a policy is attached (deferred vs immediate Invoke is only about
+            // WHEN the policy is notified, not when the ghost entered the scene).
+            EmitMeshLifecycleTrace("MeshSpawned", index, traj, state, "ghost-created");
+
             if (OnGhostCreated == null)
                 return;
 
@@ -8863,6 +8897,9 @@ namespace Parsek
             string name = state?.vesselName ?? traj?.VesselName ?? "Unknown";
             ParsekLog.VerboseRateLimited("Engine", $"destroy-{index}",
                 $"Ghost #{index} \"{name}\" destroyed ({reason ?? "unknown"})", 1.0);
+
+            // Mesh DISAPPEAR EVENT (map-render-event-logging): mirror the map's GhostDestroyed.
+            EmitMeshLifecycleTrace("MeshDestroyed", index, traj, state, reason);
 
             // Capture ghost root name before the GO is destroyed so we can clear the
             // per-ghost "AudioClip not found" dedupe set (#421). A fresh spawn of this
