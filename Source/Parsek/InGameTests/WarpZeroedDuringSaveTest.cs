@@ -61,6 +61,9 @@ namespace Parsek.InGameTests
             ParsekLog.Info("RewindTest",
                 $"WarpZeroedDuringSave: startingRate={startingRate}, rpCountBefore={rpCountBefore}");
 
+            // A multi-controllable split (the RP precondition) increases this; the delta tells a
+            // wrong-craft "no split" (skip) from a real "split but no RewindPoint" regression (fail).
+            int controllableBefore = CountLoadedControllableVessels();
             StageManager.ActivateNextStage();
 
             // Wait for RP capture to complete.
@@ -79,7 +82,21 @@ namespace Parsek.InGameTests
                 yield return null;
             }
 
-            InGameAssert.IsNotNull(rp, "No RewindPoint captured after staging");
+            if (rp == null)
+            {
+                int controllableAfter = CountLoadedControllableVessels();
+                if (controllableAfter <= controllableBefore)
+                {
+                    InGameAssert.Skip(
+                        $"next stage did not separate a second controllable vessel (controllable " +
+                        $"{controllableBefore}->{controllableAfter}); this isolated-run test needs a " +
+                        "2-pod+decoupler craft staged at the decoupler, not the loaded vessel");
+                    yield break;
+                }
+                InGameAssert.Fail(
+                    $"A controllable split occurred ({controllableBefore}->{controllableAfter}) but no " +
+                    "RewindPoint was captured after staging");
+            }
 
             // Give one more frame for the warp restore finally to run.
             yield return null;
@@ -97,6 +114,30 @@ namespace Parsek.InGameTests
 
             ParsekLog.Info("RewindTest",
                 $"WarpZeroedDuringSave: PASS rp={rp.RewindPointId}");
+        }
+
+        // Counts loaded vessels in physics range carrying at least one command module (controllable).
+        // A multi-controllable staging split increases this by >=1; the delta discriminates a
+        // wrong-craft "no split" from a real "split but no RewindPoint" regression.
+        private static int CountLoadedControllableVessels()
+        {
+            int n = 0;
+            var loaded = FlightGlobals.VesselsLoaded;
+            if (loaded == null) return 0;
+            for (int i = 0; i < loaded.Count; i++)
+            {
+                var v = loaded[i];
+                if (v == null || v.parts == null) continue;
+                for (int p = 0; p < v.parts.Count; p++)
+                {
+                    if (v.parts[p] != null && v.parts[p].FindModuleImplementing<ModuleCommand>() != null)
+                    {
+                        n++;
+                        break;
+                    }
+                }
+            }
+            return n;
         }
     }
 }

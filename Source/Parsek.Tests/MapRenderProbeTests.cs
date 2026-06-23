@@ -221,6 +221,59 @@ namespace Parsek.Tests
             Assert.True(jump);
         }
 
+        // ---- IsIconJump: suppression-lift edge suppression ----
+
+        [Fact]
+        public void IsIconJump_SuppressionLifted_Suppressed()
+        {
+            // The icon was SUPPRESSED on the previous sample (parked at a clamped endpoint while HIDDEN);
+            // the first visible frame after suppression lifts re-propagates the proto to its live phase.
+            // That delta was never on screen, so a huge dPos must NOT fire on the lift frame.
+            bool jump = MapRenderTrace.IsIconJump(
+                dPos: 2_049_675_084.0, // the captured Sun suppression-snap magnitude
+                expectedMotionMeters: 0.0,
+                currentFrame: 1000,
+                floatingOriginShiftFrame: FrameNoFloatingOrigin,
+                justReset: false,
+                bodyChanged: false,
+                suppressionLifted: true);
+
+            Assert.False(jump);
+        }
+
+        [Fact]
+        public void IsIconJump_NotSuppressionLifted_AboveThreshold_StillJumps()
+        {
+            // Guard that the suppression-lift suppression does not blanket-disable the detector: a genuine
+            // teleport on a normally-visible frame (suppressionLifted false) still flags.
+            bool jump = MapRenderTrace.IsIconJump(
+                dPos: MapRenderTrace.IconJumpFloorMeters + 1.0,
+                expectedMotionMeters: 0.0,
+                currentFrame: 1000,
+                floatingOriginShiftFrame: FrameNoFloatingOrigin,
+                justReset: false,
+                bodyChanged: false,
+                suppressionLifted: false);
+
+            Assert.True(jump);
+        }
+
+        [Fact]
+        public void IsIconJump_DefaultSuppressionLifted_PreservesLegacyBehavior()
+        {
+            // The new param defaults false, so a call that omits it is byte-identical to the pre-fix
+            // predicate: a delta above the floor still flags.
+            bool jump = MapRenderTrace.IsIconJump(
+                dPos: MapRenderTrace.IconJumpFloorMeters + 1.0,
+                expectedMotionMeters: 0.0,
+                currentFrame: 1000,
+                floatingOriginShiftFrame: FrameNoFloatingOrigin,
+                justReset: false,
+                bodyChanged: false);
+
+            Assert.True(jump);
+        }
+
         // ---- IsLineBlink ----
 
         [Fact]
@@ -299,6 +352,143 @@ namespace Parsek.Tests
                 currentFrame: 1000);
 
             Assert.False(blink);
+        }
+
+        [Fact]
+        public void IsLineBlink_WithinWindow_BodyChanged_NotBlink()
+        {
+            // Two toggles within the frame window but straddling a reference-body / segment change
+            // (line off on a Kerbin escape hyperbola, on on the next Sun heliocentric leg): two
+            // legitimate transitions at an SOI seam compressed by high warp, NOT a flicker.
+            bool blink = MapRenderTrace.IsLineBlink(
+                toggled: true,
+                hasLastToggleFrame: true,
+                lastToggleFrame: 1000,
+                currentFrame: 1008, // 8 frames = within LineBlinkFrameWindow
+                bodyChanged: true);
+
+            Assert.False(blink);
+        }
+
+        [Fact]
+        public void IsLineBlink_WithinWindow_SameBody_StillBlink()
+        {
+            // Guard that the bodyChanged guard does not blanket-disable the detector: a same-geometry
+            // toggle out-and-back within the window (bodyChanged false) is still a blink.
+            bool blink = MapRenderTrace.IsLineBlink(
+                toggled: true,
+                hasLastToggleFrame: true,
+                lastToggleFrame: 1000,
+                currentFrame: 1002,
+                bodyChanged: false);
+
+            Assert.True(blink);
+        }
+
+        [Fact]
+        public void IsLineBlink_DefaultBodyChanged_PreservesLegacyBehavior()
+        {
+            // The new param defaults false, so a call that omits it is byte-identical to the pre-fix
+            // predicate: a toggle within the window is a blink.
+            bool blink = MapRenderTrace.IsLineBlink(
+                toggled: true,
+                hasLastToggleFrame: true,
+                lastToggleFrame: 1000,
+                currentFrame: 1002);
+
+            Assert.True(blink);
+        }
+
+        // ---- ComputeMaxOrbitalSpeedMeters ----
+
+        [Fact]
+        public void ComputeMaxOrbitalSpeed_Circular_EqualsCircularSpeed()
+        {
+            // Circular orbit (e = 0): periapsis speed == circular speed == sqrt(mu / a).
+            double mu = 3.5316e12, a = 700_000.0;
+            double vp = MapRenderTrace.ComputeMaxOrbitalSpeedMeters(a, 0.0, mu, instantaneousSpeedMeters: 1.0);
+
+            Assert.Equal(System.Math.Sqrt(mu / a), vp, 3);
+        }
+
+        [Fact]
+        public void ComputeMaxOrbitalSpeed_EccentricProbe_MatchesPeriapsisFormula()
+        {
+            // The captured probe orbit (sma 2.36 Mm, ecc 0.6901, Kerbin mu): vp ~= 2857 m/s.
+            double mu = 3.5316e12, a = 2_360_277.0, e = 0.6901;
+            double vp = MapRenderTrace.ComputeMaxOrbitalSpeedMeters(a, e, mu, instantaneousSpeedMeters: 1.0);
+            double expected = System.Math.Sqrt(mu * (1.0 + e) / (a * (1.0 - e)));
+
+            Assert.Equal(expected, vp, 2);
+            Assert.True(vp > 2800.0 && vp < 2900.0, $"vp={vp}");
+        }
+
+        [Fact]
+        public void ComputeMaxOrbitalSpeed_Hyperbolic_Finite()
+        {
+            // Hyperbolic escape (a < 0, e > 1, so a*(1-e) > 0): the periapsis form is still finite.
+            double mu = 3.5316e12, a = -3_818_300.0, e = 1.1916;
+            double vp = MapRenderTrace.ComputeMaxOrbitalSpeedMeters(a, e, mu, instantaneousSpeedMeters: 1.0);
+            double expected = System.Math.Sqrt(mu * (1.0 + e) / (a * (1.0 - e)));
+
+            Assert.Equal(expected, vp, 2);
+            Assert.True(vp > 0.0 && !double.IsInfinity(vp) && !double.IsNaN(vp), $"vp={vp}");
+        }
+
+        [Fact]
+        public void ComputeMaxOrbitalSpeed_Parabolic_FallsBackToInstantaneous()
+        {
+            // e == 1: a*(1-e) == 0 -> non-positive denom -> fall back to the instantaneous speed.
+            double vp = MapRenderTrace.ComputeMaxOrbitalSpeedMeters(
+                1_000_000.0, 1.0, 3.5316e12, instantaneousSpeedMeters: 1234.5);
+
+            Assert.Equal(1234.5, vp, 3);
+        }
+
+        [Fact]
+        public void ComputeMaxOrbitalSpeed_NaNElements_FallsBackToInstantaneous()
+        {
+            double vp = MapRenderTrace.ComputeMaxOrbitalSpeedMeters(
+                double.NaN, 0.3, 3.5316e12, instantaneousSpeedMeters: 999.0);
+
+            Assert.Equal(999.0, vp, 3);
+        }
+
+        [Fact]
+        public void ComputeMaxOrbitalSpeed_NaNInstantaneousFallback_ReturnsZero()
+        {
+            // Degenerate elements AND a non-finite instantaneous fallback -> 0 (jump predicate uses floor).
+            double vp = MapRenderTrace.ComputeMaxOrbitalSpeedMeters(
+                double.NaN, 0.3, 3.5316e12, instantaneousSpeedMeters: double.NaN);
+
+            Assert.Equal(0.0, vp, 6);
+        }
+
+        [Fact]
+        public void IconTeleport_CapturedProbeMotion_NotFlaggedWithRealDeltaUTAndMaxSpeed()
+        {
+            // Regression for the 3 captured probe icon-teleports: real per-frame motion on the eccentric
+            // probe orbit, which the OLD model (instantaneous speed * unscaledDeltaTime * CurrentRate)
+            // under-estimated ~20x and flagged. With the real per-frame UT advance and the periapsis-speed
+            // upper bound, the captured dPos is well below the threshold and does NOT fire.
+            // Captured f21582: dPos 1.85e6 m, real deltaUT ~1668.6 s; orbit sma 2.36 Mm, ecc 0.6901, Kerbin mu.
+            double mu = 3.5316e12, a = 2_360_277.0, e = 0.6901;
+            double deltaUT = 1668.6, dPos = 1_852_200.0;
+            double maxSpeed = MapRenderTrace.ComputeMaxOrbitalSpeedMeters(a, e, mu, instantaneousSpeedMeters: 1109.0);
+            double expectedMotion = maxSpeed * deltaUT; // the probe's new expected-motion
+
+            bool jump = MapRenderTrace.IsIconJump(
+                dPos: dPos,
+                expectedMotionMeters: expectedMotion,
+                currentFrame: 1000,
+                floatingOriginShiftFrame: FrameNoFloatingOrigin,
+                justReset: false,
+                bodyChanged: false,
+                suppressionLifted: false);
+
+            Assert.False(jump);
+            // And the dPos never exceeds the orbit's max possible arc in that interval (sanity bound).
+            Assert.True(dPos <= maxSpeed * deltaUT, $"dPos={dPos} maxArc={maxSpeed * deltaUT}");
         }
 
         // ---- IsIconOffOrbit ----

@@ -984,9 +984,10 @@ namespace Parsek
             GUILayout.Label("Group", colHdr, GUILayout.Width(ColW_Group), GUILayout.Height(ColHeaderHeight));
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrGroup");
 
-            // Select-all loop header + checkbox. Debris recordings are excluded
-            // from both the aggregate and the bulk write; see ComputeLoopAggregate
-            // and BulkSetLoopPlayback.
+            // Select-all loop header + checkbox. Non-loopable recordings (debris
+            // and pure orbital coasts that are not player-viewable) are excluded
+            // from both the aggregate and the bulk write; see ComputeLoopAggregate,
+            // BulkSetLoopPlayback, and Recording.IsLoopableRecording.
             //
             // Mutual exclusion (design §0.6): the select-all loop greys OFF when ANY
             // committed recording lives on a route-bound tree (safe default: a bulk
@@ -1609,7 +1610,8 @@ namespace Parsek
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowGroup");
 
             // Loop checkbox + Period cell are both gated by ShouldSuppressRowLoopUi
-            // (Unfinished Flights virtual group, or debris). Render width-stable
+            // (Unfinished Flights virtual group, or a non-loopable recording: debris
+            // or a pure orbital coast that is not player-viewable). Render width-stable
             // placeholders when suppressed so the grid stays aligned.
             bool suppressRowLoop = ShouldSuppressRowLoopUi(rec, unfinishedFlightRowDepth > 0);
             if (suppressRowLoop)
@@ -5041,18 +5043,23 @@ namespace Parsek
         /// Returns true when the per-row loop checkbox and period cell should
         /// be hidden for a recording. Cases: (1) the row is inside the virtual
         /// Unfinished Flights group (a re-fly TODO surface where playback
-        /// configuration is misleading); (2) the recording is debris, whose
-        /// playback rides its parent's loop clock via
-        /// <c>GhostPlaybackEngine.TryUpdateLoopSyncedDebris</c> so its own
-        /// LoopPlayback flag has no effect.
+        /// configuration is misleading); (2) the recording is not viewable by
+        /// the player as a flying ghost — i.e. it is not "logically loopable"
+        /// per <see cref="Recording.IsLoopableRecording"/> (debris, or a pure
+        /// orbital coast with no watchable takeoff / landing / approach phase).
+        /// Debris is subsumed by the loopable check: its playback rides its
+        /// parent's loop clock via <c>GhostPlaybackEngine.TryUpdateLoopSyncedDebris</c>
+        /// so its own LoopPlayback flag has no effect.
         /// </summary>
         internal static bool ShouldSuppressRowLoopUi(Recording rec, bool insideUnfinishedFlightsGroup)
-            => insideUnfinishedFlightsGroup || (rec != null && rec.IsDebris);
+            => insideUnfinishedFlightsGroup || !Recording.IsLoopableRecording(rec);
 
         /// <summary>
-        /// Loop-aggregate UI state for a group/chain/header row. Debris members
-        /// are excluded from both the count and the bulk write because they
-        /// have no per-row loop toggle (see <see cref="ShouldSuppressRowLoopUi"/>).
+        /// Loop-aggregate UI state for a group/chain/header row. Non-loopable
+        /// members (debris, or pure orbital coasts that are not viewable by the
+        /// player) are excluded from both the count and the bulk write because
+        /// they have no per-row loop toggle (see <see cref="ShouldSuppressRowLoopUi"/>
+        /// and <see cref="Recording.IsLoopableRecording"/>).
         /// When <see cref="SuppressToggle"/> is true the caller renders an
         /// empty cell (e.g. the auto-generated "X / Debris" subgroup).
         /// <see cref="AllLoop"/> and <see cref="SuppressToggle"/> are read-only
@@ -5061,10 +5068,14 @@ namespace Parsek
         /// </summary>
         internal struct LoopAggregateState
         {
-            public int NonDebrisCount;
+            // Count of loopable (player-viewable) members — non-debris recordings
+            // with a watchable takeoff / landing / approach / docking / relative
+            // track (see Recording.IsLoopableRecording). Pure orbital coasts and
+            // debris are excluded, matching the per-row loop-UI suppression.
+            public int LoopableCount;
             public int LoopCount;
-            public bool AllLoop => NonDebrisCount > 0 && LoopCount == NonDebrisCount;
-            public bool SuppressToggle => NonDebrisCount == 0;
+            public bool AllLoop => LoopableCount > 0 && LoopCount == LoopableCount;
+            public bool SuppressToggle => LoopableCount == 0;
         }
 
         /// <summary>
@@ -5085,12 +5096,12 @@ namespace Parsek
                 for (int i = 0; i < n; i++)
                 {
                     var rec = committed[i];
-                    if (rec == null || rec.IsDebris) continue;
+                    if (!Recording.IsLoopableRecording(rec)) continue;
                     total++;
                     if (rec.LoopPlayback) loops++;
                 }
             }
-            return new LoopAggregateState { NonDebrisCount = total, LoopCount = loops };
+            return new LoopAggregateState { LoopableCount = total, LoopCount = loops };
         }
 
         internal static LoopAggregateState ComputeLoopAggregate(
@@ -5104,19 +5115,22 @@ namespace Parsek
                 {
                     if (idx < 0 || idx >= committed.Count) continue;
                     var rec = committed[idx];
-                    if (rec == null || rec.IsDebris) continue;
+                    if (!Recording.IsLoopableRecording(rec)) continue;
                     total++;
                     if (rec.LoopPlayback) loops++;
                 }
             }
-            return new LoopAggregateState { NonDebrisCount = total, LoopCount = loops };
+            return new LoopAggregateState { LoopableCount = total, LoopCount = loops };
         }
 
         /// <summary>
         /// Shared bulk-write for header / group / chain / block aggregate Loop
-        /// toggles. Sets <c>LoopPlayback = value</c> on every non-null,
-        /// non-debris recording at the given indices (or all of committed when
-        /// indices is null, for the header path). When applyAutoRange is true,
+        /// toggles. Sets <c>LoopPlayback = value</c> on every loopable
+        /// (player-viewable) recording at the given indices (or all of committed
+        /// when indices is null, for the header path) — see
+        /// <see cref="Recording.IsLoopableRecording"/>. Non-loopable rows (debris
+        /// and pure orbital coasts) are skipped so the bulk write stays consistent
+        /// with the per-row loop-UI suppression. When applyAutoRange is true,
         /// also calls <see cref="ApplyAutoLoopRange"/> on each written row
         /// (auto-narrow on enable, clear on disable): this preserves the
         /// pre-refactor behavior where chain / grouped-block bulk writes and
@@ -5136,7 +5150,7 @@ namespace Parsek
                 for (int i = 0; i < n; i++)
                 {
                     var r = committed[i];
-                    if (r == null || r.IsDebris) continue;
+                    if (!Recording.IsLoopableRecording(r)) continue;
                     r.LoopPlayback = value;
                     if (applyAutoRange) ApplyAutoLoopRange(r, value);
                     written++;
@@ -5147,7 +5161,7 @@ namespace Parsek
             {
                 if (idx < 0 || idx >= committed.Count) continue;
                 var r = committed[idx];
-                if (r == null || r.IsDebris) continue;
+                if (!Recording.IsLoopableRecording(r)) continue;
                 r.LoopPlayback = value;
                 if (applyAutoRange) ApplyAutoLoopRange(r, value);
                 written++;

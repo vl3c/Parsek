@@ -324,6 +324,87 @@ namespace Parsek.Tests
                 && l.Contains("physicalDebits=1"));
         }
 
+        // catches (M3, T-ROUTEMODULE-OBSERVE): a RouteCargoPickedUp row (the
+        // per-window pickup debit) being anything other than OBSERVED - the walk
+        // must count it (resolved endpoint pid => physical pickup), log the
+        // attribution fields, and mutate NO cargo / funds state (the live removal
+        // from the endpoint happened at emit time; rewind restores it with the
+        // world). Mirror of the RouteCargoDebited observe-only test.
+        [Fact]
+        public void ProcessCargoPickedUp_PhysicalRow_ObserveOnly_LogsEndpointPid()
+        {
+            var action = new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.RouteCargoPickedUp,
+                RouteId = "route-PU",
+                RouteCycleId = "cycle-3",
+                RouteStopIndex = 0,
+                RouteResourceManifest = new Dictionary<string, double>
+                {
+                    { "Ore", 40.0 },
+                },
+                RouteRequestedResourceManifest = new Dictionary<string, double>
+                {
+                    { "Ore", 100.0 },
+                },
+                RouteOriginVesselPid = 777u, // the endpoint pid
+            };
+
+            module.ProcessAction(action);
+
+            var state = module.GetWalkStateForTesting()["route-PU"];
+            // Observe-only: the physical-pickup counter bumps, nothing else.
+            Assert.Equal(1, state.PhysicalPickups);
+            Assert.Equal(0, state.PhysicalDebits);
+            Assert.Equal(0, state.DispatchedCycles);
+            Assert.Equal(0, state.DeliveredStops);
+            Assert.Equal(0, state.CreditedCycles);
+            Assert.False(state.Paused);
+            Assert.False(state.EndpointLost);
+            Assert.Equal(500.0, state.LastActionUT);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("Processed RouteCargoPickedUp")
+                && l.Contains("route=route-PU")
+                && l.Contains("endpointPid=777")
+                && l.Contains("requested=1")
+                && l.Contains("observe-only, no cargo mutation"));
+
+            module.PostWalk();
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("PostWalk")
+                && l.Contains("physicalPickups=1"));
+        }
+
+        // catches (M3): an unresolved-at-emit pickup row (pid 0, full requested
+        // manifest) being counted as a physical pickup. Only a resolved endpoint
+        // pid counts as physical (mirror of the RouteCargoDebited pid-0 rule).
+        [Fact]
+        public void ProcessCargoPickedUp_UnresolvedRow_Pid0_NotCountedPhysical()
+        {
+            var action = new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.RouteCargoPickedUp,
+                RouteId = "route-PU0",
+                RouteCycleId = "cycle-0",
+                RouteRequestedResourceManifest = new Dictionary<string, double>
+                {
+                    { "Ore", 100.0 },
+                },
+                RouteOriginVesselPid = 0u, // unresolved at emit
+            };
+
+            module.ProcessAction(action);
+
+            var state = module.GetWalkStateForTesting()["route-PU0"];
+            Assert.Equal(0, state.PhysicalPickups);
+            Assert.Equal(500.0, state.LastActionUT);
+        }
+
         [Fact]
         public void Reset_ClearsAllState()
         {

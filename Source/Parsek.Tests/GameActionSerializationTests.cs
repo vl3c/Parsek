@@ -1239,6 +1239,126 @@ namespace Parsek.Tests
             Assert.Equal(7300f, result.RouteKscFundsCost);
         }
 
+        // M3 (plan Phase 4 / OQ4 / D6): the pickup row round-trips with
+        // RouteId / RouteCycleId / RouteStopIndex / the ACTUAL debited manifest /
+        // the requested-on-shortfall manifest / the endpoint pid preserved, and
+        // carries NO funds field (a pickup emits zero funds, so routeKscFundsCost
+        // is never written and reads back at the 0 default).
+        [Fact]
+        public void Serialize_RouteCargoPickedUp_RoundTripsManifestsAndEndpointPid_NoFunds()
+        {
+            var original = new GameAction
+            {
+                UT = 56000.0,
+                Type = GameActionType.RouteCargoPickedUp,
+                RouteId = "route-pickup",
+                RouteCycleId = "cycle-2",
+                RouteStopIndex = 0,
+                Sequence = 2, // after RouteDispatched (0) + RouteCargoDebited (1)
+                RouteResourceManifest = new Dictionary<string, double>
+                {
+                    { "Ore", 40.0 }, // actuals (clamped short)
+                },
+                RouteRequestedResourceManifest = new Dictionary<string, double>
+                {
+                    { "Ore", 100.0 }, // requested-on-shortfall
+                },
+                RouteOriginVesselPid = 3149815921u, // the ENDPOINT pid
+                // M3 Phase 5 (D7): the picked-up stored-part inventory + the
+                // requested-on-shortfall inventory ride the row too.
+                RouteInventoryManifest = new List<InventoryPayloadItem>
+                {
+                    MakePickupPayload("ore-container-hash", "smallCargoContainer", "white", 1),
+                },
+                RouteRequestedInventoryManifest = new List<InventoryPayloadItem>
+                {
+                    MakePickupPayload("ore-container-hash", "smallCargoContainer", "white", 2),
+                },
+                // Set a non-zero funds cost on the in-memory object to prove the
+                // pickup codec NEVER writes a funds line (zero funds, D6).
+                RouteKscFundsCost = 999f,
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.RouteCargoPickedUp, result.Type);
+            Assert.Equal("route-pickup", result.RouteId);
+            Assert.Equal("cycle-2", result.RouteCycleId);
+            Assert.Equal(0, result.RouteStopIndex);
+            Assert.Equal(2, result.Sequence);
+            Assert.Equal(40.0, result.RouteResourceManifest["Ore"]);
+            Assert.NotNull(result.RouteRequestedResourceManifest);
+            Assert.Equal(100.0, result.RouteRequestedResourceManifest["Ore"]);
+            Assert.Equal(3149815921u, result.RouteOriginVesselPid);
+            // No funds line written -> reads back at the 0 default (NOT 999).
+            Assert.Equal(0f, result.RouteKscFundsCost);
+
+            // M3 Phase 5: the inventory manifests round-trip - identity hash,
+            // part name, variant, quantity, and the verbatim STOREDPART snapshot.
+            Assert.NotNull(result.RouteInventoryManifest);
+            Assert.Single(result.RouteInventoryManifest);
+            Assert.Equal("ore-container-hash", result.RouteInventoryManifest[0].IdentityHash);
+            Assert.Equal("smallCargoContainer", result.RouteInventoryManifest[0].PartName);
+            Assert.Equal("white", result.RouteInventoryManifest[0].VariantName);
+            Assert.Equal(1, result.RouteInventoryManifest[0].Quantity);
+            Assert.NotNull(result.RouteInventoryManifest[0].StoredPartSnapshot);
+            Assert.Equal("smallCargoContainer",
+                result.RouteInventoryManifest[0].StoredPartSnapshot.GetValue("partName"));
+            Assert.NotNull(result.RouteRequestedInventoryManifest);
+            Assert.Equal(2, result.RouteRequestedInventoryManifest[0].Quantity);
+
+            // Confirm the on-disk shape carries no funds key.
+            var parent = new ConfigNode("ROOT");
+            original.SerializeInto(parent);
+            Assert.Null(parent.GetNode("GAME_ACTION").GetValue("routeKscFundsCost"));
+        }
+
+        // M3 Phase 5 (D7 / D9): a RouteCargoPickedUp row with NO inventory writes
+        // NO inventory node (sparse omission), so a resource-only pickup row is
+        // byte-identical to the pre-Phase-5 codec.
+        [Fact]
+        public void Serialize_RouteCargoPickedUp_NoInventory_OmitsInventoryNodes()
+        {
+            var original = new GameAction
+            {
+                UT = 56000.0,
+                Type = GameActionType.RouteCargoPickedUp,
+                RouteId = "route-resource-only-pickup",
+                RouteCycleId = "cycle-0",
+                Sequence = 2,
+                RouteResourceManifest = new Dictionary<string, double> { { "Ore", 25.0 } },
+                // No inventory manifests.
+            };
+
+            var parent = new ConfigNode("ROOT");
+            original.SerializeInto(parent);
+            var node = parent.GetNode("GAME_ACTION");
+            Assert.Null(node.GetNode("ROUTE_INVENTORY_MANIFEST"));
+            Assert.Null(node.GetNode("ROUTE_REQUESTED_INVENTORY_MANIFEST"));
+
+            var result = GameAction.DeserializeFrom(node);
+            Assert.Null(result.RouteInventoryManifest);
+            Assert.Null(result.RouteRequestedInventoryManifest);
+        }
+
+        private static InventoryPayloadItem MakePickupPayload(
+            string hash, string partName, string variant, int quantity)
+        {
+            var storedPart = new ConfigNode("STOREDPART");
+            storedPart.AddValue("partName", partName);
+            storedPart.AddValue("variantName", variant);
+            storedPart.AddValue("quantity", quantity.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return new InventoryPayloadItem
+            {
+                IdentityHash = hash,
+                PartName = partName,
+                VariantName = variant,
+                Quantity = quantity,
+                SlotsTaken = 1,
+                StoredPartSnapshot = storedPart,
+            };
+        }
+
         // T-TYPE forward-safety: an unknown future type id does NOT throw; it
         // deserializes to a warn + skip (the row keeps its default type, the
         // unknown id is logged). Guards GameAction.cs Enum.IsDefined behavior.
@@ -1254,7 +1374,7 @@ namespace Parsek.Tests
             var ex = Record.Exception(() => result = GameAction.DeserializeFrom(node));
             Assert.Null(ex);
             Assert.NotNull(result);
-            // RouteRecoveryCredited (28) is the highest DEFINED id; 9999 is unknown,
+            // RouteCargoPickedUp (29) is the highest DEFINED id; 9999 is unknown,
             // so the type field stays at its default and the row is harmless.
             Assert.NotEqual((GameActionType)9999, result.Type);
         }

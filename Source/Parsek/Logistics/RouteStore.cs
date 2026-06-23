@@ -27,6 +27,42 @@ namespace Parsek.Logistics
         /// <summary>Read-only view of currently committed routes.</summary>
         internal static IReadOnlyList<Route> CommittedRoutes => committedRoutes;
 
+        // -----------------------------------------------------------------
+        // M4b Phase B2 (plan D11 / OQ7): RAM-only cargo escrow.
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// M4b Phase B2 (plan D11 / OQ7): the RAM-ONLY cargo escrow map.
+        /// Shape: <c>routeId -&gt; vesselPid -&gt; resourceName -&gt; reserved amount</c>.
+        /// A per-resource sub-map per <c>(routeId, pid)</c> so a depot can reserve
+        /// LiquidFuel and Oxidizer against the same source vessel independently.
+        ///
+        /// <para><b>NOT serialized.</b> Untouched by <see cref="SaveRoutesTo"/> /
+        /// <see cref="LoadRoutesFrom"/>; a loaded route carries no escrow. The
+        /// reservation is a within-tick / dispatch-to-window-phase guard recomputed
+        /// from pending route state on the next <see cref="RouteOrchestrator.Tick(double)"/>,
+        /// so it need not survive a scene change (cleared at the four lifecycle
+        /// sites below). The recompute is real for the MULTI-STOP path: a
+        /// <c>dispatchAlready</c> resume of an in-flight cycle whose escrow was cleared
+        /// re-establishes the still-un-fired windows' reservation
+        /// (<see cref="RouteOrchestrator.ReEstablishEscrowForUnfiredWindows"/>, M4b B3
+        /// C1), idempotent via <see cref="HasEscrow"/>. The SINGLE-STOP path has no
+        /// gap (reserve and release fire inside one <c>EmitLoopCycle</c>), so it needs
+        /// no recompute.</para>
+        ///
+        /// <para><b>Pure RAM - reads NO ERS/ELS.</b> The escrow holds nothing from
+        /// the committed-recording set or the ledger action list; it is a plain
+        /// reservation counter (routeId/pid/resource -&gt; double), so it passes the
+        /// ERS/ELS grep gate (<c>scripts/grep-audit-ers-els.ps1</c>) with no
+        /// allowlist entry.</para>
+        ///
+        /// <para><b>DROP-not-revert.</b> Escrow has no ledger row; the physical
+        /// debit's revert is the rewind quicksave + ELS replay keys (RouteModule
+        /// observe-only). The clear sites only RELEASE reservations.</para>
+        /// </summary>
+        private static readonly Dictionary<string, Dictionary<uint, Dictionary<string, double>>>
+            cargoEscrow = new Dictionary<string, Dictionary<uint, Dictionary<string, double>>>(StringComparer.Ordinal);
+
         /// <summary>
         /// Add a route. Idempotent on <see cref="Route.Id"/>: a second call
         /// with the same Id logs a Warn and does NOT replace the existing
@@ -80,7 +116,36 @@ namespace Parsek.Logistics
                 if (string.Equals(committedRoutes[i].Id, id, System.StringComparison.Ordinal))
                 {
                     committedRoutes.RemoveAt(i);
-                    ParsekLog.Info(Tag, $"Route {ShortId(id)} removed");
+                    // M4b Phase B2: a removed / tombstoned route drops its whole
+                    // escrow reservation so a competing route's available amount
+                    // rises back. DROP-not-revert: this hooks RemoveRoute (not
+                    // SupersedeCommit) because a reservation is reserve-and-released
+                    // within one EmitLoopCycle and essentially never live across a
+                    // tombstone - belt-and-suspenders. No-op when none held.
+                    DropRouteEscrow(id);
+                    // M4c: clear any partner's dangling round-trip back-reference at
+                    // the removed route. The partner gate bypasses an unresolved
+                    // partner at runtime (RouteDispatchEvaluator), so this never
+                    // crashes, but the stale LinkedRouteId would persist through the
+                    // codec round-trip; null it and reset the partner's alternation
+                    // cursor so a future re-link starts from the clean seed state. The
+                    // O(n) scan also catches a one-sided half-link left by a bug.
+                    int unlinkedPartners = 0;
+                    for (int j = 0; j < committedRoutes.Count; j++)
+                    {
+                        Route other = committedRoutes[j];
+                        if (other != null
+                            && string.Equals(other.LinkedRouteId, id, System.StringComparison.Ordinal))
+                        {
+                            other.LinkedRouteId = null;
+                            other.LastConsumedPartnerCycle = 0;
+                            unlinkedPartners++;
+                        }
+                    }
+                    ParsekLog.Info(Tag, $"Route {ShortId(id)} removed"
+                        + (unlinkedPartners > 0
+                            ? $" (cleared {unlinkedPartners} round-trip partner link(s))"
+                            : string.Empty));
                     return true;
                 }
             }
@@ -115,6 +180,138 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// M4c (plan D12 / OQ8): link two routes as a round-trip pair. Sets BOTH
+        /// routes' <see cref="Route.LinkedRouteId"/> to point at each other — the
+        /// partner gate (<see cref="RouteDispatchEvaluator.PartnerConstraintSatisfied"/>)
+        /// resolves the partner only by the LOCAL route's <c>LinkedRouteId</c>, so a
+        /// one-sided link would let the partner free-run; the link must be mutual.
+        /// Resets BOTH <see cref="Route.LastConsumedPartnerCycle"/> to the 0 default
+        /// (the clean cold start): the engine's deadlock seed
+        /// (<see cref="RouteDispatchEvaluator.IsChainSeed"/>, lower
+        /// <see cref="Route.DispatchPriority"/> then ordinal Id) deterministically
+        /// picks which side dispatches first, so the mutator never hand-seeds an
+        /// order.
+        ///
+        /// <para>Rejects (logged Warn, returns false): a null/empty id, a self-link
+        /// (<paramref name="idA"/> == <paramref name="idB"/>), an unknown id, or a
+        /// route already linked to a DIFFERENT partner (no 3-way chains — the gate
+        /// has no concept of more than one partner). Re-linking the SAME already-correct
+        /// pair is an idempotent no-op success that PRESERVES the live cursors.</para>
+        ///
+        /// <para>Edge case: linking two routes that have BOTH already completed cycles
+        /// (e.g. via the API; the UI excludes already-linked routes but a route may be
+        /// linked while mid-flight) resets both cursors to 0 while neither is at
+        /// CompletedCycles 0, so the deadlock seed does not fire and both routes are
+        /// momentarily un-gated — the pair may run one overlapping cycle before
+        /// alternation self-corrects (the dispatch advance snaps each cursor up). This
+        /// is benign (one extra simultaneous out-and-back, never a persistent break) and
+        /// is the accepted cost of the "reset to 0, never hand-seed which side goes
+        /// first" contract.</para>
+        /// </summary>
+        internal static bool LinkRoutes(string idA, string idB)
+        {
+            if (string.IsNullOrEmpty(idA) || string.IsNullOrEmpty(idB))
+            {
+                ParsekLog.Warn(Tag, "LinkRoutes: null or empty id — ignored");
+                return false;
+            }
+            if (string.Equals(idA, idB, System.StringComparison.Ordinal))
+            {
+                ParsekLog.Warn(Tag, $"LinkRoutes: cannot link route {ShortId(idA)} to itself — ignored");
+                return false;
+            }
+            if (!TryGetRoute(idA, out Route a) || !TryGetRoute(idB, out Route b))
+            {
+                ParsekLog.Warn(Tag,
+                    $"LinkRoutes: route {ShortId(idA)} or {ShortId(idB)} not found — ignored");
+                return false;
+            }
+
+            // Guard against re-pointing an already-linked route (would orphan a third
+            // route's back-reference / create an inconsistent chain). Re-linking to
+            // the SAME partner is an idempotent no-op success.
+            bool aLinkedElsewhere = !string.IsNullOrEmpty(a.LinkedRouteId)
+                && !string.Equals(a.LinkedRouteId, idB, System.StringComparison.Ordinal);
+            bool bLinkedElsewhere = !string.IsNullOrEmpty(b.LinkedRouteId)
+                && !string.Equals(b.LinkedRouteId, idA, System.StringComparison.Ordinal);
+            if (aLinkedElsewhere || bLinkedElsewhere)
+            {
+                ParsekLog.Warn(Tag,
+                    $"LinkRoutes: {ShortId(idA)} or {ShortId(idB)} already linked to a different route — unlink first; ignored");
+                return false;
+            }
+
+            // Idempotent re-link of the SAME pair that is ALREADY correctly bidirectional
+            // is a true no-op: do NOT zero the live alternation cursors (that would
+            // reintroduce a one-cycle double-dispatch on an actively-alternating pair).
+            // A one-sided half-link (one endpoint null / mismatched) does NOT match this
+            // guard and falls through to the mutation below, which repairs it.
+            if (string.Equals(a.LinkedRouteId, idB, System.StringComparison.Ordinal)
+                && string.Equals(b.LinkedRouteId, idA, System.StringComparison.Ordinal))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"LinkRoutes: {ShortId(idA)} <-> {ShortId(idB)} already linked — no-op (cursors preserved)");
+                return true;
+            }
+
+            a.LinkedRouteId = b.Id;
+            b.LinkedRouteId = a.Id;
+            a.LastConsumedPartnerCycle = 0;
+            b.LastConsumedPartnerCycle = 0;
+            ParsekLog.Info(Tag,
+                $"Route {ShortId(idA)} <-> {ShortId(idB)} linked as round-trip (cursors reset; seed breaks the cold-start deadlock)");
+            return true;
+        }
+
+        /// <summary>
+        /// M4c: break a round-trip link. Clears <paramref name="id"/>'s
+        /// <see cref="Route.LinkedRouteId"/> and, when the partner still points back
+        /// at this route, the partner's too, resetting BOTH
+        /// <see cref="Route.LastConsumedPartnerCycle"/> to 0 so a future re-link
+        /// starts from the clean seed state. The back-pointer equality guard avoids
+        /// clobbering a partner that was re-linked elsewhere. Returns true when the
+        /// route was linked and is now unlinked; false (logged) on a null/empty id,
+        /// an unknown id, or an already-unlinked route.
+        /// </summary>
+        internal static bool UnlinkRoute(string id)
+        {
+            if (string.IsNullOrEmpty(id))
+            {
+                ParsekLog.Warn(Tag, "UnlinkRoute: null or empty id — ignored");
+                return false;
+            }
+            if (!TryGetRoute(id, out Route route))
+            {
+                ParsekLog.Warn(Tag, $"UnlinkRoute: route {ShortId(id)} not found — ignored");
+                return false;
+            }
+
+            string partnerId = route.LinkedRouteId;
+            if (string.IsNullOrEmpty(partnerId))
+            {
+                ParsekLog.Verbose(Tag, $"UnlinkRoute: route {ShortId(id)} is not linked — no-op");
+                return false;
+            }
+
+            route.LinkedRouteId = null;
+            route.LastConsumedPartnerCycle = 0;
+            if (TryGetRoute(partnerId, out Route partner)
+                && string.Equals(partner.LinkedRouteId, id, System.StringComparison.Ordinal))
+            {
+                partner.LinkedRouteId = null;
+                partner.LastConsumedPartnerCycle = 0;
+                ParsekLog.Info(Tag,
+                    $"Route {ShortId(id)} <-> {ShortId(partnerId)} unlinked (both cursors reset)");
+            }
+            else
+            {
+                ParsekLog.Info(Tag,
+                    $"Route {ShortId(id)} unlinked from {ShortId(partnerId)} (partner missing or did not point back)");
+            }
+            return true;
+        }
+
+        /// <summary>
         /// Clear in-memory state. Test seam — production paths should
         /// remove individual routes through <see cref="RemoveRoute"/>.
         /// </summary>
@@ -122,8 +319,228 @@ namespace Parsek.Logistics
         {
             int prevCount = committedRoutes.Count;
             committedRoutes.Clear();
-            ParsekLog.Verbose(Tag, $"ResetForTesting prevCount={prevCount}");
+            // M4b Phase B2: the escrow is shared static state, so a
+            // [Collection("Sequential")] test that reserves must not leak its
+            // reservation into the next test. Clear it here alongside the routes.
+            int prevEscrowRoutes = cargoEscrow.Count;
+            cargoEscrow.Clear();
+            ParsekLog.Verbose(Tag,
+                $"ResetForTesting prevCount={prevCount} prevEscrowRoutes={prevEscrowRoutes}");
         }
+
+        // -----------------------------------------------------------------
+        // M4b Phase B2: escrow lifecycle (reserve / release / drop / clear)
+        // + the competing-route net read.
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Reserve (accumulate) <paramref name="amount"/> of
+        /// <paramref name="resourceName"/> against <c>(routeId, pid)</c>. Called at
+        /// the all-or-nothing dispatch gate (B3) so a competing higher-priority
+        /// route in the same / a later tick (before this route's physical debit)
+        /// sees the source's available amount reduced by what this route reserved.
+        /// Accumulates: a second reserve on the same key adds to the running total
+        /// (e.g. two same-pid windows under <see cref="RouteEndpoint"/> OQ6).
+        /// Non-positive amounts and null/empty keys are ignored. Pure RAM.
+        /// </summary>
+        internal static void ReserveCargo(string routeId, uint pid, string resourceName, double amount)
+        {
+            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(resourceName))
+            {
+                ParsekLog.Warn(Tag,
+                    $"ReserveCargo: null/empty routeId or resource (routeId={ShortId(routeId)} " +
+                    $"resource={resourceName ?? "<null>"}) - ignored");
+                return;
+            }
+            if (!(amount > 0.0))
+                return; // nothing to reserve (also filters NaN)
+
+            if (!cargoEscrow.TryGetValue(routeId, out var byPid))
+            {
+                byPid = new Dictionary<uint, Dictionary<string, double>>();
+                cargoEscrow[routeId] = byPid;
+            }
+            if (!byPid.TryGetValue(pid, out var byResource))
+            {
+                byResource = new Dictionary<string, double>(StringComparer.Ordinal);
+                byPid[pid] = byResource;
+            }
+            byResource.TryGetValue(resourceName, out double cur);
+            double next = cur + amount;
+            byResource[resourceName] = next;
+
+            ParsekLog.Verbose(Tag,
+                $"ReserveCargo routeId={ShortId(routeId)} pid={pid.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"resource={resourceName} amount={amount.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"newTotal={next.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Release (subtract) <paramref name="amount"/> of
+        /// <paramref name="resourceName"/> from <c>(routeId, pid)</c>. Called at
+        /// each window's physical debit (B3): the reservation is consumed as the
+        /// cargo physically leaves the source. Clamps at zero and removes the
+        /// resource / pid / route entry once it reaches zero so the map stays lean
+        /// and a later net read sees no residual. Non-positive amounts and missing
+        /// keys are no-ops (logged Verbose). Pure RAM.
+        /// </summary>
+        internal static void ReleaseCargo(string routeId, uint pid, string resourceName, double amount)
+        {
+            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(resourceName))
+            {
+                ParsekLog.Warn(Tag,
+                    $"ReleaseCargo: null/empty routeId or resource (routeId={ShortId(routeId)} " +
+                    $"resource={resourceName ?? "<null>"}) - ignored");
+                return;
+            }
+            if (!(amount > 0.0))
+                return;
+
+            if (!cargoEscrow.TryGetValue(routeId, out var byPid)
+                || !byPid.TryGetValue(pid, out var byResource)
+                || !byResource.TryGetValue(resourceName, out double cur))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ReleaseCargo: no reservation to release routeId={ShortId(routeId)} " +
+                    $"pid={pid.ToString(System.Globalization.CultureInfo.InvariantCulture)} resource={resourceName} - no-op");
+                return;
+            }
+
+            double next = cur - amount;
+            if (next <= 0.0)
+            {
+                byResource.Remove(resourceName);
+                if (byResource.Count == 0) byPid.Remove(pid);
+                if (byPid.Count == 0) cargoEscrow.Remove(routeId);
+                next = 0.0;
+            }
+            else
+            {
+                byResource[resourceName] = next;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ReleaseCargo routeId={ShortId(routeId)} pid={pid.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"resource={resourceName} amount={amount.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"newTotal={next.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Drop a route's WHOLE reservation (all pids, all resources) in one shot.
+        /// Called when the route is removed / tombstoned / aborted
+        /// (<see cref="RemoveRoute"/>) so a competing route's available amount rises
+        /// back. DROP-not-revert (plan D11): this only releases the reservation; the
+        /// physical debit (if any already fired) is reverted by the rewind quicksave
+        /// + ELS replay, never here. A no-op when the route holds no escrow. Pure RAM.
+        /// </summary>
+        internal static void DropRouteEscrow(string routeId)
+        {
+            if (string.IsNullOrEmpty(routeId))
+                return;
+            if (!cargoEscrow.TryGetValue(routeId, out var byPid))
+                return;
+
+            int pids = byPid.Count;
+            int resourceEntries = 0;
+            foreach (var kv in byPid)
+                resourceEntries += kv.Value != null ? kv.Value.Count : 0;
+            cargoEscrow.Remove(routeId);
+
+            ParsekLog.Info(Tag,
+                $"DropRouteEscrow routeId={ShortId(routeId)} droppedPids={pids} droppedResourceEntries={resourceEntries}");
+        }
+
+        /// <summary>
+        /// Clear ALL escrow reservations (every route). Wired at the lifecycle
+        /// boundaries where the in-cycle reservation is recomputed next tick:
+        /// any within-game scene change (<c>onGameSceneSwitchRequested</c>) and game
+        /// unload (<see cref="ParsekScenario.OnMainMenuTransition"/>). For a multi-stop
+        /// cycle interrupted mid-flight the next tick's <c>dispatchAlready</c> resume
+        /// re-establishes the un-fired windows' hold (M4b B3 C1); the single-stop path
+        /// has no dispatch-to-debit gap to recompute. DROP-not-revert. Pure RAM.
+        /// </summary>
+        internal static void ClearAllEscrow(string reason)
+        {
+            int prevRoutes = cargoEscrow.Count;
+            if (prevRoutes == 0)
+                return; // common case: nothing reserved, stay quiet (cheap no-op)
+            cargoEscrow.Clear();
+            ParsekLog.Info(Tag,
+                $"ClearAllEscrow reason={reason ?? "<none>"} clearedRoutes={prevRoutes}");
+        }
+
+        /// <summary>
+        /// M4b Phase B2 NET semantics (plan D11): the amount of
+        /// <paramref name="resourceName"/> on <paramref name="pid"/> that route
+        /// <paramref name="forRouteId"/> may rely on = live stored MINUS the sum of
+        /// reservations held by EVERY OTHER route on that pid+resource. A route does
+        /// NOT subtract its OWN reservation (it owns what it reserved). This is the
+        /// competing-route protection: route A reserves 100 from depot X at dispatch;
+        /// route B gating X in the same / a later tick (before A's physical debit)
+        /// sees X's available reduced by A's 100, so B cannot double-claim it.
+        ///
+        /// <para>Returns the total OTHER-route reservation to subtract (>= 0). The
+        /// caller wraps its live stored-amount reader as
+        /// <c>name =&gt; max(0, liveReader(name) - OtherRoutesReservedFor(routeId, pid, name))</c>.
+        /// Pure RAM - reads only the escrow dict.</para>
+        /// </summary>
+        internal static double OtherRoutesReservedFor(string forRouteId, uint pid, string resourceName)
+        {
+            if (string.IsNullOrEmpty(resourceName) || cargoEscrow.Count == 0)
+                return 0.0;
+
+            double sum = 0.0;
+            foreach (var routeEntry in cargoEscrow)
+            {
+                // A route never subtracts its OWN reservation - it owns what it
+                // reserved (the crux of the net: only competing routes reduce the
+                // amount this route sees).
+                if (string.Equals(routeEntry.Key, forRouteId, StringComparison.Ordinal))
+                    continue;
+                var byPid = routeEntry.Value;
+                if (byPid == null) continue;
+                if (!byPid.TryGetValue(pid, out var byResource) || byResource == null)
+                    continue;
+                if (byResource.TryGetValue(resourceName, out double reserved) && reserved > 0.0)
+                    sum += reserved;
+            }
+            return sum;
+        }
+
+        /// <summary>
+        /// Test/diagnostic read: the amount route <paramref name="routeId"/> has
+        /// reserved on <c>(pid, resourceName)</c> (0 when absent). Pure RAM.
+        /// </summary>
+        internal static double GetReservedForTesting(string routeId, uint pid, string resourceName)
+        {
+            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(resourceName))
+                return 0.0;
+            if (cargoEscrow.TryGetValue(routeId, out var byPid)
+                && byPid.TryGetValue(pid, out var byResource)
+                && byResource.TryGetValue(resourceName, out double v))
+                return v;
+            return 0.0;
+        }
+
+        /// <summary>
+        /// True when route <paramref name="routeId"/> currently holds ANY escrow
+        /// reservation (any pid, any resource). The idempotency guard for the
+        /// re-establish-on-resume path (M4b B3 C1): a <c>dispatchAlready</c> resume
+        /// of an in-flight multi-stop cycle re-reserves the un-fired windows ONLY
+        /// when the route's escrow was cleared (a scene-switch <c>ClearAllEscrow</c>
+        /// or a reload dropped it); a normal in-session resume still holds its
+        /// reservation, so this returns true and the resume skips the re-reserve
+        /// (no double-reserve). Pure RAM.
+        /// </summary>
+        internal static bool HasEscrow(string routeId)
+        {
+            if (string.IsNullOrEmpty(routeId))
+                return false;
+            return cargoEscrow.TryGetValue(routeId, out var byPid) && byPid != null && byPid.Count > 0;
+        }
+
+        /// <summary>Test/diagnostic read: number of routes currently holding any escrow.</summary>
+        internal static int EscrowRouteCountForTesting => cargoEscrow.Count;
 
         /// <summary>
         /// Write the current store into <paramref name="parent"/>. Strips any
@@ -447,6 +864,12 @@ namespace Parsek.Logistics
                     if (IsSourceProblemStatus(next) && !IsSourceProblemStatus(prev))
                     {
                         FlushPendingRecoveryCreditOnSourceProblem(route, reasonOrNone);
+                        // M4b escrow-strand fix (PR #1180 review): a route that flips into a
+                        // source-problem stop state mid-cycle stops crossing and never reaches
+                        // its cycle-complete escrow drop, so a stale reservation would keep
+                        // mis-gating a competing route sharing that source. Idempotent no-op
+                        // when nothing is held.
+                        DropRouteEscrow(route.Id);
                     }
 
                     route.TransitionTo(next, $"{reasonOrNone}/{cause}");

@@ -32,6 +32,7 @@ namespace Parsek.Tests.Generators
         private int currentSegmentIndex = -1;
         private int pendingStopIndex = -1;
         private string linkedRouteId;
+        private int lastConsumedPartnerCycle;
         private bool pauseAfterCurrentCycle;
         private int completedCycles;
         private int skippedCycles;
@@ -145,6 +146,12 @@ namespace Parsek.Tests.Generators
         public RouteFixtureBuilder WithLinkedRouteId(string linkedId)
         {
             linkedRouteId = linkedId;
+            return this;
+        }
+
+        public RouteFixtureBuilder WithLastConsumedPartnerCycle(int cycle)
+        {
+            lastConsumedPartnerCycle = cycle;
             return this;
         }
 
@@ -264,6 +271,7 @@ namespace Parsek.Tests.Generators
                 CurrentSegmentIndex = currentSegmentIndex,
                 PendingStopIndex = pendingStopIndex,
                 LinkedRouteId = linkedRouteId,
+                LastConsumedPartnerCycle = lastConsumedPartnerCycle,
                 PauseAfterCurrentCycle = pauseAfterCurrentCycle,
                 CompletedCycles = completedCycles,
                 SkippedCycles = skippedCycles,

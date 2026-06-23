@@ -115,34 +115,57 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void FormatRejectMessage_MixedPickupDelivery_ExplainsCauseAndFix()
+        public void FormatRejectMessage_MixedPickupDelivery_ExplainsUnwitnessedInventoryGain()
         {
-            // catches: the MixedPickupDelivery copy regressing to the old terse
-            // "must be one-way in v1" line that did not map to the common
-            // destination-full playtest case. The message must (1) state plainly
-            // that the transport ended the run with more of a resource than it
-            // started (it picked up rather than only delivered) and (2) give the
-            // actionable fix (re-record, transfer back out before undocking, or
-            // disable transport-tank flow before docking).
+            // M3 Phase 5 (plan D7 / OQ3): resource AND inventory pickup now ROUTE,
+            // so MixedPickupDelivery is reached only for an UNWITNESSED inventory
+            // gain (the transport gained a stored part the destination did not
+            // give it). The copy must (1) state the cause plainly (an unwitnessed
+            // inventory gain), (2) explain the non-fungible inventory constraint,
+            // and (3) give the actionable fix (re-record so the picked-up part is
+            // the one the destination held).
             string msg = RouteCreationFormatters.FormatRejectMessage(
                 RouteAnalysisStatus.MixedPickupDelivery);
 
             // (1) plain-language cause
-            Assert.Contains("more of a resource than it started", msg);
-            Assert.Contains("picked the resource up", msg);
-            // one-way contract still stated
-            Assert.Contains("one-way", msg);
-            // (2) actionable fix: re-record without taking from the destination,
-            // and the two destination-full workarounds.
+            Assert.Contains("Unwitnessed inventory gain", msg);
+            Assert.Contains("the destination did not give it", msg);
+            // (2) non-fungible constraint
+            Assert.Contains("non-fungible", msg);
+            // (3) actionable fix
             Assert.Contains("Re-record", msg);
-            Assert.Contains("transfer that resource back out before undocking", msg);
-            Assert.Contains("disable flow", msg);
 
             // copy guardrail: plain ASCII only (project hard rule, no em dash or
             // other non-ASCII unicode in player-facing copy).
             foreach (char c in msg)
                 Assert.True(c < 128,
                     "Reject copy must be plain ASCII (found non-ASCII char)");
+        }
+
+        [Fact]
+        public void FormatRejectMessage_FlowDoesNotClose_ExplainsCauseAndNamesQuantity()
+        {
+            // M3 (plan D3): the flow-closure reject copy states plainly that the
+            // transport ended with more of a resource than ever arrived, embeds
+            // the detail quantity when supplied, and gives the actionable fix.
+            string detail = RouteAnalysisEngine.FormatClosureDetail("Ore", 30.0);
+            string msg = RouteCreationFormatters.FormatRejectMessage(
+                RouteAnalysisStatus.FlowDoesNotClose, detail);
+
+            Assert.Contains("does not add up", msg);
+            Assert.Contains("more of a resource than ever arrived", msg);
+            Assert.Contains("Ore: 30.0 over-delivered", msg);
+            Assert.Contains("Re-record", msg);
+
+            foreach (char c in msg)
+                Assert.True(c < 128,
+                    "Reject copy must be plain ASCII (found non-ASCII char)");
+
+            // The no-detail overload renders without the parenthetical.
+            string noDetail = RouteCreationFormatters.FormatRejectMessage(
+                RouteAnalysisStatus.FlowDoesNotClose);
+            Assert.Contains("does not add up", noDetail);
+            Assert.DoesNotContain("over-delivered", noDetail);
         }
 
         [Fact]
@@ -205,9 +228,12 @@ namespace Parsek.Tests.Logistics
             // catches: the detail overload accidentally injecting the detail
             // into statuses that carry no quantity - every other status must
             // render byte-identically with and without a detail argument.
+            // UntrackedCargoGain and FlowDoesNotClose are the two detail-carrying
+            // statuses (M2 and M3 respectively).
             foreach (RouteAnalysisStatus status in Enum.GetValues(typeof(RouteAnalysisStatus)))
             {
-                if (status == RouteAnalysisStatus.UntrackedCargoGain)
+                if (status == RouteAnalysisStatus.UntrackedCargoGain ||
+                    status == RouteAnalysisStatus.FlowDoesNotClose)
                     continue;
                 Assert.Equal(
                     RouteCreationFormatters.FormatRejectMessage(status),

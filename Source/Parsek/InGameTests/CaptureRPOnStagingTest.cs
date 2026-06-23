@@ -57,6 +57,11 @@ namespace Parsek.InGameTests
                 $"CaptureRPOnStaging: start — rpCountBefore={rpCountBefore}, commandModules={commandModuleCount}, " +
                 $"parts={vessel.parts.Count}, pid={vessel.persistentId}");
 
+            // Count controllable vessels before staging; a multi-controllable split (the precondition
+            // for an RP) increases this. Lets us tell a wrong-craft "no split" (skip) from a real
+            // "split happened but no RewindPoint" regression (fail).
+            int controllableBefore = CountLoadedControllableVessels();
+
             // Trigger stock staging. StageManager advances the stage pointer and
             // activates engaged parts, which in turn fires the decouple + joint
             // break event that our Phase 4 wiring in ProcessBreakupEvent hooks.
@@ -82,8 +87,21 @@ namespace Parsek.InGameTests
             }
 
             int rpCountAfter = scenario.RewindPoints?.Count ?? 0;
-            InGameAssert.IsGreaterThan(rpCountAfter, rpCountBefore,
-                $"Expected a RewindPoint after staging (rpCountBefore={rpCountBefore}, rpCountAfter={rpCountAfter})");
+            if (rpCountAfter <= rpCountBefore)
+            {
+                int controllableAfter = CountLoadedControllableVessels();
+                if (controllableAfter <= controllableBefore)
+                {
+                    InGameAssert.Skip(
+                        $"next stage did not separate a second controllable vessel (controllable " +
+                        $"{controllableBefore}->{controllableAfter}); this isolated-run test needs a " +
+                        "2-pod+decoupler craft staged at the decoupler, not the loaded vessel");
+                    yield break;
+                }
+                InGameAssert.Fail(
+                    $"A controllable split occurred ({controllableBefore}->{controllableAfter}) but no " +
+                    $"RewindPoint was captured (rpCountBefore={rpCountBefore}, rpCountAfter={rpCountAfter})");
+            }
 
             var rp = scenario.RewindPoints[rpCountAfter - 1];
             InGameAssert.IsNotNull(rp, "Latest RewindPoint is null");
@@ -128,6 +146,30 @@ namespace Parsek.InGameTests
             ParsekLog.Info("RewindTest",
                 $"CaptureRPOnStaging: PASS rp={rp.RewindPointId} slots={rp.ChildSlots.Count} " +
                 $"pidMap={rp.PidSlotMap.Count} rootMap={rp.RootPartPidMap.Count}");
+        }
+
+        // Counts loaded vessels in physics range that carry at least one command module
+        // (controllable). A multi-controllable staging split increases this by >=1; the DELTA tells a
+        // wrong-craft "no split" from a real "split but no RewindPoint" regression.
+        private static int CountLoadedControllableVessels()
+        {
+            int n = 0;
+            var loaded = FlightGlobals.VesselsLoaded;
+            if (loaded == null) return 0;
+            for (int i = 0; i < loaded.Count; i++)
+            {
+                var v = loaded[i];
+                if (v == null || v.parts == null) continue;
+                for (int p = 0; p < v.parts.Count; p++)
+                {
+                    if (v.parts[p] != null && v.parts[p].FindModuleImplementing<ModuleCommand>() != null)
+                    {
+                        n++;
+                        break;
+                    }
+                }
+            }
+            return n;
         }
     }
 }

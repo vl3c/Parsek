@@ -240,6 +240,7 @@ namespace Parsek.InGameTests
             string[] coveredTunedParts =
             {
                 "microEngine.v2", "radialEngineMini.v2",        // Ant/Spider supplement
+                "microEngine",                                   // v1 Ant: ReStock PatchesLegacy authors fresh EFFECTS{fx-ant-running}
                 "MassiveBooster",                                // Kickback forced plume
                 "omsEngine",                                     // Puff supplement
                 "Size3AdvancedEngine", "Size3EngineCluster",     // Rhino plume + heavy white flame
@@ -258,9 +259,13 @@ namespace Parsek.InGameTests
                 $"standdown will NOT engage for {missing.Count} ReStock-covered tuned parts: " +
                 string.Join(", ", missing.ToArray()));
 
-            // And the deprecated v1 parts ReStock does not cover keep their tunings.
-            InGameAssert.IsFalse(ReStockPatchFxIndex.HasAuthoredEffectsFor("microEngine"),
-                "v1 Ant is not ReStock-covered; its tuning must NOT stand down");
+            // The standdown is SELECTIVE: a part ReStock restocks visually but authors no
+            // engine/RCS EFFECTS for must stay un-flagged, so HasAuthoredEffectsFor is not
+            // blanket-true for every ReStock-patched part. (The Mk1 Command Pod is ReStock-
+            // patched for its mesh but has no plume EFFECTS. Note v1 Ant 'microEngine' IS
+            // covered now via PatchesLegacy, so it sits in coveredTunedParts above.)
+            InGameAssert.IsFalse(ReStockPatchFxIndex.HasAuthoredEffectsFor("mk1pod.v2"),
+                "Mk1 Command Pod has no ReStock-authored EFFECTS; HasAuthoredEffectsFor must be false (the standdown is EFFECTS-bearing parts only)");
         }
 
         [InGameTest(Category = "ReStockCompat", Scene = GameScenes.FLIGHT,

@@ -243,5 +243,98 @@ namespace Parsek.Tests
             Assert.Empty(ReaimTofSearch.BuildCandidateTofs(0.0, 100.0, 0.2));
             Assert.Empty(ReaimTofSearch.BuildCandidateTofs(-5.0, 100.0, 0.2));
         }
+
+        // ----- BuildParkingCandidateTofs (F2: the heliocentric-parking-departure path) -----
+        //
+        // Contract: CENTERED on the GEOMETRIC Hohmann tof (NOT the recorded tof - the recorded tof of a
+        // two-burn departure is whatever the player flew and makes a degenerate conic from the park-end), with
+        // the SAME band law as BuildCandidateTofs (base +-6% widening with eccentricity, hard-capped). The tests
+        // assert BEHAVIOUR, not the placeholder band-law constants.
+
+        [Fact]
+        public void BuildParkingCandidateTofs_Step0IsGeomTof_NotRecorded()
+        {
+            // F2's core: the parking path's FIRST candidate is the geometric Hohmann time, never the recorded
+            // tof. The recorded tof is not even a parameter here - the helper has no way to seed it.
+            const double geomTof = 6.5e6; // ~Kerbin->Duna Hohmann scale
+            IReadOnlyList<double> got = ReaimTofSearch.BuildParkingCandidateTofs(geomTof, targetEccentricity: 0.0);
+            Assert.NotEmpty(got);
+            Assert.Equal(geomTof, got[0]); // step 0 == geomTof
+            Assert.Contains(geomTof, (IEnumerable<double>)got);
+        }
+
+        [Fact]
+        public void BuildParkingCandidateTofs_BandCenteredOnGeomTof_Symmetric()
+        {
+            // The band is symmetric about geomTof: every +k probe has a matching -k probe (no recorded-tof
+            // recentering, no preferred-side bias). At eTarget=0 the band is the base +-6% (12 steps each side).
+            const double geomTof = 6.5e6;
+            double step = geomTof * Step;
+            IReadOnlyList<double> got = ReaimTofSearch.BuildParkingCandidateTofs(geomTof, targetEccentricity: 0.0);
+
+            // Reconstruct the expected base +-6% set centered on geomTof, byte-for-byte (order included).
+            const int baseSteps = 12; // BaseHalfWidthFraction(0.06) / DefaultStepFraction(0.005)
+            var expected = new List<double> { geomTof };
+            for (int k = 1; k <= baseSteps; k++)
+            {
+                expected.Add(geomTof + k * step);
+                expected.Add(geomTof - k * step);
+            }
+            Assert.Equal(expected, got.ToList());
+
+            // Symmetric: max and min are equidistant from geomTof.
+            double up = got.Max() - geomTof;
+            double down = geomTof - got.Min();
+            Assert.True(Math.Abs(up - down) < step * 0.5, $"band must be symmetric about geomTof (up={up} down={down})");
+        }
+
+        [Fact]
+        public void BuildParkingCandidateTofs_EccentricTargetWidensBand_Bounded()
+        {
+            // Eccentricity widens the band beyond the base +-6%, capped at MaxHalfWidthFraction (the same band
+            // law as BuildCandidateTofs). Asserted as a relationship to the cap, not magic constants.
+            const double geomTof = 6.5e6;
+            double step = geomTof * Step;
+
+            IReadOnlyList<double> baseSet = ReaimTofSearch.BuildParkingCandidateTofs(geomTof, targetEccentricity: 0.0);
+            IReadOnlyList<double> eccSet = ReaimTofSearch.BuildParkingCandidateTofs(geomTof, targetEccentricity: 0.26);
+
+            // Eccentric reaches both farther up AND farther down than base (symmetric widening, no bias).
+            Assert.True(eccSet.Max() > baseSet.Max(), "eccentric band must extend to longer tofs");
+            Assert.True(eccSet.Min() < baseSet.Min(), "eccentric band must extend to shorter tofs");
+
+            // Bounded: every candidate within MaxHalfWidthFraction of geomTof (+ one step grid tolerance).
+            double maxDeviation = geomTof * ReaimTofSearch.MaxHalfWidthFraction + step;
+            foreach (double ecc in new[] { 0.0, 0.1, 0.26, 0.5, 1.0, 100.0 })
+            {
+                foreach (double tof in ReaimTofSearch.BuildParkingCandidateTofs(geomTof, ecc))
+                {
+                    Assert.True(tof > 0.0, "no non-positive parking candidate");
+                    Assert.True(Math.Abs(tof - geomTof) <= maxDeviation,
+                        $"parking candidate {tof} deviates beyond the bounded max {maxDeviation} from geomTof {geomTof}");
+                }
+            }
+        }
+
+        [Fact]
+        public void BuildParkingCandidateTofs_AllPositiveAndDistinct()
+        {
+            // Every candidate is positive and distinct (the -k ring near a small geomTof could otherwise dip
+            // non-positive or collide; AddIfPositive drops non-positive, and the symmetric ring never re-emits).
+            const double geomTof = 6.5e6;
+            IReadOnlyList<double> got = ReaimTofSearch.BuildParkingCandidateTofs(geomTof, targetEccentricity: 0.26);
+            Assert.All(got, t => Assert.True(t > 0.0 && !double.IsNaN(t)));
+            Assert.Equal(got.Distinct().Count(), got.Count);
+        }
+
+        [Fact]
+        public void BuildParkingCandidateTofs_DegenerateGeomTof_ReturnsEmpty()
+        {
+            // F2 fail-closed: a NaN / non-positive geomTof leaves nothing to search; the helper returns empty
+            // and the resolver declines the window to faithful.
+            Assert.Empty(ReaimTofSearch.BuildParkingCandidateTofs(double.NaN, 0.2));
+            Assert.Empty(ReaimTofSearch.BuildParkingCandidateTofs(0.0, 0.2));
+            Assert.Empty(ReaimTofSearch.BuildParkingCandidateTofs(-5.0, 0.2));
+        }
     }
 }

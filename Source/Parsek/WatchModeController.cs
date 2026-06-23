@@ -1520,7 +1520,11 @@ namespace Parsek
                 for (int i = 0; i < overlaps.Count; i++)
                 {
                     GhostPlaybackState overlap = overlaps[i];
-                    if (overlap != null && overlap.cameraPivot == ghostPivot)
+                    // EXCLUDE the boundary-overlap secondary (plan invariant 4): defense-in-depth. The
+                    // secondary is never camera-bound so its pivot can't match a watch pivot, but exclude
+                    // it explicitly to keep all four watch-selection sites consistent.
+                    if (overlap != null && !overlap.isBoundaryOverlapSecondary
+                        && overlap.cameraPivot == ghostPivot)
                         return overlap;
                 }
             }
@@ -2884,7 +2888,13 @@ namespace Parsek
                 {
                     for (int i = 0; i < overlaps.Count; i++)
                     {
-                        if (overlaps[i]?.loopCycleIndex == watchedOverlapCycleIndex)
+                        // EXCLUDE the boundary-overlap secondary (plan invariant 4): it lives in
+                        // overlapGhosts[i] storage but the camera must NEVER bind it. At a cycle-boundary
+                        // handoff the secondary's cycle (N+1) can transiently equal watchedOverlapCycleIndex;
+                        // without this guard a momentarily-absent primary could keep watch alive against the
+                        // secondary. Matches the guards at FindWatchedGhostState / TryGetWatchedGhostAnchorWorldPosition.
+                        if (overlaps[i] != null && !overlaps[i].isBoundaryOverlapSecondary
+                            && overlaps[i].loopCycleIndex == watchedOverlapCycleIndex)
                         { hasOverlap = true; break; }
                     }
                 }
@@ -3345,13 +3355,16 @@ namespace Parsek
                         5.0);
                     return null;
                 }
-                // Look for the watched cycle in the overlap list
+                // Look for the watched cycle in the overlap list. EXCLUDE the boundary-overlap secondary
+                // (docs/dev/plan-launch-boundary-overlap.md invariant 4): it lives in overlapGhosts[i] storage but
+                // the camera must NEVER bind it - the watch always follows the long-lived primary through-line.
                 List<GhostPlaybackState> overlaps;
                 if (overlapGhosts.TryGetValue(watchedRecordingIndex, out overlaps))
                 {
                     for (int i = 0; i < overlaps.Count; i++)
                     {
-                        if (overlaps[i] != null && overlaps[i].loopCycleIndex == watchedOverlapCycleIndex)
+                        if (overlaps[i] != null && !overlaps[i].isBoundaryOverlapSecondary
+                            && overlaps[i].loopCycleIndex == watchedOverlapCycleIndex)
                         {
                             state = overlaps[i];
                             break;
@@ -3432,7 +3445,9 @@ namespace Parsek
                 {
                     for (int i = 0; i < overlaps.Count; i++)
                     {
-                        if (overlaps[i] != null && overlaps[i].loopCycleIndex == watchedOverlapCycleIndex)
+                        // EXCLUDE the boundary-overlap secondary (plan invariant 4): the camera never binds it.
+                        if (overlaps[i] != null && !overlaps[i].isBoundaryOverlapSecondary
+                            && overlaps[i].loopCycleIndex == watchedOverlapCycleIndex)
                         {
                             state = overlaps[i];
                             break;

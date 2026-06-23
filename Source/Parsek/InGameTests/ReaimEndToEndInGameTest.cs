@@ -215,6 +215,26 @@ namespace Parsek.InGameTests
             };
         }
 
+        // A HELIOCENTRIC-PARKING-DEPARTURE fixture (Kerbin->Duna two-burn): ascend + park in Kerbin orbit,
+        // escape into a near-circular co-orbital heliocentric PARK, coast the park, then a 2nd burn onto the
+        // transfer to Duna, then capture. Unlike the direct fixtures this carries a Sun PARK sub-coast ENDING
+        // at the burn (RecordedDepartureUT) with full Kepler elements (LAN/argPe/mEp/epoch), so the resolver
+        // engages the park-end r1 override (DepartedFromHeliocentricPark=true). The park is near-circular and
+        // near-equatorial (co-orbital with Kerbin) so it passes the ParkRephaseMaxInclinationDeg guard.
+        private sealed class ParkingDepartureFixture
+        {
+            public string LaunchBodyName = "Kerbin";
+            public string TargetBodyName = "Duna";
+            // The Sun PARK sub-coast (co-orbital with Kerbin's heliocentric orbit; the icon abuts this at the
+            // burn). sma ~ Kerbin's heliocentric sma so it is genuinely co-orbital; near-circular + near-eq.
+            public double ParkSma;            // ~ Kerbin heliocentric sma (set live from the body)
+            public double ParkEcc = 0.01;
+            public double ParkInc = 1.0;      // degrees, under the 15 deg guard
+            public double ParkLan = 200.0;    // degrees
+            public double ParkArgPe = 40.0;   // degrees
+            public double ParkMEp = 1.2;      // radians
+        }
+
         private sealed class ScanContext
         {
             public ReaimFixture Fixture;
@@ -881,6 +901,325 @@ namespace Parsek.InGameTests
                 RecordedArrivalUT = recordedArrivalUT,
                 RecordedTransferTofSeconds = ctx.TofSeconds
             };
+        }
+
+        // ----- Heliocentric-parking-departure window-0 geometry gate (the r1==park-end fix) -----
+
+        [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
+            Description = "Re-aim end-to-end (heliocentric-parking departure): the re-aimed transfer starts from the ghost's re-phased PARK-END position (r1==park-end), not the launch body's center, so the icon traverses park->transfer continuously. Covers window 0 (identity rotation) AND a non-identity window (real LAN rotation + departureUT != RecordedDepartureUT, exercising the Unity park reconstruction and the ParkEvalUT==RecordedDepartureUT contract end to end).")]
+        public void Reaim_KerbinToDuna_ParkingDeparture_TransferStartsAtParkEnd()
+        {
+            ScanContext ctx = BuildGeometryOrSkip(KerbinToDuna());
+            if (ctx == null)
+                return;
+
+            // A pinned departure that synthesizes window 0 (the mid-band pick, deterministic).
+            ScanContext scanCtx = BuildPinnedScanOrSkip(KerbinToDuna());
+            if (scanCtx == null)
+                return;
+            int midIdx = ReaimFeasibilityScan.CenterOfLongestRunIndex(scanCtx.Scan, cyclic: true);
+            if (midIdx < 0)
+            {
+                InGameAssert.Skip("no good Kerbin->Duna departure in the pinned scan (unexpected on stock)");
+                return;
+            }
+            double goodDep = scanCtx.ScanDepartureUTs[midIdx];
+
+            // CASE A (window 0, identity rotation): referenceUT < recordedDeparture => D0 == RecordedDepartureUT,
+            // so parkDeltaLon == 0 and departureUT == RecordedDepartureUT. The seam fix's primary case (the two
+            // clocks coincide). The transfer MUST resolve here (the pinned mid-band departure is a known-good
+            // window-0 geometry), so this is a HARD seam assertion.
+            AssertParkEndSeam(ctx, goodDep, referenceUT: goodDep - 1.0, memberId: "reaim-e2e-parking-w0",
+                requireResolve: true, requireNonIdentityRotation: false);
+
+            // CASE B (non-identity window): referenceUT ~ RecordedDeparture + one synodic => D0 = RecordedDeparture
+            // + N*synodic (N>=1), so departureUT != RecordedDepartureUT AND parkDeltaLon != 0 (a real LAN
+            // rotation). This exercises the Unity park reconstruction with a non-identity rotation AND
+            // distinguishes ParkEvalUT==RecordedDepartureUT from ==departureUT (evaluating at departureUT would
+            // re-open the seam). requireResolve:false - the synthesis at a later synodic window can decline via
+            // the separate, still-open eccentric-drift tof-band mode (I cannot run KSP to debug a decline), so
+            // the full transfer-start==park-end seam sub-assertion runs ONLY when the window resolves; the pure
+            // decision (ParkEvalUT + non-zero rotation) + the Unity reconstruction are asserted regardless.
+            AssertParkEndSeam(ctx, goodDep, referenceUT: goodDep + ctx.SynodicSeconds, memberId: "reaim-e2e-parking-wN",
+                requireResolve: false, requireNonIdentityRotation: true);
+        }
+
+        // The shared per-window park-end seam gate. Builds the parking-departure fixture at goodDep, plans the
+        // schedule from referenceUT (which selects D0 and so the window-0 rotation magnitude), drives the
+        // resolver at window 0 of THAT schedule, and asserts:
+        //  - the pure DecideDepartureAnchor returns ParkEndOverride with ParkEvalUT == RecordedDepartureUT
+        //    (NEVER departureUT / parkReplayUT) - the BLOCKER-1 contract;
+        //  - when requireNonIdentityRotation, parkDeltaLon != 0 and departureUT != RecordedDepartureUT (the
+        //    case actually exercises a real LAN rotation, not the window-0 identity);
+        //  - the Unity park reconstruction (new Orbit(...) on the LAN-rotated park) evaluates without NaN;
+        //  - when the window resolves (always, if requireResolve), the rendered transfer leg's start at
+        //    RecordedDepartureUT equals the re-phased park-end at RecordedDepartureUT (the r1==park-end seam),
+        //    and the park-end is genuinely off the launch body's center (so the gate is not vacuous).
+        private static void AssertParkEndSeam(
+            ScanContext ctx, double goodDep, double referenceUT, string memberId,
+            bool requireResolve, bool requireNonIdentityRotation)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            var fx = new ParkingDepartureFixture { ParkSma = ctx.LaunchBody.orbit.semiMajorAxis };
+            BuildParkingMemberAndPlan(ctx, goodDep, fx,
+                out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
+                out double spanStart, out double spanEnd, out double recordedTofSeconds);
+            InGameAssert.IsTrue(plan.DepartedFromHeliocentricPark,
+                "the parking-departure fixture plan must have DepartedFromHeliocentricPark=true");
+
+            // Plan the schedule with the member's OWN (inflated) recorded tof so the span stays coherent. The
+            // parking path's tof candidate band is centered on geomTof, NOT this schedule tof, so the inflated
+            // recorded tof does not bias the synthesis - it only sets the recorded arrival the capture re-times from.
+            ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
+                ctx.LaunchBody.orbit.period, ctx.TargetBody.orbit.period, goodDep, recordedTofSeconds,
+                spanStart, spanEnd, referenceUT: referenceUT);
+            InGameAssert.IsTrue(sched.Valid, "window schedule must be valid: " + (sched.Reason ?? ""));
+
+            const long k = 0; // window 0 OF THIS SCHEDULE; referenceUT selects whether D0 == RecordedDeparture
+            double departureUT = sched.DepartureUTForWindow(k);
+            double parkReplayUT = sched.RelaunchUTForWindow(k);
+
+            // The pure decision the resolver runs: must take the park-end override, evaluated at the RECORDED
+            // burn UT (NOT departureUT / parkReplayUT). This is the BLOCKER-1 contract, asserted independent of
+            // whether the live synthesis then resolves a target encounter.
+            double parkInc = ReaimSegmentAssembler.FindHeliocentricParkInclination(
+                memberSegments, plan.CommonAncestor, plan.RecordedDepartureUT);
+            ReaimSegmentAssembler.DepartureAnchorDecision anchor =
+                ReaimSegmentAssembler.DecideDepartureAnchor(
+                    plan.DepartedFromHeliocentricPark, parkInc,
+                    parkReplayUT, plan.RecordedDepartureUT, ctx.LaunchBody.orbit.period);
+            InGameAssert.AreEqual(ReaimSegmentAssembler.DepartureAnchorMode.ParkEndOverride, anchor.Mode,
+                "the parking departure must take the park-end override (near-equatorial co-orbital park)");
+            InGameAssert.IsTrue(System.Math.Abs(anchor.ParkEvalUT - plan.RecordedDepartureUT) < 1.0,
+                $"r1 must be evaluated at RecordedDepartureUT (BLOCKER 1), got evalUT={anchor.ParkEvalUT.ToString("R", ic)} vs recDep={plan.RecordedDepartureUT.ToString("R", ic)}");
+            InGameAssert.IsTrue(System.Math.Abs(anchor.ParkEvalUT - departureUT) > 1.0 || !requireNonIdentityRotation,
+                $"on the non-identity window the eval UT must NOT equal departureUT (D0={departureUT.ToString("R", ic)}); evaluating r1 at D0 would re-open the seam");
+
+            if (requireNonIdentityRotation)
+            {
+                InGameAssert.IsTrue(System.Math.Abs(departureUT - plan.RecordedDepartureUT) > 1.0,
+                    $"non-identity case must have departureUT != RecordedDepartureUT (D0={departureUT.ToString("R", ic)} recDep={plan.RecordedDepartureUT.ToString("R", ic)})");
+                double deltaMod = anchor.ParkDeltaLonDeg % 360.0;
+                InGameAssert.IsTrue(System.Math.Abs(deltaMod) > 0.5 && System.Math.Abs(deltaMod) < 359.5,
+                    $"non-identity case must apply a real LAN rotation (parkDeltaLon mod 360 = {deltaMod.ToString("F2", ic)} deg)");
+            }
+
+            // The Unity park reconstruction with the (possibly non-identity) rotation: new Orbit(...) on the
+            // LAN-rotated park, evaluated at RecordedDepartureUT - exactly what the resolver feeds as r1.
+            OrbitSegment? parkSeg = ReaimSegmentAssembler.FindHeliocentricParkSegment(
+                memberSegments, plan.CommonAncestor, plan.RecordedDepartureUT);
+            InGameAssert.IsTrue(parkSeg.HasValue, "the parking fixture must expose a recorded park segment");
+            OrbitSegment rotatedPark = ReaimSegmentAssembler.RotateLanForParkRephase(parkSeg.Value, anchor.ParkDeltaLonDeg);
+            CelestialBody sun = ctx.LaunchBody.referenceBody;
+            Orbit parkOrbit = new Orbit(
+                rotatedPark.inclination, rotatedPark.eccentricity, rotatedPark.semiMajorAxis,
+                rotatedPark.longitudeOfAscendingNode, rotatedPark.argumentOfPeriapsis,
+                rotatedPark.meanAnomalyAtEpoch, rotatedPark.epoch, sun);
+            Vector3d parkEndPos = parkOrbit.getRelativePositionAtUT(anchor.ParkEvalUT); // == RecordedDepartureUT
+            InGameAssert.IsTrue(!double.IsNaN(parkEndPos.x) && !double.IsNaN(parkEndPos.y) && !double.IsNaN(parkEndPos.z),
+                "the LAN-rotated park reconstruction must evaluate to a finite position at RecordedDepartureUT");
+            Vector3d launchCenter = ctx.LaunchBody.orbit.getRelativePositionAtUT(plan.RecordedDepartureUT);
+            double parkEndOffLaunchCenter = (parkEndPos - launchCenter).magnitude;
+
+            // Drive the resolver at window 0 of this schedule.
+            var resolver = new ReaimPlaybackResolver();
+            double span = spanEnd - spanStart;
+            double currentUT = sched.PhaseAnchorUT + k * sched.CadenceSeconds + 0.5 * span;
+            bool ok = resolver.TryResolveWindowSegments(
+                memberId, memberSegments, plan, sched,
+                sched.PhaseAnchorUT, spanStart, spanEnd, sched.CadenceSeconds, currentUT,
+                out List<OrbitSegment> segs, out long windowIndex);
+            if (requireResolve)
+                InGameAssert.IsTrue(ok, "this parking-departure window must resolve a re-aimed transfer");
+            InGameAssert.AreEqual(k, windowIndex, "resolved window index must equal k=0 of this schedule");
+
+            const double seamTolMetres = 1.0e6; // 1000 km: sub-pixel at interplanetary map scale
+
+            if (!ok)
+            {
+                // A non-identity window can decline via the separate eccentric-drift tof-band mode (NOT a
+                // departure-seam regression). Coverage boundary: the pure decision + the Unity reconstruction
+                // above are still asserted; the end-to-end transfer-start==park-end sub-assertion needs a
+                // resolved transfer, so log and skip it here.
+                ParsekLog.Info("ReaimE2E",
+                    $"parking-departure seam gate ({memberId}): window DECLINED to faithful (separate eccentric-drift mode, " +
+                    $"not a seam regression) - decision+reconstruction asserted, end-to-end seam sub-assert skipped. " +
+                    $"parkDeltaLon={anchor.ParkDeltaLonDeg.ToString("F2", ic)}deg D0={departureUT.ToString("R", ic)} recDep={plan.RecordedDepartureUT.ToString("R", ic)}");
+                return;
+            }
+
+            InGameAssert.IsTrue(segs != null && segs.Count >= 3,
+                $"resolved window must keep the parking/transfer/arrival legs (got {(segs == null ? 0 : segs.Count)})");
+
+            // Find the re-aimed transfer leg (common-ancestor-bodied, the IN-WINDOW Sun segment whose UT span
+            // covers the recorded departure). The departure-side PARK is also Sun-bodied but ENDS at the burn.
+            OrbitSegment transferSeg = FindInWindowSunTransfer(segs, plan);
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(transferSeg.bodyName),
+                "the resolved window must contain an in-window common-ancestor transfer segment");
+
+            // The rendered transfer leg, reconstructed and evaluated at the RECORDED departure UT (the transfer
+            // segment was ShiftInTime'd into recorded-span time, so at RecordedDepartureUT it sits where r1 was
+            // placed). Same parent-relative native frame as parkEndPos (both getRelativePositionAtUT, no swizzle).
+            Orbit transferOrbit = new Orbit(
+                transferSeg.inclination, transferSeg.eccentricity, transferSeg.semiMajorAxis,
+                transferSeg.longitudeOfAscendingNode, transferSeg.argumentOfPeriapsis,
+                transferSeg.meanAnomalyAtEpoch, transferSeg.epoch, sun);
+            Vector3d transferStartPos = transferOrbit.getRelativePositionAtUT(plan.RecordedDepartureUT);
+            double seamMiss = (transferStartPos - parkEndPos).magnitude;
+
+            ParsekLog.Info("ReaimE2E",
+                $"parking-departure seam gate ({memberId}): seamMiss={seamMiss.ToString("F0", ic)}m " +
+                $"parkEndOffLaunchCenter={parkEndOffLaunchCenter.ToString("F0", ic)}m " +
+                $"parkSma={rotatedPark.semiMajorAxis.ToString("R", ic)} parkDeltaLon={anchor.ParkDeltaLonDeg.ToString("F2", ic)}deg " +
+                $"evalUT={anchor.ParkEvalUT.ToString("R", ic)}=RecordedDepartureUT D0={departureUT.ToString("R", ic)} goodDep={goodDep.ToString("F1", ic)}");
+
+            InGameAssert.IsTrue(seamMiss < seamTolMetres,
+                $"re-aimed transfer must START at the re-phased park-end (r1==park-end): seamMiss={seamMiss.ToString("F0", ic)}m must be < {seamTolMetres.ToString("F0", ic)}m");
+            InGameAssert.IsTrue(parkEndOffLaunchCenter > seamTolMetres,
+                $"the park-end must be genuinely OFF the launch body's center (else the gate is vacuous): off={parkEndOffLaunchCenter.ToString("F0", ic)}m");
+
+            // F2 PLACEMENT CONTRACT: the parking-departure transfer uses the GEOMETRIC Hohmann tof (shorter
+            // than the recorded tof), so it ARRIVES at RecordedDepartureUT + usedTof - EARLIER than the recorded
+            // arrival - and the recorded Duna capture leg is re-timed to begin at that SAME UT (the seam closes).
+            // usedTof is read off the rendered transfer leg's own span (startUT==RecordedDepartureUT, so
+            // endUT - RecordedDepartureUT == usedTof); the capture leg must start where the transfer ends.
+            double newArrivalUT = transferSeg.endUT;
+            double usedTof = newArrivalUT - plan.RecordedDepartureUT;
+            OrbitSegment captureSeg = FindTargetCaptureLeg(segs, plan);
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(captureSeg.bodyName),
+                "the resolved window must contain a re-timed target capture leg");
+
+            // The transfer ends and the capture begins at the SAME UT (no gap, no overlap).
+            InGameAssert.IsTrue(System.Math.Abs(captureSeg.startUT - newArrivalUT) < 1.0,
+                $"the re-timed capture leg must begin where the transfer ends: captureStart={captureSeg.startUT.ToString("R", ic)} vs transferEnd={newArrivalUT.ToString("R", ic)}");
+            // NIT #4 (catches the FIX #1 latent gap): no OTHER segment may sit in the (transferEnd, captureStart)
+            // window. If the render clamp ever fell back to the full recorded span while captureShift stayed
+            // positive (usedTof > recordedTof, uncoupled), a stale recorded Sun/Duna segment would be left
+            // straddling that gap. With FIX #1's coupling transferEnd == captureStart, so the open interval is
+            // empty and any segment whose start lands strictly inside it is the regression.
+            double gapLo = System.Math.Min(newArrivalUT, captureSeg.startUT) + 1.0;
+            double gapHi = System.Math.Max(newArrivalUT, captureSeg.startUT) - 1.0;
+            for (int gi = 0; gi < segs.Count; gi++)
+            {
+                OrbitSegment gseg = segs[gi];
+                InGameAssert.IsTrue(!(gseg.startUT > gapLo && gseg.startUT < gapHi),
+                    $"no segment may sit in the transfer->capture gap [{newArrivalUT.ToString("R", ic)},{captureSeg.startUT.ToString("R", ic)}]: " +
+                    $"found body={gseg.bodyName} startUT={gseg.startUT.ToString("R", ic)} endUT={gseg.endUT.ToString("R", ic)}");
+            }
+            // The new arrival is EARLIER than the recorded arrival (Hohmann tof << recorded tof for a two-burn
+            // departure), proving the capture was re-timed back, not left at its recorded UT.
+            InGameAssert.IsTrue(newArrivalUT < plan.RecordedArrivalUT - 1.0,
+                $"the re-aimed (Hohmann) arrival must be EARLIER than the recorded arrival: new={newArrivalUT.ToString("R", ic)} recorded={plan.RecordedArrivalUT.ToString("R", ic)}");
+            // usedTof lands within the parking band of the geometric Hohmann tof (step 0 == geomTof; the band is
+            // +-HalfWidthFraction(eTarget), capped at MaxHalfWidthFraction). A generous bound covers the widest band.
+            double tofBandTol = ctx.GeomTofSeconds * (ReaimTofSearch.MaxHalfWidthFraction + ReaimTofSearch.DefaultStepFraction);
+            InGameAssert.IsTrue(System.Math.Abs(usedTof - ctx.GeomTofSeconds) <= tofBandTol,
+                $"the re-aimed tof must be within the parking band of geomTof: usedTof={usedTof.ToString("R", ic)} geomTof={ctx.GeomTofSeconds.ToString("R", ic)} tol={tofBandTol.ToString("R", ic)}");
+
+            ParsekLog.Info("ReaimE2E",
+                $"parking-departure F2 placement ({memberId}): usedTof={usedTof.ToString("R", ic)} geomTof={ctx.GeomTofSeconds.ToString("R", ic)} " +
+                $"recordedTof={plan.RecordedTransferTofSeconds.ToString("R", ic)} newArrivalUT={newArrivalUT.ToString("R", ic)} (recordedArrival={plan.RecordedArrivalUT.ToString("R", ic)}) " +
+                $"captureStartUT={captureSeg.startUT.ToString("R", ic)}");
+        }
+
+        // The re-timed target-body capture leg in a resolved segment list: the non-predicted targetBody-bodied
+        // segment whose startUT is at/after the (re-timed) arrival. The LAST targetBody segment is the capture
+        // (a chained mission could in principle carry earlier targetBody legs, but the parking fixture has one).
+        private static OrbitSegment FindTargetCaptureLeg(List<OrbitSegment> segs, ReaimMissionPlan plan)
+        {
+            if (segs == null)
+                return default(OrbitSegment);
+            OrbitSegment found = default(OrbitSegment);
+            for (int i = 0; i < segs.Count; i++)
+            {
+                OrbitSegment s = segs[i];
+                if (!s.isPredicted && s.bodyName == plan.TargetBody)
+                    found = s; // keep the latest targetBody leg (the capture)
+            }
+            return found;
+        }
+
+        // Builds a HELIOCENTRIC-PARKING-DEPARTURE member + plan: Kerbin ascent/park [spanStart, depUT-parkDur],
+        // a Sun PARK sub-coast ENDING at the burn (depUT), the recorded heliocentric transfer leg [depUT, arrUT],
+        // then the Duna arrival. plan.DepartedFromHeliocentricPark=true, RecordedDepartureUT=depUT (the burn).
+        // The recorded transfer tof is DELIBERATELY inflated to ~1.44x the geometric Hohmann time (the real s15
+        // "Kerbal X #2" ratio), so the F2 fix has real work to do: the re-aimed (Hohmann) transfer arrives
+        // EARLIER than the recorded arrival, exercising the render-span trim + capture re-time. recordedTofSeconds
+        // is output so the caller plans the schedule with the SAME recorded tof (keeps the span coherent).
+        private static void BuildParkingMemberAndPlan(
+            ScanContext ctx, double departureUT, ParkingDepartureFixture fx,
+            out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
+            out double spanStart, out double spanEnd, out double recordedTofSeconds)
+        {
+            string launchName = fx.LaunchBodyName;
+            string targetName = fx.TargetBodyName;
+            string parent = ctx.LaunchBody.referenceBody.bodyName;
+
+            // Recorded tof = 1.44x the geometric Hohmann time (the s15 ratio): a two-burn departure flies a
+            // slower transfer than the optimal Hohmann, so the recorded arrival is genuinely LATER than the
+            // re-aimed (Hohmann) arrival - the F2 fix re-times the capture back to the earlier arrival.
+            recordedTofSeconds = 1.44 * ctx.GeomTofSeconds;
+
+            const double parkDur = 1200.0;        // the Sun PARK sub-coast duration before the burn
+            double parkStart = departureUT - parkDur;
+            spanStart = parkStart - 600.0;        // a brief Kerbin park/ascent before the heliocentric park
+            double recordedArrivalUT = departureUT + recordedTofSeconds;
+            spanEnd = recordedArrivalUT + 600.0;
+
+            var parkSeg = new OrbitSegment
+            {
+                bodyName = parent, startUT = parkStart, endUT = departureUT, epoch = parkStart,
+                semiMajorAxis = fx.ParkSma, eccentricity = fx.ParkEcc, inclination = fx.ParkInc,
+                longitudeOfAscendingNode = fx.ParkLan, argumentOfPeriapsis = fx.ParkArgPe,
+                meanAnomalyAtEpoch = fx.ParkMEp, isPredicted = false
+            };
+            var transferLeg = new OrbitSegment
+            {
+                bodyName = parent, startUT = departureUT, endUT = recordedArrivalUT, epoch = departureUT,
+                semiMajorAxis = 1.5e10, eccentricity = 0.2, inclination = 0.5,
+                longitudeOfAscendingNode = 10.0, argumentOfPeriapsis = 20.0, meanAnomalyAtEpoch = 0.3,
+                isPredicted = false
+            };
+            memberSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment { bodyName = launchName, startUT = spanStart, endUT = parkStart,
+                    semiMajorAxis = 700000.0, eccentricity = 0.0, epoch = spanStart }, // Kerbin park/ascent
+                parkSeg,        // Sun PARK ending at the burn (the icon abuts this)
+                transferLeg,    // recorded heliocentric transfer leg (re-aimed)
+                new OrbitSegment { bodyName = targetName, startUT = recordedArrivalUT, endUT = spanEnd,
+                    semiMajorAxis = 500000.0, eccentricity = 0.1, epoch = recordedArrivalUT }, // Duna capture
+            };
+            plan = new ReaimMissionPlan
+            {
+                Supported = true,
+                LaunchBody = launchName,
+                TargetBody = targetName,
+                CommonAncestor = parent,
+                ParkingOrbit = memberSegments[0],
+                HeliocentricLeg = transferLeg,
+                ArrivalLeg = memberSegments[3],
+                RecordedDepartureUT = departureUT,        // the trans-target BURN (park end)
+                RecordedArrivalUT = recordedArrivalUT,
+                RecordedTransferTofSeconds = recordedTofSeconds,
+                DepartedFromHeliocentricPark = true
+            };
+        }
+
+        // The re-aimed transfer leg in a resolved segment list: the common-ancestor-bodied segment whose UT
+        // span COVERS the recorded departure (the in-window transfer). The departure-side park is also
+        // common-ancestor-bodied but ENDS at/before the burn, so the strict-cover predicate excludes it.
+        private static OrbitSegment FindInWindowSunTransfer(List<OrbitSegment> segs, ReaimMissionPlan plan)
+        {
+            if (segs == null)
+                return default(OrbitSegment);
+            for (int i = 0; i < segs.Count; i++)
+            {
+                OrbitSegment s = segs[i];
+                if (!s.isPredicted && s.bodyName == plan.CommonAncestor
+                    && s.startUT <= plan.RecordedDepartureUT + 1.0 && s.endUT > plan.RecordedDepartureUT + 1.0)
+                    return s;
+            }
+            return default(OrbitSegment);
         }
 
         // The shared per-window sanity assertions: 3 segments (launch parking / re-aimed
