@@ -504,24 +504,7 @@ namespace Parsek
         }
 
         private static RouteConnectionKind ParseConnectionKind(string raw)
-        {
-            if (string.IsNullOrEmpty(raw))
-                return RouteConnectionKind.None;
-
-            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int intValue)
-                && Enum.IsDefined(typeof(RouteConnectionKind), intValue))
-            {
-                return (RouteConnectionKind)intValue;
-            }
-
-            if (Enum.TryParse(raw, out RouteConnectionKind kind)
-                && Enum.IsDefined(typeof(RouteConnectionKind), kind))
-            {
-                return kind;
-            }
-
-            return RouteConnectionKind.Unknown;
-        }
+            => Logistics.RouteNodeCodec.ParseConnectionKind(raw);
 
         private static void SerializePartPidList(ConfigNode parent, string nodeName, List<uint> pids)
         {
@@ -713,14 +696,7 @@ namespace Parsek
         private static void SerializeRouteEndpoint(ConfigNode node, RouteEndpoint endpoint)
         {
             var ic = CultureInfo.InvariantCulture;
-            if (endpoint.VesselPersistentId != 0)
-                node.AddValue("vesselPersistentId", endpoint.VesselPersistentId.ToString(ic));
-            if (!string.IsNullOrEmpty(endpoint.BodyName))
-                node.AddValue("bodyName", endpoint.BodyName);
-            node.AddValue("latitude", endpoint.Latitude.ToString("R", ic));
-            node.AddValue("longitude", endpoint.Longitude.ToString("R", ic));
-            node.AddValue("altitude", endpoint.Altitude.ToString("R", ic));
-            node.AddValue("isSurface", endpoint.IsSurface.ToString());
+            Logistics.RouteNodeCodec.SerializeEndpoint(node, endpoint, ic);
         }
 
         private static RouteEndpoint DeserializeRouteEndpoint(ConfigNode node)
