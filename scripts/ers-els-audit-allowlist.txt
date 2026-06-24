@@ -53,6 +53,7 @@ Source/Parsek/ParsekTrackingStation.cs
 Source/Parsek/Diagnostics/DiagnosticsComputation.cs
 Source/Parsek/FlightRecorder.cs
 Source/Parsek/ParsekKSC.cs
+Source/Parsek/ParsekKSC.Playback.cs
 Source/Parsek/ParsekUI.cs
 Source/Parsek/UI/RecordingsTableUI.cs
 Source/Parsek/UI/GroupPickerUI.cs
@@ -165,6 +166,13 @@ Source/Parsek/CrewReservationManager.cs
 # point (Phase 8 step that flips it runs inside SupersedeCommit), so ERS
 # filters it out by definition — raw read is the only way to find it.
 Source/Parsek/MergeDialog.cs
+
+# MergeDialog.DialogText.cs is the partial-class split holding the pure
+# text/duration builders. FindReFlyRecording (moved verbatim from
+# MergeDialog.cs) reads RecordingStore.CommittedRecordings directly to
+# locate the provisional re-fly recording by id when it is not in the
+# pending tree — same NotCommitted-residence rationale as MergeDialog.cs.
+Source/Parsek/MergeDialog.DialogText.cs
 
 # --- Phase 9 ERS-exempt files ---
 # SupersedeCommit.CommitTombstones scans the RAW ledger to BUILD the

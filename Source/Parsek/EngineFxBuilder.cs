@@ -137,6 +137,14 @@ namespace Parsek
             effectGroupNames = filteredNames.ToArray();
         }
 
+        private static string[] BuildGroupNames(ConfigNode[] allGroups)
+        {
+            string[] allGroupNames = new string[allGroups.Length];
+            for (int i = 0; i < allGroups.Length; i++)
+                allGroupNames[i] = allGroups[i].name ?? "?";
+            return allGroupNames;
+        }
+
         internal static bool TryReadModelFxConfigEntry(
             string nodeType,
             ConfigNode modelNode,
@@ -1117,9 +1125,7 @@ namespace Parsek
                 if (effectsNode != null)
                 {
                     ConfigNode[] allGroups = effectsNode.GetNodes();
-                    string[] allGroupNames = new string[allGroups.Length];
-                    for (int eg = 0; eg < allGroups.Length; eg++)
-                        allGroupNames[eg] = allGroups[eg].name ?? "?";
+                    string[] allGroupNames = BuildGroupNames(allGroups);
 
                     // Per-module EFFECTS group filtering: only scan groups referenced by
                     // this engine module's effect name fields (multi-mode support).
@@ -1774,9 +1780,7 @@ namespace Parsek
             }
 
             ConfigNode[] allGroups = pristine.EffectsNode.GetNodes();
-            string[] allGroupNames = new string[allGroups.Length];
-            for (int g = 0; g < allGroups.Length; g++)
-                allGroupNames[g] = allGroups[g].name ?? "?";
+            string[] allGroupNames = BuildGroupNames(allGroups);
 
             HashSet<string> moduleGroups = pristine.EngineModuleEffectNames[moduleIndex];
 
@@ -1850,9 +1854,7 @@ namespace Parsek
             }
 
             ConfigNode[] allGroups = restock.EffectsNode.GetNodes();
-            string[] allGroupNames = new string[allGroups.Length];
-            for (int g = 0; g < allGroups.Length; g++)
-                allGroupNames[g] = allGroups[g].name ?? "?";
+            string[] allGroupNames = BuildGroupNames(allGroups);
 
             ConfigNode[] effectGroups;
             string[] effectGroupNames;
