@@ -284,6 +284,12 @@ namespace Parsek.InGameTests
             string memberId = "reaim-e2e-mid-" + midIdx.ToString(ic);
             double span = spanEnd - spanStart;
             int resolved = 0;
+            // Bug A FIRED-not-DECLINED (plan section 5.2 #3): snapshot the synth's tilt-correction firing
+            // counter before driving the windows. The Duna near-180 windows (pre-fix 2.36/5.06 deg) must be
+            // corrected by FIRING the re-pin, NOT by silently declining to faithful (a window could otherwise
+            // satisfy the inc<=bound upper bound by declining, masking a regression). Asserted non-zero below.
+            long firedBefore = ReaimTransferSynthesizer.FiredCorrectionCount;
+            long declinedBefore = ReaimTransferSynthesizer.DeclinedCorrectionCount;
             double firstEcc = double.NaN, firstSma = double.NaN;
             double firstInc = double.NaN, lastInc = double.NaN;
             double firstLan = double.NaN, lastLan = double.NaN;
@@ -315,6 +321,16 @@ namespace Parsek.InGameTests
                 lastAop = transfer.argumentOfPeriapsis;
                 resolved++;
             }
+
+            long firedDelta = ReaimTransferSynthesizer.FiredCorrectionCount - firedBefore;
+            long declinedDelta = ReaimTransferSynthesizer.DeclinedCorrectionCount - declinedBefore;
+            // Bug A FIRED-not-DECLINED: the Duna near-180 windows must be corrected by FIRING the plane re-pin,
+            // not by declining to faithful. Duna's gate always passes (nTarget ~ ecliptic), so the spurious
+            // 2.36/5.06 deg windows fire; a zero firing count would mean either the tilt no longer reproduces
+            // (geometry changed) or the windows were "fixed" by declining - both must fail this test.
+            InGameAssert.IsTrue(firedDelta > 0,
+                $"the re-aimed Duna windows must be corrected by FIRING the plane re-pin (fired={firedDelta.ToString(ic)} declined={declinedDelta.ToString(ic)}); " +
+                "a zero firing count means the fix did not engage (declined to faithful, or the spurious tilt no longer reproduces)");
 
             double firstLpe = TransferWindowMath.LongitudeOfPeriapsisDegrees(firstLan, firstAop);
             double lastLpe = TransferWindowMath.LongitudeOfPeriapsisDegrees(lastLan, lastAop);
@@ -1243,11 +1259,37 @@ namespace Parsek.InGameTests
             // IsRetrogradeTransfer direction guard already declines a retrograde solution to faithful (it never
             // returns segments), so a resolved window is prograde BY CONSTRUCTION - this asserts it explicitly
             // as the regression backstop, sharing the production predicate so test + code agree on "prograde".
-            // For Moho the inc is a few degrees (stage A carries the target's real out-of-plane offset), NOT
-            // ~0 - this is < 90 prograde, not the projection era's near-zero. Same predicate at both targets.
+            // Same predicate at both targets.
             InGameAssert.IsTrue(
                 !ReaimTransferSynthesizer.IsRetrogradeTransfer(transfer.inclination),
                 $"window k={k} transfer must be prograde (inc={transfer.inclination.ToString("F2", ic)} deg < 90; a retrograde result declines to faithful, never resolves)");
+
+            // Bug A (heliocentric plane tilt) UPPER BOUND: a resolved window's rendered inclination must NOT
+            // exceed the TARGET-DERIVED bound (max(launchInc, targetInc) + tol). Reads the RENDERED quantity
+            // (segs[1].inclination, populated from orbit.inclination), NOT the tilt-blind endpoint-proximity
+            // diagnostic. For Duna the loop1/loop2 consecutive synodic windows (pre-fix 2.36 -> 5.06 deg) must
+            // now both fall under the ~0.56 deg Duna bound; the post-solve achievability-gated plane re-pin
+            // collapses the spurious near-antiparallel tilt onto the target's own plane. The same bound applies
+            // to Eeloo (max(launchInc, Eeloo ~6.15) + tol) through this shared assertion.
+            double launchInc = ctx.LaunchBody.orbit.inclination;
+            double targetInc = ctx.TargetBody.orbit.inclination;
+            double tiltBound = ReaimTransferSynthesizer.InclinationBoundDegrees(launchInc, targetInc);
+            InGameAssert.IsTrue(transfer.inclination <= tiltBound,
+                $"window k={k} transfer inc ({transfer.inclination.ToString("F4", ic)} deg) must be <= the target-derived plane-tilt bound " +
+                $"({tiltBound.ToString("F4", ic)} deg = max({launchName}={launchInc.ToString("F4", ic)}, {targetName}={targetInc.ToString("F4", ic)}) + tol); the post-solve tilt correction collapses the spurious near-antiparallel tilt onto the target plane");
+
+            // Bug A LOWER BOUND (the gate-no-op proof for inclined targets, Moho/Eeloo): a RESOLVED inclined
+            // target must KEEP its real inclination (inc >= targetInc - tol). Combined with the upper bound
+            // this brackets a resolved inclined-target window to ~[targetInc - tol, max(launchInc,targetInc) +
+            // tol]. The achievability gate NEVER wrongly over-flattens an inclined target: at adverse phase it
+            // DECLINES (no segments, never asserted here); only favorable-phase / no-op windows resolve, and
+            // they keep their ~real inclination. (The fire-path correctness - lands on n_ach, not exact
+            // nTarget - is proven HEADLESS in ReaimTransferSynthesizerTests #3/#4, since adverse-phase windows
+            // produce no segments to assert on.) For Duna/Kerbin (targetInc ~ 0.06) this lower bound is ~0 and
+            // is satisfied trivially.
+            InGameAssert.IsTrue(transfer.inclination >= targetInc - ReaimTransferSynthesizer.InclinationToleranceDegrees,
+                $"window k={k} resolved transfer inc ({transfer.inclination.ToString("F4", ic)} deg) must keep the target's real inclination " +
+                $"(>= {targetName}={targetInc.ToString("F4", ic)} - tol); the tilt correction must never over-flatten an inclined target (it declines at adverse phase instead)");
             // Per-member: only the heliocentric leg is re-aimed (placed at [departure, recordedArrival]);
             // the launch parking + target arrival legs keep their recorded UTs + bodies.
             InGameAssert.AreEqual(launchName, segs[0].bodyName, $"window k={k} must keep the {launchName} parking leg");
