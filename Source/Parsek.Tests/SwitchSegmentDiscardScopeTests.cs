@@ -880,7 +880,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "MergeDialog.cs");
+                "Source", "Parsek", "MergeDialog.ReFlyDiscard.cs");
             string source = File.ReadAllText(path);
 
             int methodStart = source.IndexOf(
