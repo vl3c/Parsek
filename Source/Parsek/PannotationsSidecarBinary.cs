@@ -291,119 +291,16 @@ namespace Parsek
                         stringTable.Add(reader.ReadString());
 
                     // SmoothingSplineList
-                    int splineCount = reader.ReadInt32();
-                    if (!ValidateCount(stream, splineCount, MaxSplineEntries,
-                            MinBytesPerSplineEntry, "spline", out failureReason))
+                    if (!ReadSplineBlock(reader, stream, splines, out failureReason))
                         return false;
-                    for (int i = 0; i < splineCount; i++)
-                    {
-                        int sectionIndex = reader.ReadInt32();
-                        byte splineType = reader.ReadByte();
-                        float tension = reader.ReadSingle();
-                        int knotCount = reader.ReadInt32();
-                        if (!ValidateCount(stream, knotCount, MaxKnotsPerSpline,
-                                BytesPerKnotRow, $"knotCount[{i}]", out failureReason))
-                            return false;
-
-                        double[] knots = new double[knotCount];
-                        for (int k = 0; k < knotCount; k++) knots[k] = reader.ReadDouble();
-                        float[] cx = new float[knotCount];
-                        for (int k = 0; k < knotCount; k++) cx[k] = reader.ReadSingle();
-                        float[] cy = new float[knotCount];
-                        for (int k = 0; k < knotCount; k++) cy[k] = reader.ReadSingle();
-                        float[] cz = new float[knotCount];
-                        for (int k = 0; k < knotCount; k++) cz[k] = reader.ReadSingle();
-                        byte frameTag = reader.ReadByte();
-
-                        var spline = new SmoothingSpline
-                        {
-                            SplineType = splineType,
-                            Tension = tension,
-                            KnotsUT = knots,
-                            ControlsX = cx,
-                            ControlsY = cy,
-                            ControlsZ = cz,
-                            FrameTag = frameTag,
-                            IsValid = knotCount > 0,
-                        };
-                        splines.Add(new KeyValuePair<int, SmoothingSpline>(sectionIndex, spline));
-                    }
 
                     // Phase 8 OutlierFlagsList block (design doc §17.3.1).
-                    // Schema: per-entry sectionIndex (int32) + classifierMask
-                    // (byte) + packedBitmap (length-prefixed byte[]) +
-                    // rejectedCount (int32). Per-entry minimum cost is 13
-                    // bytes (4+1+4+0+4) when the bitmap is empty; a populated
-                    // bitmap adds (sampleCount + 7) / 8 bytes.
-                    const int MinBytesPerOutlierEntry = 13;
-                    int outlierCount = reader.ReadInt32();
-                    if (!ValidateCount(stream, outlierCount, MaxOutlierFlagsEntries,
-                            MinBytesPerOutlierEntry, "outlier-flags", out failureReason))
+                    if (!ReadOutlierFlagsBlock(reader, stream, outlierFlags, out failureReason))
                         return false;
-                    for (int i = 0; i < outlierCount; i++)
-                    {
-                        int sectionIndex = reader.ReadInt32();
-                        byte classifierMask = reader.ReadByte();
-                        int bitmapLength = reader.ReadInt32();
-                        // The packed bitmap is at most (MaxKnotsPerSpline+7)/8
-                        // = 12500 bytes — generous upper bound so a corrupt
-                        // length cannot force a multi-MB allocation.
-                        int bitmapByteCap = (MaxKnotsPerSpline + 7) / 8;
-                        if (!ValidateCount(stream, bitmapLength, bitmapByteCap,
-                                1, $"outlier-flags[{i}].bitmap", out failureReason))
-                            return false;
-                        byte[] bitmap = bitmapLength > 0
-                            ? reader.ReadBytes(bitmapLength)
-                            : new byte[0];
-                        if (bitmap == null || bitmap.Length != bitmapLength)
-                        {
-                            failureReason = $"outlier-flags[{i}] truncated bitmap (expected {bitmapLength} bytes)";
-                            return false;
-                        }
-                        int rejectedCount = reader.ReadInt32();
-                        outlierFlags.Add(new KeyValuePair<int, OutlierFlags>(
-                            sectionIndex,
-                            new OutlierFlags
-                            {
-                                SectionIndex = sectionIndex,
-                                ClassifierMask = classifierMask,
-                                PackedBitmap = bitmap,
-                                RejectedCount = rejectedCount,
-                                // SampleCount is not persisted; the loader
-                                // (SmoothingPipeline.LoadOrCompute) refills
-                                // it from the live section's frame count
-                                // after install.
-                                SampleCount = 0,
-                            }));
-                    }
+
                     // Phase 6 AnchorCandidatesList block (design doc §17.3.1).
-                    // Schema: per-entry sectionIndex (int) + utCount (int) +
-                    // uts[utCount] (double) + types[utCount] (byte). Side bit
-                    // is packed into bit 7 of each type byte
-                    // (AnchorCandidate.EndSideMask).
-                    int anchorCount = reader.ReadInt32();
-                    if (!ValidateCount(stream, anchorCount, MaxAnchorCandidateEntries,
-                            MinBytesPerAnchorCandidateEntry, "anchor-candidate", out failureReason))
+                    if (!ReadAnchorCandidateBlock(reader, stream, anchorCandidates, out failureReason))
                         return false;
-                    for (int i = 0; i < anchorCount; i++)
-                    {
-                        int sectionIndex = reader.ReadInt32();
-                        int utCount = reader.ReadInt32();
-                        // 9 bytes minimum per UT: 8-byte double + 1-byte type.
-                        if (!ValidateCount(stream, utCount, MaxAnchorCandidateEntries,
-                                9, $"anchor-candidate[{i}].uts", out failureReason))
-                            return false;
-                        var arr = new AnchorCandidate[utCount];
-                        double[] uts = new double[utCount];
-                        for (int u = 0; u < utCount; u++) uts[u] = reader.ReadDouble();
-                        for (int u = 0; u < utCount; u++)
-                        {
-                            byte typeByte = reader.ReadByte();
-                            AnchorCandidate.FromTypeByte(typeByte, out AnchorSource source, out AnchorSide side);
-                            arr[u] = new AnchorCandidate(uts[u], source, side);
-                        }
-                        anchorCandidates.Add(new KeyValuePair<int, AnchorCandidate[]>(sectionIndex, arr));
-                    }
                 }
             }
             catch (EndOfStreamException ex)
@@ -431,6 +328,158 @@ namespace Parsek
                 // would crash the load thread and block recording use entirely.
                 failureReason = $"malformed payload: {ex.GetType().Name}: {ex.Message}";
                 return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Reads the SmoothingSplineList block. Mutates <paramref name="splines"/>;
+        /// returns false (with <paramref name="failureReason"/>) on a count guard
+        /// failure. Extracted verbatim from TryRead.
+        /// </summary>
+        private static bool ReadSplineBlock(
+            BinaryReader reader,
+            Stream stream,
+            List<KeyValuePair<int, SmoothingSpline>> splines,
+            out string failureReason)
+        {
+            failureReason = null;
+            int splineCount = reader.ReadInt32();
+            if (!ValidateCount(stream, splineCount, MaxSplineEntries,
+                    MinBytesPerSplineEntry, "spline", out failureReason))
+                return false;
+            for (int i = 0; i < splineCount; i++)
+            {
+                int sectionIndex = reader.ReadInt32();
+                byte splineType = reader.ReadByte();
+                float tension = reader.ReadSingle();
+                int knotCount = reader.ReadInt32();
+                if (!ValidateCount(stream, knotCount, MaxKnotsPerSpline,
+                        BytesPerKnotRow, $"knotCount[{i}]", out failureReason))
+                    return false;
+
+                double[] knots = new double[knotCount];
+                for (int k = 0; k < knotCount; k++) knots[k] = reader.ReadDouble();
+                float[] cx = new float[knotCount];
+                for (int k = 0; k < knotCount; k++) cx[k] = reader.ReadSingle();
+                float[] cy = new float[knotCount];
+                for (int k = 0; k < knotCount; k++) cy[k] = reader.ReadSingle();
+                float[] cz = new float[knotCount];
+                for (int k = 0; k < knotCount; k++) cz[k] = reader.ReadSingle();
+                byte frameTag = reader.ReadByte();
+
+                var spline = new SmoothingSpline
+                {
+                    SplineType = splineType,
+                    Tension = tension,
+                    KnotsUT = knots,
+                    ControlsX = cx,
+                    ControlsY = cy,
+                    ControlsZ = cz,
+                    FrameTag = frameTag,
+                    IsValid = knotCount > 0,
+                };
+                splines.Add(new KeyValuePair<int, SmoothingSpline>(sectionIndex, spline));
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Reads the Phase 8 OutlierFlagsList block. Schema: per-entry sectionIndex
+        /// (int32) + classifierMask (byte) + packedBitmap (length-prefixed byte[]) +
+        /// rejectedCount (int32). Per-entry minimum cost is 13 bytes (4+1+4+0+4) when
+        /// the bitmap is empty; a populated bitmap adds (sampleCount + 7) / 8 bytes.
+        /// Extracted verbatim from TryRead.
+        /// </summary>
+        private static bool ReadOutlierFlagsBlock(
+            BinaryReader reader,
+            Stream stream,
+            List<KeyValuePair<int, OutlierFlags>> outlierFlags,
+            out string failureReason)
+        {
+            failureReason = null;
+            const int MinBytesPerOutlierEntry = 13;
+            int outlierCount = reader.ReadInt32();
+            if (!ValidateCount(stream, outlierCount, MaxOutlierFlagsEntries,
+                    MinBytesPerOutlierEntry, "outlier-flags", out failureReason))
+                return false;
+            for (int i = 0; i < outlierCount; i++)
+            {
+                int sectionIndex = reader.ReadInt32();
+                byte classifierMask = reader.ReadByte();
+                int bitmapLength = reader.ReadInt32();
+                // The packed bitmap is at most (MaxKnotsPerSpline+7)/8
+                // = 12500 bytes — generous upper bound so a corrupt
+                // length cannot force a multi-MB allocation.
+                int bitmapByteCap = (MaxKnotsPerSpline + 7) / 8;
+                if (!ValidateCount(stream, bitmapLength, bitmapByteCap,
+                        1, $"outlier-flags[{i}].bitmap", out failureReason))
+                    return false;
+                byte[] bitmap = bitmapLength > 0
+                    ? reader.ReadBytes(bitmapLength)
+                    : new byte[0];
+                if (bitmap == null || bitmap.Length != bitmapLength)
+                {
+                    failureReason = $"outlier-flags[{i}] truncated bitmap (expected {bitmapLength} bytes)";
+                    return false;
+                }
+                int rejectedCount = reader.ReadInt32();
+                outlierFlags.Add(new KeyValuePair<int, OutlierFlags>(
+                    sectionIndex,
+                    new OutlierFlags
+                    {
+                        SectionIndex = sectionIndex,
+                        ClassifierMask = classifierMask,
+                        PackedBitmap = bitmap,
+                        RejectedCount = rejectedCount,
+                        // SampleCount is not persisted; the loader
+                        // (SmoothingPipeline.LoadOrCompute) refills
+                        // it from the live section's frame count
+                        // after install.
+                        SampleCount = 0,
+                    }));
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Reads the Phase 6 AnchorCandidatesList block. Schema: per-entry sectionIndex
+        /// (int) + utCount (int) + uts[utCount] (double) + types[utCount] (byte). Side
+        /// bit is packed into bit 7 of each type byte (AnchorCandidate.EndSideMask).
+        /// Extracted verbatim from TryRead.
+        /// </summary>
+        private static bool ReadAnchorCandidateBlock(
+            BinaryReader reader,
+            Stream stream,
+            List<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates,
+            out string failureReason)
+        {
+            failureReason = null;
+            int anchorCount = reader.ReadInt32();
+            if (!ValidateCount(stream, anchorCount, MaxAnchorCandidateEntries,
+                    MinBytesPerAnchorCandidateEntry, "anchor-candidate", out failureReason))
+                return false;
+            for (int i = 0; i < anchorCount; i++)
+            {
+                int sectionIndex = reader.ReadInt32();
+                int utCount = reader.ReadInt32();
+                // 9 bytes minimum per UT: 8-byte double + 1-byte type.
+                if (!ValidateCount(stream, utCount, MaxAnchorCandidateEntries,
+                        9, $"anchor-candidate[{i}].uts", out failureReason))
+                    return false;
+                var arr = new AnchorCandidate[utCount];
+                double[] uts = new double[utCount];
+                for (int u = 0; u < utCount; u++) uts[u] = reader.ReadDouble();
+                for (int u = 0; u < utCount; u++)
+                {
+                    byte typeByte = reader.ReadByte();
+                    AnchorCandidate.FromTypeByte(typeByte, out AnchorSource source, out AnchorSide side);
+                    arr[u] = new AnchorCandidate(uts[u], source, side);
+                }
+                anchorCandidates.Add(new KeyValuePair<int, AnchorCandidate[]>(sectionIndex, arr));
             }
 
             return true;

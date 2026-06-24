@@ -100,6 +100,23 @@ namespace Parsek.Reaim
                 StationAnchorPid = 0
             };
 
+            DestinationConstraintCollection collected =
+                CollectDestinationConstraints(allConstraints, targetBody, bodyInfo);
+
+            return AssembleDestinationConstraintResult(result, collected, targetBody);
+        }
+
+        /// <summary>
+        /// Single-pass classification of every input constraint into the destination
+        /// rotation, target station, moon-station reason, non-destination station count,
+        /// and constrained-moon configs. Extracted verbatim from
+        /// ExtractDestinationConstraints (no logic change).
+        /// </summary>
+        private static DestinationConstraintCollection CollectDestinationConstraints(
+            IReadOnlyList<PhaseConstraint> allConstraints,
+            string targetBody,
+            IBodyInfo bodyInfo)
+        {
             PhaseConstraint? destRotation = null;
             PhaseConstraint? station = null;       // VesselOrbital orbiting the target itself
             string moonStationReason = null;       // VesselOrbital orbiting a moon of the target
@@ -165,6 +182,33 @@ namespace Parsek.Reaim
                 if (parent == targetBody && !string.IsNullOrEmpty(targetBody) && seenMoons.Add(c.BodyName))
                     moonConfigs.Add(c);
             }
+
+            return new DestinationConstraintCollection
+            {
+                DestRotation = destRotation,
+                Station = station,
+                MoonStationReason = moonStationReason,
+                NonDestStations = nonDestStations,
+                MoonConfigs = moonConfigs,
+            };
+        }
+
+        /// <summary>
+        /// Populates the result fields from the collected constraints, applies the M4c
+        /// fail-closed shapes (each returning early after a LogExtract), and assembles the
+        /// supported constraint set. Extracted verbatim from ExtractDestinationConstraints
+        /// (no logic change).
+        /// </summary>
+        private static DestinationConstraintSet AssembleDestinationConstraintResult(
+            DestinationConstraintSet result,
+            DestinationConstraintCollection collected,
+            string targetBody)
+        {
+            PhaseConstraint? destRotation = collected.DestRotation;
+            PhaseConstraint? station = collected.Station;
+            string moonStationReason = collected.MoonStationReason;
+            int nonDestStations = collected.NonDestStations;
+            List<PhaseConstraint> moonConfigs = collected.MoonConfigs;
 
             result.HasLandingRotation = destRotation != null;
             result.ConstrainedMoonCount = moonConfigs.Count;
@@ -233,6 +277,20 @@ namespace Parsek.Reaim
             // it. A station-only set also stays Supported: the hold substitutes T_station.
             LogExtract(targetBody, result, nonDestStations);
             return result;
+        }
+
+        /// <summary>
+        /// Collected destination constraints handed from
+        /// <see cref="CollectDestinationConstraints"/> to
+        /// <see cref="AssembleDestinationConstraintResult"/>.
+        /// </summary>
+        private struct DestinationConstraintCollection
+        {
+            public PhaseConstraint? DestRotation;
+            public PhaseConstraint? Station;
+            public string MoonStationReason;
+            public int NonDestStations;
+            public List<PhaseConstraint> MoonConfigs;
         }
 
         private static void LogExtract(string targetBody, DestinationConstraintSet r, int nonDestStations)

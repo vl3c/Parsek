@@ -3619,6 +3619,25 @@ namespace Parsek.Logistics
         /// </summary>
         private static bool IsRecoveryCreditAlreadyInLedger(string routeId, string cycleId)
         {
+            return ElsContainsRouteCycleRow(
+                GameActionType.RouteRecoveryCredited, routeId, cycleId,
+                "IsRecoveryCreditAlreadyInLedger");
+        }
+
+        /// <summary>
+        /// Shared route-cycle ELS idempotency scan. Currently forwarded to only by
+        /// <see cref="IsRecoveryCreditAlreadyInLedger"/>;
+        /// <see cref="IsDeliveryAlreadyInLedger"/> evolved a per-stop inline body during
+        /// the M4 multi-stop work and no longer routes through here. Returns
+        /// <c>true</c> if any ELS row of <paramref name="type"/> matches the given
+        /// <paramref name="routeId"/> + <paramref name="cycleId"/> pair. ELS is
+        /// supersede / tombstone aware. Exception-safe: a throw is treated as
+        /// not-in-ledger. The <paramref name="logCtx"/> reproduces the caller's
+        /// original log prefix verbatim so the emitted line is unchanged.
+        /// </summary>
+        private static bool ElsContainsRouteCycleRow(
+            GameActionType type, string routeId, string cycleId, string logCtx)
+        {
             if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
                 return false;
 
@@ -3630,7 +3649,7 @@ namespace Parsek.Logistics
             catch (Exception ex)
             {
                 ParsekLog.Verbose(Tag,
-                    $"IsRecoveryCreditAlreadyInLedger: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as not-in-ledger");
+                    $"{logCtx}: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as not-in-ledger");
                 return false;
             }
 
@@ -3639,7 +3658,7 @@ namespace Parsek.Logistics
             {
                 GameAction a = els[i];
                 if (a == null) continue;
-                if (a.Type != GameActionType.RouteRecoveryCredited) continue;
+                if (a.Type != type) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
                 if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
                 return true;

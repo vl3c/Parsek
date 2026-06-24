@@ -1564,13 +1564,95 @@ namespace Parsek
         {
             pose = default;
             failure = default;
-            AnchorPose parentPose;
+            if (!TryResolveRelativeSectionAnchorPose(
+                    context,
+                    recording,
+                    section,
+                    sectionIndex,
+                    ut,
+                    visited,
+                    out AnchorPose parentPose,
+                    out string anchorRecordingId,
+                    out failure))
+            {
+                return false;
+            }
+
+            if (!TryInterpolateRelativeFrame(
+                    section.frames,
+                    section.startUT,
+                    section.endUT,
+                    ut,
+                    out double dx,
+                    out double dy,
+                    out double dz,
+                    out Quaternion relativeRotation))
+            {
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.OutOfSectionRange,
+                    "anchor-out-of-recorded-range",
+                    context.FocusRecordingId,
+                    anchorRecordingId,
+                    ut,
+                    sectionIndex,
+                    rangeStartUT: IsFinite(section.startUT) ? section.startUT : double.NaN,
+                    rangeEndUT: IsFinite(section.endUT) ? section.endUT : double.NaN);
+                return false;
+            }
+
+            Vector3d worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
+                parentPose.WorldPos,
+                parentPose.WorldRotation,
+                dx,
+                dy,
+                dz);
+            Quaternion worldRotation = TrajectoryMath.ResolveRelativePlaybackRotation(
+                parentPose.WorldRotation,
+                relativeRotation);
+
+            if (!IsFinite(worldPos) || !IsFinite(worldRotation))
+            {
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.PoseNonFinite,
+                    "relative-pose-nonfinite",
+                    context.FocusRecordingId,
+                    anchorRecordingId,
+                    ut,
+                    sectionIndex);
+                return false;
+            }
+
+            pose = new AnchorPose(worldPos, worldRotation, sectionIndex, recording.RecordingId);
+            return true;
+        }
+
+        /// <summary>
+        /// Resolves the parent anchor pose for a Relative section: handles the
+        /// loop-anchor-mismatch / live-PID fall-through branch and the recorded
+        /// anchor-trajectory branch. Returns the resolved <paramref name="parentPose"/>
+        /// (and the recorded <paramref name="anchorRecordingId"/> the caller logs with),
+        /// or false with <paramref name="failure"/> set. Extracted verbatim from
+        /// TryResolveRelativeSectionPose (no logic change).
+        /// </summary>
+        private static bool TryResolveRelativeSectionAnchorPose(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            TrackSection section,
+            int sectionIndex,
+            double ut,
+            HashSet<string> visited,
+            out AnchorPose parentPose,
+            out string anchorRecordingId,
+            out RelativeAnchorResolveFailure failure)
+        {
+            parentPose = default;
+            failure = default;
             if (!TryResolveSectionAnchorRecordingId(
                     context,
                     recording,
                     section,
                     sectionIndex,
-                    out string anchorRecordingId))
+                    out anchorRecordingId))
             {
                 // Mid-loop anchor-pid mismatch: a loop-anchored recording whose
                 // Relative section points at a different live PID than the
@@ -1657,51 +1739,6 @@ namespace Parsek
                 return false;
             }
 
-            if (!TryInterpolateRelativeFrame(
-                    section.frames,
-                    section.startUT,
-                    section.endUT,
-                    ut,
-                    out double dx,
-                    out double dy,
-                    out double dz,
-                    out Quaternion relativeRotation))
-            {
-                failure = WarnUnresolved(
-                    RelativeAnchorResolveOutcome.OutOfSectionRange,
-                    "anchor-out-of-recorded-range",
-                    context.FocusRecordingId,
-                    anchorRecordingId,
-                    ut,
-                    sectionIndex,
-                    rangeStartUT: IsFinite(section.startUT) ? section.startUT : double.NaN,
-                    rangeEndUT: IsFinite(section.endUT) ? section.endUT : double.NaN);
-                return false;
-            }
-
-            Vector3d worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
-                parentPose.WorldPos,
-                parentPose.WorldRotation,
-                dx,
-                dy,
-                dz);
-            Quaternion worldRotation = TrajectoryMath.ResolveRelativePlaybackRotation(
-                parentPose.WorldRotation,
-                relativeRotation);
-
-            if (!IsFinite(worldPos) || !IsFinite(worldRotation))
-            {
-                failure = WarnUnresolved(
-                    RelativeAnchorResolveOutcome.PoseNonFinite,
-                    "relative-pose-nonfinite",
-                    context.FocusRecordingId,
-                    anchorRecordingId,
-                    ut,
-                    sectionIndex);
-                return false;
-            }
-
-            pose = new AnchorPose(worldPos, worldRotation, sectionIndex, recording.RecordingId);
             return true;
         }
 

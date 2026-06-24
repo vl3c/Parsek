@@ -1066,49 +1066,11 @@ namespace Parsek
                 double worstShiftAtChosen = 0.0;
                 if (knob)
                 {
-                    shiftWithin = false;
-                    worstShiftAtChosen = double.PositiveInfinity;
-                    // |d| ascending, d < 0 before d > 0 at equal magnitude: the smallest timeline
-                    // change wins, and on a magnitude tie the CUT (shorter cycle, less dead time)
-                    // beats the extension. Short-circuits on the first in-tolerance d; the strict <
-                    // on the bounded-best update preserves the same preference order when none fits.
-                    long maxMag = Math.Max(Math.Abs(shiftMin), Math.Abs(shiftMax));
-                    for (long mag = 0; mag <= maxMag && !shiftWithin; mag++)
-                    {
-                        for (int sign = 0; sign < 2; sign++)
-                        {
-                            long d = sign == 0 ? -mag : mag;
-                            if (mag == 0 && sign == 1)
-                                continue; // d = 0 once
-                            if (d < shiftMin || d > shiftMax)
-                                continue;
-                            double shifted = delta + d * shiftStepSeconds;
-                            double worstShift = 0.0;
-                            bool allShiftWithin = true;
-                            for (int j = 0; j < shiftCount; j++)
-                            {
-                                double err = CircularPhaseError(shifted, shiftPeriods[j]);
-                                if (err > worstShift)
-                                    worstShift = err;
-                                double tol = (shiftTolerances != null && j < shiftTolerances.Count)
-                                    ? shiftTolerances[j] : 0.0;
-                                if (err > tol)
-                                    allShiftWithin = false;
-                            }
-                            if (allShiftWithin)
-                            {
-                                chosenShift = d;
-                                worstShiftAtChosen = worstShift;
-                                shiftWithin = true;
-                                break;
-                            }
-                            if (worstShift < worstShiftAtChosen)
-                            {
-                                worstShiftAtChosen = worstShift;
-                                chosenShift = d;
-                            }
-                        }
-                    }
+                    TryResolveBestShift(
+                        delta,
+                        shiftPeriods, shiftTolerances,
+                        shiftStepSeconds, shiftMin, shiftMax, shiftCount,
+                        out chosenShift, out shiftWithin, out worstShiftAtChosen);
                 }
 
                 double worstCombined = Math.Max(worst, knob ? worstShiftAtChosen : 0.0);
@@ -1134,6 +1096,64 @@ namespace Parsek
             residualSeconds = double.IsPositiveInfinity(bestResidual) ? 0.0 : bestResidual;
             withinTolerance = false;
             return true;
+        }
+
+        /// <summary>
+        /// The nested |d|-ascending shift-search of one lookahead step (the knob branch
+        /// of <see cref="TryFindNextScheduleK"/>). Extracted verbatim: preserves the
+        /// <c>!shiftWithin</c> outer-loop guard, the short-circuit on the first
+        /// in-tolerance d, and the strict-<c>&lt;</c> bounded-best update / tie order.
+        /// </summary>
+        private static void TryResolveBestShift(
+            double delta,
+            IReadOnlyList<double> shiftPeriods, IReadOnlyList<double> shiftTolerances,
+            double shiftStepSeconds, long shiftMin, long shiftMax, int shiftCount,
+            out long chosenShift, out bool shiftWithin, out double worstShiftAtChosen)
+        {
+            chosenShift = 0;
+            shiftWithin = false;
+            worstShiftAtChosen = double.PositiveInfinity;
+            // |d| ascending, d < 0 before d > 0 at equal magnitude: the smallest timeline
+            // change wins, and on a magnitude tie the CUT (shorter cycle, less dead time)
+            // beats the extension. Short-circuits on the first in-tolerance d; the strict <
+            // on the bounded-best update preserves the same preference order when none fits.
+            long maxMag = Math.Max(Math.Abs(shiftMin), Math.Abs(shiftMax));
+            for (long mag = 0; mag <= maxMag && !shiftWithin; mag++)
+            {
+                for (int sign = 0; sign < 2; sign++)
+                {
+                    long d = sign == 0 ? -mag : mag;
+                    if (mag == 0 && sign == 1)
+                        continue; // d = 0 once
+                    if (d < shiftMin || d > shiftMax)
+                        continue;
+                    double shifted = delta + d * shiftStepSeconds;
+                    double worstShift = 0.0;
+                    bool allShiftWithin = true;
+                    for (int j = 0; j < shiftCount; j++)
+                    {
+                        double err = CircularPhaseError(shifted, shiftPeriods[j]);
+                        if (err > worstShift)
+                            worstShift = err;
+                        double tol = (shiftTolerances != null && j < shiftTolerances.Count)
+                            ? shiftTolerances[j] : 0.0;
+                        if (err > tol)
+                            allShiftWithin = false;
+                    }
+                    if (allShiftWithin)
+                    {
+                        chosenShift = d;
+                        worstShiftAtChosen = worstShift;
+                        shiftWithin = true;
+                        break;
+                    }
+                    if (worstShift < worstShiftAtChosen)
+                    {
+                        worstShiftAtChosen = worstShift;
+                        chosenShift = d;
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -1298,6 +1318,72 @@ namespace Parsek
                 }
             }
 
+            RelaunchSchedulePartition partition = PartitionScheduleConstraints(
+                effective, anchorIdx, anchorPeriod, bodyInfo, launchBodyName, mode,
+                knobEligible, knobInput, ut0);
+            var periods = partition.Periods;
+            var tolerances = partition.Tolerances;
+            var shiftPeriods = partition.ShiftPeriods;
+            var shiftTolerances = partition.ShiftTolerances;
+            int filtered = partition.Filtered;
+            bool anyDistinct = partition.AnyDistinct;
+
+            if (filtered > 0 && !SuppressLogging)
+                ParsekLog.Warn("MissionPeriodicity",
+                    $"TryBuildRelaunchSchedule: filtered {filtered.ToString(CultureInfo.InvariantCulture)} " +
+                    "non-anchor constraint(s) with a degenerate (NaN/non-positive) period; they are not " +
+                    "scheduled (bad body data?)");
+
+            // Rule 4: at least one shiftable constraint, else d has nothing to serve.
+            if (knobEligible && shiftPeriods.Count == 0)
+            {
+                knobEligible = false;
+                knobDisengageReason = "no shiftable constraint (no reference event after the phasing run)";
+            }
+            if (knobInput != null && !knobEligible && !SuppressLogging)
+                ParsekLog.Verbose("MissionPeriodicity",
+                    $"phasing knob disengaged: {knobDisengageReason}; schedule built without it");
+
+            PhasingKnobConfig knobConfig = BuildPhasingKnobConfig(
+                knobEligible, knobInput, shiftPeriods, shiftTolerances);
+
+            // No valid distinct-period other constraint -> single-constraint / tidal-collapse:
+            // a uniform schedule == today's fixed cadence, so no schedule (keep fixed cadence).
+            // With the knob engaged the shiftable group counts: a pad + station mission has its
+            // only other constraint in the SHIFT group, and the schedule is exactly what gives the
+            // knob its per-window seam.
+            if ((periods.Count == 0 && shiftPeriods.Count == 0) || !anyDistinct)
+                return false;
+            if (periods.Count == 0 && knobConfig == null)
+                return false; // shiftable-only without an engaged knob is the old empty-others case
+
+            var candidate = new MissionRelaunchSchedule(
+                ut0, anchorPeriod, periods.ToArray(), tolerances.ToArray(), floorUT,
+                ScheduleLookaheadMultiples, minSpacingSeconds, knobConfig);
+            if (double.IsNaN(candidate.FirstLaunchUT))
+                return false; // could not resolve a first launch (degenerate)
+
+            schedule = candidate;
+            return true;
+        }
+
+        /// <summary>
+        /// Partitions the non-anchor effective constraints into the kept (periods /
+        /// tolerances) and shiftable (shiftPeriods / shiftTolerances) groups, filtering
+        /// degenerate-period constraints and tracking whether any distinct period exists.
+        /// Extracted verbatim from TryBuildRelaunchSchedule (no logic change).
+        /// </summary>
+        private static RelaunchSchedulePartition PartitionScheduleConstraints(
+            List<PhaseConstraint> effective,
+            int anchorIdx,
+            double anchorPeriod,
+            IBodyInfo bodyInfo,
+            string launchBodyName,
+            TransitedBodyRotationMode mode,
+            bool knobEligible,
+            PhasingKnobInput knobInput,
+            double ut0)
+        {
             var periods = new List<double>(effective.Count - 1);
             var tolerances = new List<double>(effective.Count - 1);
             var shiftPeriods = new List<double>();
@@ -1332,22 +1418,28 @@ namespace Parsek
                     anyDistinct = true;
             }
 
-            if (filtered > 0 && !SuppressLogging)
-                ParsekLog.Warn("MissionPeriodicity",
-                    $"TryBuildRelaunchSchedule: filtered {filtered.ToString(CultureInfo.InvariantCulture)} " +
-                    "non-anchor constraint(s) with a degenerate (NaN/non-positive) period; they are not " +
-                    "scheduled (bad body data?)");
-
-            // Rule 4: at least one shiftable constraint, else d has nothing to serve.
-            if (knobEligible && shiftPeriods.Count == 0)
+            return new RelaunchSchedulePartition
             {
-                knobEligible = false;
-                knobDisengageReason = "no shiftable constraint (no reference event after the phasing run)";
-            }
-            if (knobInput != null && !knobEligible && !SuppressLogging)
-                ParsekLog.Verbose("MissionPeriodicity",
-                    $"phasing knob disengaged: {knobDisengageReason}; schedule built without it");
+                Periods = periods,
+                Tolerances = tolerances,
+                ShiftPeriods = shiftPeriods,
+                ShiftTolerances = shiftTolerances,
+                Filtered = filtered,
+                AnyDistinct = anyDistinct,
+            };
+        }
 
+        /// <summary>
+        /// Assembles the <see cref="PhasingKnobConfig"/> (and emits the engaged log) when
+        /// the knob is eligible, else returns null. Extracted verbatim from
+        /// TryBuildRelaunchSchedule (no logic change).
+        /// </summary>
+        private static PhasingKnobConfig BuildPhasingKnobConfig(
+            bool knobEligible,
+            PhasingKnobInput knobInput,
+            List<double> shiftPeriods,
+            List<double> shiftTolerances)
+        {
             PhasingKnobConfig knobConfig = null;
             if (knobEligible)
             {
@@ -1378,24 +1470,21 @@ namespace Parsek
                 }
             }
 
-            // No valid distinct-period other constraint -> single-constraint / tidal-collapse:
-            // a uniform schedule == today's fixed cadence, so no schedule (keep fixed cadence).
-            // With the knob engaged the shiftable group counts: a pad + station mission has its
-            // only other constraint in the SHIFT group, and the schedule is exactly what gives the
-            // knob its per-window seam.
-            if ((periods.Count == 0 && shiftPeriods.Count == 0) || !anyDistinct)
-                return false;
-            if (periods.Count == 0 && knobConfig == null)
-                return false; // shiftable-only without an engaged knob is the old empty-others case
+            return knobConfig;
+        }
 
-            var candidate = new MissionRelaunchSchedule(
-                ut0, anchorPeriod, periods.ToArray(), tolerances.ToArray(), floorUT,
-                ScheduleLookaheadMultiples, minSpacingSeconds, knobConfig);
-            if (double.IsNaN(candidate.FirstLaunchUT))
-                return false; // could not resolve a first launch (degenerate)
-
-            schedule = candidate;
-            return true;
+        /// <summary>
+        /// Kept / shiftable constraint partition handed from
+        /// <see cref="PartitionScheduleConstraints"/> back to TryBuildRelaunchSchedule.
+        /// </summary>
+        private struct RelaunchSchedulePartition
+        {
+            public List<double> Periods;
+            public List<double> Tolerances;
+            public List<double> ShiftPeriods;
+            public List<double> ShiftTolerances;
+            public int Filtered;
+            public bool AnyDistinct;
         }
 
         // True iff EVERY dropped constraint (all except dominantIdx) is within ITS OWN physics-derived
@@ -1914,67 +2003,14 @@ namespace Parsek
             foreach (var kv in anchors)
             {
                 VesselAnchorInfo raw = kv.Value;
-                uint anchorPid = raw.SectionPid;
-                string anchorGuid = null;
-                if (anchorPid == 0)
-                {
-                    Recording anchorRec = FindCommittedRecordingById(committed, raw.AnchorRecordingId);
-                    if (anchorRec == null)
-                    {
-                        rejectReason =
-                            $"rendezvous anchor recording '{raw.AnchorRecordingId}' not in the " +
-                            "committed set (cannot resolve the live anchor)";
-                        return VesselOrbitalClassification.Rejected;
-                    }
-                    if (anchorRec.VesselPersistentId == 0)
-                    {
-                        rejectReason =
-                            $"rendezvous anchor recording '{raw.AnchorRecordingId}' carries no " +
-                            "vessel pid (cannot resolve the live anchor)";
-                        return VesselOrbitalClassification.Rejected;
-                    }
-                    anchorPid = anchorRec.VesselPersistentId;
-                    anchorGuid = anchorRec.RecordedVesselGuid;
-                }
-                else if (!string.IsNullOrEmpty(raw.AnchorRecordingId))
-                {
-                    // A pid-stamped section that also names the anchor recording: harvest the
-                    // launch guid for the identity gates when the recorded pids agree.
-                    Recording anchorRec = FindCommittedRecordingById(committed, raw.AnchorRecordingId);
-                    if (anchorRec != null && anchorRec.VesselPersistentId == anchorPid)
-                        anchorGuid = anchorRec.RecordedVesselGuid;
-                }
 
-                // Partition: a SELF-anchored section lives on a PARTNER member (the dock merge's
-                // mutual anchoring) - the rendezvous target is the OWNER's vessel at that UT.
-                uint candPid;
-                string candGuid;
-                string candRecId;
-                bool anchorIsSelf = selfPid != 0 && anchorPid == selfPid
-                    && !VesselLaunchIdentity.GuidsConclusivelyDiffer(selfGuid, anchorGuid);
-                if (anchorIsSelf)
-                {
-                    bool ownerIsSelf = raw.OwnerPid == selfPid
-                        && !VesselLaunchIdentity.GuidsConclusivelyDiffer(selfGuid, raw.OwnerGuid);
-                    if (ownerIsSelf)
-                        continue; // an intra-self relative pair carries no foreign target
-                    if (raw.OwnerPid == 0)
-                    {
-                        rejectReason =
-                            $"rendezvous partner member '{raw.OwnerRecordingId}' carries no " +
-                            "vessel pid (cannot resolve the live partner)";
-                        return VesselOrbitalClassification.Rejected;
-                    }
-                    candPid = raw.OwnerPid;
-                    candGuid = raw.OwnerGuid;
-                    candRecId = raw.OwnerRecordingId;
-                }
-                else
-                {
-                    candPid = anchorPid;
-                    candGuid = anchorGuid;
-                    candRecId = raw.AnchorRecordingId;
-                }
+                AnchorCandidateOutcome outcome = ResolveAnchorCandidate(
+                    raw, selfPid, selfGuid, committed,
+                    out uint candPid, out string candGuid, out string candRecId, out rejectReason);
+                if (outcome == AnchorCandidateOutcome.Rejected)
+                    return VesselOrbitalClassification.Rejected;
+                if (outcome == AnchorCandidateOutcome.Skip)
+                    continue; // an intra-self relative pair carries no foreign target
 
                 if (!haveCandidate)
                 {
@@ -2066,6 +2102,102 @@ namespace Parsek
             driftAmberReason = ComputeDriftAmberReason(
                 compareRecordingId, earliestUT, livePeriod, bodyInfo, committed);
             return VesselOrbitalClassification.Emitted;
+        }
+
+        /// <summary>
+        /// Per-entry outcome of <see cref="ResolveAnchorCandidate"/>: a resolved foreign
+        /// candidate, a skip (intra-self relative pair), or a reject.
+        /// </summary>
+        private enum AnchorCandidateOutcome
+        {
+            Resolved,
+            Skip,
+            Rejected,
+        }
+
+        /// <summary>
+        /// Rule-1 per-entry resolve + partition: resolves one anchor entry's recorded
+        /// identity (pid + launch guid) and partitions it against the SELF launch line to
+        /// produce the foreign candidate (candPid / candGuid / candRecId), or returns
+        /// Skip / Rejected (with <paramref name="rejectReason"/> set). Extracted verbatim
+        /// from ClassifyVesselOrbitalConstraint; the cross-entry merge into the running
+        /// candidate stays inline in the caller (no logic change).
+        /// </summary>
+        private static AnchorCandidateOutcome ResolveAnchorCandidate(
+            VesselAnchorInfo raw,
+            uint selfPid,
+            string selfGuid,
+            IReadOnlyList<Recording> committed,
+            out uint candPid,
+            out string candGuid,
+            out string candRecId,
+            out string rejectReason)
+        {
+            candPid = 0;
+            candGuid = null;
+            candRecId = null;
+            rejectReason = null;
+
+            uint anchorPid = raw.SectionPid;
+            string anchorGuid = null;
+            if (anchorPid == 0)
+            {
+                Recording anchorRec = FindCommittedRecordingById(committed, raw.AnchorRecordingId);
+                if (anchorRec == null)
+                {
+                    rejectReason =
+                        $"rendezvous anchor recording '{raw.AnchorRecordingId}' not in the " +
+                        "committed set (cannot resolve the live anchor)";
+                    return AnchorCandidateOutcome.Rejected;
+                }
+                if (anchorRec.VesselPersistentId == 0)
+                {
+                    rejectReason =
+                        $"rendezvous anchor recording '{raw.AnchorRecordingId}' carries no " +
+                        "vessel pid (cannot resolve the live anchor)";
+                    return AnchorCandidateOutcome.Rejected;
+                }
+                anchorPid = anchorRec.VesselPersistentId;
+                anchorGuid = anchorRec.RecordedVesselGuid;
+            }
+            else if (!string.IsNullOrEmpty(raw.AnchorRecordingId))
+            {
+                // A pid-stamped section that also names the anchor recording: harvest the
+                // launch guid for the identity gates when the recorded pids agree.
+                Recording anchorRec = FindCommittedRecordingById(committed, raw.AnchorRecordingId);
+                if (anchorRec != null && anchorRec.VesselPersistentId == anchorPid)
+                    anchorGuid = anchorRec.RecordedVesselGuid;
+            }
+
+            // Partition: a SELF-anchored section lives on a PARTNER member (the dock merge's
+            // mutual anchoring) - the rendezvous target is the OWNER's vessel at that UT.
+            bool anchorIsSelf = selfPid != 0 && anchorPid == selfPid
+                && !VesselLaunchIdentity.GuidsConclusivelyDiffer(selfGuid, anchorGuid);
+            if (anchorIsSelf)
+            {
+                bool ownerIsSelf = raw.OwnerPid == selfPid
+                    && !VesselLaunchIdentity.GuidsConclusivelyDiffer(selfGuid, raw.OwnerGuid);
+                if (ownerIsSelf)
+                    return AnchorCandidateOutcome.Skip; // an intra-self relative pair carries no foreign target
+                if (raw.OwnerPid == 0)
+                {
+                    rejectReason =
+                        $"rendezvous partner member '{raw.OwnerRecordingId}' carries no " +
+                        "vessel pid (cannot resolve the live partner)";
+                    return AnchorCandidateOutcome.Rejected;
+                }
+                candPid = raw.OwnerPid;
+                candGuid = raw.OwnerGuid;
+                candRecId = raw.OwnerRecordingId;
+            }
+            else
+            {
+                candPid = anchorPid;
+                candGuid = anchorGuid;
+                candRecId = raw.AnchorRecordingId;
+            }
+
+            return AnchorCandidateOutcome.Resolved;
         }
 
         /// <summary>True when the constraint list carries an Orbital constraint for
