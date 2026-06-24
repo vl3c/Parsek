@@ -336,7 +336,7 @@ namespace Parsek.Logistics
                 // constraint - the route dispatches on its own schedule (10.14
                 // analogue: a partner that cannot complete a cycle must not stall us).
                 ParsekLog.Verbose("Route",
-                    $"PartnerGate: route {ShortId(route.Id)} linkedRouteId={ShortId(route.LinkedRouteId)} " +
+                    $"PartnerGate: route {RouteIds.Short(route.Id)} linkedRouteId={RouteIds.Short(route.LinkedRouteId)} " +
                     "unresolved - bypassing chain constraint (dispatch allowed)");
                 return true;
             }
@@ -348,7 +348,7 @@ namespace Parsek.Logistics
             if (!RouteStatusPolicy.GhostDriving(partner.Status))
             {
                 ParsekLog.Verbose("Route",
-                    $"PartnerGate: route {ShortId(route.Id)} partner={ShortId(partner.Id)} " +
+                    $"PartnerGate: route {RouteIds.Short(route.Id)} partner={RouteIds.Short(partner.Id)} " +
                     $"status={partner.Status} not ghost-driving - bypassing chain constraint (dispatch allowed)");
                 return true;
             }
@@ -368,8 +368,8 @@ namespace Parsek.Logistics
                 && IsChainSeed(route, partner))
             {
                 ParsekLog.Verbose("Route",
-                    $"PartnerGate: route {ShortId(route.Id)} is the chain SEED " +
-                    $"(prio={route.DispatchPriority} id<={ShortId(route.Id)}) and partner={ShortId(partner.Id)} " +
+                    $"PartnerGate: route {RouteIds.Short(route.Id)} is the chain SEED " +
+                    $"(prio={route.DispatchPriority} id<={RouteIds.Short(route.Id)}) and partner={RouteIds.Short(partner.Id)} " +
                     "has completed no cycle - dispatch allowed (deadlock break)");
                 return true;
             }
@@ -380,14 +380,14 @@ namespace Parsek.Logistics
             {
                 reason = "partner:" + (partner.Name ?? partner.Id ?? "<unknown>");
                 ParsekLog.Verbose("Route",
-                    $"PartnerGate: route {ShortId(route.Id)} HOLD WaitingForPartner partner={ShortId(partner.Id)} " +
+                    $"PartnerGate: route {RouteIds.Short(route.Id)} HOLD WaitingForPartner partner={RouteIds.Short(partner.Id)} " +
                     $"partnerCompleted={partner.CompletedCycles} lastConsumed={route.LastConsumedPartnerCycle} " +
                     $"(needs partnerCompleted > lastConsumed)");
                 return false;
             }
 
             ParsekLog.Verbose("Route",
-                $"PartnerGate: route {ShortId(route.Id)} CLEAR partner={ShortId(partner.Id)} " +
+                $"PartnerGate: route {RouteIds.Short(route.Id)} CLEAR partner={RouteIds.Short(partner.Id)} " +
                 $"partnerCompleted={partner.CompletedCycles} lastConsumed={route.LastConsumedPartnerCycle} - dispatch allowed");
             return true;
         }
@@ -412,12 +412,6 @@ namespace Parsek.Logistics
             if (byPriority != 0) return byPriority < 0;
 
             return string.CompareOrdinal(route.Id, partner.Id) < 0;
-        }
-
-        private static string ShortId(string id)
-        {
-            if (string.IsNullOrEmpty(id)) return "<no-id>";
-            return id.Length > 8 ? id.Substring(0, 8) : id;
         }
     }
 }

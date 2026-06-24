@@ -4218,8 +4218,7 @@ namespace Parsek.Logistics
 
         private static string ShortIdForLog(Route route)
         {
-            if (route == null || string.IsNullOrEmpty(route.Id)) return "<no-id>";
-            return route.Id.Length > 8 ? route.Id.Substring(0, 8) : route.Id;
+            return RouteIds.Short(route);
         }
     }
 }
