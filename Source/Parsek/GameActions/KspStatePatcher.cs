@@ -32,6 +32,21 @@ namespace Parsek
             ParsekLog.VerboseOnChange(Tag, identity, stateKey, message);
         }
 
+        // LedgerTrace Tier-C: reconcile the computed target against the live
+        // pool read-back. A drift beyond the resource tolerance is a
+        // ledger-vs-truth anomaly (the write did not land where the recalc
+        // intended). Callers must still gate this on LedgerTrace.IsEnabled.
+        private static void EmitPoolReadbackAnomaly(string resourceKey, double target, double actual)
+        {
+            double tol = LedgerTrace.ResourceTolerance(resourceKey);
+            if (LedgerTrace.IsResourceDrift(target, actual, tol))
+                LedgerTrace.EmitAnomaly(resourceKey, "pool", "ledger-vs-truth",
+                    $"target={LedgerTrace.FormatDouble(target, "F3")} " +
+                    $"actual={LedgerTrace.FormatDouble(actual, "F3")} " +
+                    $"delta={LedgerTrace.FormatDouble(target - actual, "F3")} " +
+                    $"tol={LedgerTrace.FormatDouble(tol, "R")}");
+        }
+
         /// <summary>
         /// When true, skips Unity-only API calls (FindObjectsOfType etc.) that crash outside the engine.
         /// Set by test fixtures; reset via <see cref="ResetForTesting"/>.
@@ -243,13 +258,7 @@ namespace Parsek
                 // the recalc intended). Reuses afterScience; no second read.
                 if (LedgerTrace.IsEnabled)
                 {
-                    double tol = LedgerTrace.ResourceTolerance("science");
-                    if (LedgerTrace.IsResourceDrift(decision.EffectiveTarget, afterScience, tol))
-                        LedgerTrace.EmitAnomaly("science", "pool", "ledger-vs-truth",
-                            $"target={LedgerTrace.FormatDouble(decision.EffectiveTarget, "F3")} " +
-                            $"actual={LedgerTrace.FormatDouble(afterScience, "F3")} " +
-                            $"delta={LedgerTrace.FormatDouble(decision.EffectiveTarget - afterScience, "F3")} " +
-                            $"tol={LedgerTrace.FormatDouble(tol, "R")}");
+                    EmitPoolReadbackAnomaly("science", decision.EffectiveTarget, afterScience);
                 }
             }
 
@@ -986,13 +995,7 @@ namespace Parsek
             // read-back we just took (afterFunds). Reuses afterFunds; no second read.
             if (LedgerTrace.IsEnabled)
             {
-                double tol = LedgerTrace.ResourceTolerance("funds");
-                if (LedgerTrace.IsResourceDrift(decision.EffectiveTarget, afterFunds, tol))
-                    LedgerTrace.EmitAnomaly("funds", "pool", "ledger-vs-truth",
-                        $"target={LedgerTrace.FormatDouble(decision.EffectiveTarget, "F3")} " +
-                        $"actual={LedgerTrace.FormatDouble(afterFunds, "F3")} " +
-                        $"delta={LedgerTrace.FormatDouble(decision.EffectiveTarget - afterFunds, "F3")} " +
-                        $"tol={LedgerTrace.FormatDouble(tol, "R")}");
+                EmitPoolReadbackAnomaly("funds", decision.EffectiveTarget, afterFunds);
             }
         }
 
@@ -1128,13 +1131,7 @@ namespace Parsek
             // read-back we just took (afterRep). Reuses afterRep; no second read.
             if (LedgerTrace.IsEnabled)
             {
-                double tol = LedgerTrace.ResourceTolerance("reputation");
-                if (LedgerTrace.IsResourceDrift(decision.EffectiveTarget, afterRep, tol))
-                    LedgerTrace.EmitAnomaly("reputation", "pool", "ledger-vs-truth",
-                        $"target={LedgerTrace.FormatDouble(decision.EffectiveTarget, "F3")} " +
-                        $"actual={LedgerTrace.FormatDouble(afterRep, "F3")} " +
-                        $"delta={LedgerTrace.FormatDouble(decision.EffectiveTarget - afterRep, "F3")} " +
-                        $"tol={LedgerTrace.FormatDouble(tol, "R")}");
+                EmitPoolReadbackAnomaly("reputation", decision.EffectiveTarget, afterRep);
             }
         }
 
