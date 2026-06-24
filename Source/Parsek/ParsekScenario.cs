@@ -7666,6 +7666,20 @@ namespace Parsek
         /// </summary>
         internal static void SaveRecordingMetadata(ConfigNode recNode, Recording rec)
         {
+            SaveRecordingIdentityAndLoopMetadata(recNode, rec);
+
+            SaveRecordingBudgetAndRewindMetadata(recNode, rec);
+            SaveRecordingGroupAndSegmentMetadata(recNode, rec);
+
+            SaveRecordingLocationAndTerminalMetadata(recNode, rec);
+            SaveRecordingPlaybackFlags(recNode, rec);
+
+            SaveRecordingManifestMetadata(recNode, rec);
+
+        }
+
+        private static void SaveRecordingIdentityAndLoopMetadata(ConfigNode recNode, Recording rec)
+        {
             recNode.AddValue("recordingId", rec.RecordingId ?? "");
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
@@ -7680,6 +7694,10 @@ namespace Parsek
                 recNode.AddValue("loopAnchorBodyName", rec.LoopAnchorBodyName);
             if (rec.LoopTimeUnit != LoopTimeUnit.Sec)
                 recNode.AddValue("loopTimeUnit", rec.LoopTimeUnit.ToString());
+        }
+
+        private static void SaveRecordingBudgetAndRewindMetadata(ConfigNode recNode, Recording rec)
+        {
             if (rec.PreLaunchFunds != 0)
                 recNode.AddValue("preLaunchFunds", rec.PreLaunchFunds.ToString("R", CultureInfo.InvariantCulture));
             if (rec.PreLaunchScience != 0)
@@ -7695,7 +7713,10 @@ namespace Parsek
                 recNode.AddValue("rewindResSci", rec.RewindReservedScience.ToString("R", CultureInfo.InvariantCulture));
                 recNode.AddValue("rewindResRep", rec.RewindReservedRep.ToString("R", CultureInfo.InvariantCulture));
             }
+        }
 
+        private static void SaveRecordingGroupAndSegmentMetadata(ConfigNode recNode, Recording rec)
+        {
             // UI grouping tags (multi-group membership)
             if (rec.RecordingGroups != null)
                 for (int g = 0; g < rec.RecordingGroups.Count; g++)
@@ -7706,7 +7727,10 @@ namespace Parsek
                 recNode.AddValue("segmentPhase", rec.SegmentPhase);
             if (!string.IsNullOrEmpty(rec.SegmentBodyName))
                 recNode.AddValue("segmentBodyName", rec.SegmentBodyName);
+        }
 
+        private static void SaveRecordingLocationAndTerminalMetadata(ConfigNode recNode, Recording rec)
+        {
             // Location context (Phase 10)
             if (!string.IsNullOrEmpty(rec.StartBodyName))
                 recNode.AddValue("startBodyName", rec.StartBodyName);
@@ -7735,12 +7759,18 @@ namespace Parsek
                 recNode.AddValue("tOrbEpoch", rec.TerminalOrbitEpoch.ToString("R", CultureInfo.InvariantCulture));
                 recNode.AddValue("tOrbBody", rec.TerminalOrbitBody);
             }
+        }
 
+        private static void SaveRecordingPlaybackFlags(ConfigNode recNode, Recording rec)
+        {
             if (!rec.PlaybackEnabled)
                 recNode.AddValue("playbackEnabled", rec.PlaybackEnabled.ToString());
             if (rec.Hidden)
                 recNode.AddValue("hidden", rec.Hidden.ToString());
+        }
 
+        private static void SaveRecordingManifestMetadata(ConfigNode recNode, Recording rec)
+        {
             // Resource manifests (Phase 11)
             RecordingStore.SerializeResourceManifest(recNode, rec);
 
@@ -7760,7 +7790,6 @@ namespace Parsek
 
             // Logistics route proof metadata (additive; missing node = no proof data)
             RecordingStore.SerializeRouteProofMetadata(recNode, rec);
-
         }
 
         /// <summary>
