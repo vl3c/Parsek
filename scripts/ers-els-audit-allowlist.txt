@@ -53,6 +53,7 @@ Source/Parsek/ParsekTrackingStation.cs
 Source/Parsek/Diagnostics/DiagnosticsComputation.cs
 Source/Parsek/FlightRecorder.cs
 Source/Parsek/ParsekKSC.cs
+Source/Parsek/ParsekKSC.Playback.cs
 Source/Parsek/ParsekUI.cs
 Source/Parsek/UI/RecordingsTableUI.cs
 Source/Parsek/UI/GroupPickerUI.cs
