@@ -694,7 +694,10 @@ namespace Parsek
         }
 
         private static void SerializeRouteEndpoint(ConfigNode node, RouteEndpoint endpoint)
-            => Logistics.RouteNodeCodec.SerializeEndpoint(node, endpoint, CultureInfo.InvariantCulture);
+        {
+            var ic = CultureInfo.InvariantCulture;
+            Logistics.RouteNodeCodec.SerializeEndpoint(node, endpoint, ic);
+        }
 
         private static RouteEndpoint DeserializeRouteEndpoint(ConfigNode node)
         {
