@@ -250,7 +250,7 @@ namespace Parsek
         private static void AddStagingSteps(
             List<StructureStep> steps, RecordingTree tree, HashSet<uint> handledDecouplerPids)
         {
-            // Staging part events across all member recordings. Decoupled events are
+            // Decoupled events are
             // dropped when a controlled Separation branch point already covers the same
             // decoupler PID; fairing / shroud have no branch-point counterpart and pass
             // through. Cross-recording dedup is UT-TOLERANT, not UT-blind: the same
