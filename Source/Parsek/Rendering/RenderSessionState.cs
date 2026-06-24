@@ -513,56 +513,23 @@ namespace Parsek.Rendering
 
             // Guard 1: marker null OR origin id empty → clear and bail. We
             // never want stale anchors leaking into a non-session render.
-            if (marker == null || string.IsNullOrEmpty(marker.OriginChildRecordingId))
-            {
-                Clear("marker-null");
+            if (TryHandleNullOrEmptyMarker(marker))
                 return;
-            }
 
-            if (recordings == null || recordings.Count == 0)
-            {
-                ParsekLog.Warn("Pipeline-Anchor",
-                    $"RebuildFromMarker: no recordings supplied " +
-                    $"sessionId={marker.SessionId ?? "<no-id>"}");
-                Clear("no-recordings");
+            if (TryHandleNoRecordings(marker, recordings))
                 return;
-            }
 
             // Guard 2: resolve R_origin by id from the committed list.
-            Recording rOrigin = FindRecordingById(recordings, marker.OriginChildRecordingId);
-            if (rOrigin == null)
-            {
-                ParsekLog.Warn("Pipeline-Anchor",
-                    $"RebuildFromMarker: marker-orphan-origin-missing " +
-                    $"originChildRecordingId={marker.OriginChildRecordingId} sessionId={marker.SessionId ?? "<no-id>"}");
-                Clear("marker-orphan-origin-missing");
+            if (TryHandleOriginMissing(marker, recordings, out Recording rOrigin))
                 return;
-            }
 
             // Guard 3: resolve the parent BranchPoint via the supplied tree
             // lookup. Launch-root in-place continuations intentionally have no
             // parent BP; other missing-parent markers are the orphan-marker
             // case described in §15 / log L14, so we Warn (HR-9) and bail.
-            RecordingTreeContext context = treeLookup != null
-                ? treeLookup(rOrigin.RecordingId)
-                : default;
-            if (context.ParentBranchPoint == null)
-            {
-                if (IsInPlaceContinuationMarker(marker))
-                {
-                    InstallEmptyInPlaceContinuationSession(
-                        marker, rOrigin, recordings, treeLookup);
-                    return;
-                }
-
-                ParsekLog.Warn("Pipeline-Anchor",
-                    $"RebuildFromMarker: orphan-marker-no-parent-branchpoint " +
-                    $"originRecordingId={rOrigin.RecordingId} sessionId={marker.SessionId ?? "<no-id>"}");
-                Clear("orphan-marker-no-parent-branchpoint");
+            if (TryHandleParentBranchPointMissing(
+                    marker, rOrigin, recordings, treeLookup, out BranchPoint bp))
                 return;
-            }
-
-            BranchPoint bp = context.ParentBranchPoint;
 
             // Sibling enumeration.
             var siblingIds = new List<string>();
@@ -576,30 +543,8 @@ namespace Parsek.Rendering
                     siblingIds.Add(id);
                 }
             }
-            if (siblingIds.Count == 0)
-            {
-                ParsekLog.Verbose("Pipeline-Anchor",
-                    $"RebuildFromMarker: no-siblings " +
-                    $"branchPointId={bp.Id ?? "<no-id>"} originRecordingId={rOrigin.RecordingId} sessionId={marker.SessionId ?? "<no-id>"}");
-                // Replace any prior session's anchors with an empty map for
-                // this session's id, so subsequent lookups don't return stale
-                // values.
-                lock (Lock)
-                {
-                    Anchors.Clear();
-                    s_currentSessionId = marker.SessionId;
-                    ResetSessionDedupSetsLocked();
-                }
-                ParsekLog.Info("Pipeline-Session",
-                    $"RebuildFromMarker complete: sessionId={marker.SessionId ?? "<no-id>"} " +
-                    $"siblingsConsidered=0 anchorsWritten=0 skippedNoLivePoint=0 " +
-                    $"skippedNoGhostPoint=0 skippedRelativeFrame=0 skippedBodyMissing=0 skippedSplineSection=0");
-                // Phase 6: even without LiveSeparation seeds, the propagator
-                // still emits non-LiveSeparation candidates from the per-
-                // recording .pann into the session map.
-                RunAnchorPropagator(marker, recordings, treeLookup);
+            if (TryHandleNoSiblings(marker, rOrigin, bp, siblingIds, recordings, treeLookup))
                 return;
-            }
 
             // Live world read — HR-15 frozen single-shot. Key off
             // ActiveReFlyRecordingId, not OriginChildRecordingId: the
@@ -612,20 +557,9 @@ namespace Parsek.Rendering
             // does. Branch and sibling lookup still key off
             // OriginChildRecordingId — that is where the canonical
             // pre-re-fly trajectory and the parent BranchPoint live.
-            Vector3d? maybeLive = liveWorldPositionProvider != null
-                ? liveWorldPositionProvider(marker.ActiveReFlyRecordingId)
-                : (Vector3d?)null;
-            if (!maybeLive.HasValue)
-            {
-                ParsekLog.Warn("Pipeline-Anchor",
-                    $"RebuildFromMarker: live-vessel-missing " +
-                    $"activeReFlyRecordingId={marker.ActiveReFlyRecordingId ?? "<none>"} " +
-                    $"originChildRecordingId={marker.OriginChildRecordingId} sessionId={marker.SessionId ?? "<no-id>"} " +
-                    $"branchPointId={bp.Id ?? "<no-id>"}");
-                Clear("live-vessel-missing");
+            if (TryHandleLiveVesselMissing(
+                    marker, bp, liveWorldPositionProvider, out Vector3d live_world_at_spawn))
                 return;
-            }
-            Vector3d live_world_at_spawn = maybeLive.Value;
             // L18 — pin the frozen live position once per session. Tests
             // assert exactly one of these lines per session (HR-15 audit).
             // Both ids are logged so the audit trail captures which provider
@@ -669,19 +603,8 @@ namespace Parsek.Rendering
 
             // Resolve liveFirstPoint once — every sibling pairs against the
             // same live boundary point.
-            TrajectoryPoint liveFirst = default;
-            bool liveHasPoint = TryFindFirstPointAtOrAfter(rOrigin.Points, bp.UT, out liveFirst);
-            if (!liveHasPoint)
-            {
-                ParsekLog.Verbose("Pipeline-Anchor",
-                    $"RebuildFromMarker: skipping-all-siblings reason=live-no-point " +
-                    $"originRecordingId={rOrigin.RecordingId} bpUT={bp.UT.ToString("R", CultureInfo.InvariantCulture)}");
-                ParsekLog.Info("Pipeline-Session",
-                    $"RebuildFromMarker complete: sessionId={marker.SessionId ?? "<no-id>"} " +
-                    $"siblingsConsidered={siblingIds.Count} anchorsWritten=0 skippedNoLivePoint={siblingIds.Count} " +
-                    $"skippedNoGhostPoint=0 skippedRelativeFrame=0 skippedBodyMissing=0 skippedSplineSection=0");
+            if (TryHandleLiveNoPoint(marker, rOrigin, bp, siblingIds, out TrajectoryPoint liveFirst))
                 return;
-            }
 
             // Capture the surface-lookup once per rebuild so production and
             // test paths share one closure. Test override wins when set.
@@ -882,6 +805,166 @@ namespace Parsek.Rendering
             // emit the remaining §7.2 — §7.10 anchor types and propagate ε
             // along BranchPoint edges per §9.1.
             RunAnchorPropagator(marker, recordings, treeLookup);
+        }
+
+        // -------------------------------------------------------------------
+        //  RebuildFromMarker guard cascade (phase extract). Each helper lifts
+        //  one ordered guard block verbatim — same conditions, same
+        //  Clear(reason) + log — and returns true when it handled the case so
+        //  the caller stops (the original `return;`). Out params carry the
+        //  values a non-handled guard produced for the rest of the rebuild.
+        // -------------------------------------------------------------------
+
+        private static bool TryHandleNullOrEmptyMarker(ReFlySessionMarker marker)
+        {
+            if (marker == null || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+            {
+                Clear("marker-null");
+                return true;
+            }
+            return false;
+        }
+
+        private static bool TryHandleNoRecordings(
+            ReFlySessionMarker marker, IReadOnlyList<Recording> recordings)
+        {
+            if (recordings == null || recordings.Count == 0)
+            {
+                ParsekLog.Warn("Pipeline-Anchor",
+                    $"RebuildFromMarker: no recordings supplied " +
+                    $"sessionId={marker.SessionId ?? "<no-id>"}");
+                Clear("no-recordings");
+                return true;
+            }
+            return false;
+        }
+
+        private static bool TryHandleOriginMissing(
+            ReFlySessionMarker marker, IReadOnlyList<Recording> recordings, out Recording rOrigin)
+        {
+            rOrigin = FindRecordingById(recordings, marker.OriginChildRecordingId);
+            if (rOrigin == null)
+            {
+                ParsekLog.Warn("Pipeline-Anchor",
+                    $"RebuildFromMarker: marker-orphan-origin-missing " +
+                    $"originChildRecordingId={marker.OriginChildRecordingId} sessionId={marker.SessionId ?? "<no-id>"}");
+                Clear("marker-orphan-origin-missing");
+                return true;
+            }
+            return false;
+        }
+
+        private static bool TryHandleParentBranchPointMissing(
+            ReFlySessionMarker marker,
+            Recording rOrigin,
+            IReadOnlyList<Recording> recordings,
+            Func<string, RecordingTreeContext> treeLookup,
+            out BranchPoint bp)
+        {
+            RecordingTreeContext context = treeLookup != null
+                ? treeLookup(rOrigin.RecordingId)
+                : default;
+            if (context.ParentBranchPoint == null)
+            {
+                if (IsInPlaceContinuationMarker(marker))
+                {
+                    InstallEmptyInPlaceContinuationSession(
+                        marker, rOrigin, recordings, treeLookup);
+                    bp = null;
+                    return true;
+                }
+
+                ParsekLog.Warn("Pipeline-Anchor",
+                    $"RebuildFromMarker: orphan-marker-no-parent-branchpoint " +
+                    $"originRecordingId={rOrigin.RecordingId} sessionId={marker.SessionId ?? "<no-id>"}");
+                Clear("orphan-marker-no-parent-branchpoint");
+                bp = null;
+                return true;
+            }
+
+            bp = context.ParentBranchPoint;
+            return false;
+        }
+
+        private static bool TryHandleNoSiblings(
+            ReFlySessionMarker marker,
+            Recording rOrigin,
+            BranchPoint bp,
+            List<string> siblingIds,
+            IReadOnlyList<Recording> recordings,
+            Func<string, RecordingTreeContext> treeLookup)
+        {
+            if (siblingIds.Count == 0)
+            {
+                ParsekLog.Verbose("Pipeline-Anchor",
+                    $"RebuildFromMarker: no-siblings " +
+                    $"branchPointId={bp.Id ?? "<no-id>"} originRecordingId={rOrigin.RecordingId} sessionId={marker.SessionId ?? "<no-id>"}");
+                // Replace any prior session's anchors with an empty map for
+                // this session's id, so subsequent lookups don't return stale
+                // values.
+                lock (Lock)
+                {
+                    Anchors.Clear();
+                    s_currentSessionId = marker.SessionId;
+                    ResetSessionDedupSetsLocked();
+                }
+                ParsekLog.Info("Pipeline-Session",
+                    $"RebuildFromMarker complete: sessionId={marker.SessionId ?? "<no-id>"} " +
+                    $"siblingsConsidered=0 anchorsWritten=0 skippedNoLivePoint=0 " +
+                    $"skippedNoGhostPoint=0 skippedRelativeFrame=0 skippedBodyMissing=0 skippedSplineSection=0");
+                // Phase 6: even without LiveSeparation seeds, the propagator
+                // still emits non-LiveSeparation candidates from the per-
+                // recording .pann into the session map.
+                RunAnchorPropagator(marker, recordings, treeLookup);
+                return true;
+            }
+            return false;
+        }
+
+        private static bool TryHandleLiveVesselMissing(
+            ReFlySessionMarker marker,
+            BranchPoint bp,
+            Func<string, Vector3d?> liveWorldPositionProvider,
+            out Vector3d live_world_at_spawn)
+        {
+            Vector3d? maybeLive = liveWorldPositionProvider != null
+                ? liveWorldPositionProvider(marker.ActiveReFlyRecordingId)
+                : (Vector3d?)null;
+            if (!maybeLive.HasValue)
+            {
+                ParsekLog.Warn("Pipeline-Anchor",
+                    $"RebuildFromMarker: live-vessel-missing " +
+                    $"activeReFlyRecordingId={marker.ActiveReFlyRecordingId ?? "<none>"} " +
+                    $"originChildRecordingId={marker.OriginChildRecordingId} sessionId={marker.SessionId ?? "<no-id>"} " +
+                    $"branchPointId={bp.Id ?? "<no-id>"}");
+                Clear("live-vessel-missing");
+                live_world_at_spawn = default;
+                return true;
+            }
+            live_world_at_spawn = maybeLive.Value;
+            return false;
+        }
+
+        private static bool TryHandleLiveNoPoint(
+            ReFlySessionMarker marker,
+            Recording rOrigin,
+            BranchPoint bp,
+            List<string> siblingIds,
+            out TrajectoryPoint liveFirst)
+        {
+            bool liveHasPoint = TryFindFirstPointAtOrAfter(rOrigin.Points, bp.UT, out liveFirst);
+            if (!liveHasPoint)
+            {
+                ParsekLog.Verbose("Pipeline-Anchor",
+                    $"RebuildFromMarker: skipping-all-siblings reason=live-no-point " +
+                    $"originRecordingId={rOrigin.RecordingId} bpUT={bp.UT.ToString("R", CultureInfo.InvariantCulture)}");
+                ParsekLog.Info("Pipeline-Session",
+                    $"RebuildFromMarker complete: sessionId={marker.SessionId ?? "<no-id>"} " +
+                    $"siblingsConsidered={siblingIds.Count} anchorsWritten=0 skippedNoLivePoint={siblingIds.Count} " +
+                    $"skippedNoGhostPoint=0 skippedRelativeFrame=0 skippedBodyMissing=0 skippedSplineSection=0");
+                return true;
+            }
+            return false;
         }
 
         private static bool IsInPlaceContinuationMarker(ReFlySessionMarker marker)

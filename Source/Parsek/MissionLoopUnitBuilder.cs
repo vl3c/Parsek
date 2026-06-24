@@ -375,611 +375,16 @@ namespace Parsek
                 //      varies between windows; the Hohmann tof (hence the recorded span) is constant.
                 if (!phaseLocked)
                 {
-                    // Classify across ALL members' segments (the mission's combined SOI chain): a real
-                    // interplanetary mission is usually a CHAIN (launch leg / transfer leg / arrival
-                    // leg / debris as separate recordings), so the heliocentric transfer lives in a
-                    // non-owner member. The per-window substitution then re-aims ONLY each member's
-                    // heliocentric leg(s) (ReaimPlaybackResolver / ReaimSegmentAssembler.
-                    // ReplaceHeliocentricLeg) and leaves body-relative legs faithful, so classifying
-                    // across the whole chain and substituting per-member is consistent (no half-apply).
-                    // Classify PER-MEMBER, not the flattened multi-member gather. A member parked in orbit
-                    // DURING the transfer (a station, a tug, a jettisoned stage left in LKO) interleaves
-                    // its orbit segments with the transfer member's heliocentric coast in the flattened
-                    // startUT-sorted list. That broke both algorithms in playtest: the classifier's
-                    // backward walk from the target SOI coast hit an interleaved launch-body segment and
-                    // stopped (transfer = the last coast only -> a too-short tof -> a bogus re-aimed
-                    // geometry), and the loiter compressor cut the interleaved launch-body loiter whose UT
-                    // range OVERLAPS the transfer (excising the transfer itself). The transfer is ONE
-                    // member's continuous heliocentric arc, so classify each member's own segments; the
-                    // member that yields a supported plan is the re-aim source and ITS segments drive the
-                    // loiter cuts (only its parking is compressed, never another member's overlapping
-                    // loiter). Members with no heliocentric leg (the parked station) classify as
-                    // unsupported and loop faithfully alongside.
-                    ReaimMissionPlan plan = ReaimMissionPlan.Unsupported(null, "no member yields a re-aim transfer");
-                    List<OrbitSegment> transferSegments = null;
-                    int gatheredCount = 0;
-                    for (int mi = 0; mi < memberIndices.Count; mi++)
-                    {
-                        int midx = memberIndices[mi];
-                        if (midx < 0 || midx >= committed.Count)
-                            continue;
-                        Recording mrec = committed[midx];
-                        if (mrec == null || mrec.OrbitSegments == null || mrec.OrbitSegments.Count == 0)
-                            continue;
-                        gatheredCount += mrec.OrbitSegments.Count;
-                        var msegs = new List<OrbitSegment>(mrec.OrbitSegments);
-                        msegs.Sort((a, b) => a.startUT.CompareTo(b.startUT));
-                        ReaimMissionPlan mp = ReaimClassifier.Classify(msegs, bodyInfo);
-                        // Per-member classify verdict: the classifier returns a per-member reason but the
-                        // gather kept only the chosen-supported member's details, so a "why
-                        // transferMemberSegs=0" diagnosis had to be reverse-engineered from the recording.
-                        // Log each member's verdict (member count is bounded) so the decline reason is
-                        // visible in KSP.log directly.
-                        if (!SuppressLogging)
-                            ParsekLog.Verbose("ReaimDiag",
-                                $"mission='{mission.Name}' member#{mi} segs={msegs.Count} " +
-                                $"startBody={(msegs.Count > 0 ? msegs[0].bodyName : "none")} " +
-                                $"supported={mp.Supported}" +
-                                (mp.Supported
-                                    ? $" target={mp.TargetBody} parking={mp.DepartedFromHeliocentricPark}"
-                                    : $" reason='{mp.Reason}'"));
-                        if (mp.Supported && transferSegments == null)
-                        {
-                            plan = mp;
-                            transferSegments = msegs;
-                            // The destination transfer member's committed index: the member whose OWN segments
-                            // classified Supported. This is the canonical transfer-member identity - the SAME
-                            // member that drives transferSegments / loiterRuns / descentRun / seamUT below - so
-                            // the loiter-gap clamp can gate on it exactly (excluding the ride-along probe).
-                            transferMemberIndex = midx;
-                            // keep scanning only to finish the gatheredCount tally for the diagnostic
-                        }
-                    }
-
-                    // Diagnostic: dump the transfer member's segments + the classifier's transfer
-                    // measurement so a save reload reveals the recorded structure (which segment is the
-                    // transfer, where any loiter is, what the loiter detector + classifier see). Verbose,
-                    // one-shot per build.
-                    if (!SuppressLogging && bodyInfo != null)
-                    {
-                        var dic = CultureInfo.InvariantCulture;
-                        List<OrbitSegment> dumpSegs = transferSegments ?? new List<OrbitSegment>();
-                        ParsekLog.Verbose("ReaimDiag",
-                            $"mission='{mission.Name}' gatheredSegs={gatheredCount} transferMemberSegs={dumpSegs.Count} " +
-                            $"plan.Supported={plan.Supported} reason='{plan.Reason}'" +
-                            (plan.Supported
-                                ? $" departUT={plan.RecordedDepartureUT.ToString("F0", dic)}" +
-                                  $" arrivalUT={plan.RecordedArrivalUT.ToString("F0", dic)}" +
-                                  $" tof={plan.RecordedTransferTofSeconds.ToString("F0", dic)}" +
-                                  $" ancestor={plan.CommonAncestor}" +
-                                  $" parking={plan.DepartedFromHeliocentricPark}"
-                                : ""));
-                        int logged = 0;
-                        for (int si = 0; si < dumpSegs.Count && logged < 60; si++, logged++)
-                        {
-                            OrbitSegment s = dumpSegs[si];
-                            double per = ReaimLoiterCompressor.OrbitalPeriod(
-                                s.semiMajorAxis, bodyInfo.GravParameter(s.bodyName));
-                            double dur = s.endUT - s.startUT;
-                            ParsekLog.Verbose("ReaimDiag",
-                                $"  seg#{si} {s.bodyName} [{s.startUT.ToString("F0", dic)},{s.endUT.ToString("F0", dic)}]" +
-                                $" dur={dur.ToString("F0", dic)} sma={s.semiMajorAxis.ToString("R", dic)}" +
-                                $" period={(double.IsNaN(per) ? "NaN" : per.ToString("F0", dic))}" +
-                                $" revs={(double.IsNaN(per) || per <= 0.0 ? "-" : (dur / per).ToString("F2", dic))}" +
-                                $" pred={s.isPredicted}");
-                        }
-                    }
-
-                    if (plan.Supported)
-                    {
-                        // Congruent-window schedule: the windows are RecordedDepartureUT + k*synodic
-                        // (the bodies' relative configuration recurs every synodic period), and each
-                        // window re-solves the transfer for the target's actual position using the
-                        // RECORDED tof - so the transfer stays congruent to the recorded one and fits
-                        // the recorded span exactly. Needs only the two solar orbital periods.
-                        double pOrigin = bodyInfo.OrbitPeriod(plan.LaunchBody);
-                        double pTarget = bodyInfo.OrbitPeriod(plan.TargetBody);
-
-                        ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
-                            pOrigin, pTarget, plan.RecordedDepartureUT, plan.RecordedTransferTofSeconds,
-                            spanStartUT, spanEndUT, referenceUT);
-
-                        if (sched.Valid)
-                        {
-                            reaimPlan = plan;
-                            reaimSchedule = sched;
-                            // The synodic period dwarfs the recorded span, so the cadence is synodic and
-                            // the mission is single-instance per window (overlap cadence >= span => never
-                            // overlaps). The faithful zero-drift schedule does not apply to re-aim.
-                            phaseAnchorUT = sched.PhaseAnchorUT;
-                            effectiveCadence = Math.Max(span, sched.CadenceSeconds);
-                            effectiveOverlapCadence = effectiveCadence;
-                            relaunchSchedule = null;
-
-                            // Loiter compression (docs/dev/plans/reaim-loiter-compression.md): the
-                            // recorded mission usually parks for a year or more waiting for the transfer
-                            // window. For a SUPPLY-ROUTE loop that loiter must not replay, so excise every
-                            // repeated parking orbit down to ~1 revolution. The cuts feed the shared span
-                            // clock (TryComputeSpanLoopUT remaps loopUT to skip them); the phase anchor
-                            // shifts LATER by the cut excised before the transfer departure so the launch
-                            // still lands ~1 orbit before the (unchanged, absolute) synodic window. Empty
-                            // cuts (no compressible loiter) leave the clock byte-identical to faithful.
-                            List<GhostPlaybackLogic.LoopCut> cuts =
-                                ReaimLoiterCompressor.ComputeCuts(transferSegments, bodyInfo.GravParameter);
-                            // M-MIS-2 P4 (destination-loiter pre-landing trim): partition the transfer
-                            // member's loiter runs so a recorded DESTINATION parking loiter can be
-                            // re-timed jointly with the arrival hold (DestinationLoiterTrim) instead of
-                            // disabling alignment (the shipped ArrivalHoldPlanner refusal). The
-                            // launch-side cuts (runs ending at/before the SOI entry) are built at
-                            // keepRevs=1 - byte-identical to today's launch-parking compression - and
-                            // `cuts` (the full keepRevs=1 set) remains the byte-identical fallback when
-                            // P4 does not apply. Scoped to a destination loiter in the classified
-                            // transfer member; a same-launch chain continuation that records the parking
-                            // in a SEPARATE member is the documented follow-up (plan B1: gather across
-                            // VesselLaunchIdentity.RecordingsShareLaunch members, the M4b pattern).
-                            List<ReaimLoiterCompressor.LoiterRun> loiterRuns =
-                                ReaimLoiterCompressor.DetectRuns(transferSegments, bodyInfo.GravParameter);
-                            List<GhostPlaybackLogic.LoopCut> launchSideCuts =
-                                BuildLaunchSideKeepOneCuts(loiterRuns, plan.RecordedArrivalUT);
-                            // Apply only when the cuts leave a POSITIVE compressed span. keepRevs >= 1
-                            // already guarantees each cutLength < its run duration (so totalCut < span),
-                            // but gate on it explicitly to match TryComputeSpanLoopUT's effectiveSpan
-                            // check: that gate falls back to the identity remap when totalCut >= span, so
-                            // applying the anchor shift here without the same gate would produce a
-                            // shifted-but-uncompressed clock in the (unreachable) degenerate case.
-                            // Diagnostic: dump each cut (cross-reference start with the seg# dump above to
-                            // see which run was excised, and whether the transfer arc was wrongly cut).
-                            if (!SuppressLogging)
-                            {
-                                var cic = CultureInfo.InvariantCulture;
-                                for (int ci = 0; ci < cuts.Count && ci < 30; ci++)
-                                    ParsekLog.Verbose("ReaimDiag",
-                                        $"  cut#{ci} start={cuts[ci].StartUT.ToString("F0", cic)}" +
-                                        $" len={cuts[ci].LengthSeconds.ToString("F0", cic)}" +
-                                        $" end={cuts[ci].EndUT.ToString("F0", cic)}");
-                            }
-
-                            if (cuts.Count > 0 && GhostPlaybackLogic.TotalCutLength(cuts) < span)
-                            {
-                                double cutBeforeDeparture = plan.RecordedDepartureUT
-                                    - GhostPlaybackLogic.CompressSpanUT(plan.RecordedDepartureUT, cuts);
-                                phaseAnchorUT = sched.PhaseAnchorUT + cutBeforeDeparture;
-                                loiterCuts = cuts;
-                            }
-
-                            // Launch-pad alignment (option 1, departure side). Snap the (now loiter-shifted)
-                            // launch to the launch body's recorded rotation phase so the body-fixed ascent
-                            // replays from the pad EXACTLY as recorded and feeds the recorded inertial parking
-                            // orbit + escape with no seam (the atmo-exit -> circular-orbit misalignment the
-                            // playtest flagged). Quantizes the cadence + the schedule's window spacing to the
-                            // same sidereal day so EVERY relaunch stays aligned, and moves the departure offset
-                            // by the same delta so the window-index <-> launch mapping the resolver uses is
-                            // preserved. Identity for a non-rotating launch body.
-                            double launchRotationPeriod = bodyInfo.RotationPeriod(plan.LaunchBody);
-                            ReaimWindowPlanner.PadAlignResult pad = ReaimWindowPlanner.PadAlignLaunch(
-                                phaseAnchorUT, effectiveCadence,
-                                sched.FirstDepartureUT, sched.SynodicPeriodSeconds,
-                                spanStartUT, launchRotationPeriod, referenceUT);
-                            if (pad.Applied)
-                            {
-                                phaseAnchorUT = pad.PhaseAnchorUT;
-                                effectiveCadence = pad.CadenceSeconds;
-                                effectiveOverlapCadence = effectiveCadence;
-                                sched.FirstDepartureUT = pad.FirstDepartureUT;
-                                sched.SynodicPeriodSeconds = pad.SynodicPeriodSeconds;
-                                sched.CadenceSeconds = pad.CadenceSeconds;
-                                reaimSchedule = sched; // re-store the pad-aligned schedule the resolver reads
-                                if (!SuppressLogging)
-                                {
-                                    var pic = CultureInfo.InvariantCulture;
-                                    ParsekLog.Info("Reaim",
-                                        $"MissionLoopUnit: mission='{mission.Name}' PAD-ALIGN launch to " +
-                                        $"{plan.LaunchBody} rotation: siderealDay={launchRotationPeriod.ToString("F1", pic)}s " +
-                                        $"launchShift={pad.DeltaSeconds.ToString("F1", pic)}s " +
-                                        $"phaseAnchor={phaseAnchorUT.ToString("R", pic)} " +
-                                        $"cadence={effectiveCadence.ToString("R", pic)} " +
-                                        $"(launch-recLaunch)/day=" +
-                                        $"{((phaseAnchorUT - spanStartUT) / launchRotationPeriod).ToString("F3", pic)}");
-                                }
-                            }
-
-                            // Per-loop LAUNCH ALIGNMENT gate (docs/dev/design-reaim-launch-hold-seam.md 6.3):
-                            // engage the borrow-at-launch / repay-at-SOI-exit shift that closes the
-                            // launch->escape render seam ONLY when PadAlignLaunch declined (cadence != synodic,
-                            // the span>=synodic regime PadAlignLaunch bails on). When pad.Applied (cadence ==
-                            // synodic) the pad is already globally aligned, so it must stay off (no
-                            // double-correction). plan.Supported (a re-aim mission with a recorded launch-body
-                            // parking orbit preceding the heliocentric leg) is the body-fixed-launch-leg
-                            // precondition: a member starting already in orbit or a chained continuation with no
-                            // ascent never classifies Supported with a launch-body ParkingOrbit at spanStart, so
-                            // it never engages a no-op shift. The SOI-exit boundary (plan.RecordedSoiExitUT, the
-                            // launch-body->heliocentric handoff) must be finite and strictly inside the span
-                            // before the arrival, since the delta_N repay coast hold is inserted there. T_sid is
-                            // the same rotation period PadAlignLaunch consumed; a degenerate (non-rotating)
-                            // period makes ComputePerLoopLaunchAdvanceSeconds return 0, so the gate ordering is
-                            // safe either way.
-                            bool soiExitValid = !double.IsNaN(plan.RecordedSoiExitUT)
-                                && !double.IsInfinity(plan.RecordedSoiExitUT)
-                                && plan.RecordedSoiExitUT > spanStartUT
-                                && plan.RecordedSoiExitUT < plan.RecordedArrivalUT;
-                            if (!pad.Applied && plan.Supported && soiExitValid)
-                            {
-                                launchHoldEngaged = true;
-                                launchHoldRotationPeriod = launchRotationPeriod;
-                                launchHoldSoiExitUT = plan.RecordedSoiExitUT;
-                                if (!SuppressLogging)
-                                {
-                                    var lic = CultureInfo.InvariantCulture;
-                                    ParsekLog.Info("Reaim",
-                                        $"MissionLoopUnit: mission='{mission.Name}' LAUNCH HOLD engaged to " +
-                                        $"{plan.LaunchBody} rotation (PadAlignLaunch declined -> per-loop launch advance / SOI-exit repay; " +
-                                        $"the boundary-overlap launch render closes the launch->escape seam on EVERY loop, including the " +
-                                        $"zero-slack loops the cap previously left open, via a secondary in-SOI ghost): " +
-                                        $"siderealDay={launchRotationPeriod.ToString("F1", lic)}s " +
-                                        $"soiExit={launchHoldSoiExitUT.ToString("R", lic)} " +
-                                        $"phaseAnchor={phaseAnchorUT.ToString("R", lic)} " +
-                                        $"cadence={effectiveCadence.ToString("R", lic)}");
-                                }
-                            }
-                            else if (!pad.Applied && plan.Supported && !SuppressLogging)
-                            {
-                                var lic = CultureInfo.InvariantCulture;
-                                ParsekLog.Verbose("Reaim",
-                                    $"MissionLoopUnit: mission='{mission.Name}' LAUNCH HOLD declined " +
-                                    $"(SOI-exit boundary invalid): soiExit={plan.RecordedSoiExitUT.ToString("R", lic)} " +
-                                    $"spanStart={spanStartUT.ToString("R", lic)} arrival={plan.RecordedArrivalUT.ToString("R", lic)} " +
-                                    "- staying on faithful in-SOI render (seam remains)");
-                            }
-
-                            if (!SuppressLogging)
-                            {
-                                var ric = CultureInfo.InvariantCulture;
-                                double totalCut = GhostPlaybackLogic.TotalCutLength(loiterCuts);
-                                double recordedSpan = spanEndUT - spanStartUT;
-                                ParsekLog.Info("Reaim",
-                                    $"MissionLoopUnit: mission='{mission.Name}' ENGAGED re-aim " +
-                                    $"{plan.LaunchBody}->{plan.TargetBody} via {plan.CommonAncestor}; " +
-                                    $"{ReaimWindowPlanner.Describe(sched)} " +
-                                    $"phaseAnchor={phaseAnchorUT.ToString("R", ric)} " +
-                                    $"cadence={effectiveCadence.ToString("R", ric)} " +
-                                    $"loiterCuts={(loiterCuts?.Count ?? 0).ToString(ric)} " +
-                                    $"cutSeconds={totalCut.ToString("F0", ric)} " +
-                                    $"compressedSpan={(recordedSpan - totalCut).ToString("F0", ric)}" +
-                                    $"/{recordedSpan.ToString("F0", ric)}");
-                            }
-
-                            // Destination-SOI arrival alignment (re-aim cross-parent arrival): the loop-clock
-                            // arrival HOLD that defers the in-SOI replay so the destination-side phase recurs
-                            // to recorded - the destination's ROTATION at the deorbit for a landing, or the
-                            // destination STATION's orbital phase at the SOI entry for an orbit-rendezvous
-                            // (M4c Tier 2, T_station for T_rot). None (hold 0) for rotation alignment off /
-                            // an unsupported destination (incl. the D8 dual-constraint shapes, which carry
-                            // the amber reason) / an orbit-only no-station arrival, leaving the span clock
-                            // byte-identical. extraction is in scope; phaseAnchorUT + loiterCuts are final
-                            // (post pad-align).
-                            // M-MIS-2 P4: a Supported landing whose destination parking loiter would
-                            // otherwise trip the ArrivalHoldPlanner refusal takes the joint trim+hold
-                            // path - re-time the destination loiter (keepRevs) so the deorbit aligns,
-                            // and assemble the final cuts = launch-side cuts + the re-timed destination
-                            // cut. EVERY other shape (no destination loiter, station, orbit-only, Drop,
-                            // unsupported, degenerate) returns None and falls through to the shipped
-                            // ComputeArrivalHold with `loiterCuts == cuts`, byte-identical to today.
-                            DestinationLoiterTrim.DestinationLoiterTrimResult destTrim =
-                                TrySolveDestinationLoiterTrim(
-                                    extraction, plan, loiterRuns, launchSideCuts, phaseAnchorUT,
-                                    spanStartUT, span, transitedBodyRotationMode, bodyInfo);
-                            if (destTrim.Applied)
-                            {
-                                // Reassigning loiterCuts here is consistent with the cutBeforeDeparture
-                                // phase-anchor shift already computed from the full `cuts`: every cut that
-                                // differs between `cuts` and `p4Cuts` (the dropped post-arrival keepRevs=1
-                                // dest cut, the re-timed dest cut) starts at/after the SOI entry, hence
-                                // after the departure, so it contributes 0 to CompressSpanUT(departureUT)
-                                // and the shift is identical either way.
-                                var p4Cuts = new List<GhostPlaybackLogic.LoopCut>(launchSideCuts);
-                                if (destTrim.HasDestinationCut)
-                                    p4Cuts.Add(destTrim.DestinationCut);
-                                loiterCuts = p4Cuts;
-                                arrivalHold = new ArrivalHoldPlanner.ArrivalHoldResult
-                                {
-                                    HoldSeconds = destTrim.HoldSeconds,
-                                    HoldAtUT = destTrim.HoldAtUT,
-                                    AlignPeriodSeconds = destTrim.AlignPeriodSeconds,
-                                    Applied = true,
-                                    IsStationHold = false,
-                                    AlignAnchorPid = 0,
-                                    AmberReason = null,
-                                };
-                                if (!SuppressLogging)
-                                {
-                                    var aic = CultureInfo.InvariantCulture;
-                                    ParsekLog.Info("Reaim",
-                                        $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
-                                        $"kind=rotation keepRevs={destTrim.DestinationKeepRevs.ToString(aic)}/" +
-                                        $"{destTrim.DestinationWholeRevs.ToString(aic)} " +
-                                        $"cutLen={(destTrim.HasDestinationCut ? destTrim.DestinationCut.LengthSeconds.ToString("F0", aic) : "0")}s " +
-                                        $"Talign={destTrim.AlignPeriodSeconds.ToString("R", aic)}s " +
-                                        $"hold={destTrim.HoldSeconds.ToString("R", aic)}s at " +
-                                        $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
-                                        $"(re-timed destination loiter, mode={transitedBodyRotationMode})");
-                                }
-                            }
-                            else
-                            {
-                                arrivalHold = ArrivalHoldPlanner.ComputeArrivalHold(
-                                    extraction.Constraints, plan.TargetBody, plan.RecordedArrivalUT,
-                                    transitedBodyRotationMode, phaseAnchorUT, spanStartUT, loiterCuts, bodyInfo);
-                                if (arrivalHold.Applied && !SuppressLogging)
-                                {
-                                    var aic = CultureInfo.InvariantCulture;
-                                    ParsekLog.Info("Reaim",
-                                        $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
-                                        $"kind={(arrivalHold.IsStationHold ? "station" : "rotation")} " +
-                                        (arrivalHold.IsStationHold
-                                            ? $"pid={arrivalHold.AlignAnchorPid.ToString(aic)} "
-                                            : "") +
-                                        $"Talign={arrivalHold.AlignPeriodSeconds.ToString("R", aic)}s " +
-                                        $"hold={arrivalHold.HoldSeconds.ToString("R", aic)}s at " +
-                                        $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
-                                        $"(aligns the {(arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
-                                        $"phase, mode={transitedBodyRotationMode})");
-                                }
-                            }
-
-                            // DESCENT TRIGGER engagement (docs/dev/plans/reaim-descent-trigger.md). A re-aim
-                            // looped landing whose re-aimed transfer arrives EARLIER than recorded
-                            // (captureShift < 0) shifts the destination parking/capture conics ~|captureShift|
-                            // earlier (PR #1177) to meet the early transfer, opening a gap before the body-fixed
-                            // descent - the icon used to sit frozen across it while the descent drew at the wrong
-                            // rotation. Engage the trigger so the descent member's head detaches from the loop
-                            // clock and re-anchors to the first rotation-aligned moment after the icon reaches the
-                            // parking-orbit deorbit point. Gated DIRECTLY on the destination parking loiter run,
-                            // NOT on the arrival-hold path: a landing whose recording extracts no destination
-                            // ROTATION constraint still mis-renders, and that path then never fires (the live log
-                            // showed zero ARRIVAL HOLD lines for the failing subject). captureShift is the
-                            // build-time equivalent of the per-window resolver value (newArrival - recordedArrival
-                            // ≈ HohmannTof - recordedTof), ~constant across loops. Sentinels (-1 / NaN) keep every
-                            // other unit byte-identical.
-                            ReaimLoiterCompressor.LoiterRun descentRun = default(ReaimLoiterCompressor.LoiterRun);
-                            bool foundDescentRun = false;
-                            for (int dr = 0; dr < loiterRuns.Count; dr++)
-                            {
-                                ReaimLoiterCompressor.LoiterRun run = loiterRuns[dr];
-                                // The destination parking loiter = the target-body run after arrival with the most
-                                // recorded revolutions (the deorbit follows it). A launch-side depot run ends
-                                // before arrival and is excluded.
-                                if (run.BodyName == plan.TargetBody && run.EndUT > plan.RecordedArrivalUT
-                                    && run.WholeRevs >= 1
-                                    && !double.IsNaN(run.PeriodSeconds) && run.PeriodSeconds > 0.0
-                                    && (!foundDescentRun || run.WholeRevs > descentRun.WholeRevs))
-                                {
-                                    descentRun = run;
-                                    foundDescentRun = true;
-                                }
-                            }
-                            double descTrot = bodyInfo.RotationPeriod(plan.TargetBody);
-                            double descGeomTof = TransferWindowMath.HohmannTransferTimeSeconds(
-                                ReaimClassifier.HeliocentricSemiMajorAxis(plan.LaunchBody, plan.CommonAncestor, bodyInfo),
-                                ReaimClassifier.HeliocentricSemiMajorAxis(plan.TargetBody, plan.CommonAncestor, bodyInfo),
-                                bodyInfo.GravParameter(plan.CommonAncestor));
-                            double descCaptureShift = double.IsNaN(descGeomTof)
-                                ? double.NaN : descGeomTof - plan.RecordedTransferTofSeconds;
-
-                            // SEAM = the transfer member's last (max-endUT) non-predicted target-body OrbitSegment
-                            // end. This is where the in-orbit capture/parking/deorbit-transition conics end and the
-                            // separate body-fixed approach members begin; it is the descent clip's re-anchor point
-                            // (RecordedDeorbitUT). NOT descentRun.EndUT (the PARKING-loiter end, which is earlier and
-                            // mid-conic - the deorbit-transition orbits seg#13-17 continue past it). conicEnd =
-                            // RecordedDeorbitUT + captureShift then lands on the SHIFTED conic's end (PR #1177).
-                            double seamUT = double.NaN;
-                            if (transferSegments != null)
-                            {
-                                for (int s = 0; s < transferSegments.Count; s++)
-                                {
-                                    OrbitSegment seg = transferSegments[s];
-                                    if (!seg.isPredicted && seg.bodyName == plan.TargetBody
-                                        && (double.IsNaN(seamUT) || seg.endUT > seamUT))
-                                        seamUT = seg.endUT;
-                                }
-                            }
-
-                            // DESCENT MEMBER SET = the post-parking body-fixed approach members (the chain tail on
-                            // the target body starting at/after the seam). A re-aim looped arrival continues PAST the
-                            // destination arrival as one or more SEPARATE committed recordings (each a member); they
-                            // all share ONE re-anchored clip and ONE trigger, each rendering only its own window
-                            // slice. Identification is pure (DescentTrigger.SelectDescentMemberIndices); the EPS
-                            // tolerates sub-second seam jitter.
-                            const double descentSeamEpsSeconds = 1.0;
-                            var descentArrivalInfos =
-                                new List<Parsek.Reaim.DescentTrigger.MemberArrivalInfo>(memberIndices.Count);
-                            for (int mi2 = 0; mi2 < memberIndices.Count; mi2++)
-                            {
-                                int midx = memberIndices[mi2];
-                                if (midx < 0 || midx >= committed.Count)
-                                    continue;
-                                double mStart = memberWindowByIndex.TryGetValue(
-                                        midx, out GhostPlaybackLogic.LoopUnit.MemberWindow mw)
-                                    ? mw.StartUT
-                                    : committed[midx].StartUT;
-                                descentArrivalInfos.Add(new Parsek.Reaim.DescentTrigger.MemberArrivalInfo(
-                                    midx, mStart, MemberStartBody(committed[midx])));
-                            }
-                            int[] descentSet = Parsek.Reaim.DescentTrigger.SelectDescentMemberIndices(
-                                descentArrivalInfos, seamUT, plan.TargetBody, descentSeamEpsSeconds);
-
-                            // The descent set's per-member windows (sorted by start) drive DescentEndUT and the
-                            // contiguity / seam guards. DescentEndUT = the LAST descent member's recorded EndUT
-                            // (NOT spanEndUT, which can include route-excluded intervals).
-                            var descentWindows =
-                                new List<GhostPlaybackLogic.LoopUnit.MemberWindow>(descentSet.Length);
-                            for (int k = 0; k < descentSet.Length; k++)
-                                if (memberWindowByIndex.TryGetValue(
-                                        descentSet[k], out GhostPlaybackLogic.LoopUnit.MemberWindow mw2))
-                                    descentWindows.Add(mw2);
-                            descentWindows.Sort((a, b) => a.StartUT.CompareTo(b.StartUT));
-
-                            // Build-time engage/decline decision (contiguity / seam-match / conic-region safety
-                            // gates) extracted to the pure, xUnit-tested DescentTrigger.EvaluateEngage so a
-                            // regression in any guard is caught by CI. descentWindows is ascending by StartUT.
-                            Parsek.Reaim.DescentTrigger.DescentEngageDecision descentDecision =
-                                Parsek.Reaim.DescentTrigger.EvaluateEngage(
-                                    foundDescentRun, descentWindows, descentSet.Length, seamUT,
-                                    descCaptureShift, descTrot, plan.RecordedSoiExitUT, descentSeamEpsSeconds);
-                            double descentSetEndUT = descentDecision.SetEndUT;
-                            double descentSetMinStartUT = descentDecision.SetMinStartUT;
-                            double conicEndRecorded = seamUT + descCaptureShift; // for the engage log line below
-                            bool descentEngage = descentDecision.Engage;
-                            if (descentEngage)
-                            {
-                                descentMemberIndices = descentSet;
-                                descentRecordedDeorbitUT = seamUT;
-                                descentEndUT = descentSetEndUT;
-                                descentRotationPeriod = descTrot;
-                                descentLoiterPeriod = descentRun.PeriodSeconds;
-                                descentCaptureShift = descCaptureShift;
-                                // PARKING-conic end (Layer A of the loiter-gap render fix): the SHIFTED
-                                // destination loiter run end. A loiter run (ReaimLoiterCompressor.DetectRuns)
-                                // ends at the first > 5% sma step, so descentRun.EndUT is the parking conic's
-                                // last sample = the deorbit point = the start of the first deorbit-transition
-                                // OrbitSegment - but descentRun comes from the transfer member's RAW recorded
-                                // segments, so descentRun.EndUT is in the UNSHIFTED recorded frame. The
-                                // map-presence segment lookup runs against the RE-AIMED (captureShift-SHIFTED)
-                                // effective segments at the loop-shifted sample UT, so the clamp boundary MUST be
-                                // in the SHIFTED frame too: descentRun.EndUT + descCaptureShift. This is the SAME
-                                // frame as conicEnd (= seamUT + descCaptureShift, the deorbit-arc end) and the
-                                // same frame the effective-segment lookup effUT runs in; it lands on the SHIFTED
-                                // parking-conic end (one segment EARLIER than conicEnd's deorbit-arc end), so the
-                                // deorbit arc no longer leaks as the loiter orbit. Distinct from
-                                // descentRecordedDeorbitUT = seamUT (the LAST target-body segment end, where the
-                                // deorbit-transition conics finish - too late). descCaptureShift is the
-                                // build-time captureShift (= descentCaptureShift above), so the shift sign/magnitude
-                                // matches conicEnd exactly.
-                                descentParkingConicEndUT = descentRun.EndUT + descCaptureShift;
-                                // Frame-mismatch guard (the invariant behind two failed loiter fixes): the
-                                // parking-conic end and conicEnd are BOTH in the shifted frame, and the parking
-                                // conic must end BEFORE the deorbit-arc end (parkingConicEnd < conicEnd). If a
-                                // future edit drops the captureShift from parkingConicEnd it lands in the unshifted
-                                // ~2570 frame and EXCEEDS the shifted conicEnd, which this catches. Warn-only; it
-                                // can only fire on a genuine frame regression (would have caught commit 0ba10f594).
-                                if (!double.IsNaN(descentParkingConicEndUT) && !double.IsNaN(conicEndRecorded)
-                                    && descentParkingConicEndUT >= conicEndRecorded)
-                                {
-                                    ParsekLog.Warn("ReaimDescent", string.Format(CultureInfo.InvariantCulture,
-                                        "MissionLoopUnit: mission='{0}' parking-conic-end FRAME MISMATCH: "
-                                        + "parkingConicEnd={1:R} >= conicEnd={2:R} (must be EARLIER, in the same "
-                                        + "shifted frame; likely a missing captureShift on parkingConicEnd).",
-                                        mission.Name, descentParkingConicEndUT, conicEndRecorded));
-                                }
-
-                                // C1 engage bound (loiter-orbit-gap fix): the recorded UT of the FIRST
-                                // deorbit-arc polyline leg the MAP renderer draws for this transfer member.
-                                // Source it from the renderer's OWN leg builder over the SAME recording so it
-                                // equals the Driver's leg.startUT to the UT — sourcing it from the first
-                                // below-surface OrbitSegment.startUT instead is the WRONG quantity (the
-                                // renderer's leg.startUT is the first non-orbital SAMPLE UT, not a segment
-                                // boundary). A bodyInfo.Radius-backed surface provider reproduces
-                                // IsOrbitSegmentBelowSurface byte-for-byte (same CelestialBody.Radius); a NULL
-                                // gap sampler is safe (FillFramelessGapsFromConics only inserts points INTERIOR
-                                // to a gap, never before the first sample, so leg.startUT is identical). Select
-                                // the FIRST (min-startUT) leg matching the renderer's deorbit-tail predicate
-                                // (leg.bodyName == TargetBody && leg.endUT > seam + captureShift &&
-                                // leg.endUT <= seam + 1s) — the exact window the renderer pairs to the
-                                // re-anchored deorbit head.
-                                if (transferMemberIndex >= 0 && transferMemberIndex < committed.Count
-                                    && committed[transferMemberIndex] != null)
-                                {
-                                    string targetBody = plan.TargetBody;
-                                    Parsek.Display.GhostTrajectoryPolylineRenderer.BodySurfaceProvider surf =
-                                        (string bn, out Parsek.Display.GhostTrajectoryPolylineRenderer.BodySurfaceInfo bi) =>
-                                        {
-                                            bi = default(Parsek.Display.GhostTrajectoryPolylineRenderer.BodySurfaceInfo);
-                                            double r = bodyInfo.Radius(bn);
-                                            if (double.IsNaN(r) || double.IsInfinity(r) || r <= 0.0)
-                                                return false;
-                                            bi.radius = r;
-                                            return true;
-                                        };
-                                    var deorbitLegs = Parsek.Display.GhostTrajectoryPolylineRenderer
-                                        .BuildLegsForRecording(committed[transferMemberIndex], surf, null);
-                                    const double deorbitTailEpsSeconds = 1.0; // matches ResolveTransferLegHeadUT eps
-                                    // The deorbit-arc leg the renderer rides as the descent tail is the one ENDING
-                                    // AT the seam (the transfer member's recorded trajectory terminates there, where
-                                    // the descent set takes over). Select it by MAX endUT <= seam+eps — NOT the
-                                    // min-startUT leg in a wide (seam+captureShift, seam] window, which grabbed an
-                                    // earlier ~12-parking-period approach leg and engaged C1 ~51k s too early (the
-                                    // loiter-line regression: the icon left the parking conic across most of the
-                                    // loiter, killing the parking line while no deorbit leg had drawn yet).
-                                    if (deorbitLegs != null)
-                                        descentFirstDeorbitLegStartUT = SelectDeorbitTailLegStartUT(
-                                            deorbitLegs, targetBody, seamUT, deorbitTailEpsSeconds);
-                                    // Frame sanity (warn-only): the leg start must sit at or before the seam in
-                                    // the same UNSHIFTED frame; a value past the seam means a frame mix-up.
-                                    if (!double.IsNaN(descentFirstDeorbitLegStartUT)
-                                        && descentFirstDeorbitLegStartUT > seamUT + deorbitTailEpsSeconds)
-                                    {
-                                        ParsekLog.Warn("ReaimDescent", string.Format(CultureInfo.InvariantCulture,
-                                            "MissionLoopUnit: mission='{0}' firstDeorbitLegStart={1:R} > seam={2:R} "
-                                            + "(must be <= seam in the unshifted frame); ignoring (C1 falls back).",
-                                            mission.Name, descentFirstDeorbitLegStartUT, seamUT));
-                                        descentFirstDeorbitLegStartUT = double.NaN;
-                                    }
-                                }
-
-                                if (!SuppressLogging)
-                                {
-                                    var dic = CultureInfo.InvariantCulture;
-                                    ParsekLog.Info("ReaimDescent",
-                                        $"MissionLoopUnit: mission='{mission.Name}' DESCENT TRIGGER engaged " +
-                                        $"dest={plan.TargetBody} members=[{string.Join(",", descentSet)}] " +
-                                        $"transferMember={transferMemberIndex.ToString(dic)} " +
-                                        $"deorbit(seam)={descentRecordedDeorbitUT.ToString("R", dic)} " +
-                                        $"setMinStart={descentSetMinStartUT.ToString("R", dic)} " +
-                                        $"descentEnd={descentEndUT.ToString("R", dic)} " +
-                                        $"Trot={descentRotationPeriod.ToString("R", dic)}s " +
-                                        $"Tpark={descentLoiterPeriod.ToString("R", dic)}s " +
-                                        $"parkRevs={descentRun.WholeRevs.ToString(dic)} " +
-                                        $"parkingConicEnd={descentParkingConicEndUT.ToString("R", dic)} " +
-                                        $"firstDeorbitLegStart={descentFirstDeorbitLegStartUT.ToString("R", dic)} " +
-                                        $"captureShift={descentCaptureShift.ToString("R", dic)}s " +
-                                        $"conicEnd={conicEndRecorded.ToString("R", dic)} " +
-                                        $"(geomTof={descGeomTof.ToString("F0", dic)} recordedTof={plan.RecordedTransferTofSeconds.ToString("F0", dic)})");
-                                    // Co-engagement note (review m4): the descent trigger and the per-loop arrival
-                                    // hold both rotation-align the destination via different mechanisms. The math is
-                                    // disjoint (conicEnd sits pre-arrival, so the hold never perturbs entryUT), but
-                                    // log the combination so an in-game capture proves which governs the approach.
-                                    if (arrivalHold.Applied)
-                                        ParsekLog.Info("ReaimDescent",
-                                            $"MissionLoopUnit: mission='{mission.Name}' descent trigger co-engaged with " +
-                                            $"ARRIVAL HOLD (hold={arrivalHold.HoldSeconds.ToString("R", dic)}s at " +
-                                            $"{arrivalHold.HoldAtUT.ToString("R", dic)}); descent governs the post-parking " +
-                                            "approach head, the hold only the transfer/parking icon.");
-                                }
-                            }
-                            else if (!SuppressLogging)
-                            {
-                                var dic = CultureInfo.InvariantCulture;
-                                ParsekLog.Verbose("ReaimDescent",
-                                    $"MissionLoopUnit: mission='{mission.Name}' descent trigger NOT engaged " +
-                                    $"(foundRun={foundDescentRun} captureShift={descCaptureShift.ToString("R", dic)} " +
-                                    $"Trot={descTrot.ToString("R", dic)} seam={seamUT.ToString("R", dic)} " +
-                                    $"descentSet=[{string.Join(",", descentSet)}] setEnd={descentSetEndUT.ToString("R", dic)} " +
-                                    $"contiguous={descentDecision.Contiguous} startMatchesSeam={descentDecision.StartMatchesSeam} " +
-                                    $"conicInRegion={descentDecision.ConicInRegion} setMinStart={descentSetMinStartUT.ToString("R", dic)})");
-                            }
-                        }
-                        else if (!SuppressLogging)
-                        {
-                            ParsekLog.Verbose("Reaim",
-                                $"MissionLoopUnit: mission='{mission.Name}' re-aim eligible " +
-                                $"({plan.LaunchBody}->{plan.TargetBody}) but window plan invalid " +
-                                $"({sched.Reason}); staying faithful");
-                        }
-                    }
-                    else if (!SuppressLogging)
-                    {
-                        ParsekLog.Verbose("Reaim",
-                            $"MissionLoopUnit: mission='{mission.Name}' not re-aim ({plan.Reason}); faithful");
-                    }
+                    ApplyReaim(
+                        mission, committed, bodyInfo, memberIndices, memberWindowByIndex,
+                        transitedBodyRotationMode, spanStartUT, spanEndUT, referenceUT, extraction, span,
+                        ref phaseAnchorUT, ref effectiveCadence, ref effectiveOverlapCadence,
+                        ref relaunchSchedule, ref reaimPlan, ref reaimSchedule, ref loiterCuts,
+                        ref arrivalHold, ref launchHoldEngaged, ref launchHoldRotationPeriod,
+                        ref launchHoldSoiExitUT, ref descentMemberIndices, ref descentRecordedDeorbitUT,
+                        ref descentEndUT, ref descentRotationPeriod, ref descentLoiterPeriod,
+                        ref descentCaptureShift, ref descentParkingConicEndUT, ref transferMemberIndex,
+                        ref descentFirstDeorbitLegStartUT);
                 }
             }
 
@@ -1004,6 +409,718 @@ namespace Parsek
                 descentRotationPeriod, descentLoiterPeriod, descentCaptureShift,
                 descentParkingConicEndUT, transferMemberIndex, descentFirstDeorbitLegStartUT);
 
+            LogMissionUnitSummary(
+                mission, tree, memberArray, skippedNotCommitted, spanStartUT, spanEndUT, span,
+                effectiveCadence, effectiveOverlapCadence, ownerIndex, relaunchSchedule, phaseAnchorUT,
+                phaseLocked, scheduleRejectedForOverlap, baseAnchorUT, solution, cadence, bodyInfo);
+
+            return true;
+        }
+
+        /// <summary>
+        /// Re-aim (cross-parent interplanetary) — phase extract of the
+        /// <c>if (!phaseLocked)</c> body in <see cref="TryBuildMissionUnit"/>. The faithful path
+        /// reports cross-parent targets UnsupportedCrossParent (their faithful celestial geometry
+        /// recurs on the order of ~1000 Kerbin years - useless for logistics), so phaseLocked stays
+        /// false. When that happens, try the re-aim model: classify the recorded SOI chain as a
+        /// single-hop interplanetary transfer and, if eligible, REPLACE the recorded heliocentric
+        /// geometry with a per-window re-aimed transfer that relaunches every SYNODIC window (~2
+        /// Kerbin years for Kerbin->Duna). The classifier + planner both fail closed: a same-parent
+        /// target, a missing heliocentric leg, a multi-hop chain, or degenerate geometry all leave
+        /// the mission on today's faithful path (the raw cadence above), never half-applied. Only the
+        /// per-window transfer ORIENTATION varies between windows; the Hohmann tof (hence the
+        /// recorded span) is constant. Single contiguous block, no internal reordering; mutates
+        /// anchor / cadence / schedule / plan / hold / launch-hold / descent-trigger state via
+        /// <c>ref</c>.
+        /// </summary>
+        private static void ApplyReaim(
+            Mission mission,
+            IReadOnlyList<Recording> committed,
+            IBodyInfo bodyInfo,
+            List<int> memberIndices,
+            Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow> memberWindowByIndex,
+            TransitedBodyRotationMode transitedBodyRotationMode,
+            double spanStartUT,
+            double spanEndUT,
+            double referenceUT,
+            ConstraintExtraction extraction,
+            double span,
+            ref double phaseAnchorUT,
+            ref double effectiveCadence,
+            ref double effectiveOverlapCadence,
+            ref MissionRelaunchSchedule relaunchSchedule,
+            ref ReaimMissionPlan? reaimPlan,
+            ref ReaimWindowPlanner.ReaimWindowSchedule? reaimSchedule,
+            ref IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts,
+            ref ArrivalHoldPlanner.ArrivalHoldResult arrivalHold,
+            ref bool launchHoldEngaged,
+            ref double launchHoldRotationPeriod,
+            ref double launchHoldSoiExitUT,
+            ref int[] descentMemberIndices,
+            ref double descentRecordedDeorbitUT,
+            ref double descentEndUT,
+            ref double descentRotationPeriod,
+            ref double descentLoiterPeriod,
+            ref double descentCaptureShift,
+            ref double descentParkingConicEndUT,
+            ref int transferMemberIndex,
+            ref double descentFirstDeorbitLegStartUT)
+        {
+            // Classify across ALL members' segments (the mission's combined SOI chain): a real
+            // interplanetary mission is usually a CHAIN (launch leg / transfer leg / arrival
+            // leg / debris as separate recordings), so the heliocentric transfer lives in a
+            // non-owner member. The per-window substitution then re-aims ONLY each member's
+            // heliocentric leg(s) (ReaimPlaybackResolver / ReaimSegmentAssembler.
+            // ReplaceHeliocentricLeg) and leaves body-relative legs faithful, so classifying
+            // across the whole chain and substituting per-member is consistent (no half-apply).
+            // Classify PER-MEMBER, not the flattened multi-member gather. A member parked in orbit
+            // DURING the transfer (a station, a tug, a jettisoned stage left in LKO) interleaves
+            // its orbit segments with the transfer member's heliocentric coast in the flattened
+            // startUT-sorted list. That broke both algorithms in playtest: the classifier's
+            // backward walk from the target SOI coast hit an interleaved launch-body segment and
+            // stopped (transfer = the last coast only -> a too-short tof -> a bogus re-aimed
+            // geometry), and the loiter compressor cut the interleaved launch-body loiter whose UT
+            // range OVERLAPS the transfer (excising the transfer itself). The transfer is ONE
+            // member's continuous heliocentric arc, so classify each member's own segments; the
+            // member that yields a supported plan is the re-aim source and ITS segments drive the
+            // loiter cuts (only its parking is compressed, never another member's overlapping
+            // loiter). Members with no heliocentric leg (the parked station) classify as
+            // unsupported and loop faithfully alongside.
+            ReaimMissionPlan plan = ReaimMissionPlan.Unsupported(null, "no member yields a re-aim transfer");
+            List<OrbitSegment> transferSegments = null;
+            int gatheredCount = 0;
+            for (int mi = 0; mi < memberIndices.Count; mi++)
+            {
+                int midx = memberIndices[mi];
+                if (midx < 0 || midx >= committed.Count)
+                    continue;
+                Recording mrec = committed[midx];
+                if (mrec == null || mrec.OrbitSegments == null || mrec.OrbitSegments.Count == 0)
+                    continue;
+                gatheredCount += mrec.OrbitSegments.Count;
+                var msegs = new List<OrbitSegment>(mrec.OrbitSegments);
+                msegs.Sort((a, b) => a.startUT.CompareTo(b.startUT));
+                ReaimMissionPlan mp = ReaimClassifier.Classify(msegs, bodyInfo);
+                // Per-member classify verdict: the classifier returns a per-member reason but the
+                // gather kept only the chosen-supported member's details, so a "why
+                // transferMemberSegs=0" diagnosis had to be reverse-engineered from the recording.
+                // Log each member's verdict (member count is bounded) so the decline reason is
+                // visible in KSP.log directly.
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("ReaimDiag",
+                        $"mission='{mission.Name}' member#{mi} segs={msegs.Count} " +
+                        $"startBody={(msegs.Count > 0 ? msegs[0].bodyName : "none")} " +
+                        $"supported={mp.Supported}" +
+                        (mp.Supported
+                            ? $" target={mp.TargetBody} parking={mp.DepartedFromHeliocentricPark}"
+                            : $" reason='{mp.Reason}'"));
+                if (mp.Supported && transferSegments == null)
+                {
+                    plan = mp;
+                    transferSegments = msegs;
+                    // The destination transfer member's committed index: the member whose OWN segments
+                    // classified Supported. This is the canonical transfer-member identity - the SAME
+                    // member that drives transferSegments / loiterRuns / descentRun / seamUT below - so
+                    // the loiter-gap clamp can gate on it exactly (excluding the ride-along probe).
+                    transferMemberIndex = midx;
+                    // keep scanning only to finish the gatheredCount tally for the diagnostic
+                }
+            }
+
+            // Diagnostic: dump the transfer member's segments + the classifier's transfer
+            // measurement so a save reload reveals the recorded structure (which segment is the
+            // transfer, where any loiter is, what the loiter detector + classifier see). Verbose,
+            // one-shot per build.
+            LogReaimDiagDump(mission, plan, transferSegments, gatheredCount, bodyInfo);
+
+            if (plan.Supported)
+            {
+                // Congruent-window schedule: the windows are RecordedDepartureUT + k*synodic
+                // (the bodies' relative configuration recurs every synodic period), and each
+                // window re-solves the transfer for the target's actual position using the
+                // RECORDED tof - so the transfer stays congruent to the recorded one and fits
+                // the recorded span exactly. Needs only the two solar orbital periods.
+                double pOrigin = bodyInfo.OrbitPeriod(plan.LaunchBody);
+                double pTarget = bodyInfo.OrbitPeriod(plan.TargetBody);
+
+                ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
+                    pOrigin, pTarget, plan.RecordedDepartureUT, plan.RecordedTransferTofSeconds,
+                    spanStartUT, spanEndUT, referenceUT);
+
+                if (sched.Valid)
+                {
+                    reaimPlan = plan;
+                    reaimSchedule = sched;
+                    // The synodic period dwarfs the recorded span, so the cadence is synodic and
+                    // the mission is single-instance per window (overlap cadence >= span => never
+                    // overlaps). The faithful zero-drift schedule does not apply to re-aim.
+                    phaseAnchorUT = sched.PhaseAnchorUT;
+                    effectiveCadence = Math.Max(span, sched.CadenceSeconds);
+                    effectiveOverlapCadence = effectiveCadence;
+                    relaunchSchedule = null;
+
+                    // Loiter compression (docs/dev/plans/reaim-loiter-compression.md): the
+                    // recorded mission usually parks for a year or more waiting for the transfer
+                    // window. For a SUPPLY-ROUTE loop that loiter must not replay, so excise every
+                    // repeated parking orbit down to ~1 revolution. The cuts feed the shared span
+                    // clock (TryComputeSpanLoopUT remaps loopUT to skip them); the phase anchor
+                    // shifts LATER by the cut excised before the transfer departure so the launch
+                    // still lands ~1 orbit before the (unchanged, absolute) synodic window. Empty
+                    // cuts (no compressible loiter) leave the clock byte-identical to faithful.
+                    List<GhostPlaybackLogic.LoopCut> cuts =
+                        ReaimLoiterCompressor.ComputeCuts(transferSegments, bodyInfo.GravParameter);
+                    // M-MIS-2 P4 (destination-loiter pre-landing trim): partition the transfer
+                    // member's loiter runs so a recorded DESTINATION parking loiter can be
+                    // re-timed jointly with the arrival hold (DestinationLoiterTrim) instead of
+                    // disabling alignment (the shipped ArrivalHoldPlanner refusal). The
+                    // launch-side cuts (runs ending at/before the SOI entry) are built at
+                    // keepRevs=1 - byte-identical to today's launch-parking compression - and
+                    // `cuts` (the full keepRevs=1 set) remains the byte-identical fallback when
+                    // P4 does not apply. Scoped to a destination loiter in the classified
+                    // transfer member; a same-launch chain continuation that records the parking
+                    // in a SEPARATE member is the documented follow-up (plan B1: gather across
+                    // VesselLaunchIdentity.RecordingsShareLaunch members, the M4b pattern).
+                    List<ReaimLoiterCompressor.LoiterRun> loiterRuns =
+                        ReaimLoiterCompressor.DetectRuns(transferSegments, bodyInfo.GravParameter);
+                    List<GhostPlaybackLogic.LoopCut> launchSideCuts =
+                        BuildLaunchSideKeepOneCuts(loiterRuns, plan.RecordedArrivalUT);
+                    // Apply only when the cuts leave a POSITIVE compressed span. keepRevs >= 1
+                    // already guarantees each cutLength < its run duration (so totalCut < span),
+                    // but gate on it explicitly to match TryComputeSpanLoopUT's effectiveSpan
+                    // check: that gate falls back to the identity remap when totalCut >= span, so
+                    // applying the anchor shift here without the same gate would produce a
+                    // shifted-but-uncompressed clock in the (unreachable) degenerate case.
+                    // Diagnostic: dump each cut (cross-reference start with the seg# dump above to
+                    // see which run was excised, and whether the transfer arc was wrongly cut).
+                    LogReaimPerCutDump(cuts);
+
+                    if (cuts.Count > 0 && GhostPlaybackLogic.TotalCutLength(cuts) < span)
+                    {
+                        double cutBeforeDeparture = plan.RecordedDepartureUT
+                            - GhostPlaybackLogic.CompressSpanUT(plan.RecordedDepartureUT, cuts);
+                        phaseAnchorUT = sched.PhaseAnchorUT + cutBeforeDeparture;
+                        loiterCuts = cuts;
+                    }
+
+                    // Launch-pad alignment (option 1, departure side). Snap the (now loiter-shifted)
+                    // launch to the launch body's recorded rotation phase so the body-fixed ascent
+                    // replays from the pad EXACTLY as recorded and feeds the recorded inertial parking
+                    // orbit + escape with no seam (the atmo-exit -> circular-orbit misalignment the
+                    // playtest flagged). Quantizes the cadence + the schedule's window spacing to the
+                    // same sidereal day so EVERY relaunch stays aligned, and moves the departure offset
+                    // by the same delta so the window-index <-> launch mapping the resolver uses is
+                    // preserved. Identity for a non-rotating launch body.
+                    double launchRotationPeriod = bodyInfo.RotationPeriod(plan.LaunchBody);
+                    ReaimWindowPlanner.PadAlignResult pad = ReaimWindowPlanner.PadAlignLaunch(
+                        phaseAnchorUT, effectiveCadence,
+                        sched.FirstDepartureUT, sched.SynodicPeriodSeconds,
+                        spanStartUT, launchRotationPeriod, referenceUT);
+                    if (pad.Applied)
+                    {
+                        phaseAnchorUT = pad.PhaseAnchorUT;
+                        effectiveCadence = pad.CadenceSeconds;
+                        effectiveOverlapCadence = effectiveCadence;
+                        sched.FirstDepartureUT = pad.FirstDepartureUT;
+                        sched.SynodicPeriodSeconds = pad.SynodicPeriodSeconds;
+                        sched.CadenceSeconds = pad.CadenceSeconds;
+                        reaimSchedule = sched; // re-store the pad-aligned schedule the resolver reads
+                        if (!SuppressLogging)
+                        {
+                            var pic = CultureInfo.InvariantCulture;
+                            ParsekLog.Info("Reaim",
+                                $"MissionLoopUnit: mission='{mission.Name}' PAD-ALIGN launch to " +
+                                $"{plan.LaunchBody} rotation: siderealDay={launchRotationPeriod.ToString("F1", pic)}s " +
+                                $"launchShift={pad.DeltaSeconds.ToString("F1", pic)}s " +
+                                $"phaseAnchor={phaseAnchorUT.ToString("R", pic)} " +
+                                $"cadence={effectiveCadence.ToString("R", pic)} " +
+                                $"(launch-recLaunch)/day=" +
+                                $"{((phaseAnchorUT - spanStartUT) / launchRotationPeriod).ToString("F3", pic)}");
+                        }
+                    }
+
+                    // Per-loop LAUNCH ALIGNMENT gate (docs/dev/design-reaim-launch-hold-seam.md 6.3):
+                    // engage the borrow-at-launch / repay-at-SOI-exit shift that closes the
+                    // launch->escape render seam ONLY when PadAlignLaunch declined (cadence != synodic,
+                    // the span>=synodic regime PadAlignLaunch bails on). When pad.Applied (cadence ==
+                    // synodic) the pad is already globally aligned, so it must stay off (no
+                    // double-correction). plan.Supported (a re-aim mission with a recorded launch-body
+                    // parking orbit preceding the heliocentric leg) is the body-fixed-launch-leg
+                    // precondition: a member starting already in orbit or a chained continuation with no
+                    // ascent never classifies Supported with a launch-body ParkingOrbit at spanStart, so
+                    // it never engages a no-op shift. The SOI-exit boundary (plan.RecordedSoiExitUT, the
+                    // launch-body->heliocentric handoff) must be finite and strictly inside the span
+                    // before the arrival, since the delta_N repay coast hold is inserted there. T_sid is
+                    // the same rotation period PadAlignLaunch consumed; a degenerate (non-rotating)
+                    // period makes ComputePerLoopLaunchAdvanceSeconds return 0, so the gate ordering is
+                    // safe either way.
+                    bool soiExitValid = !double.IsNaN(plan.RecordedSoiExitUT)
+                        && !double.IsInfinity(plan.RecordedSoiExitUT)
+                        && plan.RecordedSoiExitUT > spanStartUT
+                        && plan.RecordedSoiExitUT < plan.RecordedArrivalUT;
+                    if (!pad.Applied && plan.Supported && soiExitValid)
+                    {
+                        launchHoldEngaged = true;
+                        launchHoldRotationPeriod = launchRotationPeriod;
+                        launchHoldSoiExitUT = plan.RecordedSoiExitUT;
+                        if (!SuppressLogging)
+                        {
+                            var lic = CultureInfo.InvariantCulture;
+                            ParsekLog.Info("Reaim",
+                                $"MissionLoopUnit: mission='{mission.Name}' LAUNCH HOLD engaged to " +
+                                $"{plan.LaunchBody} rotation (PadAlignLaunch declined -> per-loop launch advance / SOI-exit repay; " +
+                                $"the boundary-overlap launch render closes the launch->escape seam on EVERY loop, including the " +
+                                $"zero-slack loops the cap previously left open, via a secondary in-SOI ghost): " +
+                                $"siderealDay={launchRotationPeriod.ToString("F1", lic)}s " +
+                                $"soiExit={launchHoldSoiExitUT.ToString("R", lic)} " +
+                                $"phaseAnchor={phaseAnchorUT.ToString("R", lic)} " +
+                                $"cadence={effectiveCadence.ToString("R", lic)}");
+                        }
+                    }
+                    else if (!pad.Applied && plan.Supported && !SuppressLogging)
+                    {
+                        var lic = CultureInfo.InvariantCulture;
+                        ParsekLog.Verbose("Reaim",
+                            $"MissionLoopUnit: mission='{mission.Name}' LAUNCH HOLD declined " +
+                            $"(SOI-exit boundary invalid): soiExit={plan.RecordedSoiExitUT.ToString("R", lic)} " +
+                            $"spanStart={spanStartUT.ToString("R", lic)} arrival={plan.RecordedArrivalUT.ToString("R", lic)} " +
+                            "- staying on faithful in-SOI render (seam remains)");
+                    }
+
+                    if (!SuppressLogging)
+                    {
+                        var ric = CultureInfo.InvariantCulture;
+                        double totalCut = GhostPlaybackLogic.TotalCutLength(loiterCuts);
+                        double recordedSpan = spanEndUT - spanStartUT;
+                        ParsekLog.Info("Reaim",
+                            $"MissionLoopUnit: mission='{mission.Name}' ENGAGED re-aim " +
+                            $"{plan.LaunchBody}->{plan.TargetBody} via {plan.CommonAncestor}; " +
+                            $"{ReaimWindowPlanner.Describe(sched)} " +
+                            $"phaseAnchor={phaseAnchorUT.ToString("R", ric)} " +
+                            $"cadence={effectiveCadence.ToString("R", ric)} " +
+                            $"loiterCuts={(loiterCuts?.Count ?? 0).ToString(ric)} " +
+                            $"cutSeconds={totalCut.ToString("F0", ric)} " +
+                            $"compressedSpan={(recordedSpan - totalCut).ToString("F0", ric)}" +
+                            $"/{recordedSpan.ToString("F0", ric)}");
+                    }
+
+                    // Destination-SOI arrival alignment (re-aim cross-parent arrival): the loop-clock
+                    // arrival HOLD that defers the in-SOI replay so the destination-side phase recurs
+                    // to recorded - the destination's ROTATION at the deorbit for a landing, or the
+                    // destination STATION's orbital phase at the SOI entry for an orbit-rendezvous
+                    // (M4c Tier 2, T_station for T_rot). None (hold 0) for rotation alignment off /
+                    // an unsupported destination (incl. the D8 dual-constraint shapes, which carry
+                    // the amber reason) / an orbit-only no-station arrival, leaving the span clock
+                    // byte-identical. extraction is in scope; phaseAnchorUT + loiterCuts are final
+                    // (post pad-align).
+                    // M-MIS-2 P4: a Supported landing whose destination parking loiter would
+                    // otherwise trip the ArrivalHoldPlanner refusal takes the joint trim+hold
+                    // path - re-time the destination loiter (keepRevs) so the deorbit aligns,
+                    // and assemble the final cuts = launch-side cuts + the re-timed destination
+                    // cut. EVERY other shape (no destination loiter, station, orbit-only, Drop,
+                    // unsupported, degenerate) returns None and falls through to the shipped
+                    // ComputeArrivalHold with `loiterCuts == cuts`, byte-identical to today.
+                    DestinationLoiterTrim.DestinationLoiterTrimResult destTrim =
+                        TrySolveDestinationLoiterTrim(
+                            extraction, plan, loiterRuns, launchSideCuts, phaseAnchorUT,
+                            spanStartUT, span, transitedBodyRotationMode, bodyInfo);
+                    if (destTrim.Applied)
+                    {
+                        // Reassigning loiterCuts here is consistent with the cutBeforeDeparture
+                        // phase-anchor shift already computed from the full `cuts`: every cut that
+                        // differs between `cuts` and `p4Cuts` (the dropped post-arrival keepRevs=1
+                        // dest cut, the re-timed dest cut) starts at/after the SOI entry, hence
+                        // after the departure, so it contributes 0 to CompressSpanUT(departureUT)
+                        // and the shift is identical either way.
+                        var p4Cuts = new List<GhostPlaybackLogic.LoopCut>(launchSideCuts);
+                        if (destTrim.HasDestinationCut)
+                            p4Cuts.Add(destTrim.DestinationCut);
+                        loiterCuts = p4Cuts;
+                        arrivalHold = new ArrivalHoldPlanner.ArrivalHoldResult
+                        {
+                            HoldSeconds = destTrim.HoldSeconds,
+                            HoldAtUT = destTrim.HoldAtUT,
+                            AlignPeriodSeconds = destTrim.AlignPeriodSeconds,
+                            Applied = true,
+                            IsStationHold = false,
+                            AlignAnchorPid = 0,
+                            AmberReason = null,
+                        };
+                        if (!SuppressLogging)
+                        {
+                            var aic = CultureInfo.InvariantCulture;
+                            ParsekLog.Info("Reaim",
+                                $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
+                                $"kind=rotation keepRevs={destTrim.DestinationKeepRevs.ToString(aic)}/" +
+                                $"{destTrim.DestinationWholeRevs.ToString(aic)} " +
+                                $"cutLen={(destTrim.HasDestinationCut ? destTrim.DestinationCut.LengthSeconds.ToString("F0", aic) : "0")}s " +
+                                $"Talign={destTrim.AlignPeriodSeconds.ToString("R", aic)}s " +
+                                $"hold={destTrim.HoldSeconds.ToString("R", aic)}s at " +
+                                $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
+                                $"(re-timed destination loiter, mode={transitedBodyRotationMode})");
+                        }
+                    }
+                    else
+                    {
+                        arrivalHold = ArrivalHoldPlanner.ComputeArrivalHold(
+                            extraction.Constraints, plan.TargetBody, plan.RecordedArrivalUT,
+                            transitedBodyRotationMode, phaseAnchorUT, spanStartUT, loiterCuts, bodyInfo);
+                        if (arrivalHold.Applied && !SuppressLogging)
+                        {
+                            var aic = CultureInfo.InvariantCulture;
+                            ParsekLog.Info("Reaim",
+                                $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
+                                $"kind={(arrivalHold.IsStationHold ? "station" : "rotation")} " +
+                                (arrivalHold.IsStationHold
+                                    ? $"pid={arrivalHold.AlignAnchorPid.ToString(aic)} "
+                                    : "") +
+                                $"Talign={arrivalHold.AlignPeriodSeconds.ToString("R", aic)}s " +
+                                $"hold={arrivalHold.HoldSeconds.ToString("R", aic)}s at " +
+                                $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
+                                $"(aligns the {(arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
+                                $"phase, mode={transitedBodyRotationMode})");
+                        }
+                    }
+
+                    // DESCENT TRIGGER engagement (docs/dev/plans/reaim-descent-trigger.md). A re-aim
+                    // looped landing whose re-aimed transfer arrives EARLIER than recorded
+                    // (captureShift < 0) shifts the destination parking/capture conics ~|captureShift|
+                    // earlier (PR #1177) to meet the early transfer, opening a gap before the body-fixed
+                    // descent - the icon used to sit frozen across it while the descent drew at the wrong
+                    // rotation. Engage the trigger so the descent member's head detaches from the loop
+                    // clock and re-anchors to the first rotation-aligned moment after the icon reaches the
+                    // parking-orbit deorbit point. Gated DIRECTLY on the destination parking loiter run,
+                    // NOT on the arrival-hold path: a landing whose recording extracts no destination
+                    // ROTATION constraint still mis-renders, and that path then never fires (the live log
+                    // showed zero ARRIVAL HOLD lines for the failing subject). captureShift is the
+                    // build-time equivalent of the per-window resolver value (newArrival - recordedArrival
+                    // ≈ HohmannTof - recordedTof), ~constant across loops. Sentinels (-1 / NaN) keep every
+                    // other unit byte-identical.
+                    ReaimLoiterCompressor.LoiterRun descentRun = default(ReaimLoiterCompressor.LoiterRun);
+                    bool foundDescentRun = false;
+                    for (int dr = 0; dr < loiterRuns.Count; dr++)
+                    {
+                        ReaimLoiterCompressor.LoiterRun run = loiterRuns[dr];
+                        // The destination parking loiter = the target-body run after arrival with the most
+                        // recorded revolutions (the deorbit follows it). A launch-side depot run ends
+                        // before arrival and is excluded.
+                        if (run.BodyName == plan.TargetBody && run.EndUT > plan.RecordedArrivalUT
+                            && run.WholeRevs >= 1
+                            && !double.IsNaN(run.PeriodSeconds) && run.PeriodSeconds > 0.0
+                            && (!foundDescentRun || run.WholeRevs > descentRun.WholeRevs))
+                        {
+                            descentRun = run;
+                            foundDescentRun = true;
+                        }
+                    }
+                    double descTrot = bodyInfo.RotationPeriod(plan.TargetBody);
+                    double descGeomTof = TransferWindowMath.HohmannTransferTimeSeconds(
+                        ReaimClassifier.HeliocentricSemiMajorAxis(plan.LaunchBody, plan.CommonAncestor, bodyInfo),
+                        ReaimClassifier.HeliocentricSemiMajorAxis(plan.TargetBody, plan.CommonAncestor, bodyInfo),
+                        bodyInfo.GravParameter(plan.CommonAncestor));
+                    double descCaptureShift = double.IsNaN(descGeomTof)
+                        ? double.NaN : descGeomTof - plan.RecordedTransferTofSeconds;
+
+                    // SEAM = the transfer member's last (max-endUT) non-predicted target-body OrbitSegment
+                    // end. This is where the in-orbit capture/parking/deorbit-transition conics end and the
+                    // separate body-fixed approach members begin; it is the descent clip's re-anchor point
+                    // (RecordedDeorbitUT). NOT descentRun.EndUT (the PARKING-loiter end, which is earlier and
+                    // mid-conic - the deorbit-transition orbits seg#13-17 continue past it). conicEnd =
+                    // RecordedDeorbitUT + captureShift then lands on the SHIFTED conic's end (PR #1177).
+                    double seamUT = double.NaN;
+                    if (transferSegments != null)
+                    {
+                        for (int s = 0; s < transferSegments.Count; s++)
+                        {
+                            OrbitSegment seg = transferSegments[s];
+                            if (!seg.isPredicted && seg.bodyName == plan.TargetBody
+                                && (double.IsNaN(seamUT) || seg.endUT > seamUT))
+                                seamUT = seg.endUT;
+                        }
+                    }
+
+                    // DESCENT MEMBER SET = the post-parking body-fixed approach members (the chain tail on
+                    // the target body starting at/after the seam). A re-aim looped arrival continues PAST the
+                    // destination arrival as one or more SEPARATE committed recordings (each a member); they
+                    // all share ONE re-anchored clip and ONE trigger, each rendering only its own window
+                    // slice. Identification is pure (DescentTrigger.SelectDescentMemberIndices); the EPS
+                    // tolerates sub-second seam jitter.
+                    const double descentSeamEpsSeconds = 1.0;
+                    var descentArrivalInfos =
+                        new List<Parsek.Reaim.DescentTrigger.MemberArrivalInfo>(memberIndices.Count);
+                    for (int mi2 = 0; mi2 < memberIndices.Count; mi2++)
+                    {
+                        int midx = memberIndices[mi2];
+                        if (midx < 0 || midx >= committed.Count)
+                            continue;
+                        double mStart = memberWindowByIndex.TryGetValue(
+                                midx, out GhostPlaybackLogic.LoopUnit.MemberWindow mw)
+                            ? mw.StartUT
+                            : committed[midx].StartUT;
+                        descentArrivalInfos.Add(new Parsek.Reaim.DescentTrigger.MemberArrivalInfo(
+                            midx, mStart, MemberStartBody(committed[midx])));
+                    }
+                    int[] descentSet = Parsek.Reaim.DescentTrigger.SelectDescentMemberIndices(
+                        descentArrivalInfos, seamUT, plan.TargetBody, descentSeamEpsSeconds);
+
+                    // The descent set's per-member windows (sorted by start) drive DescentEndUT and the
+                    // contiguity / seam guards. DescentEndUT = the LAST descent member's recorded EndUT
+                    // (NOT spanEndUT, which can include route-excluded intervals).
+                    var descentWindows =
+                        new List<GhostPlaybackLogic.LoopUnit.MemberWindow>(descentSet.Length);
+                    for (int k = 0; k < descentSet.Length; k++)
+                        if (memberWindowByIndex.TryGetValue(
+                                descentSet[k], out GhostPlaybackLogic.LoopUnit.MemberWindow mw2))
+                            descentWindows.Add(mw2);
+                    descentWindows.Sort((a, b) => a.StartUT.CompareTo(b.StartUT));
+
+                    // Build-time engage/decline decision (contiguity / seam-match / conic-region safety
+                    // gates) extracted to the pure, xUnit-tested DescentTrigger.EvaluateEngage so a
+                    // regression in any guard is caught by CI. descentWindows is ascending by StartUT.
+                    Parsek.Reaim.DescentTrigger.DescentEngageDecision descentDecision =
+                        Parsek.Reaim.DescentTrigger.EvaluateEngage(
+                            foundDescentRun, descentWindows, descentSet.Length, seamUT,
+                            descCaptureShift, descTrot, plan.RecordedSoiExitUT, descentSeamEpsSeconds);
+                    double descentSetEndUT = descentDecision.SetEndUT;
+                    double descentSetMinStartUT = descentDecision.SetMinStartUT;
+                    double conicEndRecorded = seamUT + descCaptureShift; // for the engage log line below
+                    bool descentEngage = descentDecision.Engage;
+                    if (descentEngage)
+                    {
+                        descentMemberIndices = descentSet;
+                        descentRecordedDeorbitUT = seamUT;
+                        descentEndUT = descentSetEndUT;
+                        descentRotationPeriod = descTrot;
+                        descentLoiterPeriod = descentRun.PeriodSeconds;
+                        descentCaptureShift = descCaptureShift;
+                        // PARKING-conic end (Layer A of the loiter-gap render fix): the SHIFTED
+                        // destination loiter run end. A loiter run (ReaimLoiterCompressor.DetectRuns)
+                        // ends at the first > 5% sma step, so descentRun.EndUT is the parking conic's
+                        // last sample = the deorbit point = the start of the first deorbit-transition
+                        // OrbitSegment - but descentRun comes from the transfer member's RAW recorded
+                        // segments, so descentRun.EndUT is in the UNSHIFTED recorded frame. The
+                        // map-presence segment lookup runs against the RE-AIMED (captureShift-SHIFTED)
+                        // effective segments at the loop-shifted sample UT, so the clamp boundary MUST be
+                        // in the SHIFTED frame too: descentRun.EndUT + descCaptureShift. This is the SAME
+                        // frame as conicEnd (= seamUT + descCaptureShift, the deorbit-arc end) and the
+                        // same frame the effective-segment lookup effUT runs in; it lands on the SHIFTED
+                        // parking-conic end (one segment EARLIER than conicEnd's deorbit-arc end), so the
+                        // deorbit arc no longer leaks as the loiter orbit. Distinct from
+                        // descentRecordedDeorbitUT = seamUT (the LAST target-body segment end, where the
+                        // deorbit-transition conics finish - too late). descCaptureShift is the
+                        // build-time captureShift (= descentCaptureShift above), so the shift sign/magnitude
+                        // matches conicEnd exactly.
+                        descentParkingConicEndUT = descentRun.EndUT + descCaptureShift;
+                        // Frame-mismatch guard (the invariant behind two failed loiter fixes): the
+                        // parking-conic end and conicEnd are BOTH in the shifted frame, and the parking
+                        // conic must end BEFORE the deorbit-arc end (parkingConicEnd < conicEnd). If a
+                        // future edit drops the captureShift from parkingConicEnd it lands in the unshifted
+                        // ~2570 frame and EXCEEDS the shifted conicEnd, which this catches. Warn-only; it
+                        // can only fire on a genuine frame regression (would have caught commit 0ba10f594).
+                        if (!double.IsNaN(descentParkingConicEndUT) && !double.IsNaN(conicEndRecorded)
+                            && descentParkingConicEndUT >= conicEndRecorded)
+                        {
+                            ParsekLog.Warn("ReaimDescent", string.Format(CultureInfo.InvariantCulture,
+                                "MissionLoopUnit: mission='{0}' parking-conic-end FRAME MISMATCH: "
+                                + "parkingConicEnd={1:R} >= conicEnd={2:R} (must be EARLIER, in the same "
+                                + "shifted frame; likely a missing captureShift on parkingConicEnd).",
+                                mission.Name, descentParkingConicEndUT, conicEndRecorded));
+                        }
+
+                        // C1 engage bound (loiter-orbit-gap fix): the recorded UT of the FIRST
+                        // deorbit-arc polyline leg the MAP renderer draws for this transfer member.
+                        // Source it from the renderer's OWN leg builder over the SAME recording so it
+                        // equals the Driver's leg.startUT to the UT — sourcing it from the first
+                        // below-surface OrbitSegment.startUT instead is the WRONG quantity (the
+                        // renderer's leg.startUT is the first non-orbital SAMPLE UT, not a segment
+                        // boundary). A bodyInfo.Radius-backed surface provider reproduces
+                        // IsOrbitSegmentBelowSurface byte-for-byte (same CelestialBody.Radius); a NULL
+                        // gap sampler is safe (FillFramelessGapsFromConics only inserts points INTERIOR
+                        // to a gap, never before the first sample, so leg.startUT is identical). Select
+                        // the FIRST (min-startUT) leg matching the renderer's deorbit-tail predicate
+                        // (leg.bodyName == TargetBody && leg.endUT > seam + captureShift &&
+                        // leg.endUT <= seam + 1s) — the exact window the renderer pairs to the
+                        // re-anchored deorbit head.
+                        if (transferMemberIndex >= 0 && transferMemberIndex < committed.Count
+                            && committed[transferMemberIndex] != null)
+                        {
+                            string targetBody = plan.TargetBody;
+                            Parsek.Display.GhostTrajectoryPolylineRenderer.BodySurfaceProvider surf =
+                                (string bn, out Parsek.Display.GhostTrajectoryPolylineRenderer.BodySurfaceInfo bi) =>
+                                {
+                                    bi = default(Parsek.Display.GhostTrajectoryPolylineRenderer.BodySurfaceInfo);
+                                    double r = bodyInfo.Radius(bn);
+                                    if (double.IsNaN(r) || double.IsInfinity(r) || r <= 0.0)
+                                        return false;
+                                    bi.radius = r;
+                                    return true;
+                                };
+                            var deorbitLegs = Parsek.Display.GhostTrajectoryPolylineRenderer
+                                .BuildLegsForRecording(committed[transferMemberIndex], surf, null);
+                            const double deorbitTailEpsSeconds = 1.0; // matches ResolveTransferLegHeadUT eps
+                            // The deorbit-arc leg the renderer rides as the descent tail is the one ENDING
+                            // AT the seam (the transfer member's recorded trajectory terminates there, where
+                            // the descent set takes over). Select it by MAX endUT <= seam+eps — NOT the
+                            // min-startUT leg in a wide (seam+captureShift, seam] window, which grabbed an
+                            // earlier ~12-parking-period approach leg and engaged C1 ~51k s too early (the
+                            // loiter-line regression: the icon left the parking conic across most of the
+                            // loiter, killing the parking line while no deorbit leg had drawn yet).
+                            if (deorbitLegs != null)
+                                descentFirstDeorbitLegStartUT = SelectDeorbitTailLegStartUT(
+                                    deorbitLegs, targetBody, seamUT, deorbitTailEpsSeconds);
+                            // Frame sanity (warn-only): the leg start must sit at or before the seam in
+                            // the same UNSHIFTED frame; a value past the seam means a frame mix-up.
+                            if (!double.IsNaN(descentFirstDeorbitLegStartUT)
+                                && descentFirstDeorbitLegStartUT > seamUT + deorbitTailEpsSeconds)
+                            {
+                                ParsekLog.Warn("ReaimDescent", string.Format(CultureInfo.InvariantCulture,
+                                    "MissionLoopUnit: mission='{0}' firstDeorbitLegStart={1:R} > seam={2:R} "
+                                    + "(must be <= seam in the unshifted frame); ignoring (C1 falls back).",
+                                    mission.Name, descentFirstDeorbitLegStartUT, seamUT));
+                                descentFirstDeorbitLegStartUT = double.NaN;
+                            }
+                        }
+
+                        if (!SuppressLogging)
+                        {
+                            var dic = CultureInfo.InvariantCulture;
+                            ParsekLog.Info("ReaimDescent",
+                                $"MissionLoopUnit: mission='{mission.Name}' DESCENT TRIGGER engaged " +
+                                $"dest={plan.TargetBody} members=[{string.Join(",", descentSet)}] " +
+                                $"transferMember={transferMemberIndex.ToString(dic)} " +
+                                $"deorbit(seam)={descentRecordedDeorbitUT.ToString("R", dic)} " +
+                                $"setMinStart={descentSetMinStartUT.ToString("R", dic)} " +
+                                $"descentEnd={descentEndUT.ToString("R", dic)} " +
+                                $"Trot={descentRotationPeriod.ToString("R", dic)}s " +
+                                $"Tpark={descentLoiterPeriod.ToString("R", dic)}s " +
+                                $"parkRevs={descentRun.WholeRevs.ToString(dic)} " +
+                                $"parkingConicEnd={descentParkingConicEndUT.ToString("R", dic)} " +
+                                $"firstDeorbitLegStart={descentFirstDeorbitLegStartUT.ToString("R", dic)} " +
+                                $"captureShift={descentCaptureShift.ToString("R", dic)}s " +
+                                $"conicEnd={conicEndRecorded.ToString("R", dic)} " +
+                                $"(geomTof={descGeomTof.ToString("F0", dic)} recordedTof={plan.RecordedTransferTofSeconds.ToString("F0", dic)})");
+                            // Co-engagement note (review m4): the descent trigger and the per-loop arrival
+                            // hold both rotation-align the destination via different mechanisms. The math is
+                            // disjoint (conicEnd sits pre-arrival, so the hold never perturbs entryUT), but
+                            // log the combination so an in-game capture proves which governs the approach.
+                            if (arrivalHold.Applied)
+                                ParsekLog.Info("ReaimDescent",
+                                    $"MissionLoopUnit: mission='{mission.Name}' descent trigger co-engaged with " +
+                                    $"ARRIVAL HOLD (hold={arrivalHold.HoldSeconds.ToString("R", dic)}s at " +
+                                    $"{arrivalHold.HoldAtUT.ToString("R", dic)}); descent governs the post-parking " +
+                                    "approach head, the hold only the transfer/parking icon.");
+                        }
+                    }
+                    else if (!SuppressLogging)
+                    {
+                        var dic = CultureInfo.InvariantCulture;
+                        ParsekLog.Verbose("ReaimDescent",
+                            $"MissionLoopUnit: mission='{mission.Name}' descent trigger NOT engaged " +
+                            $"(foundRun={foundDescentRun} captureShift={descCaptureShift.ToString("R", dic)} " +
+                            $"Trot={descTrot.ToString("R", dic)} seam={seamUT.ToString("R", dic)} " +
+                            $"descentSet=[{string.Join(",", descentSet)}] setEnd={descentSetEndUT.ToString("R", dic)} " +
+                            $"contiguous={descentDecision.Contiguous} startMatchesSeam={descentDecision.StartMatchesSeam} " +
+                            $"conicInRegion={descentDecision.ConicInRegion} setMinStart={descentSetMinStartUT.ToString("R", dic)})");
+                    }
+                }
+                else if (!SuppressLogging)
+                {
+                    ParsekLog.Verbose("Reaim",
+                        $"MissionLoopUnit: mission='{mission.Name}' re-aim eligible " +
+                        $"({plan.LaunchBody}->{plan.TargetBody}) but window plan invalid " +
+                        $"({sched.Reason}); staying faithful");
+                }
+            }
+            else if (!SuppressLogging)
+            {
+                ParsekLog.Verbose("Reaim",
+                    $"MissionLoopUnit: mission='{mission.Name}' not re-aim ({plan.Reason}); faithful");
+            }
+        }
+
+        /// <summary>
+        /// Re-aim diagnostic dump (phase extract of <see cref="TryBuildMissionUnit"/>): dumps the
+        /// transfer member's segments + the classifier's transfer measurement, Verbose, one-shot per
+        /// build. Verbatim — same gate, same lines.
+        /// </summary>
+        private static void LogReaimDiagDump(
+            Mission mission,
+            ReaimMissionPlan plan,
+            List<OrbitSegment> transferSegments,
+            int gatheredCount,
+            IBodyInfo bodyInfo)
+        {
+            if (!SuppressLogging && bodyInfo != null)
+            {
+                var dic = CultureInfo.InvariantCulture;
+                List<OrbitSegment> dumpSegs = transferSegments ?? new List<OrbitSegment>();
+                ParsekLog.Verbose("ReaimDiag",
+                    $"mission='{mission.Name}' gatheredSegs={gatheredCount} transferMemberSegs={dumpSegs.Count} " +
+                    $"plan.Supported={plan.Supported} reason='{plan.Reason}'" +
+                    (plan.Supported
+                        ? $" departUT={plan.RecordedDepartureUT.ToString("F0", dic)}" +
+                          $" arrivalUT={plan.RecordedArrivalUT.ToString("F0", dic)}" +
+                          $" tof={plan.RecordedTransferTofSeconds.ToString("F0", dic)}" +
+                          $" ancestor={plan.CommonAncestor}" +
+                          $" parking={plan.DepartedFromHeliocentricPark}"
+                        : ""));
+                int logged = 0;
+                for (int si = 0; si < dumpSegs.Count && logged < 60; si++, logged++)
+                {
+                    OrbitSegment s = dumpSegs[si];
+                    double per = ReaimLoiterCompressor.OrbitalPeriod(
+                        s.semiMajorAxis, bodyInfo.GravParameter(s.bodyName));
+                    double dur = s.endUT - s.startUT;
+                    ParsekLog.Verbose("ReaimDiag",
+                        $"  seg#{si} {s.bodyName} [{s.startUT.ToString("F0", dic)},{s.endUT.ToString("F0", dic)}]" +
+                        $" dur={dur.ToString("F0", dic)} sma={s.semiMajorAxis.ToString("R", dic)}" +
+                        $" period={(double.IsNaN(per) ? "NaN" : per.ToString("F0", dic))}" +
+                        $" revs={(double.IsNaN(per) || per <= 0.0 ? "-" : (dur / per).ToString("F2", dic))}" +
+                        $" pred={s.isPredicted}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Re-aim per-cut diagnostic dump (phase extract of <see cref="TryBuildMissionUnit"/>): dumps
+        /// each loiter cut, Verbose. Verbatim — same gate, same lines.
+        /// </summary>
+        private static void LogReaimPerCutDump(List<GhostPlaybackLogic.LoopCut> cuts)
+        {
+            if (!SuppressLogging)
+            {
+                var cic = CultureInfo.InvariantCulture;
+                for (int ci = 0; ci < cuts.Count && ci < 30; ci++)
+                    ParsekLog.Verbose("ReaimDiag",
+                        $"  cut#{ci} start={cuts[ci].StartUT.ToString("F0", cic)}" +
+                        $" len={cuts[ci].LengthSeconds.ToString("F0", cic)}" +
+                        $" end={cuts[ci].EndUT.ToString("F0", cic)}");
+            }
+        }
+
+        /// <summary>
+        /// Unit summary + PhaseLock APPLIED/SKIPPED log (phase extract of
+        /// <see cref="TryBuildMissionUnit"/>). Verbatim — same gate, same lines.
+        /// </summary>
+        private static void LogMissionUnitSummary(
+            Mission mission,
+            RecordingTree tree,
+            int[] memberArray,
+            int skippedNotCommitted,
+            double spanStartUT,
+            double spanEndUT,
+            double span,
+            double effectiveCadence,
+            double effectiveOverlapCadence,
+            int ownerIndex,
+            MissionRelaunchSchedule relaunchSchedule,
+            double phaseAnchorUT,
+            bool phaseLocked,
+            bool scheduleRejectedForOverlap,
+            double baseAnchorUT,
+            PeriodicitySolution solution,
+            double cadence,
+            IBodyInfo bodyInfo)
+        {
             if (!SuppressLogging)
             {
                 var ic = CultureInfo.InvariantCulture;
@@ -1058,8 +1175,6 @@ namespace Parsek
                         "(today's behavior)", 10.0);
                 }
             }
-
-            return true;
         }
 
         /// <summary>

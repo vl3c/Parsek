@@ -239,70 +239,8 @@ namespace Parsek.Logistics
             // interval is always >= span: it never undercuts the rendered span.
             dispatchInterval = cadenceMultiplier * transitDuration;
 
-            // (must-fix #3) Widen the source set to EVERY [root..dock] member
-            // recording so RevalidateSources tracks the whole rendered path, not
-            // just the leaf. The member set is the KEPT-intervals' recording ids
-            // from the same composition walk RouteBackingMission uses. The leaf
-            // (dock child) always stays in the set (it carries the delivery
-            // binding) even though it is NOT rendered; fall back to the leaf alone
-            // when the walk yields nothing.
-            HashSet<string> memberRecordingIds = committedTree != null
-                ? RouteBackingMission.ComputeMemberRecordingIds(committedTree, recordedDockUT, rootLaunchUT)
-                : new HashSet<string>();
-            // The leaf (dock child) is ALWAYS a member: it carries the delivery
-            // binding even when the composition walk surfaced the transport via its
-            // root through-line head instead of the leaf id.
-            if (!string.IsNullOrEmpty(source.RecordingId))
-                memberRecordingIds.Add(source.RecordingId);
-
-            // One RouteSourceRef per member recording. Resolve each id to its
-            // recording (the leaf falls back to the analysis source), order
-            // deterministically by TreeOrder then recording id so save round-trips
-            // are stable, and compute each member's proof hash from its own
-            // recording.
-            var sourceRefs = new List<RouteSourceRef>();
-            var recordingIds = new List<string>();
-            var memberRecs = new List<Recording>();
-            var seenMembers = new HashSet<string>(StringComparer.Ordinal);
-            foreach (string mid in memberRecordingIds)
-            {
-                Recording memberRec = null;
-                if (committedTree?.Recordings != null)
-                    committedTree.Recordings.TryGetValue(mid, out memberRec);
-                if (memberRec == null && string.Equals(mid, source.RecordingId, StringComparison.Ordinal))
-                    memberRec = source;
-                if (memberRec != null && !string.IsNullOrEmpty(memberRec.RecordingId)
-                    && seenMembers.Add(memberRec.RecordingId))
-                    memberRecs.Add(memberRec);
-            }
-            // Safety net: the leaf source must always carry a ref even if it was
-            // absent from both the member set and the tree (e.g. null tree path).
-            if (!string.IsNullOrEmpty(source.RecordingId) && seenMembers.Add(source.RecordingId))
-                memberRecs.Add(source);
-            memberRecs.Sort((a, b) =>
-            {
-                int byOrder = a.TreeOrder.CompareTo(b.TreeOrder);
-                return byOrder != 0
-                    ? byOrder
-                    : string.Compare(a.RecordingId, b.RecordingId, StringComparison.Ordinal);
-            });
-            for (int i = 0; i < memberRecs.Count; i++)
-            {
-                Recording memberRec = memberRecs[i];
-                sourceRefs.Add(new RouteSourceRef
-                {
-                    RecordingId = memberRec.RecordingId,
-                    TreeId = memberRec.TreeId,
-                    TreeOrder = memberRec.TreeOrder,
-                    RecordingFormatVersion = memberRec.RecordingFormatVersion,
-                    RecordingSchemaGeneration = memberRec.RecordingSchemaGeneration,
-                    SidecarEpoch = memberRec.SidecarEpoch,
-                    StartUT = memberRec.StartUT,
-                    EndUT = memberRec.EndUT,
-                    RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(memberRec)
-                });
-                recordingIds.Add(memberRec.RecordingId);
-            }
+            BuildRouteSourceRefs(committedTree, source, recordedDockUT, rootLaunchUT,
+                out List<RouteSourceRef> sourceRefs, out List<string> recordingIds);
 
             // Excluded interval keys for the backing-mission render trim. End at the
             // DOCK so the docked-together combined vessel (the merged child, which
@@ -311,14 +249,228 @@ namespace Parsek.Logistics
                 ? RouteBackingMission.ComputeExcludedIntervalKeys(committedTree, recordedDockUT, rootLaunchUT)
                 : new HashSet<string>();
 
-            // Origin discovery. KSC-origin if recording carries a launch site
-            // name AND was launched from Kerbin. Otherwise non-KSC origin
-            // requires RouteOriginProof.StartDockedOriginVesselPid != 0.
-            // Endpoint coords default to zero for the launch-site path — the
-            // scheduler resolves real coords from the launch-site name. The
-            // non-KSC path uses the proof's origin endpoint descriptor (M1)
-            // when present; pre-descriptor proofs keep the PID-only shape.
-            bool isKscOrigin =
+            if (TryResolveRouteOrigin(analysis, source, originRec,
+                    out RouteEndpoint origin, out string originLabel,
+                    out bool isKscOrigin, out bool isHarvestOrigin,
+                    out bool isPickupOrigin) is { } originReject)
+            {
+                return originReject;
+            }
+
+            // M4a (plan D4): build N ordered stops, one per analysis stop (ordered
+            // ascending by DockUT in A1). Defensively copy manifests so later store
+            // mutations don't reach back into the analysis result.
+            //
+            // Byte-identity gate (D4 / RANK-8, critical). A SINGLE-stop route MUST
+            // serialize byte-identically to the pre-A2 build:
+            //   - DeliveryOffsetSeconds is consumed ONLY by the codec (NOT at fire
+            //     time - ResolveCycleStop / PendingDeliveryUT do not read it; the
+            //     loop fires on the recorded dock PHASE via the loop clock). So its
+            //     derivation is GATED to N>1; a single-stop route keeps the 0.0
+            //     placeholder exactly as the pre-A2 build set it.
+            //   - SegmentIndexBefore: a single-stop route keeps the placeholder 0
+            //     exactly as before (matching index resolution on the anchor source
+            //     would also land 0 in practice, but pinning it to the placeholder
+            //     keeps the single-stop bytes provably unchanged).
+            //   - The per-stop RecordedDockUT / LastFiredCycleIndex are GATED to
+            //     N>1: a single-stop route leaves them at -1.0 / -1, so the codec
+            //     omits both keys (sparse) and the bytes are identical.
+            bool isMultiStop = analysisStopCount > 1;
+            var stops = new List<RouteStop>(analysisStopCount);
+            for (int i = 0; i < analysisStopCount; i++)
+            {
+                RouteAnalysisStop a = analysisStops[i];
+                RouteConnectionWindow window = a.ConnectionWindow;
+
+                // SegmentIndexBefore: best-effort index of the stop's source
+                // recording in route.RecordingIds (the member-recording whose
+                // completion triggers the stop). -1 when not resolvable. Single-stop
+                // keeps the byte-identical placeholder 0 (gated below).
+                int segmentIndexBefore = 0;
+                double deliveryOffsetSeconds = 0.0;
+                double stopRecordedDockUT = -1.0;
+                if (isMultiStop)
+                {
+                    segmentIndexBefore = ResolveSegmentIndexBefore(recordingIds, a.SourceRecording);
+                    // The scheduler/display projection per design 6.2 (the actual
+                    // per-window firing keys on each window's DockUT through the
+                    // loop clock, Phase A3 - NOT this offset).
+                    deliveryOffsetSeconds = a.DockUT - rootLaunchUT;
+                    // The per-stop firing phase (OQ3/D5; read at fire time in A3).
+                    stopRecordedDockUT = a.DockUT;
+                }
+
+                stops.Add(new RouteStop
+                {
+                    Endpoint = window.EndpointAtDock.Value,
+                    ConnectionKind = window.TransferKind,
+                    DeliveryManifest = a.ResourceDeliveryManifest != null
+                        ? new Dictionary<string, double>(a.ResourceDeliveryManifest)
+                        : new Dictionary<string, double>(),
+                    InventoryDeliveryManifest = a.InventoryDeliveryManifest != null
+                        ? new List<InventoryPayloadItem>(a.InventoryDeliveryManifest)
+                        : new List<InventoryPayloadItem>(),
+                    // M3 pickup direction (plan D8): the analysis load manifest is
+                    // the resource cargo that flowed FROM the endpoint ONTO the
+                    // transport across the window (the sign-flip mirror of delivery).
+                    // Defensively copy. Null when the window carried no resource
+                    // pickup -> the codec omits the PICKUP_MANIFEST node.
+                    PickupManifest = a.ResourceLoadManifest != null
+                        ? new Dictionary<string, double>(a.ResourceLoadManifest)
+                        : null,
+                    // M3 inventory pickup (plan D7/D8): the analysis inventory load
+                    // manifest is the stored-part cargo loaded FROM the endpoint
+                    // ONTO the transport (identity carried intact). Deep-copy so
+                    // store mutations cannot reach back into the analysis result
+                    // (the items carry mutable StoredPartSnapshot ConfigNodes). Null
+                    // when the window carried no inventory pickup -> the codec omits
+                    // the INVENTORY_PICKUP_MANIFEST node.
+                    InventoryPickupManifest = a.InventoryLoadManifest != null
+                        ? RouteProofMetadata.CloneInventoryPayloadItems(a.InventoryLoadManifest)
+                        : null,
+                    SegmentIndexBefore = segmentIndexBefore,
+                    DeliveryOffsetSeconds = deliveryOffsetSeconds,
+                    RecordedDockUT = stopRecordedDockUT
+                    // LastFiredCycleIndex left at its -1 default (A3 wires firing).
+                });
+            }
+
+            string routeId = (idFactory ?? DefaultIdFactory)();
+            string routeName = !string.IsNullOrEmpty(inputs.Name)
+                ? inputs.Name
+                : RouteCreationFormatters.GenerateDefaultRouteName(analysis, committedTree);
+
+            BuildRouteCostManifests(analysis, isHarvestOrigin, isPickupOrigin, isKscOrigin, ic,
+                out Dictionary<string, double> costManifest,
+                out List<InventoryPayloadItem> inventoryCostManifest);
+
+            // Loop-clock dock binding: recordedDockUT (computed above as the route
+            // segment END) is the UT the loop clock crosses each cycle to fire
+            // delivery (Phase 4); with the [launch..dock] segment it equals spanEnd.
+            // LoopAnchorUT is set here only when the route is created ACTIVE (the
+            // dialog path); the Paused->Activate path sets it in
+            // RouteOrchestrator.TryActivate.
+
+            // (CRE-5) Validate the recorded dock UT lies strictly inside the source
+            // [rootLaunchUT .. undockUT] window: the dock must come AFTER launch (a
+            // non-empty rendered [launch..dock] segment) and BEFORE undock (a
+            // well-formed dock/undock pair). A malformed window (NaN dock,
+            // dock <= launch, or dock >= undock) would build a route whose loop
+            // clock can never fire a crossing (RouteLoopClock.IsDockUTInSpan false
+            // forever -> a route that never delivers). Fail fast instead of
+            // persisting a dead route.
+            if (!IsDockUTWithinSpan(recordedDockUT, rootLaunchUT, undockUT))
+            {
+                ParsekLog.Info(Tag,
+                    $"BuildRoute rejected: dock-ut-out-of-span source={source.RecordingId ?? "<none>"} " +
+                    $"dockUT={recordedDockUT.ToString("R", ic)} rootLaunchUT={rootLaunchUT.ToString("R", ic)} " +
+                    $"undockUT={undockUT.ToString("R", ic)} span={transitDuration.ToString("R", ic)}");
+                return new RouteBuildOutcome { RejectReason = "dock-ut-out-of-span" };
+            }
+
+            double loopAnchorUT = initialStatus == RouteStatus.Active ? rootLaunchUT : -1.0;
+
+            // (M-MIS-9-R1) Creation-time tree-membership snapshot scoping the
+            // recovery-credit sum: every recording id in the source tree RIGHT
+            // NOW, including the post-undock fly-home-and-recover leg (gotcha
+            // G1). Post-creation branches mint new ids outside this set, so the
+            // per-cycle credit cannot inflate. The defensive null-tree path
+            // (production dialog/candidate sources always pass a committed
+            // tree) leaves the snapshot EMPTY so the run-cost resolver fails
+            // open to the whole current tree: a member-id fallback would
+            // exclude the recover leg if the tree id resolved later (G1).
+            var creationTreeRecordingIds = new HashSet<string>(StringComparer.Ordinal);
+            if (committedTree?.Recordings != null)
+            {
+                foreach (string treeRecId in committedTree.Recordings.Keys)
+                {
+                    if (!string.IsNullOrEmpty(treeRecId))
+                        creationTreeRecordingIds.Add(treeRecId);
+                }
+            }
+
+            var route = new Route
+            {
+                Id = routeId,
+                Name = routeName,
+                Status = initialStatus,
+                RecordingIds = recordingIds,
+                SourceRefs = sourceRefs,
+                Origin = origin,
+                IsKscOrigin = isKscOrigin,
+                IsHarvestOrigin = isHarvestOrigin,
+                Stops = stops,
+                TransitDuration = transitDuration,
+                DispatchInterval = dispatchInterval,
+                CadenceMultiplier = cadenceMultiplier,
+                DispatchWindowEpochUT = rootLaunchUT,
+                DispatchWindowPeriod = 0.0,
+                // Placeholder until scheduler (Phase 6+) computes from epoch + interval.
+                NextDispatchUT = rootLaunchUT + dispatchInterval,
+                KscDispatchFundsCost = 0.0,
+                CostManifest = costManifest,
+                InventoryCostManifest = inventoryCostManifest,
+                PauseAfterCurrentCycle = false,
+                CompletedCycles = 0,
+                SkippedCycles = 0,
+                LinkedRouteId = null,
+                CurrentSegmentIndex = -1,
+                PendingStopIndex = -1,
+                // Backing-mission definition (design §0; Phase 5 capture).
+                BackingMissionTreeId = source.TreeId,
+                ExcludedIntervalKeys = excludedIntervalKeys,
+                CreationTreeRecordingIds = creationTreeRecordingIds,
+                RecordedDockUT = recordedDockUT,
+                // A2 review fold: the route-span pair (RecordedDockUT /
+                // DockMemberRecordingId) must reference the SAME leaf - the
+                // run-end (last, max-DockUT) dock. RecordedDockUT already uses
+                // lastAnalysisStop; key the member id on the last stop's source
+                // too (falling back to the anchor `source` when the last stop
+                // carries none). For a single-stop route lastAnalysisStop's
+                // source IS `source`, so this is byte-identical; for a
+                // cross-recording multi-stop route it keeps the pair coherent
+                // (A4 end-trim + MissionRouteStructureList resolve the dock
+                // window through DockMemberRecordingId).
+                DockMemberRecordingId = (lastAnalysisStop.SourceRecording ?? source).RecordingId,
+                LoopAnchorUT = loopAnchorUT,
+                LastObservedLoopCycleIndex = -1
+            };
+
+            LogBuiltRoute(routeId, originLabel, origin, source, rootLaunchUT, undockUT,
+                recordedDockUT, transitDuration, dispatchInterval, cadenceMultiplier,
+                recordingIds, excludedIntervalKeys, creationTreeRecordingIds, stops,
+                isMultiStop, mode, ic);
+
+            return new RouteBuildOutcome { Route = route };
+        }
+
+        /// <summary>
+        /// Origin discovery (phase extract of <see cref="BuildRoute"/>). KSC-origin
+        /// if recording carries a launch site name AND was launched from Kerbin.
+        /// Otherwise non-KSC origin requires
+        /// <c>RouteOriginProof.StartDockedOriginVesselPid != 0</c>. The M2 harvest
+        /// origin admits an originless run whose delivered resources were all
+        /// witnessed-harvested; the M3 pickup origin (out param
+        /// <paramref name="isPickupOrigin"/>) admits an originless PURE-PICKUP run
+        /// that loaded cargo FROM the dock endpoint with NOTHING delivered. Endpoint
+        /// coords default to zero for the launch-site path — the scheduler resolves
+        /// real coords from the launch-site name. The non-KSC path uses the proof's
+        /// origin endpoint descriptor (M1) when present; pre-descriptor proofs keep
+        /// the PID-only shape. Returns the <c>endpoint-missing</c>
+        /// <see cref="RouteBuildOutcome"/> when no origin resolves, otherwise
+        /// <c>null</c> with the origin written through the <c>out</c> params.
+        /// </summary>
+        private static RouteBuildOutcome TryResolveRouteOrigin(
+            RouteAnalysisResult analysis,
+            Recording source,
+            Recording originRec,
+            out RouteEndpoint origin,
+            out string originLabel,
+            out bool isKscOrigin,
+            out bool isHarvestOrigin,
+            out bool isPickupOrigin)
+        {
+            isKscOrigin =
                 !string.IsNullOrEmpty(originRec.LaunchSiteName)
                 && string.Equals(originRec.StartBodyName, "Kerbin", StringComparison.Ordinal);
 
@@ -342,10 +494,8 @@ namespace Parsek.Logistics
                 || (analysis.InventoryDeliveryManifest != null
                     && analysis.InventoryDeliveryManifest.Count > 0);
 
-            RouteEndpoint origin;
-            string originLabel;
-            bool isHarvestOrigin = false;
-            bool isPickupOrigin = false;
+            isHarvestOrigin = false;
+            isPickupOrigin = false;
             if (isKscOrigin)
             {
                 origin = new RouteEndpoint
@@ -452,6 +602,8 @@ namespace Parsek.Logistics
             }
             else
             {
+                origin = default;
+                originLabel = null;
                 ParsekLog.Info(Tag,
                     $"BuildRoute rejected: endpoint-missing (origin unresolvable) source={source.RecordingId ?? "<none>"} " +
                     $"originRec={originRec.RecordingId ?? "<none>"} " +
@@ -464,113 +616,115 @@ namespace Parsek.Logistics
                 return new RouteBuildOutcome { RejectReason = "endpoint-missing" };
             }
 
-            // M4a (plan D4): build N ordered stops, one per analysis stop (ordered
-            // ascending by DockUT in A1). Defensively copy manifests so later store
-            // mutations don't reach back into the analysis result.
-            //
-            // Byte-identity gate (D4 / RANK-8, critical). A SINGLE-stop route MUST
-            // serialize byte-identically to the pre-A2 build:
-            //   - DeliveryOffsetSeconds is consumed ONLY by the codec (NOT at fire
-            //     time - ResolveCycleStop / PendingDeliveryUT do not read it; the
-            //     loop fires on the recorded dock PHASE via the loop clock). So its
-            //     derivation is GATED to N>1; a single-stop route keeps the 0.0
-            //     placeholder exactly as the pre-A2 build set it.
-            //   - SegmentIndexBefore: a single-stop route keeps the placeholder 0
-            //     exactly as before (matching index resolution on the anchor source
-            //     would also land 0 in practice, but pinning it to the placeholder
-            //     keeps the single-stop bytes provably unchanged).
-            //   - The per-stop RecordedDockUT / LastFiredCycleIndex are GATED to
-            //     N>1: a single-stop route leaves them at -1.0 / -1, so the codec
-            //     omits both keys (sparse) and the bytes are identical.
-            bool isMultiStop = analysisStopCount > 1;
-            var stops = new List<RouteStop>(analysisStopCount);
-            for (int i = 0; i < analysisStopCount; i++)
+            return null;
+        }
+
+        /// <summary>
+        /// Source-ref derivation (phase extract of <see cref="BuildRoute"/>).
+        /// (must-fix #3) Widen the source set to EVERY [root..dock] member recording
+        /// so RevalidateSources tracks the whole rendered path, not just the leaf,
+        /// then build one <see cref="RouteSourceRef"/> per member ordered
+        /// deterministically by TreeOrder then recording id. Writes the parallel
+        /// <paramref name="sourceRefs"/> / <paramref name="recordingIds"/> lists.
+        /// </summary>
+        private static void BuildRouteSourceRefs(
+            RecordingTree committedTree,
+            Recording source,
+            double recordedDockUT,
+            double rootLaunchUT,
+            out List<RouteSourceRef> sourceRefs,
+            out List<string> recordingIds)
+        {
+            // (must-fix #3) Widen the source set to EVERY [root..dock] member
+            // recording so RevalidateSources tracks the whole rendered path, not
+            // just the leaf. The member set is the KEPT-intervals' recording ids
+            // from the same composition walk RouteBackingMission uses. The leaf
+            // (dock child) always stays in the set (it carries the delivery
+            // binding) even though it is NOT rendered; fall back to the leaf alone
+            // when the walk yields nothing.
+            HashSet<string> memberRecordingIds = committedTree != null
+                ? RouteBackingMission.ComputeMemberRecordingIds(committedTree, recordedDockUT, rootLaunchUT)
+                : new HashSet<string>();
+            // The leaf (dock child) is ALWAYS a member: it carries the delivery
+            // binding even when the composition walk surfaced the transport via its
+            // root through-line head instead of the leaf id.
+            if (!string.IsNullOrEmpty(source.RecordingId))
+                memberRecordingIds.Add(source.RecordingId);
+
+            // One RouteSourceRef per member recording. Resolve each id to its
+            // recording (the leaf falls back to the analysis source), order
+            // deterministically by TreeOrder then recording id so save round-trips
+            // are stable, and compute each member's proof hash from its own
+            // recording.
+            sourceRefs = new List<RouteSourceRef>();
+            recordingIds = new List<string>();
+            var memberRecs = new List<Recording>();
+            var seenMembers = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string mid in memberRecordingIds)
             {
-                RouteAnalysisStop a = analysisStops[i];
-                RouteConnectionWindow window = a.ConnectionWindow;
-
-                // SegmentIndexBefore: best-effort index of the stop's source
-                // recording in route.RecordingIds (the member-recording whose
-                // completion triggers the stop). -1 when not resolvable. Single-stop
-                // keeps the byte-identical placeholder 0 (gated below).
-                int segmentIndexBefore = 0;
-                double deliveryOffsetSeconds = 0.0;
-                double stopRecordedDockUT = -1.0;
-                if (isMultiStop)
-                {
-                    segmentIndexBefore = ResolveSegmentIndexBefore(recordingIds, a.SourceRecording);
-                    // The scheduler/display projection per design 6.2 (the actual
-                    // per-window firing keys on each window's DockUT through the
-                    // loop clock, Phase A3 - NOT this offset).
-                    deliveryOffsetSeconds = a.DockUT - rootLaunchUT;
-                    // The per-stop firing phase (OQ3/D5; read at fire time in A3).
-                    stopRecordedDockUT = a.DockUT;
-                }
-
-                stops.Add(new RouteStop
-                {
-                    Endpoint = window.EndpointAtDock.Value,
-                    ConnectionKind = window.TransferKind,
-                    DeliveryManifest = a.ResourceDeliveryManifest != null
-                        ? new Dictionary<string, double>(a.ResourceDeliveryManifest)
-                        : new Dictionary<string, double>(),
-                    InventoryDeliveryManifest = a.InventoryDeliveryManifest != null
-                        ? new List<InventoryPayloadItem>(a.InventoryDeliveryManifest)
-                        : new List<InventoryPayloadItem>(),
-                    // M3 pickup direction (plan D8): the analysis load manifest is
-                    // the resource cargo that flowed FROM the endpoint ONTO the
-                    // transport across the window (the sign-flip mirror of delivery).
-                    // Defensively copy. Null when the window carried no resource
-                    // pickup -> the codec omits the PICKUP_MANIFEST node.
-                    PickupManifest = a.ResourceLoadManifest != null
-                        ? new Dictionary<string, double>(a.ResourceLoadManifest)
-                        : null,
-                    // M3 inventory pickup (plan D7/D8): the analysis inventory load
-                    // manifest is the stored-part cargo loaded FROM the endpoint
-                    // ONTO the transport (identity carried intact). Deep-copy so
-                    // store mutations cannot reach back into the analysis result
-                    // (the items carry mutable StoredPartSnapshot ConfigNodes). Null
-                    // when the window carried no inventory pickup -> the codec omits
-                    // the INVENTORY_PICKUP_MANIFEST node.
-                    InventoryPickupManifest = a.InventoryLoadManifest != null
-                        ? RouteProofMetadata.CloneInventoryPayloadItems(a.InventoryLoadManifest)
-                        : null,
-                    SegmentIndexBefore = segmentIndexBefore,
-                    DeliveryOffsetSeconds = deliveryOffsetSeconds,
-                    RecordedDockUT = stopRecordedDockUT
-                    // LastFiredCycleIndex left at its -1 default (A3 wires firing).
-                });
+                Recording memberRec = null;
+                if (committedTree?.Recordings != null)
+                    committedTree.Recordings.TryGetValue(mid, out memberRec);
+                if (memberRec == null && string.Equals(mid, source.RecordingId, StringComparison.Ordinal))
+                    memberRec = source;
+                if (memberRec != null && !string.IsNullOrEmpty(memberRec.RecordingId)
+                    && seenMembers.Add(memberRec.RecordingId))
+                    memberRecs.Add(memberRec);
             }
+            // Safety net: the leaf source must always carry a ref even if it was
+            // absent from both the member set and the tree (e.g. null tree path).
+            if (!string.IsNullOrEmpty(source.RecordingId) && seenMembers.Add(source.RecordingId))
+                memberRecs.Add(source);
+            memberRecs.Sort((a, b) =>
+            {
+                int byOrder = a.TreeOrder.CompareTo(b.TreeOrder);
+                return byOrder != 0
+                    ? byOrder
+                    : string.Compare(a.RecordingId, b.RecordingId, StringComparison.Ordinal);
+            });
+            for (int i = 0; i < memberRecs.Count; i++)
+            {
+                Recording memberRec = memberRecs[i];
+                sourceRefs.Add(new RouteSourceRef
+                {
+                    RecordingId = memberRec.RecordingId,
+                    TreeId = memberRec.TreeId,
+                    TreeOrder = memberRec.TreeOrder,
+                    RecordingFormatVersion = memberRec.RecordingFormatVersion,
+                    RecordingSchemaGeneration = memberRec.RecordingSchemaGeneration,
+                    SidecarEpoch = memberRec.SidecarEpoch,
+                    StartUT = memberRec.StartUT,
+                    EndUT = memberRec.EndUT,
+                    RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(memberRec)
+                });
+                recordingIds.Add(memberRec.RecordingId);
+            }
+        }
 
-            string routeId = (idFactory ?? DefaultIdFactory)();
-            string routeName = !string.IsNullOrEmpty(inputs.Name)
-                ? inputs.Name
-                : RouteCreationFormatters.GenerateDefaultRouteName(analysis, committedTree);
-
-            // CostManifest / InventoryCostManifest mirror what each cycle
-            // delivers — items debit what they deliver in v0. Future cost
-            // shaping can diverge from delivery. M2 adjustments (delivery
-            // manifests stay untouched in both):
-            // - HARVEST origin (plan D7): the cost manifests are EMPTY -
-            //   harvested cargo debits nothing (19.2.2 item 3); the empty
-            //   manifest makes the dispatch-debit row pair a structural no-op.
-            // - DOCKED origin with harvest data (plan D8): each delivered
-            //   resource's debit basis is reduced by its witnessed harvested
-            //   amount, max(0, delivery - harvested); entries that reduce to
-            //   zero are REMOVED, not kept (finding 16), so the depot is not
-            //   debited for ore the environment provided. The harvested term
-            //   uses the SAME scoped D5/D6 rules as the gain check - the
-            //   BLOCKER-1 scope fix is what keeps this reduction from zeroing
-            //   a depot debit it should not.
-            // - PICKUP origin (plan D6/D8): a pure-pickup run delivers NOTHING,
-            //   so its dispatch-time CostManifest is EMPTY (mirrors harvest
-            //   origin). Loaded-en-route cargo debits its physical SOURCE at the
-            //   per-window pickup applier (Phase 3/4), never funds and never the
-            //   dispatch-time origin cost - so the route-level cost manifests
-            //   stay empty here; the witnessed pickup amounts live on the stop's
-            //   PickupManifest, captured above.
-            Dictionary<string, double> costManifest;
-            List<InventoryPayloadItem> inventoryCostManifest;
+        /// <summary>
+        /// Cost-manifest derivation (phase extract of <see cref="BuildRoute"/>).
+        /// CostManifest / InventoryCostManifest mirror what each cycle delivers —
+        /// items debit what they deliver in v0. Future cost shaping can diverge from
+        /// delivery. M2 adjustments (delivery manifests stay untouched in both):
+        /// HARVEST origin (plan D7) -> empty cost manifests; PICKUP origin (plan
+        /// D6/D8) -> empty cost manifests too (a pure-pickup run delivers nothing,
+        /// so its dispatch-time cost is empty, mirroring the harvest no-debit shape;
+        /// the loaded cargo debits its physical SOURCE at the per-window pickup
+        /// applier, never funds and never the dispatch-time origin cost); DOCKED
+        /// origin with harvest data (plan D8) -> reduce each delivered resource's
+        /// debit basis by its witnessed harvested amount, removing entries that
+        /// reduce to zero. Writes the <paramref name="costManifest"/> /
+        /// <paramref name="inventoryCostManifest"/> out params.
+        /// </summary>
+        private static void BuildRouteCostManifests(
+            RouteAnalysisResult analysis,
+            bool isHarvestOrigin,
+            bool isPickupOrigin,
+            bool isKscOrigin,
+            CultureInfo ic,
+            out Dictionary<string, double> costManifest,
+            out List<InventoryPayloadItem> inventoryCostManifest)
+        {
             if (isHarvestOrigin || isPickupOrigin)
             {
                 costManifest = new Dictionary<string, double>();
@@ -594,99 +748,33 @@ namespace Parsek.Logistics
                         costManifest, analysis.HarvestedManifest, ic);
                 }
             }
+        }
 
-            // Loop-clock dock binding: recordedDockUT (computed above as the route
-            // segment END) is the UT the loop clock crosses each cycle to fire
-            // delivery (Phase 4); with the [launch..dock] segment it equals spanEnd.
-            // LoopAnchorUT is set here only when the route is created ACTIVE (the
-            // dialog path); the Paused->Activate path sets it in
-            // RouteOrchestrator.TryActivate.
-
-            // (CRE-5) Validate the recorded dock UT lies strictly inside the source
-            // [rootLaunchUT .. undockUT] window: the dock must come AFTER launch (a
-            // non-empty rendered [launch..dock] segment) and BEFORE undock (a
-            // well-formed dock/undock pair). A malformed window (NaN dock,
-            // dock <= launch, or dock >= undock) would build a route whose loop
-            // clock can never fire a crossing (RouteLoopClock.IsDockUTInSpan false
-            // forever -> a route that never delivers). Fail fast instead of
-            // persisting a dead route.
-            if (!IsDockUTWithinSpan(recordedDockUT, rootLaunchUT, undockUT))
-            {
-                ParsekLog.Info(Tag,
-                    $"BuildRoute rejected: dock-ut-out-of-span source={source.RecordingId ?? "<none>"} " +
-                    $"dockUT={recordedDockUT.ToString("R", ic)} rootLaunchUT={rootLaunchUT.ToString("R", ic)} " +
-                    $"undockUT={undockUT.ToString("R", ic)} span={transitDuration.ToString("R", ic)}");
-                return new RouteBuildOutcome { RejectReason = "dock-ut-out-of-span" };
-            }
-
-            double loopAnchorUT = initialStatus == RouteStatus.Active ? rootLaunchUT : -1.0;
-
-            // (M-MIS-9-R1) Creation-time tree-membership snapshot scoping the
-            // recovery-credit sum: every recording id in the source tree RIGHT
-            // NOW, including the post-undock fly-home-and-recover leg (gotcha
-            // G1). Post-creation branches mint new ids outside this set, so the
-            // per-cycle credit cannot inflate. The defensive null-tree path
-            // (production dialog/candidate sources always pass a committed
-            // tree) leaves the snapshot EMPTY so the run-cost resolver fails
-            // open to the whole current tree: a member-id fallback would
-            // exclude the recover leg if the tree id resolved later (G1).
-            var creationTreeRecordingIds = new HashSet<string>(StringComparer.Ordinal);
-            if (committedTree?.Recordings != null)
-            {
-                foreach (string treeRecId in committedTree.Recordings.Keys)
-                {
-                    if (!string.IsNullOrEmpty(treeRecId))
-                        creationTreeRecordingIds.Add(treeRecId);
-                }
-            }
-
-            var route = new Route
-            {
-                Id = routeId,
-                Name = routeName,
-                Status = initialStatus,
-                RecordingIds = recordingIds,
-                SourceRefs = sourceRefs,
-                Origin = origin,
-                IsKscOrigin = isKscOrigin,
-                IsHarvestOrigin = isHarvestOrigin,
-                Stops = stops,
-                TransitDuration = transitDuration,
-                DispatchInterval = dispatchInterval,
-                CadenceMultiplier = cadenceMultiplier,
-                DispatchWindowEpochUT = rootLaunchUT,
-                DispatchWindowPeriod = 0.0,
-                // Placeholder until scheduler (Phase 6+) computes from epoch + interval.
-                NextDispatchUT = rootLaunchUT + dispatchInterval,
-                KscDispatchFundsCost = 0.0,
-                CostManifest = costManifest,
-                InventoryCostManifest = inventoryCostManifest,
-                PauseAfterCurrentCycle = false,
-                CompletedCycles = 0,
-                SkippedCycles = 0,
-                LinkedRouteId = null,
-                CurrentSegmentIndex = -1,
-                PendingStopIndex = -1,
-                // Backing-mission definition (design §0; Phase 5 capture).
-                BackingMissionTreeId = source.TreeId,
-                ExcludedIntervalKeys = excludedIntervalKeys,
-                CreationTreeRecordingIds = creationTreeRecordingIds,
-                RecordedDockUT = recordedDockUT,
-                // A2 review fold: the route-span pair (RecordedDockUT /
-                // DockMemberRecordingId) must reference the SAME leaf - the
-                // run-end (last, max-DockUT) dock. RecordedDockUT already uses
-                // lastAnalysisStop; key the member id on the last stop's source
-                // too (falling back to the anchor `source` when the last stop
-                // carries none). For a single-stop route lastAnalysisStop's
-                // source IS `source`, so this is byte-identical; for a
-                // cross-recording multi-stop route it keeps the pair coherent
-                // (A4 end-trim + MissionRouteStructureList resolve the dock
-                // window through DockMemberRecordingId).
-                DockMemberRecordingId = (lastAnalysisStop.SourceRecording ?? source).RecordingId,
-                LoopAnchorUT = loopAnchorUT,
-                LastObservedLoopCycleIndex = -1
-            };
-
+        /// <summary>
+        /// Built-route summary log (phase extract of <see cref="BuildRoute"/>); the
+        /// final summary <see cref="ParsekLog.Info"/> (anchor-stop headline)
+        /// verbatim, plus the M4a multi-stop per-stop summary line (emitted only for
+        /// a multi-stop route, so the single-stop common case logs unchanged).
+        /// </summary>
+        private static void LogBuiltRoute(
+            string routeId,
+            string originLabel,
+            RouteEndpoint origin,
+            Recording source,
+            double rootLaunchUT,
+            double undockUT,
+            double recordedDockUT,
+            double transitDuration,
+            double dispatchInterval,
+            int cadenceMultiplier,
+            List<string> recordingIds,
+            HashSet<string> excludedIntervalKeys,
+            HashSet<string> creationTreeRecordingIds,
+            List<RouteStop> stops,
+            bool isMultiStop,
+            Game.Modes mode,
+            CultureInfo ic)
+        {
             string shortId = !string.IsNullOrEmpty(routeId) && routeId.Length > 8
                 ? routeId.Substring(0, 8)
                 : routeId ?? "<no-id>";
@@ -749,8 +837,6 @@ namespace Parsek.Logistics
                     $"Built multi-stop route id={shortId} stops={stops.Count.ToString(ic)} " +
                     "[" + string.Join(" ", stopDetails) + "]");
             }
-
-            return new RouteBuildOutcome { Route = route };
         }
 
         /// <summary>
