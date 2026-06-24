@@ -1285,6 +1285,17 @@ namespace Parsek
             // both views. Only read when tracing is enabled.
             double traceUT = MapRenderTrace.IsEnabled ? Planetarium.GetUniversalTime() : 0.0;
 
+            // C1 (flight descent icon ride): the descent-set members spawn in WINDOW order
+            // (entry -> touchdown -> landing), which is NOT committed-index order, so the in-window descent
+            // member is usually not the chain INDEX-tip and would be dropped by the chain-tip skip below - the
+            // icon vanishes off the entry/descent legs and only the final landing member (highest index, widest
+            // window) survives. Resolve the ONE descent-set member that is actually rendering its descent slice
+            // this frame (highest-index in-window member, so a shared surface window draws a single icon) and
+            // exempt it from the chain-tip skip so the icon rides the entry->surface curve. -1 (no exemption,
+            // byte-identical) for non-descent / non-re-aim units or between cycles.
+            int descentIconCarrier = GhostPlaybackLogic.ResolveFlightDescentIconCarrier(
+                committed, currentUT, flight.Engine.CurrentLoopUnits);
+
             foreach (var kvp in flight.Engine.ghostStates)
             {
                 var state = kvp.Value;
@@ -1390,6 +1401,29 @@ namespace Parsek
                     continue; // per-instance markers drew (or all skipped) — skip the 8c gate + tail
                 }
 
+                // ---- Boundary-overlap secondary marker (launch->escape seam render) ----
+                // The early-launching instance N+1's in-SOI ASCENT icon, riding the shared polyline,
+                // during the borrow window of a zero-slack re-aim launch loop. The PRIMARY (instance N,
+                // far downstream near the destination) draws its OWN marker via the proto gate / tail
+                // below; this ADDS the secondary's ascent marker at a DISJOINT position (the pad, months
+                // apart in span phase). The secondary's map-presence proto vessel (icon + escape conic)
+                // cannot exist during atmospheric ascent — no OrbitSegment to seed it — so the
+                // map-presence sweep defers the create until the recorded escape Segment (the pre-Segment
+                // gap). Without this the ascent POLYLINE draws (the second-head pass) with NO icon riding
+                // it for those minutes. DrawOneOverlapInstanceMarker self-gates per cycle: once the escape
+                // Segment materializes the proto icon owns the cycle and this returns false (no double).
+                // NO continue: the primary marker still draws below. Inert for every non-launch-hold
+                // member / aligned loop (no live secondary head) and outside map view.
+                if (GhostMapPresence.TryResolveBoundaryOverlapSecondaryMarker(
+                        isMapView, kvp.Key < committed.Count ? committed[kvp.Key] : null, kvp.Key,
+                        currentUT, flight.Engine.CurrentLoopUnits,
+                        out double boundarySecondaryUT, out long boundarySecondaryCycle)
+                    && DrawOneOverlapInstanceMarker(
+                        kvp.Key, committed, boundarySecondaryUT, boundarySecondaryCycle))
+                {
+                    summary.Drawn++;
+                }
+
                 // Skip if native KSP icon is active (ProtoVessel exists and icon not suppressed).
                 // When the Harmony patch suppresses the icon (below atmosphere), we draw
                 // our custom marker at the ghost mesh position instead.
@@ -1443,7 +1477,11 @@ namespace Parsek
                     }
                     string chainId = committed[kvp.Key].ChainId;
                     if (!string.IsNullOrEmpty(chainId) && chainTipIndexBuffer.Count > 0
-                        && chainTipIndexBuffer.TryGetValue(chainId, out int tip) && kvp.Key != tip)
+                        && chainTipIndexBuffer.TryGetValue(chainId, out int tip) && kvp.Key != tip
+                        // C1: do NOT skip the active descent-icon carrier (the in-window descent-set member) -
+                        // its descent leg is the one drawn this frame, so its icon must ride it even though it is
+                        // not the chain index-tip. -1 for non-descent units, so this is byte-identical there.
+                        && kvp.Key != descentIconCarrier)
                     {
                         summary.ChainNonTip++;
                         decOutcome = MapRenderTrace.MarkerOutcome.SkippedChainNonTip;
@@ -1698,6 +1736,33 @@ namespace Parsek
             // paint a marker.
             if (isMapView)
             {
+                // Render-EVENT decision emit for the GHOSTLESS fallback marker (no live engine ghost state;
+                // the marker rides the drawn polyline leg). Without this the ghostless marker was invisible to
+                // the MapRenderTrace marker-decision tracer (only a GhostMap VerboseRateLimited narrative
+                // line), so its appear (DrawnNonProto) / in-candidate disappear (loop-hidden / ride-failed)
+                // were silent at the decision tier - the flight-map gap vs the clean TS path. Keyed by
+                // rec.RecordingId (the pid-less recording-scoped identity); mutually exclusive with the main
+                // pid-keyed walk's key (this loop only handles recordings with NO ghostState), so no thrash.
+                // The recording-level leg appear/disappear itself is the polyline ownership flip, already an
+                // EVENT via GhostTrajectoryPolylineRenderer's PolylineLegChange. Gated; read-only.
+                void EmitGhostlessDecision(
+                    Recording r, int idx, MapRenderTrace.MarkerOutcome outcome,
+                    MapRenderTrace.MarkerRideReason ride, string posSource, double decisionEffUT)
+                {
+                    if (!MapRenderTrace.IsEnabled || r == null || string.IsNullOrEmpty(r.RecordingId))
+                        return;
+                    MapRenderTrace.EmitMarkerDecisionOnChange(
+                        MapRenderTrace.RenderSurface.ImguiLabeledMarker, r.RecordingId, traceUT,
+                        MapRenderTrace.BuildMarkerDecisionSignature(
+                            idx, r.VesselName ?? "Ghost",
+                            directorTracedPathActive: false, polylineOwning: true,
+                            iconSuppressed: false, shouldDrawNonProto: true,
+                            outcome, ride, legIndex: -1, posSource),
+                        // The loop-shifted sample UT the ghostless head was resolved at (a looped re-aim
+                        // member's real ~2.5e9 region UT), so the line no longer mislabels effUT==currentUT.
+                        effUT: decisionEffUT);
+                }
+
                 for (int ri = 0; ri < committed.Count; ri++)
                 {
                     var rec = committed[ri];
@@ -1707,6 +1772,9 @@ namespace Parsek
                         continue; // covered (drawn or intentionally skipped) by the pid-keyed walk
                     if (!Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(
                             rec.RecordingId))
+                        // Not a ghostless candidate (the polyline does not own this phase). No decision emit:
+                        // the leg's disappear is the polyline ownership flip, already a PolylineLegChange
+                        // EVENT; emitting a Skipped here would burst over every inactive recording.
                         continue;
                     // Review MINOR-1: if this chain already drew a LABELED marker via the pid-keyed
                     // walk (warp handoff: a sibling member still holds a live ghost state), skip -
@@ -1718,15 +1786,26 @@ namespace Parsek
                     double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
                         ri, rec.StartUT, rec.EndUT, currentUT,
                         flight.Engine.CurrentLoopUnits, out bool ghostlessHidden);
-                    if (ghostlessHidden) continue;
+                    if (ghostlessHidden)
+                    {
+                        EmitGhostlessDecision(rec, ri, MapRenderTrace.MarkerOutcome.SkippedLoopHidden,
+                            MapRenderTrace.MarkerRideReason.NotAttempted, "polyline", effUT);
+                        continue;
+                    }
                     if (!Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
                             rec.RecordingId, effUT, out Vector3 onLinePos))
+                    {
+                        EmitGhostlessDecision(rec, ri, MapRenderTrace.MarkerOutcome.SkippedPositionFail,
+                            MapRenderTrace.MarkerRideReason.FallbackHeadOutsideLegs, "polyline", effUT);
                         continue;
+                    }
                     VesselType ghostlessType = GhostMapPresence.ResolveVesselType(rec.VesselSnapshot);
                     DrawMapMarkerAt(
                         onLinePos, rec.RecordingId, rec.VesselName ?? "Ghost",
                         GetGhostMarkerColorForType(ghostlessType), ghostlessType);
                     summary.Drawn++;
+                    EmitGhostlessDecision(rec, ri, MapRenderTrace.MarkerOutcome.DrawnNonProto,
+                        MapRenderTrace.MarkerRideReason.RodeLeg, "polyline", effUT);
                     ParsekLog.VerboseRateLimited("GhostMap",
                         "ghostless-polyline-marker." + rec.RecordingId,
                         string.Format(System.Globalization.CultureInfo.InvariantCulture,

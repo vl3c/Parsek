@@ -1866,6 +1866,15 @@ namespace Parsek
                 // on a non-rewinding supersede, and future credits compute zero once
                 // the source recovery FundsEarning rows are tombstoned).
                 case GameActionType.RouteRecoveryCredited:
+                // RouteCargoPickedUp (logistics M3, design D6): a scheduler-emitted
+                // per-window pickup debit row, not flight-recorder output. A NEW type
+                // does NOT inherit the existing route-rows-return-false above - with
+                // no case it falls through to `return true` and supersede would
+                // strict-block / retry on a pickup row. Its physical effect (cargo
+                // removed from the endpoint at emit) is reverted by the rewind
+                // quicksave, never by this predicate, so supersede must not block on
+                // it.
+                case GameActionType.RouteCargoPickedUp:
                     return false;
             }
 

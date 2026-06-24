@@ -132,6 +132,19 @@ namespace Parsek.Logistics
             // When no tree was supplied (legacy single-recording path), the source IS
             // the root, so rootLaunchUT == source.StartUT.
             double rootLaunchUT = rootRec != null ? rootRec.StartUT : source.StartUT;
+
+            // M4a (plan D4): resolve the ordered per-stop collection. A1 fills
+            // analysis.Stops ascending by DockUT (single entry on a single-window
+            // run, N on a multi-window run). The pure-logic RouteBuilder tests
+            // construct analysis results with ONLY the scalar fields (no Stops
+            // list), so fall back to a single synthesized stop mirroring the
+            // scalar ConnectionWindow + manifests when Stops is null/empty. The
+            // synthesized single stop is byte-identical to the pre-A2 single-stop
+            // build (RANK-8). The LAST (max-DockUT) stop drives the route span.
+            List<RouteAnalysisStop> analysisStops = ResolveAnalysisStops(analysis);
+            int analysisStopCount = analysisStops.Count;
+            RouteAnalysisStop lastAnalysisStop = analysisStops[analysisStopCount - 1];
+
             // The route segment renders [root launch .. DOCK] (playtest follow-up):
             // rendering STOPS at the docking moment, so the docked-together combined
             // vessel (the dock-merged child recording, which spans dock..undock) is
@@ -139,11 +152,14 @@ namespace Parsek.Logistics
             // solo recording ends at the couple; the merged child starts there), so
             // trimming the segment end to the dock excludes the combined vessel
             // exactly. The UNDOCK UT is kept only for the window-sanity check + logs.
-            double undockUT = analysis.ConnectionWindow != null
-                ? analysis.ConnectionWindow.UndockUT
+            // M4a (D4): the route span keys on the LAST stop's dock/undock (the
+            // run-end leg); for a single-stop route this is the same window as
+            // pre-A2 (byte-identical).
+            double undockUT = lastAnalysisStop.ConnectionWindow != null
+                ? lastAnalysisStop.ConnectionWindow.UndockUT
                 : double.NaN;
-            double recordedDockUT = analysis.ConnectionWindow != null
-                ? analysis.ConnectionWindow.DockUT
+            double recordedDockUT = lastAnalysisStop.ConnectionWindow != null
+                ? lastAnalysisStop.ConnectionWindow.DockUT
                 : double.NaN;
 
             // (must-fix #3) Transit duration is the RENDERED span (DOCK - root launch:
@@ -235,33 +251,96 @@ namespace Parsek.Logistics
 
             if (TryResolveRouteOrigin(analysis, source, originRec,
                     out RouteEndpoint origin, out string originLabel,
-                    out bool isKscOrigin, out bool isHarvestOrigin) is { } originReject)
+                    out bool isKscOrigin, out bool isHarvestOrigin,
+                    out bool isPickupOrigin) is { } originReject)
             {
                 return originReject;
             }
 
-            // Single stop (v0). Defensively copy manifests so later store
+            // M4a (plan D4): build N ordered stops, one per analysis stop (ordered
+            // ascending by DockUT in A1). Defensively copy manifests so later store
             // mutations don't reach back into the analysis result.
-            var stop = new RouteStop
+            //
+            // Byte-identity gate (D4 / RANK-8, critical). A SINGLE-stop route MUST
+            // serialize byte-identically to the pre-A2 build:
+            //   - DeliveryOffsetSeconds is consumed ONLY by the codec (NOT at fire
+            //     time - ResolveCycleStop / PendingDeliveryUT do not read it; the
+            //     loop fires on the recorded dock PHASE via the loop clock). So its
+            //     derivation is GATED to N>1; a single-stop route keeps the 0.0
+            //     placeholder exactly as the pre-A2 build set it.
+            //   - SegmentIndexBefore: a single-stop route keeps the placeholder 0
+            //     exactly as before (matching index resolution on the anchor source
+            //     would also land 0 in practice, but pinning it to the placeholder
+            //     keeps the single-stop bytes provably unchanged).
+            //   - The per-stop RecordedDockUT / LastFiredCycleIndex are GATED to
+            //     N>1: a single-stop route leaves them at -1.0 / -1, so the codec
+            //     omits both keys (sparse) and the bytes are identical.
+            bool isMultiStop = analysisStopCount > 1;
+            var stops = new List<RouteStop>(analysisStopCount);
+            for (int i = 0; i < analysisStopCount; i++)
             {
-                Endpoint = analysis.ConnectionWindow.EndpointAtDock.Value,
-                ConnectionKind = analysis.ConnectionWindow.TransferKind,
-                DeliveryManifest = analysis.ResourceDeliveryManifest != null
-                    ? new Dictionary<string, double>(analysis.ResourceDeliveryManifest)
-                    : new Dictionary<string, double>(),
-                InventoryDeliveryManifest = analysis.InventoryDeliveryManifest != null
-                    ? new List<InventoryPayloadItem>(analysis.InventoryDeliveryManifest)
-                    : new List<InventoryPayloadItem>(),
-                SegmentIndexBefore = 0,
-                DeliveryOffsetSeconds = 0.0
-            };
+                RouteAnalysisStop a = analysisStops[i];
+                RouteConnectionWindow window = a.ConnectionWindow;
+
+                // SegmentIndexBefore: best-effort index of the stop's source
+                // recording in route.RecordingIds (the member-recording whose
+                // completion triggers the stop). -1 when not resolvable. Single-stop
+                // keeps the byte-identical placeholder 0 (gated below).
+                int segmentIndexBefore = 0;
+                double deliveryOffsetSeconds = 0.0;
+                double stopRecordedDockUT = -1.0;
+                if (isMultiStop)
+                {
+                    segmentIndexBefore = ResolveSegmentIndexBefore(recordingIds, a.SourceRecording);
+                    // The scheduler/display projection per design 6.2 (the actual
+                    // per-window firing keys on each window's DockUT through the
+                    // loop clock, Phase A3 - NOT this offset).
+                    deliveryOffsetSeconds = a.DockUT - rootLaunchUT;
+                    // The per-stop firing phase (OQ3/D5; read at fire time in A3).
+                    stopRecordedDockUT = a.DockUT;
+                }
+
+                stops.Add(new RouteStop
+                {
+                    Endpoint = window.EndpointAtDock.Value,
+                    ConnectionKind = window.TransferKind,
+                    DeliveryManifest = a.ResourceDeliveryManifest != null
+                        ? new Dictionary<string, double>(a.ResourceDeliveryManifest)
+                        : new Dictionary<string, double>(),
+                    InventoryDeliveryManifest = a.InventoryDeliveryManifest != null
+                        ? new List<InventoryPayloadItem>(a.InventoryDeliveryManifest)
+                        : new List<InventoryPayloadItem>(),
+                    // M3 pickup direction (plan D8): the analysis load manifest is
+                    // the resource cargo that flowed FROM the endpoint ONTO the
+                    // transport across the window (the sign-flip mirror of delivery).
+                    // Defensively copy. Null when the window carried no resource
+                    // pickup -> the codec omits the PICKUP_MANIFEST node.
+                    PickupManifest = a.ResourceLoadManifest != null
+                        ? new Dictionary<string, double>(a.ResourceLoadManifest)
+                        : null,
+                    // M3 inventory pickup (plan D7/D8): the analysis inventory load
+                    // manifest is the stored-part cargo loaded FROM the endpoint
+                    // ONTO the transport (identity carried intact). Deep-copy so
+                    // store mutations cannot reach back into the analysis result
+                    // (the items carry mutable StoredPartSnapshot ConfigNodes). Null
+                    // when the window carried no inventory pickup -> the codec omits
+                    // the INVENTORY_PICKUP_MANIFEST node.
+                    InventoryPickupManifest = a.InventoryLoadManifest != null
+                        ? RouteProofMetadata.CloneInventoryPayloadItems(a.InventoryLoadManifest)
+                        : null,
+                    SegmentIndexBefore = segmentIndexBefore,
+                    DeliveryOffsetSeconds = deliveryOffsetSeconds,
+                    RecordedDockUT = stopRecordedDockUT
+                    // LastFiredCycleIndex left at its -1 default (A3 wires firing).
+                });
+            }
 
             string routeId = (idFactory ?? DefaultIdFactory)();
             string routeName = !string.IsNullOrEmpty(inputs.Name)
                 ? inputs.Name
                 : RouteCreationFormatters.GenerateDefaultRouteName(analysis, committedTree);
 
-            BuildRouteCostManifests(analysis, isHarvestOrigin, isKscOrigin, ic,
+            BuildRouteCostManifests(analysis, isHarvestOrigin, isPickupOrigin, isKscOrigin, ic,
                 out Dictionary<string, double> costManifest,
                 out List<InventoryPayloadItem> inventoryCostManifest);
 
@@ -320,7 +399,7 @@ namespace Parsek.Logistics
                 Origin = origin,
                 IsKscOrigin = isKscOrigin,
                 IsHarvestOrigin = isHarvestOrigin,
-                Stops = new List<RouteStop> { stop },
+                Stops = stops,
                 TransitDuration = transitDuration,
                 DispatchInterval = dispatchInterval,
                 CadenceMultiplier = cadenceMultiplier,
@@ -342,14 +421,25 @@ namespace Parsek.Logistics
                 ExcludedIntervalKeys = excludedIntervalKeys,
                 CreationTreeRecordingIds = creationTreeRecordingIds,
                 RecordedDockUT = recordedDockUT,
-                DockMemberRecordingId = source.RecordingId,
+                // A2 review fold: the route-span pair (RecordedDockUT /
+                // DockMemberRecordingId) must reference the SAME leaf - the
+                // run-end (last, max-DockUT) dock. RecordedDockUT already uses
+                // lastAnalysisStop; key the member id on the last stop's source
+                // too (falling back to the anchor `source` when the last stop
+                // carries none). For a single-stop route lastAnalysisStop's
+                // source IS `source`, so this is byte-identical; for a
+                // cross-recording multi-stop route it keeps the pair coherent
+                // (A4 end-trim + MissionRouteStructureList resolve the dock
+                // window through DockMemberRecordingId).
+                DockMemberRecordingId = (lastAnalysisStop.SourceRecording ?? source).RecordingId,
                 LoopAnchorUT = loopAnchorUT,
                 LastObservedLoopCycleIndex = -1
             };
 
             LogBuiltRoute(routeId, originLabel, origin, source, rootLaunchUT, undockUT,
                 recordedDockUT, transitDuration, dispatchInterval, cadenceMultiplier,
-                recordingIds, excludedIntervalKeys, creationTreeRecordingIds, stop, mode, ic);
+                recordingIds, excludedIntervalKeys, creationTreeRecordingIds, stops,
+                isMultiStop, mode, ic);
 
             return new RouteBuildOutcome { Route = route };
         }
@@ -358,11 +448,15 @@ namespace Parsek.Logistics
         /// Origin discovery (phase extract of <see cref="BuildRoute"/>). KSC-origin
         /// if recording carries a launch site name AND was launched from Kerbin.
         /// Otherwise non-KSC origin requires
-        /// <c>RouteOriginProof.StartDockedOriginVesselPid != 0</c>. Endpoint coords
-        /// default to zero for the launch-site path — the scheduler resolves real
-        /// coords from the launch-site name. The non-KSC path uses the proof's origin
-        /// endpoint descriptor (M1) when present; pre-descriptor proofs keep the
-        /// PID-only shape. Returns the <c>endpoint-missing</c>
+        /// <c>RouteOriginProof.StartDockedOriginVesselPid != 0</c>. The M2 harvest
+        /// origin admits an originless run whose delivered resources were all
+        /// witnessed-harvested; the M3 pickup origin (out param
+        /// <paramref name="isPickupOrigin"/>) admits an originless PURE-PICKUP run
+        /// that loaded cargo FROM the dock endpoint with NOTHING delivered. Endpoint
+        /// coords default to zero for the launch-site path — the scheduler resolves
+        /// real coords from the launch-site name. The non-KSC path uses the proof's
+        /// origin endpoint descriptor (M1) when present; pre-descriptor proofs keep
+        /// the PID-only shape. Returns the <c>endpoint-missing</c>
         /// <see cref="RouteBuildOutcome"/> when no origin resolves, otherwise
         /// <c>null</c> with the origin written through the <c>out</c> params.
         /// </summary>
@@ -373,13 +467,35 @@ namespace Parsek.Logistics
             out RouteEndpoint origin,
             out string originLabel,
             out bool isKscOrigin,
-            out bool isHarvestOrigin)
+            out bool isHarvestOrigin,
+            out bool isPickupOrigin)
         {
             isKscOrigin =
                 !string.IsNullOrEmpty(originRec.LaunchSiteName)
                 && string.Equals(originRec.StartBodyName, "Kerbin", StringComparison.Ordinal);
 
+            // M3 pickup direction (plan D8): an originless PURE-PICKUP run loads
+            // its cargo FROM the dock endpoint (the reverse of delivery), so it
+            // has no KSC launch, no start-docked origin proof, and no harvest
+            // origin - the v0 chain below would reject it endpoint-missing. The
+            // endpoint IS the source (debited later, Phase 3/4), so admit it: a
+            // populated load manifest with NO delivery is the witnessed proof
+            // the cargo came aboard. Resolution metadata only - a window that
+            // ALSO delivers (mixed) keeps its real KSC / docked origin and never
+            // reaches this branch.
+            bool hasResourceLoad = analysis.ResourceLoadManifest != null
+                && analysis.ResourceLoadManifest.Count > 0;
+            bool hasInventoryLoad = analysis.InventoryLoadManifest != null
+                && analysis.InventoryLoadManifest.Count > 0;
+            bool hasLoad = hasResourceLoad || hasInventoryLoad;
+            bool hasDelivery =
+                (analysis.ResourceDeliveryManifest != null
+                    && analysis.ResourceDeliveryManifest.Count > 0)
+                || (analysis.InventoryDeliveryManifest != null
+                    && analysis.InventoryDeliveryManifest.Count > 0);
+
             isHarvestOrigin = false;
+            isPickupOrigin = false;
             if (isKscOrigin)
             {
                 origin = new RouteEndpoint
@@ -456,6 +572,34 @@ namespace Parsek.Logistics
                 isHarvestOrigin = true;
                 originLabel = "harvest";
             }
+            else if (hasLoad && !hasDelivery
+                && analysis.ConnectionWindow.EndpointAtDock.HasValue)
+            {
+                // M3 pickup origin (plan D8): the run loaded cargo FROM the dock
+                // endpoint with NOTHING delivered (pure pickup, resource AND/OR
+                // inventory). The endpoint IS the source - debited at the
+                // per-window pickup applier (Phase 3/4 resources, Phase 5
+                // inventory), NOT at dispatch and NOT against funds - so the
+                // origin is a DISPLAY-ONLY descriptor built from the connection
+                // window's pickup endpoint (its pid resolves the live source
+                // vessel at debit time; cost manifests stay EMPTY below,
+                // mirroring the harvest-origin no-debit shape). A MIXED window
+                // (loads AND delivers) keeps its real KSC / docked origin and
+                // never lands here (the hasDelivery guard).
+                RouteEndpoint pickupEndpoint = analysis.ConnectionWindow.EndpointAtDock.Value;
+                origin = new RouteEndpoint
+                {
+                    VesselPersistentId = pickupEndpoint.VesselPersistentId,
+                    BodyName = pickupEndpoint.BodyName ?? string.Empty,
+                    Latitude = pickupEndpoint.Latitude,
+                    Longitude = pickupEndpoint.Longitude,
+                    Altitude = pickupEndpoint.Altitude,
+                    IsSurface = pickupEndpoint.IsSurface
+                };
+                isPickupOrigin = true;
+                originLabel =
+                    "pickup:pid=" + origin.VesselPersistentId.ToString(CultureInfo.InvariantCulture);
+            }
             else
             {
                 origin = default;
@@ -465,7 +609,10 @@ namespace Parsek.Logistics
                     $"originRec={originRec.RecordingId ?? "<none>"} " +
                     $"launchSite={(string.IsNullOrEmpty(originRec.LaunchSiteName) ? "<none>" : originRec.LaunchSiteName)} " +
                     $"startBody={originRec.StartBodyName ?? "<none>"} originProof={(originRec.RouteOriginProof != null ? "yes" : "no")} " +
-                    $"harvestOrigin={(analysis.IsHarvestOrigin ? "yes-but-no-window" : "no")}");
+                    $"harvestOrigin={(analysis.IsHarvestOrigin ? "yes-but-no-window" : "no")} " +
+                    $"resourceLoad={(hasResourceLoad ? "yes" : "no")} " +
+                    $"inventoryLoad={(hasInventoryLoad ? "yes" : "no")} delivery={(hasDelivery ? "yes" : "no")} " +
+                    $"pickupEndpoint={(analysis.ConnectionWindow.EndpointAtDock.HasValue ? "yes" : "no")}");
                 return new RouteBuildOutcome { RejectReason = "endpoint-missing" };
             }
 
@@ -559,21 +706,26 @@ namespace Parsek.Logistics
         /// CostManifest / InventoryCostManifest mirror what each cycle delivers —
         /// items debit what they deliver in v0. Future cost shaping can diverge from
         /// delivery. M2 adjustments (delivery manifests stay untouched in both):
-        /// HARVEST origin (plan D7) -> empty cost manifests; DOCKED origin with
-        /// harvest data (plan D8) -> reduce each delivered resource's debit basis by
-        /// its witnessed harvested amount, removing entries that reduce to zero.
-        /// Writes the <paramref name="costManifest"/> /
+        /// HARVEST origin (plan D7) -> empty cost manifests; PICKUP origin (plan
+        /// D6/D8) -> empty cost manifests too (a pure-pickup run delivers nothing,
+        /// so its dispatch-time cost is empty, mirroring the harvest no-debit shape;
+        /// the loaded cargo debits its physical SOURCE at the per-window pickup
+        /// applier, never funds and never the dispatch-time origin cost); DOCKED
+        /// origin with harvest data (plan D8) -> reduce each delivered resource's
+        /// debit basis by its witnessed harvested amount, removing entries that
+        /// reduce to zero. Writes the <paramref name="costManifest"/> /
         /// <paramref name="inventoryCostManifest"/> out params.
         /// </summary>
         private static void BuildRouteCostManifests(
             RouteAnalysisResult analysis,
             bool isHarvestOrigin,
+            bool isPickupOrigin,
             bool isKscOrigin,
             CultureInfo ic,
             out Dictionary<string, double> costManifest,
             out List<InventoryPayloadItem> inventoryCostManifest)
         {
-            if (isHarvestOrigin)
+            if (isHarvestOrigin || isPickupOrigin)
             {
                 costManifest = new Dictionary<string, double>();
                 inventoryCostManifest = new List<InventoryPayloadItem>();
@@ -600,7 +752,9 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Built-route summary log (phase extract of <see cref="BuildRoute"/>); the
-        /// final summary <see cref="ParsekLog.Info"/> verbatim.
+        /// final summary <see cref="ParsekLog.Info"/> (anchor-stop headline)
+        /// verbatim, plus the M4a multi-stop per-stop summary line (emitted only for
+        /// a multi-stop route, so the single-stop common case logs unchanged).
         /// </summary>
         private static void LogBuiltRoute(
             string routeId,
@@ -616,16 +770,26 @@ namespace Parsek.Logistics
             List<string> recordingIds,
             HashSet<string> excludedIntervalKeys,
             HashSet<string> creationTreeRecordingIds,
-            RouteStop stop,
+            List<RouteStop> stops,
+            bool isMultiStop,
             Game.Modes mode,
             CultureInfo ic)
         {
             string shortId = !string.IsNullOrEmpty(routeId) && routeId.Length > 8
                 ? routeId.Substring(0, 8)
                 : routeId ?? "<no-id>";
-            int stopResources = stop.DeliveryManifest != null ? stop.DeliveryManifest.Count : 0;
-            int stopInventory = stop.InventoryDeliveryManifest != null
-                ? stop.InventoryDeliveryManifest.Count
+            // The stop-* counts report the ANCHOR (first/min-DockUT) stop, the same
+            // tokens the single-stop build logged (byte-identical anchor; the
+            // multi-stop per-stop breakdown is the separate summary line below).
+            RouteStop anchorStop = stops[0];
+            int stopResources = anchorStop.DeliveryManifest != null ? anchorStop.DeliveryManifest.Count : 0;
+            int stopInventory = anchorStop.InventoryDeliveryManifest != null
+                ? anchorStop.InventoryDeliveryManifest.Count
+                : 0;
+            // M3: per-stop pickup-direction count (resource load manifest size).
+            int stopPickup = anchorStop.PickupManifest != null ? anchorStop.PickupManifest.Count : 0;
+            int stopInventoryPickup = anchorStop.InventoryPickupManifest != null
+                ? anchorStop.InventoryPickupManifest.Count
                 : 0;
             ParsekLog.Info(Tag,
                 $"Built route id={shortId} origin={originLabel} " +
@@ -643,9 +807,36 @@ namespace Parsek.Logistics
                 $"members={recordingIds.Count.ToString(ic)} " +
                 $"excluded={excludedIntervalKeys.Count.ToString(ic)} " +
                 $"creationTreeRecordings={creationTreeRecordingIds.Count.ToString(ic)} " +
+                $"stops={stops.Count.ToString(ic)} " +
                 $"stop-resources={stopResources.ToString(ic)} " +
                 $"stop-inventory={stopInventory.ToString(ic)} " +
+                $"stop-pickup={stopPickup.ToString(ic)} " +
+                $"stop-inventory-pickup={stopInventoryPickup.ToString(ic)} " +
                 $"mode={mode}");
+
+            // M4a (plan D4): one-line per-stop summary for a multi-stop route
+            // (stop count + each stop's dock UT + endpoint pid/body). Single-stop
+            // routes skip this (the headline line already carries the anchor's
+            // stop-* counts) so the common-case log stays unchanged.
+            if (isMultiStop)
+            {
+                var stopDetails = new List<string>(stops.Count);
+                for (int i = 0; i < stops.Count; i++)
+                {
+                    RouteStop s = stops[i];
+                    stopDetails.Add(
+                        $"#{i.ToString(ic)}:dockUT={s.RecordedDockUT.ToString("R", ic)}" +
+                        $",seg={s.SegmentIndexBefore.ToString(ic)}" +
+                        $",offset={s.DeliveryOffsetSeconds.ToString("R", ic)}" +
+                        $",pid={s.Endpoint.VesselPersistentId.ToString(ic)}" +
+                        $",body={(string.IsNullOrEmpty(s.Endpoint.BodyName) ? "<none>" : s.Endpoint.BodyName)}" +
+                        $",deliver={(s.DeliveryManifest != null ? s.DeliveryManifest.Count : 0).ToString(ic)}" +
+                        $",pickup={(s.PickupManifest != null ? s.PickupManifest.Count : 0).ToString(ic)}");
+                }
+                ParsekLog.Info(Tag,
+                    $"Built multi-stop route id={shortId} stops={stops.Count.ToString(ic)} " +
+                    "[" + string.Join(" ", stopDetails) + "]");
+            }
         }
 
         /// <summary>
@@ -732,6 +923,77 @@ namespace Parsek.Logistics
                 return false;
             }
             return dockUT > rootLaunchUT && dockUT < undockUT;
+        }
+
+        /// <summary>
+        /// M4a (plan D4): resolve the ordered per-stop analysis collection. A1
+        /// fills <see cref="RouteAnalysisResult.Stops"/> ascending by DockUT for
+        /// every Eligible production result. When the list is null/empty (the
+        /// pure-logic RouteBuilder tests construct results with only the scalar
+        /// fields), synthesize a SINGLE stop mirroring the scalar
+        /// <c>ConnectionWindow</c> + manifests, so a single-window analysis builds
+        /// the same byte-identical single-stop route as the pre-A2 code. Always
+        /// returns at least one entry (the caller has already passed the
+        /// <see cref="RouteAnalysisResult.IsEligible"/> + non-null-source gates,
+        /// and the scalar <c>ConnectionWindow</c> is the eligibility proof).
+        /// </summary>
+        internal static List<RouteAnalysisStop> ResolveAnalysisStops(RouteAnalysisResult analysis)
+        {
+            if (analysis.Stops != null && analysis.Stops.Count > 0)
+                return analysis.Stops;
+
+            // A2 review fold: greppable trace for the scalar-fallback collapse.
+            // Production AnalyzeWindows always sets a non-empty Stops on an
+            // Eligible result, so this branch is normally test-only; if it ever
+            // fires in production it means an Eligible result reached the builder
+            // with no per-stop list, which would silently build a single anchor
+            // stop. Logging it leaves a trace instead of a silent collapse.
+            ParsekLog.Verbose(Tag,
+                "RouteBuilder: analysis.Stops empty - synthesizing one stop from scalar fields "
+                + "(expected only for scalar-only analysis results / tests).");
+
+            return new List<RouteAnalysisStop>
+            {
+                new RouteAnalysisStop
+                {
+                    ConnectionWindow = analysis.ConnectionWindow,
+                    ResourceDeliveryManifest = analysis.ResourceDeliveryManifest,
+                    InventoryDeliveryManifest = analysis.InventoryDeliveryManifest,
+                    ResourceLoadManifest = analysis.ResourceLoadManifest,
+                    InventoryLoadManifest = analysis.InventoryLoadManifest,
+                    EndpointAtDock = analysis.ConnectionWindow != null
+                            && analysis.ConnectionWindow.EndpointAtDock.HasValue
+                        ? analysis.ConnectionWindow.EndpointAtDock.Value
+                        : default(RouteEndpoint),
+                    DockUT = analysis.ConnectionWindow != null
+                        ? analysis.ConnectionWindow.DockUT
+                        : double.NaN,
+                    SourceRecording = analysis.SourceRecording
+                }
+            };
+        }
+
+        /// <summary>
+        /// M4a (plan D4): best-effort 0-based index of a stop's source recording
+        /// in the route's ordered <paramref name="recordingIds"/> (the member set,
+        /// sorted by TreeOrder then id). The index is the member-recording whose
+        /// completion triggers the stop's firing window. Returns <c>-1</c> when the
+        /// source recording id is missing or absent from the member set (the firing
+        /// path still resolves the stop by DockUT, A3; this is the codec / display
+        /// projection only).
+        /// </summary>
+        internal static int ResolveSegmentIndexBefore(
+            List<string> recordingIds, Recording sourceRecording)
+        {
+            if (recordingIds == null || sourceRecording == null
+                || string.IsNullOrEmpty(sourceRecording.RecordingId))
+                return -1;
+            for (int i = 0; i < recordingIds.Count; i++)
+            {
+                if (string.Equals(recordingIds[i], sourceRecording.RecordingId, StringComparison.Ordinal))
+                    return i;
+            }
+            return -1;
         }
 
         private static string DefaultIdFactory()

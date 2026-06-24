@@ -109,6 +109,39 @@ namespace Parsek.Display
         private static readonly HashSet<string> drewNonOrbitalLegRecordings =
             new HashSet<string>(StringComparer.Ordinal);
 
+        // --- Render-EVENT diff (map-render-event-logging): appear / disappear of a recording's drawn
+        // polyline. The Driver already computes drewNonOrbitalLegRecordings (the current-element ownership
+        // set) per frame and an actual-draw forward set per onPreCull; diffing each against the prior frame
+        // emits ONE PolylineLegChange appear/disappear EVENT per recording (the count-keyed polyline.drawset
+        // VerboseOnChange misses a same-count swap and is on the Driver tag, not the unified MapRenderTrace).
+        // OBSERVABILITY ONLY - read-only diffs of sets the draw code already populated; no draw change.
+        // Maintained / diffed ONLY while mapRenderTracing is on; cleared on cross-save flush so a stale set
+        // never fires spurious events. Static to match drewNonOrbitalLegRecordings (the Driver is a DDOL
+        // singleton); the recordingId keys are stable across a scene switch, so a missed clear can only miss
+        // an event, never invent one.
+        private static readonly HashSet<string> previousDrewNonOrbitalLegRecordings =
+            new HashSet<string>(StringComparer.Ordinal);
+        // FORWARD-arc/leg actual-draw set this onPreCull + last onPreCull (the "extra line AHEAD of the
+        // ghost"), diffed under surface=PolylineForwardArc. currentDrewForwardArcRecordings is cleared at the
+        // top of OnMapCameraPreCull and populated where a forward leg / forward arc actually paints.
+        private static readonly HashSet<string> currentDrewForwardArcRecordings =
+            new HashSet<string>(StringComparer.Ordinal);
+        private static readonly HashSet<string> previousDrewForwardArcRecordings =
+            new HashSet<string>(StringComparer.Ordinal);
+        // Reusable scratch for the set diffs (allocated once; populated only when tracing is enabled).
+        private static readonly List<string> diffAppearedScratch = new List<string>();
+        private static readonly List<string> diffDisappearedScratch = new List<string>();
+        // Per-(surface, recordingId, event) wall-clock floor for the PolylineLegChange appear/disappear EVENT.
+        // The draw-set CAN oscillate drawn<->not-drawn every frame at high warp (the documented warp-reseed-lag
+        // line-blink), which would otherwise re-emit an appear+disappear pair to Info every frame - per-frame
+        // spam, and worst of all on exactly the bug a maintainer enables the tracer to debug. The floor
+        // collapses a sustained oscillation to onset + a ~1/s heartbeat per event; a stable appear/disappear
+        // still emits immediately (its key's floor is long expired). Keyed by wall-clock (warp-stable, the
+        // #1063 rule); cleared on cross-save flush + capped for warp safety. Only touched when tracing is on.
+        private const double LegChangeEmitMinIntervalSeconds = 1.0;
+        private static readonly Dictionary<string, double> legChangeLastEmitRealtime =
+            new Dictionary<string, double>(StringComparer.Ordinal);
+
         // RecordingId -> per-recording FORWARD-ARC line set (Step 3 C, forward-trajectory-render plan).
         // Holds the sampled Vectrosity VectorLines for the orbit (StockConic) segments AHEAD of the icon up
         // to forwardStopUT, plus the cache key (currentElementIndex|bodyName|reaimWindowIndex) so a window
@@ -118,6 +151,23 @@ namespace Parsek.Display
         // drewNonOrbitalLegRecordings). One VectorLine per forward segment.
         private static readonly Dictionary<string, ForwardArcSet> forwardArcCache =
             new Dictionary<string, ForwardArcSet>(StringComparer.Ordinal);
+
+        // BOUNDARY-OVERLAP forward-arc namespace (launch->escape seam render, review H1): forwardArcCache is
+        // keyed by recording id, but during the borrow window of a zero-slack re-aim launch loop the Driver
+        // runs the forward pass TWICE for the SAME recording in one frame - the PRIMARY at the through-line
+        // head (e.g. the Duna approach) then the SECONDARY at the early-launch head (the Kerbin ascent +
+        // escape). The two heads select DISJOINT arc sets, so a single recording-id key made the second pass
+        // overwrite the first's cached arcs (destroying its VectorLines), and the first pass's already-enqueued
+        // PendingForwardArcDraw indices then read the wrong array (out-of-range -> the primary's forward conic
+        // vanished). The secondary's arcs live under recordingId + this suffix so BOTH coexist within one
+        // frame. The suffix uses a control char no real recording id contains. The primary path is unchanged
+        // (key == recordingId), so every non-launch-hold member / aligned loop is byte-identical.
+        private const string ForwardSecondaryCacheSuffix = "bsec";
+
+        internal static string ForwardArcDictKey(string recordingId, bool boundaryOverlapSecondary)
+            => (boundaryOverlapSecondary && !string.IsNullOrEmpty(recordingId))
+                ? recordingId + ForwardSecondaryCacheSuffix
+                : recordingId;
 
         // Reusable scratch buffer for OrbitArcSampler.SampleSegmentArc output (body-LOCAL points). The
         // sampler fills it transiently and RefreshForwardArcs copies the body-relative offsets out into each
@@ -398,6 +448,88 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// PURE set diff for the polyline render-EVENT appear/disappear emit: given the recordings drawn on
+        /// the PREVIOUS frame (<paramref name="previous"/>) and the recordings drawn on the CURRENT frame
+        /// (<paramref name="current"/>), fills <paramref name="appeared"/> (in current, not previous) and
+        /// <paramref name="disappeared"/> (in previous, not current), each sorted Ordinal for deterministic
+        /// output. The output lists are cleared first. No Unity dependency, so it is unit-testable directly;
+        /// the caller owns updating <paramref name="previous"/> := <paramref name="current"/> after emitting.
+        /// </summary>
+        internal static void DiffDrawnSets(
+            HashSet<string> previous, HashSet<string> current,
+            List<string> appeared, List<string> disappeared)
+        {
+            appeared.Clear();
+            disappeared.Clear();
+            if (current != null)
+                foreach (string id in current)
+                    if (previous == null || !previous.Contains(id))
+                        appeared.Add(id);
+            if (previous != null)
+                foreach (string id in previous)
+                    if (current == null || !current.Contains(id))
+                        disappeared.Add(id);
+            appeared.Sort(StringComparer.Ordinal);
+            disappeared.Sort(StringComparer.Ordinal);
+        }
+
+        /// <summary>
+        /// Diff <paramref name="current"/> against <paramref name="previous"/> and emit ONE
+        /// <c>phase=PolylineLegChange event=appear|disappear</c> MapRenderTrace structural EVENT per
+        /// recording that started / stopped drawing on <paramref name="surface"/> (Polyline = current
+        /// element, PolylineForwardArc = the forward chain ahead of the icon), then copy current into
+        /// previous so the next frame diffs against this one. Each line carries the recordingId in BOTH the
+        /// pid= and recId= slots (the polyline is a recording-scoped surface that may have no proto ghost,
+        /// so the recordingId IS its identity). Emitted as IMPORTANT (no detailed-window open) so the
+        /// appear/disappear shows even with Verbose off, matching the GhostCreated/GhostDestroyed tier. The
+        /// whole method is IsEnabled-gated by the caller; the diff scratch lists are reused. Read-only.
+        /// </summary>
+        private static void EmitPolylineDrawSetChanges(
+            MapRenderTrace.RenderSurface surface,
+            HashSet<string> previous, HashSet<string> current, double currentUT)
+        {
+            DiffDrawnSets(previous, current, diffAppearedScratch, diffDisappearedScratch);
+            if (diffAppearedScratch.Count == 0 && diffDisappearedScratch.Count == 0)
+                return; // steady state: nothing changed, no copy needed (sets are equal)
+            for (int i = 0; i < diffAppearedScratch.Count; i++)
+                EmitPolylineLegChange(surface, diffAppearedScratch[i], "appear", currentUT);
+            for (int i = 0; i < diffDisappearedScratch.Count; i++)
+                EmitPolylineLegChange(surface, diffDisappearedScratch[i], "disappear", currentUT);
+            previous.Clear();
+            foreach (string id in current)
+                previous.Add(id);
+        }
+
+        private static void EmitPolylineLegChange(
+            MapRenderTrace.RenderSurface surface, string recordingId, string ev, double currentUT)
+        {
+            // Soft per-(surface, recordingId, event) wall-clock floor so a per-frame oscillating draw-set
+            // (warp-reseed-lag line-blink) collapses to onset + a ~1/s heartbeat instead of flooding Info
+            // every frame; a stable appear/disappear emits immediately (floor long expired). The caller copies
+            // previous:=current regardless, so a throttled transition is simply not re-detected. Only reached
+            // when MapRenderTrace.IsEnabled (caller-gated), so disabled play pays nothing for this.
+            string key = ((int)surface).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + "|" + recordingId + "|" + ev;
+            double now = UnityEngine.Time.realtimeSinceStartup;
+            if (legChangeLastEmitRealtime.TryGetValue(key, out double last)
+                && now - last < LegChangeEmitMinIntervalSeconds)
+                return;
+            // Warp safeguard: bound the dict before inserting a NEW key (recordingIds are stable, so this is
+            // belt-and-braces; clearing only drops other keys' floors, harmless - they re-emit on next change).
+            if (!legChangeLastEmitRealtime.ContainsKey(key) && legChangeLastEmitRealtime.Count >= 4096)
+                legChangeLastEmitRealtime.Clear();
+            legChangeLastEmitRealtime[key] = now;
+
+            MapRenderTrace.EmitStructural(
+                "PolylineLegChange", surface, recordingId, currentUT, currentUT,
+                windowSeconds: 0.0,
+                details: string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "event={0} scene={1} warp={2:F0}x",
+                    ev, HighLogic.LoadedScene, TimeWarp.CurrentRate),
+                recId: recordingId);
+        }
+
+        /// <summary>
         /// Test-only seam (8b.2 / 8e S3b): stamps the per-frame actual-draw ownership publish set the
         /// Driver's <c>LateUpdate</c> populates (Unity-coupled, not reachable from xUnit), so the gate-read
         /// + dispatch in <see cref="IsRenderingNonOrbitalLeg"/> can be exercised end-to-end. Mirrors the
@@ -414,6 +546,38 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// Test-only seam: injects a single 2-point polyline leg into the cache so the marker-ride fallback
+        /// gate (<see cref="ResolveUndrawnLegFallback"/> inside
+        /// <see cref="TryAnchorMarkerToPolyline(string,double,out Vector3,out MapRenderTrace.MarkerRideReason,out int)"/>)
+        /// can be exercised end-to-end from an in-game test (the ride itself needs Unity's
+        /// <c>Time.frameCount</c> / <c>ScaledSpace</c>, so this cannot run in xUnit). The leg spans
+        /// <paramref name="startUT"/>..<paramref name="endUT"/> with the given conic-anchor state and
+        /// last-drawn frame; pass <paramref name="lastDrawnFrame"/> != the current frame to model the
+        /// "leg not drawn this frame" branch. Cleared by <see cref="Clear"/>.
+        /// </summary>
+        internal static void SetLegForTesting(
+            string recordingId, double startUT, double endUT, bool wasAnchored, int lastDrawnFrame)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            var leg = new LegPolyline
+            {
+                lats = new double[] { 0.0, 0.0 },
+                lons = new double[] { 0.0, 0.0 },
+                alts = new double[] { 0.0, 0.0 },
+                recordedUTs = new double[] { startUT, endUT },
+                scratchScaledSpace = new Vector3[] { Vector3.zero, Vector3.one },
+                bodyName = null,
+                startUT = startUT,
+                endUT = endUT,
+                vectorLine = null,
+                lastDrawnFrame = lastDrawnFrame,
+                wasAnchored = wasAnchored,
+                lineMode = 0,
+            };
+            polylineCache[recordingId] = new LegPolylineSet { legs = new[] { leg }, contentHash = 0 };
+        }
+
+        /// <summary>
         /// Test-only accessor: returns the live cache dictionary so the
         /// xUnit suite can assert on cache contents after a refresh.
         /// </summary>
@@ -423,6 +587,71 @@ namespace Parsek.Display
         /// Test-only accessor: returns the number of cached entries.
         /// </summary>
         internal static int CacheCountForTesting => polylineCache.Count;
+
+        /// <summary>
+        /// OBSERVABILITY (descent render-window tracing): emit one line per RENDERED polyline object - every
+        /// cached leg AND forward-arc whose Vectrosity <c>VectorLine</c> is live this frame (active, or drawn
+        /// this frame). These VectorLines are NOT in <see cref="GhostMapPresence.ghostMapVesselPids"/>, so the
+        /// per-pid <see cref="MapRenderProbe"/> never sees them - they are exactly the "rendered but not logged"
+        /// extra trajectory lines the per-frame map-scene snapshot exists to catch. <c>staleActive</c> flags a
+        /// VectorLine still <c>active</c> but NOT drawn this frame (a one-shot Draw3D mesh that the deactivation
+        /// sweep has not yet hidden - a candidate stray line). Walks both static caches; Unity-coupled (reads
+        /// <c>VectorLine.active</c>), so it is driven only from the live probe, never xUnit. Each line is handed
+        /// to <paramref name="emit"/>; the caller owns the surface/prefix.
+        /// </summary>
+        internal static void EmitRenderedPolylineSnapshot(int currentFrame, System.Action<string> emit)
+        {
+            if (emit == null) return;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+
+            // FRAME-LAG NOTE: this runs from MapRenderProbe.LateUpdate, but Draw3D + the per-frame deactivation
+            // sweep (RunDeactivationSweep) run LATER, in OnMapCameraPreCull. So a leg redrawn EVERY frame is
+            // stamped lastDrawnFrame == currentFrame-1 when read here (the prior frame's preCull), never
+            // currentFrame. "drawnRecently" therefore means lastDrawnFrame >= currentFrame-1 (the steady-state
+            // baseline for a continuously-drawn leg), and staleActive flags only a GENUINELY lingering mesh:
+            // active but NOT redrawn for 2+ frames (lastDrawnFrame < currentFrame-1) - the case the sweep should
+            // have hidden. (The earlier `== currentFrame` form flagged every redrawn leg as stale: 3825 false
+            // positives in the 2026-06-21 capture.)
+            foreach (var kv in polylineCache)
+            {
+                LegPolyline[] legs = kv.Value.legs;
+                if (legs == null) continue;
+                for (int l = 0; l < legs.Length; l++)
+                {
+                    LegPolyline leg = legs[l];
+                    bool hasLine = leg.vectorLine != null;
+                    bool active = hasLine && leg.vectorLine.active;
+                    bool drawnRecently = leg.lastDrawnFrame >= currentFrame - 1;
+                    if (!active && !drawnRecently) continue; // not rendered recently
+                    emit(string.Format(ic,
+                        "polyline-leg rec={0} leg={1}/{2} body={3} ut=[{4}-{5}] active={6} drawnRecently={7} "
+                        + "staleActive={8} pts={9} lastDrawnFrame={10}",
+                        kv.Key, l, legs.Length, leg.bodyName ?? "(null)",
+                        leg.startUT.ToString("F1", ic), leg.endUT.ToString("F1", ic),
+                        active, drawnRecently, active && !drawnRecently, leg.PointCount, leg.lastDrawnFrame));
+                }
+            }
+
+            foreach (var kv in forwardArcCache)
+            {
+                ForwardArc[] arcs = kv.Value.arcs;
+                if (arcs == null) continue;
+                for (int a = 0; a < arcs.Length; a++)
+                {
+                    ForwardArc arc = arcs[a];
+                    bool hasLine = arc.vectorLine != null;
+                    bool active = hasLine && arc.vectorLine.active;
+                    bool drawnRecently = arc.lastDrawnFrame >= currentFrame - 1;
+                    if (!active && !drawnRecently) continue; // not rendered recently
+                    emit(string.Format(ic,
+                        "forward-arc rec={0} arc={1}/{2} body={3} ut=[{4}-{5}] active={6} drawnRecently={7} "
+                        + "staleActive={8} lastDrawnFrame={9}",
+                        kv.Key, a, arcs.Length, arc.bodyName ?? "(null)",
+                        arc.startUT.ToString("F1", ic), arc.endUT.ToString("F1", ic),
+                        active, drawnRecently, active && !drawnRecently, arc.lastDrawnFrame));
+                }
+            }
+        }
 
         /// <summary>
         /// One body-coherent contiguous polyline leg covering a non-orbital
@@ -501,6 +730,19 @@ namespace Parsek.Display
             /// never hides a line on its own.
             /// </summary>
             public int lastDrawnFrame;
+
+            /// <summary>
+            /// Whether the LAST draw of this leg rotated its <see cref="scratchScaledSpace"/> onto the
+            /// bracketing conic seam (<see cref="TryAnchorLegToConicSeam"/> returned true). Stamped every
+            /// draw in <c>TryDrawLeg</c> and persisted via the same struct write-back as
+            /// <see cref="lastDrawnFrame"/>. The marker-ride fallback reads it: a conic-anchored leg's drawn
+            /// line sits ~96 deg off the body-fixed head under the loop shift, so when the leg is not drawn
+            /// this frame the marker must HOLD its last on-line position to stay on the line; a NON-anchored
+            /// body-fixed leg (descent / atmospheric / surface) draws the raw body-fixed points, so the
+            /// caller's fresh body-fixed head is already on the line and current and is preferred over a
+            /// stale hold. See <see cref="ResolveUndrawnLegFallback"/>.
+            /// </summary>
+            public bool wasAnchored;
 
             /// <summary>
             /// Map-line mode (0=unbuilt, 1=3D Draw3D, 2=2D Draw) <see cref="vectorLine"/> was last built
@@ -707,10 +949,15 @@ namespace Parsek.Display
             if (polylineCache.TryGetValue(recordingId, out var set))
                 DestroyLegLines(set.legs);
             // Forward-arc lines for this recording (Step 3 C): destroyed + dropped on the SAME lifecycle as
-            // the legs so a reused RecordingId never inherits a stale wrong-aimed forward arc.
+            // the legs so a reused RecordingId never inherits a stale wrong-aimed forward arc. The
+            // boundary-overlap secondary (review H1) keeps its arcs under a namespaced key, released here too.
             if (forwardArcCache.TryGetValue(recordingId, out var fwd))
                 DestroyForwardArcLines(fwd.arcs);
             forwardArcCache.Remove(recordingId);
+            string fwdSecKey = ForwardArcDictKey(recordingId, true);
+            if (forwardArcCache.TryGetValue(fwdSecKey, out var fwdSec))
+                DestroyForwardArcLines(fwdSec.arcs);
+            forwardArcCache.Remove(fwdSecKey);
             // Seam-bridge lines (playtest 6/7): same lifecycle as the forward arcs they connect to.
             // Keys are (recordingId|legIndex|side); collect the recording's keys first (cannot mutate
             // while enumerating). The conic-sample cache entries for this recording drop too (cheap to
@@ -761,6 +1008,13 @@ namespace Parsek.Display
             // cross-save flush / test reset never leaves a stale ownership behind. It is re-cleared
             // every LateUpdate, so this is belt-and-suspenders in normal play and the reset hook in tests.
             drewNonOrbitalLegRecordings.Clear();
+            // Render-EVENT diff baselines: drop the previous-frame drawn sets on the same cross-save / test
+            // reset lifecycle so a new save's first walk does not diff against a prior save's recordings (the
+            // recordingIds collide across saves). Re-baselined on the next walk.
+            previousDrewNonOrbitalLegRecordings.Clear();
+            currentDrewForwardArcRecordings.Clear();
+            previousDrewForwardArcRecordings.Clear();
+            legChangeLastEmitRealtime.Clear();
             // Drop the marker hold cache on the same cross-save / test-reset lifecycle as the ownership
             // sets so a stale held on-line point never survives a save load or a scene switch.
             lastGoodOnLine.Clear();
@@ -900,14 +1154,22 @@ namespace Parsek.Display
         /// </summary>
         internal static void CollectChainRunMembers(
             IReadOnlyList<Recording> committed, Recording rec, int recordingIndex,
-            List<(int index, Recording rec)> members)
+            List<(int index, Recording rec)> members,
+            GhostPlaybackLogic.LoopUnitSet loopUnits = null)
         {
             if (members == null) return;
             members.Clear();
             if (rec == null) return;
             if (!rec.IsChainRecording || committed == null)
             {
-                members.Add((recordingIndex, rec));
+                // DESCENT TRIGGER: a standalone (chain=none) descent member must NOT be added to the run -
+                // it is drawn solely by its own trigger-gated primary pass at the re-anchored head. The
+                // chain-member exclusion loop below never runs for a non-chain rec, so the exclusion has to
+                // be applied on this direct-add path too (the live leak: a chain=none descent member like
+                // "Merger Kerman" drew its descent leg on the visible member's loop clock). Leave members
+                // empty for it. A non-descent standalone recording is unaffected (guard false).
+                if (!IsDescentTriggerMember(recordingIndex, loopUnits))
+                    members.Add((recordingIndex, rec));
                 return;
             }
             for (int i = 0; i < committed.Count; i++)
@@ -915,16 +1177,85 @@ namespace Parsek.Display
                 var m = committed[i];
                 if (m == null || string.IsNullOrEmpty(m.RecordingId)) continue;
                 if (!string.Equals(m.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                // DESCENT TRIGGER: a descent-set member renders ONLY via its own trigger-gated primary pass
+                // (hidden during the loiter, drawn at the re-anchored head during its rotation-aligned window).
+                // Exclude it from the chain RUN entirely: the run draws sibling members' body-fixed legs against
+                // the VISIBLE (transfer) member's LOOP-CLOCK head, so a descent member left in the run would draw
+                // its descent line on the loop clock every pass over its recorded slot - desynced from the
+                // trigger-controlled icon (the descent line painted on the loiter while the icon still waits).
+                // Its legs AND arcs stay out of the run, matching the descent member's intended full hide.
+                if (IsDescentTriggerMember(i, loopUnits))
+                    continue;
                 members.Add((i, m));
             }
             if (members.Count == 0)
             {
                 // Defensive: rec itself was not in the committed list (caller passed a detached
                 // recording) - fall back to the single-member run so the pass still works.
-                members.Add((recordingIndex, rec));
+                // Mirror the exclusion: never re-add a descent-trigger member here either (a
+                // chain=none descent member reaches this fallback because the chain-member loop
+                // above matched none, and re-adding it would draw its descent leg on the run's
+                // loop-clock head - exactly the leak the descent member's own trigger-gated
+                // primary pass already covers). Leave members empty so its legs/arcs/bridges
+                // stay out of the run.
+                if (!IsDescentTriggerMember(recordingIndex, loopUnits))
+                    members.Add((recordingIndex, rec));
                 return;
             }
             members.Sort((a, b) => a.rec.StartUT.CompareTo(b.rec.StartUT));
+        }
+
+        /// <summary>
+        /// True when committed index <paramref name="index"/> is a descent-set member of a re-aim looped
+        /// arrival (its owning unit <see cref="GhostPlaybackLogic.LoopUnit.HasDescentTrigger"/> and the index
+        /// is in its descent set). A descent member renders ONLY via its own trigger-gated primary pass (drawn
+        /// at the re-anchored rotation-aligned head, hidden during the loiter); it must be kept out of EVERY
+        /// forward-run leg/arc/bridge path, which all draw against the VISIBLE member's raw LOOP-CLOCK head and
+        /// would otherwise paint the descent line on the loiter while the icon still waits. The single seam for
+        /// the three forward-run exclusion sites (chain run membership, the head-leg bridge candidate, and the
+        /// per-member run loop) so they cannot drift apart. <c>loopUnits == null</c> / non-member / no descent
+        /// trigger -> false (byte-identical to the no-trigger path). Pure; xUnit-testable without Unity.
+        /// </summary>
+        internal static bool IsDescentTriggerMember(int index, GhostPlaybackLogic.LoopUnitSet loopUnits)
+        {
+            return loopUnits != null
+                && loopUnits.TryGetUnitForMember(index, out GhostPlaybackLogic.LoopUnit du)
+                && du.HasDescentTrigger && du.IsDescentMember(index);
+        }
+
+        /// <summary>
+        /// Clamp B (re-aim descent trigger): cap a forward-run window's <paramref name="chainDataEndUT"/> at the
+        /// unit's SHIFTED parking-conic end (<c>RecordedDeorbitUT + CaptureShiftSeconds</c>, captureShift NEGATIVE)
+        /// when <paramref name="recordingIndex"/> is the DESTINATION transfer member
+        /// (<see cref="GhostPlaybackLogic.LoopUnit.TransferMemberIndex"/>) of a descent-trigger
+        /// unit. PR #1177 shifts that member's destination parking conics ~|captureShift| EARLIER to meet the
+        /// early-arriving re-aimed transfer, so the rendered conics end at <c>deorbit+captureShift</c>. Leaving the
+        /// forward-run window at the UNSHIFTED <c>rec.EndUT</c> (~the seam, ~|captureShift| later) lets the
+        /// <see cref="ForwardRenderWindow"/> past-end branch (<c>currentUT &lt;= dataEndUT + 1</c>) fire once the
+        /// loiter icon passes the shifted conic end and paint the member's OWN unshifted recorded approach tail
+        /// plus a ~|captureShift|-gap bridge — the spurious "second path" the icon cannot follow. Capping at the
+        /// shifted conic end makes that guard FAIL the moment the icon leaves the shifted conic, killing the leak;
+        /// the shifted parking conic the icon rides is untouched. Byte-identical (returns
+        /// <paramref name="chainDataEndUT"/> unchanged) when: <paramref name="loopUnits"/> is null, the index is
+        /// not a unit member, the unit has no descent trigger, the index is NOT the destination transfer member
+        /// (the owner, every ride-along in a different/unshifted frame whose forward window must not be clipped at
+        /// the transfer member's geometry, or a descent-set member whose line comes only from its own trigger-gated
+        /// pass), RecordedDeorbitUT/CaptureShiftSeconds is NaN, captureShift is not negative, or the window already
+        /// ends at/before the shifted conic end. Pure; xUnit-testable without Unity.
+        /// </summary>
+        internal static double ClampChainDataEndForDescentTransfer(
+            double chainDataEndUT, int recordingIndex, GhostPlaybackLogic.LoopUnitSet loopUnits)
+        {
+            if (loopUnits != null
+                && loopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit unit)
+                && unit.HasDescentTrigger && recordingIndex == unit.TransferMemberIndex
+                && !double.IsNaN(unit.RecordedDeorbitUT) && !double.IsNaN(unit.CaptureShiftSeconds))
+            {
+                double shiftedConicEndUT = unit.RecordedDeorbitUT + unit.CaptureShiftSeconds;
+                if (shiftedConicEndUT < unit.RecordedDeorbitUT && chainDataEndUT > shiftedConicEndUT)
+                    return shiftedConicEndUT;
+            }
+            return chainDataEndUT;
         }
 
         /// <summary>
@@ -1125,11 +1456,40 @@ namespace Parsek.Display
         internal const double BridgeMaxSeamGapSeconds = 120.0;
 
         /// <summary>
-        /// Min seam angle (radians, ~0.006 deg) below which no bridge draws: the leg already meets the
-        /// conic (an anchored leg calibrated onto the seam, or a closed rotation gap) and a degenerate
-        /// bridge would only clip the arc's lead-in for nothing.
+        /// Shared-seam-boundary slack (seconds) for the intervening-continuation-leg rule
+        /// (<see cref="HasInterveningContinuationLeg"/>): a continuation leg whose seam coincides with the
+        /// candidate leg's seam (a true handoff, gap of a second or less) still counts as intervening.
+        /// Mirrors the 1 s shared-boundary tolerance <see cref="IsBridgeAdjacentConic"/> uses.
         /// </summary>
-        internal const double BridgeMinAngleRadians = 1e-4;
+        internal const double BridgeSeamSharedBoundaryToleranceSeconds = 1.0;
+
+        /// <summary>
+        /// Min seam angle (radians, 5 deg) below which no bridge draws: the leg already MEETS the conic
+        /// (an anchored leg calibrated onto the seam, a closed rotation gap, or the now-common re-aim
+        /// launch-aligned ascent whose end lands within a few km of the escape conic). The bridge always
+        /// draws a fixed ~74 deg conic merge slice (<see cref="BridgeMergeSampleCount"/> samples) whose
+        /// off-chord bulge is ~200-370 km REGARDLESS of the gap, so for a near-meet (5 deg at Kerbin
+        /// radius is a ~50 km chord; the launch alignment collapses the seam to ~0-3 deg) it draws a
+        /// disproportionate arc that reads as a spurious extra segment beside the correct trajectory.
+        /// Above 5 deg the gap is comparable to the bridge's own bulge - the moderate-misalignment range
+        /// (5-45 deg) the bridge is designed to smooth - so it still draws. Was 1e-4 rad (~0.006 deg),
+        /// which only skipped a perfectly degenerate seam and let the launch-aligned near-meet bridge.
+        /// </summary>
+        internal const double BridgeMinAngleRadians = 0.08726646259971647; // 5 deg
+
+        /// <summary>
+        /// Below the 5 deg merge-slice floor (<see cref="BridgeMinAngleRadians"/>) the seam still has a
+        /// small but VISIBLE gap - most often the re-aim launch-aligned ascent, whose forward-drawn end
+        /// LEADS the icon by the rotation over the remaining ascent and so lands a few degrees (tens to
+        /// ~120 km) short of the inertial escape conic, a gap that shrinks to 0 as the icon climbs to the
+        /// handoff. The merge slice cannot fill it (its ~200-370 km bulge is worse than the gap, which is
+        /// why the 5 deg floor mutes it), but a STRAIGHT CHORD can - it links the leg's drawn end straight
+        /// to the conic's near endpoint with zero bulge. So in (this, 5 deg] a chord bridge draws instead
+        /// of the merge slice. BELOW this floor the leg already meets the conic within a few km (an
+        /// anchored leg, a closed rotation gap), so neither bridge draws - a sub-this chord would be a
+        /// degenerate near-zero-length line. 0.5 deg at Kerbin escape radius (~1370 km) is a ~12 km chord.
+        /// </summary>
+        internal const double BridgeChordMinAngleRadians = 0.008726646259971648; // 0.5 deg
 
         /// <summary>
         /// PURE: angle (radians) between two body-relative rays, used by the decide-side bridge gate.
@@ -1144,6 +1504,29 @@ namespace Parsek.Display
             double cross = Vector3d.Cross(an, bn).magnitude;
             double dot = Vector3d.Dot(an, bn);
             return System.Math.Atan2(cross, dot);
+        }
+
+        /// <summary>How the decide-side gate treats a seam given its leg-to-conic angle.</summary>
+        internal enum SeamBridgeKind { SkipAngleTooLarge, SkipMeetsConic, Chord, MergeSlice }
+
+        /// <summary>
+        /// PURE four-band seam-bridge classifier by leg-to-conic angle (launch-&gt;escape seam render):
+        /// (a) infinite / &gt; <see cref="BridgeMaxAngleRadians"/> (45 deg) -&gt; SkipAngleTooLarge (honest
+        /// gap; the merge slice would draw a wild spiral); (b) (5 deg, 45 deg] -&gt; MergeSlice (the
+        /// moderate-misalignment smoother); (c) (<see cref="BridgeChordMinAngleRadians"/> 0.5 deg, 5 deg]
+        /// -&gt; Chord (a small but visible gap the merge slice mutes itself on - a zero-bulge straight
+        /// chord closes it); (d) &lt;= 0.5 deg -&gt; SkipMeetsConic (the leg already meets the conic within
+        /// a few km; a chord would be degenerate). xUnit-testable.
+        /// </summary>
+        internal static SeamBridgeKind ClassifySeamBridgeByAngle(double angleRad)
+        {
+            if (double.IsInfinity(angleRad) || angleRad > BridgeMaxAngleRadians)
+                return SeamBridgeKind.SkipAngleTooLarge;
+            if (angleRad <= BridgeChordMinAngleRadians)
+                return SeamBridgeKind.SkipMeetsConic;
+            if (angleRad <= BridgeMinAngleRadians)
+                return SeamBridgeKind.Chord;
+            return SeamBridgeKind.MergeSlice;
         }
 
         /// <summary>
@@ -1223,6 +1606,30 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// PURE small-gap CHORD builder (launch-&gt;escape seam render): a STRAIGHT line from the leg's
+        /// drawn end (<paramref name="endARel"/>, scaled body-relative) to the conic's near endpoint
+        /// (<paramref name="conicNearRel"/>, the conic's first sample in body-LOCAL metres, scaled by
+        /// <paramref name="arcScale"/>). Used instead of <see cref="TryBuildSeamBridgeLocalPoints"/>'s
+        /// conic-merge slice when the seam gap is small (a few degrees): the merge slice's fixed
+        /// ~200-370 km off-chord bulge would dwarf the gap, but a chord just closes it with zero bulge.
+        /// outPoints[0] == endARel (leg end), outPoints[mergeCount] == the conic near endpoint, linearly
+        /// interpolated between. No rotation, no radial blend, no conic clip (the chord ends exactly where
+        /// the conic begins). xUnit-testable (no Unity ECalls).
+        /// </summary>
+        internal static bool TryBuildSeamBridgeChordLocalPoints(
+            Vector3d endARel, Vector3d conicNearRel, double arcScale, int mergeCount, Vector3d[] outPoints)
+        {
+            if (outPoints == null || mergeCount < 1 || outPoints.Length < mergeCount + 1) return false;
+            Vector3d b0 = conicNearRel * arcScale;
+            for (int i = 0; i <= mergeCount; i++)
+            {
+                double w = (double)i / mergeCount;
+                outPoints[i] = endARel * (1.0 - w) + b0 * w;
+            }
+            return true;
+        }
+
+        /// <summary>
         /// PURE bridge-target selector: among the cached forward arcs of one recording, the index of
         /// the arc that CONTINUES the body-fixed head leg - same body, starting at/just after the
         /// leg's endUT (1 s shared-boundary tolerance) and within
@@ -1273,6 +1680,76 @@ namespace Parsek.Display
             return atLegStart
                 ? segEndUT >= legSeamUT - maxSeamGapSeconds && segEndUT <= legSeamUT + 1.0
                 : segStartUT >= legSeamUT - 1.0 && segStartUT <= legSeamUT + maxSeamGapSeconds;
+        }
+
+        /// <summary>
+        /// One bridge-eligible leg's UT span + body, for the pure intervening-leg predicate. A flat
+        /// projection of <c>BridgeLegCandidate</c> so the rule is xUnit-testable without the private
+        /// Driver scratch type.
+        /// </summary>
+        internal struct BridgeLegSpan
+        {
+            public double startUT;
+            public double endUT;
+            public string bodyName;
+        }
+
+        /// <summary>
+        /// PURE intervening-ascent-leg rule (launch-escape-seam render fix): once an adjacent conic has
+        /// been chosen for a candidate leg's seam, is there ANOTHER body-fixed leg in the same chain run
+        /// (same body) that CONTINUES from this leg's seam BEFORE the conic - i.e. the conic is NOT this
+        /// leg's immediate next/prev segment? A launch records across two consecutive body-fixed legs
+        /// (pad ascent -> continuation ascent) feeding one escape conic; the pad-ascent leg's end is
+        /// adjacent to the conic only in UT, but the CONTINUATION leg sits between them, so the pad
+        /// leg's bridge would shortcut over it. Only the leg IMMEDIATELY adjacent to the conic may bridge.
+        ///
+        /// <para>END side (<paramref name="atLegStart"/>=false): the conic STARTS at <paramref name="conicSeamUT"/>
+        /// (its startUT); skip this bridge when another body-fixed leg STARTS at/after this leg's
+        /// <paramref name="legSeamUT"/> (the leg-end, shared-boundary slack) and STRICTLY before the conic
+        /// start. A launch's continuation leg starts exactly at the pad leg's end and ends before the
+        /// conic, so its start lands in <c>[legEnd - tol, conicStart - tol)</c> - it intervenes. START side
+        /// (true): the conic ENDS at <paramref name="conicSeamUT"/> (its endUT); skip when another body-fixed
+        /// leg ENDS at/before this leg's start (shared slack) and strictly after the conic end - i.e. its end
+        /// lands in <c>(conicEnd + tol, thisLegStart + tol]</c>.</para>
+        ///
+        /// <para>The candidate itself (<paramref name="selfIndex"/>) is excluded; only same-body legs
+        /// count (a different body's leg cannot be a continuation across an SOI seam here). The boundary
+        /// tolerance <paramref name="seamTolSeconds"/> mirrors the 1 s shared-seam slack so a leg whose
+        /// start coincides with this leg's end (a true continuation handoff) still counts as intervening.
+        /// xUnit-testable (no Unity ECalls).</para>
+        /// </summary>
+        internal static bool HasInterveningContinuationLeg(
+            BridgeLegSpan[] legs, int selfIndex, string candBodyName,
+            double legSeamUT, double conicSeamUT, bool atLegStart, double seamTolSeconds,
+            out int interveningIndex, out double interveningSeamUT)
+        {
+            interveningIndex = -1;
+            interveningSeamUT = double.NaN;
+            if (legs == null || string.IsNullOrEmpty(candBodyName)) return false;
+            for (int i = 0; i < legs.Length; i++)
+            {
+                if (i == selfIndex) continue;
+                var other = legs[i];
+                if (!string.Equals(other.bodyName, candBodyName, StringComparison.Ordinal)) continue;
+                // The other leg's seam that attaches it to the chain at the conic-facing end: its START on
+                // the end side (it continues forward from this leg's end toward the conic), its END on the
+                // start side (it feeds backward from this leg's start toward the conic behind it).
+                double otherSeam = atLegStart ? other.endUT : other.startUT;
+                bool intervenes = atLegStart
+                    // start side: another leg ENDS at/before this leg's start (shared slack) yet strictly
+                    // after the conic that ends behind it - it sits between the conic and this leg.
+                    ? otherSeam <= legSeamUT + seamTolSeconds && otherSeam > conicSeamUT + seamTolSeconds
+                    // end side: another leg STARTS at/after this leg's end (shared slack) yet strictly
+                    // before the conic that starts ahead of it - it sits between this leg and the conic.
+                    : otherSeam >= legSeamUT - seamTolSeconds && otherSeam < conicSeamUT - seamTolSeconds;
+                if (intervenes)
+                {
+                    interveningIndex = i;
+                    interveningSeamUT = otherSeam;
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>
@@ -1580,6 +2057,41 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// What a marker riding the polyline should do when the leg whose head-UT span it covers was NOT
+        /// drawn this frame (its <see cref="LegPolyline.scratchScaledSpace"/> is stale).
+        /// </summary>
+        internal enum UndrawnLegFallback : byte
+        {
+            /// <summary>
+            /// Hold the last on-line position (the conic-anchored leg's drawn line is rotated off the
+            /// body-fixed head, so the caller's body-fixed fallback would land off the line).
+            /// </summary>
+            HoldLastGoodOnLine = 0,
+
+            /// <summary>
+            /// Let the caller keep its fresh body-fixed head (a non-anchored body-fixed leg draws the raw
+            /// body-fixed points, so the head is already on the line AND current - no stale hold needed).
+            /// </summary>
+            UseFreshBodyFixedHead = 1,
+        }
+
+        /// <summary>
+        /// PURE decision (descent-icon visibility): for a leg covering the marker's head UT that was NOT
+        /// drawn this frame, should the marker hold its last on-line position or fall through to the
+        /// caller's fresh body-fixed head? A CONIC-ANCHORED leg's drawn line is rotated ~96 deg off the
+        /// body-fixed head under the loop shift, so the body-fixed fallback would jump off the line -> HOLD.
+        /// A NON-anchored body-fixed leg (descent / atmospheric / surface) draws the raw body-fixed points,
+        /// so the caller's fresh body-fixed head is the SAME on-line point but current -> USE it (a
+        /// &lt;=5 s-stale hold would only lag the moving descent at warp / on the IMGUI Layout-pass dropout).
+        /// This decouples the descent marker's presence from whether the polyline leg happened to be redrawn
+        /// THIS frame, without moving the icon off the line. xUnit-testable without Unity.
+        /// </summary>
+        internal static UndrawnLegFallback ResolveUndrawnLegFallback(bool legWasConicAnchored)
+            => legWasConicAnchored
+                ? UndrawnLegFallback.HoldLastGoodOnLine
+                : UndrawnLegFallback.UseFreshBodyFixedHead;
+
+        /// <summary>
         /// Rides the polyline with a labeled marker (icon + label): returns the world position ON the
         /// drawn polyline at <paramref name="headUT"/> (recorded frame), so the marker sits exactly on the
         /// corrected burn line instead of the body-fixed head (~96 deg off under the loop shift). It
@@ -1634,17 +2146,27 @@ namespace Parsek.Display
                 }
                 if (leg.lastDrawnFrame != frame)
                 {
-                    // TRANSIENT dropout (the dominant active-pan case): the leg matched the head but was
-                    // not drawn this frame, so its scratch is stale. Instead of snapping to the body-fixed
-                    // head, hold the last on-line position if it is still fresh + near in UT. This keeps the
-                    // marker glued to the smoothly-redrawn line during a pan; a sustained stall expires the
-                    // hold (frame-age / UT bound) and falls through.
-                    if (TryHoldLastGood(recordingId, headUT, frame, out worldPos, out legIndex))
+                    // The leg matched the head but was not drawn this frame, so its scratch is stale.
+                    // ResolveUndrawnLegFallback decides what to do by the leg's anchor state:
+                    //  - CONIC-ANCHORED leg: the drawn line is rotated ~96 deg off the body-fixed head, so
+                    //    snapping the caller to the body-fixed head would jump it off the line. Hold the last
+                    //    on-line position if it is still fresh + near in UT (the dominant active-pan case);
+                    //    a sustained stall expires the hold (frame-age / UT bound) and falls through to false.
+                    //  - NON-anchored body-fixed leg (descent / atmospheric / surface): the drawn line IS the
+                    //    raw body-fixed points, so the caller's fresh body-fixed head is already on the line
+                    //    AND current. Return false WITHOUT a hold so the caller keeps that fresh head - the
+                    //    descent-icon decouple: a stale hold would only lag the moving descent at warp / on
+                    //    the IMGUI Layout-pass dropout. (TryHoldLastGood is skipped entirely, so the marker is
+                    //    never pinned to a <=5 s-old position for a body-fixed descent leg.)
+                    if (ResolveUndrawnLegFallback(leg.wasAnchored) == UndrawnLegFallback.HoldLastGoodOnLine
+                        && TryHoldLastGood(recordingId, headUT, frame, out worldPos, out legIndex))
                     {
                         rideReason = MapRenderTrace.MarkerRideReason.HeldLastGood;
                         return true;
                     }
-                    rideReason = MapRenderTrace.MarkerRideReason.FallbackLegNotDrawnThisFrame;
+                    rideReason = leg.wasAnchored
+                        ? MapRenderTrace.MarkerRideReason.FallbackLegNotDrawnThisFrame
+                        : MapRenderTrace.MarkerRideReason.FallbackNonAnchoredUseHead;
                     return false;
                 }
 
@@ -2307,6 +2829,40 @@ namespace Parsek.Display
             return PolylineStaticSkipReason.None;
         }
 
+        /// <summary>
+        /// Pure per-recording WALK-INCLUSION decision for the Driver's renderHidden gate
+        /// (launch-&gt;escape seam render fix). After the static skip + renderHidden resolve, the Driver
+        /// must decide whether to walk this recording at all and, if so, which heads contribute legs.
+        ///
+        /// The renderHidden flag is the PRIMARY head's "loopUT is outside this member's window" verdict
+        /// (the continuing through-line instance N is at a downstream orbital phase). The OLD gate skipped
+        /// the whole recording whenever the primary was hidden, which dropped a launch recording whose
+        /// boundary-overlap SECONDARY (the early-launching instance N+1's in-SOI ascent) was live in its
+        /// own window - so the secondary's forward ascent polyline + escape conic never drew.
+        ///
+        /// Decision table (skip / drawPrimaryLegs / drawSecondaryLegs):
+        /// - primaryRenders &amp;&amp; !hasSecondary  -&gt; walk, primary only (the common case, byte-identical)
+        /// - primaryRenders &amp;&amp;  hasSecondary  -&gt; walk, primary + secondary. REACHED in the single-recording
+        ///   validated case (review H1): the launch member's window is the whole recording, so during the
+        ///   borrow window the primary (instance N near the destination) is still in-window AND the
+        ///   secondary (N+1 ascent) is live, so BOTH forward passes run for the SAME recording in one frame
+        ///   - which is why the forward-arc cache is namespaced per primary/secondary (ForwardArcDictKey).
+        /// - !primaryRenders &amp;&amp;  hasSecondary -&gt; walk, secondary ONLY (the fix: launch ascent renders while
+        ///   the primary is at the destination)
+        /// - !primaryRenders &amp;&amp; !hasSecondary -&gt; SKIP (the old renderHidden skip, unchanged)
+        ///
+        /// Inert for every non-launch-hold member / aligned loop: hasSecondary is always false there, so the
+        /// outcome collapses to (walk iff primaryRenders), exactly the old gate. Pure; unit-tested.
+        /// </summary>
+        internal static void DecidePolylineWalkInclusion(
+            bool primaryRenders, bool hasSecondary,
+            out bool skip, out bool drawPrimaryLegs, out bool drawSecondaryLegs)
+        {
+            skip = !primaryRenders && !hasSecondary;
+            drawPrimaryLegs = !skip && primaryRenders;
+            drawSecondaryLegs = !skip && hasSecondary;
+        }
+
         // ------------------------------------------------------------------
         // Per-leg draw mechanics (Phase 8b.0 extraction)
         //
@@ -2425,6 +2981,11 @@ namespace Parsek.Display
             // ~96 deg off under the loop shift. No-op for legs not bracketed both sides (launch
             // ascent / descent-to-surface) and where body-fixed already matches the conic.
             bool anchored = TryAnchorLegToConicSeam(rec, leg, body, scaledXform);
+            // Persist this draw's anchor outcome so the marker-ride fallback knows whether the drawn line
+            // is conic-rotated off the body-fixed head (hold the last on-line point) or is the raw
+            // body-fixed points (the caller's fresh body-fixed head is already on the line). Written back
+            // into the cached leg via the same struct write-back as lastDrawnFrame below.
+            leg.wasAnchored = anchored;
 
             // RUN-LEG body-fixed hide (playtest-5 rule, 2026-06-09): a persistent run leg (icon NOT on
             // it, requireConicAnchor=true) that could not be anchored to the inertial conic seam would
@@ -2716,6 +3277,14 @@ namespace Parsek.Display
                 new Dictionary<string, CelestialBody>(StringComparer.Ordinal);
             private GameScenes bodyMapScene = (GameScenes)(-1);
 
+            // SEAM-RENDER OBSERVABILITY 3 (docs/dev/design-reaim-launch-hold-seam.md): logging-only latch
+            // tracking the last secondary-cycle for which the boundary-overlap second-head ascent leg was
+            // first drawn, per recording. Used SOLELY to emit the per-cycle "first-draw" line once (when the
+            // additive secondary leg first enqueues this cycle). Does NOT gate or alter any draw - the leg is
+            // enqueued by the existing per-leg logic; this only decides whether to LOG the first-draw line.
+            private readonly Dictionary<string, long> boundarySecondaryFirstDrawCycle =
+                new Dictionary<string, long>(StringComparer.Ordinal);
+
             // ----------------------------------------------------------------
             // Pan-stability draw split (FIX 1)
             //
@@ -2798,6 +3367,10 @@ namespace Parsek.Display
                 // applied ONLY when this bridge actually DRAWS (review MINOR-2: a decide-time clip
                 // with a failed bridge draw left a one-frame hole in the arc). -1 = no clip.
                 public int clipArcPendingIndex;
+                // SMALL-GAP CHORD (launch->escape seam render): when true, the bridge is a STRAIGHT chord
+                // from the leg's drawn end to the conic's near endpoint (no merge-slice, no bulge, no conic
+                // clip), drawn for a sub-5 deg gap the merge slice mutes (BridgeChordMinAngleRadians,5deg].
+                public bool chord;
             }
             private readonly List<PendingBridgeDraw> pendingBridges = new List<PendingBridgeDraw>();
             private int pendingBridgeFrame = -1;
@@ -2814,6 +3387,11 @@ namespace Parsek.Display
                 public string bodyName;
             }
             private readonly List<BridgeLegCandidate> bridgeLegScratch = new List<BridgeLegCandidate>();
+
+            // Flat UT-span projection of bridgeLegScratch (body + start/end UT) for the pure
+            // intervening-continuation-leg predicate, rebuilt once per DecideSeamBridges call. Reusable
+            // per-Driver buffer (single-threaded LateUpdate decide pass).
+            private readonly List<BridgeLegSpan> bridgeLegSpanScratch = new List<BridgeLegSpan>();
 
             // Reusable scratches for the bridge geometry (fixed size: merge count + 1): the arc-side
             // sample slice (lead-in forward / tail reversed) and the unwound output points.
@@ -3114,14 +3692,58 @@ namespace Parsek.Display
                     // loop member, liveUT otherwise); the per-leg gate below
                     // uses it so the line follows the ghost instead of painting
                     // the whole recorded path at once.
-                    double headUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                    // Dual-clock head (docs/dev/plan-launch-boundary-overlap.md 4.1): the PRIMARY head UT (the
+                    // continuing instance N, byte-identical to before) PLUS the optional boundary-overlap SECONDARY
+                    // head UT (the early-launching instance N+1's in-SOI ascent during the borrow window of a
+                    // zero-slack re-aim launch loop). hasSecondaryHead is false for every non-launch-hold member and
+                    // every already-aligned loop, so the second-head pass below is dead for them (byte-identical).
+                    double headUT = GhostPlaybackLogic.ResolveTrackingStationSampleFrame(
                         recordingIndex,
                         rec.StartUT,
                         rec.EndUT,
                         currentUT,
                         loopUnits,
-                        out bool renderHidden);
-                    if (renderHidden)
+                        out bool renderHidden,
+                        out bool hasSecondaryHead,
+                        out double secondaryHeadUT,
+                        out long secondaryHeadCycle);
+
+                    // OBSERVABILITY (mapRenderTracing): publish the descent render WINDOW (Loiter = the loiter
+                    // orbit, Descent = the descent-to-landing) for this frame so the end-of-frame MapRenderProbe
+                    // dumps EVERY rendered map object (orbit lines + polyline legs) during exactly those two
+                    // windows - catching extra / stale trajectory lines the per-pid change-based probe misses.
+                    // Computed before the renderHidden skip so it fires off whichever member renders this phase
+                    // (the transfer member during Loiter, the descent member during Descent). No-op when tracing
+                    // is off or this is not a descent-trigger unit member.
+                    if (MapRenderTrace.IsEnabled
+                        && GhostPlaybackLogic.TryGetDescentUnitRenderPhase(
+                            loopUnits, recordingIndex, currentUT, rec.StartUT, rec.EndUT,
+                            out Parsek.Reaim.DescentTrigger.DescentHeadPhase descentRenderPhase)
+                        && (descentRenderPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Loiter
+                            || descentRenderPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent))
+                    {
+                        MapRenderTrace.NoteDescentRenderWindow(
+                            Time.frameCount, descentRenderPhase.ToString(), rec.RecordingId);
+                    }
+                    // PRIMARY-HIDDEN-BUT-SECONDARY-LIVE (launch->escape seam render fix): the primary head can be
+                    // hidden (its loopUT is OUTSIDE this member's window - the continuing through-line instance N is
+                    // months downstream near the destination, an orbital phase with no in-window non-orbital leg)
+                    // while a boundary-overlap SECONDARY is live in this member's own window (the early-launching
+                    // instance N+1's in-SOI ascent during the borrow window of a zero-slack re-aim launch loop). The
+                    // OLD gate skipped the WHOLE recording on renderHidden, which dropped the launch recording before
+                    // the second-head pass below could ever run - the secondary's forward ascent polyline + forward
+                    // escape conic never drew. The secondary is NOT keyed on the primary's window: it has its own
+                    // in-window leg (its proto-vessel icon + escape conic already render via the SEPARATE
+                    // RunOverlapPerInstanceSweep map-presence walk, which has no renderHidden gate). So skip the whole
+                    // recording ONLY when the primary is hidden AND there is no live secondary either. When the
+                    // primary is hidden but the secondary is live, fall through with primaryRenders=false: the primary
+                    // leg loop + primary forward pass are gated off (the primary genuinely has nothing in-window) and
+                    // only the secondary second-head + secondary forward pass run. Inert for every non-launch-hold
+                    // member / aligned loop (hasSecondaryHead is always false there, so this is the old skip exactly).
+                    DecidePolylineWalkInclusion(
+                        primaryRenders: !renderHidden, hasSecondary: hasSecondaryHead,
+                        out bool skipRecording, out bool primaryRenders, out _);
+                    if (skipRecording)
                     {
                         frameSkippedHidden++;
                         continue;
@@ -3151,6 +3773,44 @@ namespace Parsek.Display
                         Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(ghostPid, drawFrame);
 
                     bool anyDrawn = false;
+                    // Disjoint-leg guard (plan 4.2): the leg index the PRIMARY head landed on this frame (-1 when
+                    // none). The boundary-overlap second-head pass below skips this leg so the SAME leg is never
+                    // enqueued twice in one frame (it would be a no-op redraw anyway, but the guard keeps the
+                    // secondary's head strictly the disjoint in-SOI leg the primary - far downstream - is not on).
+                    int primaryDrawnLegIndex = -1;
+                    // PRIMARY leg loop runs only when the primary head is in-window (primaryRenders). When the
+                    // primary is hidden but a boundary-overlap secondary is live, this is skipped (the primary has
+                    // no in-window non-orbital leg - it is the downstream through-line at an orbital phase) and only
+                    // the secondary second-head + secondary forward pass below run. primaryRenders is always true for
+                    // every non-launch-hold member / aligned loop (renderHidden false there), so this is unchanged.
+                    if (primaryRenders)
+                    {
+                    // I1 (re-aim descent "renders disconnected from the loiter"): for the DESTINATION transfer
+                    // member (TransferMemberIndex) of a descent-trigger unit, the deorbit/approach legs that lead
+                    // DOWN TO the seam live INSIDE this member (not in the descent set) and would otherwise gate
+                    // off entirely - the loiter loopUT sits ~|captureShift| below their recorded UTs, so
+                    // ShouldDrawLegAtHeadUT(..., headUT) is false every frame, and during the descent this member
+                    // is HIDDEN by the handoff. Resolve a re-anchored deorbit head ONCE (Loiter-phase only); the
+                    // per-leg gate below substitutes it for the deorbit-tail legs so they sweep down to the seam
+                    // and join the descent member's first head at the trigger. Gated on the EXACT transfer member
+                    // (not "every non-descent member"): the owner and every ride-along in a different/unshifted
+                    // frame (e.g. a launch-body-orbit probe) have no shifted deorbit tail and must not draw one.
+                    // Byte-identical-off for them, for non-re-aim units (hasDeorbitHead false), and for every phase
+                    // other than Loiter on the transfer member.
+                    bool hasDeorbitHead = false;
+                    double deorbitHead = double.NaN;
+                    double deorbitSeamUT = double.NaN;
+                    double deorbitConicEndUT = double.NaN;
+                    if (loopUnits != null
+                        && loopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit dtUnit)
+                        && dtUnit.HasDescentTrigger
+                        && recordingIndex == dtUnit.TransferMemberIndex)
+                    {
+                        hasDeorbitHead = GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                            dtUnit, recordingIndex, currentUT, rec.StartUT, rec.EndUT,
+                            out deorbitHead, out deorbitConicEndUT, out deorbitSeamUT);
+                    }
+
                     for (int li = 0; li < set.legs.Length; li++)
                     {
                         var leg = set.legs[li];
@@ -3163,7 +3823,16 @@ namespace Parsek.Display
                         // tracks the moving ghost and a multi-leg recording shows
                         // only the single leg it is currently flying instead of
                         // every leg at once.
-                        if (!ShouldDrawLegAtHeadUT(leg.startUT, leg.endUT, headUT))
+                        //
+                        // I1: a deorbit-tail leg (the contiguous post-shifted-conic destination tail, UT window
+                        // conicEnd < legEnd <= seam+eps) on the transfer member gates on the re-anchored
+                        // deorbitHead instead of the loop head; every other leg keeps headUT (byte-identical).
+                        bool deorbitTailLeg = hasDeorbitHead
+                            && !double.IsNaN(deorbitConicEndUT) && !double.IsNaN(deorbitSeamUT)
+                            && leg.endUT > deorbitConicEndUT;
+                        double legHeadUT = Parsek.Reaim.DescentTrigger.ResolveTransferLegHeadUT(
+                            leg.endUT, deorbitSeamUT, 1.0, headUT, deorbitHead, deorbitTailLeg);
+                        if (!ShouldDrawLegAtHeadUT(leg.startUT, leg.endUT, legHeadUT))
                         {
                             frameLegsHeadUtGated++;
                             continue;
@@ -3213,6 +3882,91 @@ namespace Parsek.Display
                             ghostPid = ghostPid
                         });
                         anyDrawn = true;
+                        primaryDrawnLegIndex = li;
+                    }
+                    }
+
+                    // BOUNDARY-OVERLAP second head (docs/dev/plan-launch-boundary-overlap.md 4.1/4.2): the
+                    // early-launching instance N+1's in-SOI ascent leg, drawn ADDITIVELY beside the primary leg
+                    // during the borrow window. The primary head (instance N, far downstream / near the destination)
+                    // and the secondary head (instance N+1, in-SOI ascent) select DISJOINT legs because they are
+                    // months apart in recorded-span phase, so the two heads draw two different legs at two different
+                    // places. The secondary's leg carries the SECONDARY ghost pid for symmetry with the primary's
+                    // owned-leg path, but the leg is NON-owned (ownedByTreatment=false below), so the pid is INERT
+                    // here - only TryDrawOwnedLeg consumes PendingLegDraw.ghostPid; TryDrawLeg ignores it. The
+                    // secondary's own proto orbit line is hidden by the map-presence path (its overlap-instance
+                    // ProtoVessel), NOT by this leg's pid. The leg is EXCLUDED from anyDrawn /
+                    // drewNonOrbitalLegRecordings (the primary owns the ownership publish). Same-leg defensive
+                    // guard: if both heads land in the same
+                    // leg (impossible for an interplanetary transfer - the heliocentric tof is months), draw only the
+                    // primary's leg. Inert (hasSecondaryHead false) for every non-launch-hold member / aligned loop.
+                    // Resolved once for BOTH the secondary second-head leg pass and the secondary forward pass
+                    // below (0 when no overlap-instance ghost exists this frame, which only happens before the
+                    // map-presence sweep creates it - the leg still draws, keyed pid 0, no proto to hide).
+                    uint secondaryGhostPid = hasSecondaryHead
+                        ? GhostMapPresence.GetNewestOverlapInstancePidForRecording(recordingIndex)
+                        : 0u;
+                    if (hasSecondaryHead)
+                    {
+                        for (int li = 0; li < set.legs.Length; li++)
+                        {
+                            if (li == primaryDrawnLegIndex)
+                                continue; // same-leg defensive guard: never enqueue the primary's leg twice
+                            var secLeg = set.legs[li];
+                            if (!ShouldDrawLegAtHeadUT(secLeg.startUT, secLeg.endUT, secondaryHeadUT))
+                                continue;
+                            CelestialBody secBody = ResolveBodyByName(scene, secLeg.bodyName);
+                            if (secBody == null)
+                            {
+                                frameSkippedNoBody++;
+                                continue;
+                            }
+                            if (!WillLegDraw(secLeg.PointCount, true))
+                                continue;
+                            // Additive, NON-ownership leg (mirrors the forward-additive mechanism): the
+                            // boundary-overlap secondary leg is NOT owned-by-treatment (it is the raw in-SOI ascent
+                            // leg the Driver draws directly) and does NOT publish ownership. It carries the secondary
+                            // ghost pid for symmetry, but TryDrawLeg ignores ghostPid on this NON-owned path (only
+                            // TryDrawOwnedLeg consumes it); the secondary's proto orbit line is hidden by the
+                            // map-presence path, not by this field.
+                            pendingDraws.Add(new PendingLegDraw
+                            {
+                                recordingId = rec.RecordingId,
+                                legIndex = li,
+                                body = secBody,
+                                rec = rec,
+                                ownedByTreatment = false,
+                                ghostPid = secondaryGhostPid,
+                                forward = false,
+                                requireConicAnchor = false
+                            });
+                            ParsekLog.VerboseRateLimited(DriverTag,
+                                "polyline-boundary-secondary." + rec.RecordingId,
+                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "Polyline boundary-overlap second head: rec={0} secondaryHeadUT={1:F1} secondaryCycle={2} " +
+                                    "drewLeg={3} primaryLeg={4} secondaryPid={5}",
+                                    rec.RecordingId, secondaryHeadUT, secondaryHeadCycle, li, primaryDrawnLegIndex, secondaryGhostPid),
+                                2.0);
+
+                            // SEAM-RENDER OBSERVABILITY 3 (docs/dev/design-reaim-launch-hold-seam.md): the
+                            // ascent LINE's first-draw this cycle. Shows whether the secondary's body-fixed
+                            // ascent polyline appears AT the clock launch (observability 1's currentUT) even
+                            // while the icon/conic map-presence (observability 2) lags behind a pre-Segment gap.
+                            // Emitted once per (recording, secondaryCycle) via the logging-only latch (the leg
+                            // was already enqueued above; this only decides whether to LOG the first draw).
+                            if (!boundarySecondaryFirstDrawCycle.TryGetValue(rec.RecordingId, out long loggedCycle)
+                                || loggedCycle != secondaryHeadCycle)
+                            {
+                                boundarySecondaryFirstDrawCycle[rec.RecordingId] = secondaryHeadCycle;
+                                ParsekLog.VerboseRateLimited(DriverTag,
+                                    "boundary-overlap-secondary-polyline-first-draw." + rec.RecordingId,
+                                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                        "boundary-overlap secondary polyline first-draw: currentUT={0:R} headUT={1:R} " +
+                                        "secondaryLoopUT={2:R} rec={3} secondaryCycle={4} leg={5}",
+                                        currentUT, secondaryHeadUT, secondaryHeadUT, rec.RecordingId, secondaryHeadCycle, li),
+                                    2.0);
+                            }
+                        }
                     }
 
                     // Diagnostic (multi-leg / re-aim recordings): the head's position vs the leg windows,
@@ -3290,6 +4044,31 @@ namespace Parsek.Display
                                 activeLegInfoFactory()));
                     }
 
+                    // SINGLE-LEG draw-state companion (logging gap fill): the multi-leg head/active-leg
+                    // diagnostics above only run for set.legs.Length > 1, so a SINGLE-leg recording (e.g. a
+                    // descent member's lone deorbit->landing clip, recs acf1435a / c5d0148a) had NO
+                    // per-recording line when its one leg toggled drawn<->head-UT-gated. That toggle is exactly
+                    // the descent-revert symptom on the polyline surface (the descent leg stops drawing the
+                    // instant the head leaves its window), so surface it on CHANGE keyed by recordingId: one
+                    // discrete line whenever this recording's single-leg draw state flips, carrying the head UT
+                    // and the leg span so the flip is greppable alongside the [ReaimDescent] phase line and the
+                    // [GhostMap] ghost teardown for the same recording. Restricted to single-leg recordings so
+                    // the multi-leg path keeps its richer active-leg CHANGED line as the sole signal.
+                    if (set.legs.Length == 1)
+                    {
+                        var oneLeg = set.legs[0];
+                        bool anyDrawnOne = anyDrawn;
+                        double headUtOne = headUT;
+                        string recIdOne = rec.RecordingId;
+                        ParsekLog.VerboseOnChange(DriverTag, "polyline-singleleg." + rec.RecordingId,
+                            anyDrawnOne ? "drawn" : "gated",
+                            () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Polyline single-leg draw CHANGED: rec={0} drawn={1} headUT={2:F1} " +
+                                "leg=[{3:F1},{4:F1}] span={5:F0}s body={6} pts={7}",
+                                recIdOne, anyDrawnOne, headUtOne, oneLeg.startUT, oneLeg.endUT,
+                                oneLeg.endUT - oneLeg.startUT, oneLeg.bodyName ?? "(null)", oneLeg.PointCount));
+                    }
+
                     if (anyDrawn)
                     {
                         frameDrawn++;
@@ -3324,10 +4103,36 @@ namespace Parsek.Display
                     // exactly as today and the ownership contract is unchanged (the CRITICAL Step 3
                     // prerequisite, safest option (a)). Gated on the SAME visibility the rest of the loop
                     // resolved (renderHidden already continued above) plus the Director's gap-hold.
-                    DecideForwardWindowForRecording(
-                        scene, recordingIndex, rec, set, headUT, currentUT, loopUnits,
-                        ghostPid, drawFrame, surface, committed, suppressed,
-                        ref frameForwardLegs, ref frameForwardArcs, ref frameForwardSkippedGapHold);
+                    //
+                    // PRIMARY forward pass runs only when the primary is in-window. When the primary is hidden
+                    // (downstream through-line at an orbital phase) but a secondary is live, the primary has no
+                    // forward trajectory to draw here - the secondary forward pass below carries the launch
+                    // ascent + escape conic.
+                    if (primaryRenders)
+                    {
+                        DecideForwardWindowForRecording(
+                            scene, recordingIndex, rec, set, headUT, currentUT, loopUnits,
+                            ghostPid, drawFrame, surface, committed, suppressed,
+                            ref frameForwardLegs, ref frameForwardArcs, ref frameForwardSkippedGapHold);
+                    }
+
+                    // ---- BOUNDARY-OVERLAP SECONDARY forward pass (launch->escape seam render fix) ----
+                    // The early-launching instance N+1's FORWARD trajectory: the ascent polyline AHEAD of its
+                    // icon + the escape conic ahead, drawn additively at secondaryHeadUT. Without this, only the
+                    // single in-window ascent leg (the second-head pass above) drew - the takeoff/ascent
+                    // polyline and the escape conic AHEAD of the icon never rendered after launch (the playtest
+                    // bug). Keyed on the secondary ghost pid (so its forward legs/arcs publish under the
+                    // secondary, and the bridges/run window resolve the secondary's phase). The chain-dedupe +
+                    // gap-hold are bypassed for the secondary (see DecideForwardWindowForRecording). Inert when
+                    // hasSecondaryHead is false (every non-launch-hold member / aligned loop).
+                    if (hasSecondaryHead)
+                    {
+                        DecideForwardWindowForRecording(
+                            scene, recordingIndex, rec, set, secondaryHeadUT, currentUT, loopUnits,
+                            secondaryGhostPid, drawFrame, surface, committed, suppressed,
+                            ref frameForwardLegs, ref frameForwardArcs, ref frameForwardSkippedGapHold,
+                            boundaryOverlapSecondary: true);
+                    }
                 }
 
                 // Pan-stability (FIX 1): hand the decided legs to the onPreCull draw pass. Stamp the
@@ -3374,6 +4179,16 @@ namespace Parsek.Display
                                 sceneForLog, drawnCount, TimeWarp.CurrentRate, string.Join(",", drawnIds.ToArray()));
                         });
                 }
+
+                // Render-EVENT diff (map-render-event-logging): emit one PolylineLegChange appear/disappear
+                // per recording whose current-element leg started / stopped drawing this completed walk
+                // (vs the previous walk). Runs UNCONDITIONALLY here (not under frameDrawn>=1) so the
+                // all-disappeared transition is caught. Gated on IsEnabled so disabled play pays nothing.
+                if (MapRenderTrace.IsEnabled)
+                    EmitPolylineDrawSetChanges(
+                        MapRenderTrace.RenderSurface.Polyline,
+                        previousDrewNonOrbitalLegRecordings, drewNonOrbitalLegRecordings,
+                        Planetarium.GetUniversalTime());
             }
 
             /// <summary>
@@ -3398,6 +4213,12 @@ namespace Parsek.Display
                 if (pendingDrawsFrame != frame) return; // nothing decided this frame (early-returned LateUpdate)
                 if (precullDrawnFrame == frame) return;  // already drew this frame
                 precullDrawnFrame = frame;
+
+                // Render-EVENT diff (map-render-event-logging): clear this frame's forward-render actual-draw
+                // set before the draw loops populate it; diffed against the previous frame at the end of this
+                // method to emit PolylineForwardArc appear/disappear EVENTs. Only touched when tracing is on.
+                if (MapRenderTrace.IsEnabled)
+                    currentDrewForwardArcRecordings.Clear();
 
                 int drawn = 0;
                 // Draw-side instrumentation (run model): account RUN legs (forward=true) separately and
@@ -3453,7 +4274,11 @@ namespace Parsek.Display
                     if (fwd)
                     {
                         if (legDrawn) runDrawn++;
-                        else ParsekLog.VerboseRateLimited(DriverTag, "run-leg-nodraw." + p.recordingId,
+                        // Render-EVENT diff: a forward (run) leg that actually painted means the forward
+                        // trajectory chain is being drawn for this recording this frame.
+                        if (legDrawn && MapRenderTrace.IsEnabled)
+                            currentDrewForwardArcRecordings.Add(p.recordingId);
+                        if (!legDrawn) ParsekLog.VerboseRateLimited(DriverTag, "run-leg-nodraw." + p.recordingId,
                             string.Format(System.Globalization.CultureInfo.InvariantCulture,
                                 "Run leg NOT drawn (TryDrawLeg false): rec={0} leg={1} pts={2} body={3} bodyNull={4} " +
                                 "startUT={5:F1} endUT={6:F1}",
@@ -3481,7 +4306,8 @@ namespace Parsek.Display
                                 HighLogic.LoadedScene, p.legIndex,
                                 string.IsNullOrEmpty(leg.bodyName) ? "<none>" : leg.bodyName,
                                 leg.PointCount, p.ownedByTreatment, pendingTargetLayer,
-                                leg.startUT, leg.endUT));
+                                leg.startUT, leg.endUT),
+                            recId: p.recordingId);
                 }
                 pendingDraws.Clear();
 
@@ -3535,14 +4361,22 @@ namespace Parsek.Display
                     fset.arcs[fp.arcIndex] = arc; // persist the lastDrawnFrame stamp (same array ref)
 
                     if (arc.vectorLine != null && arc.lastDrawnFrame == frame && MapRenderTrace.IsEnabled)
+                    {
+                        // Render-EVENT diff: this forward arc actually painted for this recording this frame.
+                        currentDrewForwardArcRecordings.Add(fp.recordingId);
+                        // surface=PolylineForwardArc (was Polyline + a "FWD-ARC" string prefix): a distinct
+                        // surface so a grep separates "the extra predicted line ahead of the ghost" from the
+                        // current element.
                         MapRenderTrace.EmitMarker(
-                            MapRenderTrace.RenderSurface.Polyline, fp.recordingId,
+                            MapRenderTrace.RenderSurface.PolylineForwardArc, fp.recordingId,
                             Planetarium.GetUniversalTime(),
                             string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                "FWD-ARC scene={0} arc={1} body={2} startUT={3:F1} endUT={4:F1} layer={5}",
+                                "scene={0} arc={1} body={2} startUT={3:F1} endUT={4:F1} layer={5}",
                                 HighLogic.LoadedScene, fp.arcIndex,
                                 string.IsNullOrEmpty(arc.bodyName) ? "<none>" : arc.bodyName,
-                                arc.startUT, arc.endUT, pendingTargetLayer));
+                                arc.startUT, arc.endUT, pendingTargetLayer),
+                            recId: fp.recordingId);
+                    }
                 }
                 pendingForwardArcs.Clear();
                 if (fwdArcsDrawn > 0)
@@ -3584,6 +4418,15 @@ namespace Parsek.Display
                         fwdArcsDrawn, bridgeDrawn, lastSweepDeactivatedCount, fwdArcsDeactivated, frame,
                         TimeWarp.CurrentRate),
                     2.0);
+
+                // Render-EVENT diff (map-render-event-logging): emit PolylineForwardArc appear/disappear per
+                // recording whose forward (predicted) trajectory chain started / stopped painting this frame
+                // vs the previous onPreCull. Read-only diff of the actual-draw set populated above.
+                if (MapRenderTrace.IsEnabled)
+                    EmitPolylineDrawSetChanges(
+                        MapRenderTrace.RenderSurface.PolylineForwardArc,
+                        previousDrewForwardArcRecordings, currentDrewForwardArcRecordings,
+                        Planetarium.GetUniversalTime());
             }
 
             /// <summary>
@@ -3725,10 +4568,23 @@ namespace Parsek.Display
                 // Leg endpoint in scaled space, body-relative (the leg's points are absolute scaled).
                 int pi = bridge.atLegStart ? 0 : m - 1;
                 Vector3d legEndRel = (Vector3d)(leg.scratchScaledSpace[pi] - center);
-                if (!TryBuildSeamBridgeLocalPoints(
+                double seamAngleRad;
+                if (bridge.chord)
+                {
+                    // SMALL-GAP CHORD (launch->escape seam render): a straight line from the leg's drawn
+                    // end to the conic's NEAR endpoint (bridgeArcSliceScratch[0] is the conic sample
+                    // nearest the leg for either side, after the slice fill above). No rotation, no clip.
+                    if (!TryBuildSeamBridgeChordLocalPoints(
+                            legEndRel, bridgeArcSliceScratch[0], ScaledSpace.InverseScaleFactor,
+                            BridgeMergeSampleCount, bridgePointScratch))
+                        return false;
+                    seamAngleRad = SeamBridgeAngleRad(
+                        legEndRel, bridgeArcSliceScratch[0] * ScaledSpace.InverseScaleFactor);
+                }
+                else if (!TryBuildSeamBridgeLocalPoints(
                         legEndRel, bridgeArcSliceScratch, ScaledSpace.InverseScaleFactor,
                         BridgeMergeSampleCount, BridgeMaxAngleRadians, bridgePointScratch,
-                        out double seamAngleRad))
+                        out seamAngleRad))
                     return false;
 
                 string lineKey = string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -3777,7 +4633,7 @@ namespace Parsek.Display
                         "Seam bridge drawn: rec={0} leg={1} side={2} src={3} angleDeg={4:F2} body={5} " +
                         "merge={6} chordDevKm={7:F1} sliceSpanDeg={8:F2}",
                         bridge.legRecordingId, bridge.legIndex, bridge.atLegStart ? "start" : "end",
-                        bridge.arcIndex >= 0 ? "cached-arc" : "sampled-conic",
+                        bridge.chord ? "chord" : (bridge.arcIndex >= 0 ? "cached-arc" : "sampled-conic"),
                         seamAngleRad * (180.0 / System.Math.PI), bodyName ?? "?",
                         BridgeMergeSampleCount,
                         MaxChordDeviation(bridgePointScratch, BridgeMergeSampleCount + 1)
@@ -3969,7 +4825,8 @@ namespace Parsek.Display
                 double headUT, double currentUT, GhostPlaybackLogic.LoopUnitSet loopUnits,
                 uint ghostPid, int drawFrame, BodySurfaceProvider surface,
                 IReadOnlyList<Recording> committed, HashSet<string> suppressedIds,
-                ref int frameForwardLegs, ref int frameForwardArcs, ref int frameForwardSkippedGapHold)
+                ref int frameForwardLegs, ref int frameForwardArcs, ref int frameForwardSkippedGapHold,
+                bool boundaryOverlapSecondary = false)
             {
                 if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return;
 
@@ -3979,7 +4836,14 @@ namespace Parsek.Display
                 // renderHidden). A later visible member of the same chain (historical non-loop chains,
                 // where every member passes the renderHidden gate) skips, which also prevents
                 // double-enqueueing the same run legs/arcs.
-                if (rec.IsChainRecording && !chainRunProcessedThisFrame.Add(rec.ChainId))
+                //
+                // BOUNDARY-OVERLAP SECONDARY (launch->escape seam render fix): the secondary forward pass runs
+                // for the SAME chain as the primary but at the EARLY-LAUNCH instance's headUT (a different
+                // recorded-span phase), so it must NOT share the primary's chain-dedupe slot - it is a distinct
+                // logical run. Skip the primary dedupe set entirely for the secondary; it is called at most once
+                // per recording per frame from the walk, so it cannot double-run on its own.
+                if (!boundaryOverlapSecondary
+                    && rec.IsChainRecording && !chainRunProcessedThisFrame.Add(rec.ChainId))
                     return;
 
                 // GAP-HOLD gate: a ghost-bearing recording the Director is NOT tracking this frame is held
@@ -3988,7 +4852,15 @@ namespace Parsek.Display
                 // visibility is already governed by the renderHidden / static-skip gates above, so it falls
                 // through. Reusing the same freshness predicate the icon-drive / line patches read keeps the
                 // forward pass consistent with the current-element decision.
-                if (ghostPid != 0
+                //
+                // The BOUNDARY-OVERLAP SECONDARY bypasses the gap-hold gate: its overlap-instance map ghost
+                // (escape-conic ProtoVessel) is driven by the SEPARATE map-presence loop-shift path
+                // (RunOverlapPerInstanceSweep), NOT the Director's shadow render, so IsDirectorTracking is
+                // false for it even when it is fully visible. Applying the gate would wrongly suppress the
+                // secondary's forward ascent + escape conic every frame. The secondary's visibility is already
+                // governed by the DecideBoundaryOverlapSecondaryRender in-window decision at the call site.
+                if (!boundaryOverlapSecondary
+                    && ghostPid != 0
                     && !Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(ghostPid, drawFrame))
                 {
                     frameForwardSkippedGapHold++;
@@ -4006,7 +4878,7 @@ namespace Parsek.Display
                 // member's conics (ascent leg no longer draws alone), and after the handoff the previous
                 // member's legs persist as run legs (the ascent leg no longer vanishes). Standalone
                 // recordings collect as a single member, byte-identical to the pre-chain behaviour.
-                CollectChainRunMembers(committed, rec, recordingIndex, chainRunMemberScratch);
+                CollectChainRunMembers(committed, rec, recordingIndex, chainRunMemberScratch, loopUnits);
 
                 // Resolve per-member EFFECTIVE segments (CRITICAL sourcing: re-aim-resolved, == recorded
                 // by reference for faithful members) + the per-member synodic window index for the arc
@@ -4032,8 +4904,21 @@ namespace Parsek.Display
                     chainRunMemberReaimScratch.Add(memberReaimWindow);
                     if (memberCoalesced != null)
                         chainRunConcatScratch.AddRange(memberCoalesced);
-                    if (member.rec.EndUT > chainDataEndUT)
-                        chainDataEndUT = member.rec.EndUT;
+                    // Re-aim descent trigger (Clamp B, applied PER-MEMBER): cap a NON-descent transfer/owner
+                    // member's EndUT CONTRIBUTION at its SHIFTED parking-conic end (deorbit+captureShift) before
+                    // maxing, so the chain data end is clamped regardless of which member DRIVES the run. The
+                    // re-aim shifts that member's destination parking conics ~|captureShift| EARLIER (PR #1177);
+                    // leaving the window at the UNSHIFTED rec.EndUT lets ComputeForwardWindow's past-end branch
+                    // fire once the loiter/descent icon passes the shifted conic and paint the member's own
+                    // unshifted recorded approach tail as a spurious "second path". The OLD clamp (below) keyed on
+                    // recordingIndex only, so when a DESCENT member drove the chain pass (its Descent window) the
+                    // transfer member was a run member but never the recordingIndex and was never clamped - the
+                    // 2026-06-21 C4 stray heliocentric line beside the descent. Byte-identical for non-descent
+                    // members / non-re-aim chains (ClampChainDataEndForDescentTransfer returns the value unchanged).
+                    double memberEndUTClamped = ClampChainDataEndForDescentTransfer(
+                        member.rec.EndUT, member.index, loopUnits);
+                    if (memberEndUTClamped > chainDataEndUT)
+                        chainDataEndUT = memberEndUTClamped;
                 }
 
                 // Window source: members are StartUT-ordered and partition the recorded-UT axis, so the
@@ -4060,6 +4945,21 @@ namespace Parsek.Display
                 double winStart = window.RunStartUT;
                 double winStop = window.StopUT;
 
+                // C4 (re-aim descent "two lines next to each other during the loiter"): when the loiter head
+                // sits in a gap, ComputeForwardWindow takes the OPEN-element branch and returns StopUT=Infinity
+                // (the recorded trajectory continues forward), which the past-end chainDataEndUT clamp above does
+                // NOT guard. So the STATIC forward run-leg pass below paints the descent-trigger TRANSFER member's
+                // post-conic deorbit-tail legs (its recorded approach down to the seam) as a second line beside
+                // the parking conic for the ENTIRE loiter. Cap winStop at the transfer member's SHIFTED conic end
+                // PER chain-run member (so the clamp fires regardless of which member drives the run — mirroring
+                // the chainDataEndUT per-member clamp), so the forward run never reaches those legs; the I1
+                // head-gated primary pass is the only thing that sweeps the deorbit tail in near the trigger.
+                // Byte-identical for non-descent members / non-re-aim chains (ClampChainDataEndForDescentTransfer
+                // returns winStop unchanged), so an open-element non-descent run keeps StopUT=Infinity.
+                for (int mi = 0; mi < chainRunMemberScratch.Count; mi++)
+                    winStop = ClampChainDataEndForDescentTransfer(
+                        winStop, chainRunMemberScratch[mi].index, loopUnits);
+
                 // Body-fixed run legs hidden this decide pass (playtest-7 rule): only PAST body-fixed
                 // legs hide (they would rotate-sweep into the inertial line behind the icon); FUTURE
                 // body-fixed legs (the Duna landing descent) draw, connected by the seam bridges.
@@ -4070,8 +4970,16 @@ namespace Parsek.Display
                 // adjacent conics and applies the angle + signed-gap gates. The HEAD leg (drawn by the
                 // head-gated pass) is a candidate when it is body-fixed (an anchorable head leg is
                 // rotated onto the conic seam by the draw-time anchor, so it already connects).
+                //
+                // DESCENT TRIGGER: this head-leg block reads rec/set DIRECTLY (not chainRunMemberScratch),
+                // so a descent member reaching the forward pass as `rec` (it does during its Descent window:
+                // primaryRenders is true there) would add its body-fixed descent leg as a bridge candidate
+                // here and DecideSeamBridges would bridge INTO/OUT OF it. A descent member must be fully out
+                // of the run, so skip the head-leg block entirely for it - its descent line comes only from
+                // its own trigger-gated primary pass.
                 bridgeLegScratch.Clear();
-                if (set.legs != null)
+                bool recIsDescentMember = IsDescentTriggerMember(recordingIndex, loopUnits);
+                if (set.legs != null && !recIsDescentMember)
                 {
                     for (int li = 0; li < set.legs.Length; li++)
                     {
@@ -4096,6 +5004,17 @@ namespace Parsek.Display
                 for (int mi = 0; mi < chainRunMemberScratch.Count; mi++)
                 {
                     var member = chainRunMemberScratch[mi];
+
+                    // DESCENT TRIGGER (defence in depth): CollectChainRunMembers already excludes descent
+                    // members, but a chain=none descent member reaching this pass as `rec` is added by the
+                    // non-chain direct-add path (it is not a chain recording, so the chain-member exclusion
+                    // loop is never entered for it). Skip it here too so its run LEGS (B'), run ARCS (C), and
+                    // its participation in seam-bridge construction (the FUTURE-leg bridge candidates added
+                    // below) are ALL suppressed - the descent member is fully out of the forward run, and its
+                    // descent line is drawn solely by its own trigger-gated primary pass at the re-anchored
+                    // rotation-aligned head. A non-descent member is byte-identical (guard false).
+                    if (IsDescentTriggerMember(member.index, loopUnits))
+                        continue;
 
                     // ---- (B') RUN LEGS: any non-orbital leg of this member overlapping the run window,
                     // EXCLUDING the current head leg (drawn by the head-gated pass of the visible member).
@@ -4215,10 +5134,14 @@ namespace Parsek.Display
                         // cached arc set. The selected indices fully determine the sampled geometry for a
                         // given re-aim window.
                         string cacheKey = BuildForwardArcKey(arcIndices, chainRunMemberReaimScratch[mi]);
+                        // H1: the boundary-overlap secondary forward pass writes/reads under a namespaced key
+                        // so it never overwrites the primary's same-recording arcs within one frame. The
+                        // PendingForwardArcDraw stores the dictKey so the draw pass reads the right arc set.
+                        string dictKey = ForwardArcDictKey(member.rec.RecordingId, boundaryOverlapSecondary);
                         RefreshForwardArcs(
-                            scene, member.rec.RecordingId, memberCoalesced, arcIndices, cacheKey);
+                            scene, member.rec.RecordingId, memberCoalesced, arcIndices, cacheKey, dictKey);
 
-                        if (forwardArcCache.TryGetValue(member.rec.RecordingId, out var fset)
+                        if (forwardArcCache.TryGetValue(dictKey, out var fset)
                             && fset.arcs != null)
                         {
                             for (int a = 0; a < fset.arcs.Length; a++)
@@ -4226,7 +5149,7 @@ namespace Parsek.Display
                                 if (fset.arcs[a].vectorLine == null) continue;
                                 pendingForwardArcs.Add(new PendingForwardArcDraw
                                 {
-                                    recordingId = member.rec.RecordingId,
+                                    recordingId = dictKey,
                                     arcIndex = a,
                                     drawEndIndex = -1,
                                 });
@@ -4275,6 +5198,20 @@ namespace Parsek.Display
                 GameScenes scene, BodySurfaceProvider surface, int drawFrame)
             {
                 int armed = 0;
+                // Flat UT-span projection of the bridge candidates, index-aligned with bridgeLegScratch,
+                // for the intervening-continuation-leg rule (launch-escape-seam fix). Built once.
+                bridgeLegSpanScratch.Clear();
+                for (int ci = 0; ci < bridgeLegScratch.Count; ci++)
+                {
+                    var c = bridgeLegScratch[ci];
+                    bridgeLegSpanScratch.Add(new BridgeLegSpan
+                    {
+                        startUT = c.startUT,
+                        endUT = c.endUT,
+                        bodyName = c.bodyName,
+                    });
+                }
+                BridgeLegSpan[] bridgeLegSpans = bridgeLegSpanScratch.ToArray();
                 for (int ci = 0; ci < bridgeLegScratch.Count; ci++)
                 {
                     var cand = bridgeLegScratch[ci];
@@ -4330,6 +5267,36 @@ namespace Parsek.Display
                         }
                         if (segRecordingId == null) continue;
 
+                        // 1b. Intervening-ascent-leg skip (launch-escape-seam fix): a launch records
+                        // across two consecutive body-fixed legs (pad ascent -> continuation ascent)
+                        // feeding ONE escape conic. The pad-ascent leg's end is adjacent to that conic
+                        // only in UT - the continuation leg sits between them - so a pad-leg->conic bridge
+                        // would shortcut OVER the continuation leg (the confirmed ~26.7 deg bug). Only the
+                        // body-fixed leg IMMEDIATELY adjacent to the conic (no intervening same-body leg
+                        // between this leg's seam and the conic's seam) may bridge to it. The continuation
+                        // leg draws its own leg->conic handoff, resolved by the near-meet (5 deg) gate.
+                        double conicSeamUT = atLegStart ? seg.endUT : seg.startUT;
+                        if (HasInterveningContinuationLeg(
+                                bridgeLegSpans, ci, cand.bodyName, seamUT, conicSeamUT, atLegStart,
+                                BridgeSeamSharedBoundaryToleranceSeconds,
+                                out int interveningLegIdx, out double interveningLegSeamUT))
+                        {
+                            string interveningRecId = interveningLegIdx >= 0
+                                && interveningLegIdx < bridgeLegScratch.Count
+                                ? bridgeLegScratch[interveningLegIdx].recordingId : "?";
+                            ParsekLog.VerboseRateLimited(DriverTag,
+                                "bridge-interveningleg." + cand.recordingId + "." + cand.legIndex,
+                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "Seam bridge skipped (intermediate ascent leg - continuation leg {0} " +
+                                    "precedes the conic): rec={1} leg={2} side={3} angleDeg=n/a " +
+                                    "interveningLegStartUT={4:F1} conicStartUT={5:F1}",
+                                    interveningRecId, cand.recordingId, cand.legIndex,
+                                    atLegStart ? "start" : "end",
+                                    interveningLegSeamUT, conicSeamUT),
+                                5.0);
+                            continue;
+                        }
+
                         // 2. Conic-side geometry: prefer the matching cached forward arc (clippable);
                         //    fall back to on-demand sampling (the stock-drawn current element).
                         Vector3d seamRel, travelDir;
@@ -4376,11 +5343,19 @@ namespace Parsek.Display
                             leg.lats[pi], leg.lons[pi], leg.alts[pi]) - body.position;
 
                         // 4. Gates: angle window + the signed-gap (overshoot) rule.
+                        // Three bands: (a) > max -> no bridge (honest gap); (b) (5deg, max] -> the conic
+                        // merge slice (the existing moderate-misalignment smoother); (c) (chord-floor,
+                        // 5deg] -> a STRAIGHT CHORD (launch->escape seam render): the merge slice's fixed
+                        // ~200-370 km bulge mutes itself below 5deg, but the launch-aligned ascent's
+                        // forward-drawn end still lands a few degrees short of the inertial escape conic - a
+                        // small but visible gap a zero-bulge chord can close; (d) <= chord-floor -> no
+                        // bridge (the leg already meets the conic within a few km - anchored / closed gap -
+                        // so a chord would be a degenerate near-zero-length line).
                         double angleRad = SeamBridgeAngleRad(legRel, seamRel);
-                        if (double.IsInfinity(angleRad) || angleRad <= BridgeMinAngleRadians
-                            || angleRad > BridgeMaxAngleRadians)
+                        SeamBridgeKind kind = ClassifySeamBridgeByAngle(angleRad);
+                        if (kind == SeamBridgeKind.SkipAngleTooLarge)
                         {
-                            if (angleRad > BridgeMaxAngleRadians && !double.IsInfinity(angleRad))
+                            if (!double.IsInfinity(angleRad))
                                 ParsekLog.VerboseRateLimited(DriverTag,
                                     "bridge-angle." + cand.recordingId + "." + cand.legIndex,
                                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -4392,6 +5367,23 @@ namespace Parsek.Display
                                     5.0);
                             continue;
                         }
+                        if (kind == SeamBridgeKind.SkipMeetsConic)
+                        {
+                            // Anchored / exact meet: the leg endpoint already sits on the conic. Drawing
+                            // anything here would be a degenerate near-zero-length line.
+                            ParsekLog.VerboseRateLimited(DriverTag,
+                                "bridge-nearmeet." + cand.recordingId + "." + cand.legIndex,
+                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "Seam bridge skipped (leg already meets conic): rec={0} leg={1} " +
+                                    "side={2} angleDeg={3:F2} floor={4:F2}",
+                                    cand.recordingId, cand.legIndex, atLegStart ? "start" : "end",
+                                    angleRad * (180.0 / System.Math.PI),
+                                    BridgeChordMinAngleRadians * (180.0 / System.Math.PI)),
+                                5.0);
+                            continue;
+                        }
+                        // Chord (small visible gap, zero-bulge straight connector) or the conic merge slice.
+                        bool chord = kind == SeamBridgeKind.Chord;
                         bool gapAhead = atLegStart
                             ? IsSeamGapAhead(seamRel, legRel, travelDir)  // prev=conic end, next=leg start
                             : IsSeamGapAhead(legRel, seamRel, travelDir); // prev=leg end, next=conic start
@@ -4412,8 +5404,11 @@ namespace Parsek.Display
                         // APPLIED only when the bridge actually draws (review MINOR-2): bridges draw
                         // BEFORE arcs in the onPreCull pass, and a failed bridge leaves its arc
                         // unclipped so no one-frame hole opens at the merge sample.
+                        // A chord ends exactly where the conic begins (its near endpoint), so the conic
+                        // draws in full - no merge-sample clip. Only the merge slice REPLACES the conic's
+                        // lead-in and therefore needs the clip.
                         int clipIdx = -1;
-                        if (cachedArcIdx >= 0)
+                        if (!chord && cachedArcIdx >= 0)
                         {
                             for (int p = 0; p < pendingForwardArcs.Count; p++)
                             {
@@ -4436,6 +5431,7 @@ namespace Parsek.Display
                             sampleKeyRecordingId = segRecordingId,
                             sampleSegment = seg,
                             clipArcPendingIndex = clipIdx,
+                            chord = chord,
                         });
                         pendingBridgeFrame = drawFrame;
                         armed++;
@@ -4457,12 +5453,17 @@ namespace Parsek.Display
             /// </summary>
             private void RefreshForwardArcs(
                 GameScenes scene, string recordingId, List<OrbitSegment> segments,
-                List<int> arcIndices, string cacheKey)
+                List<int> arcIndices, string cacheKey, string dictKey)
             {
                 if (string.IsNullOrEmpty(recordingId) || segments == null || arcIndices == null)
                     return;
 
-                if (forwardArcCache.TryGetValue(recordingId, out var existing)
+                // dictKey is the forwardArcCache dictionary key (== recordingId for the primary pass; a
+                // namespaced key for the boundary-overlap secondary, review H1). recordingId stays the
+                // geometry/VectorLine-name/log identity. Defensive: treat a null dictKey as the recording id.
+                if (string.IsNullOrEmpty(dictKey)) dictKey = recordingId;
+
+                if (forwardArcCache.TryGetValue(dictKey, out var existing)
                     && string.Equals(existing.cacheKey, cacheKey, StringComparison.Ordinal))
                 {
                     // Cache hit: same element / body / re-aim window. Rotating-frame staleness
@@ -4482,7 +5483,7 @@ namespace Parsek.Display
                             else faults++;
                         }
                         existing.captureInverseRotAngle = liveRot;
-                        forwardArcCache[recordingId] = existing;
+                        forwardArcCache[dictKey] = existing;
                         ParsekLog.VerboseRateLimited(DriverTag, "fwd-arc-rot-resample." + recordingId,
                             string.Format(System.Globalization.CultureInfo.InvariantCulture,
                                 "Forward-arc rotating-frame resample: rec={0} arcs={1} faults={2}",
@@ -4493,7 +5494,7 @@ namespace Parsek.Display
                 }
 
                 // Key changed: destroy the prior arc lines before rebuilding.
-                if (forwardArcCache.TryGetValue(recordingId, out var stale))
+                if (forwardArcCache.TryGetValue(dictKey, out var stale))
                     DestroyForwardArcLines(stale.arcs);
 
                 var arcs = new List<ForwardArc>(arcIndices.Count);
@@ -4552,7 +5553,9 @@ namespace Parsek.Display
                         endUT = seg.endUT,
                         bodyRelOffsets = rel,
                         scratchScaledSpace = new Vector3[cnt],
-                        vectorLine = BuildForwardArcVectorLine(recordingId, sampled, cnt),
+                        // Name on dictKey so the secondary's VectorLines do not collide with the primary's
+                        // (same recording id, two coexisting arc sets within one frame, review H1).
+                        vectorLine = BuildForwardArcVectorLine(dictKey, sampled, cnt),
                         lastDrawnFrame = -1,
                         lineMode = MapLineUses3D() ? 1 : 2,
                         sourceSegment = seg,
@@ -4562,7 +5565,7 @@ namespace Parsek.Display
                     sampled++;
                 }
 
-                forwardArcCache[recordingId] = new ForwardArcSet
+                forwardArcCache[dictKey] = new ForwardArcSet
                 {
                     arcs = arcs.ToArray(),
                     cacheKey = cacheKey,

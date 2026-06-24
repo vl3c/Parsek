@@ -60,6 +60,166 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RelaunchUTForWindow_StepsByCadence()
+        {
+            var s = PlanKerbinDuna(referenceUT: 100_000.0);
+            Assert.True(s.Valid, s.Reason);
+            Assert.Equal(s.FirstDepartureUT, s.RelaunchUTForWindow(0), 3);
+            Assert.Equal(s.FirstDepartureUT + s.CadenceSeconds, s.RelaunchUTForWindow(1), 3);
+            Assert.Equal(s.FirstDepartureUT + 5.0 * s.CadenceSeconds, s.RelaunchUTForWindow(5), 3);
+        }
+
+        [Fact]
+        public void RelaunchUTForWindow_NormalCase_CoincidesWithSynodicDeparture()
+        {
+            // synodic > span => cadence == synodic, so the cadence-clock relaunch time and the synodic-clock
+            // departure are identical at every window (the park re-phase is byte-identical to pre-fix).
+            var s = PlanKerbinDuna(referenceUT: 100_000.0);
+            Assert.True(s.Valid, s.Reason);
+            Assert.Equal(s.SynodicPeriodSeconds, s.CadenceSeconds, 3);
+            for (long k = 0; k <= 5; k++)
+                Assert.Equal(s.DepartureUTForWindow(k), s.RelaunchUTForWindow(k), 3);
+        }
+
+        [Fact]
+        public void RelaunchUTForWindow_SpanExceedsSynodic_CadenceIsSynodicMultiple_ClocksCoincide()
+        {
+            // A mission whose recorded span (25e6 s) EXCEEDS the Kerbin->Duna synodic (~19.6e6 s): the loop
+            // engine relaunches every CADENCE, which is now the smallest WHOLE synodic multiple >= span. For
+            // this shape span/synodic ~1.27, so Ceiling(1.27) = 2 => cadence == 2*synodic. The departure clock
+            // steps by the SAME cadence, so the cadence-clock relaunch and the departure-clock transfer aim
+            // COINCIDE at every window (the F2 override fires every relaunch, the transfer reaches live Duna).
+            const double bigSpanStart = 0.0, bigSpanEnd = 25_000_000.0;
+            const double bigDeparture = 2_000_000.0, bigTof = 3_000_000.0;
+            var s = ReaimWindowPlanner.Plan(
+                KerbinPeriod, DunaPeriod, bigDeparture, bigTof, bigSpanStart, bigSpanEnd, referenceUT: 0.0);
+            Assert.True(s.Valid, s.Reason);
+
+            double spanDuration = bigSpanEnd - bigSpanStart;
+            // cadence == the smallest whole synodic multiple >= span, >= span, and an integer*synodic.
+            double expectedCadence =
+                System.Math.Ceiling(spanDuration / s.SynodicPeriodSeconds - 1e-9) * s.SynodicPeriodSeconds;
+            Assert.Equal(expectedCadence, s.CadenceSeconds, 3);
+            Assert.True(s.CadenceSeconds >= spanDuration);          // fits one cadence => single instance
+            Assert.True(s.CadenceSeconds > s.SynodicPeriodSeconds); // span > synodic => a multiple > 1
+            double multiple = s.CadenceSeconds / s.SynodicPeriodSeconds;
+            Assert.Equal(System.Math.Round(multiple), multiple, 6); // an integer number of synodic periods
+            Assert.Equal(2.0, System.Math.Round(multiple), 0);      // 2*synodic for this shape
+
+            // The two clocks COINCIDE at EVERY window now (both step by cadence) - the load-bearing new
+            // invariant: DepartureUTForWindow(k) == RelaunchUTForWindow(k) for all k.
+            for (long k = 0; k <= 4; k++)
+                Assert.Equal(s.DepartureUTForWindow(k), s.RelaunchUTForWindow(k), 3);
+        }
+
+        [Fact]
+        public void ParkRephase_SpanExceedsSynodic_CadenceMultiple_ParkSitsOnLiveLaunchBody()
+        {
+            // #1172 NON-REGRESSION at cadence = 2*synodic. The park re-phase places the recorded Sun-inertial
+            // park next to the LIVE launch body at the relaunch UT by rotating its LAN by
+            //   parkDeltaLon(k) = omega_Kerbin * (parkReplayUT - RecordedDepartureUT),  parkReplayUT = D0+k*cadence.
+            // With the synodic-MULTIPLE cadence the relaunch clock (where the park sits) and the departure clock
+            // (where the transfer is aimed) are the SAME UT, so the park re-phase angle evaluated on EITHER clock
+            // is identical at every window - the park sits next to live Kerbin AND the transfer departs from that
+            // same point. This re-proves the #1172 placement holds at cadence=2*synodic (it does NOT just delete
+            // the coverage); the old span-cadence divergence (extra omega*(cadence-synodic) per window) is gone.
+            const double bigSpanStart = 0.0, bigSpanEnd = 25_000_000.0;
+            const double bigDeparture = 2_000_000.0, bigTof = 3_000_000.0;
+            var s = ReaimWindowPlanner.Plan(
+                KerbinPeriod, DunaPeriod, bigDeparture, bigTof, bigSpanStart, bigSpanEnd, referenceUT: 0.0);
+            Assert.True(s.Valid, s.Reason);
+            Assert.True(s.CadenceSeconds > s.SynodicPeriodSeconds); // span > synodic => cadence == 2*synodic
+
+            for (long k = 0; k <= 3; k++)
+            {
+                double parkReplayUT = s.RelaunchUTForWindow(k);     // where the LAN-rotated park sits
+                double departureUT = s.DepartureUTForWindow(k);     // where the transfer is aimed
+                // The clocks coincide => the park re-phase angle is the SAME on both, so the park-end and the
+                // transfer-start are the same point (no teleport seam, no loiter ~142 deg off live Kerbin).
+                Assert.Equal(parkReplayUT, departureUT, 3);
+                double cadenceAngle = ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(
+                    parkReplayUT, bigDeparture, KerbinPeriod);
+                double departureAngle = ReaimSegmentAssembler.ComputeParkDeltaLonDegrees(
+                    departureUT, bigDeparture, KerbinPeriod);
+                Assert.Equal(cadenceAngle, departureAngle, 6);
+
+                // And the park sits on the LIVE launch body: the re-phase rotates by exactly the launch body's
+                // heliocentric advance since the recorded departure, omega_Kerbin*(parkReplayUT - recDeparture),
+                // so the recorded park (captured next to Kerbin at recDeparture) lands next to Kerbin again.
+                double expected = (360.0 / KerbinPeriod) * (parkReplayUT - bigDeparture);
+                Assert.Equal(expected, cadenceAngle, 6);
+            }
+        }
+
+        [Fact]
+        public void DepartureAndRelaunchClocksCoincide_AtEveryWindow_SpanExceedsSynodic()
+        {
+            // The synodic-multiple-cadence fix makes the departure clock (DepartureUTForWindow, what the
+            // transfer geometry is solved for) and the relaunch clock (RelaunchUTForWindow, what the
+            // body-relative escape leg / park re-phase track) COINCIDE at EVERY window - both step by the
+            // same cadence. This is the load-bearing new invariant: with the clocks coincident the F2 park-end
+            // override fires every window, so the transfer reaches the destination's LIVE position at every
+            // relaunch, not only window 0. Use the span>synodic case (Kerbal X #2 shape) where the OLD code
+            // diverged by k*(cadence - synodic) and only window 0 was correct.
+            const double bigSpanStart = 0.0, bigSpanEnd = 25_000_000.0;
+            const double bigDeparture = 2_000_000.0, bigTof = 3_000_000.0;
+            var s = ReaimWindowPlanner.Plan(
+                KerbinPeriod, DunaPeriod, bigDeparture, bigTof, bigSpanStart, bigSpanEnd, referenceUT: 0.0);
+            Assert.True(s.Valid, s.Reason);
+            Assert.True(s.CadenceSeconds > s.SynodicPeriodSeconds); // span > synodic => cadence == 2*synodic
+
+            // Window 0: D0 == R0 == FirstDepartureUT.
+            Assert.Equal(s.FirstDepartureUT, s.DepartureUTForWindow(0), 3);
+            Assert.Equal(s.FirstDepartureUT, s.RelaunchUTForWindow(0), 3);
+
+            // EVERY window now coincides (diff 0) - no more k*(cadence - synodic) drift.
+            for (long k = 0; k <= 4; k++)
+                Assert.Equal(s.DepartureUTForWindow(k), s.RelaunchUTForWindow(k), 3);
+        }
+
+        [Fact]
+        public void ParkEndOverrideClocksCoincide_CoincideTrue_DivergeFalse()
+        {
+            // The pure gate the resolver uses to decide whether the F2 park-end r1 override is geometrically
+            // valid this window. The two clocks coincide (diff 0) => true; diverge by the stock span>synodic
+            // gap (~3.6M s) => false. The 1.0 s tolerance is the resolver's UT-equality epsilon.
+            Assert.True(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(1_000_000.0, 1_000_000.0)); // diff 0
+            Assert.True(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(1_000_000.5, 1_000_000.0)); // diff 0.5 < 1
+            Assert.False(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(1_003_600_000.0, 1_000_000_000.0)); // diff 3.6M
+            Assert.False(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(1_000_002.0, 1_000_000.0)); // diff 2 > 1
+            // Just over the epsilon is gated off; just under stays on.
+            Assert.False(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(1_000_001.5, 1_000_000.0));
+            Assert.True(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(1_000_000.9, 1_000_000.0));
+        }
+
+        [Fact]
+        public void ParkEndOverrideClocksCoincide_AtEveryWindow_BothScheduleShapes()
+        {
+            // The F2 override gate is now true at EVERY window for BOTH schedule shapes: the normal
+            // span<=synodic schedule (cadence == synodic) AND the span>synodic schedule (cadence ==
+            // 2*synodic), because the departure clock and the relaunch clock both step by cadence and so
+            // coincide. So the F2 override fires at every relaunch of either shape (the every-window fix).
+            var normal = PlanKerbinDuna(referenceUT: 100_000.0);
+            Assert.True(normal.Valid, normal.Reason);
+            Assert.Equal(normal.SynodicPeriodSeconds, normal.CadenceSeconds, 3); // span <= synodic
+            for (long k = 0; k <= 8; k++)
+                Assert.True(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(
+                    normal.RelaunchUTForWindow(k), normal.DepartureUTForWindow(k)),
+                    $"normal mission: clocks must coincide at window k={k}");
+
+            const double bigSpanStart = 0.0, bigSpanEnd = 25_000_000.0;
+            const double bigDeparture = 2_000_000.0, bigTof = 3_000_000.0;
+            var big = ReaimWindowPlanner.Plan(
+                KerbinPeriod, DunaPeriod, bigDeparture, bigTof, bigSpanStart, bigSpanEnd, referenceUT: 0.0);
+            Assert.True(big.Valid, big.Reason);
+            Assert.True(big.CadenceSeconds > big.SynodicPeriodSeconds); // span > synodic => cadence == 2*synodic
+            for (long k = 0; k <= 8; k++)
+                Assert.True(ReaimWindowPlanner.ParkEndOverrideClocksCoincide(
+                    big.RelaunchUTForWindow(k), big.DepartureUTForWindow(k)),
+                    $"span>synodic mission: clocks must now coincide at window k={k} (every-window fix)");
+        }
+
+        [Fact]
         public void Plan_ReferenceBeforeRecordedDeparture_FirstWindowIsTheRecordedDeparture()
         {
             // A recording dated in the future (e.g. after a career rewind): the first window is the
@@ -95,6 +255,68 @@ namespace Parsek.Tests
                 SpanStart, SpanStart /* spanEnd == spanStart */, 100_000.0);
             Assert.True(s.Valid, s.Reason);
             Assert.Equal(s.SynodicPeriodSeconds, s.CadenceSeconds, 3);
+        }
+
+        [Fact]
+        public void Plan_SubEpsilonPositiveSpan_CadenceFlooredToSynodic_NotZero()
+        {
+            // Defensive floor guard: a degenerate POSITIVE span small enough that
+            // Ceiling(span/synodic - 1e-9) == 0 (here ~1 ms, far below any real interplanetary
+            // recording) must NOT produce a 0 cadence (which would collapse the loop clock). The
+            // Math.Max(1.0, ...) floors the multiple at one synodic period, mirroring
+            // QuantizeCadenceToMultipleOfP's k>=1 guard.
+            const double tinySpanStart = 0.0, tinySpanEnd = 0.001; // 1 ms span
+            var s = ReaimWindowPlanner.Plan(KerbinPeriod, DunaPeriod, RecordedDeparture, RecordedTof,
+                tinySpanStart, tinySpanEnd, referenceUT: 0.0);
+            Assert.True(s.Valid, s.Reason);
+            Assert.Equal(s.SynodicPeriodSeconds, s.CadenceSeconds, 3); // floored to 1*synodic, not 0
+            Assert.True(s.CadenceSeconds > 0.0);
+        }
+
+        [Fact]
+        public void Plan_S15Shape_CadenceIsTwoSynodic_ClocksCoincideEveryWindow()
+        {
+            // The s15 failing shape: a recorded span LONGER than the Kerbin->Duna transfer window. With
+            // span/synodic ~= 1.185 the cadence rounds UP to the next whole synodic multiple = 2*synodic,
+            // so each relaunch lands on a real transfer window AND the mission fits one cadence (single
+            // instance). The departure clock and the relaunch clock then COINCIDE at every window, so the
+            // F2 park-end override fires every relaunch and the transfer reaches Duna's live position.
+            // Build the span as 1.185 * the planner-derived synodic so the shape matches regardless of the
+            // exact synodic value (s15: span 23.285e6, synodic 19.646e6).
+            double synodic = TransferWindowMath.SynodicPeriodSeconds(KerbinPeriod, DunaPeriod);
+            double span = 1.185 * synodic; // ~23.285e6 for the stock synodic ~19.646e6
+            var s = ReaimWindowPlanner.Plan(
+                KerbinPeriod, DunaPeriod, RecordedDeparture, RecordedTof,
+                0.0, span, referenceUT: 0.0);
+            Assert.True(s.Valid, s.Reason);
+
+            Assert.Equal(synodic, s.SynodicPeriodSeconds, 3);
+            Assert.Equal(2.0 * synodic, s.CadenceSeconds, 3); // Ceiling(1.185) = 2 => 2*synodic
+            Assert.True(s.CadenceSeconds >= span);            // mission fits one cadence
+            double multiple = s.CadenceSeconds / s.SynodicPeriodSeconds;
+            Assert.Equal(System.Math.Round(multiple), multiple, 6); // a whole synodic multiple
+
+            // Clocks coincide at every window (k = 0..3) => the F2 override fires each window.
+            for (long k = 0; k <= 3; k++)
+                Assert.Equal(s.DepartureUTForWindow(k), s.RelaunchUTForWindow(k), 3);
+        }
+
+        [Fact]
+        public void Plan_NormalCase_CadenceIsSynodic_DepartureByteIdenticalToSynodicStepping()
+        {
+            // The normal interplanetary case (synodic > span): cadence == 1*synodic (Ceiling(<1 - eps) = 1),
+            // so the departure clock steps by exactly synodic - byte-identical to the pre-fix
+            // FirstDepartureUT + k*synodic. Direct / normal missions are unaffected by the fix.
+            var s = PlanKerbinDuna(referenceUT: 100_000.0);
+            Assert.True(s.Valid, s.Reason);
+            Assert.Equal(s.SynodicPeriodSeconds, s.CadenceSeconds, 3); // cadence == synodic
+            for (long k = 0; k <= 5; k++)
+            {
+                // Old contract: FirstDepartureUT + k*synodic. New code returns FirstDepartureUT + k*cadence,
+                // and cadence == synodic, so the two are bit-identical for the normal case.
+                Assert.Equal(s.FirstDepartureUT + k * s.SynodicPeriodSeconds, s.DepartureUTForWindow(k), 3);
+                Assert.Equal(s.DepartureUTForWindow(k), s.RelaunchUTForWindow(k), 3);
+            }
         }
 
         // ------------------------------------------------------------------

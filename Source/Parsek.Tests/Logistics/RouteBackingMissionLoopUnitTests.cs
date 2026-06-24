@@ -105,6 +105,76 @@ namespace Parsek.Tests.Logistics
                 });
         }
 
+        // M4a (A4) multi-stop tree (verified composition shape; mirrors the
+        // production dock-merged-child topology the single-stop fixtures use, with
+        // an INTERMEDIATE depot-A undock added). The transport launches, docks at
+        // depot A, delivers, UNDOCKS from depot A (peeling its delivered payloadA -
+        // the intermediate undock) and CONTINUES to depot B, docks at depot B
+        // (the LAST dock), delivers, and undocks from depot B (the TERMINAL undock,
+        // peeling payloadB) flying home. Root launch UT 1000.
+        //   launch     C0/0  [1000..1500]  (ROOT; transport solo to depot A dock)
+        //   midA2B     C0/1  [1500..2500]  (INTERMEDIATE undock@1500 from depot A;
+        //                                    transport CONTINUES to depot B)
+        //   payloadA   C1/0  [1500..1800]  (delivered payload dropped at depot A)
+        //   dockedB    C0/2  [2500..3000]  (Dock BP@2500 at depot B = the LAST dock;
+        //                                    the dock-merged combined leg, deliver)
+        //   tail       C0/3  [3000..3500]  (TERMINAL undock@3000 from depot B; home)
+        //   payloadB   C2/0  [3000..3300]  (delivered payload dropped at depot B)
+        // Composition folds the transport into ONE through-line owned by "launch",
+        // SPLIT only at the two undocks: launch [1000..1500], launch/seg1
+        // [1500..3000] (the intermediate-undock survivor that flies A->B, docks at B,
+        // and stays docked to the terminal undock - INCLUDES the depot-B docked
+        // combined leg), launch/seg2 [3000..3500] (the post-terminal tail). The
+        // route span END is the TERMINAL undock = 3000 (production aligns the last
+        // stop's RouteConnectionWindow.DockUT with this structural boundary, exactly
+        // as the single-stop fixtures pass UndockUT as segmentEndUT). Everything
+        // at/after 3000 (the post-terminal tail + payloadB) is excluded; the
+        // intermediate-undock survivor (StartUT 1500 < 3000) stays rendered.
+        // NOTE (A4 review nit a): this fixture passes the TERMINAL UNDOCK UT (3000)
+        // as segmentEndUT, whereas PRODUCTION passes the last stop's DOCK UT
+        // (RouteBuilder -> ComputeExcludedIntervalKeys with
+        // lastAnalysisStop.ConnectionWindow.DockUT, i.e. dockedB's start = 2500).
+        // Hand-verified these yield the IDENTICAL excluded set here: Missions
+        // composition folds the transport into one through-line split only at
+        // undocks, so the only selectable boundaries are launch [1000..1500],
+        // launch/seg1 [1500..3000] (the dockedB combined leg's interval, which
+        // STARTS at 1500 < both 2500 and 3000 so it is KEPT under either
+        // segmentEndUT), and launch/seg2 [3000..3500] (excluded under both, since
+        // 3000 >= 3000 and 3000 >= 2500) plus the peels payloadA/payloadB. So this
+        // is a valid NO-SPAWN model (the post-last-dock tail + terminal peel are
+        // non-members either way) but NOT a faithful dock-TRIM model: a real route
+        // trims at the dock instant 2500, not the undock 3000 - the difference is
+        // invisible because no selectable interval starts inside (2500, 3000).
+        private const double MultiStopSegmentEndUT = 3000.0;
+        private const double MultiStopRootLaunchUT = 1000.0;
+
+        private static RecordingTree BuildMultiStopTree(string treeId)
+        {
+            return Tree(treeId, new[]
+                {
+                    Leg("launch", "C0", 0, 1000, 1500, vessel: "Transport"),
+                    Leg("midA2B", "C0", 1, 1500, 2500, vessel: "Transport"),
+                    Leg("payloadA", "C1", 0, 1500, 1800, vessel: "Payload"),
+                    Leg("dockedB", "C0", 2, 2500, 3000, vessel: "Transport"),
+                    Leg("tail", "C0", 3, 3000, 3500, vessel: "Transport"),
+                    Leg("payloadB", "C2", 0, 3000, 3300, vessel: "Payload")
+                },
+                new[]
+                {
+                    // INTERMEDIATE undock from depot A: peels the delivered payloadA;
+                    // the transport (midA2B) CONTINUES to depot B. This survivor leg
+                    // must NOT be trimmed (StartUT 1500 < the span boundary 3000).
+                    BP("undockA-bp", BranchPointType.Undock,
+                        new[] { "launch" }, new[] { "midA2B", "payloadA" }, ut: 1500),
+                    BP("dockB-bp", BranchPointType.Dock,
+                        new[] { "midA2B" }, new[] { "dockedB" }, ut: 2500),
+                    // TERMINAL undock from depot B (closest to the span end = the
+                    // route span end): peels payloadB; the tail flies home.
+                    BP("undockB-bp", BranchPointType.Undock,
+                        new[] { "dockedB" }, new[] { "tail", "payloadB" }, ut: 3000)
+                });
+        }
+
         [Fact]
         public void RouteMission_ThroughUnchangedBuild_YieldsOneUnit_TrimmedToLaunchUndock()
         {
@@ -435,5 +505,154 @@ namespace Parsek.Tests.Logistics
                 Assert.Equal(2000.0, kvp.Value.CadenceSeconds); // cadence not inflated
             }
         }
+
+        // -----------------------------------------------------------------
+        // M4a (A4) D7 / D8: last-dock end-trim + the no-spawn regression pin
+        // -----------------------------------------------------------------
+
+        // D7 (last-dock end-trim, pure derivation): an N-stop route's excluded-key
+        // set must cover EVERYTHING at/after the LAST dock (the post-last-dock tail
+        // + the terminal peel), while the INTERMEDIATE-undock survivor leg (the
+        // transport that undocked from depot A and continued to depot B, StartUT <
+        // the span boundary) must STAY rendered, INCLUDING the depot-B docked
+        // combined leg. Catches: the walk keying on a single/first dock (which would
+        // trim the survivor or fail to trim the B tail), or the terminal-undock
+        // scoping wrongly picking the intermediate undock (which would trim the
+        // continuing survivor + everything after it).
+        [Fact]
+        public void Compute_MultiStop_ExcludesAtAndAfterLastDock_KeepsIntermediateSurvivor()
+        {
+            const string treeId = "tree-multistop-d7";
+            RecordingTree tree = BuildMultiStopTree(treeId);
+
+            // The route span END is the LAST dock (depot B), which production aligns
+            // with the terminal structural boundary = 3000. RouteBuilder passes this
+            // (the max stop DockUT, A2 RecordedDockUT=last-dock) to
+            // ComputeExcludedIntervalKeys.
+            HashSet<string> excluded = RouteBackingMission.ComputeExcludedIntervalKeys(
+                tree, segmentEndUT: MultiStopSegmentEndUT, launchUT: MultiStopRootLaunchUT);
+
+            var structure = MissionStructureBuilder.Build(tree);
+            var roots = MissionCompositionBuilder.Build(structure);
+            var windows = MissionIntervalSelection.ComputeRenderWindows(roots, excluded);
+
+            // The transport through-line (root-owned "launch") renders
+            // [launch .. lastDock]: it starts at the ROOT launch (1000, NOT a
+            // mid-flight dock child) and end-trims at the last dock (3000), so the
+            // intermediate-undock survivor leg (the transport flying A->B and docked
+            // at B, StartUT 1500 < 3000) is INSIDE the rendered window - the run did
+            // not stop at depot A.
+            Assert.True(windows.ContainsKey("launch"),
+                "transport (root-owned) through-line must still render");
+            MissionIntervalSelection.RenderWindow w = windows["launch"];
+            Assert.Equal(MultiStopRootLaunchUT, w.StartUT);   // 1000, the ROOT launch
+            Assert.Equal(MultiStopSegmentEndUT, w.EndUT);     // 3000, end-trimmed at the last dock
+
+            // The post-last-dock tail vessel and its peel are fully dropped.
+            Assert.False(windows.ContainsKey("payloadB"),
+                "the terminal-undock peel must be excluded (post-last-dock)");
+
+            // The excluded set drops the post-last-dock tail interval + the peel.
+            Assert.NotEmpty(excluded);
+            Assert.Contains("payloadB", excluded);     // terminal-undock peel
+            Assert.Contains("launch/seg2", excluded);  // the post-terminal tail interval
+            // The intermediate survivor's interval is NOT excluded: the transport
+            // renders launch -> undock A -> dock B as ONE through-line whose middle
+            // interval ("launch/seg1") is kept (StartUT 1500 < 3000).
+            Assert.DoesNotContain("launch/seg1", excluded);
+            Assert.DoesNotContain("launch", excluded);
+        }
+
+        // D8 (the no-spawn regression pin, BOTH halves + the intermediate survivor).
+        // Through the UNCHANGED MissionLoopUnitBuilder.Build (the locked Missions
+        // seam the engine intercepts at GhostPlaybackEngine.cs:1141 - a loop-unit
+        // member is driven by UpdateUnitMemberPlayback and NEVER reaches the past-
+        // end / ShouldSpawnAtRecordingEnd path), this pins, for an N-stop
+        // route-driven loop unit:
+        //   (a) every KEPT member (launch through-line up to the last dock,
+        //       including the intermediate-undock survivor) IS a loop-unit member
+        //       (it loops, never spawns);
+        //   (b) every recording AT/AFTER the last dock is a NON-member (the
+        //       docked-combined tail leg, the post-last-dock tail continuation,
+        //       and the terminal peel are excluded entirely - so they never become
+        //       a unit member and never spawn).
+        // Multi-stop widens the rendered window PAST the first dock (to the last
+        // dock), so this guards that the widening did not start spawning the kept
+        // members nor start RENDERING the post-last-dock tail. Architectural: the
+        // no-spawn guarantee is the loop-unit interception; this PINS it via
+        // set.IsMember at the build seam.
+        [Fact]
+        public void NoSpawnPin_MultiStopLoopUnit_KeptMembersLoop_PostLastDockNonMembers()
+        {
+            const string treeId = "tree-multistop-nospawn";
+            RecordingTree tree = BuildMultiStopTree(treeId);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            int idxLaunch = committed.FindIndex(r => r.RecordingId == "launch");
+            int idxMidA2B = committed.FindIndex(r => r.RecordingId == "midA2B");
+            int idxPayloadA = committed.FindIndex(r => r.RecordingId == "payloadA");
+            int idxDockedB = committed.FindIndex(r => r.RecordingId == "dockedB");
+            int idxTail = committed.FindIndex(r => r.RecordingId == "tail");
+            int idxPayloadB = committed.FindIndex(r => r.RecordingId == "payloadB");
+
+            HashSet<string> excluded = RouteBackingMission.ComputeExcludedIntervalKeys(
+                tree, segmentEndUT: MultiStopSegmentEndUT, launchUT: MultiStopRootLaunchUT);
+            Route route = new RouteFixtureBuilder()
+                .WithId("route-multistop-nospawn")
+                .WithName("Multi-Stop No-Spawn Pin")
+                .WithBackingMissionTreeId(treeId)
+                // span = [1000..3000], dispatchInterval == span (cadence == span)
+                .WithSchedule(MultiStopSegmentEndUT - MultiStopRootLaunchUT,
+                              MultiStopSegmentEndUT - MultiStopRootLaunchUT)
+                .WithLoopAnchorUT(MultiStopRootLaunchUT)
+                .Build();
+            foreach (string key in excluded)
+                route.ExcludedIntervalKeys.Add(key);
+            Mission routeMission = RouteBackingMission.BuildMission(route, currentUT: 100000.0);
+
+            GhostPlaybackLogic.LoopUnitSet set = MissionLoopUnitBuilder.Build(
+                new List<Mission> { routeMission }, new[] { tree }, committed, AutoInterval);
+
+            // Exactly one loop unit (the route's backing Mission).
+            Assert.Equal(1, set.Count);
+
+            // (a) KEPT members loop (are unit members -> intercepted at
+            //     GhostPlaybackEngine.cs:1141 by UpdateUnitMemberPlayback, never
+            //     reaching ShouldSpawnAtRecordingEnd): the transport through-line up
+            //     to the last dock, INCLUDING the intermediate-undock survivor leg
+            //     (the transport flew depot A -> depot B and docked at B - the
+            //     widened multi-stop window keeps it).
+            Assert.True(set.IsMember(idxLaunch),
+                "launch leg must be a loop-unit member (loops, never spawns)");
+            Assert.True(set.IsMember(idxMidA2B),
+                "intermediate-undock survivor (transport continues depot A -> depot B) must STAY a member");
+            Assert.True(set.IsMember(idxDockedB),
+                "depot-B docked combined leg (folded into the kept through-line up to the last dock) must be a member");
+
+            // (A4 review nit c) The intermediate depot-A peel (payloadA, the cargo
+            // the transport dropped at depot A, [1500..1800]) is INTENTIONALLY a
+            // KEPT member: the route renders the whole [launch .. last dock] window,
+            // so everything that peeled BEFORE the last dock (StartUT 1500 < the
+            // span boundary, and payloadA roots at the INTERMEDIATE undock, NOT the
+            // terminal undock whose children are trimmed) stays in the loop unit.
+            // It is a member (loops, never spawns), NOT a post-last-dock non-member.
+            Assert.True(set.IsMember(idxPayloadA),
+                "intermediate depot-A peel (payloadA [1500..1800]) is intentionally a KEPT member - it dropped before the last dock");
+
+            // (b) post-last-dock recordings are NON-members (excluded entirely ->
+            //     never become a unit member, never spawn).
+            Assert.False(set.IsMember(idxTail),
+                "the post-last-dock tail continuation must be a NON-member");
+            Assert.False(set.IsMember(idxPayloadB),
+                "the terminal-undock peel must be a NON-member");
+
+            // The unit span end-trims at the last dock (depot B = the terminal
+            // structural boundary 3000), not the post-last-dock tail (3500).
+            foreach (var kvp in set.UnitsByOwner)
+            {
+                Assert.Equal(MultiStopRootLaunchUT, kvp.Value.SpanStartUT);  // 1000, ROOT launch
+                Assert.Equal(MultiStopSegmentEndUT, kvp.Value.SpanEndUT);    // 3000, the last dock
+            }
+        }
+
     }
 }

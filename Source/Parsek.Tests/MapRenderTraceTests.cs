@@ -282,6 +282,37 @@ namespace Parsek.Tests
             Assert.Contains("pid=100037", prefix);
             Assert.Contains("currentUT=10.000", prefix);
             Assert.Contains("effUT=9.500", prefix);
+            // recId defaults to <none> when not supplied, so every line is greppable by recId= uniformly.
+            Assert.Contains("recId=<none>", prefix);
+        }
+
+        [Fact]
+        public void FormatTracePrefix_CarriesRecId()
+        {
+            string prefix = MapRenderTrace.FormatTracePrefixForTesting(
+                phase: "LineVisibilityChange",
+                surface: MapRenderTrace.RenderSurface.ProtoOrbitLine,
+                pidKey: "100037",
+                currentUT: 10.0,
+                effUT: 10.0,
+                recId: "ab12cd34");
+
+            Assert.Contains("pid=100037", prefix);
+            Assert.Contains("recId=ab12cd34", prefix);
+        }
+
+        [Fact]
+        public void FormatTracePrefix_PolylineForwardArcSurfaceToken()
+        {
+            string prefix = MapRenderTrace.FormatTracePrefixForTesting(
+                phase: "PolylineLegChange",
+                surface: MapRenderTrace.RenderSurface.PolylineForwardArc,
+                pidKey: "rec-1",
+                currentUT: 1.0,
+                effUT: 1.0);
+
+            // The forward arc is a DISTINCT surface from Polyline (fixes the FWD-ARC string-prefix conflation).
+            Assert.Contains("surface=PolylineForwardArc", prefix);
         }
 
         // ---- Tier-A structural events (GhostCreated / GhostDestroyed / FirstPosition) ----
@@ -1017,6 +1048,102 @@ namespace Parsek.Tests
                 MapRenderTrace.RenderSurface.ImguiLabeledMarker, "rec-1", 200.0, "outcome=drawn-non-proto");
 
             Assert.True(logLines.Count > afterReset);
+        }
+
+        // ---- EmitLineVisibilityOnChange (orbit-line / icon visibility EVENT) ----
+
+        [Fact]
+        public void EmitLineVisibilityOnChange_NoOpWhenDisabled()
+        {
+            MapRenderTrace.ForceEnabledForTesting = false;
+
+            MapRenderTrace.EmitLineVisibilityOnChange(
+                "100037", "ab12cd34", 100.0, "active=1|reason=visible-body-frame", "reason=visible-body-frame");
+
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void EmitLineVisibilityOnChange_FirstSignatureEmits_CarriesSurfaceReasonAndRecId()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitLineVisibilityOnChange(
+                "100037", "ab12cd34", 100.0,
+                "active=0|icons=NONE|reason=polyline-owns-phase",
+                "Orbit line decision: pid=100037 reason=polyline-owns-phase lineActive=False");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MapRenderTrace]")
+                && l.Contains("phase=LineVisibilityChange")
+                && l.Contains("surface=ProtoOrbitLine")
+                && l.Contains("pid=100037")
+                && l.Contains("recId=ab12cd34")
+                && l.Contains("reason=polyline-owns-phase"));
+        }
+
+        [Fact]
+        public void EmitLineVisibilityOnChange_RepeatSignatureSuppressed()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitLineVisibilityOnChange(
+                "100037", "ab12cd34", 100.0, "active=1|reason=visible-body-frame", "reason=visible-body-frame");
+            int afterFirst = logLines.Count;
+            MapRenderTrace.EmitLineVisibilityOnChange(
+                "100037", "ab12cd34", 101.0, "active=1|reason=visible-body-frame", "reason=visible-body-frame");
+
+            Assert.Equal(afterFirst, logLines.Count);
+        }
+
+        [Fact]
+        public void EmitLineVisibilityOnChange_ChangedSignatureReEmits()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitLineVisibilityOnChange(
+                "100037", "ab12cd34", 100.0, "active=1|reason=visible-body-frame", "reason=visible-body-frame");
+            int afterFirst = logLines.Count;
+            // A real visibility transition (line hidden by the polyline-owns branch) re-emits.
+            MapRenderTrace.EmitLineVisibilityOnChange(
+                "100037", "ab12cd34", 100.5,
+                "active=0|reason=polyline-owns-phase", "reason=polyline-owns-phase");
+
+            Assert.True(logLines.Count > afterFirst);
+            Assert.Contains(logLines, l => l.Contains("reason=polyline-owns-phase"));
+        }
+
+        [Fact]
+        public void EmitLineVisibilityOnChange_ReEmitsAfterReset()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitLineVisibilityOnChange(
+                "100037", "ab12cd34", 100.0, "active=1|reason=visible-body-frame", "reason=visible-body-frame");
+            MapRenderTrace.Reset();
+            int afterReset = logLines.Count;
+            MapRenderTrace.EmitLineVisibilityOnChange(
+                "100037", "ab12cd34", 200.0, "active=1|reason=visible-body-frame", "reason=visible-body-frame");
+
+            Assert.True(logLines.Count > afterReset);
+        }
+
+        [Fact]
+        public void EmitLineVisibilityOnChange_PerCycleKeysAtWarp_DictStaysBounded()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            // Mint far more than the 4096 cap of distinct pid keys (the warp-safety bound). The dict must
+            // not grow without limit even though each key is fresh.
+            for (int i = 0; i < 5000; i++)
+                MapRenderTrace.EmitLineVisibilityOnChange(
+                    "pid-" + i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "rec-" + i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    100.0 + i, "active=1|seq=" + i, "reason=visible-body-frame");
+
+            Assert.True(MapRenderTrace.LineVisibilitySignatureCountForTesting <= 4096,
+                "line-visibility signature dict unbounded: "
+                    + MapRenderTrace.LineVisibilitySignatureCountForTesting + " (cap 4096)");
         }
     }
 }

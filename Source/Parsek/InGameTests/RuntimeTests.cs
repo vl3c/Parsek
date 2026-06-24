@@ -783,6 +783,28 @@ namespace Parsek.InGameTests
             InGameAssert.IsGreaterThan(kerbin.Radius, 0, "Kerbin radius should be positive");
         }
 
+        [InGameTest(Category = "StockWarpLimits", Scene = GameScenes.FLIGHT,
+            Description = "Stock warp altitude limits were snapshotted before any warp-mod override")]
+        public void StockWarpLimitsCaptured()
+        {
+            // Proves the PSystemSpawn capture actually ran (the timing premise the BetterTimeWarp
+            // support relies on) AND that the cache is keyed by the same body.name that
+            // ComputeApproachAltitude looks up — the two silent-failure modes xUnit cannot catch.
+            InGameAssert.IsTrue(StockWarpAltitudeLimits.HasCaptured,
+                "StockWarpAltitudeLimits.HasCaptured should be true in flight (PSystemSpawn capture ran before MainMenu)");
+
+            var kerbin = FlightGlobals.GetBodyByName("Kerbin");
+            InGameAssert.IsNotNull(kerbin, "Kerbin should exist in FlightGlobals");
+
+            bool ok = StockWarpAltitudeLimits.TryGetStockLimit(kerbin.name, 4, out float limit);
+            InGameAssert.IsTrue(ok,
+                "Kerbin's stock warp altitude limit [4] should be retrievable by body name (lookup key matches capture key)");
+            InGameAssert.IsGreaterThan(limit, 0,
+                "Kerbin's stock warp altitude limit [4] should be positive (snapshot holds the pre-override stock value)");
+            ParsekLog.Verbose("TestRunner",
+                $"StockWarpLimits: Kerbin stock timeWarpAltitudeLimits[4]={limit}");
+        }
+
         [InGameTest(Category = "KSP", Description = "PartLoader has loaded parts")]
         public void PartLoaderHasParts()
         {
@@ -4619,9 +4641,12 @@ namespace Parsek.InGameTests
                 yield return new WaitForSeconds(0.25f);
                 yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
 
-                // Capture the focused parent recording id BEFORE staging.
-                var activeTreePre = RecordingStore.PendingTree;
-                InGameAssert.IsNotNull(activeTreePre, "PendingTree must exist before staging");
+                // Capture the focused parent recording id BEFORE staging. The live in-progress
+                // recording tree is the ACTIVE tree on ParsekFlight, NOT RecordingStore.PendingTree
+                // (which is null during steady FLIGHT recording — it only holds a tree stashed across a
+                // scene change, so reading it here always saw null and failed this precondition).
+                var activeTreePre = flight.ActiveTreeForSerialization;
+                InGameAssert.IsNotNull(activeTreePre, "active recording tree must exist before staging");
                 string parentRecId = activeTreePre?.ActiveRecordingId;
                 InGameAssert.IsFalse(string.IsNullOrEmpty(parentRecId),
                     "parent recording id required before staging");
@@ -4670,7 +4695,9 @@ namespace Parsek.InGameTests
             if (string.IsNullOrEmpty(parentRecId))
                 return null;
 
-            var activeTree = RecordingStore.PendingTree;
+            // The controlled-decoupled child lands in the live ACTIVE recording tree, not
+            // RecordingStore.PendingTree (null during steady FLIGHT recording).
+            var activeTree = ParsekFlight.Instance?.ActiveTreeForSerialization;
             if (activeTree?.Recordings == null)
                 return null;
 
@@ -5963,6 +5990,121 @@ namespace Parsek.InGameTests
                         "MapRenderProbe_ReadsRealLineActiveTruth: ghostPid={0} lineActive={1}",
                         ghostPid,
                         lineActive));
+            }
+        }
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "map-render-event-logging: GhostMapPresence.FindRecordingIdByVesselPid resolves a live ghost's recordingId, the recId= every new render EVENT carries")]
+        public IEnumerator MapRenderTrace_ResolvesRecordingIdForLiveGhost()
+        {
+            // Every render-EVENT add (PolylineLegChange / LineVisibilityChange / icon-suppressed /
+            // body-orbit / the probe truth + anomaly lines) carries recId=<recordingId>, resolved at
+            // runtime via GhostMapPresence.FindRecordingIdByVesselPid(pid). That reverse map is the linchpin
+            // of the recId schema and is Unity-runtime (the ghost ProtoVessel must be loaded), so it cannot
+            // be unit-tested. Drive a live synthetic TS ghost and assert the reverse map returns the
+            // recording's RecordingId for the ghost's persistentId.
+            using (var scope = new SyntheticTrackingStationRecordingScope("maprender-recid"))
+            {
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+
+                // Let KSP run the ProtoVessel load over a few frames so the pid is registered.
+                yield return null;
+                yield return null;
+                yield return null;
+
+                uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
+                InGameAssert.IsTrue(ghostPid != 0,
+                    "Synthetic TS recording should have a ghost PID after the lifecycle tick");
+
+                string resolved = GhostMapPresence.FindRecordingIdByVesselPid(ghostPid);
+                InGameAssert.AreEqual(scope.Recording.RecordingId, resolved,
+                    "FindRecordingIdByVesselPid must resolve a live ghost pid back to its recordingId "
+                    + "(the recId= carried by every map render EVENT)");
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "MapRenderTrace_ResolvesRecordingIdForLiveGhost: ghostPid={0} recId={1}",
+                        ghostPid, resolved ?? "<null>"));
+            }
+        }
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "map-render-event-logging: with mapRenderTracing on, the probe + orbit-line decision actually EMIT recId-bearing render EVENTs for a live ghost (covers the emit call-sites the pure unit tests cannot reach)")]
+        public IEnumerator MapRenderTrace_EmitsRenderEventsForLiveGhost()
+        {
+            // The pure xUnit tests cover the emit HELPERS (DiffDrawnSets, EmitLineVisibilityOnChange, the
+            // recId prefix), but NOT the WIRING - whether the probe and GhostOrbitLinePatch actually CALL
+            // them for a live ghost with tracing on. A mis-wiring would compile and pass the full suite.
+            // This drives a live synthetic TS ghost with the tracer forced on, tees ParsekLog through an
+            // observer (so KSP.log still gets every line), and asserts real MapRenderTrace EVENT lines are
+            // emitted carrying the ghost's recId - end-to-end proof the call-sites fire.
+            bool prevForce = MapRenderTrace.ForceEnabledForTesting;
+            bool? prevVerbose = ParsekLog.VerboseOverrideForTesting;
+            System.Action<string> prevObserver = ParsekLog.TestObserverForTesting;
+            var captured = new List<string>();
+            try
+            {
+                MapRenderTrace.ForceEnabledForTesting = true;
+                ParsekLog.VerboseOverrideForTesting = true; // so the Verbose on-change EVENTs emit
+                ParsekLog.TestObserverForTesting = line =>
+                {
+                    if (line != null && line.Contains("[MapRenderTrace]")) captured.Add(line);
+                };
+
+                using (var scope = new SyntheticTrackingStationRecordingScope("maprender-emit"))
+                {
+                    GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+                    // Several frames so the order-10000 probe LateUpdate samples the ghost and the
+                    // OrbitRendererBase.LateUpdate -> GhostOrbitLinePatch.Postfix decision runs.
+                    for (int i = 0; i < 6; i++) yield return null;
+
+                    uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
+                    InGameAssert.IsTrue(ghostPid != 0,
+                        "Synthetic TS recording should have a ghost PID after the lifecycle tick");
+                    string recId = scope.Recording.RecordingId;
+
+                    if (captured.Count == 0)
+                    {
+                        InGameAssert.Skip(
+                            "No [MapRenderTrace] lines captured this session (the probe / renderer LateUpdate "
+                            + "did not run for the synthetic ghost) - emit wiring not exercisable here");
+                        yield break;
+                    }
+
+                    // Probe wiring + recId schema, end-to-end live: at least one render EVENT line carries
+                    // recId=<this recording>. (The probe emits body-orbit / line.active / FirstPosition with
+                    // the recId resolved from the live reverse map.)
+                    InGameAssert.IsTrue(
+                        captured.Exists(l => l.Contains("recId=" + recId)),
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Expected a [MapRenderTrace] EVENT line carrying recId={0}; captured {1} lines, none matched",
+                            recId, captured.Count));
+
+                    // GhostOrbitLinePatch wiring: LineVisibilityChange fires from LogOrbitLineDecision when the
+                    // orbit-line decision runs. Only assert it when the renderer's OrbitLine was actually built
+                    // this session (else the Postfix's decision path did not run - environmental, not a wiring
+                    // bug); mirrors MapRenderProbe_ReadsRealLineActiveTruth's (line-null) Skip.
+                    Vessel ghost = FindVesselByPersistentId(ghostPid);
+                    string lineActive = ghost != null ? MapRenderProbe.ReadLineActive(ghost.orbitRenderer) : "(no-renderer)";
+                    if (lineActive == "True" || lineActive == "False")
+                    {
+                        InGameAssert.IsTrue(
+                            captured.Exists(l => l.Contains("phase=LineVisibilityChange") && l.Contains("recId=" + recId)),
+                            "Renderer ran (OrbitLine built) but no phase=LineVisibilityChange recId line was emitted - "
+                            + "GhostOrbitLinePatch.LogOrbitLineDecision is not wired to MapRenderTrace.EmitLineVisibilityOnChange");
+                    }
+
+                    ParsekLog.Info("TestRunner",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "MapRenderTrace_EmitsRenderEventsForLiveGhost: ghostPid={0} recId={1} capturedLines={2} lineActive={3}",
+                            ghostPid, recId, captured.Count, lineActive));
+                }
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = prevObserver;
+                ParsekLog.VerboseOverrideForTesting = prevVerbose;
+                MapRenderTrace.ForceEnabledForTesting = prevForce;
             }
         }
 
@@ -10335,9 +10477,11 @@ namespace Parsek.InGameTests
         /// <summary>
         /// Marker pan-stability (FIX 2): a TRANSIENT ride dropout (the head's leg matched but was not
         /// drawn THIS frame - the dominant case while the map camera is actively panning) holds the last
-        /// on-line position instead of snapping to the body-fixed head. Seeds the polyline cache for a
-        /// recording (a fresh refresh leaves every leg's lastDrawnFrame=0, so a query at the live frame
-        /// takes the not-drawn-this-frame branch) plus a fresh last-good entry, then asserts
+        /// on-line position instead of snapping to the body-fixed head. Per the descent-icon contract
+        /// (<see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.ResolveUndrawnLegFallback(bool)"/>),
+        /// the hold fires ONLY for a CONIC-ANCHORED leg (a non-anchored body-fixed leg's fresh head is
+        /// already on the line, so it falls through to it). Seeds a stale conic-anchored leg covering the
+        /// head plus a fresh last-good entry, then asserts
         /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(string,double,out UnityEngine.Vector3,out MapRenderTrace.MarkerRideReason,out int)"/>
         /// returns the held position with reason HeldLastGood. xUnit cannot reach this end-to-end
         /// (Time.frameCount + the live cache); the freshness bounds are covered by the pure unit tests.
@@ -10349,32 +10493,17 @@ namespace Parsek.InGameTests
             const string recId = "ingame-marker-hold-1";
             Parsek.Display.GhostTrajectoryPolylineRenderer.ReleaseForRecording(recId);
 
-            var rec = new Recording { RecordingId = recId };
-            rec.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.Atmospheric,
-                referenceFrame = ReferenceFrame.Absolute,
-                source = TrackSectionSource.Active,
-                startUT = 100.0,
-                endUT = 600.0,
-                frames = new System.Collections.Generic.List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0, latitude = -0.1, longitude = -74.5, altitude = 70.0, bodyName = "Kerbin", rotation = Quaternion.identity },
-                    new TrajectoryPoint { ut = 200.0, latitude = -0.05, longitude = -74.5, altitude = 20000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
-                    new TrajectoryPoint { ut = 600.0, latitude = 0.0, longitude = -74.5, altitude = 100000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
-                },
-                checkpoints = new System.Collections.Generic.List<OrbitSegment>(),
-                bodyFixedFrames = null,
-                sampleRateHz = 10f,
-            });
-
             try
             {
-                // Populate the cache (fresh refresh -> every leg lastDrawnFrame=0, so a live-frame query
-                // hits the not-drawn-this-frame branch with a head inside the leg span).
-                Parsek.Display.GhostTrajectoryPolylineRenderer.RefreshForRecording(rec);
-
+                // Seed a CONIC-ANCHORED leg covering the head UT that was NOT drawn this frame (stale
+                // scratch: lastDrawnFrame != Time.frameCount). Only a conic-anchored leg holds last-good
+                // across a transient dropout (ResolveUndrawnLegFallback); RefreshForRecording builds
+                // non-anchored legs, so seed the anchored leg directly via the test seam.
                 double headUT = 300.0; // inside the leg [100,600]
+                Parsek.Display.GhostTrajectoryPolylineRenderer.SetLegForTesting(
+                    recId, /*startUT*/ 100.0, /*endUT*/ 600.0,
+                    wasAnchored: true, lastDrawnFrame: Time.frameCount - 1);
+
                 var heldPos = new Vector3(11f, 22f, 33f);
                 Parsek.Display.GhostTrajectoryPolylineRenderer.SetLastGoodOnLineForTesting(
                     recId, heldPos, headUT, Time.frameCount, /*legIndex*/ 0);
@@ -10383,7 +10512,7 @@ namespace Parsek.InGameTests
                     recId, headUT, out Vector3 outPos,
                     out MapRenderTrace.MarkerRideReason reason, out int legIndex);
 
-                InGameAssert.IsTrue(rode, "marker must ride (held) when a fresh last-good exists and the leg was not drawn this frame");
+                InGameAssert.IsTrue(rode, "marker must ride (held) when a fresh last-good exists and the conic-anchored leg was not drawn this frame");
                 InGameAssert.IsTrue(reason == MapRenderTrace.MarkerRideReason.HeldLastGood,
                     "ride reason must be HeldLastGood on a transient dropout, not a fallback");
                 InGameAssert.AreEqual(0, legIndex, "held leg index must be the cached one");

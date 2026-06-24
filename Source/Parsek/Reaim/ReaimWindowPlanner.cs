@@ -25,9 +25,14 @@ namespace Parsek.Reaim
     //   - SynodicPeriodSeconds: the window spacing (and the loop relaunch cadence basis).
     //   - TofSeconds: the recorded transfer time, fed to every per-window Lambert solve AND used to
     //     place the transfer segment - so the recorded span is preserved.
-    //   - CadenceSeconds: the loop clock's relaunch cadence = max(spanDuration, synodic). Synodic
-    //     (~2 Kerbin years) dwarfs the span, so the ghost replays its mission once, hides through the
-    //     long inter-window gap, then relaunches at the next window.
+    //   - CadenceSeconds: the loop clock's relaunch cadence = the smallest synodic MULTIPLE >= span
+    //     (ceil(span / synodic) * synodic). This makes the relaunch always land on a real transfer
+    //     window (a synodic multiple of the recorded departure) AND keeps the recorded mission inside
+    //     one cadence (=> a single instance, no self-overlap). For a normal mission (synodic dwarfs the
+    //     span) this is exactly one synodic period, so the ghost replays its mission once, hides
+    //     through the long inter-window gap, then relaunches at the next window. The departure clock
+    //     steps by this same cadence, so the two clocks coincide at every window (the F2 override fires
+    //     every relaunch).
     //   - PhaseAnchorUT: the absolute UT that maps to the recorded span START for window 0, i.e.
     //     D0 - (RecordedDepartureUT - spanStartUT). The span clock then resolves loopUT = spanStartUT
     //     + (currentUT - phaseAnchorUT) mod cadence, so at currentUT = D_k the ghost is exactly at its
@@ -46,7 +51,7 @@ namespace Parsek.Reaim
             public double SynodicPeriodSeconds;
             public double TofSeconds;          // the RECORDED transfer time (solve + placement)
             public double PhaseAnchorUT;       // absolute UT mapping to spanStartUT for window 0
-            public double CadenceSeconds;      // loop-clock relaunch cadence = max(span, synodic)
+            public double CadenceSeconds;      // relaunch cadence = smallest synodic multiple >= span
             public bool Prograde;              // Lambert short-way direction (prograde planets => true)
 
             internal static ReaimWindowSchedule Invalid_(string reason)
@@ -55,10 +60,34 @@ namespace Parsek.Reaim
             }
 
             /// <summary>The absolute heliocentric-departure UT for window index <paramref name="k"/>
-            /// (k &gt;= 0): D0 + k * synodic. Pure.</summary>
+            /// (k &gt;= 0): D0 + k * cadence - the time the transfer geometry is solved for. Cadence is a
+            /// whole synodic MULTIPLE (see <see cref="Plan"/>), so each window's departure is still
+            /// congruent to the recorded one (the launch + target bodies return to the recorded relative
+            /// configuration every synodic period, hence at every synodic multiple too). This now uses the
+            /// SAME expression as <see cref="RelaunchUTForWindow"/>, so for the SAME k the two are
+            /// bit-identical and the departure clock and the relaunch clock COINCIDE at EVERY window - the
+            /// F2 park-end override (which fires only when they coincide) is therefore valid at every
+            /// relaunch, not just window 0. For the normal case (synodic &gt; span) cadence == synodic, so
+            /// this is byte-identical to the old D0 + k*synodic. Pure.</summary>
             internal double DepartureUTForWindow(long k)
             {
-                return FirstDepartureUT + k * SynodicPeriodSeconds;
+                return FirstDepartureUT + k * CadenceSeconds;
+            }
+
+            /// <summary>The absolute UT at which the loop ENGINE actually relaunches the ghost for window
+            /// <paramref name="k"/> (k &gt;= 0): D0 + k * cadence. This is the CADENCE-clock replay time -
+            /// the live instant the ghost replays its recorded departure (the span clock resolves
+            /// loopUT = spanStart at currentUT = D0 + k*cadence). Because cadence is a whole synodic
+            /// MULTIPLE, it COINCIDES with <see cref="DepartureUTForWindow"/> at EVERY window for every
+            /// mission (both step by cadence now), including a recorded span longer than its own transfer
+            /// window (span &gt; synodic), where they used to diverge by k*(span - synodic). The
+            /// body-relative escape leg renders at the launch body's LIVE position (KSP
+            /// Orbit.getPositionAtUT adds referenceBody.position), so a launch-body-co-orbital heliocentric
+            /// PARK re-phased to THIS time sits next to the live launch body - and because the transfer is
+            /// aimed at the SAME UT, it also reaches the target's live position. Pure.</summary>
+            internal double RelaunchUTForWindow(long k)
+            {
+                return FirstDepartureUT + k * CadenceSeconds;
             }
         }
 
@@ -103,7 +132,18 @@ namespace Parsek.Reaim
             double spanDuration = spanEndUT - spanStartUT;
             if (spanDuration < 0.0 || double.IsNaN(spanDuration))
                 spanDuration = 0.0;
-            double cadence = synodic > spanDuration ? synodic : spanDuration;
+            // Cadence = the smallest synodic MULTIPLE >= span, so every relaunch lands on a real
+            // transfer window (a synodic multiple of the recorded departure) AND the recorded mission
+            // fits inside one cadence (=> the loop is single-instance, never self-overlapping). The
+            // - 1e-9 epsilon mirrors QuantizeCadenceToMultipleOfP: it stops a sub-ulp-above-synodic span
+            // from spuriously doubling a NORMAL mission's cadence. For synodic > span (the normal case)
+            // Ceiling(<1 - eps) == 1 => cadence == synodic, byte-identical to the old max(span, synodic).
+            // For span > synodic (e.g. the s15 ratio ~1.185) Ceiling rounds up to 2 => cadence == 2*synodic.
+            // The Max(1.0, ...) floors the multiple at 1 (mirroring QuantizeCadenceToMultipleOfP's k>=1
+            // guard): a degenerate sub-epsilon span (Ceiling(tiny - 1e-9) == 0) cannot yield a 0 cadence.
+            double cadence = (spanDuration > 0.0)
+                ? System.Math.Max(1.0, System.Math.Ceiling(spanDuration / synodic - 1e-9)) * synodic
+                : synodic;
             double phaseAnchor = d0 - (recordedDepartureUT - spanStartUT);
 
             return new ReaimWindowSchedule
@@ -224,6 +264,25 @@ namespace Parsek.Reaim
             return $"D0={s.FirstDepartureUT.ToString("R", ic)} synodic={s.SynodicPeriodSeconds.ToString("R", ic)} " +
                    $"tof={s.TofSeconds.ToString("R", ic)} anchor={s.PhaseAnchorUT.ToString("R", ic)} " +
                    $"cadence={s.CadenceSeconds.ToString("R", ic)}";
+        }
+
+        /// <summary>
+        /// True when the F2 park-end-anchor BUNDLE is geometrically valid for a window: the cadence-clock
+        /// relaunch time (<see cref="ReaimWindowSchedule.RelaunchUTForWindow"/>, where the body-relative
+        /// escape leg and the LAN-rotated park sit, per PR #1172) and the transfer departure
+        /// (<see cref="ReaimWindowSchedule.DepartureUTForWindow"/>, where the Lambert transfer is aimed)
+        /// COINCIDE. With the synodic-multiple cadence both clocks step by the SAME cadence, so they are
+        /// bit-identical for the same window k and this is true at EVERY window for EVERY mission (normal
+        /// synodic&gt;span AND the former span&gt;synodic case): the F2 override therefore fires at every
+        /// relaunch, not just window 0, and the transfer reaches the target's live position each window.
+        /// (Kept as an explicit gate so a degenerate / future schedule whose clocks somehow disagree still
+        /// fails closed to the tested Increment-1 launch-body-center path - a sane conic, not wild.)
+        /// #1172's park LAN re-phase is independent of this gate and applies at every window. Pure (1.0 s
+        /// tolerance, the same UT-equality epsilon used across the resolver).
+        /// </summary>
+        internal static bool ParkEndOverrideClocksCoincide(double parkReplayUT, double departureUT)
+        {
+            return Math.Abs(parkReplayUT - departureUT) < 1.0;
         }
     }
 }

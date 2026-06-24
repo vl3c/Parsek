@@ -52,6 +52,7 @@ namespace Parsek.Tests
             public double OrbitPeriod(string bodyName) => double.NaN;
             public string ReferenceBodyName(string bodyName) => null;
             public double SoiRadius(string bodyName) => 8.4e7;
+            public double Radius(string bodyName) => 6.0e5;
             public double OrbitalVelocity(string bodyName) => 9285.0;
             public double GravParameter(string bodyName) => bodyName == "Kerbin" ? MuKerbin : double.NaN;
             public bool TryGetVesselOrbit(
@@ -72,6 +73,7 @@ namespace Parsek.Tests
             public double OrbitPeriod(string bodyName) => double.NaN;
             public string ReferenceBodyName(string bodyName) => null;
             public double SoiRadius(string bodyName) => 8.4e7;
+            public double Radius(string bodyName) => 6.0e5;
             public double OrbitalVelocity(string bodyName) => 9285.0;
             public double GravParameter(string bodyName)
             {

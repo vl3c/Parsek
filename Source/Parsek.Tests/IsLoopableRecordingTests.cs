@@ -142,5 +142,95 @@ namespace Parsek.Tests
             };
             Assert.True(Recording.IsLoopableRecording(rec));
         }
+
+        [Fact]
+        public void RelativeTrackWithRecordedAnchor_ReturnsTrue()
+        {
+            // An orbital rendezvous / flyby approaching a base or station that
+            // never hard-docks (SegmentPhase "exo", no DockTargetVesselPid) is
+            // still viewable through its RELATIVE track anchored to the station's
+            // recorded leg.
+            var rec = new Recording { SegmentPhase = "exo" };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                anchorRecordingId = "station-leg-1"
+            });
+            Assert.True(Recording.IsLoopableRecording(rec));
+        }
+
+        [Fact]
+        public void RelativeTrackWithLiveAnchorVessel_ReturnsTrue()
+        {
+            var rec = new Recording { SegmentPhase = "exo" };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                anchorVesselId = 4242
+            });
+            Assert.True(Recording.IsLoopableRecording(rec));
+        }
+
+        [Fact]
+        public void RelativeTrackWithLoopAnchor_ReturnsTrue()
+        {
+            var rec = new Recording { SegmentPhase = "exo", LoopAnchorVesselId = 99 };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative
+            });
+            Assert.True(Recording.IsLoopableRecording(rec));
+        }
+
+        [Fact]
+        public void RelativeTrackWithoutAnchor_ReturnsFalse()
+        {
+            // A RELATIVE section with no anchor at all cannot be positioned, so
+            // it is not a viewable approach.
+            var rec = new Recording { SegmentPhase = "exo" };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative
+            });
+            Assert.False(Recording.IsLoopableRecording(rec));
+        }
+
+        [Fact]
+        public void AbsoluteTrackOnly_NoOtherCriteria_ReturnsFalse()
+        {
+            var rec = new Recording { SegmentPhase = "exo" };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute
+            });
+            Assert.False(Recording.IsLoopableRecording(rec));
+        }
+
+        [Fact]
+        public void ParentAnchoredRelativeTrack_ExcludedFromRelativeRule()
+        {
+            // A parent-anchored child's RELATIVE track follows its own parent, not
+            // an independent base/station, so the relative-track rule does not make
+            // it loopable. (If such a child actually lands it becomes loopable via
+            // its surface/approach/atmo phase instead.)
+            var rec = new Recording
+            {
+                SegmentPhase = "exo",
+                ParentAnchorRecordingId = "parent-rec-1"
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                anchorRecordingId = "parent-rec-1"
+            });
+            Assert.False(Recording.IsLoopableRecording(rec));
+        }
+
+        [Fact]
+        public void HasViewableRelativeTrack_NullOrEmpty_ReturnsFalse()
+        {
+            Assert.False(Recording.HasViewableRelativeTrack(null));
+            Assert.False(Recording.HasViewableRelativeTrack(new Recording()));
+        }
     }
 }

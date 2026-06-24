@@ -421,5 +421,53 @@ namespace Parsek.Tests
             StructureStep delivery = steps.Single(s => s.Kind == StructureStepKind.Delivery);
             Assert.Equal("Kerbin, Shores", delivery.Location);
         }
+
+        // ==================================================================
+        // M3 Phase 4: direction-aware stop label (Phase-2 deferred UI obligation)
+        // ==================================================================
+
+        // catches: a pure-pickup stop rendering a "Deliver" label describing
+        // nothing (the deferred Phase-2 UI obligation, now user-reachable since
+        // Phase 4 makes pickup routes dispatchable).
+        [Fact]
+        public void FormatStopLabel_PurePickup_RendersPickUp()
+        {
+            var stop = new RouteStop
+            {
+                PickupManifest = new Dictionary<string, double> { { "Ore", 50.0 } },
+            };
+            string label = RouteStructureListBuilder.FormatStopLabel(stop, "");
+            Assert.Equal("Pick up (50 Ore)", label);
+        }
+
+        [Fact]
+        public void FormatStopLabel_DeliveryOnly_RendersDeliver()
+        {
+            var stop = new RouteStop
+            {
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+            };
+            string label = RouteStructureListBuilder.FormatStopLabel(stop, "");
+            Assert.Equal("Deliver (100 LiquidFuel)", label);
+        }
+
+        [Fact]
+        public void FormatStopLabel_Mixed_RendersBothDirections()
+        {
+            var stop = new RouteStop
+            {
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                PickupManifest = new Dictionary<string, double> { { "Ore", 50.0 } },
+            };
+            string label = RouteStructureListBuilder.FormatStopLabel(stop, "");
+            Assert.Equal("Deliver (100 LiquidFuel) / Pick up (50 Ore)", label);
+        }
+
+        [Fact]
+        public void FormatStopLabel_Empty_FallsBackToBareDeliver()
+        {
+            string label = RouteStructureListBuilder.FormatStopLabel(new RouteStop(), " #2");
+            Assert.Equal("Deliver #2", label);
+        }
     }
 }

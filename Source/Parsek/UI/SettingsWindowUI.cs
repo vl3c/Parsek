@@ -345,17 +345,20 @@ namespace Parsek
             }
             GUILayout.EndHorizontal();
 
-            // Zero-drift A/B flag: how a looped mission that LANDS on another body (e.g. the Mun)
-            // aligns that landed-on body's rotation at each faithful relaunch. The launch pad is
-            // always aligned exactly; this only trades the relaunch cadence against the
-            // approach-to-landing handoff seam on the destination body.
+            // Zero-drift A/B flag: how a looped mission that LANDS on another body (the Mun, or an
+            // interplanetary destination such as Duna) aligns that landed-on body's rotation at each
+            // faithful relaunch. The launch pad is always aligned exactly; this only trades the
+            // relaunch cadence (same-parent) or the per-cycle arrival hold + destination-loiter trim
+            // (interplanetary) against the approach-to-landing handoff seam on the destination body.
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("Landing-body alignment",
-                "For a looped mission that lands on another body (e.g. the Mun): how precisely that "
-                + "body's rotation lines up at each relaunch. Off = launch as often as possible "
-                + "(largest landing-handoff seam); Loose = roughly monthly windows with a small seam; "
-                + "Precise = rare (about yearly) windows with a pixel-perfect handoff. The launch pad "
-                + "is always aligned exactly. Affects only looped inter-body missions."),
+                "For a looped mission that lands on another body (the Mun, or an interplanetary "
+                + "destination such as Duna): how precisely that body's rotation lines up at each "
+                + "relaunch. Off = launch as often as possible (largest landing-handoff seam); Loose = "
+                + "a small seam; Precise = a pixel-perfect handoff (for an interplanetary landing the "
+                + "deorbit is aligned each cycle by holding and re-timing the destination parking "
+                + "loiter). The launch pad is always aligned exactly. Affects only looped inter-body "
+                + "missions."),
                 GUILayout.Width(150));
             if (GUILayout.Button(TransitedBodyRotationModeLabel(s.TransitedBodyRotationMode),
                     GUILayout.Width(120)))
