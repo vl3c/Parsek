@@ -367,29 +367,23 @@ namespace Parsek
 
             if (tree == null)
             {
-                result.FailureReason = "tree-null";
-                LogCreationRefused(result, focusedVesselPersistentId,
+                return Refuse(result, "tree-null", focusedVesselPersistentId,
                     focusedVesselName, sourceVesselPersistentId, switchUT,
                     entryReason, intentId, sessionId);
-                return result;
             }
 
             if (string.IsNullOrEmpty(newRecordingId))
             {
-                result.FailureReason = "new-recording-id-missing";
-                LogCreationRefused(result, focusedVesselPersistentId,
+                return Refuse(result, "new-recording-id-missing", focusedVesselPersistentId,
                     focusedVesselName, sourceVesselPersistentId, switchUT,
                     entryReason, intentId, sessionId);
-                return result;
             }
 
             if (initialBoundaryPointFactory == null)
             {
-                result.FailureReason = "boundary-factory-missing";
-                LogCreationRefused(result, focusedVesselPersistentId,
+                return Refuse(result, "boundary-factory-missing", focusedVesselPersistentId,
                     focusedVesselName, sourceVesselPersistentId, switchUT,
                     entryReason, intentId, sessionId);
-                return result;
             }
 
             // Validate parent attachment preconditions before any mutation.
@@ -400,30 +394,24 @@ namespace Parsek
                     || !tree.Recordings.TryGetValue(parentRecordingIdOrNull, out parentRec)
                     || parentRec == null)
                 {
-                    result.FailureReason = "parent-not-in-tree";
-                    LogCreationRefused(result, focusedVesselPersistentId,
+                    return Refuse(result, "parent-not-in-tree", focusedVesselPersistentId,
                         focusedVesselName, sourceVesselPersistentId, switchUT,
                         entryReason, intentId, sessionId);
-                    return result;
                 }
 
                 if (!string.IsNullOrEmpty(parentRec.ChildBranchPointId))
                 {
-                    result.FailureReason = "parent-not-terminal-leaf";
-                    LogCreationRefused(result, focusedVesselPersistentId,
+                    return Refuse(result, "parent-not-terminal-leaf", focusedVesselPersistentId,
                         focusedVesselName, sourceVesselPersistentId, switchUT,
                         entryReason, intentId, sessionId);
-                    return result;
                 }
 
                 // Also require a fresh branch-point id for attached creation.
                 if (string.IsNullOrEmpty(newBranchPointId))
                 {
-                    result.FailureReason = "new-branch-point-id-missing";
-                    LogCreationRefused(result, focusedVesselPersistentId,
+                    return Refuse(result, "new-branch-point-id-missing", focusedVesselPersistentId,
                         focusedVesselName, sourceVesselPersistentId, switchUT,
                         entryReason, intentId, sessionId);
-                    return result;
                 }
             }
 
@@ -499,6 +487,32 @@ namespace Parsek
                     entryReason,
                     switchUT.ToString("R", CultureInfo.InvariantCulture)));
 
+            return result;
+        }
+
+        /// <summary>
+        /// Stamps <paramref name="reason"/> as the failure reason on
+        /// <paramref name="result"/>, emits the standard refusal log line, and
+        /// returns the result. Folds the six byte-identical precondition-failure
+        /// blocks in <see cref="CreateSwitchContinuationSegment"/>; the
+        /// <see cref="LogCreationRefused"/> payload is identical across the sites,
+        /// so only <paramref name="reason"/> varies.
+        /// </summary>
+        private static SwitchContinuationCreationResult Refuse(
+            SwitchContinuationCreationResult result,
+            string reason,
+            uint focusedVesselPersistentId,
+            string focusedVesselName,
+            uint sourceVesselPersistentId,
+            double switchUT,
+            SwitchSegmentEntryReason entryReason,
+            Guid intentId,
+            Guid sessionId)
+        {
+            result.FailureReason = reason;
+            LogCreationRefused(result, focusedVesselPersistentId,
+                focusedVesselName, sourceVesselPersistentId, switchUT,
+                entryReason, intentId, sessionId);
             return result;
         }
 

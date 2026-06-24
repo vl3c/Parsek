@@ -283,9 +283,7 @@ namespace Parsek.Logistics
             TryParseInt(node.GetValue("currentSegmentIndex"), ic, -1, out route.CurrentSegmentIndex);
             TryParseInt(node.GetValue("pendingStopIndex"), ic, -1, out route.PendingStopIndex);
 
-            route.LinkedRouteId = node.GetValue("linkedRouteId");
-            if (string.IsNullOrEmpty(route.LinkedRouteId))
-                route.LinkedRouteId = null;
+            route.LinkedRouteId = NullIfEmpty(node.GetValue("linkedRouteId"));
             // Sparse round-trip linking alternation cursor (M4c Phase C1): absent ->
             // the 0 default (no partner cycle consumed yet). No clamp needed; the
             // field is a monotonic counter advanced only on dispatch.
@@ -313,9 +311,7 @@ namespace Parsek.Logistics
             // "no hold recorded" defaults (None / null / 0 / -1); an unknown
             // kind string maps to None with a warn (mirrors ParseStatusOrWarn).
             route.LastHoldKind = ParseHoldKindOrNone(node.GetValue("lastHoldKind"), route.Id);
-            route.LastHoldDetail = node.GetValue("lastHoldDetail");
-            if (string.IsNullOrEmpty(route.LastHoldDetail))
-                route.LastHoldDetail = null;
+            route.LastHoldDetail = NullIfEmpty(node.GetValue("lastHoldDetail"));
             TryParseDouble(node.GetValue("lastHoldShortfall"), inv, ic, out route.LastHoldShortfall);
             TryParseDoubleWithDefault(node.GetValue("lastHoldUT"), inv, ic, -1.0, out route.LastHoldUT);
 
@@ -323,12 +319,8 @@ namespace Parsek.Logistics
             // A missing backing-mission definition does NOT reject the route —
             // graceful default (pre-1.0, no migration). Missing scalar -> default,
             // missing node -> empty set, absent cycle index -> -1.
-            route.BackingMissionTreeId = node.GetValue("backingMissionTreeId");
-            if (string.IsNullOrEmpty(route.BackingMissionTreeId))
-                route.BackingMissionTreeId = null;
-            route.DockMemberRecordingId = node.GetValue("dockMemberRecordingId");
-            if (string.IsNullOrEmpty(route.DockMemberRecordingId))
-                route.DockMemberRecordingId = null;
+            route.BackingMissionTreeId = NullIfEmpty(node.GetValue("backingMissionTreeId"));
+            route.DockMemberRecordingId = NullIfEmpty(node.GetValue("dockMemberRecordingId"));
             // Missing -> field default (-1), so seed the out-default to -1.
             TryParseDoubleWithDefault(node.GetValue("recordedDockUT"), inv, ic, -1.0, out route.RecordedDockUT);
             TryParseDoubleWithDefault(node.GetValue("loopAnchorUT"), inv, ic, -1.0, out route.LoopAnchorUT);
@@ -338,42 +330,16 @@ namespace Parsek.Logistics
             // Missing pendingRecoveryCreditCycleId -> null (no credit owed); missing
             // pendingRecoveryCreditDispatchUT -> -1. A pre-feature save simply has no
             // pending marker, which is the correct "no credit owed yet" state.
-            route.PendingRecoveryCreditCycleId = node.GetValue("pendingRecoveryCreditCycleId");
-            if (string.IsNullOrEmpty(route.PendingRecoveryCreditCycleId))
-                route.PendingRecoveryCreditCycleId = null;
+            route.PendingRecoveryCreditCycleId = NullIfEmpty(node.GetValue("pendingRecoveryCreditCycleId"));
             TryParseDoubleWithDefault(node.GetValue("pendingRecoveryCreditDispatchUT"),
                 inv, ic, -1.0, out route.PendingRecoveryCreditDispatchUT);
 
-            ConfigNode excludedNode = node.GetNode(ExcludedIntervalsNode);
-            if (excludedNode != null)
-            {
-                string[] excluded = excludedNode.GetValues(ExcludedIntervalValue);
-                if (excluded != null)
-                {
-                    for (int i = 0; i < excluded.Length; i++)
-                    {
-                        if (!string.IsNullOrEmpty(excluded[i]))
-                            route.ExcludedIntervalKeys.Add(excluded[i]);
-                    }
-                }
-            }
+            LoadStringList(node, ExcludedIntervalsNode, ExcludedIntervalValue, route.ExcludedIntervalKeys);
 
             // CREATION_TREE_RECORDINGS (M-MIS-9-R1). A missing node loads as an
             // empty snapshot: the run-cost resolver fails open to the whole
             // current tree, which is the pre-field behavior.
-            ConfigNode creationNode = node.GetNode(CreationTreeRecordingsNode);
-            if (creationNode != null)
-            {
-                string[] creationIds = creationNode.GetValues(CreationTreeRecordingValue);
-                if (creationIds != null)
-                {
-                    for (int i = 0; i < creationIds.Length; i++)
-                    {
-                        if (!string.IsNullOrEmpty(creationIds[i]))
-                            route.CreationTreeRecordingIds.Add(creationIds[i]);
-                    }
-                }
-            }
+            LoadStringList(node, CreationTreeRecordingsNode, CreationTreeRecordingValue, route.CreationTreeRecordingIds);
 
             // --- RECORDING_IDS ---
             ConfigNode ridsNode = node.GetNode(RecordingIdsNode);
@@ -887,6 +853,38 @@ namespace Parsek.Logistics
             if (raw != null && double.TryParse(raw, inv, ic, out double parsed))
                 return parsed;
             return null;
+        }
+
+        /// <summary>
+        /// Returns null for a null/empty input, otherwise the input unchanged.
+        /// Folds the "GetValue then if-empty-set-null" idiom used for the optional
+        /// string scalars in <see cref="DeserializeFrom"/>.
+        /// </summary>
+        private static string NullIfEmpty(string raw)
+            => string.IsNullOrEmpty(raw) ? null : raw;
+
+        /// <summary>
+        /// Loads a child node's repeated <paramref name="valueKey"/> values into
+        /// <paramref name="target"/>, skipping null/empty entries. A missing node
+        /// or null value array adds nothing. Folds the two byte-identical
+        /// repeated-value loaders (EXCLUDED_INTERVALS, CREATION_TREE_RECORDINGS).
+        /// </summary>
+        private static void LoadStringList(
+            ConfigNode node, string nodeName, string valueKey, ICollection<string> target)
+        {
+            ConfigNode child = node.GetNode(nodeName);
+            if (child != null)
+            {
+                string[] values = child.GetValues(valueKey);
+                if (values != null)
+                {
+                    for (int i = 0; i < values.Length; i++)
+                    {
+                        if (!string.IsNullOrEmpty(values[i]))
+                            target.Add(values[i]);
+                    }
+                }
+            }
         }
     }
 }
