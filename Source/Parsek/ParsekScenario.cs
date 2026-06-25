@@ -1755,53 +1755,13 @@ namespace Parsek
             node.RemoveNodes(SwitchSegmentSession.NodeName);
             node.RemoveNodes(TestBatchMarker.NodeName);
 
-            int rpCount = 0;
-            if (RewindPoints != null && RewindPoints.Count > 0)
-            {
-                var parent = node.AddNode("REWIND_POINTS");
-                for (int i = 0; i < RewindPoints.Count; i++)
-                {
-                    if (RewindPoints[i] == null) continue;
-                    RewindPoints[i].SaveInto(parent);
-                    rpCount++;
-                }
-            }
+            int rpCount = SaveStagingList(node, "REWIND_POINTS", RewindPoints, (item, parent) => item.SaveInto(parent));
 
-            int supersedeCount = 0;
-            if (RecordingSupersedes != null && RecordingSupersedes.Count > 0)
-            {
-                var parent = node.AddNode("RECORDING_SUPERSEDES");
-                for (int i = 0; i < RecordingSupersedes.Count; i++)
-                {
-                    if (RecordingSupersedes[i] == null) continue;
-                    RecordingSupersedes[i].SaveInto(parent);
-                    supersedeCount++;
-                }
-            }
+            int supersedeCount = SaveStagingList(node, "RECORDING_SUPERSEDES", RecordingSupersedes, (item, parent) => item.SaveInto(parent));
 
-            int retirementCount = 0;
-            if (RecordingRewindRetirements != null && RecordingRewindRetirements.Count > 0)
-            {
-                var parent = node.AddNode("RECORDING_REWIND_RETIREMENTS");
-                for (int i = 0; i < RecordingRewindRetirements.Count; i++)
-                {
-                    if (RecordingRewindRetirements[i] == null) continue;
-                    RecordingRewindRetirements[i].SaveInto(parent);
-                    retirementCount++;
-                }
-            }
+            int retirementCount = SaveStagingList(node, "RECORDING_REWIND_RETIREMENTS", RecordingRewindRetirements, (item, parent) => item.SaveInto(parent));
 
-            int tombCount = 0;
-            if (LedgerTombstones != null && LedgerTombstones.Count > 0)
-            {
-                var parent = node.AddNode("LEDGER_TOMBSTONES");
-                for (int i = 0; i < LedgerTombstones.Count; i++)
-                {
-                    if (LedgerTombstones[i] == null) continue;
-                    LedgerTombstones[i].SaveInto(parent);
-                    tombCount++;
-                }
-            }
+            int tombCount = SaveStagingList(node, "LEDGER_TOMBSTONES", LedgerTombstones, (item, parent) => item.SaveInto(parent));
 
             bool markerWritten = false;
             string markerSessionId = null;
@@ -1870,6 +1830,22 @@ namespace Parsek
                 $"rewindRetirements={retirementCount} " +
                 $"tombstones={tombCount} marker={markerWritten} journal={journalWritten} " +
                 $"switchIntent={intentWritten} switchSegment={segmentWritten}");
+        }
+
+        private static int SaveStagingList<T>(ConfigNode node, string nodeName, IReadOnlyList<T> list, Action<T, ConfigNode> save)
+        {
+            int count = 0;
+            if (list != null && list.Count > 0)
+            {
+                var parent = node.AddNode(nodeName);
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (list[i] == null) continue;
+                    save(list[i], parent);
+                    count++;
+                }
+            }
+            return count;
         }
 
         /// <summary>
