@@ -1452,165 +1452,17 @@ namespace Parsek
                 }
                 else
                 {
-                    // splitUT falls in the interior of a section. Build head + tail
-                    // clones in LOCAL variables before mutating original.TrackSections.
-                    if (straddle.isBoundarySeam)
+                    if (!TrySplitStraddlingSectionAtUT(
+                            original,
+                            splitUT,
+                            straddle,
+                            straddleIndex,
+                            out sectionIndex,
+                            out syntheticBoundaryInserted))
                     {
-                        ParsekLog.Warn("Optimizer",
-                            $"SplitAtUT: synthetic rewindUT split overriding seam protection " +
-                            $"on section {straddleIndex} of recording {original.RecordingId} — " +
-                            "single one-off override for re-fly commit");
+                        RestorePreEnsureSnapshot();
+                        return null;
                     }
-
-                    // Partition straddle.checkpoints by UT (mirrors SplitAtSection
-                    // step 7's top-level OrbitSegment partition). Without this,
-                    // both halves would inherit the full pre-split checkpoints list
-                    // verbatim, and TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail
-                    // (called downstream by SplitAtSection) could rebuild TIP's
-                    // OrbitSegments from those un-partitioned checkpoints via
-                    // RebuildOrbitSegmentsFromTrackSections, silently undoing the
-                    // tail-clone work A7 added to SplitAtSection. The same logic also
-                    // protects HEAD's `TrimFirstHalfTrackSectionsAtSplit` pass — because
-                    // headSection.endUT is already set to splitUT below, that pass would
-                    // not re-trim the head's checkpoints either. Whole pre-split
-                    // checkpoints go to head; whole post-split go to tail; straddlers
-                    // are head-trimmed (endUT clamped to splitUT) into head AND
-                    // tail-cloned (startUT set to splitUT) into tail. Kepler elements
-                    // describe the whole conic so a struct value-copy is sufficient.
-                    List<OrbitSegment> headCheckpoints = null;
-                    List<OrbitSegment> tailCheckpoints = null;
-                    if (straddle.checkpoints != null)
-                    {
-                        headCheckpoints = new List<OrbitSegment>();
-                        tailCheckpoints = new List<OrbitSegment>();
-                        for (int ci = 0; ci < straddle.checkpoints.Count; ci++)
-                        {
-                            OrbitSegment cp = straddle.checkpoints[ci];
-                            if (cp.endUT <= splitUT)
-                            {
-                                headCheckpoints.Add(cp);
-                            }
-                            else if (cp.startUT >= splitUT)
-                            {
-                                tailCheckpoints.Add(cp);
-                            }
-                            else
-                            {
-                                OrbitSegment headClone = cp;
-                                headClone.endUT = splitUT;
-                                headCheckpoints.Add(headClone);
-
-                                OrbitSegment tailClone = cp;
-                                tailClone.startUT = splitUT;
-                                tailCheckpoints.Add(tailClone);
-                            }
-                        }
-                    }
-
-                    TrackSection headSection = new TrackSection
-                    {
-                        environment = straddle.environment,
-                        referenceFrame = straddle.referenceFrame,
-                        startUT = straddle.startUT,
-                        endUT = splitUT,
-                        anchorVesselId = straddle.anchorVesselId,
-                        anchorRecordingId = straddle.anchorRecordingId,
-                        sampleRateHz = straddle.sampleRateHz,
-                        source = straddle.source,
-                        // boundaryDiscontinuityMeters: preserve the head's pre-existing value
-                        boundaryDiscontinuityMeters = straddle.boundaryDiscontinuityMeters,
-                        minAltitude = straddle.minAltitude,
-                        maxAltitude = straddle.maxAltitude,
-                        // Synthetic rewind-UT split is NOT a recorder bookkeeping artifact.
-                        isBoundarySeam = false,
-                        frames = straddle.frames != null
-                            ? new List<TrajectoryPoint>() : null,
-                        bodyFixedFrames = straddle.bodyFixedFrames != null
-                            ? new List<TrajectoryPoint>() : null,
-                        checkpoints = headCheckpoints,
-                    };
-                    TrackSection tailSection = new TrackSection
-                    {
-                        environment = straddle.environment,
-                        referenceFrame = straddle.referenceFrame,
-                        startUT = splitUT,
-                        endUT = straddle.endUT,
-                        anchorVesselId = straddle.anchorVesselId,
-                        anchorRecordingId = straddle.anchorRecordingId,
-                        sampleRateHz = straddle.sampleRateHz,
-                        source = straddle.source,
-                        // Tail synthetic boundary is continuous in world space.
-                        boundaryDiscontinuityMeters = 0f,
-                        minAltitude = straddle.minAltitude,
-                        maxAltitude = straddle.maxAltitude,
-                        isBoundarySeam = false,
-                        frames = straddle.frames != null
-                            ? new List<TrajectoryPoint>() : null,
-                        bodyFixedFrames = straddle.bodyFixedFrames != null
-                            ? new List<TrajectoryPoint>() : null,
-                        checkpoints = tailCheckpoints,
-                    };
-
-                    // Partition the section's per-section frames by UT.
-                    if (straddle.frames != null)
-                    {
-                        for (int fi = 0; fi < straddle.frames.Count; fi++)
-                        {
-                            var frame = straddle.frames[fi];
-                            if (frame.ut < splitUT)
-                                headSection.frames.Add(frame);
-                            else
-                                tailSection.frames.Add(frame);
-                        }
-                    }
-
-                    // Partition body-fixed primary surface samples by UT.
-                    bool hadBodyFixedFrames = straddle.bodyFixedFrames != null
-                        && straddle.bodyFixedFrames.Count > 0;
-                    if (straddle.bodyFixedFrames != null)
-                    {
-                        for (int fi = 0; fi < straddle.bodyFixedFrames.Count; fi++)
-                        {
-                            var frame = straddle.bodyFixedFrames[fi];
-                            if (frame.ut < splitUT)
-                                headSection.bodyFixedFrames.Add(frame);
-                            else
-                                tailSection.bodyFixedFrames.Add(frame);
-                        }
-                    }
-
-                    // Debris frame contract guard: each half must retain at least 2
-                    // bodyFixedFrames samples when the straddling section had them.
-                    if (hadBodyFixedFrames)
-                    {
-                        if (headSection.bodyFixedFrames.Count < 2)
-                        {
-                            ParsekLog.Warn("Optimizer",
-                                $"SplitAtUT: v13 debris contract — head-half bodyFixedFrames " +
-                                $"sample count {headSection.bodyFixedFrames.Count} below minimum " +
-                                $"after rewindUT split on section {straddleIndex} of recording " +
-                                $"{original.RecordingId}; skipping split");
-                            RestorePreEnsureSnapshot();
-                            return null;
-                        }
-                        if (tailSection.bodyFixedFrames.Count < 2)
-                        {
-                            ParsekLog.Warn("Optimizer",
-                                $"SplitAtUT: v13 debris contract — tail-half bodyFixedFrames " +
-                                $"sample count {tailSection.bodyFixedFrames.Count} below minimum " +
-                                $"after rewindUT split on section {straddleIndex} of recording " +
-                                $"{original.RecordingId}; skipping split");
-                            RestorePreEnsureSnapshot();
-                            return null;
-                        }
-                    }
-
-                    // All guards passed — commit the mutation by writing the head/tail
-                    // pair back to original.TrackSections.
-                    original.TrackSections[straddleIndex] = headSection;
-                    original.TrackSections.Insert(straddleIndex + 1, tailSection);
-                    sectionIndex = straddleIndex + 1;
-                    syntheticBoundaryInserted = true;
                 }
             }
             else
@@ -1682,6 +1534,183 @@ namespace Parsek
                 $"syntheticBoundaryInserted={(syntheticBoundaryInserted ? "true" : "false")})");
 
             return tip;
+        }
+
+        // Interior-straddle arm of SplitAtUT: splitUT falls in the interior of an
+        // existing TrackSection. Builds head + tail clones in LOCAL variables before
+        // mutating original.TrackSections, then commits on success. Tri-state: returns
+        // false on a debris-contract guarded return (caller restores the pre-Ensure
+        // snapshot and returns null), true on a committed split. The two out-params
+        // mirror the method-locals SplitAtUT consumes afterwards.
+        private static bool TrySplitStraddlingSectionAtUT(
+            Recording original,
+            double splitUT,
+            TrackSection straddle,
+            int straddleIndex,
+            out int sectionIndex,
+            out bool syntheticBoundaryInserted)
+        {
+            sectionIndex = -1;
+            syntheticBoundaryInserted = false;
+
+            // splitUT falls in the interior of a section. Build head + tail
+            // clones in LOCAL variables before mutating original.TrackSections.
+            if (straddle.isBoundarySeam)
+            {
+                ParsekLog.Warn("Optimizer",
+                    $"SplitAtUT: synthetic rewindUT split overriding seam protection " +
+                    $"on section {straddleIndex} of recording {original.RecordingId} — " +
+                    "single one-off override for re-fly commit");
+            }
+
+            // Partition straddle.checkpoints by UT (mirrors SplitAtSection
+            // step 7's top-level OrbitSegment partition). Without this,
+            // both halves would inherit the full pre-split checkpoints list
+            // verbatim, and TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail
+            // (called downstream by SplitAtSection) could rebuild TIP's
+            // OrbitSegments from those un-partitioned checkpoints via
+            // RebuildOrbitSegmentsFromTrackSections, silently undoing the
+            // tail-clone work A7 added to SplitAtSection. The same logic also
+            // protects HEAD's `TrimFirstHalfTrackSectionsAtSplit` pass — because
+            // headSection.endUT is already set to splitUT below, that pass would
+            // not re-trim the head's checkpoints either. Whole pre-split
+            // checkpoints go to head; whole post-split go to tail; straddlers
+            // are head-trimmed (endUT clamped to splitUT) into head AND
+            // tail-cloned (startUT set to splitUT) into tail. Kepler elements
+            // describe the whole conic so a struct value-copy is sufficient.
+            List<OrbitSegment> headCheckpoints = null;
+            List<OrbitSegment> tailCheckpoints = null;
+            if (straddle.checkpoints != null)
+            {
+                headCheckpoints = new List<OrbitSegment>();
+                tailCheckpoints = new List<OrbitSegment>();
+                for (int ci = 0; ci < straddle.checkpoints.Count; ci++)
+                {
+                    OrbitSegment cp = straddle.checkpoints[ci];
+                    if (cp.endUT <= splitUT)
+                    {
+                        headCheckpoints.Add(cp);
+                    }
+                    else if (cp.startUT >= splitUT)
+                    {
+                        tailCheckpoints.Add(cp);
+                    }
+                    else
+                    {
+                        OrbitSegment headClone = cp;
+                        headClone.endUT = splitUT;
+                        headCheckpoints.Add(headClone);
+
+                        OrbitSegment tailClone = cp;
+                        tailClone.startUT = splitUT;
+                        tailCheckpoints.Add(tailClone);
+                    }
+                }
+            }
+
+            TrackSection headSection = new TrackSection
+            {
+                environment = straddle.environment,
+                referenceFrame = straddle.referenceFrame,
+                startUT = straddle.startUT,
+                endUT = splitUT,
+                anchorVesselId = straddle.anchorVesselId,
+                anchorRecordingId = straddle.anchorRecordingId,
+                sampleRateHz = straddle.sampleRateHz,
+                source = straddle.source,
+                // boundaryDiscontinuityMeters: preserve the head's pre-existing value
+                boundaryDiscontinuityMeters = straddle.boundaryDiscontinuityMeters,
+                minAltitude = straddle.minAltitude,
+                maxAltitude = straddle.maxAltitude,
+                // Synthetic rewind-UT split is NOT a recorder bookkeeping artifact.
+                isBoundarySeam = false,
+                frames = straddle.frames != null
+                    ? new List<TrajectoryPoint>() : null,
+                bodyFixedFrames = straddle.bodyFixedFrames != null
+                    ? new List<TrajectoryPoint>() : null,
+                checkpoints = headCheckpoints,
+            };
+            TrackSection tailSection = new TrackSection
+            {
+                environment = straddle.environment,
+                referenceFrame = straddle.referenceFrame,
+                startUT = splitUT,
+                endUT = straddle.endUT,
+                anchorVesselId = straddle.anchorVesselId,
+                anchorRecordingId = straddle.anchorRecordingId,
+                sampleRateHz = straddle.sampleRateHz,
+                source = straddle.source,
+                // Tail synthetic boundary is continuous in world space.
+                boundaryDiscontinuityMeters = 0f,
+                minAltitude = straddle.minAltitude,
+                maxAltitude = straddle.maxAltitude,
+                isBoundarySeam = false,
+                frames = straddle.frames != null
+                    ? new List<TrajectoryPoint>() : null,
+                bodyFixedFrames = straddle.bodyFixedFrames != null
+                    ? new List<TrajectoryPoint>() : null,
+                checkpoints = tailCheckpoints,
+            };
+
+            // Partition the section's per-section frames by UT.
+            if (straddle.frames != null)
+            {
+                for (int fi = 0; fi < straddle.frames.Count; fi++)
+                {
+                    var frame = straddle.frames[fi];
+                    if (frame.ut < splitUT)
+                        headSection.frames.Add(frame);
+                    else
+                        tailSection.frames.Add(frame);
+                }
+            }
+
+            // Partition body-fixed primary surface samples by UT.
+            bool hadBodyFixedFrames = straddle.bodyFixedFrames != null
+                && straddle.bodyFixedFrames.Count > 0;
+            if (straddle.bodyFixedFrames != null)
+            {
+                for (int fi = 0; fi < straddle.bodyFixedFrames.Count; fi++)
+                {
+                    var frame = straddle.bodyFixedFrames[fi];
+                    if (frame.ut < splitUT)
+                        headSection.bodyFixedFrames.Add(frame);
+                    else
+                        tailSection.bodyFixedFrames.Add(frame);
+                }
+            }
+
+            // Debris frame contract guard: each half must retain at least 2
+            // bodyFixedFrames samples when the straddling section had them.
+            if (hadBodyFixedFrames)
+            {
+                if (headSection.bodyFixedFrames.Count < 2)
+                {
+                    ParsekLog.Warn("Optimizer",
+                        $"SplitAtUT: v13 debris contract — head-half bodyFixedFrames " +
+                        $"sample count {headSection.bodyFixedFrames.Count} below minimum " +
+                        $"after rewindUT split on section {straddleIndex} of recording " +
+                        $"{original.RecordingId}; skipping split");
+                    return false;
+                }
+                if (tailSection.bodyFixedFrames.Count < 2)
+                {
+                    ParsekLog.Warn("Optimizer",
+                        $"SplitAtUT: v13 debris contract — tail-half bodyFixedFrames " +
+                        $"sample count {tailSection.bodyFixedFrames.Count} below minimum " +
+                        $"after rewindUT split on section {straddleIndex} of recording " +
+                        $"{original.RecordingId}; skipping split");
+                    return false;
+                }
+            }
+
+            // All guards passed — commit the mutation by writing the head/tail
+            // pair back to original.TrackSections.
+            original.TrackSections[straddleIndex] = headSection;
+            original.TrackSections.Insert(straddleIndex + 1, tailSection);
+            sectionIndex = straddleIndex + 1;
+            syntheticBoundaryInserted = true;
+            return true;
         }
 
         private static void TrimFirstHalfTrackSectionsAtSplit(
