@@ -1134,76 +1134,7 @@ namespace Parsek
             }
 
             // 10. Transfer terminal-state fields to second half (represents end-of-recording state)
-            second.VesselSnapshot = original.VesselSnapshot;
-            original.VesselSnapshot = null;
-
-            // Resource manifests: first half keeps start, second half gets end (moved with VesselSnapshot)
-            second.EndResources = original.EndResources;
-            original.EndResources = null;
-            // original.StartResources unchanged (keeps the recording-start resources)
-            // second.StartResources stays null (no snapshot at environment boundary)
-
-            // M2 (plan D13): a split run manifest would leave an END describing
-            // the original FULL span on the first half, and harvest windows can
-            // land on the wrong side of the cut - semantically wrong data the
-            // gain analysis would consume. NULL both new fields on BOTH halves;
-            // the presence gate degrades the tree to legacy analysis (clean
-            // degrade, never wrong math).
-            int voidedHarvestWindows = original.RouteHarvestWindows?.Count ?? 0;
-            bool voidedRunManifest = original.RouteRunManifest != null;
-            original.RouteRunManifest = null;
-            original.RouteHarvestWindows = null;
-            second.RouteRunManifest = null;
-            second.RouteHarvestWindows = null;
-            if (voidedRunManifest || voidedHarvestWindows > 0)
-            {
-                ParsekLog.Verbose("Optimizer",
-                    $"Split: run manifest + {voidedHarvestWindows.ToString(CultureInfo.InvariantCulture)} " +
-                    $"harvest window(s) voided on both halves (recording={original.RecordingId})");
-            }
-
-            // Inventory manifests: same pattern — second half gets end
-            second.EndInventory = original.EndInventory;
-            second.EndInventorySlots = original.EndInventorySlots;
-            original.EndInventory = null;
-            original.EndInventorySlots = 0;
-            // original.StartInventory unchanged (keeps the recording-start inventory)
-            // second.StartInventory stays null (no snapshot at environment boundary)
-
-            // Crew manifests: same pattern — second half gets end
-            second.EndCrew = original.EndCrew;
-            original.EndCrew = null;
-            // original.StartCrew unchanged (keeps the recording-start crew)
-            // second.StartCrew stays null (no snapshot at environment boundary)
-
-            second.TerminalStateValue = original.TerminalStateValue;
-            original.TerminalStateValue = null;
-
-            second.TerminalOrbitInclination = original.TerminalOrbitInclination;
-            second.TerminalOrbitEccentricity = original.TerminalOrbitEccentricity;
-            second.TerminalOrbitSemiMajorAxis = original.TerminalOrbitSemiMajorAxis;
-            second.TerminalOrbitLAN = original.TerminalOrbitLAN;
-            second.TerminalOrbitArgumentOfPeriapsis = original.TerminalOrbitArgumentOfPeriapsis;
-            second.TerminalOrbitMeanAnomalyAtEpoch = original.TerminalOrbitMeanAnomalyAtEpoch;
-            second.TerminalOrbitEpoch = original.TerminalOrbitEpoch;
-            second.TerminalOrbitBody = original.TerminalOrbitBody;
-            original.TerminalOrbitInclination = 0;
-            original.TerminalOrbitEccentricity = 0;
-            original.TerminalOrbitSemiMajorAxis = 0;
-            original.TerminalOrbitLAN = 0;
-            original.TerminalOrbitArgumentOfPeriapsis = 0;
-            original.TerminalOrbitMeanAnomalyAtEpoch = 0;
-            original.TerminalOrbitEpoch = 0;
-            original.TerminalOrbitBody = null;
-
-            second.TerminalPosition = original.TerminalPosition;
-            original.TerminalPosition = null;
-
-            second.TerrainHeightAtEnd = original.TerrainHeightAtEnd;
-            original.TerrainHeightAtEnd = double.NaN;
-
-            second.SurfacePos = original.SurfacePos;
-            original.SurfacePos = null;
+            TransferTerminalFieldsToSecondHalf(original, second);
 
             // 11. Copy shared fields to both halves
             second.Controllers = original.Controllers != null
@@ -1283,6 +1214,85 @@ namespace Parsek
                 $"flatSync={originalFlatSyncMode}/{secondFlatSyncMode})");
 
             return second;
+        }
+
+        /// <summary>
+        /// SplitAtSection step 10: transfer terminal-state fields from the original
+        /// (first half) to the newly-allocated second half (which represents the
+        /// end-of-recording state). The first half keeps its start-state fields.
+        /// </summary>
+        private static void TransferTerminalFieldsToSecondHalf(Recording original, Recording second)
+        {
+            second.VesselSnapshot = original.VesselSnapshot;
+            original.VesselSnapshot = null;
+
+            // Resource manifests: first half keeps start, second half gets end (moved with VesselSnapshot)
+            second.EndResources = original.EndResources;
+            original.EndResources = null;
+            // original.StartResources unchanged (keeps the recording-start resources)
+            // second.StartResources stays null (no snapshot at environment boundary)
+
+            // M2 (plan D13): a split run manifest would leave an END describing
+            // the original FULL span on the first half, and harvest windows can
+            // land on the wrong side of the cut - semantically wrong data the
+            // gain analysis would consume. NULL both new fields on BOTH halves;
+            // the presence gate degrades the tree to legacy analysis (clean
+            // degrade, never wrong math).
+            int voidedHarvestWindows = original.RouteHarvestWindows?.Count ?? 0;
+            bool voidedRunManifest = original.RouteRunManifest != null;
+            original.RouteRunManifest = null;
+            original.RouteHarvestWindows = null;
+            second.RouteRunManifest = null;
+            second.RouteHarvestWindows = null;
+            if (voidedRunManifest || voidedHarvestWindows > 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"Split: run manifest + {voidedHarvestWindows.ToString(CultureInfo.InvariantCulture)} " +
+                    $"harvest window(s) voided on both halves (recording={original.RecordingId})");
+            }
+
+            // Inventory manifests: same pattern — second half gets end
+            second.EndInventory = original.EndInventory;
+            second.EndInventorySlots = original.EndInventorySlots;
+            original.EndInventory = null;
+            original.EndInventorySlots = 0;
+            // original.StartInventory unchanged (keeps the recording-start inventory)
+            // second.StartInventory stays null (no snapshot at environment boundary)
+
+            // Crew manifests: same pattern — second half gets end
+            second.EndCrew = original.EndCrew;
+            original.EndCrew = null;
+            // original.StartCrew unchanged (keeps the recording-start crew)
+            // second.StartCrew stays null (no snapshot at environment boundary)
+
+            second.TerminalStateValue = original.TerminalStateValue;
+            original.TerminalStateValue = null;
+
+            second.TerminalOrbitInclination = original.TerminalOrbitInclination;
+            second.TerminalOrbitEccentricity = original.TerminalOrbitEccentricity;
+            second.TerminalOrbitSemiMajorAxis = original.TerminalOrbitSemiMajorAxis;
+            second.TerminalOrbitLAN = original.TerminalOrbitLAN;
+            second.TerminalOrbitArgumentOfPeriapsis = original.TerminalOrbitArgumentOfPeriapsis;
+            second.TerminalOrbitMeanAnomalyAtEpoch = original.TerminalOrbitMeanAnomalyAtEpoch;
+            second.TerminalOrbitEpoch = original.TerminalOrbitEpoch;
+            second.TerminalOrbitBody = original.TerminalOrbitBody;
+            original.TerminalOrbitInclination = 0;
+            original.TerminalOrbitEccentricity = 0;
+            original.TerminalOrbitSemiMajorAxis = 0;
+            original.TerminalOrbitLAN = 0;
+            original.TerminalOrbitArgumentOfPeriapsis = 0;
+            original.TerminalOrbitMeanAnomalyAtEpoch = 0;
+            original.TerminalOrbitEpoch = 0;
+            original.TerminalOrbitBody = null;
+
+            second.TerminalPosition = original.TerminalPosition;
+            original.TerminalPosition = null;
+
+            second.TerrainHeightAtEnd = original.TerrainHeightAtEnd;
+            original.TerrainHeightAtEnd = double.NaN;
+
+            second.SurfacePos = original.SurfacePos;
+            original.SurfacePos = null;
         }
 
         /// <summary>

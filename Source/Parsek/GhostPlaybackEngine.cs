@@ -628,6 +628,49 @@ namespace Parsek
                 1.0);
         }
 
+        private void EmitEngineIterTraceForFrame(
+            IReadOnlyList<IPlaybackTrajectory> trajectories,
+            TrajectoryPlaybackFlags[] flags,
+            bool engineIterTraceEnabled)
+        {
+            if (engineIterTraceEnabled)
+            {
+                var engineIterBuilder =
+                    new System.Text.StringBuilder(trajectories.Count * 64);
+                for (int i = 0; i < trajectories.Count; i++)
+                {
+                    var iterTraj = trajectories[i];
+                    var iterFlags = flags[i];
+                    if (engineIterBuilder.Length > 0)
+                        engineIterBuilder.Append(',');
+                    engineIterBuilder.Append(FormatEngineIterEntry(
+                        index: i,
+                        recordingId: iterTraj?.RecordingId,
+                        skipReason: iterFlags.skipGhost
+                            ? iterFlags.skipReason
+                            : GhostPlaybackSkipReason.None,
+                        anchorReFlyUnstable: iterFlags.anchorReFlyUnstable,
+                        hasRenderableData: HasRenderableGhostData(iterTraj),
+                        inGhostStates: ghostStates.ContainsKey(i),
+                        endUT: iterTraj?.EndUT ?? double.NaN));
+
+                    GhostPlaybackState iterState;
+                    ghostStates.TryGetValue(i, out iterState);
+                    bool hasGhost = iterState != null;
+                    bool meshVisible = hasGhost
+                        && iterState.ghost != null
+                        && iterState.ghost.activeSelf;
+                    engineIterBuilder.Append(FormatEngineIterOutcome(
+                        hasGhost,
+                        meshVisible,
+                        anchorRetiredThisFrame: hasGhost && iterState.anchorRetiredThisFrame,
+                        zone: hasGhost ? iterState.currentZone : RenderingZone.Physics,
+                        renderDistance: hasGhost ? iterState.lastRenderDistance : double.NaN));
+                }
+                EmitEngineIterTrace(engineIterBuilder.ToString());
+            }
+        }
+
         internal GhostPlaybackEngine(IGhostPositioner positioner)
         {
             this.positioner = positioner;
@@ -1402,42 +1445,7 @@ namespace Parsek
             // after positioning. Bypasses GhostRenderTrace's anomaly-window gate
             // so a ghost-vanish repro can answer definitively. Rate-limited to
             // 1.0s to keep steady-state cost negligible.
-            if (engineIterTraceEnabled)
-            {
-                var engineIterBuilder =
-                    new System.Text.StringBuilder(trajectories.Count * 64);
-                for (int i = 0; i < trajectories.Count; i++)
-                {
-                    var iterTraj = trajectories[i];
-                    var iterFlags = flags[i];
-                    if (engineIterBuilder.Length > 0)
-                        engineIterBuilder.Append(',');
-                    engineIterBuilder.Append(FormatEngineIterEntry(
-                        index: i,
-                        recordingId: iterTraj?.RecordingId,
-                        skipReason: iterFlags.skipGhost
-                            ? iterFlags.skipReason
-                            : GhostPlaybackSkipReason.None,
-                        anchorReFlyUnstable: iterFlags.anchorReFlyUnstable,
-                        hasRenderableData: HasRenderableGhostData(iterTraj),
-                        inGhostStates: ghostStates.ContainsKey(i),
-                        endUT: iterTraj?.EndUT ?? double.NaN));
-
-                    GhostPlaybackState iterState;
-                    ghostStates.TryGetValue(i, out iterState);
-                    bool hasGhost = iterState != null;
-                    bool meshVisible = hasGhost
-                        && iterState.ghost != null
-                        && iterState.ghost.activeSelf;
-                    engineIterBuilder.Append(FormatEngineIterOutcome(
-                        hasGhost,
-                        meshVisible,
-                        anchorRetiredThisFrame: hasGhost && iterState.anchorRetiredThisFrame,
-                        zone: hasGhost ? iterState.currentZone : RenderingZone.Physics,
-                        renderDistance: hasGhost ? iterState.lastRenderDistance : double.NaN));
-                }
-                EmitEngineIterTrace(engineIterBuilder.ToString());
-            }
+            EmitEngineIterTraceForFrame(trajectories, flags, engineIterTraceEnabled);
 
             // Post-loop: batch summary
             GhostPlaybackFrameCounters frameCounters = BuildCurrentFrameCounters();

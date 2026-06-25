@@ -1898,38 +1898,14 @@ namespace Parsek
             activeStockActionIntent = null;
             activeSwitchSegmentSession = null;
 
-            ConfigNode rpParent = node.GetNode("REWIND_POINTS");
-            if (rpParent != null)
-            {
-                var entries = rpParent.GetNodes("POINT");
-                for (int i = 0; i < entries.Length; i++)
-                    RewindPoints.Add(RewindPoint.LoadFrom(entries[i]));
-            }
+            LoadStagingList(node, "REWIND_POINTS", "POINT", RewindPoints, RewindPoint.LoadFrom);
             RecordingsTableUI.ClearAllRewindSlotCanInvokeLogState();
 
-            ConfigNode sParent = node.GetNode("RECORDING_SUPERSEDES");
-            if (sParent != null)
-            {
-                var entries = sParent.GetNodes("ENTRY");
-                for (int i = 0; i < entries.Length; i++)
-                    RecordingSupersedes.Add(RecordingSupersedeRelation.LoadFrom(entries[i]));
-            }
+            LoadStagingList(node, "RECORDING_SUPERSEDES", "ENTRY", RecordingSupersedes, RecordingSupersedeRelation.LoadFrom);
 
-            ConfigNode rParent = node.GetNode("RECORDING_REWIND_RETIREMENTS");
-            if (rParent != null)
-            {
-                var entries = rParent.GetNodes("ENTRY");
-                for (int i = 0; i < entries.Length; i++)
-                    RecordingRewindRetirements.Add(RecordingRewindRetirement.LoadFrom(entries[i]));
-            }
+            LoadStagingList(node, "RECORDING_REWIND_RETIREMENTS", "ENTRY", RecordingRewindRetirements, RecordingRewindRetirement.LoadFrom);
 
-            ConfigNode tParent = node.GetNode("LEDGER_TOMBSTONES");
-            if (tParent != null)
-            {
-                var entries = tParent.GetNodes("ENTRY");
-                for (int i = 0; i < entries.Length; i++)
-                    LedgerTombstones.Add(LedgerTombstone.LoadFrom(entries[i]));
-            }
+            LoadStagingList(node, "LEDGER_TOMBSTONES", "ENTRY", LedgerTombstones, LedgerTombstone.LoadFrom);
 
             ConfigNode markerNode = node.GetNode(ReFlySessionMarker.NodeName);
             if (markerNode != null)
@@ -2028,6 +2004,26 @@ namespace Parsek
             // <see cref="EffectiveState.ComputeELS"/> recompute on next access.
             BumpSupersedeStateVersion();
             BumpTombstoneStateVersion();
+        }
+
+        /// <summary>
+        /// Loads a staging collection from a named parent node by appending each
+        /// child node (matched by <paramref name="childName"/>) through
+        /// <paramref name="load"/> into <paramref name="target"/>. Collapses the
+        /// four parallel REWIND_POINTS / RECORDING_SUPERSEDES /
+        /// RECORDING_REWIND_RETIREMENTS / LEDGER_TOMBSTONES load blocks in
+        /// <see cref="LoadRewindStagingState"/>; the child name differs ("POINT"
+        /// vs "ENTRY") so it is a parameter.
+        /// </summary>
+        private static void LoadStagingList<T>(ConfigNode node, string parentName, string childName, List<T> target, Func<ConfigNode, T> load)
+        {
+            ConfigNode parent = node.GetNode(parentName);
+            if (parent != null)
+            {
+                var entries = parent.GetNodes(childName);
+                for (int i = 0; i < entries.Length; i++)
+                    target.Add(load(entries[i]));
+            }
         }
 
         /// <summary>
