@@ -191,6 +191,16 @@ Source/Parsek/MergeDialog.DialogText.cs
 # NotCommitted-residence rationale as MergeDialog.cs.
 Source/Parsek/MergeDialog.ReFlyDiscard.cs
 
+# MergeDialog.Commit.cs is the partial-class split holding the tree-commit +
+# parent-chain-tip adoption + optimization-survivor family (MergeCommit,
+# TryCommitReFlySupersede, FindCommittedRecording, ResolveOptimizedRecordingSurvivor,
+# et al., moved verbatim from MergeDialog.cs). It reads
+# RecordingStore.CommittedRecordings directly to locate the provisional re-fly
+# recording by id after CommitPendingTree migrates it into the committed list;
+# the provisional still carries MergeState=NotCommitted, which ERS filters out by
+# definition — same NotCommitted-residence rationale as MergeDialog.cs.
+Source/Parsek/MergeDialog.Commit.cs
+
 # --- Phase 9 ERS-exempt files ---
 # SupersedeCommit.CommitTombstones scans the RAW ledger to BUILD the
 # tombstone set for the superseded subtree (design §6.6 step 4). Routing

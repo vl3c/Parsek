@@ -788,7 +788,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "MergeDialog.cs");
+                "Source", "Parsek", "MergeDialog.Commit.cs");
             string source = File.ReadAllText(path);
 
             // MergeCommit clears the session marker after the commit.
@@ -816,7 +816,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "MergeDialog.cs");
+                "Source", "Parsek", "MergeDialog.Commit.cs");
             string source = File.ReadAllText(path);
 
             int markApplied = source.IndexOf("RecordingStore.MarkTreeAsApplied(tree);");
