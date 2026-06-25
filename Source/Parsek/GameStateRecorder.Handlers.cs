@@ -157,10 +157,7 @@ namespace Parsek
             float fundsReward = (float)contract.FundsCompletion;
             float repReward = (float)contract.ReputationCompletion;
             float sciReward = (float)contract.ScienceCompletion;
-            var detail = $"title={title}" +
-                $";fundsReward={fundsReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
-                $";repReward={repReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
-                $";sciReward={sciReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
+            var detail = BuildContractCompletedDetail(title, fundsReward, repReward, sciReward);
             var evt = new GameStateEvent
             {
                 ut = completionUt,
@@ -189,9 +186,7 @@ namespace Parsek
             var title = contract.Title ?? "";
             float fundsPenalty = (float)contract.FundsFailure;
             float repPenalty = (float)contract.ReputationFailure;
-            var detail = $"title={title}" +
-                $";fundsPenalty={fundsPenalty.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
-                $";repPenalty={repPenalty.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
+            var detail = BuildContractPenaltyDetail(title, fundsPenalty, repPenalty);
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
@@ -219,9 +214,7 @@ namespace Parsek
             var title = contract.Title ?? "";
             float fundsPenalty = (float)contract.FundsFailure;
             float repPenalty = (float)contract.ReputationFailure;
-            var detail = $"title={title}" +
-                $";fundsPenalty={fundsPenalty.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
-                $";repPenalty={repPenalty.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
+            var detail = BuildContractPenaltyDetail(title, fundsPenalty, repPenalty);
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
@@ -256,6 +249,33 @@ namespace Parsek
             };
             Emit(ref evt, "ContractDeclined");
             ParsekLog.Info("GameStateRecorder", $"Game state: ContractDeclined '{title}'");
+        }
+
+        /// <summary>
+        /// Builds the ContractCompleted detail string parsed by the converter side.
+        /// Frozen converter-parse contract: field order + InvariantCulture "R" formatting
+        /// must stay byte-identical (a comma-locale regression zeroes funds on parse).
+        /// </summary>
+        private static string BuildContractCompletedDetail(
+            string title, float fundsReward, float repReward, float sciReward)
+        {
+            return $"title={title}" +
+                $";fundsReward={fundsReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                $";repReward={repReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                $";sciReward={sciReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
+        }
+
+        /// <summary>
+        /// Builds the shared ContractFailed/ContractCancelled penalty detail string parsed
+        /// by the converter side. Frozen converter-parse contract: field order +
+        /// InvariantCulture "R" formatting must stay byte-identical.
+        /// </summary>
+        private static string BuildContractPenaltyDetail(
+            string title, float fundsPenalty, float repPenalty)
+        {
+            return $"title={title}" +
+                $";fundsPenalty={fundsPenalty.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                $";repPenalty={repPenalty.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
         }
 
         #endregion
