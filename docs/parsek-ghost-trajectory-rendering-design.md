@@ -1,5 +1,9 @@
 # Parsek Ghost Trajectory Rendering — Design Document
 
+> **SUPERSEDED (2026-06-25) by [`dev/design-map-ts-render-architecture.md`](dev/design-map-ts-render-architecture.md).**
+> The trajectory/render model is consolidated into the unified architecture doc (the single current
+> design). Kept here for history. Read the architecture doc for current intent.
+
 > **v0.9.3 retirement note:** A "co-bubble peer blending" stage (formerly Stage 5 / Section 10 / Section 7.8, plus a `.pann` `CoBubbleOffsetTraces` block, the `useCoBubbleBlend` toggle, the `CoBubbleBlender` / `CoBubbleOverlapDetector` / `CoBubblePrimarySelector` files, and the `AnchorSource.CoBubblePeer` producer arm) existed and was removed in v0.9.3 (PR #912). Close-formation accuracy is now delivered by the controlled-decoupled child parent-anchor contract (`Recording.DebrisParentRecordingId` + `TrackSection.bodyFixedFrames`). The co-bubble sections have been excised from this document; the implementation prior to the retirement commit's parent is preserved in git history. The `AnchorSource` enum keeps slot 7 reserved (`Reserved7`) so the persisted `.pann` byte layout stays stable, and the pipeline stage list below is the four surviving stages.
 
 *Comprehensive design specification for rendering ghost vessel trajectories during recording playback and re-fly sessions. Covers anchor correction, smoothing, multi-anchor interpolation, DAG propagation across vessel lineages, frame-of-reference handling per segment, terrain correction during playback, and edge-case handling.*
