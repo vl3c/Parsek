@@ -36,6 +36,14 @@ Source/Parsek/KerbalsModule.cs
 # --- Internal game-state-event suppression check ---
 Source/Parsek/GameStateRecorder.cs
 
+# GameStateRecorder.Handlers.cs is the partial-class split holding the
+# contract/tech/crew/progress-milestone/strategy event-handler regions.
+# EnrichPendingMilestoneRewards (moved verbatim from GameStateRecorder.cs)
+# scans Ledger.Actions directly to update the already-forwarded
+# zero-reward MilestoneAchievement action in place — same trust scope as
+# GameStateRecorder.cs above.
+Source/Parsek/GameStateRecorder.Handlers.cs
+
 # --- Tests (unit + in-game) ---
 Source/Parsek.Tests/
 Source/Parsek/InGameTests/
@@ -173,6 +181,25 @@ Source/Parsek/MergeDialog.cs
 # locate the provisional re-fly recording by id when it is not in the
 # pending tree — same NotCommitted-residence rationale as MergeDialog.cs.
 Source/Parsek/MergeDialog.DialogText.cs
+
+# MergeDialog.ReFlyDiscard.cs is the partial-class split holding the Re-Fly
+# attempt discard + topology-pruning family (LookupCommittedRecordingById,
+# RemoveCommittedAttemptRecordings, ClearReFlyAttemptTransientFields, et al.,
+# moved verbatim from MergeDialog.cs). It reads RecordingStore.CommittedRecordings
+# directly to locate / remove / sanitise the active Re-Fly attempt's
+# NotCommitted recordings, which ERS filters out by definition — same
+# NotCommitted-residence rationale as MergeDialog.cs.
+Source/Parsek/MergeDialog.ReFlyDiscard.cs
+
+# MergeDialog.Commit.cs is the partial-class split holding the tree-commit +
+# parent-chain-tip adoption + optimization-survivor family (MergeCommit,
+# TryCommitReFlySupersede, FindCommittedRecording, ResolveOptimizedRecordingSurvivor,
+# et al., moved verbatim from MergeDialog.cs). It reads
+# RecordingStore.CommittedRecordings directly to locate the provisional re-fly
+# recording by id after CommitPendingTree migrates it into the committed list;
+# the provisional still carries MergeState=NotCommitted, which ERS filters out by
+# definition — same NotCommitted-residence rationale as MergeDialog.cs.
+Source/Parsek/MergeDialog.Commit.cs
 
 # --- Phase 9 ERS-exempt files ---
 # SupersedeCommit.CommitTombstones scans the RAW ledger to BUILD the

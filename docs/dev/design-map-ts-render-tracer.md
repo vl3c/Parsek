@@ -1,5 +1,10 @@
 # Design: Map / Tracking-Station Render Tracer (`MapRenderTrace`)
 
+> **SUPERSEDED (2026-06-25) by [`design-map-ts-render-architecture.md`](design-map-ts-render-architecture.md).**
+> The tracer design is folded into §14 of the unified architecture doc (the single current design for
+> the trajectory/phase model + map/TS render). Kept here for history; the `MapRenderTrace` /
+> `MapRenderProbe` implementation it describes is unchanged. Read the architecture doc for current intent.
+
 *Status: design note (revised after a clean-context Opus review, verdict NEEDS
 REWORK on the first draft; this revision addresses every finding). Proposes a gated
 observability system for how Parsek renders ghosts in MAP VIEW and the TRACKING
