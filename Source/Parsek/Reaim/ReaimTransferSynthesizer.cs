@@ -115,10 +115,16 @@ namespace Parsek.Reaim
         /// <summary>
         /// The inclination (degrees) of the BEST plane achievable while holding the fixed departure point
         /// <paramref name="r1"/>: the normal closest to <paramref name="nIntended"/> that is orthogonal to
-        /// r-hat is <c>n_ach = normalize(nIntended - (r-hat . nIntended) r-hat)</c>; its inclination is
-        /// <c>acos(|n_ach.z| / |n_ach|) * Rad2Deg</c>. Equals nIntended's inclination only when r-hat is
-        /// perpendicular to nIntended; at adverse phase (r-hat near the node-perpendicular) it collapses
-        /// toward 0. Returns NaN on degenerate input (zero/NaN r1, or n_ach collapses to zero). Pure.
+        /// r-hat is <c>n_ach = normalize(nIntended - (r-hat . nIntended) r-hat)</c>; its inclination is the
+        /// angle from the reference-plane (ecliptic) normal, <c>acos(|n_ach.y| / |n_ach|) * Rad2Deg</c>.
+        /// Equals nIntended's inclination only when r-hat is perpendicular to nIntended; at adverse phase
+        /// (r-hat near the node-perpendicular) it collapses toward 0. Returns NaN on degenerate input
+        /// (zero/NaN r1, or n_ach collapses to zero). Pure.
+        ///
+        /// FRAME (load-bearing): r1 / nIntended here are in the SAME un-swizzled (.xzy) frame the synthesizer
+        /// builds, which is KSP's WORLD frame - and KSP world up (the heliocentric reference-plane normal) is
+        /// +Y, NOT +Z. So inclination is measured against the Y axis. Using .z here computes ~90deg for an
+        /// ecliptic-coplanar target plane (e.g. Duna), which wrongly declines every firing window to faithful.
         /// </summary>
         internal static double AchievablePlaneInclinationDegrees(Vector3d r1, Vector3d nIntended)
         {
@@ -132,7 +138,7 @@ namespace Parsek.Reaim
             double nm = nAch.magnitude;
             if (nm <= 0.0 || double.IsNaN(nm) || double.IsInfinity(nm))
                 return double.NaN;
-            double cosInc = Math.Abs(nAch.z) / nm;
+            double cosInc = Math.Abs(nAch.y) / nm;
             if (cosInc > 1.0) cosInc = 1.0;
             if (cosInc < -1.0) cosInc = -1.0;
             return Math.Acos(cosInc) * (180.0 / Math.PI);

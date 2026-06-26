@@ -115,11 +115,14 @@ namespace Parsek.Tests
             Assert.Equal(0.0, v.z, 12);
         }
 
-        // The plane inclination (degrees) implied by an angular-momentum direction h (acos(|h.z|/|h|)).
+        // The plane inclination (degrees) implied by an angular-momentum direction h: the angle from the
+        // reference-plane (ecliptic) normal. KSP's un-swizzled WORLD frame is Y-up, so the ecliptic normal
+        // is +Y => acos(|h.y|/|h|). These tests therefore build geometry in the WORLD frame: the ecliptic is
+        // the xz-plane, "up" is +Y, and a prograde orbit's angular momentum points along +Y.
         private static double IncOfNormal(Vector3d h)
         {
             double m = h.magnitude;
-            double c = System.Math.Abs(h.z) / m;
+            double c = System.Math.Abs(h.y) / m;
             if (c > 1.0) c = 1.0;
             return System.Math.Acos(c) * 180.0 / System.Math.PI;
         }
@@ -130,14 +133,14 @@ namespace Parsek.Tests
         [Fact]
         public void ConstrainTransferPlane_PinsPlaneAndPreservesSpeedHandedness()
         {
-            // nIntended = +z (ecliptic). r1 along +x lies IN that plane (r-hat perpendicular to nIntended),
-            // so n_ach == nIntended and the constraint is exact.
-            var nIntended = new Vector3d(0, 0, 1);
+            // nIntended = +y (ecliptic normal, world Y-up). r1 along +x lies IN that plane (r-hat
+            // perpendicular to nIntended), so n_ach == nIntended and the constraint is exact.
+            var nIntended = new Vector3d(0, 1, 0);
             var r1 = new Vector3d(7.0e9, 0, 0);
-            // A v1 whose r1 x v1 tilts ~3 deg off +z: dominant prograde +y component plus a small +z tilt and
-            // a radial +x component.
+            // A v1 whose r1 x v1 tilts ~3 deg off +y: dominant prograde -z transverse (x cross -z = +y),
+            // a small +y tilt, and a radial +x component.
             double tilt = 3.0 * System.Math.PI / 180.0;
-            var v1 = new Vector3d(800.0, 9000.0 * System.Math.Cos(tilt), 9000.0 * System.Math.Sin(tilt));
+            var v1 = new Vector3d(800.0, 9000.0 * System.Math.Sin(tilt), -9000.0 * System.Math.Cos(tilt));
             var launchPlaneNormal = Vector3d.Cross(r1, v1); // the prograde handedness reference
 
             bool ok = ReaimTransferSynthesizer.ConstrainTransferPlane(r1, v1, nIntended, out Vector3d v1c);
@@ -178,17 +181,17 @@ namespace Parsek.Tests
         [InlineData(135.0)]
         public void ConstrainTransferPlane_OffPlaneR1_RespectsAchievableBound(double phiDeg)
         {
-            // nIntended tilted 7 deg about the x axis from +z, so its node line is the x axis. Vary r1's
-            // phase phi around +z's plane: at phi=0 r1 is on the node (achievable == 7 deg); at phi=90 r1 is
-            // node-perpendicular (achievable collapses to 0).
+            // nIntended tilted 7 deg about the +x axis from +y, so its node line is the +x axis. Vary r1's
+            // phase phi in the ecliptic (xz-plane): at phi=0 r1 is on the node (achievable == 7 deg); at
+            // phi=90 r1 is node-perpendicular (achievable collapses to 0).
             double inc = 7.0 * System.Math.PI / 180.0;
-            // nIntended = rotate +z about x by inc: (0, -sin inc, cos inc) (node line along +x).
-            var nIntended = new Vector3d(0.0, -System.Math.Sin(inc), System.Math.Cos(inc));
+            // nIntended = rotate +y about +x by inc: (0, cos inc, sin inc) (node line along +x).
+            var nIntended = new Vector3d(0.0, System.Math.Cos(inc), System.Math.Sin(inc));
             double phi = phiDeg * System.Math.PI / 180.0;
-            // r1 in the xy plane at angle phi from +x (the node line).
-            var r1 = new Vector3d(7.0e9 * System.Math.Cos(phi), 7.0e9 * System.Math.Sin(phi), 0.0);
-            // An arbitrary prograde-ish v1 with a transverse component (so the rotation is well-defined).
-            var v1 = new Vector3d(500.0, 9000.0, 1500.0);
+            // r1 in the ecliptic (xz-plane) at angle phi from +x (the node line).
+            var r1 = new Vector3d(7.0e9 * System.Math.Cos(phi), 0.0, 7.0e9 * System.Math.Sin(phi));
+            // An arbitrary v1 with a transverse component (so the rotation is well-defined).
+            var v1 = new Vector3d(500.0, 1500.0, 9000.0);
 
             double expectedAch = ReaimTransferSynthesizer.AchievablePlaneInclinationDegrees(r1, nIntended);
 
@@ -210,28 +213,27 @@ namespace Parsek.Tests
         {
             double tol = ReaimTransferSynthesizer.InclinationToleranceDegrees;
 
-            // Duna: nTarget ~ ecliptic (+z, real inc ~0.06 deg). Treat as ~equatorial: incAch ~ 0 at all
+            // Duna: nTarget ~ ecliptic (+y, real inc ~0.06 deg). Treat as ~equatorial: incAch ~ 0 at all
             // phases and targetInc ~ 0.06, so the gate (|incAch - targetInc| <= tol) is satisfied everywhere.
-            var nDuna = new Vector3d(0.0, 0.0, 1.0);
+            var nDuna = new Vector3d(0.0, 1.0, 0.0);
             double dunaInc = 0.06;
             foreach (double phiDeg in new[] { 0.0, 45.0, 90.0, 135.0, 179.0 })
             {
                 double phi = phiDeg * System.Math.PI / 180.0;
-                var r1 = new Vector3d(13.6e9 * System.Math.Cos(phi), 13.6e9 * System.Math.Sin(phi), 0.0);
+                var r1 = new Vector3d(13.6e9 * System.Math.Cos(phi), 0.0, 13.6e9 * System.Math.Sin(phi));
                 Assert.True(ReaimTransferSynthesizer.ConstrainTransferPlaneIsSafe(r1, nDuna, dunaInc, tol),
                     $"Duna gate must be SAFE at phi={phiDeg} (nTarget ~ ecliptic => achievable ~ target at all phases)");
             }
 
-            // Moho: nTarget inc 7 deg (node line along +x). Safe when r1 is near the node (phi 0 / 179 deg
-            // wraps to ~node line), UNsafe at adverse phase (phi 30/45/60/90/135 collapses the achievable inc
-            // far below 7 deg).
+            // Moho: nTarget inc 7 deg (node line along +x). Safe when r1 is on the node (phi 0 / 180 deg),
+            // UNsafe at adverse phase (phi 30/45/60/90/135 collapses the achievable inc far below 7 deg).
             double mohoIncRad = 7.0 * System.Math.PI / 180.0;
-            var nMoho = new Vector3d(0.0, -System.Math.Sin(mohoIncRad), System.Math.Cos(mohoIncRad));
+            var nMoho = new Vector3d(0.0, System.Math.Cos(mohoIncRad), System.Math.Sin(mohoIncRad));
             double mohoInc = 7.0;
             Vector3d R1AtPhi(double phiDeg)
             {
                 double phi = phiDeg * System.Math.PI / 180.0;
-                return new Vector3d(8.0e9 * System.Math.Cos(phi), 8.0e9 * System.Math.Sin(phi), 0.0);
+                return new Vector3d(8.0e9 * System.Math.Cos(phi), 0.0, 8.0e9 * System.Math.Sin(phi));
             }
             // phi=0 (and 180/179 ~ node line): r1 ON the node => achievable ~ 7 deg => SAFE.
             Assert.True(ReaimTransferSynthesizer.ConstrainTransferPlaneIsSafe(R1AtPhi(0.0), nMoho, mohoInc, tol),
@@ -248,18 +250,18 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeIntendedPlaneNormal_KnownGeometryAndDegenerate()
         {
-            // A circular orbit in the xy plane: r2 along +x, v2 along +y => h = r2 x v2 along +z => the normal
-            // is +z (inc 0). A known z-tilt of v2 raises the inclination.
+            // A circular orbit in the ECLIPTIC (world xz-plane): r2 along +x, prograde v2 along -z =>
+            // h = r2 x v2 along +y => the normal is +y (inc 0). A known tilt of v2 toward +y raises the inc.
             var r2 = new Vector3d(20.7e9, 0.0, 0.0);
-            var v2 = new Vector3d(0.0, 7000.0, 0.0);
+            var v2 = new Vector3d(0.0, 0.0, -7000.0);
             Vector3d n = ReaimTransferSynthesizer.ComputeIntendedPlaneNormal(r2, v2);
             Assert.Equal(1.0, n.magnitude, 6);
             Assert.Equal(0.0, IncOfNormal(n), 6);
-            Assert.True(n.z > 0.0, "the +z (prograde) normal expected for this geometry");
+            Assert.True(n.y > 0.0, "the +y (prograde) normal expected for this geometry");
 
-            // A 7-deg-inclined velocity: v2 tilted toward +z.
+            // A 7-deg-inclined velocity: the prograde (-z) velocity tilted toward +y.
             double inc = 7.0 * System.Math.PI / 180.0;
-            var v2Inc = new Vector3d(0.0, 7000.0 * System.Math.Cos(inc), 7000.0 * System.Math.Sin(inc));
+            var v2Inc = new Vector3d(0.0, 7000.0 * System.Math.Sin(inc), -7000.0 * System.Math.Cos(inc));
             Vector3d nInc = ReaimTransferSynthesizer.ComputeIntendedPlaneNormal(r2, v2Inc);
             Assert.Equal(7.0, IncOfNormal(nInc), 3);
 
