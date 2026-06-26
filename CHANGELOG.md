@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.2
 
+### Bug Fixes
+
+- Fixed a career freeze on the first climb to space (and sometimes during a Kerbin landing): KSP's repeatable world-record achievements (altitude, speed, distance) fire continuously while climbing, and Parsek was recording every single one as a separate entry and recomputing the whole career each time, which ground the game to a halt. World-record rewards are now tracked once per record type, so the climb stays smooth.
+
 ### Internals & Tests
 
 - Code-health refactor pass over the systems added since the last structural cleanup, with no behavior change: several large methods were split into well-named same-file helpers (the supply-route builder, the mission loop-unit builder, the map render-session rebuild, mission scheduling and structure building, route source revalidation and harvest analysis, the relative-anchor resolver, terminal-orbit spawn safety, and the pannotations / FX sidecar codecs). Pure restructuring, verified byte-for-byte behavior-neutral by the existing test suites; no gameplay, save-format, or log change.
