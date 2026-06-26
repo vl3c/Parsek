@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.2
 
+### Fixes
+
+- Re-aimed interplanetary transfers no longer render the heliocentric leg tilted out of plane: a re-flown Kerbin to Duna transfer now lies in Duna's orbital plane instead of climbing several degrees "upwards", and an inclined target is never wrongly flattened toward the ecliptic.
+
 ### Internals & Tests
 
 - Code-health refactor pass over the systems added since the last structural cleanup, with no behavior change: several large methods were split into well-named same-file helpers (the supply-route builder, the mission loop-unit builder, the map render-session rebuild, mission scheduling and structure building, route source revalidation and harvest analysis, the relative-anchor resolver, terminal-orbit spawn safety, and the pannotations / FX sidecar codecs). Pure restructuring, verified byte-for-byte behavior-neutral by the existing test suites; no gameplay, save-format, or log change.

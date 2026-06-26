@@ -284,6 +284,16 @@ namespace Parsek.InGameTests
             string memberId = "reaim-e2e-mid-" + midIdx.ToString(ic);
             double span = spanEnd - spanStart;
             int resolved = 0;
+            // Bug A NEVER-UNREACHABLE invariant (plan section 5.2 #3): snapshot the tilt-correction counters
+            // before driving the windows. A re-aimed Duna window must never hit the achievability gate's
+            // "unreachable-plane" decline (the precise .z-vs-.y world-frame-bug tell: incAch ~90 deg => gate
+            // fails => Duna flies the stale faithful transfer and misses). Asserted == 0 below. (Not firedDelta
+            // > 0: the pinned harness geometry is well-conditioned and may be entirely in-plane => NO-OP. Not
+            // declinedDelta == 0 either: the resolver's tof-candidate sweep can fire-then-revalidation-decline a
+            // candidate transiently on a window that still resolves via a neighbor.)
+            long firedBefore = ReaimTransferSynthesizer.FiredCorrectionCount;
+            long declinedBefore = ReaimTransferSynthesizer.DeclinedCorrectionCount;
+            long unreachableBefore = ReaimTransferSynthesizer.UnreachablePlaneDeclineCount;
             double firstEcc = double.NaN, firstSma = double.NaN;
             double firstInc = double.NaN, lastInc = double.NaN;
             double firstLan = double.NaN, lastLan = double.NaN;
@@ -315,6 +325,20 @@ namespace Parsek.InGameTests
                 lastAop = transfer.argumentOfPeriapsis;
                 resolved++;
             }
+
+            long firedDelta = ReaimTransferSynthesizer.FiredCorrectionCount - firedBefore;
+            long declinedDelta = ReaimTransferSynthesizer.DeclinedCorrectionCount - declinedBefore;
+            long unreachableDelta = ReaimTransferSynthesizer.UnreachablePlaneDeclineCount - unreachableBefore;
+            // Bug A NEVER-UNREACHABLE invariant: a re-aimed Duna window must never hit the achievability gate's
+            // "unreachable-plane" decline. Duna's gate always passes (nTarget ~ ecliptic => the achievable plane
+            // through the fixed r1 lands within tol of the target plane at EVERY r1 phase), so a window FIRES
+            // (spurious near-180 tilt) or NO-OPs (already in-plane) - never unreachable. An unreachable decline
+            // means the gate is mis-measuring the target plane (the .z-vs-.y world-frame bug: incAch ~90 deg),
+            // flying the stale faithful transfer and missing Duna. unreachableDelta>0 is the precise regression
+            // tell (firedDelta is informational; the well-conditioned harness may be entirely in-plane).
+            InGameAssert.IsTrue(unreachableDelta == 0L,
+                $"a re-aimed Duna window must never hit the unreachable-plane gate decline (fired={firedDelta.ToString(ic)} declined={declinedDelta.ToString(ic)} unreachable={unreachableDelta.ToString(ic)}); " +
+                "a Duna decline means the achievability gate is mis-measuring the target plane and the transfer falls back to the stale faithful geometry (it misses Duna)");
 
             double firstLpe = TransferWindowMath.LongitudeOfPeriapsisDegrees(firstLan, firstAop);
             double lastLpe = TransferWindowMath.LongitudeOfPeriapsisDegrees(lastLan, lastAop);
@@ -1243,11 +1267,36 @@ namespace Parsek.InGameTests
             // IsRetrogradeTransfer direction guard already declines a retrograde solution to faithful (it never
             // returns segments), so a resolved window is prograde BY CONSTRUCTION - this asserts it explicitly
             // as the regression backstop, sharing the production predicate so test + code agree on "prograde".
-            // For Moho the inc is a few degrees (stage A carries the target's real out-of-plane offset), NOT
-            // ~0 - this is < 90 prograde, not the projection era's near-zero. Same predicate at both targets.
+            // Same predicate at both targets.
             InGameAssert.IsTrue(
                 !ReaimTransferSynthesizer.IsRetrogradeTransfer(transfer.inclination),
                 $"window k={k} transfer must be prograde (inc={transfer.inclination.ToString("F2", ic)} deg < 90; a retrograde result declines to faithful, never resolves)");
+
+            // Bug A (heliocentric plane tilt) UPPER BOUND: a resolved window's rendered inclination must NOT
+            // exceed the TARGET-DERIVED bound (max(launchInc, targetInc) + tol). Reads the RENDERED quantity
+            // (segs[1].inclination, populated from orbit.inclination), NOT the tilt-blind endpoint-proximity
+            // diagnostic. For Duna the loop1/loop2 consecutive synodic windows (pre-fix 2.36 -> 5.06 deg) must
+            // now both fall under the ~0.56 deg Duna bound; the post-solve achievability-gated plane re-pin
+            // collapses the spurious near-antiparallel tilt onto the target's own plane. The same bound applies
+            // to Eeloo (max(launchInc, Eeloo ~6.15) + tol) through this shared assertion.
+            double launchInc = ctx.LaunchBody.orbit.inclination;
+            double targetInc = ctx.TargetBody.orbit.inclination;
+            double tiltBound = ReaimTransferSynthesizer.InclinationBoundDegrees(launchInc, targetInc);
+            InGameAssert.IsTrue(transfer.inclination <= tiltBound,
+                $"window k={k} transfer inc ({transfer.inclination.ToString("F4", ic)} deg) must be <= the target-derived plane-tilt bound " +
+                $"({tiltBound.ToString("F4", ic)} deg = max({launchName}={launchInc.ToString("F4", ic)}, {targetName}={targetInc.ToString("F4", ic)}) + tol); the post-solve tilt correction collapses the spurious near-antiparallel tilt onto the target plane");
+
+            // Bug A: NO lower inclination bound is asserted for inclined targets (intentional). The post-solve
+            // correction fixes only EXCESS tilt (inc > bound); it does NOT touch a window whose near-antiparallel
+            // solve produced a spurious UNDER-tilt (inc < targetInc but still <= bound => NO-OP). So a resolved
+            // inclined target (Moho/Eeloo) CAN render below its real inclination - that is the inherent near-180
+            // ill-conditioning (present before this fix too), NOT the correction over-flattening: a FIRED
+            // correction lands within tol of the target plane by the achievability gate (proven headless in
+            // ReaimTransferSynthesizerTests #4), and an unreachable window DECLINES to faithful (no segments to
+            // assert on). Asserting inc >= targetInc - tol here wrongly fails on that inherent under-tilt
+            // (observed in-game: Eeloo ~2.55 deg, Moho ~4.72 deg under-tilts that the correction correctly
+            // no-ops). Full inclined-target re-aim (handling the under-tilt half) is out of scope for this
+            // Duna-focused over-tilt fix; the upper bound above still guards the over-tilt collapse.
             // Per-member: only the heliocentric leg is re-aimed (placed at [departure, recordedArrival]);
             // the launch parking + target arrival legs keep their recorded UTs + bodies.
             InGameAssert.AreEqual(launchName, segs[0].bodyName, $"window k={k} must keep the {launchName} parking leg");
