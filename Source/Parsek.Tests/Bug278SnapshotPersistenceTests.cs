@@ -130,8 +130,14 @@ namespace Parsek.Tests
 
             string scenarioSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "ParsekScenario.cs"));
-            string flightSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "ParsekFlight.cs"));
+            // ParsekFlight is a partial class split across ParsekFlight.cs and
+            // ParsekFlight.*.cs sibling files; concatenate them so the source-text
+            // pins below stay valid wherever the finalization band currently lives.
+            string flightSrc = string.Join(
+                "\n",
+                System.Linq.Enumerable.Select(
+                    System.IO.Directory.GetFiles(srcRoot, "ParsekFlight*.cs"),
+                    System.IO.File.ReadAllText));
             string storeSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "RecordingStore.cs"));
             string sidecarStoreSrc = System.IO.File.ReadAllText(
