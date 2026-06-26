@@ -1645,17 +1645,21 @@ namespace Parsek.Tests
             string projectRoot = Path.GetFullPath(
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
-            string scenarioPath = Path.Combine(projectRoot,
-                "Source", "Parsek", "ParsekScenario.cs");
-            if (!File.Exists(scenarioPath))
-            {
-                scenarioPath = Path.Combine(projectRoot,
-                    "Parsek", "ParsekScenario.cs");
-            }
-            Assert.True(File.Exists(scenarioPath),
-                $"ParsekScenario.cs not found at {scenarioPath}");
+            // The ParsekScenario partial class is split across multiple
+            // ParsekScenario*.cs files (the refresh helpers live in
+            // ParsekScenario.HydrationRepair.cs). Scan and concatenate ALL of
+            // them so the contract holds wherever the methods live in the
+            // partial. Scanning more files can only add matches, so the >= 2
+            // count assertions below stay valid.
+            string parsekDir = Path.Combine(projectRoot, "Source", "Parsek");
+            if (!Directory.Exists(parsekDir))
+                parsekDir = Path.Combine(projectRoot, "Parsek");
+            Assert.True(Directory.Exists(parsekDir),
+                $"Parsek source dir not found at {parsekDir}");
 
-            string source = File.ReadAllText(scenarioPath);
+            string source = "";
+            foreach (string scenarioFile in Directory.GetFiles(parsekDir, "ParsekScenario*.cs"))
+                source += File.ReadAllText(scenarioFile);
 
             // Both refresh functions must snapshot the field (declare a local)
             // and write it back. The two patterns below appear once per
