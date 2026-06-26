@@ -284,12 +284,16 @@ namespace Parsek.InGameTests
             string memberId = "reaim-e2e-mid-" + midIdx.ToString(ic);
             double span = spanEnd - spanStart;
             int resolved = 0;
-            // Bug A FIRED-not-DECLINED (plan section 5.2 #3): snapshot the synth's tilt-correction firing
-            // counter before driving the windows. The Duna near-180 windows (pre-fix 2.36/5.06 deg) must be
-            // corrected by FIRING the re-pin, NOT by silently declining to faithful (a window could otherwise
-            // satisfy the inc<=bound upper bound by declining, masking a regression). Asserted non-zero below.
+            // Bug A NEVER-UNREACHABLE invariant (plan section 5.2 #3): snapshot the tilt-correction counters
+            // before driving the windows. A re-aimed Duna window must never hit the achievability gate's
+            // "unreachable-plane" decline (the precise .z-vs-.y world-frame-bug tell: incAch ~90 deg => gate
+            // fails => Duna flies the stale faithful transfer and misses). Asserted == 0 below. (Not firedDelta
+            // > 0: the pinned harness geometry is well-conditioned and may be entirely in-plane => NO-OP. Not
+            // declinedDelta == 0 either: the resolver's tof-candidate sweep can fire-then-revalidation-decline a
+            // candidate transiently on a window that still resolves via a neighbor.)
             long firedBefore = ReaimTransferSynthesizer.FiredCorrectionCount;
             long declinedBefore = ReaimTransferSynthesizer.DeclinedCorrectionCount;
+            long unreachableBefore = ReaimTransferSynthesizer.UnreachablePlaneDeclineCount;
             double firstEcc = double.NaN, firstSma = double.NaN;
             double firstInc = double.NaN, lastInc = double.NaN;
             double firstLan = double.NaN, lastLan = double.NaN;
@@ -324,16 +328,16 @@ namespace Parsek.InGameTests
 
             long firedDelta = ReaimTransferSynthesizer.FiredCorrectionCount - firedBefore;
             long declinedDelta = ReaimTransferSynthesizer.DeclinedCorrectionCount - declinedBefore;
-            // Bug A NEVER-DECLINE invariant: a re-aimed Duna window must never DECLINE the plane correction to
-            // faithful. Duna's gate always passes (nTarget ~ ecliptic => the achievable plane through the fixed
-            // r1 lands within tol of the target plane at EVERY r1 phase), so a window either FIRES (if it has
-            // the spurious near-180 tilt) or NO-OPs (if it already solved in-plane). The pinned harness geometry
-            // is well-conditioned and may be entirely in-plane, so firedDelta==0 is acceptable; what must NOT
-            // happen is a decline - that would mean the achievability gate is mis-measuring the target plane
-            // (the .z-vs-.y world-frame bug: incAch ~90 deg => "unreachable" => decline), flying the stale
-            // faithful transfer and missing Duna. declinedDelta>0 is the regression tell.
-            InGameAssert.IsTrue(declinedDelta == 0L,
-                $"a re-aimed Duna window must never DECLINE the plane correction (fired={firedDelta.ToString(ic)} declined={declinedDelta.ToString(ic)}); " +
+            long unreachableDelta = ReaimTransferSynthesizer.UnreachablePlaneDeclineCount - unreachableBefore;
+            // Bug A NEVER-UNREACHABLE invariant: a re-aimed Duna window must never hit the achievability gate's
+            // "unreachable-plane" decline. Duna's gate always passes (nTarget ~ ecliptic => the achievable plane
+            // through the fixed r1 lands within tol of the target plane at EVERY r1 phase), so a window FIRES
+            // (spurious near-180 tilt) or NO-OPs (already in-plane) - never unreachable. An unreachable decline
+            // means the gate is mis-measuring the target plane (the .z-vs-.y world-frame bug: incAch ~90 deg),
+            // flying the stale faithful transfer and missing Duna. unreachableDelta>0 is the precise regression
+            // tell (firedDelta is informational; the well-conditioned harness may be entirely in-plane).
+            InGameAssert.IsTrue(unreachableDelta == 0L,
+                $"a re-aimed Duna window must never hit the unreachable-plane gate decline (fired={firedDelta.ToString(ic)} declined={declinedDelta.ToString(ic)} unreachable={unreachableDelta.ToString(ic)}); " +
                 "a Duna decline means the achievability gate is mis-measuring the target plane and the transfer falls back to the stale faithful geometry (it misses Duna)");
 
             double firstLpe = TransferWindowMath.LongitudeOfPeriapsisDegrees(firstLan, firstAop);

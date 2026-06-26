@@ -61,13 +61,17 @@ namespace Parsek.Reaim
         // tilt caught (the reported Duna window is 2.36 deg; Duna's real inc 0.06 deg => ~0.56 deg bound).
         internal const double InclinationToleranceDegrees = 0.5;
 
-        // Surfaces whether the LAST TrySynthesizeTransfer ACTUALLY fired the tilt correction (re-pinned the
-        // plane and passed all re-validation), versus declined or no-op'd. The in-game canary reads
-        // FiredCorrectionCount to prove the known Duna 2.36/5.06 deg windows are corrected by FIRING, not by
-        // silently DECLINING to faithful (a window could satisfy "inc <= bound" by declining, masking a
-        // regression). Process-wide static counter; the in-game test snapshots it before/after a resolve.
+        // Diagnostic counters for the tilt correction, snapshotted before/after a resolve by the in-game
+        // canary. Process-wide statics (single-threaded synth path). FiredCorrectionCount = re-pins that
+        // passed all re-validation; DeclinedCorrectionCount = every fail-closed decline of any reason.
+        // UnreachablePlaneDeclineCount = ONLY the achievability-gate "unreachable-plane" decline - the
+        // PRECISE tell of the .z-vs-.y world-frame bug (incAch ~90 deg => gate fails => Duna declined to
+        // faithful). The other decline reasons (degenerate / sane-fail / handedness-flip / residual-tilt) are
+        // legitimate per-candidate fail-closes that can fire transiently during the resolver's tof-candidate
+        // sweep even on a window that ultimately resolves, so the canary keys on the unreachable-plane count.
         internal static long FiredCorrectionCount;
         internal static long DeclinedCorrectionCount;
+        internal static long UnreachablePlaneDeclineCount;
 
         /// <summary>
         /// The target-derived inclination bound (degrees): the inclination a CORRECT re-aimed transfer
@@ -334,8 +338,9 @@ namespace Parsek.Reaim
             // branch sign, but that flattened r2 toward antiparallel to r1, collapsing sin(dnu) onto the
             // MinSinTransferAngle cliff (the very degeneracy it tried to dodge) AND removing the target's
             // out-of-plane offset.
-            // Instead: compute the launch-plane normal r1 x v_launch (which lies along the reference / swizzled
-            // z axis, i.e. a well-defined fixed axis) and pass it to the solver as the handedness axis, with
+            // Instead: compute the launch-plane normal r1 x v_launch (which lies along the reference-plane
+            // normal - world +Y in the un-swizzled .xzy frame the synth works in, NOT +Z; see
+            // AchievablePlaneInclinationDegrees - a well-defined fixed axis) and pass it to the solver as the handedness axis, with
             // the RAW (un-projected) r2. Un-projecting restores the target's out-of-plane component so r1 x r2
             // regains a well-conditioned magnitude and sin(dnu) lifts off the MinSinTransferAngle cliff, while
             // the small residual sign ambiguity is resolved by dot(r1 x r2, launchPlaneNormal) instead of the
@@ -426,6 +431,7 @@ namespace Parsek.Reaim
                     LogTiltCorrection(incBefore, tiltBound, targetInc, incAch, double.NaN,
                         "declined", "unreachable-plane");
                     DeclinedCorrectionCount++;
+                    UnreachablePlaneDeclineCount++; // the precise .z-vs-.y frame-bug tell (Duna never trips this)
                     failReason = $"tilt correction: unreachable target plane (incAch={incAch.ToString("F4", CultureInfo.InvariantCulture)} targetInc={targetInc.ToString("F4", CultureInfo.InvariantCulture)} tol={InclinationToleranceDegrees.ToString("F2", CultureInfo.InvariantCulture)})";
                     return false;
                 }
@@ -474,9 +480,7 @@ namespace Parsek.Reaim
                 }
 
                 // Correction FIRED: the plane is re-pinned within tol of the target plane and all re-checks
-                // passed. v1 now reflects the corrected velocity (used downstream by nothing further, but kept
-                // consistent in case a future step reads it).
-                v1 = v1Corrected;
+                // passed. The conic was already rebuilt from v1Corrected above; nothing downstream reads v1.
                 LogTiltCorrection(incBefore, tiltBound, targetInc, incAch, transfer.inclination,
                     "fired", "ok");
                 FiredCorrectionCount++;

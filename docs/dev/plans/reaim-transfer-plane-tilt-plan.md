@@ -189,8 +189,13 @@ well-conditioned orbital plane, rotating only `v1`'s transverse component and ke
 #### 2.2.1 The achievability gate (resolves the over-determination blocker)
 
 Holding `r1` fixed, the BEST achievable plane normal is `n_ach = normalize(nTarget − (r̂·nTarget)r̂)`,
-where `r̂ = normalize(r1)`. Its inclination is `incAch = acos(|n_ach.z|/|n_ach|)·Rad2Deg`. The
-correction is applied ONLY when the achievable plane lands ON the target plane:
+where `r̂ = normalize(r1)`. Its inclination is `incAch = acos(|n_ach.y|/|n_ach|)·Rad2Deg`. **(FRAME, learned
+during implementation: the un-swizzled `.xzy` frame the synth works in is KSP's WORLD frame, Y-up — the
+reference-plane normal is +Y, NOT +Z. An early `.z` here read an ecliptic-coplanar Duna plane as ~90°,
+declining every firing window to faithful in-game; corrected to `.y` and validated by a live intercept.
+The headless tests originally encoded the same z-up convention, so they passed while wrong — frame
+correctness can only be confirmed in-game, not by hand-made-vector unit tests.)** The correction is applied
+ONLY when the achievable plane lands ON the target plane:
 
 ```
 ApplyConstraintIsSafe(r1, nTarget, targetInc, tol) :=

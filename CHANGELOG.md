@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
-- Re-aimed interplanetary transfers no longer render the heliocentric leg tilted out of plane: a re-flown Kerbin to Duna transfer now lies in Duna's orbital plane instead of climbing several degrees "upwards", and an inclined target keeps its real inclination rather than being flattened.
+- Re-aimed interplanetary transfers no longer render the heliocentric leg tilted out of plane: a re-flown Kerbin to Duna transfer now lies in Duna's orbital plane instead of climbing several degrees "upwards", and an inclined target is never wrongly flattened toward the ecliptic.
 
 ### Internals & Tests
 
