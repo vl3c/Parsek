@@ -508,7 +508,11 @@ namespace Parsek
         internal static void DiscardPendingTreeAndAbandonDeferredFlightResults(string reason)
         {
             ParsekLog.Verbose("Scenario", $"DiscardPendingTree abandon path: {reason}");
-            RecordingStore.DiscardPendingTree();
+            // Abandon path = quickload-backwards / revert / stale-pending-from-another-save.
+            // KSP's economy is being rolled back (or belongs to a different save), so do NOT
+            // re-home the discarded tree's contracts/science/milestones into the ledger —
+            // that would credit economy KSP no longer reflects (see DiscardPendingTree).
+            RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
         }
 
         /// <summary>

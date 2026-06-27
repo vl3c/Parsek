@@ -2755,6 +2755,26 @@ namespace Parsek
             if (!string.IsNullOrEmpty(screenMessage))
                 ScreenMessage(screenMessage, 3f);
 
+            // Preserve irreversible live-gameplay economy before tearing the tree down.
+            // This (uncommitted) tree's contract completions / milestones / science are
+            // tagged-but-uncommitted, so they were never ledger actions; the teardown
+            // drops them while the recalc below would re-list an externally-accepted
+            // contract as active (KSP keeps it finished -> dual-listing + duplicate
+            // reward). Re-home the irreversible bits to the direct ledger first. Collect
+            // ids BEFORE activeTree is nulled. This core does not purge the store events
+            // (pre-existing orphan behavior, left unchanged); the direct ledger actions
+            // are the truth and the orphaned tagged events are not recalc inputs.
+            if (activeTree?.Recordings != null && activeTree.Recordings.Count > 0)
+            {
+                var rehomeIds = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var rid in activeTree.Recordings.Keys)
+                    if (!string.IsNullOrEmpty(rid))
+                        rehomeIds.Add(rid);
+                if (rehomeIds.Count > 0)
+                    LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
+                        rehomeIds, $"AutoDiscardActiveTreeCore: {reason}");
+            }
+
             // Mirror OnSceneChangeRequested's pre-finalize prep so any
             // active continuation / gloops / transient state is cleaned
             // up before we drop the recorder. The idle-on-pad call site

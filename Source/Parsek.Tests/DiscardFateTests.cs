@@ -34,6 +34,9 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
             GameStateRecorder.ResetForTesting();
+            // The discard-preserves-economy re-home writes direct actions to the ledger,
+            // so isolate ledger state across tests in this file.
+            LedgerOrchestrator.ResetForTesting();
 
             originalScene = HighLogic.LoadedScene;
         }
@@ -42,6 +45,7 @@ namespace Parsek.Tests
         {
             HighLogic.LoadedScene = originalScene;
             GameStateRecorder.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
             RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
@@ -309,7 +313,7 @@ namespace Parsek.Tests
         // --- #7: contract snapshot heuristic — accept at KSC, complete in discarded flight ---
 
         [Fact]
-        public void ContractAcceptedAtKsc_CompletedInDiscardedMission_SnapshotStays()
+        public void ContractAcceptedAtKsc_CompletedInDiscardedMission_CompletionRehomedToLedger()
         {
             // Accept at KSC (untagged, before the recording).
             GameStateRecorder.TagResolverForTesting = () => "";
@@ -330,17 +334,26 @@ namespace Parsek.Tests
 
             RecordingStore.DiscardPendingTree();
 
-            // Accept survives — it's untagged. Completion is purged.
+            // Accept survives — it's untagged. The tagged completion store event is still
+            // purged (now redundant).
             Assert.Contains(GameStateStore.Events, e =>
                 e.eventType == GameStateEventType.ContractAccepted && e.key == "guid-cross");
             Assert.DoesNotContain(GameStateStore.Events, e =>
                 e.eventType == GameStateEventType.ContractCompleted && e.key == "guid-cross");
-            // Snapshot belongs to the retained accept event — stays.
             Assert.NotNull(GameStateStore.GetContractSnapshot("guid-cross"));
+
+            // Discard-preserves-economy fix: the player really completed this contract live
+            // (KSP keeps it finished), so the completion is re-homed to the ledger as a
+            // DIRECT action (recordingId cleared). The contract therefore stays RESOLVED in
+            // the ledger and is NOT re-listed active (no dual-listing / duplicate reward).
+            var rehomed = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.ContractComplete && a.ContractId == "guid-cross");
+            Assert.NotNull(rehomed);
+            Assert.True(string.IsNullOrEmpty(rehomed.RecordingId));
         }
 
         [Fact]
-        public void ContractAcceptedAndCompletedInDiscardedMission_SnapshotAndEventsPurged()
+        public void ContractAcceptedAndCompletedInDiscardedMission_CompletionRehomedToLedger()
         {
             GameStateRecorder.TagResolverForTesting = () => "rec-A";
             HighLogic.LoadedScene = GameScenes.FLIGHT;
@@ -358,8 +371,17 @@ namespace Parsek.Tests
 
             RecordingStore.DiscardPendingTree();
 
+            // Both tagged store events + the snapshot are still purged.
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "guid-mission");
             Assert.Null(GameStateStore.GetContractSnapshot("guid-mission"));
+
+            // Even though the accept was also tagged+purged, the completion is re-homed as a
+            // direct ledger action — ContractsModule.ProcessComplete credits + marks the
+            // contract terminal without needing a surviving accept.
+            var rehomed = Ledger.Actions.FirstOrDefault(a =>
+                a.Type == GameActionType.ContractComplete && a.ContractId == "guid-mission");
+            Assert.NotNull(rehomed);
+            Assert.True(string.IsNullOrEmpty(rehomed.RecordingId));
         }
 
         // --- #8: LimboVesselSwitch resolver fallback ---
