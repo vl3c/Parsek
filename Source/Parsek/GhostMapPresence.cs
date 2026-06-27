@@ -1065,7 +1065,12 @@ namespace Parsek
         /// <paramref name="directorTracedPathActive"/> disjunct), so it can never be false on a frame the
         /// proto icon is hidden. No double marker: whenever <paramref name="directorTracedPathActive"/> is
         /// true the orbit-line Postfix's first branch has set the proto <c>drawIcons=NONE</c>, so the proto
-        /// icon is not also drawn.</para>
+        /// icon is not also drawn. (Phase 4b sources this disjunct through the flag-aware
+        /// <see cref="Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame"/>; the no-double
+        /// argument holds in BOTH flag states because that selector is byte-identical-on-the-flag to the
+        /// raw <c>IsDirectorTracedPathActive</c> the orbit-line Postfix still reads - same stamp, same
+        /// frame - so the marker and the proto-icon suppression can never disagree. This pure core is
+        /// itself flag-agnostic: it just ORs the three resolved booleans.)</para>
         /// </summary>
         internal static bool ResolveMarkerDrawDecision(
             bool directorTracedPathActive,
@@ -1094,6 +1099,38 @@ namespace Parsek
         /// <c>out</c> values let the call site emit a per-pid change-based trace line explaining WHY
         /// the marker drew or was skipped. (8e S4 dropped the director-drive gate, so the former
         /// <c>gateOn</c> out is gone.)
+        ///
+        /// <para><b>Phase 4b (migration plan §6.6b — re-home the IMGUI marker draw to the spine intent,
+        /// behind <see cref="Parsek.MapRender.MapRenderFlags.MapRenderPhaseSpineDrive"/>, ADDITIVE /
+        /// flag-reversible):</b> the <paramref name="directorTracedPathActive"/> disjunct - the ONE
+        /// disjunct of this decision the Director's <c>GhostRenderIntent</c> actually decides - is now
+        /// resolved through the FLAG-AWARE selector
+        /// <see cref="Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame"/> (the SAME
+        /// selector 4a routes the polyline Driver through), NOT the raw legacy
+        /// <see cref="Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive"/>:
+        /// <list type="bullet">
+        /// <item>Flag OFF (default): the selector falls through to the legacy
+        /// <c>IsDirectorTracedPathActive</c> side-channel - BYTE-IDENTICAL to today.</item>
+        /// <item>Flag ON: the selector sources the disjunct from the spine's intent
+        /// (<c>IsDirectorTracedPathActiveFromIntent</c>) - the design §8 "scene.Apply(intent)" sourcing,
+        /// re-homed off the autonomous walk's side-channel.</item>
+        /// </list>
+        /// Because <c>RunFrame</c> stamps the legacy + intent maps from the SAME intent in the SAME pass
+        /// on the SAME frame whenever the flag is on, the two stamps are byte-identical on the flag, so
+        /// the flag flip NEVER changes WHICH frames this disjunct is true - it only re-points the SOURCE.
+        /// That is exactly why the marker call sites (flight-map + TS, which route through this) stay in
+        /// lockstep with BOTH the polyline Driver (also reads <c>IsTracedPathOwnedThisFrame</c>) AND the
+        /// proto/marker consumers in <c>GhostOrbitLinePatch</c> (which keep reading the legacy
+        /// <c>IsDirectorTracedPathActive</c> to set <c>drawIcons=NONE</c>): no double-marker, no gap.</para>
+        ///
+        /// <para><b>KEPT, NOT moved (Phase 5):</b> the <paramref name="polylineOwning"/> (actual-draw,
+        /// downstream of the intent) and <paramref name="iconSuppressed"/>
+        /// (<c>ghostsWithSuppressedIcon</c> / <see cref="IsIconSuppressed"/>) disjuncts have NO intent
+        /// equivalent today (the director emits only None/StockConic/TracedPath; there is no
+        /// <c>SuppressedMarker</c> treatment value, so the spine does not decide the no-conic floor case),
+        /// so they stay on their legacy sources. The icon floor is the ONLY marker signal for
+        /// below-atmosphere / off-arc / no-bounds ghosts and is a KEPT permanent fallback - re-sourcing
+        /// it would need the director to learn the SuppressedMarker treatment (out of Phase-4 scope).</para>
         /// </summary>
         internal static bool ShouldDrawNonProtoMarkerForGhost(
             uint ghostPid,
@@ -1101,7 +1138,10 @@ namespace Parsek
             out bool polylineOwning,
             out bool iconSuppressed)
         {
-            directorTracedPathActive = Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(
+            // Phase 4b: flag-aware source for the TracedPath disjunct (flag ON -> intent;
+            // flag OFF -> legacy IsDirectorTracedPathActive, byte-identical to today). Same selector the
+            // polyline Driver routes on, so the marker decision never desyncs from the owned draw.
+            directorTracedPathActive = Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame(
                 ghostPid, UnityEngine.Time.frameCount);
             polylineOwning = IsPolylineOwningGhostPhase(ghostPid);
             iconSuppressed = IsIconSuppressed(ghostPid);
