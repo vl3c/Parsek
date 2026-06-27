@@ -311,5 +311,108 @@ namespace Parsek.Tests
             Assert.DoesNotContain(Ledger.Actions, a =>
                 a.Type == GameActionType.ContractComplete && a.ContractId == "guid-abandon");
         }
+
+        // --- Scoped pending-science clear: don't drop another recording's science ---
+
+        private static PendingScienceSubject Subject(
+            string subjectId, string recordingId, double captureUT, float science = 5f)
+        {
+            return new PendingScienceSubject
+            {
+                subjectId = subjectId,
+                science = science,
+                subjectMaxValue = science + 10f,
+                captureUT = captureUT,
+                reasonKey = "RecoveryAsh",
+                recordingId = recordingId,
+            };
+        }
+
+        [Fact]
+        public void RemovePendingScienceSubjectsForRecordings_RemovesScoped_LeavesUnrelatedAndUntagged()
+        {
+            GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-A", "rec-A", 100.0));
+            GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-other", "rec-OTHER", 110.0));
+            GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-untagged", "", 120.0));
+
+            int removed = LedgerOrchestrator.RemovePendingScienceSubjectsForRecordings(
+                new HashSet<string> { "rec-A" }, "test");
+
+            Assert.Equal(1, removed);
+            Assert.DoesNotContain(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-A");
+            // A DIFFERENT recording's uncommitted science and untagged KSC captures are kept.
+            Assert.Contains(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-other");
+            Assert.Contains(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-untagged");
+        }
+
+        [Fact]
+        public void RemovePendingScienceSubjectsForRecordings_SkipsCommittedIds()
+        {
+            // A committed recording's science is already a ledger action; the scoped removal
+            // must not strip it from the pending list even when its id is in the set.
+            RecordingStore.AddCommittedInternal(new Recording { RecordingId = "rec-committed" });
+            GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-committed", "rec-committed", 100.0));
+
+            int removed = LedgerOrchestrator.RemovePendingScienceSubjectsForRecordings(
+                new HashSet<string> { "rec-committed" }, "test");
+
+            Assert.Equal(0, removed);
+            Assert.Contains(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-committed");
+        }
+
+        [Fact]
+        public void DiscardPendingTree_OtherRecordingUncommittedScience_Survives()
+        {
+            // The discarded tree owns rec-A; a DIFFERENT live recording rec-OTHER has
+            // uncommitted (tagged) science still pending. The genuine discard must drop only
+            // rec-A's pending science (re-homed direct), PRESERVING rec-OTHER's — a blanket
+            // Clear() here silently lost the other recording's uncommitted science.
+            GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-A", "rec-A", 150.0, science: 8f));
+            GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-other", "rec-OTHER", 160.0, science: 3f));
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-x",
+                TreeName = "x",
+                RootRecordingId = "rec-A",
+                ActiveRecordingId = "rec-A",
+            };
+            tree.Recordings["rec-A"] = new Recording { RecordingId = "rec-A", TreeId = "tree-x" };
+            RecordingStore.StashPendingTree(tree);
+
+            RecordingStore.DiscardPendingTree();
+
+            // rec-A's pending science is gone, re-homed as a DIRECT science action.
+            Assert.DoesNotContain(GameStateRecorder.PendingScienceSubjects, s => s.recordingId == "rec-A");
+            var rehomed = Ledger.Actions.SingleOrDefault(a =>
+                a.Type == GameActionType.ScienceEarning && a.SubjectId == "sci-A");
+            Assert.NotNull(rehomed);
+            Assert.True(string.IsNullOrEmpty(rehomed.RecordingId));
+            // The OTHER live recording's uncommitted science SURVIVES.
+            Assert.Contains(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-other");
+        }
+
+        [Fact]
+        public void DiscardPendingTree_AbandonPath_WipesAllPendingScience()
+        {
+            // The abandon path (quickload-backwards / revert / cross-save) rolls KSP's
+            // economy back, so ALL pending science is the discarded future — wipe wholesale.
+            GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-A", "rec-A", 150.0));
+            GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-other", "rec-OTHER", 160.0));
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-ab",
+                TreeName = "ab",
+                RootRecordingId = "rec-A",
+                ActiveRecordingId = "rec-A",
+            };
+            tree.Recordings["rec-A"] = new Recording { RecordingId = "rec-A", TreeId = "tree-ab" };
+            RecordingStore.StashPendingTree(tree);
+
+            RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
+
+            Assert.Empty(GameStateRecorder.PendingScienceSubjects);
+        }
     }
 }
