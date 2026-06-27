@@ -207,6 +207,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Solve_NearAntiparallel_ProducesAmplifiedPlaneTilt()
+        {
+            // Bug A reproduction (plan section 5.1 #1), PURE - no KSP scene. A Kerbin->Duna Hohmann sweeps
+            // ~180 deg, so r1/r2 are near-antiparallel and the solved transfer plane (plane(r1,r2), since
+            // UvLambert returns v1 in span(r1,r2)) carries an AMPLIFIED projection of the target's small
+            // out-of-ecliptic z-offset as a multi-degree tilt - even with NO numerical error. r1 along +x at
+            // Kerbin's ~13.6 Gm heliocentric radius; r2 near-antiparallel (theta ~179 deg) at Duna's ~20.7 Gm
+            // radius carrying Duna's real ~21.7 Mm z-offset (its 0.06 deg inclination * |r2| at worst phase).
+            // The clean plane(r1,r2) inclination should land in the multi-degree range (~3-4 deg), NOT Duna's
+            // real 0.06 deg - proving the bug headless. The launch-plane normal is +z (ecliptic).
+            const double muSun = 1.1723328e18; // Kerbol gravitational parameter (m^3/s^2)
+            const double rKerbin = 13.6e9;      // ~Kerbin heliocentric radius (m)
+            const double rDuna = 20.7e9;        // ~Duna heliocentric radius (m)
+            double thetaDeg = 179.0;
+            double theta = thetaDeg * System.Math.PI / 180.0;
+            var r1 = new Vector3d(rKerbin, 0.0, 0.0);
+            // r2 in the xy plane at angle theta, PLUS Duna's real out-of-ecliptic z-offset.
+            double dunaIncRad = 0.06 * System.Math.PI / 180.0;
+            double zOffset = rDuna * System.Math.Sin(dunaIncRad); // ~21.7 Mm
+            var r2 = new Vector3d(rDuna * System.Math.Cos(theta), rDuna * System.Math.Sin(theta), zOffset);
+            var planeNormal = new Vector3d(0.0, 0.0, 1.0);
+
+            // Hohmann-ish tof for this geometry (half-period of the transfer ellipse a=(r1+r2)/2).
+            double a = 0.5 * (rKerbin + rDuna);
+            double tof = System.Math.PI * System.Math.Sqrt(a * a * a / muSun);
+
+            bool ok = UvLambert.Solve(muSun, r1, r2, tof, prograde: true, planeNormal, out Vector3d v1, out _);
+            Assert.True(ok, "the near-antiparallel solve should converge (it is the bug, not a decline)");
+
+            // The conic's angular momentum h = r1 x v1; its inclination is acos(|h.z|/|h|).
+            Vector3d h = Vector3d.Cross(r1, v1);
+            double hm = h.magnitude;
+            Assert.True(hm > 0.0, "angular momentum must be non-degenerate");
+            double cosInc = System.Math.Abs(h.z) / hm;
+            if (cosInc > 1.0) cosInc = 1.0;
+            double incDeg = System.Math.Acos(cosInc) * 180.0 / System.Math.PI;
+
+            // The spurious tilt is multi-degree (>> Duna's real 0.06 deg) - the amplification IS the bug.
+            Assert.True(incDeg > 1.0,
+                $"near-antiparallel transfer plane tilt should be multi-degree (the bug), got inc={incDeg} deg (Duna real ~0.06 deg)");
+            Assert.True(incDeg < 90.0, $"and still prograde (inc={incDeg} deg < 90)");
+        }
+
+        [Fact]
         public void Solve_DegenerateInputs_ReturnFalse()
         {
             var r1 = new Vector3d(7000.0, 0.0, 0.0);

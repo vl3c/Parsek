@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 
 namespace Parsek.Reaim
@@ -38,6 +39,183 @@ namespace Parsek.Reaim
                 || double.IsNaN(semiMajorAxis) || double.IsInfinity(semiMajorAxis))
                 return false;
             return eccentricity >= 0.0 && eccentricity < 1.0 && semiMajorAxis > 0.0;
+        }
+
+        // --- Bug A (heliocentric transfer plane tilt) post-solve correction ---
+        // A re-aimed Kerbin->Duna looping transfer renders the heliocentric leg TILTED out of plane:
+        // a Hohmann sweeps ~180 deg so r1/r2 are near-antiparallel, r1 x r2 (== the conic's angular
+        // momentum direction by construction, since UvLambert returns v1 in span(r1,r2)) has near-zero
+        // magnitude whose DIRECTION is dominated by the target's out-of-ecliptic z-offset DIVIDED by the
+        // tiny chord-perpendicular distance, so the rendered inclination is an amplified projection of the
+        // target's z-offset (2-5 deg for Duna's real 0.06 deg). The launchPlaneNormal handedness axis fixed
+        // the near-180 DECLINE (branch flip) but does NOT constrain the solved PLANE (it only picks the
+        // branch sign), so the tilt persists. The fix (docs/dev/plans/reaim-transfer-plane-tilt-plan.md) is a
+        // POST-solve, target-derived, achievability-GATED plane re-pin onto the target body's own
+        // well-conditioned orbital plane, holding r1 fixed and rotating only v1's transverse component.
+        // Fail-closed throughout: when holding r1 fixed cannot reach the target plane (Moho at adverse
+        // phase) it DECLINES to faithful rather than over-flatten an inclined target.
+
+        // Single tuning point: how far the solved transfer-plane inclination may exceed the target body's
+        // own orbital inclination before it is treated as the spurious near-antiparallel tilt. Must exceed
+        // any inc(nTarget)-vs-orbit.inclination numerical / RAAN jitter but stay below the smallest spurious
+        // tilt caught (the reported Duna window is 2.36 deg; Duna's real inc 0.06 deg => ~0.56 deg bound).
+        internal const double InclinationToleranceDegrees = 0.5;
+
+        // Diagnostic counters for the tilt correction, snapshotted before/after a resolve by the in-game
+        // canary. Process-wide statics (single-threaded synth path). FiredCorrectionCount = re-pins that
+        // passed all re-validation; DeclinedCorrectionCount = every fail-closed decline of any reason.
+        // UnreachablePlaneDeclineCount = ONLY the achievability-gate "unreachable-plane" decline - the
+        // PRECISE tell of the .z-vs-.y world-frame bug (incAch ~90 deg => gate fails => Duna declined to
+        // faithful). The other decline reasons (degenerate / sane-fail / handedness-flip / residual-tilt) are
+        // legitimate per-candidate fail-closes that can fire transiently during the resolver's tof-candidate
+        // sweep even on a window that ultimately resolves, so the canary keys on the unreachable-plane count.
+        internal static long FiredCorrectionCount;
+        internal static long DeclinedCorrectionCount;
+        internal static long UnreachablePlaneDeclineCount;
+
+        /// <summary>
+        /// The target-derived inclination bound (degrees): the inclination a CORRECT re-aimed transfer
+        /// SHOULD carry, namely the larger of the launch/target body's own orbital inclination plus
+        /// <see cref="InclinationToleranceDegrees"/>. NaN-safe (a NaN body inclination contributes 0). Pure.
+        /// </summary>
+        internal static double InclinationBoundDegrees(double launchInc, double targetInc)
+        {
+            double l = double.IsNaN(launchInc) ? 0.0 : launchInc;
+            double t = double.IsNaN(targetInc) ? 0.0 : targetInc;
+            return Math.Max(Math.Max(l, t), 0.0) + InclinationToleranceDegrees;
+        }
+
+        /// <summary>
+        /// True when a solved transfer-plane inclination is the SPURIOUS near-antiparallel tilt rather than
+        /// the target's real inclination: <c>!NaN(inc) AND inc &lt;= 90 AND inc &gt; bound</c>. The
+        /// <c>inc &lt;= 90</c> clause keeps this orthogonal to <see cref="IsRetrogradeTransfer"/> (a
+        /// retrograde conic is declined upstream), so the correction only ever runs on a sane, prograde
+        /// conic. Pure.
+        /// </summary>
+        internal static bool IsExcessiveTiltTransfer(double inc, double bound)
+        {
+            return !double.IsNaN(inc) && inc <= 90.0 && inc > bound;
+        }
+
+        /// <summary>
+        /// The target body's orbital angular-momentum direction <c>normalize(r2 x v2Target)</c> - a large,
+        /// well-conditioned vector carrying the target's REAL inclination + RAAN (plane-invariant for a
+        /// Kepler orbit, so an eccentric target's true anomaly at arrival does not perturb it). r2 and
+        /// v2Target must be in the SAME (.xzy-unswizzled) Lambert frame as r1. Returns
+        /// <see cref="Vector3d.zero"/> as a degenerate sentinel when either input is NaN or the cross
+        /// product is ~zero (collinear / zero-length). Pure.
+        /// </summary>
+        internal static Vector3d ComputeIntendedPlaneNormal(Vector3d r2, Vector3d v2Target)
+        {
+            if (IsNanVec(r2) || IsNanVec(v2Target))
+                return Vector3d.zero;
+            Vector3d h = Vector3d.Cross(r2, v2Target);
+            double m = h.magnitude;
+            if (m <= 0.0 || double.IsNaN(m) || double.IsInfinity(m))
+                return Vector3d.zero;
+            return h / m;
+        }
+
+        /// <summary>
+        /// The inclination (degrees) of the BEST plane achievable while holding the fixed departure point
+        /// <paramref name="r1"/>: the normal closest to <paramref name="nIntended"/> that is orthogonal to
+        /// r-hat is <c>n_ach = normalize(nIntended - (r-hat . nIntended) r-hat)</c>; its inclination is the
+        /// angle from the reference-plane (ecliptic) normal, <c>acos(|n_ach.y| / |n_ach|) * Rad2Deg</c>.
+        /// Equals nIntended's inclination only when r-hat is perpendicular to nIntended; at adverse phase
+        /// (r-hat near the node-perpendicular) it collapses toward 0. Returns NaN on degenerate input
+        /// (zero/NaN r1, or n_ach collapses to zero). Pure.
+        ///
+        /// FRAME (load-bearing): r1 / nIntended here are in the SAME un-swizzled (.xzy) frame the synthesizer
+        /// builds, which is KSP's WORLD frame - and KSP world up (the heliocentric reference-plane normal) is
+        /// +Y, NOT +Z. So inclination is measured against the Y axis. Using .z here computes ~90deg for an
+        /// ecliptic-coplanar target plane (e.g. Duna), which wrongly declines every firing window to faithful.
+        /// </summary>
+        internal static double AchievablePlaneInclinationDegrees(Vector3d r1, Vector3d nIntended)
+        {
+            if (IsNanVec(r1) || IsNanVec(nIntended))
+                return double.NaN;
+            double r1m = r1.magnitude;
+            if (r1m <= 0.0 || double.IsNaN(r1m) || double.IsInfinity(r1m))
+                return double.NaN;
+            Vector3d rHat = r1 / r1m;
+            Vector3d nAch = nIntended - Vector3d.Dot(rHat, nIntended) * rHat;
+            double nm = nAch.magnitude;
+            if (nm <= 0.0 || double.IsNaN(nm) || double.IsInfinity(nm))
+                return double.NaN;
+            double cosInc = Math.Abs(nAch.y) / nm;
+            if (cosInc > 1.0) cosInc = 1.0;
+            if (cosInc < -1.0) cosInc = -1.0;
+            return Math.Acos(cosInc) * (180.0 / Math.PI);
+        }
+
+        /// <summary>
+        /// The achievability GATE (the over-determination resolution): the correction is SAFE to apply only
+        /// when the best plane through the fixed <paramref name="r1"/> lands ON the target plane, i.e.
+        /// <c>n_ach non-degenerate AND |incAch - targetInc| &lt;= tol</c>. For Duna (nTarget ~ ecliptic)
+        /// incAch ~ targetInc at all r1 phases => always safe. For Moho at adverse phase incAch collapses
+        /// toward 0 => |incAch - 7| &gt; tol => UNsafe => the caller declines to faithful (never over-flattens
+        /// an inclined target). Pure.
+        /// </summary>
+        internal static bool ConstrainTransferPlaneIsSafe(
+            Vector3d r1, Vector3d nIntended, double targetInc, double tol)
+        {
+            double incAch = AchievablePlaneInclinationDegrees(r1, nIntended);
+            if (double.IsNaN(incAch))
+                return false;
+            double t = double.IsNaN(targetInc) ? 0.0 : targetInc;
+            return Math.Abs(incAch - t) <= tol;
+        }
+
+        /// <summary>
+        /// The correction body: re-orients the solved velocity <paramref name="v1"/> onto the intended
+        /// plane while keeping r1 fixed, by holding the RADIAL part (<c>v_rad = (v1 . r-hat) r-hat</c>) and
+        /// rotating only the TRANSVERSE part onto <c>t-hat = normalize(nIntended x r-hat)</c>:
+        /// <c>v1' = v_rad + |v_perp| * sign(v_perp . t-hat) * t-hat</c>. This preserves |v1| exactly (so
+        /// sma/energy are unchanged), preserves the prograde handedness sign (via the sign term), and keeps
+        /// r1 untouched (no departure-seam shift). Because r1 is fixed the resulting plane normal is n_ach,
+        /// not exactly nIntended - the achievability gate guarantees n_ach is within tol of nIntended.
+        /// Returns false (and <paramref name="v1Out"/> = v1 unchanged) on degenerate input (zero/NaN r1,
+        /// zero/NaN nIntended, degenerate t-hat, or zero transverse component). Pure.
+        /// </summary>
+        internal static bool ConstrainTransferPlane(
+            Vector3d r1, Vector3d v1, Vector3d nIntended, out Vector3d v1Out)
+        {
+            v1Out = v1;
+            if (IsNanVec(r1) || IsNanVec(v1) || IsNanVec(nIntended))
+                return false;
+            double r1m = r1.magnitude;
+            if (r1m <= 0.0 || double.IsNaN(r1m) || double.IsInfinity(r1m))
+                return false;
+            Vector3d rHat = r1 / r1m;
+
+            // t-hat: the in-plane transverse direction of the INTENDED plane at r1.
+            Vector3d tDir = Vector3d.Cross(nIntended, rHat);
+            double tm = tDir.magnitude;
+            if (tm <= 0.0 || double.IsNaN(tm) || double.IsInfinity(tm))
+                return false;
+            Vector3d tHat = tDir / tm;
+
+            // Decompose v1 into radial + transverse; preserve the radial part and the transverse MAGNITUDE
+            // and SIGN (prograde sense), re-aiming only its direction onto the intended plane.
+            double vRadMag = Vector3d.Dot(v1, rHat);
+            Vector3d vRad = vRadMag * rHat;
+            Vector3d vPerp = v1 - vRad;
+            double vPerpMag = vPerp.magnitude;
+            if (vPerpMag <= 0.0 || double.IsNaN(vPerpMag) || double.IsInfinity(vPerpMag))
+                return false;
+            double sign = Vector3d.Dot(vPerp, tHat) >= 0.0 ? 1.0 : -1.0;
+
+            Vector3d corrected = vRad + (vPerpMag * sign) * tHat;
+            if (IsNanVec(corrected))
+                return false;
+            v1Out = corrected;
+            return true;
+        }
+
+        // True if any component of the vector is NaN (degenerate-input guard for the pure helpers).
+        private static bool IsNanVec(Vector3d v)
+        {
+            return double.IsNaN(v.x) || double.IsNaN(v.y) || double.IsNaN(v.z);
         }
 
         /// <summary>
@@ -160,8 +338,9 @@ namespace Parsek.Reaim
             // branch sign, but that flattened r2 toward antiparallel to r1, collapsing sin(dnu) onto the
             // MinSinTransferAngle cliff (the very degeneracy it tried to dodge) AND removing the target's
             // out-of-plane offset.
-            // Instead: compute the launch-plane normal r1 x v_launch (which lies along the reference / swizzled
-            // z axis, i.e. a well-defined fixed axis) and pass it to the solver as the handedness axis, with
+            // Instead: compute the launch-plane normal r1 x v_launch (which lies along the reference-plane
+            // normal - world +Y in the un-swizzled .xzy frame the synth works in, NOT +Z; see
+            // AchievablePlaneInclinationDegrees - a well-defined fixed axis) and pass it to the solver as the handedness axis, with
             // the RAW (un-projected) r2. Un-projecting restores the target's out-of-plane component so r1 x r2
             // regains a well-conditioned magnitude and sin(dnu) lifts off the MinSinTransferAngle cliff, while
             // the small residual sign ambiguity is resolved by dot(r1 x r2, launchPlaneNormal) instead of the
@@ -217,6 +396,101 @@ namespace Parsek.Reaim
                 return false;
             }
 
+            // --- Bug A: post-solve heliocentric-plane TILT correction (achievability-gated). ---
+            // The first Lambert solve above ran VERBATIM on raw r2 + launchPlaneNormal (the 0dd6bd3a6 decline
+            // fix is structurally untouched). The solved transfer plane is plane(r1,r2) by construction, which
+            // near a ~180 deg transfer carries an amplified projection of the target's out-of-plane z-offset as
+            // a 2-5 deg tilt (vs Duna's real 0.06 deg). If the inclination exceeds the TARGET-DERIVED bound,
+            // re-pin the plane onto the target body's own well-conditioned orbital plane - but ONLY when holding
+            // r1 fixed can actually reach that plane (the achievability gate); otherwise decline to faithful
+            // rather than over-flatten an inclined target. Inserted AFTER the sane+direction guards so it only
+            // ever runs on an already-prograde, already-sane conic. See the plan doc for the full mechanism.
+            double launchInc = launchBody.orbit.inclination;
+            double targetInc = targetBody.orbit.inclination;
+            double tiltBound = InclinationBoundDegrees(launchInc, targetInc);
+            double incBefore = transfer.inclination;
+            if (IsExcessiveTiltTransfer(incBefore, tiltBound))
+            {
+                // v2Target in the SAME .xzy-unswizzled Lambert frame as r1/r2.
+                Vector3d v2Target = targetBody.orbit.getOrbitalVelocityAtUT(arrivalUT).xzy;
+                Vector3d nTarget = ComputeIntendedPlaneNormal(r2, v2Target);
+                if (nTarget == Vector3d.zero)
+                {
+                    LogTiltCorrection(incBefore, tiltBound, targetInc, double.NaN, double.NaN,
+                        "declined", "degenerate-target");
+                    DeclinedCorrectionCount++;
+                    failReason = $"tilt correction: degenerate target plane (inc={incBefore.ToString("F2", CultureInfo.InvariantCulture)} > bound={tiltBound.ToString("F2", CultureInfo.InvariantCulture)})";
+                    return false;
+                }
+
+                double incAch = AchievablePlaneInclinationDegrees(r1, nTarget);
+                if (!ConstrainTransferPlaneIsSafe(r1, nTarget, targetInc, InclinationToleranceDegrees))
+                {
+                    // The Moho-adverse-phase exit (for Duna it never trips): holding r1 fixed cannot reach the
+                    // target plane, so re-pinning would over-flatten the inclined target. Decline to faithful.
+                    LogTiltCorrection(incBefore, tiltBound, targetInc, incAch, double.NaN,
+                        "declined", "unreachable-plane");
+                    DeclinedCorrectionCount++;
+                    UnreachablePlaneDeclineCount++; // the precise .z-vs-.y frame-bug tell (Duna never trips this)
+                    failReason = $"tilt correction: unreachable target plane (incAch={incAch.ToString("F4", CultureInfo.InvariantCulture)} targetInc={targetInc.ToString("F4", CultureInfo.InvariantCulture)} tol={InclinationToleranceDegrees.ToString("F2", CultureInfo.InvariantCulture)})";
+                    return false;
+                }
+
+                if (!ConstrainTransferPlane(r1, v1, nTarget, out Vector3d v1Corrected))
+                {
+                    LogTiltCorrection(incBefore, tiltBound, targetInc, incAch, double.NaN,
+                        "declined", "degenerate-rotation");
+                    DeclinedCorrectionCount++;
+                    failReason = "tilt correction: degenerate rotation (r1/nTarget/v_perp degenerate)";
+                    return false;
+                }
+
+                // Rebuild the conic from (r1, v1') and re-validate, IN ORDER: sane -> direction -> tilt.
+                transfer.UpdateFromStateVectors(r1.xzy, v1Corrected.xzy, parent, departureUT);
+
+                if (!IsSaneTransferConic(transfer.eccentricity, transfer.semiMajorAxis))
+                {
+                    LogTiltCorrection(incBefore, tiltBound, targetInc, incAch, transfer.inclination,
+                        "declined", "sane-fail");
+                    DeclinedCorrectionCount++;
+                    failReason = $"tilt correction: corrected conic not sane ecc={transfer.eccentricity.ToString("R", CultureInfo.InvariantCulture)} sma={transfer.semiMajorAxis.ToString("R", CultureInfo.InvariantCulture)}";
+                    return false;
+                }
+
+                // The transverse rotation's sign(v_perp . t-hat) preserves the prograde sense, but re-running
+                // the direction guard on the corrected conic closes the door on any handedness flip.
+                bool correctedRetrograde = IsRetrogradeTransfer(transfer.inclination);
+                if (correctedRetrograde != !prograde)
+                {
+                    LogTiltCorrection(incBefore, tiltBound, targetInc, incAch, transfer.inclination,
+                        "declined", "handedness-flip");
+                    DeclinedCorrectionCount++;
+                    failReason = $"tilt correction: handedness flip inc={transfer.inclination.ToString("F2", CultureInfo.InvariantCulture)} deg " +
+                                 $"(correctedRetrograde={correctedRetrograde}, recordedRetrograde={!prograde})";
+                    return false;
+                }
+
+                if (IsExcessiveTiltTransfer(transfer.inclination, tiltBound))
+                {
+                    LogTiltCorrection(incBefore, tiltBound, targetInc, incAch, transfer.inclination,
+                        "declined", "residual-tilt");
+                    DeclinedCorrectionCount++;
+                    failReason = $"tilt correction: residual tilt inc={transfer.inclination.ToString("F2", CultureInfo.InvariantCulture)} > bound={tiltBound.ToString("F2", CultureInfo.InvariantCulture)}";
+                    return false;
+                }
+
+                // Correction FIRED: the plane is re-pinned within tol of the target plane and all re-checks
+                // passed. The conic was already rebuilt from v1Corrected above; nothing downstream reads v1.
+                LogTiltCorrection(incBefore, tiltBound, targetInc, incAch, transfer.inclination,
+                    "fired", "ok");
+                FiredCorrectionCount++;
+            }
+            else
+            {
+                // The already-in-plane case (e.g. the reported 0.13 deg Duna window) - no correction needed.
+                LogTiltCorrection(incBefore, tiltBound, targetInc, double.NaN, incBefore, "noop", "in-plane");
+            }
+
             // Bound the SOI search to the transfer span and propagate through stock patched conics to
             // detect the target encounter (fast path: when stock cleanly promotes it, we get an accurate
             // SOI-entry UT for free).
@@ -259,6 +533,21 @@ namespace Parsek.Reaim
             return false;
         }
 
+        // Diagnostic: one-shot Verbose line on the tilt-correction decision (plan 3.3). state is
+        // fired|noop|declined; reason names the fail-closed branch on a decline. Grep `tilt-correction`.
+        private static void LogTiltCorrection(
+            double incBefore, double bound, double targetInc, double incAch, double incAfter,
+            string state, string reason)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.Verbose("ReaimSeam",
+                $"tilt-correction inc-before={incBefore.ToString("F4", ic)} bound={bound.ToString("F4", ic)} " +
+                $"targetInc={targetInc.ToString("F4", ic)} " +
+                $"incAch={(double.IsNaN(incAch) ? "NaN" : incAch.ToString("F4", ic))} " +
+                $"inc-after={(double.IsNaN(incAfter) ? "NaN" : incAfter.ToString("F4", ic))} " +
+                $"state={state} reason={reason}");
+        }
+
         // Diagnostic: log the synthesized transfer's geometry against the bodies/points it connects.
         // xfer-vs-{depart} and xfer-vs-target@arrival are ~0 BY CONSTRUCTION on BOTH paths (the Lambert
         // connects r1->r2 exactly): for the DIRECT path the departure anchor r1 is the launch body's center
@@ -290,10 +579,13 @@ namespace Parsek.Reaim
             double soiMiss = double.IsNaN(soiEntryUT) ? double.NaN
                 : (transfer.getRelativePositionAtUT(soiEntryUT)
                     - targetBody.orbit.getRelativePositionAtUT(soiEntryUT)).magnitude;
+            double inc = transfer.inclination;
+            double bound = InclinationBoundDegrees(launchBody.orbit.inclination, targetBody.orbit.inclination);
             ParsekLog.Verbose("ReaimSeam",
                 $"synth geometry ({path}): departUT={departureUT.ToString("F0", ic)} " +
                 $"arrivalUT={arrivalUT.ToString("F0", ic)} soiEntryUT={soiEntryUT.ToString("F0", ic)} " +
-                $"sma={transfer.semiMajorAxis.ToString("R", ic)} ecc={transfer.eccentricity.ToString("F4", ic)} | " +
+                $"sma={transfer.semiMajorAxis.ToString("R", ic)} ecc={transfer.eccentricity.ToString("F4", ic)} " +
+                $"inc={inc.ToString("F4", ic)} bound={bound.ToString("F4", ic)} | " +
                 $"xfer-vs-{depAnchorLabel}@depart={depMiss.ToString("F0", ic)}m (~0) | " +
                 $"xfer-vs-{targetBody.bodyName}@arrival={arrMiss.ToString("F0", ic)}m (~0) | " +
                 $"xfer-vs-{targetBody.bodyName}@soi={(double.IsNaN(soiMiss) ? "NaN" : soiMiss.ToString("F0", ic))}m " +
