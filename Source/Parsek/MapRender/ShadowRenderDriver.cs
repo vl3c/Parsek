@@ -63,6 +63,13 @@ namespace Parsek.MapRender
         {
             public string Signature;
             public GhostRenderChain Chain;
+            // The typed PhaseChain successor (migration plan §5 / Phase 3). Built from the SAME inputs as
+            // Chain (PhaseFactory wraps the assembler's geometry), cached under the SAME signature, and
+            // consumed by the sampler/director ONLY when MapRenderFlags.MapRenderPhaseSpineDrive is ON. It
+            // is null when neither the flag is on NOR tracing is on (no consumer needs it). The Phase-2
+            // shadow already builds a factory chain when tracing is on for byte-parity; when the spine flag
+            // is on it is also built (regardless of tracing) so the spine has something to drive.
+            public PhaseChain PhaseChain;
             // True when this cached chain was assembled from RE-AIMED OrbitSegments (the override differed
             // from the recorded list by reference). Stored WITH the chain so the per-frame skip decision
             // (ShouldSkipReaimSegment) uses the SAME resolve the chain was built from - never a second
@@ -106,6 +113,32 @@ namespace Parsek.MapRender
         /// director-drive gate), so the StockConic seed is always populated for the patch (and the
         /// reconciler reads it when render tracing is on). Kept as a property for call-site stability.</summary>
         internal static bool Enabled => true;
+
+        /// <summary>
+        /// In-game test seam (migration plan §5 / Phase 3): force the typed-spine drive ON regardless of
+        /// the default-OFF compile-time <see cref="MapRenderFlags.MapRenderPhaseSpineDrive"/> const, so a
+        /// flag-ON in-game test can exercise the PhaseChain spine without a rebuild. ORed with the const in
+        /// <see cref="PhaseSpineDriveActive"/>. Default false (normal play reads only the const). Tests MUST
+        /// restore it in a finally; a leaked true would silently flip every later ghost onto the new spine.
+        ///
+        /// <para><b>Callers MUST <see cref="Reset"/> after flipping this</b> (or run with tracing on so the
+        /// PhaseChain is always built). <see cref="BuildChainSignature"/> intentionally OMITS the spine flag
+        /// from the cache key (the flag does not change the geometry, only which spine consumes it), so a
+        /// chain cached while the flag was off can carry a null <see cref="CachedChain.PhaseChain"/>; without
+        /// a <see cref="Reset"/> that stale cache entry would persist after the flip and the flag-ON branch
+        /// would silently fall back to the assembler chain (phaseChain == null). The in-game test seam
+        /// (<see cref="PhaseSpineSwapInGameTest"/>) calls <see cref="Reset"/> on every flip for this reason.</para>
+        /// </summary>
+        internal static bool ForceSpineDriveForTesting = false;
+
+        /// <summary>
+        /// The single source of truth for "drive the sampler/director off the typed PhaseChain this frame":
+        /// the default-OFF compile-time flag OR the in-game test seam. With BOTH off (normal play) the C#
+        /// const-fold elides the new spine branch entirely (the seam is a runtime read, so the JIT keeps the
+        /// branch, but the false seam means it is never taken), so flag-OFF behavior is byte-identical.
+        /// </summary>
+        internal static bool PhaseSpineDriveActive =>
+            MapRenderFlags.MapRenderPhaseSpineDrive || ForceSpineDriveForTesting;
 
         /// <summary>
         /// Max frame gap between the shadow recording a StockConic seed and the icon-drive patch reading
@@ -280,10 +313,28 @@ namespace Parsek.MapRender
 
                     GhostRenderChain chain = GetOrBuildChain(
                         pid, traj, idx, wStart, wEnd, currentUT, units, surface,
-                        out bool chainHasReaimedSegments);
-                    GhostSample sample = ChainSampler.Sample(chain, currentUT, units);
+                        out bool chainHasReaimedSegments, out PhaseChain phaseChain);
+
+                    // THE SPINE SWAP (migration plan §5 / Phase 3). Flag OFF (default): sample the legacy
+                    // ChainAssembler-built GhostRenderChain — byte-identical to pre-Phase-3 behavior. Flag
+                    // ON: sample the typed PhaseChain instead. Both run the SAME span clock + coverage
+                    // classify + 3-case Decide, and the factory geometry byte-matches the assembler
+                    // (Phase-2 parity), so the emitted intent + side-channel stamps + draw are identical.
+                    // The director's prior-intent gap-hold is shared (one priorIntentByPid map), so the swap
+                    // does not change the hold contract.
                     priorIntentByPid.TryGetValue(pid, out GhostRenderIntent prior);
-                    GhostRenderIntent intent = GhostRenderDirector.Decide(sample, prior, traj.VesselName);
+                    GhostSample sample;
+                    GhostRenderIntent intent;
+                    if (PhaseSpineDriveActive && phaseChain != null)
+                    {
+                        sample = ChainSampler.Sample(phaseChain, currentUT, units);
+                        intent = GhostRenderDirector.Decide(sample, prior, traj.VesselName);
+                    }
+                    else
+                    {
+                        sample = ChainSampler.Sample(chain, currentUT, units);
+                        intent = GhostRenderDirector.Decide(sample, prior, traj.VesselName);
+                    }
                     priorIntentByPid[pid] = intent;
 
                     // Per-ACTIVE-SEGMENT re-aim skip (design §4, refined from per-member): only the
@@ -396,7 +447,7 @@ namespace Parsek.MapRender
             uint pid, IPlaybackTrajectory traj, int idx, double wStart, double wEnd,
             double currentUT, GhostPlaybackLogic.LoopUnitSet units,
             GhostTrajectoryPolylineRenderer.BodySurfaceProvider surface,
-            out bool chainHasReaimedSegments)
+            out bool chainHasReaimedSegments, out PhaseChain phaseChain)
         {
             // Resolve the EFFECTIVE OrbitSegments for THIS frame: a re-aim owner's in-window heliocentric
             // leg comes back re-aimed (aimed at the target's CURRENT position), every faithful member /
@@ -415,6 +466,7 @@ namespace Parsek.MapRender
             if (chainByPid.TryGetValue(pid, out CachedChain cached) && cached.Signature == sig)
             {
                 chainHasReaimedSegments = cached.HasReaimedSegments;
+                phaseChain = cached.PhaseChain;
                 return cached.Chain;
             }
 
@@ -428,58 +480,134 @@ namespace Parsek.MapRender
                 traj, idx, instanceKey: 0, wStart, wEnd, faithfulFallback: false, surface: surface,
                 orbitSegmentsOverride: overrideSegs, reaimAncestorBody: reaimAncestor);
 
-            // Phase 2 SHADOW byte-parity hook (migration plan §4). Wholly gated on
-            // MapRenderTrace.IsEnabled, so normal play pays nothing and the live draw is unchanged: this
-            // ONLY builds the new typed PhaseChain via the SAME inputs and ASSERTS its emitted geometry
-            // byte-matches the assembler's chain. On a geometry mismatch it emits the factory-parity
-            // Tier-C anomaly (rate-limited per recording). It NEVER drives a draw or mutates any surface.
-            if (MapRenderTrace.IsEnabled)
-                RunShadowFactoryParity(
-                    traj, idx, wStart, wEnd, surface, overrideSegs, reaimAncestor, chain);
+            // Build the typed PhaseChain (migration plan §5 / Phase 3) when ANY consumer needs it: the
+            // spine flag is ON (the sampler/director drive off it), OR tracing is on (the Phase-2 shadow
+            // byte-parity comparator asserts against it). When neither is on it stays null and no factory
+            // work runs, so flag-OFF normal play pays nothing beyond the unchanged assembler build above.
+            // Tolerant of any factory throw: a phase-chain build must never destabilize the live render
+            // path, so an exception leaves phaseChain null (the spine falls back to the assembler chain in
+            // RunFrame) and is logged + swallowed.
+            phaseChain = null;
+            if (PhaseSpineDriveActive || MapRenderTrace.IsEnabled)
+            {
+                try
+                {
+                    phaseChain = PhaseFactory.BuildPhaseChain(
+                        traj, idx, instanceKey: 0, wStart, wEnd, faithfulFallback: false, surface: surface,
+                        orbitSegmentsOverride: overrideSegs, reaimAncestorBody: reaimAncestor);
+
+                    // Phase 2 SHADOW byte-parity assertion (migration plan §4): assert the factory's emitted
+                    // geometry byte-matches the assembler's chain, emitting the factory-parity Tier-C anomaly
+                    // on a mismatch. Gated on tracing (the anomaly sink is). Reuses the just-built phaseChain
+                    // so a single factory build serves both the assertion and the spine.
+                    if (MapRenderTrace.IsEnabled)
+                        AssertFactoryParity(traj, wStart, phaseChain, chain);
+
+                    // Tier-A structural event on a (re)build: the phase chain's count + kinds + provenance.
+                    // Emitted only when tracing is on (EmitStructural early-returns otherwise) so it is a
+                    // pure observability line, not a hot-path cost in flag-ON-tracing-off play.
+                    EmitPhaseChainAssembled(pid, currentUT, phaseChain);
+                }
+                catch (System.Exception ex)
+                {
+                    phaseChain = null;
+                    ParsekLog.Warn("MapRender", string.Format(CultureInfo.InvariantCulture,
+                        "phase-chain build threw for rec={0}: {1}", traj?.RecordingId ?? "?", ex.Message));
+                }
+            }
 
             chainByPid[pid] = new CachedChain
             {
                 Signature = sig,
                 Chain = chain,
+                PhaseChain = phaseChain,
                 HasReaimedSegments = chainHasReaimedSegments,
             };
             return chain;
         }
 
-        // Phase 2 SHADOW byte-parity (migration plan §4): build the new typed PhaseChain from the SAME
-        // inputs the assembler consumed, and assert its emitted geometry byte-matches the assembler's
-        // chain. SHADOW ONLY - never drives a draw or mutates a surface; the caller already gated on
-        // MapRenderTrace.IsEnabled. On a geometry mismatch emits the factory-parity Tier-C anomaly
-        // (rate-limited per recording, carrying the diverging field). Tolerant of any factory throw: a
-        // shadow assertion must never destabilize the live (assembler-driven) render path, so a factory
-        // exception is logged and swallowed.
-        private static void RunShadowFactoryParity(
-            IPlaybackTrajectory traj, int idx, double wStart, double wEnd,
-            GhostTrajectoryPolylineRenderer.BodySurfaceProvider surface,
-            IReadOnlyList<OrbitSegment> overrideSegs, string reaimAncestor,
-            GhostRenderChain assemblerChain)
+        // Tier-A `phase-chain-assembled` structural event (migration plan §5): one Info line on a
+        // (re)build carrying the phase count + kinds + provenance + seam summary, so a tracing-on run can
+        // confirm the typed spine assembled the expected phases. EmitStructural early-returns when tracing
+        // is off, so this is free in normal play. ProtoOrbitLine is the closest render surface (the spine
+        // ultimately drives the proto icon/line for a conic phase).
+        private static void EmitPhaseChainAssembled(uint pid, double currentUT, PhaseChain phaseChain)
         {
-            try
+            if (!MapRenderTrace.IsEnabled || phaseChain == null)
+                return;
+
+            string details = string.Format(CultureInfo.InvariantCulture,
+                "phases={0} window=[{1:F1},{2:F1}] faithfulFallback={3} kinds={4} prov={5} seams={6}",
+                phaseChain.PhaseCount, phaseChain.WindowStartUt, phaseChain.WindowEndUt,
+                phaseChain.IsFaithfulFallback,
+                SummarizePhaseKinds(phaseChain), SummarizeProvenance(phaseChain),
+                SummarizeSeams(phaseChain));
+
+            MapRenderTrace.EmitStructural(
+                "PhaseChainAssembled", MapRenderTrace.RenderSurface.ProtoOrbitLine,
+                pid.ToString(CultureInfo.InvariantCulture), currentUT, 0.0,
+                MapRenderTrace.SegmentChangeWindowSeconds, details, phaseChain.RecordingId);
+        }
+
+        private static string SummarizePhaseKinds(PhaseChain chain)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < chain.PhaseCount; i++)
             {
-                PhaseChain factoryChain = PhaseFactory.BuildPhaseChain(
-                    traj, idx, instanceKey: 0, wStart, wEnd, faithfulFallback: false, surface: surface,
-                    orbitSegmentsOverride: overrideSegs, reaimAncestorBody: reaimAncestor);
-                GeometryParityComparator.ParityResult result =
-                    GeometryParityComparator.Compare(factoryChain, assemblerChain);
-                if (!result.IsMatch)
+                if (i > 0) sb.Append('+');
+                sb.Append(PhaseKindTokens.ToToken(chain.Phases[i].Kind));
+            }
+            return sb.Length == 0 ? "(none)" : sb.ToString();
+        }
+
+        private static string SummarizeProvenance(PhaseChain chain)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < chain.PhaseCount; i++)
+            {
+                if (i > 0) sb.Append('+');
+                sb.Append(SegmentProvenanceTokens.ToToken(chain.Phases[i].Provenance));
+            }
+            return sb.Length == 0 ? "(none)" : sb.ToString();
+        }
+
+        private static string SummarizeSeams(PhaseChain chain)
+        {
+            int rigid = 0, flexibleSoi = 0, other = 0;
+            for (int i = 0; i < chain.PhaseCount; i++)
+            {
+                PhaseSeam seam = chain.Phases[i].TrailingSeam;
+                if (seam == null) continue;
+                switch (seam.Kind)
                 {
-                    MapRenderTrace.EmitFactoryParity(
-                        traj.RecordingId, wStart,
-                        string.Format(CultureInfo.InvariantCulture,
-                            "diverging={0} seg={1} countMismatch={2} {3}",
-                            result.DivergingField, result.SegmentIndex, result.CountMismatch,
-                            result.Detail ?? string.Empty));
+                    case PhaseSeamKind.Rigid: rigid++; break;
+                    case PhaseSeamKind.FlexibleSoi: flexibleSoi++; break;
+                    default: other++; break;
                 }
             }
-            catch (System.Exception ex)
+            return string.Format(CultureInfo.InvariantCulture,
+                "rigid={0} flexibleSoi={1} other={2}", rigid, flexibleSoi, other);
+        }
+
+        // Phase 2 SHADOW byte-parity assertion (migration plan §4), now run against the ALREADY-BUILT
+        // PhaseChain (Phase 3 builds it once for both the assertion and the spine). Asserts the factory's
+        // emitted geometry byte-matches the assembler's chain; on a mismatch emits the factory-parity
+        // Tier-C anomaly (rate-limited per recording, carrying the diverging field). The caller already
+        // gated on MapRenderTrace.IsEnabled and wrapped the build + this call in a try/catch, so a compare
+        // here never destabilizes the live (assembler-driven) render path.
+        private static void AssertFactoryParity(
+            IPlaybackTrajectory traj, double wStart, PhaseChain factoryChain, GhostRenderChain assemblerChain)
+        {
+            GeometryParityComparator.ParityResult result =
+                GeometryParityComparator.Compare(factoryChain, assemblerChain);
+            if (!result.IsMatch)
             {
-                ParsekLog.Warn("MapRender", string.Format(CultureInfo.InvariantCulture,
-                    "shadow factory-parity threw for rec={0}: {1}", traj?.RecordingId ?? "?", ex.Message));
+                MapRenderTrace.EmitFactoryParity(
+                    traj.RecordingId, wStart,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "diverging={0} seg={1} countMismatch={2} {3}",
+                        result.DivergingField, result.SegmentIndex, result.CountMismatch,
+                        result.Detail ?? string.Empty));
             }
         }
 

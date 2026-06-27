@@ -131,6 +131,10 @@ namespace Parsek.MapRender
                     continue;
                 // The phase's anchor body is the frame the assembler stamped on the segment; pass it as the
                 // SampleContext fallback so a conic phase whose anchor/conic body is empty still resolves.
+                // This is a STATIC whole-chain projection (no per-frame sampling UT exists here), so
+                // phase.StartUt is the deliberate SampleUt substitution; it is byte-neutral because Emit is
+                // UT-independent (no Emit reads ctx.SampleUt). The live per-frame sampler
+                // (ChainSampler.TryProjectInSegment) passes its real sampleUT for the same reason.
                 string frameBody = (phase.Anchor is AnchorFrame.BodyAnchor body) ? body.BodyName : null;
                 var ctx = new SampleContext(phase.StartUt, frameBody);
                 foreach (RenderSegment seg in phase.Emit(ctx))
