@@ -63,11 +63,19 @@ namespace Parsek
         //    unresolvable parent trajectory) -> the phase fails closed to faithful rather than NRE.
         //  - clock-not-ready: the render path was sampled at UT<=0 (cold-load Planetarium UT=0); the
         //    sampler must defer rather than produce a degenerate ghost.
+        //  - factory-parity (Phase 2): the SHADOW PhaseFactory's emitted GEOMETRY (Treatment / StartUt /
+        //    EndUt / FrameBodyName / conic payload + chain-level WindowStartUt / WindowEndUt /
+        //    IsFaithfulFallback) diverged from the live ChainAssembler's GhostRenderChain. PhaseKind /
+        //    Provenance are NOT in this parity set (they are unit-tested). WIRED + LIVE: emitted by the
+        //    gated shadow hook in ShadowRenderDriver via EmitFactoryParity (rate-limited per recording)
+        //    whenever GeometryParityComparator.Compare reports a non-match. Shadow-only: it asserts, never
+        //    drives a draw, so a fire is a build-bug signal, not a rendered regression.
         internal const string AnomalyParityDrift = "parity-drift";
         internal const string AnomalyRigidSeamTangentDiscontinuity = "rigid-seam-tangent-discontinuity";
         internal const string AnomalyRetireNotHeld = "retire-not-held";
         internal const string AnomalyAnchorResolveFail = "anchor-resolve-fail";
         internal const string AnomalyClockNotReady = "clock-not-ready";
+        internal const string AnomalyFactoryParity = "factory-parity";
 
         // ---- Tier-C anomaly tuning ----
 
@@ -1046,6 +1054,31 @@ namespace Parsek
             string combined = "reason=" + Token(reason)
                 + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
             EmitRaw(true, "Anomaly", surface, pidKey, currentUT, effUT, combined, recId);
+        }
+
+        /// <summary>
+        /// Phase 2 shadow-comparator anomaly emit: the gated <see cref="MapRender.PhaseFactory"/>'s
+        /// emitted geometry diverged from the live <c>ChainAssembler</c>'s <c>GhostRenderChain</c>. Routes
+        /// the <see cref="AnomalyFactoryParity"/> reason + the diverging field detail through a
+        /// rate-limited Verbose sink keyed per recording id (so a per-frame shadow loop on a steadily
+        /// diverging member cannot flood the log) — distinct from <see cref="EmitAnomaly"/> (which is
+        /// Info + opens a detailed window per occurrence). The diverging field is in the
+        /// <paramref name="details"/> built by the caller (the comparator result). Gated by
+        /// <see cref="IsEnabled"/>; no-op in normal play.
+        /// </summary>
+        internal static void EmitFactoryParity(
+            string recordingId, double currentUT, string details, double minIntervalSeconds = 5.0)
+        {
+            if (!IsEnabled)
+                return;
+            string key = Token(recordingId);
+            string combined = "reason=" + AnomalyFactoryParity
+                + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
+            string message = BuildPrefix(
+                "Anomaly", RenderSurface.ProtoOrbitLine, key, currentUT, currentUT,
+                CurrentFrameCount(), recordingId) + " " + combined;
+            ParsekLog.VerboseRateLimited(
+                Tag, "factory-parity-" + key, message, minIntervalSeconds);
         }
 
         /// <summary>IMGUI marker-surface decision emit (<c>ImguiLabeledMarker</c> /

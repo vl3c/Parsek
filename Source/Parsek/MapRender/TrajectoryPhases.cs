@@ -73,10 +73,26 @@ namespace Parsek.MapRender
     /// </summary>
     internal abstract class TracedPhase : TrajectoryPhase
     {
+        /// <summary>
+        /// The body name the geometry was stamped with by the assembler (the recorded body of this
+        /// traced run). This is GEOMETRY, NOT the anchor: the assembler stamps
+        /// <see cref="RenderSegment.FrameBodyName"/> from the recorded point's body regardless of the
+        /// segment's <see cref="AnchorFrame"/>, so a parent-anchored child's traced leg still carries a
+        /// real body name. Carrying it here (and reproducing it first in
+        /// <see cref="ResolveFrameBodyName"/>) keeps the <see cref="Emit"/> projection LOSSLESS for ANY
+        /// anchor type (a <see cref="AnchorFrame.ParentAnchoredChild"/> would otherwise drop it and the
+        /// factory-parity comparator would false-fire on a correct factory).
+        /// </summary>
+        private protected string GeometryBodyName { get; }
+
         private protected TracedPhase(
             PhaseId id, PhaseKind kind, SegmentProvenance provenance, AnchorFrame anchor,
-            double startUt, double endUt, PhaseSeam leadingSeam, PhaseSeam trailingSeam)
-            : base(id, kind, provenance, anchor, startUt, endUt, leadingSeam, trailingSeam) { }
+            double startUt, double endUt, PhaseSeam leadingSeam, PhaseSeam trailingSeam,
+            string geometryBodyName)
+            : base(id, kind, provenance, anchor, startUt, endUt, leadingSeam, trailingSeam)
+        {
+            GeometryBodyName = geometryBodyName;
+        }
 
         internal override Treatment ResolveTreatment() => Treatment.TracedPath;
 
@@ -96,8 +112,13 @@ namespace Parsek.MapRender
 
         private protected abstract SegmentKind LegacyKind { get; }
 
+        // Reproduce the assembler-stamped GEOMETRY body name FIRST so the round-trip is lossless for any
+        // anchor type (a ParentAnchoredChild carries no BodyAnchor payload, but its traced leg still has a
+        // real recorded body name); fall back to the BodyAnchor payload, then the sample context.
         private protected string ResolveFrameBodyName(SampleContext ctx)
         {
+            if (!string.IsNullOrEmpty(GeometryBodyName))
+                return GeometryBodyName;
             if (Anchor is AnchorFrame.BodyAnchor body && !string.IsNullOrEmpty(body.BodyName))
                 return body.BodyName;
             return ctx.FrameBodyName;
@@ -115,8 +136,9 @@ namespace Parsek.MapRender
     {
         internal AscentPhase(
             PhaseId id, SegmentProvenance provenance, AnchorFrame anchor, double startUt, double endUt,
-            PhaseSeam leadingSeam = null, PhaseSeam trailingSeam = null)
-            : base(id, PhaseKind.Ascent, provenance, anchor, startUt, endUt, leadingSeam, trailingSeam) { }
+            string geometryBodyName = null, PhaseSeam leadingSeam = null, PhaseSeam trailingSeam = null)
+            : base(id, PhaseKind.Ascent, provenance, anchor, startUt, endUt, leadingSeam, trailingSeam,
+                   geometryBodyName) { }
 
         private protected override SegmentKind LegacyKind => SegmentKind.Ascent;
     }
@@ -209,8 +231,9 @@ namespace Parsek.MapRender
     {
         internal DescentPhase(
             PhaseId id, SegmentProvenance provenance, AnchorFrame anchor, double startUt, double endUt,
-            PhaseSeam leadingSeam = null, PhaseSeam trailingSeam = null)
-            : base(id, PhaseKind.Descent, provenance, anchor, startUt, endUt, leadingSeam, trailingSeam) { }
+            string geometryBodyName = null, PhaseSeam leadingSeam = null, PhaseSeam trailingSeam = null)
+            : base(id, PhaseKind.Descent, provenance, anchor, startUt, endUt, leadingSeam, trailingSeam,
+                   geometryBodyName) { }
 
         private protected override SegmentKind LegacyKind => SegmentKind.Landing;
     }
@@ -224,8 +247,9 @@ namespace Parsek.MapRender
     {
         internal SurfacePhase(
             PhaseId id, SegmentProvenance provenance, AnchorFrame anchor, double startUt, double endUt,
-            PhaseSeam leadingSeam = null, PhaseSeam trailingSeam = null)
-            : base(id, PhaseKind.Surface, provenance, anchor, startUt, endUt, leadingSeam, trailingSeam) { }
+            string geometryBodyName = null, PhaseSeam leadingSeam = null, PhaseSeam trailingSeam = null)
+            : base(id, PhaseKind.Surface, provenance, anchor, startUt, endUt, leadingSeam, trailingSeam,
+                   geometryBodyName) { }
 
         private protected override SegmentKind LegacyKind => SegmentKind.Surface;
     }

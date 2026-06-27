@@ -784,6 +784,47 @@ namespace Parsek.Tests
             Assert.Empty(logLines);
         }
 
+        // ---- Phase 2: factory-parity Tier-C anomaly emit ----
+
+        [Fact]
+        public void EmitFactoryParity_Enabled_EmitsAnomalyWithReasonAndDivergingField()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitFactoryParity(
+                "rec-factory", 1234.0, "diverging=Treatment seg=1 countMismatch=False");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MapRenderTrace]")
+                && l.Contains("phase=Anomaly")
+                && l.Contains("reason=factory-parity")
+                && l.Contains("pid=rec-factory")
+                && l.Contains("recId=rec-factory")
+                && l.Contains("diverging=Treatment"));
+        }
+
+        [Fact]
+        public void EmitFactoryParity_Disabled_NoOp()
+        {
+            MapRenderTrace.ForceEnabledForTesting = false;
+            MapRenderTrace.EmitFactoryParity("rec-factory-off", 100.0, "diverging=EndUt seg=0");
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void EmitFactoryParity_RateLimitedPerRecording()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            // Two back-to-back emits for the SAME recording at the same clock: the second is rate-limited
+            // (one line only), proving the per-recording rate limit bounds a per-frame shadow loop.
+            MapRenderTrace.EmitFactoryParity("rec-rl", 100.0, "diverging=StartUt seg=0");
+            MapRenderTrace.EmitFactoryParity("rec-rl", 100.0, "diverging=StartUt seg=0");
+
+            int count = logLines.Count(l => l.Contains("reason=factory-parity") && l.Contains("pid=rec-rl"));
+            Assert.Equal(1, count);
+        }
+
         // ---- GAP-2: first-class Polyline-surface trace at the shared Driver's per-leg draw site ----
 
         [Fact]

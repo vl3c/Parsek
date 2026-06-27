@@ -427,6 +427,16 @@ namespace Parsek.MapRender
             GhostRenderChain chain = ChainAssembler.Build(
                 traj, idx, instanceKey: 0, wStart, wEnd, faithfulFallback: false, surface: surface,
                 orbitSegmentsOverride: overrideSegs, reaimAncestorBody: reaimAncestor);
+
+            // Phase 2 SHADOW byte-parity hook (migration plan §4). Wholly gated on
+            // MapRenderTrace.IsEnabled, so normal play pays nothing and the live draw is unchanged: this
+            // ONLY builds the new typed PhaseChain via the SAME inputs and ASSERTS its emitted geometry
+            // byte-matches the assembler's chain. On a geometry mismatch it emits the factory-parity
+            // Tier-C anomaly (rate-limited per recording). It NEVER drives a draw or mutates any surface.
+            if (MapRenderTrace.IsEnabled)
+                RunShadowFactoryParity(
+                    traj, idx, wStart, wEnd, surface, overrideSegs, reaimAncestor, chain);
+
             chainByPid[pid] = new CachedChain
             {
                 Signature = sig,
@@ -434,6 +444,43 @@ namespace Parsek.MapRender
                 HasReaimedSegments = chainHasReaimedSegments,
             };
             return chain;
+        }
+
+        // Phase 2 SHADOW byte-parity (migration plan §4): build the new typed PhaseChain from the SAME
+        // inputs the assembler consumed, and assert its emitted geometry byte-matches the assembler's
+        // chain. SHADOW ONLY - never drives a draw or mutates a surface; the caller already gated on
+        // MapRenderTrace.IsEnabled. On a geometry mismatch emits the factory-parity Tier-C anomaly
+        // (rate-limited per recording, carrying the diverging field). Tolerant of any factory throw: a
+        // shadow assertion must never destabilize the live (assembler-driven) render path, so a factory
+        // exception is logged and swallowed.
+        private static void RunShadowFactoryParity(
+            IPlaybackTrajectory traj, int idx, double wStart, double wEnd,
+            GhostTrajectoryPolylineRenderer.BodySurfaceProvider surface,
+            IReadOnlyList<OrbitSegment> overrideSegs, string reaimAncestor,
+            GhostRenderChain assemblerChain)
+        {
+            try
+            {
+                PhaseChain factoryChain = PhaseFactory.BuildPhaseChain(
+                    traj, idx, instanceKey: 0, wStart, wEnd, faithfulFallback: false, surface: surface,
+                    orbitSegmentsOverride: overrideSegs, reaimAncestorBody: reaimAncestor);
+                GeometryParityComparator.ParityResult result =
+                    GeometryParityComparator.Compare(factoryChain, assemblerChain);
+                if (!result.IsMatch)
+                {
+                    MapRenderTrace.EmitFactoryParity(
+                        traj.RecordingId, wStart,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "diverging={0} seg={1} countMismatch={2} {3}",
+                            result.DivergingField, result.SegmentIndex, result.CountMismatch,
+                            result.Detail ?? string.Empty));
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("MapRender", string.Format(CultureInfo.InvariantCulture,
+                    "shadow factory-parity threw for rec={0}: {1}", traj?.RecordingId ?? "?", ex.Message));
+            }
         }
 
         // The chain cache signature. The window token (|w{windowIndex}) is the load-bearing discriminator
