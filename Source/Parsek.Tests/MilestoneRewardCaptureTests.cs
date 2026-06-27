@@ -734,11 +734,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EmitStandaloneProgressReward_RepeatedRecordHits_BothStayEffective()
+        public void EmitStandaloneProgressReward_RepeatedRecordHits_CoalesceIntoOneAction_PreservingTotal()
         {
+            // Crash fix (2026-06-26): repeatable world-record nodes fire every physics frame
+            // during a sustained climb. They must coalesce into a SINGLE accumulating event /
+            // action instead of one-per-break — otherwise the ledger grows unboundedly and
+            // each per-break recalc re-walks it (O(n^2) freeze). The cumulative reward is
+            // preserved (4800 + 3200 = 8000), so there is no economic regression vs the old
+            // "both stay effective" behavior — only the action count collapses 2 -> 1.
             var node = new FakeProgressNode("RecordsDistance");
             GameStateRecorder.EmitStandaloneProgressReward(node, 4800.0, 2.0f, 0.0, ut: 100.0);
             GameStateRecorder.EmitStandaloneProgressReward(node, 3200.0, 1.0f, 0.0, ut: 200.0);
+
+            // Only one MilestoneAchieved event survives, carrying the summed reward.
+            Assert.Equal(1, CountEvents(GameStateEventType.MilestoneAchieved));
+            var seed = FindLastMilestoneEvent("RecordsDistance");
+            Assert.True(seed.HasValue);
+            Assert.Contains("funds=8000", seed.Value.detail);
+            Assert.Contains("rep=3", seed.Value.detail);
 
             var actions = new List<GameAction>
             {
@@ -769,11 +782,64 @@ namespace Parsek.Tests
             var recordActions = actions.Where(a =>
                 a.Type == GameActionType.MilestoneAchievement &&
                 a.MilestoneId == "RecordsDistance").ToList();
-            Assert.Equal(2, recordActions.Count);
-            Assert.All(recordActions, a => Assert.True(a.Effective));
+            Assert.Single(recordActions);
+            Assert.True(recordActions[0].Effective);
             Assert.True(milestones.IsMilestoneCredited("RecordsDistance"));
             Assert.Equal(1, milestones.GetCreditedCount());
+            // Cumulative reward preserved: 10000 + (4800 + 3200) = 18000.
             Assert.Equal(18000.0, funds.GetRunningBalance(), 1);
+        }
+
+        [Fact]
+        public void EmitStandaloneProgressReward_DistinctRecordNodes_DoNotCoalesceTogether()
+        {
+            // Coalescing is scoped per milestoneId: a RecordsSpeed break must not fold into a
+            // RecordsDistance seed. Each distinct record node keeps its own single action.
+            GameStateRecorder.EmitStandaloneProgressReward(
+                new FakeProgressNode("RecordsDistance"), 4800.0, 2.0f, 0.0, ut: 100.0);
+            GameStateRecorder.EmitStandaloneProgressReward(
+                new FakeProgressNode("RecordsSpeed"), 4800.0, 2.0f, 0.0, ut: 110.0);
+            GameStateRecorder.EmitStandaloneProgressReward(
+                new FakeProgressNode("RecordsDistance"), 3200.0, 1.0f, 0.0, ut: 200.0);
+
+            Assert.Equal(2, CountEvents(GameStateEventType.MilestoneAchieved));
+            Assert.Contains("funds=8000", FindLastMilestoneEvent("RecordsDistance").Value.detail);
+            Assert.Contains("funds=4800", FindLastMilestoneEvent("RecordsSpeed").Value.detail);
+        }
+
+        [Fact]
+        public void EmitStandaloneProgressReward_NonRecordMilestone_DoesNotCoalesce()
+        {
+            // Once-ever milestones (e.g. Mun/Landing) are NOT world records and must keep the
+            // legacy append behavior so the milestone-duplicate dedup in MilestonesModule
+            // (not coalescing) governs them.
+            var node = new FakeProgressNode("FirstLaunch");
+            GameStateRecorder.EmitStandaloneProgressReward(node, 1000.0, 1.0f, 0.0, ut: 100.0);
+            GameStateRecorder.EmitStandaloneProgressReward(node, 1000.0, 1.0f, 0.0, ut: 200.0);
+
+            // Two events appended (no coalescing). Dedup of the second happens later in the
+            // MilestonesModule walk, not here.
+            Assert.Equal(2, CountEvents(GameStateEventType.MilestoneAchieved));
+        }
+
+        [Fact]
+        public void EmitStandaloneProgressReward_ManyRecordBreaks_LedgerStaysBounded()
+        {
+            // Direct path (no live recorder, empty tag) forwards to the ledger. The original
+            // crash appended one ledger action per break (3 -> 284 in the report); after the
+            // fix the ledger holds exactly one MilestoneAchievement for the record node no
+            // matter how many breaks fire, with the reward accumulated.
+            LedgerOrchestrator.Initialize();
+            var node = new FakeProgressNode("RecordsDistance");
+            for (int i = 0; i < 50; i++)
+                GameStateRecorder.EmitStandaloneProgressReward(node, 100.0, 1.0f, 0.0, ut: 100.0 + i);
+
+            var recordActions = Ledger.Actions.Where(a =>
+                a.Type == GameActionType.MilestoneAchievement &&
+                a.MilestoneId == "RecordsDistance").ToList();
+            Assert.Single(recordActions);
+            Assert.Equal(5000f, recordActions[0].MilestoneFundsAwarded); // 50 * 100
+            Assert.Equal(1, CountEvents(GameStateEventType.MilestoneAchieved));
         }
 
         private static int CountEvents(GameStateEventType type)

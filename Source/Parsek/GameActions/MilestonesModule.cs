@@ -54,11 +54,7 @@ namespace Parsek
                 return;
 
             string milestoneId = action.MilestoneId ?? "";
-            bool isRepeatableRecordMilestone =
-                milestoneId == "RecordsAltitude" ||
-                milestoneId == "RecordsDepth" ||
-                milestoneId == "RecordsSpeed" ||
-                milestoneId == "RecordsDistance";
+            bool isRepeatableRecordMilestone = IsRepeatableWorldRecordMilestone(milestoneId);
 
             if (!creditedMilestones.Contains(milestoneId))
             {
@@ -113,6 +109,23 @@ namespace Parsek
                     $"Duplicate milestone '{milestoneId}' zeroed at UT={action.UT.ToString("F1", IC)}" +
                     $" (recording={action.RecordingId ?? "null"})");
             }
+        }
+
+        /// <summary>
+        /// True for KSP's repeatable world-record progress nodes (RecordsAltitude/
+        /// RecordsDepth/RecordsSpeed/RecordsDistance). Unlike once-ever milestones these
+        /// fire on every new record set during flight (essentially every physics frame of
+        /// a sustained climb). Single source of truth shared with the recorder-side
+        /// coalescing in <see cref="GameStateRecorder.TryCoalesceWorldRecordReward"/>, which
+        /// collapses the per-frame breaks into one accumulating action so the ledger stays
+        /// bounded and the recalculation engine is not driven once per frame.
+        /// </summary>
+        internal static bool IsRepeatableWorldRecordMilestone(string milestoneId)
+        {
+            return milestoneId == "RecordsAltitude"
+                || milestoneId == "RecordsDepth"
+                || milestoneId == "RecordsSpeed"
+                || milestoneId == "RecordsDistance";
         }
 
         /// <summary>

@@ -962,6 +962,20 @@ namespace Parsek
                 return;
             }
 
+            // Crash fix (2026-06-26): KSP's repeatable world-record nodes (RecordsAltitude/
+            // Depth/Speed/Distance) call AwardProgress on essentially every physics frame of
+            // a sustained climb. Without coalescing, each break appended a permanent ledger
+            // action + GameStateStore event and (on the direct path) forced a full recalc,
+            // so the action list grew unboundedly and each recalc re-walked it — an O(n^2)
+            // storm that froze the game on the first ascent to space. Fold every later break
+            // of one record node into the single seed event/action, accumulating the reward
+            // in place with no new action and no recalc.
+            if (MilestonesModule.IsRepeatableWorldRecordMilestone(milestoneId)
+                && TryCoalesceWorldRecordReward(milestoneId, funds, rep, sci))
+            {
+                return;
+            }
+
             var evt = new GameStateEvent
             {
                 ut = ut,
@@ -982,6 +996,102 @@ namespace Parsek
             // pre-recording FLIGHT standalone milestone awards reach the ledger too.
             if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Coalesces a repeatable world-record milestone reward (RecordsAltitude/Depth/
+        /// Speed/Distance) into the single existing MilestoneAchieved GameStateStore event —
+        /// and the matching ledger action, if the direct path already forwarded one — for the
+        /// same (milestoneId, recordingId) scope, accumulating funds/rep/sci in place.
+        ///
+        /// These nodes fire on every new record set during a sustained climb. Capturing each
+        /// break as a separate event + permanent ledger action with a full per-break recalc
+        /// produced an unbounded ledger and an O(n^2) recalc storm that froze the game on the
+        /// first ascent to space (crash report 2026-06-26). Coalescing bounds the ledger to
+        /// one action per record node per recording scope while preserving the cumulative
+        /// reward (ledger &lt;-&gt; KSP parity), and skips the per-break recalc entirely.
+        ///
+        /// Returns true when an existing seed event was found and accumulated — the caller
+        /// must NOT emit a new event, forward to the ledger, or recalc. Returns false on the
+        /// first break for a given (milestoneId, recordingId) scope, so the caller creates the
+        /// single seed event/action (and its one-time recalc) as usual.
+        ///
+        /// Stateless across save/reload: it reads the persisted store + ledger, so a record
+        /// break after a load accumulates into the reloaded seed rather than starting a new
+        /// one. Internal static for testability.
+        /// </summary>
+        internal static bool TryCoalesceWorldRecordReward(
+            string milestoneId, double funds, float rep, double sci)
+        {
+            if (string.IsNullOrEmpty(milestoneId))
+                return false;
+
+            string recordingId = ResolveCurrentRecordingTag() ?? "";
+
+            // Find the existing seed event for this (milestoneId, recordingId) scope.
+            var storeEvents = GameStateStore.Events;
+            GameStateEvent seed = default;
+            bool found = false;
+            for (int i = storeEvents.Count - 1; i >= 0; i--)
+            {
+                var e = storeEvents[i];
+                if (e.eventType != GameStateEventType.MilestoneAchieved) continue;
+                if (e.key != milestoneId) continue;
+                if ((e.recordingId ?? "") != recordingId) continue;
+                seed = e;
+                found = true;
+                break;
+            }
+            if (!found)
+                return false; // first break in this scope — caller creates the seed
+
+            // Accumulate into the store event's detail. Reuse the converter to parse the
+            // existing reward values out of the detail string (one parse contract).
+            var prior = GameStateEventConverter.ConvertMilestoneAchieved(seed, recordingId);
+            double newFunds = prior.MilestoneFundsAwarded + funds;
+            float newRep = prior.MilestoneRepAwarded + rep;
+            double newSci = prior.MilestoneScienceAwarded + sci;
+
+            string newDetail = BuildMilestoneDetail(newFunds, newRep, newSci);
+            if (!GameStateStore.UpdateEventDetail(seed, newDetail))
+            {
+                // The seed was found in the snapshot but the identity-keyed update missed —
+                // surface it and let the caller fall through to a fresh emit so the reward is
+                // not silently dropped.
+                ParsekLog.Warn("GameStateRecorder",
+                    $"TryCoalesceWorldRecordReward: store update missed for '{milestoneId}' " +
+                    $"scope='{recordingId}' — falling back to fresh emit");
+                return false;
+            }
+
+            // Accumulate the matching ledger action in place, if the direct path already
+            // forwarded a seed action for this scope. (No action exists while a recording is
+            // live; those events become a single action at commit time.)
+            if (LedgerOrchestrator.IsInitialized)
+            {
+                var actions = Ledger.Actions;
+                for (int i = actions.Count - 1; i >= 0; i--)
+                {
+                    var a = actions[i];
+                    if (a.Type != GameActionType.MilestoneAchievement) continue;
+                    if (a.MilestoneId != milestoneId) continue;
+                    if ((a.RecordingId ?? "") != recordingId) continue;
+                    a.MilestoneFundsAwarded += (float)funds;
+                    a.MilestoneRepAwarded += rep;
+                    a.MilestoneScienceAwarded += (float)sci;
+                    break;
+                }
+            }
+
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            ParsekLog.VerboseRateLimited("GameStateRecorder",
+                "worldrecord-coalesce-" + milestoneId + "-" + recordingId,
+                $"Coalesced world-record milestone '{milestoneId}' (scope='{recordingId}'): " +
+                $"+funds={funds.ToString("F0", ic)} +rep={rep.ToString("F1", ic)} " +
+                $"+sci={sci.ToString("F1", ic)} -> totals funds={newFunds.ToString("F0", ic)} " +
+                $"rep={newRep.ToString("F1", ic)} sci={newSci.ToString("F1", ic)} " +
+                "(no new action, no recalc)");
+            return true;
         }
 
         /// <summary>

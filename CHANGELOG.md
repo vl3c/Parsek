@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- Fixed a career freeze on the first climb to space (and sometimes during a Kerbin landing): KSP's repeatable world-record achievements (altitude, speed, distance) fire continuously while climbing, and Parsek was recording every single one as a separate entry and recomputing the whole career each time, which ground the game to a halt. World-record rewards are now tracked once per record type, so the climb stays smooth.
 - Re-aimed interplanetary transfers no longer render the heliocentric leg tilted out of plane: a re-flown Kerbin to Duna transfer now lies in Duna's orbital plane instead of climbing several degrees "upwards", and an inclined target is never wrongly flattened toward the ecliptic.
 
 ### Internals & Tests
