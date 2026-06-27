@@ -750,6 +750,63 @@ namespace Parsek.Tests
                 Parsek.MapRender.TracedPathTreatment.ShouldOwnLeg(directorActive));
         }
 
+        // --- Phase 4a: the Driver routes the owned-draw decision on the FLAG-AWARE signal ---
+
+        [Fact]
+        public void Driver_RoutesOwnedDrawOnFlagAwareSignal_NotRawSideChannel_SourceGate()
+        {
+            // Phase 4a re-homes the TracedPath owned-draw decision to the intent UNDER THE FLAG. The
+            // Driver's per-recording routing must read the flag-aware IsTracedPathOwnedThisFrame (which
+            // returns the legacy side-channel off the flag - byte-identical to today - and the intent
+            // source on the flag), NOT the raw IsDirectorTracedPathActive. A regression that reverted the
+            // routing to the raw side-channel (dropping the flag-ON re-home) is caught here.
+            string normalized = CollapseWhitespace(StripLineComments(ReadPolylineRendererSource()));
+            Assert.Contains(
+                "bool directorOwnsTracedPath = Parsek.MapRender.ShadowRenderDriver"
+                + ".IsTracedPathOwnedThisFrame(ghostPid, drawFrame);",
+                normalized);
+        }
+
+        private static string ReadPolylineRendererSource()
+        {
+            string root = System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = System.IO.Path.Combine(
+                root, "Source", "Parsek", "Display", "GhostTrajectoryPolylineRenderer.cs");
+            if (!System.IO.File.Exists(path))
+                path = System.IO.Path.Combine(
+                    root, "Parsek", "Display", "GhostTrajectoryPolylineRenderer.cs");
+            Assert.True(System.IO.File.Exists(path), $"Source file not found at {path}");
+            return System.IO.File.ReadAllText(path);
+        }
+
+        private static string StripLineComments(string source)
+        {
+            var sb = new System.Text.StringBuilder(source.Length);
+            foreach (string line in source.Split('\n'))
+            {
+                int idx = line.IndexOf("//", StringComparison.Ordinal);
+                sb.Append(idx >= 0 ? line.Substring(0, idx) : line);
+                sb.Append('\n');
+            }
+            return sb.ToString();
+        }
+
+        private static string CollapseWhitespace(string source)
+        {
+            var sb = new System.Text.StringBuilder(source.Length);
+            bool inWs = false;
+            foreach (char c in source)
+            {
+                if (char.IsWhiteSpace(c))
+                {
+                    if (!inWs) { sb.Append(' '); inWs = true; }
+                }
+                else { sb.Append(c); inWs = false; }
+            }
+            return sb.ToString();
+        }
+
         // --- Phase 8b.2 / 8e S3b / 8e S4: ownership-signal authority (sole actual-draw set) ---
 
         [Theory]

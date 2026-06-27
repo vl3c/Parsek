@@ -3764,13 +3764,24 @@ namespace Parsek.Display
                     // Phase 8b.1: resolve this recording's live ghost map pid ONCE (committed-list
                     // index -> ghost vessel pid; 0 when the recording has no proto-vessel ghost, e.g. an
                     // atmospheric-only recording). The TracedPath treatment ownership decision below is
-                    // pid-keyed (ShadowRenderDriver.IsDirectorTracedPathActive), the SAME predicate the
-                    // icon-drive / orbit-line patches read to suppress the stock proto. Resolving here,
-                    // outside the leg loop, keeps the per-leg routing cheap. pid 0 (no ghost) is never
-                    // stamped by the shadow, so those recordings always take the Driver-direct path.
+                    // pid-keyed, the SAME freshness contract the icon-drive / orbit-line patches read to
+                    // suppress the stock proto. Resolving here, outside the leg loop, keeps the per-leg
+                    // routing cheap. pid 0 (no ghost) is never stamped by the shadow, so those recordings
+                    // always take the Driver-direct path.
+                    //
+                    // Phase 4a (migration plan §6.6a - re-home the TracedPath draw to the intent): the
+                    // owned-draw routing reads the FLAG-AWARE IsTracedPathOwnedThisFrame. Flag OFF
+                    // (default): it returns IsDirectorTracedPathActive (the legacy side-channel) so this is
+                    // BYTE-IDENTICAL to today - the prior-rewrite routing is untouched. Flag ON: it sources
+                    // the decision from the spine's GhostRenderIntent (IsDirectorTracedPathActiveFromIntent),
+                    // so the owned TracedPath leg is drawn from the intent rather than the autonomous walk's
+                    // side-channel, and the autonomous Driver-direct draw stands down for it. The two
+                    // underlying stamps are written from the SAME intent in the SAME shadow pass, so the
+                    // proto/marker consumers (which keep reading IsDirectorTracedPathActive) never disagree
+                    // with this routing - no double-draw, no gap, in either flag state.
                     uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
                     bool directorOwnsTracedPath =
-                        Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(ghostPid, drawFrame);
+                        Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame(ghostPid, drawFrame);
 
                     bool anyDrawn = false;
                     // Disjoint-leg guard (plan 4.2): the leg index the PRIMARY head landed on this frame (-1 when

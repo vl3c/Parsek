@@ -199,6 +199,34 @@ to the treatment. **Tests:** in-game — polyline renders identically (oracle gr
 atmospheric/non-orbital regression scenarios. **Grep gate:** `grep-audit-traced-path-bypid` covering
 **both files** (zero `tracedPathByPid` AND zero `drewNonOrbitalLegRecordings` refs after delete).
 
+**IMPLEMENTED (Phase 4a, behind `MapRenderPhaseSpineDrive`, ADDITIVE / flag-reversible — side-channel
+deletions stay Phase 5):** the TracedPath owned-draw decision is re-homed to the spine's
+`GhostRenderIntent` *under the flag* without deleting anything.
+- **Important entanglement discovered.** A prior, fully-merged rewrite (the 8b.1 / 8e-S4 path) already
+  routes the TracedPath leg through the OWNED `TracedPathTreatment.TryDrawOwnedLeg` (the `onPreCull` host)
+  whenever the always-on shadow decides Visible+TracedPath for the ghost, keyed on `tracedPathByPid` via
+  `IsDirectorTracedPathActive`. So the BEHAVIORAL re-home (owned draw + autonomous direct stand-down +
+  proto/marker suppression) is ALREADY live in flag-OFF play; `tracedPathByPid` is stamped unconditionally
+  by `RunFrame`, independent of the spine flag. A clean "stand down the autonomous draw only when flag-ON"
+  branch is therefore either a no-op (both states already take the owned path) or a flag-OFF parity break
+  (re-routing flag-OFF to the autonomous-direct path, which would also desync the orbit-line/marker
+  consumers that read the same `IsDirectorTracedPathActive`). This is the entanglement the phase brief
+  flagged; rather than force it, 4a delivers the meaningful, non-no-op part:
+- **What 4a actually changed (additive).** `ShadowRenderDriver` gained an intent-sourced sibling stamp
+  `tracedPathIntentByPid` (written ONLY when `PhaseSpineDriveActive`, from the SAME intent in the SAME
+  `RunFrame` pass as the legacy `tracedPathByPid`), the predicate
+  `IsDirectorTracedPathActiveFromIntent`, and the FLAG-AWARE selector `IsTracedPathOwnedThisFrame` (flag ON
+  → intent source; flag OFF → legacy `IsDirectorTracedPathActive`, byte-identical to today). The polyline
+  `Driver`'s per-recording routing now reads `IsTracedPathOwnedThisFrame` instead of the raw side-channel.
+  Because the two stamps are byte-identical on the flag, the flag-ON owned routing never disagrees with the
+  proto/marker consumers (which still read `IsDirectorTracedPathActive`): exactly one painter, no
+  double-draw, no gap. NOTHING was deleted — `tracedPathByPid`, `drewNonOrbitalLegRecordings`, the
+  autonomous Driver, `TryDrawOwnedLeg`, the legacy marker anchoring all stay intact for the flag-OFF path
+  and Phase 5. Tests: `ShadowRenderDriverTests` (flag-aware selection, flag-gated stamp source-gates,
+  the equal-stamp no-double/no-gap invariant) + a `GhostTrajectoryPolylineBuildTests` Driver routing
+  source-gate + the `TracedPathOwnedDrawInGameTest` (flag ON/OFF, exactly-one-painter over a live
+  non-orbital ghost). Phase 5's `tracedPathIntentByPid` must be deleted alongside `tracedPathByPid`.
+
 ### 6b — IMGUI marker → `SuppressedMarker` treatment-owned
 **What changes:** the marker draw moves into a `SuppressedMarker` treatment; the
 `ghostsWithSuppressedIcon`/`IsIconSuppressed` floor becomes that treatment's input (KEPT, re-homed —
