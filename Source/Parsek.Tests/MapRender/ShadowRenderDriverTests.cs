@@ -323,14 +323,19 @@ namespace Parsek.Tests
         // ---- Source gate: RunFrame no longer DROPS an overlap member (the skip is lifted) ----
 
         private static string ReadShadowRenderDriverSource()
+            => ReadMapRenderSource("ShadowRenderDriver.cs");
+
+        // Read a Source/Parsek/MapRender/<fileName> file for a source-text gate. Shared by the spine-swap
+        // source gates that span the THREE spine files (ShadowRenderDriver + ChainSampler + GhostRenderDirector).
+        private static string ReadMapRenderSource(string fileName)
         {
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string path = Path.Combine(root, "Source", "Parsek", "MapRender", "ShadowRenderDriver.cs");
+            string path = Path.Combine(root, "Source", "Parsek", "MapRender", fileName);
             if (!File.Exists(path))
             {
                 // Fallback layout (mirrors MapPresenceSeamTests): some checkouts root at Parsek/.
-                path = Path.Combine(root, "Parsek", "MapRender", "ShadowRenderDriver.cs");
+                path = Path.Combine(root, "Parsek", "MapRender", fileName);
             }
             Assert.True(File.Exists(path), $"Source file not found at {path}");
             return File.ReadAllText(path);
@@ -365,6 +370,83 @@ namespace Parsek.Tests
                 else { sb.Append(c); inWs = false; }
             }
             return sb.ToString();
+        }
+
+        // ---- Phase 3 spine swap: the new default-OFF flag + the spine-select wiring ----
+
+        [Fact]
+        public void PhaseSpineDriveFlag_DefaultsOff()
+        {
+            // The migration plan REQUIRES the new spine be behind a default-OFF flag so flag-OFF play is
+            // byte-identical to today. A regression that flips the default to true would silently swap the
+            // live spine for every install.
+            Assert.False(MapRenderFlags.MapRenderPhaseSpineDrive);
+        }
+
+        [Fact]
+        public void PhaseSpineDriveActive_IsConstOrTestSeam_AndDefaultsOff()
+        {
+            // The single source of truth for "drive off the PhaseChain this frame" is the const OR the
+            // in-game test seam. With both off (normal play) it is false (flag-OFF). The seam flips it on
+            // for an in-game test without a rebuild; it must restore.
+            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
+            try
+            {
+                ShadowRenderDriver.ForceSpineDriveForTesting = false;
+                Assert.False(ShadowRenderDriver.PhaseSpineDriveActive); // const false + seam false -> off
+                ShadowRenderDriver.ForceSpineDriveForTesting = true;
+                Assert.True(ShadowRenderDriver.PhaseSpineDriveActive);  // seam ON forces the spine on
+            }
+            finally
+            {
+                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
+            }
+        }
+
+        [Fact]
+        public void RunFrame_FlagOffPath_SamplesAssemblerChain_NotPhaseChain_SourceGate()
+        {
+            // Flag-OFF must drive the LEGACY assembler GhostRenderChain (byte-identical to pre-Phase-3).
+            // The source carries BOTH spine branches behind PhaseSpineDriveActive; this gate proves the
+            // selector exists (the flag-ON branch samples the phaseChain) and the flag-OFF else-branch
+            // samples the assembler `chain`. A regression that hard-wired the PhaseChain spine (dropping
+            // the assembler else-branch) is caught here.
+            string normalized = CollapseWhitespace(StripLineComments(ReadShadowRenderDriverSource()));
+
+            // The selector reads PhaseSpineDriveActive (the const-OR-seam gate), not the raw const, and the
+            // flag-ON branch samples the phaseChain while the flag-OFF else-branch samples the assembler chain.
+            Assert.Contains("if (PhaseSpineDriveActive && phaseChain != null)", normalized);
+            Assert.Contains("ChainSampler.Sample(phaseChain, currentUT, units)", normalized);
+            Assert.Contains("ChainSampler.Sample(chain, currentUT, units)", normalized);
+        }
+
+        // The swapped spine is THREE files (ShadowRenderDriver + ChainSampler + GhostRenderDirector); the
+        // deorbit-decoupling gate must scan ALL of them, not just the driver. A future edit that pulled the
+        // deorbit clock into the sampler or the director (e.g. a sampler that consumed the transfer-leg head
+        // UT) would re-introduce the Phase-3<->Phase-6 coupling this gate forbids, and these per-file
+        // assertions would FAIL. All three are currently clean.
+        [Theory]
+        [InlineData("ShadowRenderDriver.cs")]
+        [InlineData("ChainSampler.cs")]
+        [InlineData("GhostRenderDirector.cs")]
+        public void SwappedSpine_DoesNotConsumeDeorbitClock_SourceGate(string spineFile)
+        {
+            // The deorbit-head / captureShift clock is consumed only by the legacy polyline Driver + the
+            // span clock, NOT the swapped spine (no Phase-3<->Phase-6 coupling). Confirm each spine file
+            // never references those symbols, so Phase 3 parity does not hide a clock coupling.
+            string normalized = CollapseWhitespace(StripLineComments(ReadMapRenderSource(spineFile)));
+            Assert.DoesNotContain("ResolveTransferLegHeadUT", normalized);
+            Assert.DoesNotContain("deorbitHead", normalized);
+            Assert.DoesNotContain("captureShift", normalized);
+        }
+
+        [Fact]
+        public void PhaseSpineDriveFlag_IsNotTheRemovedMapRenderDirectorDriveName()
+        {
+            // The new flag MUST NOT reuse the removed `mapRenderDirectorDrive` name (a grep-audit forbids
+            // it). Lock the new symbol name so a rename to the forbidden token is caught at the test layer
+            // too (the grep-audit catches the source; this documents the intent).
+            Assert.DoesNotContain("mapRenderDirectorDrive", nameof(MapRenderFlags.MapRenderPhaseSpineDrive));
         }
 
         [Fact]
