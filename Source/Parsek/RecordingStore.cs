@@ -2770,7 +2770,7 @@ namespace Parsek
         /// purged set) are removed too. Recording ids still present in committed
         /// history are preserved.
         /// </summary>
-        public static void DiscardPendingTree()
+        public static void DiscardPendingTree(bool preserveIrreversibleLiveGameplay = true)
         {
             if (pendingTree == null)
             {
@@ -2810,6 +2810,23 @@ namespace Parsek
             // the discarded tree. Use the actual pending tree instance and the
             // pending-only recording id set so same-id committed trees and
             // committed-overlap recordings are preserved.
+            // Preserve irreversible live-gameplay economy (completed/failed/cancelled
+            // contracts, achieved milestones, collected science) BEFORE the purge/clear
+            // below drops it. KSP applied it irreversibly during the live flight, so the
+            // ledger must keep it or it diverges from KSP (re-listing a completed contract
+            // as active in the in-progress tab + a re-completable duplicate reward + a
+            // silent fund drop). Scoped to pending-only ids (committed-overlap excluded).
+            //
+            // ONLY on a genuine live discard. The abandon path
+            // (DiscardPendingTreeAndAbandonDeferredFlightResults: quickload-backwards,
+            // revert, and stale-pending-from-a-different-save on load) passes
+            // preserveIrreversibleLiveGameplay=false: there KSP's economy is rolled back
+            // (or belongs to another save), so preserving would diverge the ledger the
+            // OTHER way (credit economy KSP no longer reflects / cross-save contamination).
+            if (preserveIrreversibleLiveGameplay && idsToPurge.Count > 0)
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
+                    idsToPurge, $"DiscardPendingTree '{pendingTree.TreeName}'");
+
             TreeDiscardPurge.PurgeTree(pendingTree, idsToPurge);
             if (idsToPurge.Count > 0)
                 GameStateStore.PurgeEventsForRecordings(idsToPurge, $"DiscardPendingTree '{pendingTree.TreeName}'");
@@ -2962,6 +2979,12 @@ namespace Parsek
             int deletedSidecars = 0;
             if (ownedIds.Count > 0)
             {
+                // Preserve irreversible live-gameplay economy (contracts/milestones/science)
+                // for the discarded segment subtree before the purge drops it — KSP applied
+                // it live and the ledger must keep it. Runs once here, before the disposition
+                // branch split below, so both the clone and prune branches are covered.
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
+                    ownedIds, $"SwitchSegment scoped discard sess={sessionIdStr}");
                 purgedEvents = GameStateStore.PurgeEventsForRecordings(
                     ownedIds,
                     $"SwitchSegment scoped discard sess={sessionIdStr}");

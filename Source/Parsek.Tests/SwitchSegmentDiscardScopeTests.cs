@@ -42,6 +42,8 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
+            // The discard-preserves-economy re-home writes direct actions to the ledger.
+            LedgerOrchestrator.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -50,6 +52,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             ParsekScenario.SetInstanceForTesting(null);
+            LedgerOrchestrator.ResetForTesting();
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             GameStateStore.ResetForTesting();
@@ -166,6 +169,42 @@ namespace Parsek.Tests
             };
             scenario.ArmSwitchSegmentSession(session);
             return (scenario, session, tree, parent, segment, bp);
+        }
+
+        // -----------------------------------------------------------------
+        // Discard-preserves-economy: a contract completed live during the
+        // discarded segment is re-homed to the ledger as a direct action.
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Discard_RehomesSegmentContractCompletion_ToLedgerAsDirectAction()
+        {
+            var (scenario, session, tree, parent, segment, bp) =
+                BuildPendingTreeWithSegment();
+
+            // A contract completed live during the segment is tagged to the segment id.
+            var complete = new GameStateEvent
+            {
+                ut = 180.0,
+                eventType = GameStateEventType.ContractCompleted,
+                key = "guid-seg",
+                recordingId = segment.RecordingId,
+            };
+            GameStateStore.AddEvent(ref complete);
+
+            RecordingStore.StashPendingTree(tree);
+
+            string reason;
+            RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+
+            // The tagged store event is purged, but the completion survives as a DIRECT
+            // ledger action so the contract stays resolved (not re-listed active).
+            Assert.DoesNotContain(GameStateStore.Events, e =>
+                e.eventType == GameStateEventType.ContractCompleted && e.key == "guid-seg");
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ContractComplete
+                && a.ContractId == "guid-seg"
+                && string.IsNullOrEmpty(a.RecordingId));
         }
 
         // -----------------------------------------------------------------
