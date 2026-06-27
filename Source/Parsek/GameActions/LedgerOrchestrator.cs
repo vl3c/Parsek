@@ -2953,6 +2953,11 @@ namespace Parsek
         /// (ContractCompleted/Failed/Cancelled, MilestoneAchieved) and their collected
         /// science subjects into DIRECT ledger actions (recordingId cleared), so the ledger
         /// keeps what KSP applied while the discard still drops the ghost / trajectory. The
+        /// contract / milestone reward (funds / rep / science) rides the re-homed action
+        /// itself (ConvertContractCompleted / ConvertMilestoneAchieved read it from the event
+        /// detail), so one re-homed row preserves both the lifecycle state and the reward —
+        /// no separate FundsChanged / ReputationChanged re-home is needed (that would
+        /// double-count). The
         /// caller purges the now-redundant tagged store events afterward (the two purging
         /// cores) or leaves them orphaned (AutoDiscardActiveTreeCore — economy-safe: they
         /// are not recalc inputs and ConvertEvents' cross-recording scope-skip prevents a

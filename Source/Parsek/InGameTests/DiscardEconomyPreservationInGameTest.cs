@@ -204,6 +204,16 @@ namespace Parsek.InGameTests
             {
                 // Restore: drop the appended (seeded + re-homed) actions/events, re-patch
                 // KSP from the restored ledger, then force the live pools back exactly.
+                // Tail-truncation assumes everything this test added lands at the tail and
+                // nothing is removed from the MIDDLE of the live list between snapshot and
+                // restore. That holds here: RecalculateAndPatch walks a COPY (never reorders
+                // Ledger.Actions), the synthetic contract has no snapshot so PatchContracts
+                // never registers/removes a real contract, and no science is seeded. The one
+                // edge that could shrink the list mid-window (PurgeGhostOnlyActionsFromLedger
+                // on a pre-fix save carrying ghost-only-tagged actions) is fully covered by
+                // RestoreBatchFlightBaselineAfterExecution, which reloads the entire career
+                // (ledger included) from the clean baseline after the test — so the persisted
+                // save is always restored and any in-memory residue is bounded to that window.
                 if (RecordingStore.HasPendingTree)
                     RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
                 Ledger.TruncateActionsForTesting(beforeActions);

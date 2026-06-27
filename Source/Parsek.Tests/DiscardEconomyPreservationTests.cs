@@ -172,6 +172,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Rehome_ContractCompletion_PreservesRewardMagnitude_NoSilentFundDrop()
+        {
+            // The bug included a silent fund drop: the ledger never credited the purged
+            // completion. The re-homed action must carry the contract's funds/rep/sci reward
+            // so the next recalc credits it (the "no silent fund drop" guarantee, headless).
+            AddTagged(TaggedEvent(GameStateEventType.ContractCompleted, "guid-reward", 200.0, "rec-A",
+                "fundsReward=2080;repReward=1;sciReward=1"));
+
+            LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
+                new HashSet<string> { "rec-A" }, "test");
+
+            var a = Ledger.Actions.SingleOrDefault(x =>
+                x.Type == GameActionType.ContractComplete && x.ContractId == "guid-reward");
+            Assert.NotNull(a);
+            Assert.Equal(2080f, a.FundsReward);
+            Assert.Equal(1f, a.RepReward);
+            Assert.Equal(1f, a.ScienceReward);
+        }
+
+        [Fact]
+        public void Rehome_ScienceSubject_AlreadyCommitted_NotDoubleBanked()
+        {
+            // Pre-commit a science subject (committed cache populated), then re-home the SAME
+            // subjectId on discard. CommitScienceSubject is subjectId-keyed and max-not-
+            // additive, so re-homing an already-banked subject must not double the value.
+            GameStateStore.CommitScienceActions(new List<GameAction>
+            {
+                new GameAction
+                {
+                    Type = GameActionType.ScienceEarning,
+                    SubjectId = "sci-dup",
+                    ScienceAwarded = 12.5f,
+                    SubjectMaxValue = 30f,
+                    UT = 100.0,
+                },
+            });
+
+            GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = "sci-dup",
+                science = 12.5f,
+                subjectMaxValue = 30f,
+                captureUT = 120.0,
+                reasonKey = "RecoveryAsh",
+                recordingId = "rec-A",
+            });
+
+            LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
+                new HashSet<string> { "rec-A" }, "test");
+
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("sci-dup", out float committed));
+            Assert.Equal(12.5f, committed); // max-not-additive: still 12.5, never 25
+        }
+
+        [Fact]
         public void IsIrreversibleLiveGameplayEvent_OnlyTerminalContractsAndMilestones()
         {
             Assert.True(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.ContractCompleted));
