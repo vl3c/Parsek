@@ -1947,5 +1947,56 @@ namespace Parsek.Tests
         //   2. Triggering OnVesselSwitching (vessel switch in flight)
         //   3. Verifying that the subsequent OnLoad does NOT run revert cleanup
         // This must be verified via in-game integration testing, not unit tests.
+
+        // ============================================================
+        // CommitTree duplicate-skip must not wipe another recording's science
+        // ============================================================
+
+        // A redundant re-commit of an already-committed tree hits CommitTree's
+        // duplicate-skip early return. It must NOT blanket-clear
+        // PendingScienceSubjects: a DIFFERENT live recording's uncommitted science
+        // would be silently dropped (same footgun the discard-scoped-clear fix
+        // addressed). The commit caller's scoped NotifyLedgerTreeCommitted handles
+        // pending science.
+        [Fact]
+        public void CommitTree_DuplicateSkip_PreservesOtherRecordingUncommittedScience()
+        {
+            GameStateRecorder.PendingScienceSubjects.Clear();
+            try
+            {
+                var rec = MakeRecording("rec-dup", "tree-dup");
+                var tree = new RecordingTree
+                {
+                    Id = "tree-dup",
+                    TreeName = "Dup Tree",
+                    RootRecordingId = rec.RecordingId,
+                    ActiveRecordingId = rec.RecordingId,
+                };
+                tree.Recordings[rec.RecordingId] = rec;
+                // Commit the SAME object so the re-commit below hits ReferenceEquals.
+                RecordingStore.AddCommittedTreeForTesting(tree);
+
+                // A DIFFERENT live recording's still-uncommitted science.
+                GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+                {
+                    subjectId = "sci-other",
+                    science = 4f,
+                    subjectMaxValue = 20f,
+                    captureUT = 120.0,
+                    reasonKey = "RecoveryAsh",
+                    recordingId = "rec-other-live",
+                });
+
+                // Re-commit the same tree object: ReferenceEquals duplicate-skip early return.
+                RecordingStore.CommitTree(tree);
+
+                Assert.Contains(GameStateRecorder.PendingScienceSubjects,
+                    s => s.subjectId == "sci-other");
+            }
+            finally
+            {
+                GameStateRecorder.PendingScienceSubjects.Clear();
+            }
+        }
     }
 }

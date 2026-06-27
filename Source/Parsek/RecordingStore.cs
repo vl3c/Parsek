@@ -972,7 +972,11 @@ namespace Parsek
                     if (ReferenceEquals(committedTrees[i], tree))
                     {
                         Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
-                        GameStateRecorder.PendingScienceSubjects.Clear();
+                        // Do NOT blanket-Clear PendingScienceSubjects here: this is a no-op
+                        // duplicate skip (nothing was committed), and every commit caller runs
+                        // the scoped LedgerOrchestrator.NotifyLedgerTreeCommitted right after,
+                        // which routes this tree's pending science and PRESERVES a DIFFERENT live
+                        // recording's uncommitted science. A blanket clear silently dropped it.
                         ClearRewindReplayTargetScope();
                         return;
                     }
@@ -1027,7 +1031,9 @@ namespace Parsek
                         Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
                         ParsekLog.Verbose("RecordingStore",
                             $"CommitTree: duplicate tree id='{tree.Id}' skipped reason={replaceReason}");
-                        GameStateRecorder.PendingScienceSubjects.Clear();
+                        // Do NOT blanket-Clear PendingScienceSubjects here (see the ReferenceEquals
+                        // duplicate-skip above): the caller's scoped NotifyLedgerTreeCommitted handles
+                        // pending science and preserves a different recording's uncommitted science.
                         ClearRewindReplayTargetScope();
                         return;
                     }
