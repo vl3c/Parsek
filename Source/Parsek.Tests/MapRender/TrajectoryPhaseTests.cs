@@ -128,6 +128,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ConicPhase_FrameBodyName_PrefersAnchorOverConicAndCtx()
+        {
+            // Precedence pin: anchor body > conic body > ctx body. All three DISAGREE, so a wrong
+            // ResolveFrameBodyName would leak the conic's "Sun" or the ctx's "Kerbin" into the segment.
+            var conic = Conic("Sun", 30, 40);
+            var p = new ArrivalLoiterPhase(
+                Id(0), SegmentProvenance.Recorded, new AnchorFrame.BodyAnchor("Duna"), 30, 40, conic);
+            var s = p.Emit(Ctx(35, "Kerbin")).Single();
+            Assert.Equal("Duna", s.FrameBodyName); // BodyAnchor wins over conic "Sun" and ctx "Kerbin"
+        }
+
+        [Fact]
+        public void ConicPhase_FrameBodyName_FallsToConicBody_WhenAnchorProvidesNoBodyName()
+        {
+            // A non-BodyAnchor anchor provides no body name, so the conic body wins over the ctx body
+            // (anchor > conic > ctx -> conic). A wrong fall-through would leak the ctx's "Kerbin".
+            var conic = Conic("Sun", 30, 40);
+            var p = new ArrivalLoiterPhase(
+                Id(0), SegmentProvenance.Recorded,
+                new AnchorFrame.RecordedAnchorTrajectory("rec-A"), 30, 40, conic);
+            var s = p.Emit(Ctx(35, "Kerbin")).Single();
+            Assert.Equal("Sun", s.FrameBodyName); // conic "Sun" wins over ctx "Kerbin"
+        }
+
+        [Fact]
         public void TracedPhase_Emits_OneTracedPathSegment_NoConic()
         {
             var p = new DescentPhase(Id(0), SegmentProvenance.Recorded, new AnchorFrame.BodyAnchor("Duna"), 40, 50);

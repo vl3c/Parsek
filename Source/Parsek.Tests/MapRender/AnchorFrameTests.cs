@@ -152,6 +152,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ParentChild_PrimaryHasEnoughSamplesButUtOutOfRange_FallsToSecondaryWhenItCovers()
+        {
+            // The loop-anchored-chain case the contract calls out: the body-fixed PRIMARY has >=2
+            // samples BUT the playback UT is past its endpoint range, while the anchor-local SECONDARY
+            // still covers the UT -> AnchorLocalSecondary (an out-of-range primary must NOT block the
+            // covering secondary, nor clamp the stale primary sample).
+            var s = AnchorFrameResolver.ResolveParentAnchoredChild(
+                ut: 250,
+                bodyFixedSampleCount: 3, bodyFixedStartUt: 100, bodyFixedEndUt: 200,
+                hasAnchorLocalFrames: true, anchorLocalStartUt: 100, anchorLocalEndUt: 300);
+            Assert.Equal(AnchorFrameResolver.ParentChildSurface.AnchorLocalSecondary, s);
+        }
+
+        [Fact]
         public void ParentChild_OutOfRangeBothSurfaces_Retires()
         {
             var s = AnchorFrameResolver.ResolveParentAnchoredChild(
