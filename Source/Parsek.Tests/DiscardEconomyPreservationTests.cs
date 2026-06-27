@@ -414,5 +414,96 @@ namespace Parsek.Tests
 
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
         }
+
+        // --- CommitTree duplicate-skip: scope the pending-science clear too ---------
+        // The two duplicate-skip early-returns ("tree already committed") in
+        // RecordingStore.CommitTree used a blanket PendingScienceSubjects.Clear(). Since
+        // CommitTree does NOT consume science itself (the callers follow it with
+        // NotifyLedgerTreeCommitted, which is scoped per-recording), a duplicate-skip's
+        // blanket clear left NotifyLedgerTreeCommitted running on an empty list and
+        // silently dropped a DIFFERENT live recording's tagged uncommitted science. These
+        // mirror the discard-core survival tests above for that degenerate re-commit path.
+
+        private static Recording CommitRec(string id, string treeId)
+        {
+            return new Recording { RecordingId = id, VesselName = id, TreeId = treeId };
+        }
+
+        [Fact]
+        public void CommitTree_DuplicateSkipStrictReject_DropsOwnUncommitted_PreservesOtherAndCommitted()
+        {
+            ParsekScenario.ResetInstanceForTesting();
+
+            // Existing committed tree: 1 committed recording + 1 BP.
+            var head = CommitRec("rec-head", "tree-dup");
+            var existing = new RecordingTree
+            {
+                Id = "tree-dup",
+                TreeName = "dup",
+                RootRecordingId = "rec-head",
+                ActiveRecordingId = "rec-head",
+                BranchPoints = new List<BranchPoint> { new BranchPoint { Id = "bp-keep", Type = BranchPointType.Undock } },
+            };
+            existing.AddOrReplaceRecording(head);
+            RecordingStore.AddCommittedInternal(head);
+            RecordingStore.AddCommittedTreeForTesting(existing);
+
+            // Incoming duplicate (same id): carries an extra UNCOMMITTED fork but is
+            // missing the existing BP, so the strict gate rejects it -> duplicate-skip.
+            var incoming = new RecordingTree
+            {
+                Id = "tree-dup",
+                TreeName = "dup",
+                RootRecordingId = "rec-head",
+                ActiveRecordingId = "rec-fork",
+                BranchPoints = new List<BranchPoint>(),
+            };
+            incoming.AddOrReplaceRecording(CommitRec("rec-head", "tree-dup"));
+            incoming.AddOrReplaceRecording(CommitRec("rec-fork", "tree-dup"));
+
+            // Pending science: the duplicate tree's own uncommitted fork, its committed
+            // head, and a DIFFERENT live recording.
+            GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-fork", "rec-fork", 100.0));
+            GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-head", "rec-head", 110.0));
+            GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-other", "rec-OTHER", 120.0));
+
+            RecordingStore.CommitTree(incoming);
+
+            // Only the duplicate tree's own UNCOMMITTED subject is dropped.
+            Assert.DoesNotContain(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-fork");
+            // The committed-id subject is skipped (committed science is already a ledger
+            // action), and a DIFFERENT live recording's uncommitted science SURVIVES.
+            // A blanket Clear() here silently lost both.
+            Assert.Contains(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-head");
+            Assert.Contains(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-other");
+        }
+
+        [Fact]
+        public void CommitTree_DuplicateSkipReferenceEqual_DropsOwnUncommitted_PreservesOther()
+        {
+            ParsekScenario.ResetInstanceForTesting();
+
+            // Same tree object already in committedTrees -> the ReferenceEquals branch.
+            var tree = new RecordingTree
+            {
+                Id = "tree-ref",
+                TreeName = "ref",
+                RootRecordingId = "rec-r1",
+                ActiveRecordingId = "rec-r1",
+            };
+            tree.AddOrReplaceRecording(CommitRec("rec-r1", "tree-ref"));
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-r1", "rec-r1", 100.0));
+            GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-other", "rec-OTHER", 110.0));
+
+            RecordingStore.CommitTree(tree);
+
+            // This tree's own pending subject is dropped scoped...
+            Assert.DoesNotContain(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-r1");
+            // ...while a DIFFERENT live recording's uncommitted science SURVIVES (a blanket
+            // Clear() here wiped the whole list).
+            Assert.Contains(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-other");
+        }
     }
 }
