@@ -35,6 +35,40 @@ namespace Parsek
         internal const double AnomalyWindowSeconds = 5.0;
         internal const double DestroyWindowSeconds = 1.0;
 
+        // ---- New Tier-C anomaly reason tokens (design §14) ----
+        //
+        // Canonical reason strings for the new render-overhaul anomaly classes, passed as the
+        // `reason` argument to EmitAnomaly so a grep finds them by a single stable token. `parity-drift`
+        // is now WIRED + LIVE: it is fired by the gated probe sampler
+        // MapRenderProbe.TrySampleAndEmitFaithfulOrbitParity (the Unity geometry sampler driving
+        // RenderParityOracle in Faithful mode) whenever a faithful ghost's rendered orbit diverges from
+        // its recorded reference beyond tolerance. The OTHER FOUR tokens below
+        // (rigid-seam-tangent-discontinuity / retire-not-held / anchor-resolve-fail / clock-not-ready)
+        // remain WIRED-BUT-INERT: the constants exist (and EmitAnomaly already routes any reason through
+        // the gated sink) so later phases emit them without re-touching this file; no caller fires those
+        // four yet.
+        //
+        //  - parity-drift: the geometry the pipeline actually RENDERED diverged from the reference it
+        //    was supposed to draw (recorded in Faithful mode / the producer's intended arc in
+        //    Synthesized mode) beyond tolerance - the recorded-vs-rendered oracle's anomaly. This is a
+        //    DISTINCT axis from GhostRenderReconciler's intent-vs-old-truth `decision-vs-old-truth` /
+        //    `gap-vs-retire`; the two coexist through Phases 0-8.
+        //  - rigid-seam-tangent-discontinuity: a Rigid seam's two sides (e.g. capture-orbit velocity
+        //    direction at SOI/atmosphere entry vs the recorded descent's first-sample tangent) diverged
+        //    beyond tolerance at the G1 descent re-stitch (Phase 6).
+        //  - retire-not-held: a terminal / out-of-range member HELD its last visible intent across an
+        //    interior gap where it should have RETIRED (rendered nothing) - the inverse of the
+        //    held-across-gap contract (design §6.4 / §10.7).
+        //  - anchor-resolve-fail: a BodyAnchor or parent-anchor resolution failed (missing body /
+        //    unresolvable parent trajectory) -> the phase fails closed to faithful rather than NRE.
+        //  - clock-not-ready: the render path was sampled at UT<=0 (cold-load Planetarium UT=0); the
+        //    sampler must defer rather than produce a degenerate ghost.
+        internal const string AnomalyParityDrift = "parity-drift";
+        internal const string AnomalyRigidSeamTangentDiscontinuity = "rigid-seam-tangent-discontinuity";
+        internal const string AnomalyRetireNotHeld = "retire-not-held";
+        internal const string AnomalyAnchorResolveFail = "anchor-resolve-fail";
+        internal const string AnomalyClockNotReady = "clock-not-ready";
+
         // ---- Tier-C anomaly tuning ----
 
         /// <summary>
