@@ -2409,6 +2409,37 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Phase 6 (the descent re-stitch, <see cref="Parsek.MapRender.CrossMemberSeamStitcher"/>): resolve the
+        /// span-clock CYCLE for descent-trigger unit member <paramref name="i"/> at the live clock
+        /// <paramref name="liveUT"/>, via the SAME <see cref="DecideUnitMemberRender"/> path the resolver /
+        /// engine use (one source of truth — the cycle the spine's
+        /// <see cref="ResolveTrackingStationSampleUT"/> already resolved this frame). The cross-member stitcher
+        /// needs the cycle to re-anchor the descent head; exposing this thin wrapper keeps the
+        /// <see cref="DecideUnitMemberRender"/> argument list (and the span-clock arithmetic) out of the
+        /// stitcher. Returns false (cycle 0) for a non-descent-trigger unit or an unresolved span clock —
+        /// byte-identical-off everywhere the descent trigger does not engage. Pure; no Unity (xUnit-testable).
+        /// </summary>
+        internal static bool TryResolveDescentUnitCycle(
+            LoopUnit unit, int i, double liveUT, double memberStartUT, double memberEndUT,
+            out long unitCycle)
+        {
+            unitCycle = 0;
+            if (!unit.HasDescentTrigger)
+                return false;
+
+            memberStartUT = unit.MemberStartUT(i, memberStartUT);
+            memberEndUT = unit.MemberEndUT(i, memberEndUT);
+
+            UnitMemberRenderDecision decision = DecideUnitMemberRender(
+                liveUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                memberStartUT, memberEndUT, out _, out unitCycle, out _,
+                unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
+                unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
+                unit.RecordedSoiExitUT);
+            return decision != UnitMemberRenderDecision.SpanClockUnresolved;
+        }
+
+        /// <summary>
         /// C1 (flight descent icon ride): true iff committed index <paramref name="i"/> is a descent-SET member
         /// of a descent-trigger unit that is CURRENTLY rendering its own slice of the re-anchored descent clip
         /// this frame — i.e. <see cref="Parsek.Reaim.DescentTrigger.TryResolveDescentMemberHead"/> returns true
