@@ -207,6 +207,107 @@ namespace Parsek.Tests
                 && string.IsNullOrEmpty(a.RecordingId));
         }
 
+        // Discard-preserves-economy follow-up (clean-review): the committed-restore-clone
+        // disposition must NOT blanket-Clear PendingScienceSubjects. A DIFFERENT live
+        // recording's still-uncommitted science (NOT part of the discarded clone segment
+        // subtree) must survive; the segment's own science is re-homed to a direct ledger
+        // action and removed.
+        //
+        // Fails if: TryDiscardActiveSwitchSegmentAttempt's committed-restore-clone branch
+        // re-introduces a blanket PendingScienceSubjects.Clear().
+        [Fact]
+        public void Discard_AfterCommittedSpawnedSwitch_PreservesOtherRecordingUncommittedScience()
+        {
+            // Isolate the static pending list (this class does not reset GameStateRecorder).
+            GameStateRecorder.PendingScienceSubjects.Clear();
+            try
+            {
+                string committedTreeId = "tree_committed";
+                var committedParent = MakeRecording("rec_committed_parent", committedTreeId,
+                    vesselName: "Committed Parent");
+                var committedTree = MakeTree(committedTreeId,
+                    activeRecordingId: committedParent.RecordingId, committedParent);
+                RecordingStore.AddCommittedInternal(committedParent);
+                RecordingStore.AddCommittedTreeForTesting(committedTree);
+                RecordingStore.ArmCommittedTreeRestoreAttempt(committedTree, "test-arm");
+
+                var scenario = new ParsekScenario();
+                ParsekScenario.SetInstanceForTesting(scenario);
+
+                Guid sessionId = Guid.NewGuid();
+                string sessionIdStr = SessionIdString(sessionId);
+                string bpId = "bp_clone_seg";
+                var cloneParent = MakeRecording("rec_committed_parent", committedTreeId,
+                    childBranchPointId: bpId, vesselName: "Committed Parent");
+                var cloneSegment = MakeRecording("rec_clone_seg", committedTreeId,
+                    switchSegmentSessionId: sessionIdStr,
+                    parentBranchPointId: bpId, vesselName: "Probe Alpha");
+                var cloneTree = MakeTree(committedTreeId,
+                    activeRecordingId: cloneSegment.RecordingId, cloneParent, cloneSegment);
+                cloneTree.BranchPoints.Add(MakeBranchPoint(
+                    bpId, cloneParent.RecordingId, cloneSegment.RecordingId));
+                RecordingStore.StashPendingTree(cloneTree);
+
+                var session = new SwitchSegmentSession
+                {
+                    SessionId = sessionId,
+                    IntentId = Guid.NewGuid(),
+                    EntryReason = SwitchSegmentEntryReason.MapSwitchTo,
+                    TreeId = committedTreeId,
+                    CommittedTreeId = committedTreeId,
+                    ParentRecordingId = cloneParent.RecordingId,
+                    ActiveSegmentRecordingId = cloneSegment.RecordingId,
+                    SwitchUT = 150.0,
+                    PreSessionBranchPointIds = new List<string>(),
+                };
+                scenario.ArmSwitchSegmentSession(session);
+
+                // Science collected live during the discarded clone segment (tagged to it).
+                GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+                {
+                    subjectId = "sci-seg",
+                    science = 7f,
+                    subjectMaxValue = 20f,
+                    captureUT = 170.0,
+                    reasonKey = "RecoveryAsh",
+                    recordingId = cloneSegment.RecordingId,
+                });
+                // Science from a DIFFERENT live recording, NOT in the discarded segment subtree.
+                GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+                {
+                    subjectId = "sci-other",
+                    science = 4f,
+                    subjectMaxValue = 20f,
+                    captureUT = 175.0,
+                    reasonKey = "RecoveryAsh",
+                    recordingId = "rec_other_live",
+                });
+
+                string reason;
+                var disposition =
+                    RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+
+                Assert.Equal(
+                    RecordingStore.SwitchSegmentDiscardDisposition.CommittedRestoreClone,
+                    disposition);
+
+                // The OTHER recording's uncommitted science SURVIVES the clone discard.
+                Assert.Contains(GameStateRecorder.PendingScienceSubjects,
+                    s => s.subjectId == "sci-other");
+                // The segment's own science is re-homed (direct) and removed from pending.
+                Assert.DoesNotContain(GameStateRecorder.PendingScienceSubjects,
+                    s => s.recordingId == cloneSegment.RecordingId);
+                Assert.Contains(Ledger.Actions, a =>
+                    a.Type == GameActionType.ScienceEarning
+                    && a.SubjectId == "sci-seg"
+                    && string.IsNullOrEmpty(a.RecordingId));
+            }
+            finally
+            {
+                GameStateRecorder.PendingScienceSubjects.Clear();
+            }
+        }
+
         // -----------------------------------------------------------------
         // Guard: no active session → returns NoActiveSession with reason
         // -----------------------------------------------------------------

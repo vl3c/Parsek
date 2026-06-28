@@ -2856,7 +2856,30 @@ namespace Parsek
                     $"DiscardPendingTree: skipped deleting {skippedCommittedDeletes} recording sidecar set(s) " +
                     "because the recording ID still exists in committed history");
             }
-            GameStateRecorder.PendingScienceSubjects.Clear();
+            if (preserveIrreversibleLiveGameplay)
+            {
+                // Genuine live discard: the re-home above already converted this tree's
+                // irreversible science into direct ledger actions and scoped-removed those
+                // subjects. Drop any remaining pending subjects tagged to the discarded ids,
+                // but PRESERVE a DIFFERENT live recording's still-uncommitted science (and
+                // untagged KSC captures) — matching the scoped commit path
+                // (LedgerOrchestrator.NotifyLedgerTreeCommitted). A blanket Clear() here
+                // silently dropped another recording's uncommitted science. This explicit
+                // call is also the backstop for the re-home's nothing-to-re-home early-return
+                // (zero irreversible events + zero pending science for these ids), which
+                // returns before its own internal scoped removal runs.
+                LedgerOrchestrator.RemovePendingScienceSubjectsForRecordings(
+                    idsToPurge, $"DiscardPendingTree '{pendingTree.TreeName}'");
+            }
+            else
+            {
+                // Abandon path (quickload-backwards / revert / cross-save stale pending):
+                // KSP's economy is rolled back or belongs to another save, so ALL pending
+                // science is from the discarded future and must NOT survive. Wipe it
+                // wholesale (the quickload handler in ParsekScenario also clears it at the
+                // scenario level for the same reason).
+                GameStateRecorder.PendingScienceSubjects.Clear();
+            }
             Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}' (state={pendingTreeState})");
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
@@ -3079,7 +3102,11 @@ namespace Parsek
 
                 ClearCommittedTreeRestoreAttempt(
                     "switch-segment-scoped-discard committed-restore-clone");
-                GameStateRecorder.PendingScienceSubjects.Clear();
+                // Pending science was already scoped-removed for this segment subtree by
+                // PreserveIrreversibleLiveGameplayOnDiscard(ownedIds) above. Do NOT
+                // blanket-Clear() here: that would silently drop a DIFFERENT live
+                // recording's still-uncommitted science (it is not in ownedIds), against
+                // the scoped commit/discard contract.
                 ClearRewindReplayTargetScope();
 
                 reason = "scoped-discard-success";

@@ -3080,20 +3080,10 @@ namespace Parsek
 
             // Scoped-remove the re-homed science subjects from the static pending list so
             // the discard's own clear/teardown does not leave them stale or re-process them.
-            int subjectsRemoved = 0;
-            if (scienceSubjectCount > 0)
-            {
-                for (int i = pending.Count - 1; i >= 0; i--)
-                {
-                    string rid = pending[i].recordingId ?? "";
-                    if (!string.IsNullOrEmpty(rid) && idSet.Contains(rid)
-                        && !RecordingStore.IsCommittedRecordingId(rid))
-                    {
-                        pending.RemoveAt(i);
-                        subjectsRemoved++;
-                    }
-                }
-            }
+            // Same scoped contract the discard cores use directly (see
+            // RemovePendingScienceSubjectsForRecordings): a DIFFERENT live recording's
+            // still-uncommitted science stays pending.
+            int subjectsRemoved = RemovePendingScienceSubjectsForRecordings(idSet, reason);
 
             ParsekLog.Info(Tag,
                 $"PreserveIrreversibleLiveGameplayOnDiscard ({reason}): re-homed " +
@@ -3104,6 +3094,49 @@ namespace Parsek
                 $"deduped={deduped.ToString(CultureInfo.InvariantCulture)}, " +
                 $"subjectsRemoved={subjectsRemoved.ToString(CultureInfo.InvariantCulture)}) " +
                 $"for {idSet.Count.ToString(CultureInfo.InvariantCulture)} discarded id(s)");
+        }
+
+        /// <summary>
+        /// Scoped removal of pending science subjects tagged with any id in
+        /// <paramref name="recordingIds"/> from the static
+        /// <see cref="GameStateRecorder.PendingScienceSubjects"/> list. UNLIKE a blanket
+        /// <c>PendingScienceSubjects.Clear()</c>, this leaves UNRELATED subjects pending —
+        /// a DIFFERENT live recording's still-uncommitted science, and untagged KSC captures.
+        /// A blanket clear in a non-rewind discard core silently dropped another recording's
+        /// uncommitted science. This mirrors the scoped commit contract
+        /// (<see cref="NotifyLedgerTreeCommitted"/>'s "preserved unrelated
+        /// PendingScienceSubjects") and the scoped removal inside
+        /// <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>. Committed-id subjects are
+        /// skipped (committed science is already a ledger action). Internal static for
+        /// direct testability.
+        /// </summary>
+        /// <returns>The number of subjects removed.</returns>
+        internal static int RemovePendingScienceSubjectsForRecordings(
+            ICollection<string> recordingIds, string reason)
+        {
+            if (recordingIds == null || recordingIds.Count == 0)
+                return 0;
+
+            var idSet = recordingIds as HashSet<string> ?? new HashSet<string>(recordingIds);
+            var pending = GameStateRecorder.PendingScienceSubjects;
+            int removed = 0;
+            for (int i = pending.Count - 1; i >= 0; i--)
+            {
+                string rid = pending[i].recordingId ?? "";
+                if (string.IsNullOrEmpty(rid) || !idSet.Contains(rid))
+                    continue;
+                if (RecordingStore.IsCommittedRecordingId(rid))
+                    continue; // committed science is already a ledger action
+                pending.RemoveAt(i);
+                removed++;
+            }
+
+            if (removed > 0)
+                ParsekLog.Verbose(Tag,
+                    $"RemovePendingScienceSubjectsForRecordings ({reason}): removed " +
+                    $"{removed.ToString(CultureInfo.InvariantCulture)} scoped pending subject(s), " +
+                    $"{pending.Count.ToString(CultureInfo.InvariantCulture)} unrelated retained");
+            return removed;
         }
 
         /// <summary>
