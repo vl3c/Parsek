@@ -972,7 +972,17 @@ namespace Parsek
                     if (ReferenceEquals(committedTrees[i], tree))
                     {
                         Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
-                        GameStateRecorder.PendingScienceSubjects.Clear();
+                        // Scoped-drop only THIS already-committed tree's own pending science
+                        // subjects (the helper skips committed ids, so this is a no-op in the
+                        // common case), PRESERVING a DIFFERENT live recording's still-
+                        // uncommitted tagged science. A blanket PendingScienceSubjects.Clear()
+                        // here wiped the WHOLE list, and the post-CommitTree
+                        // NotifyLedgerTreeCommitted then ran on an empty list and silently lost
+                        // the other recording's science. Mirrors the scoped discard cores
+                        // (LedgerOrchestrator.RemovePendingScienceSubjectsForRecordings).
+                        LedgerOrchestrator.RemovePendingScienceSubjectsForRecordings(
+                            tree.Recordings?.Keys,
+                            $"CommitTree duplicate-skip (reference-equal) tree '{tree.Id}'");
                         ClearRewindReplayTargetScope();
                         return;
                     }
@@ -1027,7 +1037,15 @@ namespace Parsek
                         Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
                         ParsekLog.Verbose("RecordingStore",
                             $"CommitTree: duplicate tree id='{tree.Id}' skipped reason={replaceReason}");
-                        GameStateRecorder.PendingScienceSubjects.Clear();
+                        // Scoped-drop only the incoming duplicate tree's own pending science
+                        // subjects (the helper skips committed ids), PRESERVING a DIFFERENT
+                        // live recording's still-uncommitted tagged science. See the
+                        // reference-equal branch above: a blanket Clear() here let the
+                        // post-CommitTree NotifyLedgerTreeCommitted run on an empty list and
+                        // silently drop another recording's science.
+                        LedgerOrchestrator.RemovePendingScienceSubjectsForRecordings(
+                            tree.Recordings?.Keys,
+                            $"CommitTree duplicate-skip (reason={replaceReason}) tree '{tree.Id}'");
                         ClearRewindReplayTargetScope();
                         return;
                     }
