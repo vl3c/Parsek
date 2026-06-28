@@ -60,6 +60,18 @@ namespace Parsek
         // sits off its line, enough to read the angle without flooding.
         private const double OffOrbitAnomalyMinIntervalSeconds = 1.0;
 
+        // Soft rate-limit on the Phase-0 recorded-vs-rendered parity-drift anomaly. Like the off-orbit
+        // anomaly it is a PERSISTENT condition (a faithful member drawing the wrong geometry diverges every
+        // frame), so throttle to one line per pid per second; the detailed window EmitAnomaly opens still
+        // refreshes every divergent frame.
+        private const double ParityDriftAnomalyMinIntervalSeconds = 1.0;
+
+        // Number of UTs the rendered orbit (and the matching recorded reference orbit) is sampled at across
+        // its visible span for the FAITHFUL parity diff. Mirrored from
+        // RenderGeometrySampler.DefaultOrbitSampleCount so the probe + the pure helper agree.
+        private const int ParityOrbitSampleCount =
+            Parsek.MapRender.RenderGeometrySampler.DefaultOrbitSampleCount;
+
         // Soft rate-limit on the in-window per-frame full snapshot (phase=Snapshot). A persistent
         // anomaly keeps the detailed window open continuously, so an un-throttled snapshot floods
         // the log per-frame for the whole stretch. Sample at ~2 Hz per pid - enough to capture the
@@ -116,6 +128,9 @@ namespace Parsek
         private readonly Dictionary<uint, double> lastSnapshotEmitRealtime = new Dictionary<uint, double>();
         // Soft rate-limit timestamps for the per-pid icon-off-orbit anomaly.
         private readonly Dictionary<uint, double> lastOffOrbitEmitRealtime = new Dictionary<uint, double>();
+        // Soft rate-limit timestamps for the per-pid Phase-0 recorded-vs-rendered parity-drift anomaly (a
+        // PERSISTENT condition, like icon-off-orbit, so it must not fire every frame).
+        private readonly Dictionary<uint, double> lastParityDriftEmitRealtime = new Dictionary<uint, double>();
         // Soft rate-limit timestamps for the per-pid polyline-orbit-overlap anomaly (a PERSISTENT
         // condition through a whole burn, so it must not fire every frame).
         private readonly Dictionary<uint, double> lastPolylineOverlapEmitRealtime = new Dictionary<uint, double>();
@@ -190,6 +205,7 @@ namespace Parsek
             lastJumpEmitRealtime.Clear();
             lastSnapshotEmitRealtime.Clear();
             lastOffOrbitEmitRealtime.Clear();
+            lastParityDriftEmitRealtime.Clear();
             lastPolylineOverlapEmitRealtime.Clear();
             firstPositionEmittedPids.Clear();
             lastUnaccountedEmitRealtime.Clear();
@@ -761,6 +777,32 @@ namespace Parsek
                                 bodyName),
                             recId);
                     }
+
+                    // --- Phase 0 / design §14: recorded-vs-rendered FAITHFUL parity-drift ---
+                    // The DISTINCT new acceptance axis (RenderParityOracle), beside the icon-off-orbit
+                    // angle above. Where icon-off-orbit asks "is the ICON on its own DRIVEN orbit?", this
+                    // asks "did the orbit geometry the pipeline actually RENDERED (the live OrbitDriver.orbit
+                    // that drives both the icon AND the orbit line) match the RECORDED source geometry it was
+                    // supposed to draw?" - a faithful (non-re-aimed) member must draw what it recorded.
+                    //
+                    // FAITHFUL ONLY this slice: the reference is the RECORDED OrbitSegment covering the
+                    // ghost's drive clock (offEffUT). Re-aimed / synthesized members (whose intended arc is
+                    // NOT the recorded segment) are skipped cleanly inside the sampler when the recorded
+                    // reference cannot be sampled at offEffUT (no covering recorded segment), so no false
+                    // anomaly fires for them. The diff is sampled at a spread of UTs across the visible orbit;
+                    // the reference orbit is built PHASE-MATCHED to the live rendered orbit (its epoch baked
+                    // with the SAME loop shift StockConicTreatment.SeedAndDriveLive used: epoch = seg.epoch +
+                    // loopShift) and BOTH orbits are sampled at the SAME UTs, so a loop-shifted FAITHFUL ghost
+                    // lands on the SAME recorded phase as the rendered orbit and reads ~0 drift (the shift only
+                    // sets WHERE on the orbit, not its shape) while a wrong-elements / wrong-body / off-orbit
+                    // draw shows drift. Body-relative frame (the same bodyRelPos frame the off-orbit check
+                    // uses) so the diff is body-world-motion-free. loopShift is the SAME value the live orbit
+                    // was baked with (GetGhostOrbitEpochShift(pid)), NOT offShift (which is ~0 in the director
+                    // path and does NOT carry the loop phase - that was the false-drift blocker).
+                    double parityLoopShift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
+                    TrySampleAndEmitFaithfulOrbitParity(
+                        offOrbit, body, bodyRelPos, offEffUT, offShift, parityLoopShift, currentUT,
+                        pid, pidKey, recId, lineActive, bodyName, realtime);
                 }
 
                 // Record this frame's body-relative position + body so the next
@@ -913,11 +955,310 @@ namespace Parsek
             return true;
         }
 
+        private bool PassesParityDriftRateLimit(uint pid, double realtime)
+        {
+            double last;
+            if (lastParityDriftEmitRealtime.TryGetValue(pid, out last)
+                && realtime - last < ParityDriftAnomalyMinIntervalSeconds)
+                return false;
+            lastParityDriftEmitRealtime[pid] = realtime;
+            return true;
+        }
+
+        /// <summary>
+        /// Outcome of one FAITHFUL recorded-vs-rendered orbit parity sample: the oracle's
+        /// <see cref="Parsek.MapRender.RenderParityOracle.ParityResult"/> plus the contextual values the
+        /// emit line carries. <see cref="Sampled"/> is false (and <see cref="SkipReason"/> set) when the
+        /// sampler cleanly bailed before a diff (wrong body / no covering recorded segment / degenerate
+        /// elements / re-aimed member): the caller MUST treat a non-sampled outcome as "no anomaly", never
+        /// as a pass or a drift. internal so the in-game baseline test exercises the REAL orchestration
+        /// (the buggy loop-shift bake path included) instead of an inlined copy.
+        /// </summary>
+        internal readonly struct FaithfulParitySample
+        {
+            internal bool Sampled { get; }
+            internal string SkipReason { get; }
+            internal Parsek.MapRender.RenderParityOracle.ParityResult Result { get; }
+            internal double Scale { get; }
+            internal double RecordedSegmentSma { get; }
+            internal double RecordedSegmentEcc { get; }
+            internal string RecordedSegmentBody { get; }
+
+            internal FaithfulParitySample(
+                bool sampled, string skipReason,
+                Parsek.MapRender.RenderParityOracle.ParityResult result, double scale,
+                double recordedSegmentSma, double recordedSegmentEcc, string recordedSegmentBody)
+            {
+                Sampled = sampled;
+                SkipReason = skipReason;
+                Result = result;
+                Scale = scale;
+                RecordedSegmentSma = recordedSegmentSma;
+                RecordedSegmentEcc = recordedSegmentEcc;
+                RecordedSegmentBody = recordedSegmentBody;
+            }
+
+            internal static FaithfulParitySample Skip(string reason)
+            {
+                return new FaithfulParitySample(
+                    false, reason,
+                    default(Parsek.MapRender.RenderParityOracle.ParityResult),
+                    0.0, 0.0, 0.0, null);
+            }
+        }
+
+        // --- Phase 0 / design §14: recorded-vs-rendered FAITHFUL parity sampler (Unity capture) ---
+        //
+        // Samples the RENDERED orbit geometry (the live OrbitDriver.orbit that drives both the icon and the
+        // orbit line) and the FAITHFUL RECORDED reference (the recorded OrbitSegment covering the ghost's
+        // drive clock), both in the SAME Y-up body-relative metres frame (OrbitRelativePositionYup, the same
+        // frame the icon's bodyRelPos = GetWorldPos3D - body.position lives in), hands them to the pure
+        // RenderParityOracle, and emits a parity-drift anomaly on OverTolerance. FAITHFUL ONLY: a re-aimed /
+        // synthesized member (no covering recorded segment at offEffUT, or a recorded segment on a different
+        // body than the rendered orbit) is skipped cleanly with no anomaly. Additive observability: no draw
+        // change. Gated by the caller's IsEnabled check (the whole probe LateUpdate is IsEnabled-gated).
+        //
+        // Returns the FaithfulParitySample (the oracle result + context) so the in-game baseline test can
+        // assert on the REAL orchestration (not an inlined copy). The probe ignores the return value; only
+        // the rate-limited emit-on-OverTolerance below has a production side effect.
+        private Parsek.MapRender.RenderParityOracle.ParityResult TrySampleAndEmitFaithfulOrbitParity(
+            Orbit renderedOrbit, CelestialBody renderedBody, Vector3d iconBodyRel,
+            double offEffUT, double offShift, double loopShift, double currentUT,
+            uint pid, string pidKey, string recId, string lineActive, string bodyName, double realtime)
+        {
+            FaithfulParitySample sample = ComputeFaithfulOrbitParity(
+                renderedOrbit, renderedBody, iconBodyRel, offEffUT, loopShift, currentUT, recId);
+
+            if (!sample.Sampled)
+                return sample.Result;
+            Parsek.MapRender.RenderParityOracle.ParityResult result = sample.Result;
+            if (!result.HasMeasurement || !result.OverTolerance)
+                return result;
+            if (!PassesParityDriftRateLimit(pid, realtime))
+                return result;
+
+            MapRenderTrace.EmitAnomaly(
+                MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, offEffUT,
+                MapRenderTrace.AnomalyParityDrift,
+                string.Format(ic,
+                    "mode=faithful maxDev={0}m tol={1}m scale={2}m refCount={3} rendCount={4} "
+                    + "countMismatch={5} offShift={6} loopShift={7} effUT={8} | recSeg=[sma={9} ecc={10} body={11}] "
+                    + "rendOrbit=[sma={12} ecc={13} body={14}] iconR={15} lineActive={16}",
+                    MapRenderTrace.FormatDouble(result.MaxDeviationMeters, "F0"),
+                    MapRenderTrace.FormatDouble(result.ToleranceMeters, "F0"),
+                    MapRenderTrace.FormatDouble(sample.Scale, "F0"),
+                    result.ReferenceCount, result.RenderedCount, result.CountMismatch,
+                    MapRenderTrace.FormatDouble(offShift, "F1"),
+                    MapRenderTrace.FormatDouble(loopShift, "F1"),
+                    MapRenderTrace.FormatDouble(offEffUT, "F1"),
+                    MapRenderTrace.FormatDouble(sample.RecordedSegmentSma, "F0"),
+                    MapRenderTrace.FormatDouble(sample.RecordedSegmentEcc, "F4"),
+                    sample.RecordedSegmentBody ?? "(null)",
+                    MapRenderTrace.FormatDouble(renderedOrbit.semiMajorAxis, "F0"),
+                    MapRenderTrace.FormatDouble(renderedOrbit.eccentricity, "F4"),
+                    bodyName,
+                    MapRenderTrace.FormatDouble(iconBodyRel.magnitude, "F0"),
+                    lineActive),
+                recId);
+            return result;
+        }
+
+        // The pure-orchestration CORE of the faithful parity sample: resolve the recorded reference, build
+        // the PHASE-MATCHED reference orbit, sample both, and run the oracle diff. No emit, no rate-limit,
+        // no per-pid state - so the in-game baseline test drives the EXACT production geometry path (the
+        // recorded-segment lookup, the loop-shift epoch bake, the OrbitRelativePositionYup sampling, the
+        // scale-derived tolerance, the oracle diff) end-to-end, including the loop-shifted bake that the
+        // BLOCKER fix corrects. internal for that test.
+        internal static FaithfulParitySample ComputeFaithfulOrbitParity(
+            Orbit renderedOrbit, CelestialBody renderedBody, Vector3d iconBodyRel,
+            double offEffUT, double loopShift, double currentUT, string recId)
+        {
+            if (renderedOrbit == null || renderedBody == null)
+                return FaithfulParitySample.Skip("no-rendered-orbit");
+            if (string.IsNullOrEmpty(recId))
+                return FaithfulParitySample.Skip("no-recId");
+
+            // Resolve the FAITHFUL recorded reference: the recorded OrbitSegment covering the ghost's drive
+            // clock (offEffUT), on the SAME body as the rendered orbit. A re-aim / synthesized member, a
+            // window the recording has no covering segment for, or a different-body segment -> no reference,
+            // skip (no false anomaly). Reuses the existing recorded-segment lookup (TrajectoryMath
+            // .FindOrbitSegment + HasUsableOrbitSegmentElements) and the EXACT Kepler-to-Orbit construction
+            // TrajectoryMath.EvaluateOrbitSegmentAtUT / GhostMapPresence.TryResolveOrbitWorldPosition use
+            // (BuildPhaseMatchedReferenceOrbit below, which is BuildOrbitFromSegment with the live orbit's
+            // loop-shift epoch bake); no new recording-to-world projector. The reconstructed Orbit is then
+            // sampled through the SAME OrbitRelativePositionYup the rendered side uses, so both sides land in
+            // one identical Y-up body-relative metres frame by construction.
+            if (!Parsek.GhostMapPresence.TryGetCommittedRecordingById(
+                    recId, out int _, out Recording rec)
+                || rec == null || rec.OrbitSegments == null || rec.OrbitSegments.Count == 0)
+                return FaithfulParitySample.Skip("no-recording-or-segments");
+
+            OrbitSegment? coveringMaybe = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, offEffUT);
+            if (!coveringMaybe.HasValue)
+                return FaithfulParitySample.Skip("no-covering-segment"); // re-aim / trim gap -> skip
+            OrbitSegment covering = coveringMaybe.Value;
+            if (!TrajectoryMath.HasUsableOrbitSegmentElements(covering))
+                return FaithfulParitySample.Skip("degenerate-elements");
+            // Faithful-only frame guard: the rendered and recorded body-relative inertial positions are
+            // comparable ONLY about the SAME body. A different recorded body is a re-aim / SOI-leg case -> skip.
+            if (!string.Equals(covering.bodyName, renderedBody.bodyName, System.StringComparison.Ordinal))
+                return FaithfulParitySample.Skip("body-mismatch");
+            CelestialBody recordedBody = ResolveBodyByName(covering.bodyName);
+            if (recordedBody == null)
+                return FaithfulParitySample.Skip("recorded-body-unresolved");
+
+            // Build the rendered Orbit's own visible-span half-window from its period (a full conic) or a
+            // fixed window (degenerate / hyperbolic), centred on the live drive clock so the samples lie on
+            // the part of the orbit the line draws. BOTH the rendered orbit AND the PHASE-MATCHED reference
+            // orbit are sampled at these SAME UTs (the BLOCKER fix: phase is cancelled by baking the loop
+            // shift into the reference EPOCH, NOT by remapping the reference UTs by offShift - which is ~0 in
+            // the director path and would leave the loop phase uncancelled, tracing opposite arcs).
+            double halfSpan = ResolveOrbitSampleHalfSpanSeconds(renderedOrbit);
+            double[] sampleUTs = Parsek.MapRender.RenderGeometrySampler.BuildSampleUTs(
+                currentUT, halfSpan, ParityOrbitSampleCount);
+            if (sampleUTs.Length == 0)
+                return FaithfulParitySample.Skip("no-sample-uts");
+
+            // Sample both orbits in the SAME Y-up body-relative frame at the SAME UTs.
+            var renderedPts = new Vector3d[sampleUTs.Length];
+            for (int i = 0; i < sampleUTs.Length; i++)
+                renderedPts[i] = OrbitRelativePositionYup(renderedOrbit, sampleUTs[i]);
+
+            // The recorded reference orbit, built ONCE from the covering segment's Kepler elements with its
+            // epoch PHASE-MATCHED to the live rendered orbit. StockConicTreatment.SeedAndDriveLive baked the
+            // rendered orbit's epoch to seg.epoch + loopShift and propagates it at the LIVE clock, so the
+            // reference MUST use the SAME epoch for evaluation at the same UT to land on the same recorded
+            // phase. (When loopShift == 0, this is BuildOrbitFromSegment verbatim.)
+            Orbit recordedOrbit = BuildPhaseMatchedReferenceOrbit(covering, recordedBody, loopShift);
+            if (recordedOrbit == null)
+                return FaithfulParitySample.Skip("reference-orbit-build-failed");
+            // Reference set = the recorded curve samples PLUS the recorded position at the exact drive clock
+            // (the point the icon SHOULD sit on). The rendered icon point (iconBodyRel) anchors the rendered
+            // set so the diff also catches an icon parked off its own rendered line. Wrapped in a try/catch:
+            // an unexpected getRelativePositionAtUT throw on degenerate reconstructed elements skips this
+            // parity sample (no measurement) rather than aborting the rest of the tracing-on probe pass.
+            var referencePts = new Vector3d[sampleUTs.Length + 1];
+            try
+            {
+                for (int i = 0; i < sampleUTs.Length; i++)
+                    referencePts[i] = OrbitRelativePositionYup(recordedOrbit, sampleUTs[i]);
+                referencePts[sampleUTs.Length] = OrbitRelativePositionYup(recordedOrbit, offEffUT);
+            }
+            catch (System.Exception)
+            {
+                return FaithfulParitySample.Skip("reference-sample-threw");
+            }
+
+            var renderedAll = new Vector3d[renderedPts.Length + 1];
+            System.Array.Copy(renderedPts, renderedAll, renderedPts.Length);
+            renderedAll[renderedPts.Length] = iconBodyRel;
+
+            double[] referenceFlat = Parsek.MapRender.RenderGeometrySampler.Flatten(
+                referencePts, referencePts.Length);
+            double[] renderedFlat = Parsek.MapRender.RenderGeometrySampler.Flatten(
+                renderedAll, renderedAll.Length);
+
+            // Per-scenario tolerance derived from the recorded reference's OWN scale (its bounding-box
+            // diagonal) - NOT a blanket metre constant (a LKO arc and a heliocentric transfer want wildly
+            // different absolute tolerances). 0.1% of the arc extent separates a faithful draw from a
+            // looped-rotation / off-orbit / wrong-element draw with margin.
+            double scale = Parsek.MapRender.RenderParityOracle.EstimateScaleFromPoints(referenceFlat);
+            double tol = Parsek.MapRender.RenderParityOracle.ToleranceForScale(scale);
+            Parsek.MapRender.RenderParityOracle.ParityResult result =
+                Parsek.MapRender.RenderParityOracle.ComputeDrift(
+                    Parsek.MapRender.RenderParityOracle.ParityMode.Faithful,
+                    referenceFlat, renderedFlat, tol);
+
+            return new FaithfulParitySample(
+                true, null, result, scale,
+                covering.semiMajorAxis, covering.eccentricity, covering.bodyName);
+        }
+
+        // Half-window (seconds) the parity samples span on either side of the drive clock. A full closed
+        // conic samples a quarter-period each side (half the orbit total - enough of the arc to distinguish
+        // two same-shaped orbits at different elements / phase while keeping the few getPositionAtUT calls
+        // cheap); a degenerate / non-finite period (hyperbolic / open) falls back to a fixed 1-hour window.
+        private static double ResolveOrbitSampleHalfSpanSeconds(Orbit orbit)
+        {
+            const double FallbackHalfSpanSeconds = 3600.0;
+            if (orbit == null)
+                return FallbackHalfSpanSeconds;
+            double period = orbit.period;
+            if (double.IsNaN(period) || double.IsInfinity(period) || period <= 0.0)
+                return FallbackHalfSpanSeconds;
+            return period * 0.25;
+        }
+
+        // Build a KSP Orbit from a recorded OrbitSegment's Kepler elements (the SAME construction
+        // TrajectoryMath.EvaluateOrbitSegmentAtUT / GhostMapPresence.TryResolveOrbitWorldPosition use). Unity
+        // construction isolated here so the pure RenderGeometrySampler stays Unity-ECall-free. Returns null
+        // on any throw (degenerate elements). internal so the in-game capture-harness fixture builds the
+        // reference orbit through the EXACT production construction.
+        internal static Orbit BuildOrbitFromSegment(OrbitSegment seg, CelestialBody body)
+        {
+            try
+            {
+                return new Orbit(
+                    seg.inclination, seg.eccentricity, seg.semiMajorAxis,
+                    seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
+                    seg.meanAnomalyAtEpoch, seg.epoch, body);
+            }
+            catch (System.Exception)
+            {
+                return null;
+            }
+        }
+
+        // Build the FAITHFUL reference orbit PHASE-MATCHED to the live rendered orbit: identical elements to
+        // BuildOrbitFromSegment but with the epoch baked by the SAME loop shift the live orbit was seeded
+        // with (StockConicTreatment.SeedAndDriveLive: epoch = seg.epoch + loopShift). This cancels the loop
+        // phase by construction - evaluating BOTH orbits at the SAME UT lands on the SAME recorded mean
+        // anomaly (M(t) = MAE + n*(t - seg.epoch - loopShift) on both sides), so a faithful loop ghost reads
+        // ~0 drift. The shift moves PHASE only (LAN/inc/argPe/sma/ecc untouched), so the orbit SHAPE is
+        // unchanged. When loopShift == 0 (a non-loop faithful ghost) this is BuildOrbitFromSegment verbatim.
+        // A non-finite loopShift falls back to 0 (raw epoch) rather than poisoning the epoch with NaN.
+        // internal so the in-game baseline test builds the reference through the EXACT production path.
+        internal static Orbit BuildPhaseMatchedReferenceOrbit(
+            OrbitSegment seg, CelestialBody body, double loopShift)
+        {
+            double shift = (double.IsNaN(loopShift) || double.IsInfinity(loopShift)) ? 0.0 : loopShift;
+            try
+            {
+                return new Orbit(
+                    seg.inclination, seg.eccentricity, seg.semiMajorAxis,
+                    seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
+                    seg.meanAnomalyAtEpoch, seg.epoch + shift, body);
+            }
+            catch (System.Exception)
+            {
+                return null;
+            }
+        }
+
+        internal static CelestialBody ResolveBodyByName(string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName))
+                return null;
+            var bodies = FlightGlobals.Bodies;
+            if (bodies == null)
+                return null;
+            for (int i = 0; i < bodies.Count; i++)
+            {
+                CelestialBody b = bodies[i];
+                if (b != null && string.Equals(b.bodyName, bodyName, System.StringComparison.Ordinal))
+                    return b;
+            }
+            return null;
+        }
+
         // Body-relative orbit position in Y-up WORLD axes (the same frame the icon's
         // bodyRelPos = GetWorldPos3D - body.position lives in). orbit.getRelativePositionAtUT
         // returns Z-up KSP-internal axes; Swizzle() converts to Y-up world. Isolated here so
-        // the pure MapRenderTrace.IsIconOffOrbit predicate stays Unity-ECall-free.
-        private static Vector3d OrbitRelativePositionYup(Orbit orbit, double ut)
+        // the pure MapRenderTrace.IsIconOffOrbit predicate stays Unity-ECall-free. internal so
+        // the in-game parity capture-harness fixture exercises the REAL capture function (the
+        // "green but blind" guard: it proves the Unity sampler itself is correct, separate from
+        // the oracle's pure diff-math unit tests).
+        internal static Vector3d OrbitRelativePositionYup(Orbit orbit, double ut)
         {
             Vector3d p = orbit.getRelativePositionAtUT(ut);
             p.Swizzle();
