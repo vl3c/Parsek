@@ -2864,7 +2864,10 @@ namespace Parsek
                 // but PRESERVE a DIFFERENT live recording's still-uncommitted science (and
                 // untagged KSC captures) — matching the scoped commit path
                 // (LedgerOrchestrator.NotifyLedgerTreeCommitted). A blanket Clear() here
-                // silently dropped another recording's uncommitted science.
+                // silently dropped another recording's uncommitted science. This explicit
+                // call is also the backstop for the re-home's nothing-to-re-home early-return
+                // (zero irreversible events + zero pending science for these ids), which
+                // returns before its own internal scoped removal runs.
                 LedgerOrchestrator.RemovePendingScienceSubjectsForRecordings(
                     idsToPurge, $"DiscardPendingTree '{pendingTree.TreeName}'");
             }
