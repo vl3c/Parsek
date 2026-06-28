@@ -479,11 +479,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CommitTree_DuplicateSkipReferenceEqual_DropsOwnUncommitted_PreservesOther()
+        public void CommitTree_DuplicateSkipReferenceEqual_PreservesOwnCommittedAndOther()
         {
             ParsekScenario.ResetInstanceForTesting();
 
             // Same tree object already in committedTrees -> the ReferenceEquals branch.
+            // In production a tree only reaches committedTrees via FinalizeTreeCommit, which
+            // also registers every tree recording in the flat committed list, so the tree's
+            // own recordings are committed ids the scoped helper SKIPS (committed science is
+            // already a ledger action). Model that here by registering rec-r1 as committed:
+            // the reference-equal helper call is then a no-op, and BOTH the duplicate tree's
+            // own science and a DIFFERENT live recording's uncommitted science survive. The
+            // old blanket Clear() wrongly wiped both.
+            var r1 = CommitRec("rec-r1", "tree-ref");
             var tree = new RecordingTree
             {
                 Id = "tree-ref",
@@ -491,7 +499,8 @@ namespace Parsek.Tests
                 RootRecordingId = "rec-r1",
                 ActiveRecordingId = "rec-r1",
             };
-            tree.AddOrReplaceRecording(CommitRec("rec-r1", "tree-ref"));
+            tree.AddOrReplaceRecording(r1);
+            RecordingStore.AddCommittedInternal(r1);
             RecordingStore.AddCommittedTreeForTesting(tree);
 
             GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-r1", "rec-r1", 100.0));
@@ -499,9 +508,10 @@ namespace Parsek.Tests
 
             RecordingStore.CommitTree(tree);
 
-            // This tree's own pending subject is dropped scoped...
-            Assert.DoesNotContain(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-r1");
-            // ...while a DIFFERENT live recording's uncommitted science SURVIVES (a blanket
+            // The tree's own subject is committed science (already a ledger action), so the
+            // scoped helper skips it and it stays pending...
+            Assert.Contains(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-r1");
+            // ...and a DIFFERENT live recording's uncommitted science SURVIVES too (a blanket
             // Clear() here wiped the whole list).
             Assert.Contains(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-other");
         }
