@@ -12865,14 +12865,6 @@ namespace Parsek
             }
         }
 
-        public void ClearRecording()
-        {
-            recorder = null;
-            lastPlaybackIndex = 0;
-            GameStateRecorder.PendingScienceSubjects.Clear();
-            Log("Recording cleared");
-        }
-
         /// <summary>
         /// Commits the active recording tree from the Commit Flight button.
         /// Finalizes all recordings, spawns leaf vessels, reserves crew.

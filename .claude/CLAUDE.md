@@ -210,7 +210,7 @@ When a worktree's branch finishes its work, land it via a GitHub PR, NOT a local
 
 - **Toolbar button** - Toggle Parsek UI
 - **Ctrl+Shift+T** - Toggle in-game test runner (works in any scene). Results auto-export to `parsek-test-results.txt` in KSP root.
-- UI buttons: Start/Stop Recording, Preview Playback, Stop Preview, Clear Current Recording
+- UI buttons: Start/Stop Recording, Preview Playback, Stop Preview
 
 ## Debug
 
