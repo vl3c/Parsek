@@ -29,13 +29,19 @@ review). Every claim below is anchored to `file:line` confirmed by direct reads.
 - **Funds are never double-charged, but they are not actually timeline-correct either:** the single
   surviving charge can be a *phantom* charge/credit for an abandoned-future cycle the surviving
   timeline never reproduced.
-- **The literal "Duna every 2 years" route is creatable TODAY — it is not hard-gated.** There is no
-  same-body creation gate (`RouteAnalysisEngine` reject reasons are body-agnostic; `RouteCandidateFinder`
-  gates only on sealed + eligible + dedup), so a cross-parent Supply Run that docks/transfers/undocks
-  can be promoted to a route. What is deferred (milestone M5) is *faithful synodic scheduling*: such a
-  route runs in an unsupported "no-phase-lock" mode — geometrically unfaithful ghost, raw span-length
-  cadence instead of the ~2-year synodic window — but it **still fires deliveries** (funds + cargo).
-  So the paradox can bite an inter-body route NOW, not only after M5.
+- **The literal "Duna every 2 years" route is creatable TODAY — it is not hard-gated — and it
+  DELIVERS.** There is no same-body creation gate (`RouteAnalysisEngine` reject reasons are
+  body-agnostic; `RouteCandidateFinder` gates only on sealed + eligible + dedup), so a cross-parent
+  Supply Run that docks/transfers/undocks can be promoted to a route. Per the codebase's own note
+  (`todo-and-known-bugs.md` ~line 451), a destination station/rendezvous route flags
+  `Support.UnsupportedRendezvous` (no phase-lock, no re-aim, arbitrary ghost relaunch phase) but is
+  **"FUNCTIONALLY unaffected — delivery fires at the `RecordedDockUT` loop-clock marker regardless of
+  visual alignment."** What is deferred / in-progress (re-aim destination alignment, the M-MIS / M5
+  faithfulness layer, todo ~line 1622) is the *synodic-faithful VISUAL* of the delivery ghost, NOT
+  whether the resupply happens. (Earlier drafts called this "degraded / raw cadence / unfaithful";
+  that wrongly implied the route does not work — it delivers.) So the paradox bites an inter-body
+  route NOW: its delivery rows are created and survive a rewind exactly like a same-body route's,
+  which is what matters here — the rewind fix (Rec-1) is cadence/faithfulness-agnostic.
 - **Recommended fix (one change closes most of it): purge/retire the free-standing route ledger
   rows whose `UT > rewindCutoff` at rewind**, so the live re-fly re-creates them deterministically
   and re-applies funds *and* cargo symmetrically. Plus: fix the non-rewind-discard leak separately,
@@ -196,7 +202,7 @@ including non-tombstoned rows).
 | 9 | **Route-definition lifecycle ("disable before it existed")** | definition + counters revert via the `.sfs`; route absent if created after RP; no fire below phase anchor | **Yes** | `RouteStore.cs:594-624`; `ParsekScenario.cs:3343`; `GhostPlaybackLogic.SpanClock.cs:1092-1093` | — (sound) | none |
 | 10 | **RP granularity** | RP quicksave is full-world, so a physical effect cannot fall *outside* coverage; rewinding to any RP rolls the whole world back | **Yes** (coverage sound) | `RewindPointAuthor.cs:488` | Low | none (the residual is #1, independent of RP spacing) |
 | 11 | **Pause→Activate phase anchor** | grid pinned to the live activation UT (not a recorded UT); deterministic across rewind only if the re-fly reproduces the activation event at the same UT | Partial (conditional) | `RouteOrchestrator.cs:205`; `MissionLoopUnitBuilder.cs:228-229` | Low | document as a determinism caveat |
-| 12 | **Inter-body recurrent routes (the Duna case)** | **creatable today** — no hard same-body gate (`RouteAnalysisEngine` / `RouteCandidateFinder` are body-agnostic); a cross-parent route degrades to no-phase-lock (no synodic scheduling — the M5 deferral) but STILL fires deliveries, so it is exposed to the paradox now; "same-body only" is a *soft* scope property, not a hard reject | Creatable / unsupported | `RouteOrchestrator.cs:1649-1652`; `RouteAnalysisEngine.cs` (no body reject); `MissionPeriodicity.cs:476, 494-500, 653-658`; design §0.8, §19.4 M5 | Medium (present; needs deliberately creating an unsupported route) | Rec-1 covers it (cadence-source-agnostic); ALSO add an explicit cross-parent creation reject if inter-body routes should be hard-blocked pre-M5 |
+| 12 | **Inter-body recurrent routes (the Duna case)** | **creatable today** — no hard same-body gate (`RouteAnalysisEngine` / `RouteCandidateFinder` are body-agnostic); a cross-parent route DELIVERS (delivery fires on the loop clock at `RecordedDockUT`; a station/rendezvous route flags `UnsupportedRendezvous` so its visual relaunch phase is arbitrary, but it is "FUNCTIONALLY unaffected" per todo ~451), so it is exposed to the paradox now; "same-body only" is a *soft* scope property, not a hard reject; only the synodic-faithful VISUAL is deferred (re-aim, todo ~1622), NOT delivery | Creatable / delivers / visual deferred | `RouteOrchestrator.cs:1649-1652`; `RouteAnalysisEngine.cs` (no body reject); `todo-and-known-bugs.md` ~451/1622; design §0.8, §19.4 M5 | Medium (present) | Rec-1 covers it (cadence-source-agnostic); ALSO add an explicit cross-parent creation reject if inter-body routes should be hard-blocked pre-M5 |
 | 13 | **Design-doc contract divergence** | §2.4#11 / §10.6 / §13.4 say un-reversed mutation paths "must stay disabled," but v0 enables physical effects relying on the quicksave restore, not a reversing module | n/a (documentation) | design lines 220-221, 1022, 1159 | Medium (doc) | update the contract to describe the shipped quicksave-revert model + the residual #1 gap |
 
 ---
@@ -232,10 +238,13 @@ a parallel route-supersede concept for no extra benefit over the UT-cutoff retir
 "Same-body only for v0" (§0.8) is a soft scope statement, **not a hard gate**: there is no
 cross-parent reject in `RouteAnalysisEngine` (its reject reasons are all body-agnostic) or
 `RouteCandidateFinder` (sealed + eligible + dedup only), so a Kerbin→Duna Supply Run can be promoted
-to a route today. It runs unsupported — `ResolveLoopUnit` "degrades to no phase-lock"
-(`RouteOrchestrator.cs:1649-1652`), i.e. no synodic scheduling (the M5 deferral), an unfaithful ghost,
-and a raw span-length cadence — but it **still fires deliveries**, so it is already exposed to this
-paradox (and is the worst case for it: long cadence, high-value cargo, many rewinds across a transfer).
+to a route today, and it **DELIVERS** — per the codebase's own note (`todo-and-known-bugs.md` ~451) a
+destination station/rendezvous route flags `UnsupportedRendezvous` so its VISUAL relaunch phase is
+arbitrary (no re-aim), but it is "FUNCTIONALLY unaffected — delivery fires at the `RecordedDockUT`
+loop-clock marker regardless of visual alignment." (Calling this "degraded / raw cadence / unfaithful"
+was wrong; only the synodic-faithful VISUAL is deferred — the re-aim destination-alignment layer,
+todo ~1622 — not delivery.) So it is already exposed to this paradox (a worst case for it: high-value
+cargo, many rewinds across a long transfer), and its delivery rows survive a rewind like any route's.
 Because `EmitLoopCycle`/`cycleId` is cadence-source-agnostic, Rec-1 fixes the inter-body case for free.
 Separately decide whether inter-body routes should be **hard-blocked until M5** — if so, add an explicit
 cross-parent *creation reject* (with a player-facing reason) now, so "same-body only" is enforced rather
@@ -270,7 +279,7 @@ is conditional on the re-fly reproducing that activation. Low priority; document
 | B | Dispatch clock + cycleId | **Partial** — grid + cycleId reproduce deterministically; UT-blind ELS collision is funds-safe, cargo-unsafe; Pause→Activate caveat |
 | C | Funds | **Partial** — dispatch charge no-double-count via dedup, but phantom-charge/credit on divergent re-fly; recovery-credit `Effective` gate is inert dead code |
 | D | Physical cargo | **Paradox (confirmed)** — reverted by quicksave, never re-applied; two populations; cadence drift |
-| E | Recurrent / inter-body | **Creatable today, unsupported** — no hard same-body gate; a cross-parent route runs degraded (no synodic scheduling — the M5 deferral) but still fires deliveries, so it is exposed to the C/D paradox NOW |
+| E | Recurrent / inter-body | **Creatable today and DELIVERS** — no hard same-body gate; a cross-parent route's delivery fires on the loop clock at `RecordedDockUT` (a station/rendezvous route is "FUNCTIONALLY unaffected" per todo ~451; only the synodic-faithful VISUAL is the deferred re-aim layer), so it is exposed to the C/D paradox NOW |
 | F | Risk surfaces | **Partial** — 6 surfaces; primary paradox + non-rewind-discard leak are the actionable ones; RP granularity safe |
 | Refute | Adversarial | **Paradox CONFIRMED-STANDS** — six escape hatches each fail |
 
