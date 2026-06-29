@@ -246,9 +246,13 @@ and `\.CommittedRecordings\b`; the new helper file must not reference either tok
 (`RecalculateAndPatchForPostRewindFlightLoad(loadedUT)`) **before**
 `DispatchRewindPostLoadIfPending()` at `:3201` (which drives `ConsumePostLoad` →
 `Restore` → commit recalc). At the `:3182` moment during a Re-Fly invoke the bundle
-has NOT been restored yet, so the live ledger is the freshly-loaded `.sfs` ledger
-(which does not contain the parked future rows at all). Therefore the `:3182` recalc
-is already free of orphan route rows on the invoke path — the Restore-time drop
+has NOT been restored yet. **CORRECTION (edge-case review finding #6):** during a rewind
+the IN-MEMORY ledger SURVIVES the scene change (the sidecar reload is skipped, so the
+bundle is authoritative), so `:3182` actually sees the full pre-rewind ledger WITH the
+future route rows — NOT a clean `.sfs` ledger. It is SAFE anyway because
+`RecalculateAndPatchForPostRewindFlightLoad` applies a UT cutoff (`loadedUT`) that filters
+`UT > loadedUT` out of the funds patch, AND it is transient (after the Restore-time drop
+the commit recalc at `:929` over the post-drop ledger is authoritative). So the Restore-time drop
 (`ConsumePostLoad` step 1, which runs inside `DispatchRewindPostLoadIfPending` at
 `:3201`, AFTER `:3182`) is the one authoritative point and there is no second site to
 patch. The commit recalc inside `RunStripActivateMarker` (`:929`, `double.MaxValue`)
@@ -722,3 +726,37 @@ working-dir / `[Collection("Sequential")]` rules for shared statics (`Ledger`,
   after cutoff likewise. None of these feed a non-route module, so dropping them is
   ledger-consistent — but verify no consumer reads them post-rewind expecting them
   present.
+
+---------------------------------------------------------------------------------
+
+## 10. Post-implementation review resolutions (adversarial edge-case + test-file reviews)
+
+The implemented change set was put through a by-inspection compile review (verdict
+LIKELY-COMPILES-AND-CORRECT), an adversarial edge-case review, and a test-file review
+(both test files TESTS-SOUND / will compile, no MUST-FIX). Outcomes:
+
+- **Edge-case finding #4 (LOW, FIXED).** The retire cutoff must be the UT the WORLD
+  actually reverted to (the loaded quicksave UT). `RewindPoint.UT` is captured at
+  `RewindPointAuthor.Begin` one frame BEFORE the deferred quicksave save, so it is
+  ~one frame EARLIER than the `.sfs`-embedded UT — a route row in the
+  `(rp.UT, quicksaveUT]` window would be wrongly dropped and the re-fly would
+  double-apply. **Fix applied:** `RewindInvoker.ConsumePostLoad` now passes the POST-LOAD
+  live UT (`SafeNow()`, fallback `rp.UT`) as the cutoff instead of `rp.UT` — at that point
+  the universe has just loaded at the quicksave UT, so the cutoff equals the world-revert
+  boundary and the strict-`>` emit-ordering justification becomes literally true. (Every
+  "cutoff = `rp.UT`" reference earlier in this plan is superseded by this.) `RewindPointAuthor`
+  is deliberately NOT modified (avoids touching RP authoring); the fix is scoped to the
+  consumer and does not affect the unit/e2e/in-game tests (they call `Restore` with explicit
+  cutoffs).
+- **Edge-case finding #6 (doc, FIXED above in §3.3).** The pre-Restore `:3182` recalc sees
+  the surviving in-memory ledger filtered by a `loadedUT` cutoff, not a clean `.sfs` ledger;
+  corrected. Outcome unchanged (safe).
+- **SAFE (confirmed, no change):** RoutePaused/RouteEndpointLost drops (observe-only, state
+  reverts via `.sfs`), recovery-credit re-flush (arm reverts via `.sfs`, future credit row
+  dropped → exactly one re-flush), multi-rewind (pure stateless filter, each Capture sees a
+  clean ledger), other ledger-restore paths (stock-revert prune already drops route rows;
+  cold load skipped during rewind; journal/sweep run post-drop), and all degenerate cases.
+- **Test reviews:** the 7 headless `[Fact]`s prove the drop→re-fire non-trivially and the
+  headless economic-magnitude approximation is honestly scoped (real charge is the in-game
+  test's job); the in-game test is a faithful `ConsumePostLoad` proxy and fully reversible.
+  One cosmetic SHOULD-FIX (a `RecalculateAndPatch` in cleanup) is already a `TODO(build-env)`.

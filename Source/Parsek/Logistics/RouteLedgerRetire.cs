@@ -94,10 +94,17 @@ namespace Parsek.Logistics
         /// in the SAME synchronous <c>EmitLoopCycle</c> tick from the same
         /// <c>currentUT</c> (the row is written only after the live writer runs), so a
         /// row stamped exactly at the cutoff means its physical effect already landed
-        /// and IS captured in the RewindPoint quicksave's tanks — keep the row,
-        /// matching the world-revert boundary. A tie is also near-impossible on the
-        /// ~1 Hz dispatch grid, but the emit-ordering argument is the reason. Do NOT
-        /// "fix" this to <c>&gt;=</c>.</para>
+        /// and IS captured in the reverted world's tanks — keep the row, matching the
+        /// world-revert boundary. <b>The cutoff MUST be the UT the world actually
+        /// reverted to (the loaded quicksave UT).</b> The rewind caller
+        /// (<c>RewindInvoker.ConsumePostLoad</c>) passes the POST-LOAD live UT for
+        /// exactly this reason — NOT <c>RewindPoint.UT</c>, which is captured one frame
+        /// before the deferred quicksave save and is ~one frame earlier than the UT the
+        /// <c>.sfs</c> embeds (edge-case review finding #4: an earlier cutoff would drop
+        /// a row in the <c>(rp.UT, quicksaveUT]</c> window whose effect is in the
+        /// reverted world, making the re-fly double-apply). A tie is also near-impossible
+        /// on the ~1 Hz dispatch grid, but the emit-ordering argument is the reason. Do
+        /// NOT "fix" this to <c>&gt;=</c>.</para>
         /// </summary>
         internal static bool ShouldRetireRouteActionAtRewind(GameAction a, double cutoffUT)
         {

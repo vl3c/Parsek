@@ -717,9 +717,21 @@ namespace Parsek
             {
                 try
                 {
+                    // Rec-1 route-row retire cutoff = the UT the WORLD actually reverted
+                    // to (the loaded quicksave's UT), which at this post-load point IS the
+                    // live UT — the universe just loaded at it. This is preferred over
+                    // rp.UT: rp.UT is captured at RewindPointAuthor.Begin one frame BEFORE
+                    // the deferred quicksave save, so it is ~one frame EARLIER than the UT
+                    // the .sfs embeds; using it could drop a route row in the
+                    // (rp.UT, quicksaveUT] window whose physical effect IS in the reverted
+                    // world, which the re-fly would then double-apply (edge-case review
+                    // finding #4). Fall back to rp.UT if the live UT is unavailable
+                    // (SafeNow returns 0.0 on failure).
+                    double liveUT = SafeNow();
+                    double retireCutoffUT = liveUT > 0.0 ? liveUT : rp.UT;
                     ParsekLog.Info(InvokeTag,
-                        $"ConsumePostLoad: restoring bundle with route-retire cutoffUT={rp.UT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
-                    ReconciliationBundle.Restore(bundle, rp.UT);
+                        $"ConsumePostLoad: restoring bundle with route-retire cutoffUT={retireCutoffUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} (liveUT={liveUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, rp.UT={rp.UT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})");
+                    ReconciliationBundle.Restore(bundle, retireCutoffUT);
                 }
                 catch (Exception ex)
                 {
