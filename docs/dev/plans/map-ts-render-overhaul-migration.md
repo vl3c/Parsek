@@ -573,6 +573,162 @@ off) normal play is BYTE-IDENTICAL to today.
 
 ---
 
+## 10c. Cutover regression harness (stacked on Phase 9)
+
+**Goal:** turn "flag-ON is byte-identical BY CONSTRUCTION" into "demonstrably regression-free ACROSS
+gameplay" by adding the tests the 5-lens cutover-readiness audit found missing, now that the Phase-9 parity
+oracle is trustworthy (faithful + synthesized + polyline lenses all live). TEST-FOCUSED + additive: NO
+producer geometry or draw path changed, so with the spine flag OFF
+(`MapRenderFlags.MapRenderPhaseSpineDrive` default false) AND tracing OFF (`mapRenderTracing` default off),
+normal play stays BYTE-IDENTICAL to today (all flag-OFF / tracing-OFF source gates green - see "Status" below).
+
+**Architectural truth these tests respect (do not write a test that assumes otherwise):** through this
+stack, flag-ON only swaps the DECISION SOURCE (the typed `PhaseChain` spine); the LEGACY code still DRAWS
+the pixels (`GhostOrbitLinePatch` for StockConic, the autonomous `GhostTrajectoryPolylineRenderer.Driver`
+for TracedPath, IMGUI markers). The geometry REPLACEMENT (e.g. the Phase-6 descent sub-surface-retire fix)
+only LANDS at the draw layer when Phase 5b deletes the legacy draw. So a flag-ON test asserts the CURRENT
+contract: (i) the spine's DECISION/intent is correct and matches what flag-OFF would decide for faithful
+members (byte-identical), (ii) the live oracle stays GREEN (zero parity-drift) on correct draws, and (iii)
+for the descent re-stitch it DOCUMENTS that the retire is not yet live at the draw layer (lands at 5b)
+rather than asserting a pixel change.
+
+**Status (implemented, test-only / flag-OFF + tracing-OFF byte-identical):**
+
+### Headless comparator + intent-parity widening (A2 / A4 / A5)
+
+- **A4 - the byte-parity comparator's seam / generated omission is now a CHECKED invariant, not a silent
+  gap.** `GeometryParityComparator.CompareSegment` deliberately does NOT byte-compare
+  `RenderSegment.LeadingSeam` / `TrailingSeam` / `IsGenerated`: `PhaseFactory.ClassifySegment` builds every
+  phase with NULL seams by design (seam re-derivation is a spine-side / Phase-5b concern), while
+  `ChainAssembler.AssignSeams` stamps `Rigid` / `FlexibleSoi`, so the two diverge BY CONSTRUCTION; comparing
+  them would force a forbidden producer change and false-fail every real factory-vs-assembler build. Instead
+  of GATE-by-comparison, A4 adds a SOURCE gate
+  (`Source/Parsek.Tests/MapRender/SeamFieldsDrawIrrelevantSourceGateTests.cs`) asserting the two LIVE
+  PIXEL-DRAW files (`Patches/GhostOrbitLinePatch.cs`, `Display/GhostTrajectoryPolylineRenderer.cs`) read
+  ZERO `RenderSegment` seam / `IsGenerated` fields (comments stripped, whitespace collapsed; mirrors
+  `FailClosedWiringSourceGateTests`), plus a sanity test that the comparator header documents the omission +
+  names the gate. The fields are provably draw-irrelevant today (`GhostRenderIntent` carries treatment /
+  payload / frame / drive-UT but NO seam / `IsGenerated`), so omitting them cannot let a draw-affecting
+  divergence pass. The gate is the pre-5b TRIPWIRE: the instant a draw path reads a seam / `IsGenerated` off
+  a spine segment (e.g. Phase 5b makes the descent G1 seam load-bearing), it FAILS and forces the comparator
+  to widen + the factory to stamp seams at exactly the right moment. Doc updates: comparator class header +
+  inline NOTE in `CompareSegment`. CLOSES the audit's "comparator surface omits seam / generated fields"
+  finding.
+
+- **A5 - intent parity widened from a SUBSET to the FULL conic Kepler set, plus an inclined / nonzero-LAN
+  fixture.** `PhaseSpineParityTests.AssertIntentParity` compared only `sma` / `ecc` / start / end / body;
+  A5 widens it to inclination / LAN / argPe / MnA / epoch / isPredicted, and adds an `InclinedChain()`
+  fixture (inc 28.5 deg, LAN 75 deg, argPe 40 deg, MnA 1.2, epoch 12.5) with a spot-frame theory, a
+  non-vacuity guard, and a full prior-threaded sweep. CLOSES the audit's "parity asserts only a subset of
+  conic elements, equatorial zero-LAN fixtures only" finding.
+
+- **A2 - the realistic MULTI-segment flag-ON-vs-OFF differential the audit found missing.**
+  `Source/Parsek.Tests/MapRender/MultiMemberSpineParityTests.cs` runs ONE faithful recording whose
+  assembled chain spans Kerbin ascent (TracedPath) -> Kerbin parking (StockConic) -> Kerbin->Mun SOI
+  crossing (FlexibleSoi seam) -> Mun arrival (StockConic) -> Mun descent (TracedPath), with inclined /
+  nonzero-LAN elements, through BOTH spines: full geometry byte-parity (`GeometryParityComparator`) + full
+  intent parity over a continuous `[-5, 85]` 0.5s sweep + per-segment spot frames + a fixture-shape guard.
+  CLOSES the audit's "single-member equatorial circular fixtures only; no realistic multi-segment / SOI
+  chain through both spines" finding.
+
+### Flag-ON live in-game scenario tests (A3 / B-rows)
+
+All five are `[InGameTest(Category="MapRender", Scene=GameScenes.FLIGHT)]`, auto-discovered by reflection,
+run via Ctrl+Shift+T. Each drives the REAL wired path (`ShadowRenderDriver.ForceSpineDriveForTesting` +
+`MapRenderTrace.ForceEnabledForTesting`) and asserts via the Phase-9 oracle, respecting the architectural
+truth above (assert the decision-source-swap contract; never a 5b-only geometry change).
+
+- **A3 - `FlagOnParityBaselineInGameTest.cs`** (known-good + loop-shifted): the FLAG-ON parity BASELINE the
+  audit found missing (the existing `RenderParityBaselineTest` is flag-OFF; `PhaseSpineSwapInGameTest`
+  exercises only the faithful lens). Drives the REAL `ShadowRenderDriver.RunFrame` SPINE-ON over a live
+  faithful ghost and asserts ZERO parity-drift across ALL THREE Phase-9 oracle modes at once (faithful,
+  synthesized, polyline), the spine's stamped loop-shift matches `GetGhostOrbitEpochShift`, and NO
+  `parity-drift` anomaly fired on the trace sink. Non-vacuous: each lens must `Sampled` + `HasMeasurement`
+  or it fails as blind; the loop-shifted arm bakes a 1100s shift end-to-end through the real seam. CLOSES
+  the section 11.5 "loop a single recording" / baseline-only-flag-OFF gap, flag-ON.
+
+- **B-row2 - `ReaimedLoopSynthesizedOracleInGameTest.cs`** (the Phase-9 SYNTHESIZED payoff): drives a live
+  ghost from a RE-AIMED segment (recorded shape rotated 70 deg in LAN) while the recording stores the
+  un-re-aimed segment. SYNTHESIZED oracle (rendered conic vs the re-aimed INTENDED seed) reads ~0 (the
+  proof); FAITHFUL oracle (rendered vs RECORDED) FLAGS drift (the negative control proving the faithful-only
+  oracle could not have validated a re-aimed draw, and that the LAN rotation actually moves the conic - a
+  tautology guard). CLOSES section 11.5 "re-aim with a large synodic target move" / "mixed faithful + re-aimed
+  members" at the LIVE synthesized-lens layer (headless only before).
+
+- **B-row1 - `DescentEndToEndSpineInGameTest.cs`** (descent end-to-end through the spine): drives the EXACT
+  RunFrame-inlined pair (`ChainSampler.Sample(PhaseChain, liveUT, units)` -> `GhostRenderDirector.Decide`)
+  over a descent-trigger unit + descent `PhaseChain` at a TRIGGERED live UT and a PAST-END UT. Asserts the
+  spine resolves a VISIBLE re-anchored first-class `DescentPhase` at the swept-deorbit head with the Rigid
+  orbit-landing seam, and RETIRES (OutsideWindow -> Hidden, no held sample) past the clip even though the
+  prior frame was visible. **GATE FINDING surfaced (not faked):** asserts `IsRenderingNonOrbitalLeg(recId)
+  == false` after a correct spine descent DECISION - documenting that the spine's descent decision does NOT
+  own the leg DRAW (the legacy autonomous Driver owns the pixels), so the Phase-6 sub-surface-retire fix
+  lands at the DRAW layer ONLY at Phase 5b. Asserts the current decision-source-swap contract, not a
+  5b-only pixel change. CLOSES section 11.5 "atmospheric descent to landing" / "reentry / destruction
+  mid-recording retire" at the spine-DECISION layer (the draw-layer retire stays expected-to-change until
+  5b).
+
+- **B-row4 - `ParentAnchoredChildSpineInGameTest.cs`** (parent-anchored controlled child): (a) drives the
+  REAL `AnchorFrameResolver.ResolveParentAnchoredChild` on LIVE-body UT magnitudes through all three
+  outcomes - >=2-sample in-range -> `BodyFixedPrimary`; out-of-range / no loop-frames -> `Retire` (never
+  clamp to a stale child offset, the documented "stale ghost" bug it prevents); too-few-samples + covering
+  loop frames -> `AnchorLocalSecondary`; (b) drives a live controlled-decoupled child ghost
+  (`IsDebris=false`, `ParentAnchorRecordingId` set) through RunFrame spine-ON and asserts ZERO faithful
+  drift. Non-vacuous: all three routing branches asserted distinctly; the oracle arm must `Sampled` +
+  `HasMeasurement`. CLOSES section 11.5 "controlled-decoupled child (lander off a stage)" dual-surface routing,
+  flag-ON.
+
+- **B-row9 / B-row20 - `WarpThroughInteriorGapSpineInGameTest.cs`** (the HoldPhase decision +
+  interior-gap warp-step hold). **HoldPhase decision: VACUOUS-UNDER-FLAG-ON in v1, with evidence.** The
+  factory constructs ZERO live HoldPhases - the only `new HoldPhase(...)` in the pipeline is in
+  `MovingTargetStationApproach.cs`, which `FailClosedClassifier` routes to FaithfulFallback (never reaches a
+  live spine-driven chain); interior chain gaps are coverage-classified
+  (`PhaseChain.ClassifyCoverage -> InInteriorGap`), NOT modelled as HoldPhases. Building a HoldPhase
+  producer would be new geometry (out of this test-only scope). The test documents this and asserts the
+  HoldPhase warp-safety contract on a CONSTRUCTED HoldPhase (`CoversUt` whole span, `Treatment.None`)
+  without shipping a producer. **Plus the live, valuable coverage-state warp-step assertion:** drives the
+  RunFrame-inlined `ChainSampler.Sample` + `GhostRenderDirector.Decide` pair across a 2-phase chain with a
+  real interior gap at 3 UTs (phase 1 / a single warp step landing IN the gap / a step past into phase 2);
+  asserts the gap HOLDS the prior visible intent (same treatment + body, no blink / retire) and the ghost is
+  NEVER Hidden once visible. Non-vacuous: a pre-assert confirms the fixture chain actually classifies
+  `InInteriorGap`. CLOSES section 11.5 "warp through HoldPhase / loiter / descent re-anchor" via the OBSERVABLE
+  EQUIVALENT the spine actually uses in v1 (the interior-gap hold), and DISPOSITIONS the HoldPhase producer
+  row as vacuous-for-v1 with factory evidence.
+
+### Gate findings surfaced (not faked)
+
+- **Descent retire is not yet live at the draw layer (lands at Phase 5b).** B-row1's
+  `IsRenderingNonOrbitalLeg == false` assertion (after a correct spine descent decision) turns the
+  architectural note into a passing TRIPWIRE: it documents that the spine's descent decision does not own
+  the leg DRAW, so the Phase-6 sub-surface-retire fix only reaches the pixels when 5b deletes the legacy
+  autonomous Driver. The G1 tangent-discontinuity PRODUCTION anomaly raise at the descent draw site is
+  likewise a Phase-5b item; the headless `CrossMemberSeamStitcher` predicate + this in-game test exercise it
+  only at the predicate / sample layer.
+- **HoldPhase has no live v1 producer.** B-row9/20 dispositions the row as vacuous-under-flag-ON with the
+  factory evidence above, rather than fabricating a producer (which would be out-of-scope new geometry).
+
+### Flag-OFF / tracing-OFF byte-identical
+
+No producer geometry or draw code was touched - only test files plus comparator doc-comments. Flag-OFF
+(`MapRenderPhaseSpineDrive` default false) and tracing-OFF (`mapRenderTracing` default off) normal play is
+byte-identical to today; every flag-OFF / tracing-OFF source gate stays green: the A4 seam-omission gate
+(`SeamFieldsDrawIrrelevantSourceGateTests`), `FailClosedWiringSourceGateTests` (incl. the SwappedSpine
+deorbit-clock + fail-closed-classifier discipline), and the repo-wide grep-audit gates
+(`grep-audit-render-reconciler-unwired`, `grep-audit-map-render-director-drive`,
+`grep-audit-active-leg-recordings`, `grep-audit-non-loop-live-pid`, `grep-audit-ers-els`). Because this is
+test-only / additive with no user-visible default-play change, there is NO CHANGELOG / todo entry.
+
+### Left for the runtime-only rows headless cannot reach
+
+The section 11.5 runtime-only rows that need a real KSP lifecycle / scene frame remain producer-phase /
+follow-up in-game work: quickload mid-gap, dock / undock member swaps, overlap gap-hold, in-bubble switch,
+Fly / Switch-To teardown, warp across a synodic boundary, and the scene-transition no-one-frame-blank settle.
+(Cold-load UT<=0 is already covered flag-ON by Phase 9's `ColdLoadClockGuardInGameTest` - the clock-readiness
+defer guard - so it is NOT in this list.) The headless gates + the five flag-ON scenario tests above lock the
+decision / geometry contract those runtime rows build on.
+
+---
+
 ## 11. Phase ordering & dependencies
 
 ```

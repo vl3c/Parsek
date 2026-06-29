@@ -44,6 +44,33 @@ namespace Parsek.Tests
                 },
             };
 
+        // Phase-10 A5: an INCLINED, nonzero-LAN faithful chain. The earlier fixtures are all equatorial
+        // zero-LAN (inclination == 0, longitudeOfAscendingNode == 0), so a spine that dropped or mis-carried
+        // inclination / LAN / argPe / MnA / epoch would still read PARITY there (0 == 0). This conic carries
+        // a non-equatorial orientation (inc 28.5 deg, LAN 75 deg, argPe 40 deg, MnA 1.2 rad, epoch 12.5) so
+        // a non-equatorial intent divergence is CAUGHT by the widened AssertIntentParity. sma 900000 + ecc
+        // 0.15 keeps periapsis (~765000) well above Kerbin's 600000 surface so it stays a StockConic.
+        private static MockTrajectory InclinedChain()
+            => new MockTrajectory
+            {
+                RecordingId = "rec-inclined",
+                VesselName = "Polar Probe",
+                Points = new List<TrajectoryPoint>
+                {
+                    Pt(0, "Kerbin"), Pt(2, "Kerbin"), Pt(4, "Kerbin"), Pt(6, "Kerbin"), Pt(8, "Kerbin"),
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        startUT = 10, endUT = 30, bodyName = "Kerbin",
+                        semiMajorAxis = 900000, eccentricity = 0.15,
+                        inclination = 28.5, longitudeOfAscendingNode = 75.0,
+                        argumentOfPeriapsis = 40.0, meanAnomalyAtEpoch = 1.2, epoch = 12.5,
+                    },
+                },
+            };
+
         private static GhostPlaybackLogic.LoopUnitSet NonLooped => GhostPlaybackLogic.LoopUnitSet.Empty;
 
         private static GhostRenderChain BuildAssemblerChain(IPlaybackTrajectory traj, double wStart, double wEnd)
@@ -78,7 +105,18 @@ namespace Parsek.Tests
 
         // Assert the two spines' intents are byte-identical on the load-bearing fields (the only ones that
         // flow downstream into the side-channel stamps + draw): Visible, Treatment, DriveUT, FrameBodyName,
-        // and the conic payload (HasConic + the elements). Prior intent is shared so the gap-hold matches.
+        // and the FULL conic payload (HasConic + EVERY Kepler element). Prior intent is shared so the
+        // gap-hold matches.
+        //
+        // Phase-10 A5: the element set is the FULL OrbitSegment Kepler shape, not the sma/ecc/start/end/body
+        // subset the earlier version checked. The StockConic treatment seeds the live orbit from
+        // (inclination, eccentricity, semiMajorAxis, longitudeOfAscendingNode, argumentOfPeriapsis,
+        // meanAnomalyAtEpoch, epoch) — see StockConicTreatment.SeedAndDrive — so an inclination / LAN /
+        // argPe / MnA / epoch / isPredicted divergence between the two spines is a REAL render divergence
+        // (the icon + line would sit on a differently-oriented orbit) that the subset assertion would miss.
+        // This is exactly the gap an INCLINED, nonzero-LAN fixture exposes (see InclinedChain below): on an
+        // equatorial zero-LAN fixture inclination==0 and LAN==0 on BOTH spines, so a swap that dropped them
+        // could not be caught.
         private static void AssertIntentParity(GhostRenderIntent assembler, GhostRenderIntent factory)
         {
             Assert.Equal(assembler.Visible, factory.Visible);
@@ -88,11 +126,19 @@ namespace Parsek.Tests
             Assert.Equal(assembler.Payload.HasConic, factory.Payload.HasConic);
             if (assembler.Payload.HasConic)
             {
-                Assert.Equal(assembler.Payload.Conic.semiMajorAxis, factory.Payload.Conic.semiMajorAxis);
-                Assert.Equal(assembler.Payload.Conic.eccentricity, factory.Payload.Conic.eccentricity);
-                Assert.Equal(assembler.Payload.Conic.startUT, factory.Payload.Conic.startUT);
-                Assert.Equal(assembler.Payload.Conic.endUT, factory.Payload.Conic.endUT);
-                Assert.Equal(assembler.Payload.Conic.bodyName, factory.Payload.Conic.bodyName);
+                OrbitSegment a = assembler.Payload.Conic;
+                OrbitSegment f = factory.Payload.Conic;
+                Assert.Equal(a.startUT, f.startUT);
+                Assert.Equal(a.endUT, f.endUT);
+                Assert.Equal(a.semiMajorAxis, f.semiMajorAxis);
+                Assert.Equal(a.eccentricity, f.eccentricity);
+                Assert.Equal(a.inclination, f.inclination);
+                Assert.Equal(a.longitudeOfAscendingNode, f.longitudeOfAscendingNode);
+                Assert.Equal(a.argumentOfPeriapsis, f.argumentOfPeriapsis);
+                Assert.Equal(a.meanAnomalyAtEpoch, f.meanAnomalyAtEpoch);
+                Assert.Equal(a.epoch, f.epoch);
+                Assert.Equal(a.bodyName, f.bodyName);
+                Assert.Equal(a.isPredicted, f.isPredicted);
             }
         }
 
@@ -199,6 +245,79 @@ namespace Parsek.Tests
                 aPrior = aIntent;
                 fPrior = fIntent;
             }
+        }
+
+        // ---- Phase-10 A5: INCLINED, nonzero-LAN fixture (the non-equatorial intent-divergence gap) ----
+
+        [Theory]
+        [InlineData(4.0)]   // ascent traced run (Kerbin)
+        [InlineData(20.0)]  // on the inclined conic (the load-bearing leg: inc/LAN/argPe must carry)
+        [InlineData(50.0)]  // past window end -> hidden for both
+        public void InclinedChain_TwoSpines_EmitIdenticalIntents(double liveUT)
+        {
+            var traj = InclinedChain();
+            GhostRenderChain assembler = BuildAssemblerChain(traj, 0, 40);
+            PhaseChain factory = BuildFactoryChain(traj, 0, 40);
+
+            GhostRenderIntent aIntent = GhostRenderDirector.Decide(
+                ChainSampler.Sample(assembler, liveUT, NonLooped), default(GhostRenderIntent), traj.VesselName);
+            GhostRenderIntent fIntent = GhostRenderDirector.Decide(
+                factory, liveUT, NonLooped, default(GhostRenderIntent), traj.VesselName);
+
+            AssertIntentParity(aIntent, fIntent);
+        }
+
+        [Fact]
+        public void InclinedChain_OnConicLeg_CarriesNonEquatorialElements_OnBothSpines()
+        {
+            // GUARD against a vacuous fixture: prove the on-conic intent ACTUALLY carries non-equatorial
+            // orientation on BOTH spines (so the widened AssertIntentParity is exercising the inc/LAN/argPe
+            // path, not 0==0). If a future edit equatorialized the fixture this fails loudly rather than
+            // silently turning the A5 gap back off.
+            var traj = InclinedChain();
+            GhostRenderChain assembler = BuildAssemblerChain(traj, 0, 40);
+            PhaseChain factory = BuildFactoryChain(traj, 0, 40);
+
+            GhostRenderIntent aIntent = GhostRenderDirector.Decide(
+                ChainSampler.Sample(assembler, 20.0, NonLooped), default(GhostRenderIntent), traj.VesselName);
+            GhostRenderIntent fIntent = GhostRenderDirector.Decide(
+                factory, 20.0, NonLooped, default(GhostRenderIntent), traj.VesselName);
+
+            Assert.True(aIntent.Visible && aIntent.Payload.HasConic, "assembler must render the inclined conic at UT 20");
+            Assert.True(fIntent.Visible && fIntent.Payload.HasConic, "factory must render the inclined conic at UT 20");
+            Assert.Equal(28.5, aIntent.Payload.Conic.inclination);
+            Assert.NotEqual(0.0, aIntent.Payload.Conic.inclination);
+            Assert.NotEqual(0.0, aIntent.Payload.Conic.longitudeOfAscendingNode);
+            // and the two spines agree on the full element set (the widened gate)
+            AssertIntentParity(aIntent, fIntent);
+        }
+
+        [Fact]
+        public void InclinedChain_FullSweep_TwoSpines_EmitIdenticalIntents_WithSharedPrior()
+        {
+            // The continuous-run inclined proof: walk [-5, 45] at 0.5s threading the SAME prior through both
+            // spines (as RunFrame does). A divergence on ANY frame on the inclined conic (an inc/LAN/argPe
+            // swap, an epoch/MnA phase slip) fails the widened AssertIntentParity here.
+            var traj = InclinedChain();
+            GhostRenderChain assembler = BuildAssemblerChain(traj, 0, 40);
+            PhaseChain factory = BuildFactoryChain(traj, 0, 40);
+
+            GhostRenderIntent aPrior = default(GhostRenderIntent);
+            GhostRenderIntent fPrior = default(GhostRenderIntent);
+            bool sawConic = false;
+            for (double ut = -5.0; ut <= 45.0; ut += 0.5)
+            {
+                GhostRenderIntent aIntent = GhostRenderDirector.Decide(
+                    ChainSampler.Sample(assembler, ut, NonLooped), aPrior, traj.VesselName);
+                GhostRenderIntent fIntent = GhostRenderDirector.Decide(
+                    factory, ut, NonLooped, fPrior, traj.VesselName);
+
+                AssertIntentParity(aIntent, fIntent);
+                sawConic |= aIntent.Visible && aIntent.Payload.HasConic && aIntent.Payload.Conic.inclination != 0.0;
+                aPrior = aIntent;
+                fPrior = fIntent;
+            }
+            Assert.True(sawConic, "the inclined conic leg must render visible (non-equatorial) somewhere in the sweep");
         }
 
         // ---- Looped / overlap member: the shared span clock keeps the two spines glued (no per-instance) ----
