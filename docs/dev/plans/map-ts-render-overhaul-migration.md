@@ -473,6 +473,106 @@ surface (a tracer-coverage assertion). **Parity gate:** oracle green. **Risk:** 
 
 ---
 
+## 10b. Cutover-hardening instruments (stacked on Phase 8)
+
+**Goal:** build the observability + guard instruments that make the eventual flag-ON flip (the spine drives
+the render) and the 5a/5b legacy-draw deletes provably regression-free, BEFORE any of those irreversible
+steps. A 5-lens cutover-readiness audit found gaps in the live oracle and four previously-unraised
+guard/anomaly sites; this stacked PR closes them. Every item is ADDITIVE and reversible: with the spine flag
+OFF (`MapRenderFlags.MapRenderPhaseSpineDrive` default false) AND tracing OFF (`mapRenderTracing` default
+off) normal play is BYTE-IDENTICAL to today.
+
+**Status (implemented, observability-only / flag-OFF + tracing-OFF byte-identical):**
+
+- **A1 - the live parity oracle gains the SYNTHESIZED lens (rendered-vs-intended) it was missing.** Before
+  this PR the only LIVE oracle caller (`MapRenderProbe.ComputeFaithfulOrbitParity`) ran the oracle in
+  `ParityMode.Faithful` ONLY and SKIPPED every re-aimed / synthesized member (no-covering-segment /
+  body-mismatch), so a re-aim / descent / TracedPath DRAW regression produced no anomaly at all. The pure
+  Synthesized diff (`RenderParityOracle.ComputeDrift` / `ComputeDriftScaleDerived` in `ParityMode.Synthesized`,
+  count-independent nearest-point projection) and `NearestDistanceToPolyline` already existed and were
+  unit-tested but had NO live caller. A1 wires two live Synthesized lenses, both inside the
+  `MapRenderTrace.IsEnabled`-gated probe (tracing OFF = the probe never runs = zero new work):
+  - SYNTHESIZED conic parity: rendered StockConic vs the Director's intended re-aimed seed
+    (`ShadowRenderDriver.TryGetFreshStockConicSeed` = `intent.Payload.Conic`, stamped in BOTH flag states).
+    The intended reference is built PHASE-MATCHED to the live rendered orbit (its epoch baked with the SAME
+    loop shift `StockConicTreatment.SeedAndDriveLive` drove the rendered conic with,
+    `GetGhostOrbitEpochShift(pid)`, via the shared `BuildPhaseMatchedReferenceOrbit` helper - the SAME helper
+    the faithful lens uses) and BOTH orbits are sampled at the SAME live-clock UTs. So a faithful member reads
+    ~0 whether or not it is looped (a non-loop member's shift is ~0; a LOOPED member's reference now lands on
+    the same arc as its rendered orbit instead of a different mean-anomaly half-arc). Without this the raw-
+    epoch reference false-fired `parity-drift` on every CORRECT looped synthesized draw. The lens lights up
+    only on a re-aim DRAW divergence - the exact complement of the faithful lens's skip. Emits
+    `parity-drift mode=synthesized`.
+  - SYNTHESIZED polyline-leg parity: the live `VectorLine.points3` (scaled->world body-relative) vs the leg's
+    own recorded surface track, diffed per drawn leg. CONIC-ANCHORED legs are SKIPPED (a known, stated
+    limitation): the draw intentionally rotates an anchored leg ~96 deg onto the bracketing conic seam, so a
+    rendered-vs-raw-recorded diff would false-fire on a CORRECT anchor (and read ~0 on a leg that FAILED to
+    anchor - exactly backwards), and the anchor's per-point Slerp is not cheaply recoverable to rebuild the
+    reference in. The lens therefore validates only NON-anchored body-fixed legs (descent / atmospheric /
+    surface - the descent re-stitch the audit cares about), where the rendered points ARE the raw body-fixed
+    points so rendered == recorded by construction and a genuine mis-draw drifts. Emits
+    `parity-drift mode=polyline`.
+  - The pure diff math (`ComputeDrift*` / `EstimateScaleFromPoints` / `ToleranceForScale`) is xUnit-green
+    (the RenderParity regression set, including a Synthesized rotated-arc and a dense-vs-sparse count-mismatch
+    case). The Unity capture orchestration (`ComputeSynthesizedConicParity`,
+    `CaptureRenderedVsRecordedLegGeometry` - Orbit construction / `points3` / `ScaledSpace` /
+    `GetWorldSurfacePosition`) and the per-pid / per-recording rate-limit guards are Unity-bound and validated
+    by the FOLLOW-UP in-game harness (see below).
+
+- **B4/D2 - cold-load clock-readiness guard (design 11.2).** `ShadowRenderDriver.RunFrame` reached the MAP
+  spine at the cold-load Planetarium UT=0 (or a non-finite UT) before the clock was established, with no
+  `liveUT <= 0` check (`ChainSampler.Sample` passed `liveUT` straight through). Sampling the span clock at
+  UT<=0 would place a degenerate TS/map ghost on the first cold-load frames. B4 adds the pure predicate
+  `ShadowRenderDriver.IsLiveClockReady(double)` (strictly positive AND finite, mirroring
+  `LedgerOrchestrator.IsCurrentUtReadyForCutoff(ut > 0)`, extended with a finite guard) and, gated on
+  `PhaseSpineDriveActive` (flag-ON ONLY), DEFERS the whole spine frame (renders nothing / holds) when the
+  clock is not ready, raising the once-per-event `clock-not-ready` anomaly. The defer is a HOLD: it does NOT
+  call `PruneStaleState`, so the cached chains / prior intents the next ready frame resumes from survive. This
+  guard lives in the MAP spine, NOT flight gameplay, and only affects the flag-ON path; flag-OFF is unchanged.
+
+- **C1 - three previously-unraised Tier-C cutover anomalies now have production raises.**
+  `clock-not-ready` / `retire-not-held` / `anchor-resolve-fail` were defined-but-inert constants (Phase 8
+  status above). C1 wires their raises, each tracing-gated and deduped once-per-event:
+  - `clock-not-ready`: the B4 defer above.
+  - `retire-not-held` (pure `MapRenderTrace.IsRetireNotHeld`): a member whose sample resolved OUTSIDE its
+    window (should retire) yet was kept visible (held) - the inverse-hold defect. The Director's
+    OutsideWindow case returns Hidden, so this never fires in the normal pipeline; it is the guard that proves
+    it stays that way.
+  - `anchor-resolve-fail` (pure `AnchorFrameResolver.ResolveBodyAndRaise` over the existing `ResolveBody`
+    decision): a visible BodyAnchor whose body fails closed (missing / unknown body) - the fail-closed (hide)
+    outcome the draw already takes, now made observable rather than a silent drop.
+  - Shared once-per-event dedup `MapRenderTrace.ShouldEmitCutoverAnomalyOnChange` (warp-capped + scene-switch
+    cleared, mirroring the sibling `ShouldEmit*OnChange` gates).
+
+- **C4 - the silent flag-ON -> assembler-chain fallback is now observable.** `BuildChainSignature` omits the
+  spine flag from the cache key, so after an A/B toggle / hot-reload (without a `Reset`) a chain cached while
+  the flag was off carries a null PhaseChain and the flag-ON branch silently falls through to the LEGACY
+  assembler chain. C4 warns ONCE per pid (`WarnSpineFlagOnAssemblerFallback`, one-shot HashSet cleared in
+  `Reset()` + `PruneStaleState`) inside the flag-ON `else` branch so the toggle is visible without flooding.
+  The render result is unchanged (the assembler chain still renders); this only surfaces that the flag-ON run
+  is driving the legacy spine for that ghost.
+
+- **Flag-OFF / tracing-OFF byte-identical.** A1 / C1's `retire-not-held` + `anchor-resolve-fail` are behind
+  `MapRenderTrace.IsEnabled` (tracing OFF short-circuits before any work). B4's defer + C4's warn are behind
+  `PhaseSpineDriveActive` (the false const folds out; flag-OFF never enters either block). No
+  currently-supported producer's geometry changed; the renderer accessor only READS `points3`. No flight-scene
+  gameplay touched. No new user-visible default-play behavior, so NO CHANGELOG / todo entry (the cold-load
+  defer is a flag-ON-only guard; everything else is observability gated on `mapRenderTracing`).
+
+- **Tests.** Headless: `Source/Parsek.Tests/MapRender/CutoverHardeningTests.cs` (the pure predicates
+  `IsLiveClockReady` / `IsRetireNotHeld` / `AnchorFrameResolver.OutcomeToken` + `ResolveBodyAndRaise`, the
+  once-per-event dedup + warp-cap, the three emit helpers' reason tokens + IsEnabled short-circuits, and
+  source gates proving the RunFrame wiring is flag-/tracing-gated). The Synthesized diff MATH is covered by the
+  RenderParity regression set. **FOLLOW-UP (next PR) = the LIVE in-game validation harness:** the A1
+  Unity-capture orchestration (synthesized conic + polyline-leg capture), the B4 cold-load defer firing at
+  UT=0 (`Source/Parsek/InGameTests/ColdLoadClockGuardInGameTest.cs`), the C4 one-shot warn on a live flag
+  toggle, and the descent / re-aim regression scenarios are all Unity-bound (RunFrame reads
+  `Time.frameCount` + a live scene; Orbit / Vectrosity / ScaledSpace are Unity-bound) and must run via
+  Ctrl+Shift+T in FLIGHT to actually exercise the live capture. The headless gates lock the decision logic +
+  the schema those instruments feed.
+
+---
+
 ## 11. Phase ordering & dependencies
 
 ```

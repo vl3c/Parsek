@@ -54,6 +54,42 @@ namespace Parsek.MapRender
         internal static bool TryResolveBody(string bodyName, Func<string, bool> bodyExists)
             => ResolveBody(bodyName, bodyExists) == BodyResolveOutcome.Resolved;
 
+        /// <summary>Grep-stable lowercase token for a <see cref="BodyResolveOutcome"/> (carried on the
+        /// Tier-C <c>anchor-resolve-fail</c> anomaly detail line so a grep names WHY the anchor failed).</summary>
+        internal static string OutcomeToken(BodyResolveOutcome outcome)
+        {
+            switch (outcome)
+            {
+                case BodyResolveOutcome.Resolved: return "resolved";
+                case BodyResolveOutcome.FailClosedMissingName: return "fail-closed-missing-name";
+                case BodyResolveOutcome.FailClosedUnknownBody: return "fail-closed-unknown-body";
+                default: return "unknown";
+            }
+        }
+
+        /// <summary>
+        /// C1 anchor-resolve-fail RAISE wiring: resolve a <see cref="AnchorFrame.BodyAnchor"/> and, when it
+        /// fails closed (missing / unknown body), emit the Tier-C <c>anchor-resolve-fail</c> anomaly naming
+        /// the outcome - so a body-anchor that fails closed (rather than NRE) is observable. The DECISION is
+        /// the pure <see cref="ResolveBody"/> above; this is its once-per-event observability raise. The
+        /// trace emit is gated on <see cref="MapRenderTrace.IsEnabled"/> (free in normal play), so the
+        /// flag-OFF / tracing-OFF path pays nothing. Returns the resolve outcome so the caller can branch
+        /// (fail-closed -> hide) on the SAME decision it traced. Pure with respect to Unity (the body probe
+        /// is the injected delegate); the only side effect is the gated trace line.
+        /// </summary>
+        internal static BodyResolveOutcome ResolveBodyAndRaise(
+            uint pid, string recordingId, double currentUT,
+            string bodyName, Func<string, bool> bodyExists)
+        {
+            BodyResolveOutcome outcome = ResolveBody(bodyName, bodyExists);
+            if (outcome != BodyResolveOutcome.Resolved && MapRenderTrace.IsEnabled)
+            {
+                MapRenderTrace.EmitAnchorResolveFail(
+                    pid, recordingId, currentUT, bodyName, OutcomeToken(outcome));
+            }
+            return outcome;
+        }
+
         /// <summary>
         /// The outcome of a <see cref="AnchorFrame.ParentAnchoredChild"/> dual-surface resolution at a
         /// playback UT (design §5.2 / CLAUDE.md parent-anchored invariant).
