@@ -13,7 +13,11 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Known bug (investigated, not yet fixed) - Supply routes ↔ time-rewind: "funds spent, no goods" + phantom funds rows (report `docs/dev/research/logistics-time-rewind-compat-report.md`)
+## Rec-1 fix WRITTEN, UNVERIFIED (pending build + `dotnet test` + in-game validation) - Supply routes ↔ time-rewind: "funds spent, no goods" + phantom funds rows (report `docs/dev/research/logistics-time-rewind-compat-report.md`; plan `docs/dev/plans/fix-logistics-rewind-determinism.md`)
+
+**Implementation status (branch `claude/logistics-rewind-fix-r8ud6s`):** the Rec-1 core is written but **NOT compiled or tested** (the remote dev container has no .NET/mono toolchain and no KSP reference DLLs). Files: NEW `Source/Parsek/Logistics/RouteLedgerRetire.cs` (pure retire predicate + list filter), NEW `Source/Parsek.Tests/Logistics/RouteLedgerRetireTests.cs` (pure unit tests), `ReconciliationBundle.cs` (flagged `Restore(bundle, dropRouteRowsAfterUT)` overload + route-row drop in the ledger block; parameterless overload = `+inf` = route-blind), `RewindInvoker.cs` (`ConsumePostLoad` passes `rp.UT` on the SUCCESS path; the failed-load rollback `TryRestoreBundle` keeps the parameterless overload). **REMAINING before this can flip to "Fixed":** (a) build + run `dotnet test` and fix any compile errors; (b) add the Phase-3 e2e test (`RouteRewindRedeliveryTests`) + the `ReconciliationBundleTests` addition; (c) the in-game test (career FLIGHT: real route + RP + re-fly asserts the destination tank re-fills exactly once) — load-bearing per the plan; (d) Rec-3 observability + Rec-4/Rec-5 docs reconcile; (e) decide Rec-2 (inter-body hard-block) + Rec-3 scope. See the plan's phase list + review checkpoints.
+
+
 
 **Symptom (analysis, not yet a user report):** a recurrent supply route that dispatched/delivered before a rewind charges funds again on the surviving timeline but never re-delivers the cargo the quicksave reverted. Rewinding past route activity and re-flying leaves the destination depot empty while the career still pays (KSC-origin), or leaves the cargo sitting un-shipped at the origin while the route's `CompletedCycles` advances as if it shipped (non-KSC origin).
 

@@ -708,11 +708,18 @@ namespace Parsek
 
             // Step 1: reconcile. Runs now — it only touches scenario state and
             // does not depend on FlightGlobals.Vessels being populated.
+            // Rec-1 (logistics<->time-rewind determinism): pass rp.UT as the route-row
+            // retire cutoff so abandoned-future free-standing route ledger rows are
+            // dropped here (SUCCESS path only). The failed-load rollback
+            // (TryRestoreBundle) uses the parameterless overload, so it retires nothing
+            // and the pre-rewind ledger is restored intact.
             if (hasBundle)
             {
                 try
                 {
-                    ReconciliationBundle.Restore(bundle);
+                    ParsekLog.Info(InvokeTag,
+                        $"ConsumePostLoad: restoring bundle with route-retire cutoffUT={rp.UT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+                    ReconciliationBundle.Restore(bundle, rp.UT);
                 }
                 catch (Exception ex)
                 {

@@ -172,6 +172,20 @@ namespace Parsek
         /// a single call.
         /// </summary>
         public static void Restore(ReconciliationBundle bundle)
+            => Restore(bundle, double.PositiveInfinity);
+
+        /// <summary>
+        /// Restore overload carrying the Rec-1 route-row retire cutoff
+        /// (<paramref name="dropRouteRowsAfterUT"/>; logistics &lt;-&gt; time-rewind
+        /// determinism, plan <c>docs/dev/plans/fix-logistics-rewind-determinism.md</c>).
+        /// The SUCCESS post-load path (<c>RewindInvoker.ConsumePostLoad</c>) passes the
+        /// loaded RewindPoint UT so abandoned-future free-standing route rows are
+        /// dropped to match the reverted world; the FAILED-load rollback
+        /// (<c>TryRestoreBundle</c>) and every test / other caller use the parameterless
+        /// overload above (<c>+inf</c> =&gt; retire nothing), so they stay route-blind
+        /// and non-route reconstruction is byte-identical.
+        /// </summary>
+        public static void Restore(ReconciliationBundle bundle, double dropRouteRowsAfterUT)
         {
             // RecordingStore: clear + re-add via the internal helpers. Trees
             // and recordings are parallel lists that MUST round-trip together
@@ -190,10 +204,27 @@ namespace Parsek
                     RecordingStore.AddCommittedTreeInternal(bundle.Trees[i]);
             }
 
-            // Ledger actions.
+            // Ledger actions. Rec-1: DROP free-standing route rows whose UT > the
+            // rewind cutoff so the preserved ledger matches the reverted world — the
+            // live re-fly then re-emits each cycle, re-charging funds AND re-delivering
+            // cargo exactly once. The parameterless overload passes +inf, so the
+            // failed-load rollback + test callers retire nothing and non-route ledger
+            // reconstruction stays byte-identical. (This restores parity with the
+            // stock-revert path, which already prunes these rows via
+            // Ledger.PruneOrphanActionsAfterUT.)
             Ledger.Clear();
             if (bundle.Actions != null && bundle.Actions.Count > 0)
-                Ledger.AddActions(bundle.Actions);
+            {
+                var keptActions = Logistics.RouteLedgerRetire.RetireFutureRouteActions(
+                    bundle.Actions, dropRouteRowsAfterUT, out int routeRowsRetired);
+                if (keptActions.Count > 0)
+                    Ledger.AddActions(keptActions);
+                if (routeRowsRetired > 0)
+                    ParsekLog.Info("ReconciliationBundle",
+                        "Restore: retired " + routeRowsRetired.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                        " free-standing route row(s) with UT > cutoff " +
+                        dropRouteRowsAfterUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " (Rec-1)");
+            }
 
             // Scenario lists (may be null if the scenario hasn't loaded yet).
             var scenario = ParsekScenario.Instance;
