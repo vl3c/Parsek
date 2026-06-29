@@ -1,7 +1,8 @@
 # Plan: fix logistics ↔ time-rewind determinism (route ledger rows must revert with the world)
 
-Status: IMPLEMENTATION-READY plan. No code written yet. Implement on a dedicated
-sibling worktree `../Parsek-fix-logistics-rewind-determinism` off `origin/main`
+Status: IMPLEMENTATION-READY plan (clean-context reviewed: GO-WITH-FIXES; the review's
+must-fix Capture->Restore consistency + the #2/#3/#4/#5/#7 clarity fixes are folded in).
+No code written yet. Implement on branch `claude/logistics-rewind-fix-r8ud6s` off `origin/main`
 (these files — `ReconciliationBundle.cs`, `RewindInvoker.cs`, `Logistics/*`,
 `GameActions/*`, the discard cores — are disjoint from the map-render refactor
 stack, so no map-render dependency). Current version `0.10.2` (AssemblyInfo
@@ -105,7 +106,14 @@ vanishingly unlikely, but the boundary must be defined and must match the world.
   re-snapshots a ledger that no longer carries the prior rewind's orphans). Mirrors
   the EXISTING `Ledger.PruneOrphanActionsAfterUT(cutoffUT, inclusive)` pattern
   (`Ledger.cs:219`) that already drops *untagged* orphan rows after a revert cutoff —
-  this is the same shape, scoped to route Types instead of "untagged".
+  this is the same shape, scoped to route Types instead of "untagged". **Parity argument
+  (review #3, the strongest safety point):** that prune ALREADY runs on the STOCK-revert
+  path (`ParsekScenario.cs:2984`) and ALREADY drops route rows there (route rows carry null
+  `RecordingId`, are non-seed, so they match its predicate). The Rewind-to-Separation path
+  is the ONLY revert that PRESERVES route rows — precisely because it routes through
+  `ReconciliationBundle` (which deliberately snapshots the FULL ledger) instead of
+  `PruneOrphanActionsAfterUT`. So Rec-1 does not invent a new behavior; it restores PARITY:
+  route rows revert on a rewind exactly as they already do on a stock revert.
 
 - **(b) Tombstone the rows — REJECTED.** `LedgerTombstone` is keyed on `ActionId`
   (`EffectiveState.ComputeELS` filters by `t.ActionId`, `:1340-1345`) and a tombstone
@@ -247,16 +255,28 @@ patch. The commit recalc inside `RunStripActivateMarker` (`:929`, `double.MaxVal
 then walks the post-Restore ledger, which is already free of the orphan route rows.
 (This is exactly why the retire must be in the bundle Restore, not at `:3182`.)
 
+**Ordering, made precise (review #2).** The whole rewind invocation — `Restore`(drop, `:715`)
+-> Strip -> Activate -> commit recalc (`:929`, `double.MaxValue`) — completes BEFORE the player
+re-flies a single frame. The route cycles are re-emitted LATER, during live
+`RouteOrchestrator.Tick` after the invocation ends, and charged by SUBSEQUENT normal recalcs.
+So the `:929` commit recalc is precisely the recalc that WOULD have charged the surviving
+phantom rows; the drop at `:715`, immediately before it in the same `ConsumePostLoad`, is what
+defuses it. There is no recalc between the drop and the live re-fly that could re-charge the
+dropped rows, so funds are never charged before re-delivery. (The earlier "Restore -> re-fly ->
+commit" framing was wrong on the order; the conclusion holds for this reason instead.)
+
 ---------------------------------------------------------------------------------
 
 ## 4. Interaction analysis (the four required decisions + the cross-cutting risks)
 
 ### 4.1 Multiple successive rewinds (risk #5) — resolved
 
-Each rewind's `Capture(rp.UT)` re-snapshots the *current* ledger and drops route rows
-> that rewind's cutoff. Because the prior rewind already dropped its own future rows
-and the live re-fly re-emitted only the cycles it actually re-flew, the ledger never
-accumulates orphan route rows across stacked rewinds. Bounded by construction.
+Each rewind's `Restore(bundle, rp.UT)` drops route rows > that rewind's cutoff from the
+re-installed ledger; the NEXT rewind's `Capture()` (parameterless, unchanged) then
+re-snapshots a live ledger the prior rewind already cleaned. Because the prior rewind
+dropped its own future rows and the live re-fly re-emitted only the cycles it actually
+re-flew, the ledger never accumulates orphan route rows across stacked rewinds. Bounded
+by construction.
 
 ### 4.2 Recovery-credit deferral straddling a rewind (risk #8) — resolved by Rec-1, no separate change required
 
@@ -303,11 +323,11 @@ false). Three options:
 ### 4.4 ELS cache versioning — no change needed
 
 `EffectiveState.elsCache` is keyed on `Ledger.StateVersion` + `TombstoneStateVersion`
-(`EffectiveState.cs:1303-1310`). The retire happens at **Capture time**, before
-`LoadGame`; `Restore` does `Ledger.Clear()` + `AddActions(bundle.Actions)` which bumps
-`Ledger.StateVersion` (`Ledger.cs:82, 105`), so the next `ComputeELS()` after Restore
-rebuilds against the pruned actions automatically. No manual cache bump required. (The
-DROP changes which rows enter the ledger on restore, not how ELS is cached.)
+(`EffectiveState.cs:1303-1310`). The retire happens **inside `Restore`**: `Ledger.Clear()`
++ `AddActions(kept)` bumps `Ledger.StateVersion` (`Ledger.cs:82, 105, 418`), so the next
+`ComputeELS()` after Restore rebuilds against the pruned actions automatically. No manual
+cache bump required. (The DROP changes which rows enter the ledger on restore, not how ELS
+is cached.)
 
 ### 4.5 `Route.LastObservedLoopCycleIndex` / `CompletedCycles` / `SkippedCycles` — no change required; confirm the re-fire path
 
@@ -406,24 +426,26 @@ present after a rewind.
    12). Cases:
    - **Funds-once + cargo-row-re-emitted (KSC):** simulate "cycle-0 fired before
      rewind" by seeding `RouteDispatched`+`RouteCargoDebited(KscFundsCost=5000)`+
-     `RouteCargoDelivered` at UT 2000; build a bundle with `Capture(1500)`; assert the
-     three rows are gone from the bundle; `Restore`; then drive `EmitLoopCycle` (via the
-     existing `RouteLoopDeliveryFireTests` harness/test seam) at the cycle-0 crossing
-     and assert it FIRES (not suppressed) → re-emits the three rows once; recalc and
-     assert FundsModule charges 5000 exactly once (not twice, not zero).
+     `RouteCargoDelivered` at UT 2000; `Capture()` a bundle (FULL ledger — the rows are
+     still present in the bundle, Capture is unchanged); `Restore(bundle, 1500)`; assert
+     `Ledger.Actions` no longer holds the three future route rows; then drive
+     `EmitLoopCycle` (via the existing `RouteLoopDeliveryFireTests` harness/test seam) at
+     the cycle-0 crossing and assert it FIRES (not suppressed) → re-emits the three rows
+     once; recalc and assert FundsModule charges 5000 exactly once (not twice, not zero).
    - **Non-KSC pure-physical:** same but `RouteCargoDebited` carries 0 funds cost;
      assert the row re-emits (so the live writer would re-run) and FundsModule charges
      nothing, and `CompletedCycles` advances exactly once (no double-bump).
-   - **Multi-rewind:** rewind twice (`Capture(1500)` then a later `Capture(1800)`);
-     assert no orphan route rows accumulate (the post-second-capture bundle has only
-     the rows ≤ its cutoff).
+   - **Multi-rewind:** rewind twice — `Restore(bundle1, 1500)`, then re-emit a cycle live
+     and `Capture()` + `Restore(bundle2, 1800)`; assert `Ledger.Actions` never accumulates
+     orphan route rows (after each Restore it holds only rows ≤ that cutoff plus whatever
+     the live re-fly re-emitted).
    - **Recovery-credit straddle:** seed a `RouteRecoveryCredited` at UT 2000 with a
-     pending arm; `Capture(1500)` drops the credit row; assert the re-fly re-flushes a
+     pending arm; `Restore(bundle, 1500)` drops the credit row from the ledger; assert the re-fly re-flushes a
      single credit (counter/arm reverted via the simulated `.sfs` ROUTES reload — model
      the revert by resetting the Route's `PendingRecoveryCreditCycleId` to its at-RP
      value) and FundsModule credits it exactly once.
    - **Phantom-charge avoidance on divergent re-fly:** seed cycle-0 rows at UT 2000,
-     `Capture(1500)`, then do NOT re-fly cycle-0 (simulate the player pausing the route
+     `Restore(bundle, 1500)`, then do NOT re-fly cycle-0 (simulate the player pausing the route
      so the crossing never re-fires); recalc and assert FundsModule charges **nothing**
      for cycle-0 (the abandoned row was dropped; no phantom charge).
 
@@ -438,20 +460,24 @@ have **no reverse method** — their only rollback is the rewind quicksave. So a
 that physically delivered/debited cargo during a since-discarded segment leaks that
 mutation into the surviving timeline with no rollback path.
 
-**Decision (matching the design's own "must stay disabled when un-reversible" stance,
-§2.4 #11 / §10.6): gate physical route mutation OFF when there is no quicksave-backed
-revert path, rather than attempt to author reverse writers.** Authoring true reverse
-writers (snapshot-and-restore per apply) is a large, fragile surface (partial-fill,
-unloaded proto modules, inventory slot determinism) for a case the player rarely hits;
-the design already says un-reversible paths must stay disabled. But note: routes fire
-**live during normal play** (not only during a recorded segment), and a plain discard
-only drops a *recording/ghost*, not the route — so a blanket "disable physical route
-mutation whenever a discard could happen" would disable routes during normal play.
-The leak is narrow: it is physical route mutations that occurred **inside the time
-window of a segment that is then discarded without a quicksave**.
+**MAINTAINER DECISION FIRST (review #5).** The FULL Rec-3 fix is DEFERRED in this PR — pick
+one of: (i) ship Rec-1 + the Rec-3 OBSERVABILITY now and schedule the full fix, or (ii)
+require the full fix here (chosen direction: "disable physical route mutation for any revert
+lacking a quicksave," gated at the three writer call sites). Do NOT implement the full disable
+without that confirmation; this plan implements ONLY the observability below.
 
-Given that narrowness and the absence of a reverse path, the **chosen Rec-3 scope** is
-the SMALLER, defensible step + an explicit deferral:
+**Severity + asymmetry (do not under-sell).** Report risk #6 rates this **Medium-High** — NOT
+a minor tail; it is comparable to the primary paradox. But the leak is NARROW (a route must
+physically fire INSIDE a segment the player then discards WITHOUT a rewind) and a true reverse
+writer is a large, fragile surface (partial-fill, unloaded proto modules, inventory-slot
+determinism), so deferring the full fix is defensible. **Rec-1 does NOT touch this path:**
+`MergeDialog.ReFlyDiscard` reverts via `RecalculateAndPatchForCurrentTimelineIfFutureActions`
+(`:307`, NO `LoadGame`/quicksave) and NEVER calls `ReconciliationBundle.Restore`, so the
+route-row drop never runs there — the leaked physical effect persists AND its surviving ledger
+rows are still charged/counted. After Rec-1 the rewind path is correct but the
+non-rewind-discard path still leaks BOTH the physical effect and the rows.
+
+**Chosen Rec-3 scope (observability only):**
 
 8. **Document + log the leak as a known residual, and add the cheap guard that is
    actually reachable:** the only discard with a *quicksave-backed* counterpart is
@@ -561,7 +587,7 @@ the SMALLER, defensible step + an explicit deferral:
 13. `docs/dev/todo-and-known-bugs.md`:
     - flip the existing "Known bug (investigated, not yet fixed) - Supply routes ↔
       time-rewind" entry to a "Fixed (pending in-game validation)" entry, summarizing
-      Rec-1 (route-row DROP at rewind Capture), keeping the root-cause paragraph,
+      Rec-1 (route-row DROP in the flagged `ReconciliationBundle.Restore`), keeping the root-cause paragraph,
       adding the test names (`RouteLedgerRetireTests`, `ReconciliationBundleTests`
       additions, `RouteRewindRedeliveryTests`), and cross-linking THIS plan.
     - add a new "Known residual (not yet fixed) - route physical effects leak on a
@@ -577,7 +603,7 @@ the SMALLER, defensible step + an explicit deferral:
 |---|---|---|
 | `IsRouteActionType` / `IsFreeStandingRouteAction` / `ShouldRetireRouteActionAtRewind` matrix | `Logistics/RouteLedgerRetireTests.cs` (new) | each route Type 23-29; non-route never; null RouteId never; strict `>` boundary |
 | `RetireFutureRouteActions` order/count | `Logistics/RouteLedgerRetireTests.cs` (new) | survivors keep order; `+∞` retires nothing; mixed list interleaving |
-| `Capture_WithRouteCutoff_DropsFutureRouteRows_KeepsPastAndNonRoute` | `ReconciliationBundleTests.cs` (extend) | future route rows dropped, past + non-route kept; round-trip via Restore |
+| `Restore_WithRouteCutoff_DropsFutureRouteRows_KeepsPastAndNonRoute` | `ReconciliationBundleTests.cs` (extend) | `Restore(bundle, cutoff)` drops future route rows from the ledger, keeps past + non-route; bundle itself unchanged |
 | existing `Capture_RoundTrip_*`, `Restore_Idempotent_*`, `Restore_AfterBundle_*` | `ReconciliationBundleTests.cs` (UNCHANGED) | non-route reconstruction byte-identical (regression guard) |
 | Funds-once + cargo-row-re-emitted (KSC) | `Logistics/RouteRewindRedeliveryTests.cs` (new) | after Capture drop, re-fly FIRES (not suppressed), funds charged once |
 | Non-KSC pure-physical | same | row re-emits, funds unchanged, `CompletedCycles` +1 once |
@@ -588,6 +614,17 @@ the SMALLER, defensible step + an explicit deferral:
 | existing `ReplayedCycleId_EmitsNothing_NoDoubleCharge` / `ReplayedCycleId_EmitsNoDebit` | `RouteLoopDeliveryFireTests.cs` (UNCHANGED) | dedup still suppresses a *present* duplicate within one timeline |
 | `RouteRevertSafety` classification (Rec-3 observability) | `Logistics/RouteRevertSafetyTests.cs` (new) | non-rewind segment = un-revertable; rewind segment = revertable; Warn logged |
 | In-game: physical re-delivery after rewind | `InGameTests/RuntimeTests.cs` or `ExtendedRuntimeTests.cs` (new, `Scene = FLIGHT`, career, reversible) | drives a real route cycle + rewind + re-fly and asserts the destination tank is re-filled once and funds net once (the live writer path the xUnit early-returns out of) |
+
+**Coverage map (review #7 — what proves what).** The HEADLESS suite proves the ECONOMIC /
+dedup half: funds-charged-once, the dispatch dedup no longer suppresses after the drop (rows
+re-emit), no phantom charge on a divergent re-fly, no multi-rewind accumulation, and the
+boundary. It does NOT prove the cargo physically moves — the live writers early-return on null
+singletons headlessly. The IN-GAME test (the last table row) is therefore LOAD-BEARING and
+REQUIRED-FOR-MERGE: it is the only assertion of the user-visible symptom (destination tank
+re-filled exactly once after rewind+re-fly), and without it the headless suite alone cannot
+catch a regression where the dedup is defused but the writer path silently no-ops. It needs a
+career FLIGHT scene with a real route + real RP + real re-fly (a heavy harness); the "Fixed"
+claim is gated on it.
 
 Full suite must be green (`cd Source/Parsek.Tests && dotnet test`). Note the test
 working-dir / `[Collection("Sequential")]` rules for shared statics (`Ledger`,
@@ -624,8 +661,8 @@ working-dir / `[Collection("Sequential")]` rules for shared statics (`Ledger`,
 
 ## 8. Review checkpoints
 
-1. **After Phase 1-2 (core mechanism):** review the predicate + the Capture wiring in
-   isolation. Confirm: strict `>` boundary matches the world-revert boundary; the
+1. **After Phase 1-2 (core mechanism):** review the predicate + the flagged-`Restore`
+   wiring in isolation. Confirm: strict `>` boundary matches the world-revert boundary; the
    route Type set is exactly 23-29 via an explicit switch; the default-arg `+∞`
    overload leaves every existing caller route-blind; the `Captured: …` log carries
    the retire count + cutoff. This is the highest-leverage, schema-adjacent change —
@@ -660,12 +697,17 @@ working-dir / `[Collection("Sequential")]` rules for shared statics (`Ledger`,
   today only `ConsumePostLoad` (success) and `TryRestoreBundle` (rollback) call it), and
   that `RewindInvokeContext.RewindPoint.UT` is populated and survives the scene reload at
   the `ConsumePostLoad` call.
-- **R2 — strict `>` vs `>=` at the exact RP UT.** A route row stamped exactly at
-  `rp.UT` is kept; confirm that matches the world-revert (the quicksave captures the
-  at-RP world, so an at-RP dispatch's physical effect IS in the quicksave and must
-  keep its ledger row). If the quicksave is taken an instant BEFORE the at-RP dispatch
-  applies, `>=` would be correct. Tie is vanishingly unlikely on the ~1 Hz grid but
-  the boundary must be justified, not guessed.
+- **R2 — strict `>` vs `>=` at the exact RP UT (review #4: justify by emit ordering, not
+  probability).** Keep strict `>`. The deciding question is whether the RP quicksave's world
+  snapshot includes the physical effect of a dispatch stamped exactly at `rp.UT`. The ledger
+  row and the physical write are emitted in the SAME synchronous `EmitLoopCycle` tick from the
+  same `currentUT` (`EmitDispatchDebit` writes the row only after the live writer runs), so a
+  row existing at `UT == rp.UT` means its physical write already landed and IS in the
+  quicksave's tanks -> keep the row (`>`), matching the world-revert. (The tie is also
+  near-impossible on the ~1 Hz grid, but the emit-ordering argument — not probability — is the
+  justification.) Lock the boundary with the Phase-1 boundary test AND a one-line code comment
+  at the predicate stating the physical-capture reasoning, so a future reader does not "fix" it
+  to `>=`.
 - **R3 — Rec-3 scope.** The plan defers the full discard-leak fix. Confirm the
   maintainer accepts ship-Rec-1-now-defer-full-Rec-3, or escalate to the full disable
   gate in this PR.
