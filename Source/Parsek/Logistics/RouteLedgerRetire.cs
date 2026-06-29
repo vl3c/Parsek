@@ -21,7 +21,7 @@ namespace Parsek.Logistics
     ///
     /// <para><b>The fix.</b> At a successful rewind restore, DROP every free-standing
     /// route ledger row whose <c>UT</c> is strictly after the rewind cutoff (the
-    /// loaded RewindPoint UT). The surviving ledger then matches the reverted world,
+    /// post-load live UT = the loaded quicksave UT). The surviving ledger then matches the reverted world,
     /// and the live re-fly re-emits each cycle deterministically — re-charging funds
     /// (once) AND re-delivering physical cargo (once), with the dedup correctly
     /// seeing an empty slate for those cycles.</para>
@@ -87,7 +87,7 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// True when a free-standing route action should be RETIRED at a rewind whose
-        /// cutoff is <paramref name="cutoffUT"/> (the loaded RewindPoint UT).
+        /// cutoff is <paramref name="cutoffUT"/> (the post-load live UT = the loaded quicksave UT).
         ///
         /// <para><b>Strict <c>&gt;</c> (not <c>&gt;=</c>), justified by emit ordering,
         /// not probability.</b> A route's ledger row and its physical write are emitted

@@ -179,8 +179,9 @@ namespace Parsek
         /// (<paramref name="dropRouteRowsAfterUT"/>; logistics &lt;-&gt; time-rewind
         /// determinism, plan <c>docs/dev/plans/fix-logistics-rewind-determinism.md</c>).
         /// The SUCCESS post-load path (<c>RewindInvoker.ConsumePostLoad</c>) passes the
-        /// loaded RewindPoint UT so abandoned-future free-standing route rows are
-        /// dropped to match the reverted world; the FAILED-load rollback
+        /// POST-LOAD live UT (= the loaded quicksave UT, the boundary the world reverted
+        /// to) so abandoned-future free-standing route rows are dropped to match the
+        /// reverted world; the FAILED-load rollback
         /// (<c>TryRestoreBundle</c>) and every test / other caller use the parameterless
         /// overload above (<c>+inf</c> =&gt; retire nothing), so they stay route-blind
         /// and non-route reconstruction is byte-identical.
