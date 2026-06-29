@@ -536,9 +536,13 @@ non-rewind-discard path still leaks BOTH the physical effect and the rows.
     - Inter-body routes are creatable TODAY — there is no hard same-body reject.
       `RouteAnalysisEngine` reject reasons are body-agnostic and
       `RouteCandidateFinder` gates only on sealed + eligible + dedup (per the report
-      Axis E / risk #12). A cross-parent Supply Run degrades to "no phase-lock"
-      (`RouteOrchestrator.cs:1649-1652`; synodic scheduling is the M5 deferral) but
-      STILL fires deliveries, so it is exposed to the paradox now.
+      Axis E / risk #12). A cross-parent Supply Run DELIVERS — a destination
+      station/rendezvous route flags `UnsupportedRendezvous` so its VISUAL relaunch
+      phase is arbitrary (no re-aim), but it is "FUNCTIONALLY unaffected — delivery
+      fires at the `RecordedDockUT` loop-clock marker regardless of visual alignment"
+      (`todo-and-known-bugs.md` ~451; the synodic-faithful visual is the deferred
+      re-aim layer, ~1622). So it is exposed to the paradox now (NOT "degraded": it
+      delivers; only the visual faithfulness is deferred).
     - **Rec-1 covers inter-body for free** because `EmitLoopCycle`/`cycleId` is
       cadence-source-agnostic (the retire keys on route Type + UT, not on cadence
       shape), so an inter-body route's abandoned-future rows drop exactly like a
