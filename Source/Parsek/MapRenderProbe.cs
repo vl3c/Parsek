@@ -131,6 +131,19 @@ namespace Parsek
         // Soft rate-limit timestamps for the per-pid Phase-0 recorded-vs-rendered parity-drift anomaly (a
         // PERSISTENT condition, like icon-off-orbit, so it must not fire every frame).
         private readonly Dictionary<uint, double> lastParityDriftEmitRealtime = new Dictionary<uint, double>();
+        // A1 cutover-instrument: soft rate-limit timestamps for the per-pid SYNTHESIZED-mode (rendered conic
+        // vs the Director's intended re-aimed seed) parity-drift anomaly. SEPARATE from the faithful dict so
+        // a faithful drift and a synthesized drift on the same pid do not suppress each other. PERSISTENT
+        // condition (a re-aim draw bug diverges every frame), so throttled like the faithful one.
+        private readonly Dictionary<uint, double> lastSynthParityDriftEmitRealtime =
+            new Dictionary<uint, double>();
+        // A1 cutover-instrument: soft rate-limit timestamps for the per-RECORDING polyline-leg parity-drift
+        // anomaly (rendered VectorLine points vs the recorded leg surface track). Keyed by RecordingId (legs
+        // are per-recording, NOT per-pid - they are not in ghostMapVesselPids). PERSISTENT (a mis-anchored
+        // leg diverges every frame it draws), so throttled to one line per recording per second.
+        private const double PolylineParityDriftAnomalyMinIntervalSeconds = 1.0;
+        private readonly Dictionary<string, double> lastPolylineParityDriftEmitRealtime =
+            new Dictionary<string, double>(System.StringComparer.Ordinal);
         // Soft rate-limit timestamps for the per-pid polyline-orbit-overlap anomaly (a PERSISTENT
         // condition through a whole burn, so it must not fire every frame).
         private readonly Dictionary<uint, double> lastPolylineOverlapEmitRealtime = new Dictionary<uint, double>();
@@ -208,6 +221,8 @@ namespace Parsek
             lastSnapshotEmitRealtime.Clear();
             lastOffOrbitEmitRealtime.Clear();
             lastParityDriftEmitRealtime.Clear();
+            lastSynthParityDriftEmitRealtime.Clear();
+            lastPolylineParityDriftEmitRealtime.Clear();
             lastPolylineOverlapEmitRealtime.Clear();
             firstPositionEmittedPids.Clear();
             lastUnaccountedEmitRealtime.Clear();
@@ -280,6 +295,18 @@ namespace Parsek
             if (MapRenderTrace.TryGetDescentRenderWindow(
                     frame, out string descentPhase, out string descentRecId))
                 EmitMapSceneSnapshot(frame, currentUT, descentPhase, descentRecId);
+
+            // --- A1 cutover-instrument / design §14: SYNTHESIZED-mode POLYLINE leg parity ---
+            // Once per frame (NOT inside the per-pid loop above: the TracedPath polyline legs are per-
+            // RECORDING and are NOT in ghostMapVesselPids, so the loop never sees them). For every leg the
+            // polyline renderer actually drew this frame, diff the RENDERED VectorLine geometry (its live
+            // points3, scaled->world body-relative) against the RECORDED leg surface track (its own
+            // lats/lons/alts, body-relative) via the pure RenderParityOracle. A leg rotated onto a wrong
+            // conic seam, mis-anchored, or otherwise drawn off its recorded path shows drift here - the
+            // TracedPath-polyline regression class the faithful orbit oracle (orbit-only) cannot see. The
+            // whole LateUpdate is IsEnabled-gated; the per-recording rate-limit below keeps a persistent
+            // mis-drawn leg from flooding the log.
+            CapturePolylineLegParity(frame, currentUT, realtime);
         }
 
         // Per-frame full snapshot of every RENDERED map object, gated to the descent render window by the
@@ -813,6 +840,30 @@ namespace Parsek
                     TrySampleAndEmitFaithfulOrbitParity(
                         offOrbit, body, bodyRelPos, offEffUT, offShift, parityLoopShift, currentUT,
                         pid, pidKey, recId, lineActive, bodyName, realtime);
+
+                    // --- A1 cutover-instrument / design §14: SYNTHESIZED-mode conic parity ---
+                    // Where the FAITHFUL path above asks "did the rendered orbit match the RECORDED segment?"
+                    // (and SKIPS re-aimed / synthesized members because no recorded segment covers their
+                    // drive clock), this asks the COMPLEMENTARY question for exactly those members: "did the
+                    // rendered StockConic match the PRODUCER'S INTENDED arc - the re-aimed OrbitSegment the
+                    // spine actually fed the drive this frame?" The intended arc is the Director's fresh
+                    // StockConic seed (ShadowRenderDriver.TryGetFreshStockConicSeed = intent.Payload.Conic).
+                    // A re-aim DRAW regression (rendered conic != the seed it was driven from) shows drift;
+                    // a faithful StockConic member reads ~0 (rendered IS the seed) and never emits. Validates
+                    // DRAW-fidelity (rendered == intended), NOT solve-correctness (the re-aim solver owns
+                    // whether the intended arc is physically right). Same body-relative Y-up frame.
+                    //
+                    // PHASE-MATCH (same fix as the faithful path above): the rendered conic is driven at
+                    // epoch = seg.epoch + loopShift (StockConicTreatment.SeedAndDriveLive, GhostOrbitLine
+                    // Patch.cs:410 with shift = GetGhostOrbitEpochShift(pid)), so the intended reference MUST
+                    // be built with the SAME loop-shift epoch bake (BuildPhaseMatchedReferenceOrbit) and
+                    // sampled at the SAME live-clock UTs, or a LOOPED member samples a different mean-anomaly
+                    // half-arc and reads a FALSE drift on a CORRECT draw. parityLoopShift is the SAME value
+                    // the live orbit was baked with (GetGhostOrbitEpochShift(pid), computed above for the
+                    // faithful path); a non-loop member's shift is ~0 so this is identical to the raw epoch.
+                    TrySampleAndEmitSynthesizedConicParity(
+                        offOrbit, body, bodyRelPos, currentUT, parityLoopShift, pid, pidKey, recId,
+                        lineActive, bodyName, realtime);
                 }
 
                 // Record this frame's body-relative position + body so the next
@@ -972,6 +1023,28 @@ namespace Parsek
                 && realtime - last < ParityDriftAnomalyMinIntervalSeconds)
                 return false;
             lastParityDriftEmitRealtime[pid] = realtime;
+            return true;
+        }
+
+        private bool PassesSynthParityDriftRateLimit(uint pid, double realtime)
+        {
+            double last;
+            if (lastSynthParityDriftEmitRealtime.TryGetValue(pid, out last)
+                && realtime - last < ParityDriftAnomalyMinIntervalSeconds)
+                return false;
+            lastSynthParityDriftEmitRealtime[pid] = realtime;
+            return true;
+        }
+
+        private bool PassesPolylineParityDriftRateLimit(string recId, double realtime)
+        {
+            if (string.IsNullOrEmpty(recId))
+                return false;
+            double last;
+            if (lastPolylineParityDriftEmitRealtime.TryGetValue(recId, out last)
+                && realtime - last < PolylineParityDriftAnomalyMinIntervalSeconds)
+                return false;
+            lastPolylineParityDriftEmitRealtime[recId] = realtime;
             return true;
         }
 
@@ -1182,6 +1255,222 @@ namespace Parsek
             return new FaithfulParitySample(
                 true, null, result, scale,
                 covering.semiMajorAxis, covering.eccentricity, covering.bodyName);
+        }
+
+        // --- A1 cutover-instrument / design §14: SYNTHESIZED-mode conic parity (Unity capture) ---
+        //
+        // Samples the RENDERED orbit geometry (the live OrbitDriver.orbit) and the PRODUCER'S INTENDED arc
+        // (the Director's fresh StockConic seed = intent.Payload.Conic, the re-aimed OrbitSegment the spine
+        // fed the drive THIS frame), both in the SAME Y-up body-relative metres frame, hands them to the
+        // pure RenderParityOracle in ParityMode.Synthesized, and emits a parity-drift anomaly on
+        // OverTolerance. Validates DRAW-fidelity (rendered == intended), NOT solve-correctness. The intended
+        // reference is built PHASE-MATCHED to the live rendered orbit (its epoch baked with the SAME loop
+        // shift StockConicTreatment.SeedAndDriveLive drove the rendered conic with) and BOTH orbits are
+        // sampled at the SAME live-clock UTs, so a LOOPED re-aim member lands on the same arc as its rendered
+        // orbit and reads ~0 when the draw is faithful to the seed (the false-drift BLOCKER fix - the raw-
+        // epoch reference traced a different mean-anomaly half-arc and false-fired on every looped member).
+        // When there is no fresh seed (a TracedPath / faithful-fallback / hidden member) it skips cleanly. A
+        // faithful StockConic member's rendered orbit IS the seed (loop or not), so the diff reads ~0 and
+        // never emits - the synthesized lens only LIGHTS UP on a re-aim DRAW regression (rendered conic
+        // diverging from the re-aimed seed it was driven from), which the faithful lens (orbit-vs-recorded-
+        // segment) skips for exactly those re-aimed members. Additive observability: no draw change. Gated by
+        // the caller's IsEnabled check.
+        private void TrySampleAndEmitSynthesizedConicParity(
+            Orbit renderedOrbit, CelestialBody renderedBody, Vector3d iconBodyRel,
+            double currentUT, double loopShift, uint pid, string pidKey, string recId, string lineActive,
+            string bodyName, double realtime)
+        {
+            int frame = Time.frameCount;
+            // The intended arc: the Director's fresh StockConic seed for this pid. No fresh seed (TracedPath /
+            // faithful-fallback / hidden / no shadow run) -> nothing to diff against, skip (no anomaly).
+            if (!Parsek.MapRender.ShadowRenderDriver.TryGetFreshStockConicSeed(
+                    pid, frame, out OrbitSegment intendedSeg, out string seedBody))
+                return;
+
+            SynthesizedConicParitySample sample = ComputeSynthesizedConicParity(
+                renderedOrbit, renderedBody, iconBodyRel, intendedSeg, seedBody, loopShift, currentUT);
+            if (!sample.Sampled)
+                return;
+            Parsek.MapRender.RenderParityOracle.ParityResult result = sample.Result;
+            if (!result.HasMeasurement || !result.OverTolerance)
+                return;
+            if (!PassesSynthParityDriftRateLimit(pid, realtime))
+                return;
+
+            MapRenderTrace.EmitAnomaly(
+                MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
+                MapRenderTrace.AnomalyParityDrift,
+                string.Format(ic,
+                    "mode=synthesized maxDev={0}m tol={1}m scale={2}m refCount={3} rendCount={4} "
+                    + "countMismatch={5} | intendedSeg=[sma={6} ecc={7} body={8}] "
+                    + "rendOrbit=[sma={9} ecc={10} body={11}] iconR={12} lineActive={13}",
+                    MapRenderTrace.FormatDouble(result.MaxDeviationMeters, "F0"),
+                    MapRenderTrace.FormatDouble(result.ToleranceMeters, "F0"),
+                    MapRenderTrace.FormatDouble(sample.Scale, "F0"),
+                    result.ReferenceCount, result.RenderedCount, result.CountMismatch,
+                    MapRenderTrace.FormatDouble(intendedSeg.semiMajorAxis, "F0"),
+                    MapRenderTrace.FormatDouble(intendedSeg.eccentricity, "F4"),
+                    intendedSeg.bodyName ?? "(null)",
+                    MapRenderTrace.FormatDouble(renderedOrbit.semiMajorAxis, "F0"),
+                    MapRenderTrace.FormatDouble(renderedOrbit.eccentricity, "F4"),
+                    bodyName,
+                    MapRenderTrace.FormatDouble(iconBodyRel.magnitude, "F0"),
+                    lineActive),
+                recId);
+        }
+
+        /// <summary>
+        /// Outcome of one SYNTHESIZED-mode rendered-conic-vs-intended-arc parity sample. <see cref="Sampled"/>
+        /// is false (with <see cref="SkipReason"/>) when the sampler cleanly bailed before a diff (no rendered
+        /// orbit / different intended body / degenerate intended elements / reference build or sample fault):
+        /// the caller MUST treat a non-sampled outcome as "no anomaly". internal so an in-game baseline test
+        /// can exercise the REAL orchestration.
+        /// </summary>
+        internal readonly struct SynthesizedConicParitySample
+        {
+            internal bool Sampled { get; }
+            internal string SkipReason { get; }
+            internal Parsek.MapRender.RenderParityOracle.ParityResult Result { get; }
+            internal double Scale { get; }
+
+            internal SynthesizedConicParitySample(
+                bool sampled, string skipReason,
+                Parsek.MapRender.RenderParityOracle.ParityResult result, double scale)
+            {
+                Sampled = sampled;
+                SkipReason = skipReason;
+                Result = result;
+                Scale = scale;
+            }
+
+            internal static SynthesizedConicParitySample Skip(string reason)
+            {
+                return new SynthesizedConicParitySample(
+                    false, reason,
+                    default(Parsek.MapRender.RenderParityOracle.ParityResult), 0.0);
+            }
+        }
+
+        // The pure-orchestration CORE of the synthesized conic parity sample: build the intended re-aimed
+        // reference orbit from the Director's seed segment PHASE-MATCHED to the live rendered orbit (the SAME
+        // BuildPhaseMatchedReferenceOrbit loop-shift epoch bake the faithful path uses, NOT the raw-epoch
+        // BuildOrbitFromSegment - that was the false-drift BLOCKER on LOOPED members), sample BOTH the
+        // rendered orbit and the intended reference at the SAME live-clock UTs in the SAME Y-up body-relative
+        // frame, and run the oracle diff in ParityMode.Synthesized. No emit, no rate-limit, no per-pid state.
+        // internal for an in-game baseline test.
+        internal static SynthesizedConicParitySample ComputeSynthesizedConicParity(
+            Orbit renderedOrbit, CelestialBody renderedBody, Vector3d iconBodyRel,
+            OrbitSegment intendedSeg, string seedBody, double loopShift, double currentUT)
+        {
+            if (renderedOrbit == null || renderedBody == null)
+                return SynthesizedConicParitySample.Skip("no-rendered-orbit");
+            // The seed's frame body must match the rendered orbit's body: the body-relative inertial
+            // positions are comparable ONLY about the same body. A mismatch is a stale-seed / SOI-leg race
+            // (the icon is on the next body's orbit while the seed still names the prior body) -> skip.
+            string intendedBodyName = !string.IsNullOrEmpty(seedBody) ? seedBody : intendedSeg.bodyName;
+            if (!string.Equals(intendedBodyName, renderedBody.bodyName, System.StringComparison.Ordinal))
+                return SynthesizedConicParitySample.Skip("body-mismatch");
+            if (!TrajectoryMath.HasUsableOrbitSegmentElements(intendedSeg))
+                return SynthesizedConicParitySample.Skip("degenerate-elements");
+
+            // The intended reference orbit, built from the seed's Kepler elements PHASE-MATCHED to the live
+            // rendered orbit via the SAME BuildPhaseMatchedReferenceOrbit helper the faithful path uses. The
+            // producer DRIVES the rendered conic at epoch = seg.epoch + loopShift (StockConicTreatment
+            // .SeedAndDriveLive, GhostOrbitLinePatch.cs:410 with shift = GetGhostOrbitEpochShift(pid)) and
+            // propagates it at the LIVE clock, so the reference MUST use the SAME loop-shift epoch bake and be
+            // sampled at the SAME live-clock UTs - otherwise a LOOPED member samples a different mean-anomaly
+            // half-arc and reads a FALSE drift on a CORRECT draw (the BLOCKER this fix corrects). When the
+            // draw is faithful to the seed, both orbits land on the same phase at the same UT and read ~0.
+            // A non-loop member's loopShift is ~0, so this is BuildOrbitFromSegment verbatim.
+            Orbit intendedOrbit = BuildPhaseMatchedReferenceOrbit(intendedSeg, renderedBody, loopShift);
+            if (intendedOrbit == null)
+                return SynthesizedConicParitySample.Skip("intended-orbit-build-failed");
+
+            double halfSpan = ResolveOrbitSampleHalfSpanSeconds(renderedOrbit);
+            double[] sampleUTs = Parsek.MapRender.RenderGeometrySampler.BuildSampleUTs(
+                currentUT, halfSpan, ParityOrbitSampleCount);
+            if (sampleUTs.Length == 0)
+                return SynthesizedConicParitySample.Skip("no-sample-uts");
+
+            var renderedPts = new Vector3d[sampleUTs.Length + 1];
+            var referencePts = new Vector3d[sampleUTs.Length];
+            try
+            {
+                for (int i = 0; i < sampleUTs.Length; i++)
+                {
+                    renderedPts[i] = OrbitRelativePositionYup(renderedOrbit, sampleUTs[i]);
+                    referencePts[i] = OrbitRelativePositionYup(intendedOrbit, sampleUTs[i]);
+                }
+                // Anchor the rendered set with the live icon point so the diff also catches an icon parked
+                // off the intended arc (mirrors the faithful path).
+                renderedPts[sampleUTs.Length] = iconBodyRel;
+            }
+            catch (System.Exception)
+            {
+                return SynthesizedConicParitySample.Skip("sample-threw");
+            }
+
+            double[] referenceFlat = Parsek.MapRender.RenderGeometrySampler.Flatten(
+                referencePts, referencePts.Length);
+            double[] renderedFlat = Parsek.MapRender.RenderGeometrySampler.Flatten(
+                renderedPts, renderedPts.Length);
+
+            double scale = Parsek.MapRender.RenderParityOracle.EstimateScaleFromPoints(referenceFlat);
+            double tol = Parsek.MapRender.RenderParityOracle.ToleranceForScale(scale);
+            Parsek.MapRender.RenderParityOracle.ParityResult result =
+                Parsek.MapRender.RenderParityOracle.ComputeDrift(
+                    Parsek.MapRender.RenderParityOracle.ParityMode.Synthesized,
+                    referenceFlat, renderedFlat, tol);
+
+            return new SynthesizedConicParitySample(true, null, result, scale);
+        }
+
+        // --- A1 cutover-instrument / design §14: SYNTHESIZED-mode POLYLINE leg parity (Unity capture) ---
+        //
+        // Once per frame: for every NON-ANCHORED body-fixed TracedPath polyline leg the renderer drew this
+        // frame, the renderer hands back the rendered VectorLine geometry and the recorded leg surface track
+        // BOTH in body-relative world metres (CaptureRenderedVsRecordedLegGeometry isolates all the Unity
+        // reads AND skips conic-anchored legs), and this method runs the pure RenderParityOracle diff + emits
+        // a parity-drift anomaly on OverTolerance. CONIC-ANCHORED vacuum-maneuver legs are NOT covered (the
+        // draw intentionally rotates them ~96 deg off the raw recorded surface track, so a rendered-vs-raw-
+        // recorded diff would false-fire on a CORRECT anchor; the anchor's per-point Slerp is not cheaply
+        // recoverable to build the reference in - a stated limitation). The lens therefore validates the
+        // descent / atmospheric / surface re-stitch the audit cares about, where rendered == recorded. Per-
+        // RECORDING rate-limited (legs are per-recording, not per-pid). The geometry math (the oracle) is pure
+        // / unit-tested; only the Unity sampling (points3 / ScaledSpace / GetWorldSurfacePosition) lives in
+        // the renderer accessor, in-game-only.
+        private void CapturePolylineLegParity(int frame, double currentUT, double realtime)
+        {
+            Parsek.Display.GhostTrajectoryPolylineRenderer.CaptureRenderedVsRecordedLegGeometry(
+                frame,
+                (recId, legIndex, legCount, legBody, renderedFlat, recordedFlat) =>
+                {
+                    // Reference = the recorded leg track; rendered = what the VectorLine actually drew.
+                    Parsek.MapRender.RenderParityOracle.ParityResult result =
+                        Parsek.MapRender.RenderParityOracle.ComputeDriftScaleDerived(
+                            Parsek.MapRender.RenderParityOracle.ParityMode.Synthesized,
+                            recordedFlat, renderedFlat);
+                    if (!result.HasMeasurement || !result.OverTolerance)
+                        return;
+                    if (!PassesPolylineParityDriftRateLimit(recId, realtime))
+                        return;
+
+                    double scale = Parsek.MapRender.RenderParityOracle.EstimateScaleFromPoints(recordedFlat);
+                    // recId carried in the marker-surface pid= slot (the same convention the unaccounted-
+                    // drawn-recording anomaly uses for proto-less, recording-keyed events).
+                    MapRenderTrace.EmitAnomaly(
+                        MapRenderTrace.RenderSurface.Polyline, recId, currentUT, currentUT,
+                        MapRenderTrace.AnomalyParityDrift,
+                        string.Format(ic,
+                            "mode=polyline maxDev={0}m tol={1}m scale={2}m refCount={3} rendCount={4} "
+                            + "countMismatch={5} leg={6}/{7} body={8} recId={9}",
+                            MapRenderTrace.FormatDouble(result.MaxDeviationMeters, "F0"),
+                            MapRenderTrace.FormatDouble(result.ToleranceMeters, "F0"),
+                            MapRenderTrace.FormatDouble(scale, "F0"),
+                            result.ReferenceCount, result.RenderedCount, result.CountMismatch,
+                            legIndex, legCount, legBody, recId),
+                        recId);
+                });
         }
 
         // Half-window (seconds) the parity samples span on either side of the drive clock. A full closed

@@ -124,6 +124,7 @@ namespace Parsek.MapRender
             seedByPid.Clear();
             tracedPathByPid.Clear();
             tracedPathIntentByPid.Clear();
+            spineFallbackWarnedPids.Clear();
         }
 
         /// <summary>The shadow always runs: the Director pipeline is unconditional (8e S4 dropped the
@@ -359,6 +360,31 @@ namespace Parsek.MapRender
             double currentUT = scene.CurrentUT;
             var surface = scene.BodySurface;
 
+            // B4/D2 COLD-LOAD CLOCK-READINESS GUARD (design §11.2): a cold OnLoad / pre-time-init frame
+            // reports Planetarium UT=0 (or a non-finite UT) before the clock is established. Sampling the
+            // span clock at UT<=0 would place a degenerate TS/map ghost on the first cold-load frames (TS
+            // presence is stock-automatic the moment a ProtoVessel exists). DEFER the whole spine frame
+            // (render nothing / hold) and raise the once-per-event clock-not-ready anomaly. Mirrors
+            // LedgerOrchestrator.IsCurrentUtReadyForCutoff (ut > 0).
+            //
+            // FLAG-GATED so the flag-OFF path is BYTE-IDENTICAL to today: with the spine flag off the legacy
+            // assembler-driven branch below already runs unchanged, and this overhaul's defer must not alter
+            // any currently-supported producer's geometry. The clock-not-ready RAISE is additionally
+            // tracing-gated inside EmitClockNotReady (free in normal play). The legacy spine continues to
+            // sample as before when the flag is off (no behavior change there).
+            if (PhaseSpineDriveActive && !IsLiveClockReady(currentUT))
+            {
+                MapRenderTrace.EmitClockNotReady(currentUT, pids?.Count ?? 0);
+                ParsekLog.VerboseRateLimited("MapRender", "spine-clock-not-ready",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "spine deferred: live clock not ready (liveUT={0:R} <= 0 / non-finite); rendering nothing this frame",
+                        currentUT),
+                    5.0);
+                // PruneStaleState is intentionally NOT called: a transient UT=0 frame must not drop the
+                // cached chains / prior intents the next ready frame resumes from. The defer is a hold.
+                return;
+            }
+
             int shadowed = 0, skipReaim = 0, overlapShadowed = 0, unresolved = 0;
             if (pids != null)
             {
@@ -404,10 +430,36 @@ namespace Parsek.MapRender
                     }
                     else
                     {
+                        // C4 SILENT-FALLBACK VISIBILITY: BuildChainSignature deliberately OMITS the spine
+                        // flag from the cache key, so a chain cached while the flag was off carries a null
+                        // PhaseChain; after an A/B toggle / hot-reload of the flag (without a Reset) the
+                        // flag-ON branch above would silently fall through HERE to the assembler chain
+                        // (phaseChain == null). Without a log this is invisible - a flag-ON run that is
+                        // actually rendering off the LEGACY spine. Warn ONCE per pid+condition so the
+                        // toggle is observable (the in-game test seam Resets on every flip, so this never
+                        // fires in a correctly-driven flag-ON run). Pure observability; the render result
+                        // (assembler chain) is unchanged. Note: NOT tracing-gated - this is a correctness
+                        // signal for the cutover operator, but it is rate-limited so it cannot flood.
+                        if (PhaseSpineDriveActive)
+                            WarnSpineFlagOnAssemblerFallback(pid, traj.RecordingId, currentUT);
                         sample = ChainSampler.Sample(chain, currentUT, units);
                         intent = GhostRenderDirector.Decide(sample, prior, traj.VesselName);
                     }
                     priorIntentByPid[pid] = intent;
+
+                    // C1 RETIRE-NOT-HELD raise (design §6.4 / §10.7): a member whose sample resolved
+                    // OUTSIDE its window (it should RETIRE this frame) yet was kept VISIBLE because the
+                    // prior intent was visible and the director held it - the inverse of the held-across-gap
+                    // contract. The Director's OutsideWindow case returns Hidden, so in the normal pipeline
+                    // this never fires; it is the guard that proves it stays that way (a future regression
+                    // that held an out-of-window member would light it). Tracing-gated, once-per-event.
+                    if (MapRenderTrace.IsEnabled
+                        && MapRenderTrace.IsRetireNotHeld(
+                            sample.Coverage == Coverage.OutsideWindow, prior.Visible, intent.Visible))
+                    {
+                        MapRenderTrace.EmitRetireNotHeld(
+                            pid, traj.RecordingId, currentUT, intent.DriveUT, intent.Treatment.ToString());
+                    }
 
                     // Per-ACTIVE-SEGMENT re-aim skip (design §4, refined from per-member): only the
                     // heliocentric (Sun-relative) LEG of a re-aim owner is replaced. Now COVERAGE-AWARE:
@@ -431,6 +483,21 @@ namespace Parsek.MapRender
                     {
                         skipReaim++;
                         continue;
+                    }
+
+                    // C1 ANCHOR-RESOLVE-FAIL raise (design §5.2 / §11.4): a visible intent carries a
+                    // BodyAnchor (FrameBodyName); resolve it through the PURE AnchorFrameResolver decision
+                    // against the scene's live body-existence probe and, when it fails closed (missing /
+                    // unknown body), emit the once-per-event anchor-resolve-fail anomaly. This is the
+                    // fail-closed (hide) outcome the downstream draw already takes (StockConicTreatment.Apply
+                    // returns on a null body) - here we make it OBSERVABLE rather than a silent drop. Pure
+                    // decision + tracing-gated emit (free in normal play); the render result is unchanged.
+                    if (MapRenderTrace.IsEnabled && intent.Visible
+                        && !string.IsNullOrEmpty(intent.FrameBodyName))
+                    {
+                        AnchorFrameResolver.ResolveBodyAndRaise(
+                            pid, traj.RecordingId, currentUT, intent.FrameBodyName,
+                            name => scene.ResolveBody(name) != null);
                     }
 
                     // Record the Director's StockConic seed this frame so the Phase-8a gated patch can
@@ -503,6 +570,16 @@ namespace Parsek.MapRender
         {
             return intentVisible && frameBodyIsStar && memberIsReaimOwner
                 && !(chainHasReaimedSegments && sampleInSegment);
+        }
+
+        // PURE clock-readiness predicate (B4/D2, design §11.2): the live UT must be strictly positive AND
+        // finite for the span clock to be sampled. A cold OnLoad / pre-time-init frame reports UT=0 (the
+        // Planetarium UT=0 trap); a pathological frame could report NaN/Inf. Mirrors
+        // LedgerOrchestrator.IsCurrentUtReadyForCutoff (ut > 0), extended with the finite guard since the
+        // render path multiplies UT into geometry. Unity-free / unit-testable.
+        internal static bool IsLiveClockReady(double liveUT)
+        {
+            return !double.IsNaN(liveUT) && !double.IsInfinity(liveUT) && liveUT > 0.0;
         }
 
         // Resolve a member's window (trimmed if it belongs to a unit) and classify its overlap scope
@@ -755,8 +832,37 @@ namespace Parsek.MapRender
                 seedByPid.Remove(stalePidScratch[i]);
                 tracedPathByPid.Remove(stalePidScratch[i]);
                 tracedPathIntentByPid.Remove(stalePidScratch[i]);
+                spineFallbackWarnedPids.Remove(stalePidScratch[i]);
             }
         }
+
+        // C4: per-pid one-shot guard for the silent flag-ON -> assembler-chain fallback warn. A flag
+        // toggle / hot-reload without a Reset leaves a stale cache entry with a null PhaseChain, so the
+        // flag-ON branch falls through to the assembler chain; warn ONCE per pid so an A/B toggle is
+        // visible without flooding (the condition is per-pid steady until the next signature rebuild
+        // re-populates PhaseChain). Cleared in Reset() (scene switch) + PruneStaleState (ghost retire).
+        private static readonly HashSet<uint> spineFallbackWarnedPids = new HashSet<uint>();
+
+        // C4 (the silent flag-ON -> assembler fallback, since BuildChainSignature omits the flag): warn
+        // ONE Info line per pid when the spine flag is ON yet the cached chain carries a null PhaseChain
+        // (so the spine-select fell through to the legacy assembler chain). NOT tracing-gated - this is a
+        // cutover-correctness signal for an A/B toggle / hot-reload, but one-shot per pid so it cannot
+        // flood. The render result is unchanged (the assembler chain renders); this only surfaces that the
+        // flag-ON run is actually driving the LEGACY spine for this ghost.
+        private static void WarnSpineFlagOnAssemblerFallback(uint pid, string recordingId, double currentUT)
+        {
+            if (!spineFallbackWarnedPids.Add(pid))
+                return;
+            ParsekLog.Warn("MapRender", string.Format(CultureInfo.InvariantCulture,
+                "spine flag ON but PhaseChain null for pid={0} rec={1} at UT={2:R}: falling back to the "
+                + "legacy assembler chain (stale chain cache after a flag toggle? call ShadowRenderDriver.Reset "
+                + "on every flag flip). Rendering off the LEGACY spine for this ghost.",
+                pid, recordingId ?? "?", currentUT));
+        }
+
+        /// <summary>Test-only: count of pids that have logged the C4 flag-ON assembler-fallback warn (so a
+        /// test can assert the one-shot guard fires once per pid). Cleared by <see cref="Reset"/>.</summary>
+        internal static int SpineFallbackWarnedPidCountForTesting => spineFallbackWarnedPids.Count;
 
         // Isolated Unity-native read (Time.frameCount): only ever JIT-compiled in-game, since the unit
         // tests exercise DecideForGhost / ClassifyScope directly and never call RunFrame.

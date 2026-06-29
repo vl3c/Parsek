@@ -450,6 +450,49 @@ namespace Parsek.Tests
             Assert.False(r.OverTolerance);
         }
 
+        [Fact]
+        public void Synthesized_LoopShiftedReaimedSeed_PhaseMatched_ZeroDrift()
+        {
+            // BLOCKER row: a LOOPED re-aimed (synthesized) member. The producer DRIVES the rendered conic at
+            // epoch = seg.epoch + loopShift (StockConicTreatment.SeedAndDriveLive) and propagates it at the
+            // LIVE clock, so the synthesized reference (the producer's intended seed) MUST be built with the
+            // SAME loop-shift epoch bake (MapRenderProbe.BuildPhaseMatchedReferenceOrbit, the BLOCKER fix) and
+            // sampled at the SAME live-clock UTs - otherwise it traces a different mean-anomaly half-arc and
+            // false-fires on a CORRECT draw. This is the headless analogue of the production probe's phase-
+            // matched synthesized reference (the in-game SynthesizedParity_LoopShiftedGhost_PhaseMatched_
+            // ZeroDrift drives the real seam). It ACTUALLY applies the shift (both sides baked +shift, sampled
+            // at the live UTs), so a correct "shift the clock, not the shape" pipeline reads zero drift.
+            const double omega = 2.0 * Math.PI / 5400.0; // ~1.5 h circular period
+            const double epoch = 100_000.0;
+            const double shift = 1300.0;                  // a sizeable fraction of the period
+            const double liveCenterUT = epoch + 4.0 * 5400.0; // four loops later
+
+            double[] renderedUTs = RenderGeometrySampler.BuildSampleUTs(
+                liveCenterUT, 5400.0 * 0.25, SampleCount);
+            // BOTH the rendered orbit AND the intended-seed reference are baked with epoch + shift and sampled
+            // at the SAME live-clock UTs (the synthesized path samples both at currentUT, unlike the faithful
+            // path which can remap the recorded UTs): a faithful loop draw of the intended seed reads ~0.
+            double[] rendered = CircleAtUTs(LkoRadius, omega, epoch + shift, renderedUTs);
+            double[] intendedPhaseMatched = CircleAtUTs(LkoRadius, omega, epoch + shift, renderedUTs);
+
+            var r = RenderParityOracle.ComputeDriftScaleDerived(
+                RenderParityOracle.ParityMode.Synthesized, intendedPhaseMatched, rendered);
+
+            Assert.True(r.HasMeasurement);
+            Assert.False(r.OverTolerance);
+
+            // LOAD-BEARING negative control: drop the phase-match (build the intended seed at the RAW epoch -
+            // the pre-fix BuildOrbitFromSegment behavior) and sample it at the SAME live UTs. The loop phase
+            // no longer cancels, so the reference and the rendered conic trace different arcs and the oracle
+            // MUST flag drift. This is exactly the BLOCKER the production probe's phase-matched epoch fixes;
+            // it proves the row is a real shift, not a tautological circle-vs-itself.
+            double[] intendedRawEpoch = CircleAtUTs(LkoRadius, omega, epoch, renderedUTs);
+            var rBug = RenderParityOracle.ComputeDriftScaleDerived(
+                RenderParityOracle.ParityMode.Synthesized, intendedRawEpoch, rendered);
+            Assert.True(rBug.HasMeasurement);
+            Assert.True(rBug.OverTolerance);
+        }
+
         // ===================================================================================
         //  SYNTHESIZED drifted rows -> drift flagged (rendered != the producer's intended arc)
         // ===================================================================================

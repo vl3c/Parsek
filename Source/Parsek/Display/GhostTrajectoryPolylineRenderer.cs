@@ -668,6 +668,132 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// A1 cutover-instrument (design §14, ParityMode.Synthesized polyline leg): for every cached leg
+        /// whose Vectrosity <c>VectorLine</c> is RENDERED this frame, hand the caller two flat
+        /// <c>[x0,y0,z0, x1,...]</c> XYZ-triple arrays in ONE consistent BODY-RELATIVE WORLD metres frame:
+        /// the RENDERED polyline geometry (the leg's live <c>VectorLine.points3</c>, each scaled-space
+        /// point converted back to world via <c>ScaledSpace.ScaledToLocalSpace</c> then made body-relative
+        /// = <c>world - body.position</c>) and the RECORDED reference geometry (the leg's own recorded
+        /// <c>lats/lons/alts</c> via <c>body.GetWorldSurfacePosition</c>, made body-relative against the
+        /// SAME live body position). Both sides therefore share the floating-origin- and body-world-motion-
+        /// free frame the icon/orbit parity already uses, so the diff is pure geometry.
+        ///
+        /// <para>CONIC-ANCHORED legs are SKIPPED (a known, stated limitation). A leg the draw rotated ~96 deg
+        /// onto the bracketing conic seam (<see cref="TryAnchorLegToConicSeam"/> returned true, recorded in
+        /// <see cref="LegPolyline.wasAnchored"/>) draws its <c>points3</c> INTENTIONALLY far from its raw
+        /// recorded surface track, so diffing rendered-<c>points3</c> against the raw <c>lats/lons/alts</c>
+        /// would report ~body-radius drift on EVERY correctly-anchored leg (a false positive) while a leg
+        /// that FAILED to anchor would read ~0 - exactly backwards. The anchor transform is a per-point Slerp
+        /// of two live-computed <c>FromToRotation</c> quaternions, not a cheaply recoverable single transform
+        /// to rebuild the reference in, so this lens deliberately covers ONLY non-anchored body-fixed legs
+        /// (descent / atmospheric / surface - the descent re-stitch the audit cares about). For those the
+        /// rendered <c>points3</c> ARE the raw body-fixed points, so rendered == recorded by construction and
+        /// any genuine mis-draw drifts. The two arrays use the SAME index set (the first
+        /// <c>min(points3.Count, leg.PointCount)</c> samples), so the diff is a like-for-like recorded-vs-
+        /// rendered comparison even though the oracle itself is count-independent.</para>
+        ///
+        /// <para>Unity-coupled (reads <c>VectorLine.points3</c>, <c>ScaledSpace</c>, <c>body.position</c>,
+        /// <c>GetWorldSurfacePosition</c>), so it is driven ONLY from the live <see cref="MapRenderProbe"/>
+        /// (never xUnit) and only while tracing is on. NaN/Inf-safe: a non-finite scaled point or surface
+        /// position is written through unchanged (the oracle filters non-finite points and never raises a
+        /// false anomaly). A leg with no rendered line, no recorded surface samples, or an unresolved body is
+        /// skipped silently. Each drawn leg is handed to <paramref name="onLeg"/> as
+        /// <c>(recordingId, legIndex, legCount, bodyName, renderedBodyRelFlat, recordedBodyRelFlat)</c>; the
+        /// caller owns the oracle diff + emit so the decision math stays pure/unit-testable.</para>
+        /// </summary>
+        internal static void CaptureRenderedVsRecordedLegGeometry(
+            int currentFrame,
+            System.Action<string, int, int, string, double[], double[]> onLeg)
+        {
+            if (onLeg == null) return;
+
+            foreach (var kv in polylineCache)
+            {
+                LegPolyline[] legs = kv.Value.legs;
+                if (legs == null) continue;
+                for (int l = 0; l < legs.Length; l++)
+                {
+                    LegPolyline leg = legs[l];
+                    VectorLine line = leg.vectorLine;
+                    if (line == null) continue;
+                    bool active = line.active;
+                    bool drawnRecently = leg.lastDrawnFrame >= currentFrame - 1;
+                    if (!active && !drawnRecently) continue; // not rendered recently
+
+                    // SKIP conic-anchored legs: a leg the last draw rotated onto the bracketing conic seam
+                    // (TryAnchorLegToConicSeam returned true, stamped here) draws its points3 ~96 deg off the
+                    // RAW recorded surface track on PURPOSE, so diffing rendered-points3 against leg.lats/lons/
+                    // alts would report ~body-radius drift on EVERY correctly-anchored leg (false positive) -
+                    // and a leg that FAILED to anchor (the real regression) reads ~0 (exactly backwards). The
+                    // anchor rotation is a per-point Slerp of two live-computed FromToRotation quaternions, not
+                    // a cheaply recoverable single transform, so this lens does NOT cover anchored vacuum-
+                    // maneuver legs - a STATED limitation. It validates ONLY non-anchored body-fixed legs
+                    // (descent / atmospheric / surface - the descent re-stitch the audit cares about), where
+                    // the rendered points3 ARE the raw body-fixed points so rendered == recorded by
+                    // construction and any real mis-draw (incl. a leg that should have stayed body-fixed but
+                    // drew wrong) drifts. See LegPolyline.wasAnchored / TryAnchorLegToConicSeam. The skip
+                    // decision is the pure ShouldCaptureLegForParity (xUnit-covered).
+                    if (!ShouldCaptureLegForParity(leg.wasAnchored)) continue;
+
+                    var points3 = line.points3;
+                    if (points3 == null || points3.Count == 0) continue;
+                    if (leg.lats == null || leg.lons == null || leg.alts == null) continue;
+
+                    CelestialBody body = ParityResolveBodyByName(leg.bodyName);
+                    if (body == null) continue;
+
+                    // Like-for-like index set: the leg's points3 hold this leg's drawn samples 1:1 with its
+                    // recorded lats/lons/alts (CopyLegIntoVectorLine writes exactly leg.PointCount of them at
+                    // offset 0). Diff over the common prefix so a transiently-resized line never misaligns.
+                    int m = leg.PointCount;
+                    if (m > points3.Count) m = points3.Count;
+                    if (m <= 0) continue;
+
+                    Vector3d bodyPos = body.position;
+                    var renderedFlat = new double[m * 3];
+                    var recordedFlat = new double[m * 3];
+                    for (int i = 0; i < m; i++)
+                    {
+                        // RENDERED: live scaled-space vertex -> world metres -> body-relative.
+                        Vector3d renderedWorld = ScaledSpace.ScaledToLocalSpace(points3[i]);
+                        Vector3d renderedRel = renderedWorld - bodyPos;
+                        renderedFlat[i * 3] = renderedRel.x;
+                        renderedFlat[i * 3 + 1] = renderedRel.y;
+                        renderedFlat[i * 3 + 2] = renderedRel.z;
+
+                        // RECORDED reference: the leg's own body-fixed surface track, body-relative.
+                        Vector3d recordedWorld = body.GetWorldSurfacePosition(
+                            leg.lats[i], leg.lons[i], leg.alts[i]);
+                        Vector3d recordedRel = recordedWorld - bodyPos;
+                        recordedFlat[i * 3] = recordedRel.x;
+                        recordedFlat[i * 3 + 1] = recordedRel.y;
+                        recordedFlat[i * 3 + 2] = recordedRel.z;
+                    }
+
+                    onLeg(kv.Key, l, legs.Length, leg.bodyName ?? "(null)", renderedFlat, recordedFlat);
+                }
+            }
+        }
+
+        // Minimal name->CelestialBody resolve for the tracing-only leg-parity capture. A small
+        // FlightGlobals.Bodies scan (the Driver's own per-frame cache is a private instance member; this
+        // static capture path is gated behind MapRenderTrace.IsEnabled, so the scan cost is paid only while
+        // tracing is on). Returns null on an empty / unknown name (caller skips the leg).
+        private static CelestialBody ParityResolveBodyByName(string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName)) return null;
+            var bodies = FlightGlobals.Bodies;
+            if (bodies == null) return null;
+            for (int i = 0; i < bodies.Count; i++)
+            {
+                CelestialBody b = bodies[i];
+                if (b != null && string.Equals(b.bodyName, bodyName, System.StringComparison.Ordinal))
+                    return b;
+            }
+            return null;
+        }
+
+        /// <summary>
         /// One body-coherent contiguous polyline leg covering a non-orbital
         /// phase of the recording. Built ONCE at cache-build time from
         /// either a TrackSection's per-frame sample list (Absolute /
@@ -2104,6 +2230,21 @@ namespace Parsek.Display
             => legWasConicAnchored
                 ? UndrawnLegFallback.HoldLastGoodOnLine
                 : UndrawnLegFallback.UseFreshBodyFixedHead;
+
+        /// <summary>
+        /// PURE decision (A1 polyline-leg parity lens): should this leg be included in the rendered-vs-
+        /// recorded leg-geometry parity capture (<see cref="CaptureRenderedVsRecordedLegGeometry"/>)? A
+        /// CONIC-ANCHORED leg (<see cref="LegPolyline.wasAnchored"/>: the draw rotated its points ~96 deg onto
+        /// the bracketing conic seam) is EXCLUDED - its rendered points3 are INTENTIONALLY far from the raw
+        /// recorded surface track, so a rendered-vs-raw-recorded diff would false-fire on a CORRECT anchor
+        /// (and read ~0 on a leg that FAILED to anchor - exactly backwards). A NON-anchored body-fixed leg
+        /// (descent / atmospheric / surface) draws the raw body-fixed points, so rendered == recorded by
+        /// construction and a genuine mis-draw drifts -> INCLUDED. The anchor's per-point Slerp is not cheaply
+        /// recoverable to rebuild the reference in, so anchored vacuum-maneuver legs are a STATED, documented
+        /// lens limitation. xUnit-testable without Unity.
+        /// </summary>
+        internal static bool ShouldCaptureLegForParity(bool legWasConicAnchored)
+            => !legWasConicAnchored;
 
         /// <summary>
         /// Rides the polyline with a labeled marker (icon + label): returns the world position ON the
