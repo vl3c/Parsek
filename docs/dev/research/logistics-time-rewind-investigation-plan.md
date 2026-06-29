@@ -1,10 +1,19 @@
 # Investigation Plan: Logistics (Supply Routes) ↔ Time-Rewind Determinism
 
-*Status: investigation plan (pre-report). Produced for the task "is there a fundamental
-compatibility issue between logistics and time rewind, and how do recurrent routes behave
-across a rewind without creating time-travel paradoxes." This document scopes the
-investigation; the deliverable is a separate report + recommendations note. No production
-code is changed by this plan or the report.*
+*Status: investigation plan (pre-report), REVISED after a clean-context plan review. Produced
+for the task "is there a fundamental compatibility issue between logistics and time rewind, and
+how do recurrent routes behave across a rewind without creating time-travel paradoxes." This
+document scopes the investigation; the deliverable is a separate report + recommendations note.
+No production code is changed by this plan or the report.*
+
+*Revision note: the first draft's Axis C hypothesized that the supersede / ERS walk carves out
+abandoned-future route ledger rows via a recording-id scope. The review proved that is
+structurally impossible (route `GameAction`s are free-standing, null `RecordingId`) and surfaced
+the REAL mechanism — a UT-blind, counter-keyed dispatch dedup over restored-future ledger rows
+against reverted route counters — which is simultaneously the funds-safety story AND a suspected
+physical-cargo paradox. The axes below are rewritten around that mechanism. Every "KNOWN" fact
+tagged (verify) is a review claim the investigation must re-confirm with its own reads, not
+accept on faith.*
 
 ---
 
@@ -32,153 +41,211 @@ The user's framing decomposes into four concrete sub-questions:
 
 The output must answer all four and surface any paradox-producing gap.
 
-## 2. What is already known (from design docs + first-pass code read)
+## 2. What is already known (verify where flagged)
 
-These are established facts the investigation builds on — they are NOT to be re-derived, only
-verified where flagged:
+These are established facts the investigation builds on. The ones tagged **(verify)** are
+load-bearing review claims the investigation must re-confirm with its own direct reads before
+relying on them; the rest were confirmed in the first-pass read.
 
-- **Routes fire LIVE on a loop clock, they are not a recorded dispatch replay.** The dispatch
-  *phase* is owned by `RouteLoopClock` (a crossing detector over
-  `GhostPlaybackLogic.TryComputeSpanLoopUT`) + `Route.LastObservedLoopCycleIndex`, driven by live
-  game UT: `elapsed = nowUT − PhaseAnchorUT`, `PhaseAnchorUT = route.LoopAnchorUT` (set on
-  activate). `RouteOrchestrator.ProcessOneRoute` runs ~1 Hz; on a confirmed dock crossing it calls
-  `EmitLoopCycle`. (`RouteLoopClock.cs`, `RouteOrchestrator.cs`, plan
-  `plan-logistics-routes-on-missions.md` Phase 4.)
-- **Two effect surfaces with two different reversal mechanisms:**
-  - *Funds* (KSC dispatch charge, recovery credit) flow through `FundsModule` in the ledger recalc
-    walk → deterministically reconstructed on `RecalculateAndPatch` → reconciled under
-    rewind/supersede/tombstone via `PatchFunds`.
-  - *Physical* (origin cargo debit, per-window pickup, endpoint delivery to live vessel
-    tanks/inventory) are applied **live at emit time** by `RouteOrchestrator` and are reverted by
-    **the rewind quicksave restore** (the `.sfs` reload), NOT by the recalc walk. `RouteModule` is
-    **observe-only** (`T-ROUTEMODULE-OBSERVE`): it counts rows and mutates nothing.
-- **Each dispatch/delivery is a ledger `GameAction`** (`RouteDispatched`, `RouteCargoDebited`,
-  `RouteCargoPickedUp`, `RouteCargoDelivered`, `RouteRecoveryCredited`, `RoutePaused`,
-  `RouteEndpointLost`) carrying `RouteId` + `RouteCycleId`, stamped at live `currentUT`.
-- **ELS `(routeId, cycleId)` idempotency** + the persisted `LastObservedLoopCycleIndex` are the
-  re-fire guards; `EmitLoopCycle` checks `IsDispatchAlreadyInLedger` and explicitly cites "a
-  save/reload mid-cycle, a Rewind, or a double-tick can re-present the SAME cycleId"
-  (`RouteOrchestrator.cs:~1785`).
-- **Routes are revalidated on every supersede bump** (`RouteStore.RevalidateSources`,
-  `ParsekScenario.cs:252-263`): each `SourceRef` checked against ERS + a field fingerprint →
-  `MissingSourceRecording` / `SourceChanged` → not ghost-driving, no dispatch.
-- **Backing-mission selection freezes to creation-time members** (M-MIS-9,
-  `plan-mmis9-route-branch-freeze.md`): post-creation branches (re-fly fork, switch-fly
-  continuation) do not silently join the route's loop span / delivery cadence.
-- **Stated design position (authoritative):** §2.4 item 11, §10.6, §13.4–13.5 say dispatches and
-  deliveries are ledger-backed timeline events; reverts invalidate abandoned-timeline dispatches
-  via epoch isolation + tombstone; stock quicksave/load restores stock vessels; **"if those
-  modules are not implemented for a mutation path, that route effect path must stay disabled."**
-  The implemented reality (observe-only `RouteModule` + quicksave restore for physical + FundsModule
-  recalc for funds) must be checked against this stated contract.
+**Firing model**
+- **Routes fire LIVE on a loop clock; they are NOT a recorded dispatch replay.** The dispatch
+  *phase* is owned by `RouteLoopClock` (crossing detector over
+  `GhostPlaybackLogic.TryComputeSpanLoopUT`, body in `GhostPlaybackLogic.SpanClock.cs`) +
+  `Route.LastObservedLoopCycleIndex`, driven by live game UT.
+  `RouteOrchestrator.Tick(currentUT)` runs ~1 Hz from `ParsekScenario` Update **in all scenes**
+  (`ParsekScenario.cs:924`, gated by `TickIntervalSec`), so routes can fire while the player is
+  not in the route's flight scene.
+- **`cycleId` is COUNTER-keyed, not UT-keyed** (verify): `"cycle-" + (route.CompletedCycles +
+  route.SkippedCycles)` (`RouteOrchestrator.cs` ~771/999/2710/3096). This is the linchpin of the
+  whole rewind story and must be confirmed verbatim.
+
+**Two effect surfaces, two reversal mechanisms**
+- *Funds* (KSC dispatch charge on `RouteCargoDebited.RouteKscFundsCost`; recovery credit) flow
+  through `FundsModule` in the recalc walk. **These two funds surfaces have DIFFERENT neutralizers
+  and must be analyzed separately** (verify): the dispatch charge is applied unconditionally with
+  no `Effective`/tombstone gate (`FundsModule.cs:~538-544`) and is reversed only by a cutoff
+  recalc dropping `UT > cutoff` rows (`RecalculationEngine.cs:~152-165`); the recovery credit
+  relies indirectly on the *source recording's* recovery `FundsEarning` rows being tombstoned
+  (`SupersedeCommit.cs:~1864-1867`).
+- *Physical* (origin cargo debit, per-window pickup, endpoint delivery to live vessel
+  tanks/inventory) are applied **live at emit time** by `RouteOrchestrator` and are reverted by
+  **the rewind quicksave restore** (the `.sfs` reload), NOT by the recalc walk. `RouteModule` is
+  **observe-only** (`T-ROUTEMODULE-OBSERVE`): it counts rows and mutates nothing.
+
+**The rewind asymmetry (THE seam the paradox sits on) (verify)**
+- The Rewind-to-Separation quicksave is a full `GamePersistence.SaveGame` (`RewindPointAuthor.cs:
+  ~488`) and DOES capture the `ParsekScenario` `ROUTES` node + route loop state (`LoopAnchorUT`,
+  `LastObservedLoopCycleIndex`, `CompletedCycles`, `SkippedCycles`) at RP time.
+- **On Restore, route DEFINITIONS/COUNTERS revert to RP time but the LEDGER does not.**
+  `RouteStore` is NOT in `ReconciliationBundle` (`ReconciliationBundle.cs:19-72`), so it reverts
+  via the loaded `.sfs` ROUTES node. But `ReconciliationBundle.Capture()` snapshots the full
+  *pre-rewind* `Ledger.Actions` BEFORE `LoadGame`, and `Restore()` does `Ledger.Clear()` +
+  `Ledger.AddActions(bundle.Actions)` (`ReconciliationBundle.cs:~114-120,194-196`) — so the
+  abandoned-future route ledger rows are PRESERVED, they do not vanish on rewind.
+- **Route `GameAction`s are FREE-STANDING (null `RecordingId`)** (verify): every route action is
+  built with `RouteId`/`RouteCycleId`/`UT` only (`RouteOrchestrator.cs` emit sites; a
+  `RecordingId=` grep returns zero hits). The supersede/tombstone walk gates entirely on
+  `RecordingId` (`TombstoneAttributionHelper.InSupersedeScope` returns false for empty
+  `RecordingId`, `cs:~36`; `SupersedeCommit.CommitTombstones` only considers gated actions).
+  **Therefore supersede/ERS/tombstone can NEVER carve out an abandoned-future route row.**
+- **Two recalc moments with different cutoffs** (verify): at rewind a recalc runs with a CUTOFF at
+  the rewind UT (drops `UT > cutoff` rows → funds revert to RP time); at re-fly-commit a recalc
+  runs with cutoff = `double.MaxValue` (`RewindInvoker.cs:~929`), re-applying the FULL ledger
+  including the still-present abandoned-future rows.
+- `RouteStore.RevalidateSources` runs on the supersede-version bump (`ParsekScenario.cs:263`,
+  itself invoked from inside `ReconciliationBundle.Restore`, `cs:~212`) and OnLoad (`:3344`):
+  each `SourceRef` checked against ERS + a field fingerprint → `MissingSourceRecording` /
+  `SourceChanged` → not ghost-driving, no dispatch.
+- Backing-mission selection freezes to creation-time members (M-MIS-9,
+  `plan-mmis9-route-branch-freeze.md`): post-creation branches do not silently join the route's
+  loop span / delivery cadence.
+
+**The suspected paradox (the spine of the report; prove or refute with a worked example)**
+On rewind, RouteStore counters revert (so a re-flown crossing reproduces the SAME `cycleId`) while
+the abandoned-future `RouteDispatched` rows survive in the ledger UN-tombstoned (null
+`RecordingId`). On re-fly, `EmitLoopCycle` calls `IsDispatchAlreadyInLedger` →
+`EffectiveState.ComputeELS()`, which filters **only by tombstones, never by UT/timeline**
+(`EffectiveState.cs:~1298-1328`) → the reproduced `cycleId` collides with the surviving row → the
+re-flown dispatch is **SUPPRESSED** (`RouteOrchestrator.cs:~3540-3551`). Consequence: **funds are
+charged exactly once (no double-charge — good), but the physical cargo the quicksave reverted is
+never re-delivered (the dispatch that would deliver it is dedup-suppressed) → "funds spent into an
+abandoned future, no goods on the surviving timeline."** This is the concrete time-travel paradox
+the investigation exists to confirm or refute, and it must be traced through ONE real cycle with
+the actual `GameAction` list before/after, not asserted abstractly.
 
 ## 3. The determinism axes to investigate
 
-Each axis lists the question, the acceptance criterion (what "deterministic / paradox-free" means
-for it), and the primary files/symbols to read.
+Each axis: the question, the acceptance criterion, and the primary files/symbols to read.
 
 ### Axis A — Route-definition lifecycle across a rewind ("disable before it existed")
-- **Q:** Is the route *definition* (in `RouteStore`, serialized in the `ROUTES` node of
-  `ParsekScenario`) reverted when the player rewinds to before the route was created? Is the
-  Rewind-to-Separation quicksave a full `GamePersistence` save that captures the `ROUTES` node and
-  the route's `LoopAnchorUT` / `LastObservedLoopCycleIndex` at RP time?
-- **Acceptance:** rewinding to RP at UT=T restores `RouteStore` exactly to its UT=T state — a route
-  created at UT>T is absent; a route created at UT<T is present with its RP-time activation/cycle
-  state. No route exists in a past where it had not been created.
-- **Read:** `RewindInvoker.cs` (Restore/Strip/Activate; pre-load reconciliation bundle),
-  `RewindPointAuthor.cs`, `RewindPoint.cs`, `ParsekScenario.cs` OnSave/OnLoad for `ROUTES`,
-  `RouteStore.LoadRoutesFrom` / save path, `RouteCodec.cs`.
+- **Q:** Is the route *definition* reverted when the player rewinds to before the route was
+  created? State the **RouteStore-vs-Ledger asymmetry** explicitly (RouteStore reverts via the
+  `.sfs`; `Ledger.Actions` is preserved by the bundle) — this one sentence is the seam the whole
+  paradox sits on. Confirm the `Restore → BumpSupersedeStateVersion → RevalidateSources` path runs
+  on every rewind.
+- **Acceptance:** rewinding to RP at UT=T restores `RouteStore` exactly to its UT=T state (a route
+  created at UT>T is absent; a route created at UT<T is present with RP-time counters); the
+  asymmetry with the preserved ledger is named with `file:line`; revalidation re-runs against the
+  restored ERS.
+- **Read:** `RewindInvoker.cs`, `ReconciliationBundle.cs` (Capture/Restore; which fields are in the
+  bundle), `RewindPointAuthor.cs`, `RewindPoint.cs`, `ParsekScenario.cs` (`SaveRoutesTo`/
+  `LoadRoutesFrom`, ROUTES node), `RouteStore` save/load, `RouteCodec.cs`.
 
-### Axis B — Dispatch clock across a rewind ("trigger in the past" / "re-enable after")
-- **Q:** After a rewind, are `LoopAnchorUT` and `LastObservedLoopCycleIndex` restored to RP-time
-  values? Does `TryComputeSpanLoopUT` early-return (no fire) when `nowUT < PhaseAnchorUT` (i.e. the
-  route cannot fire before its activation)? Re-flying forward, does the clock re-fire the same
-  cycles (same `cycleIndex` → same `cycleId`)?
-- **Acceptance:** the dispatch clock is a pure function of `(LoopAnchorUT, cadence/schedule,
-  nowUT)`; identical time advance reproduces identical fire UTs and cycleIds; no fire below
-  `LoopAnchorUT`; activation reset of `LastObservedLoopCycleIndex` to −1 does not cause a
-  double-fire under ELS.
-- **Read:** `RouteLoopClock.cs`, `GhostPlaybackLogic.TryComputeSpanLoopUT`,
-  `RouteOrchestrator.ProcessOneRoute` / `EmitLoopCycle` / the `LastObservedLoopCycleIndex` snap,
-  `Route.cs` (`LoopAnchorUT`, `LastObservedLoopCycleIndex`, activate path), `RouteCodec.cs`.
+### Axis B — Dispatch clock + cycleId reproduction across a rewind ("trigger" / "re-enable")
+- **Q:** After a rewind, do `LoopAnchorUT` and the route counters restore to RP-time values? Verify
+  `LoopAnchorUT` is **game UT, not wall-clock** (`RouteOrchestrator.cs:205`). Resolve the effective
+  `PhaseAnchorUT` precisely: `RouteOrchestrator.cs:197-199` says it floors to `spanEnd` while
+  `MissionLoopUnitBuilder` uses `Math.Max(anchor, spanEnd)` — determine, for both a create-Active
+  route (anchor seeded to recording `StartUT`) and a Pause→Activate route (anchor = activation UT),
+  what the cadence grid is actually pinned to. Does `TryComputeSpanLoopUT` early-return (no fire)
+  below the phase anchor? **The linchpin:** is the re-flown `cycleId` byte-identical to the
+  abandoned-future `cycleId` (pure function of reverted counters), and is the ELS dedup that reads
+  it sound given `ComputeELS` does not filter by UT/timeline?
+- **Acceptance:** the dispatch grid is a pure function of `(effective PhaseAnchorUT, cadence/
+  schedule, nowUT)` independent of wall-clock; no fire below the anchor; the re-flown cycleId
+  reproduces identically AND the UT-blind ELS dedup over it is shown to be correct-by-design rather
+  than accidental (i.e. the report states exactly why the collision is safe for funds and unsafe
+  for cargo).
+- **Read:** `RouteLoopClock.cs`, `GhostPlaybackLogic.SpanClock.cs` (`TryComputeSpanLoopUT`),
+  `MissionLoopUnitBuilder` (anchor floor), `RouteOrchestrator.ProcessOneRoute`/`EmitLoopCycle`/the
+  `LastObservedLoopCycleIndex` snap + `IsDispatchAlreadyInLedger`, `Route.cs` (LoopAnchorUT,
+  counters, activate path), `RouteCodec.cs`.
 
-### Axis C — Economic (funds) determinism across a rewind+re-fly+commit (THE CRUX)
-- **Q:** When the player rewinds past route dispatches and re-flies+commits, are the abandoned-future
-  route funds actions (KSC charge, recovery credit) **removed/superseded/tombstoned**, or do they
-  persist and double-count? Are route `GameAction`s scoped to a recording (so the supersede walk
-  carves them out via ERS/ELS) or free-standing (`RecordingId` cleared)? Is `Ledger.Actions`
-  restored from the rewind quicksave (future route rows simply vanish) or preserved-and-reconciled?
-- **Acceptance:** after rewind+re-fly+commit, `EffectiveState.ComputeERS/ComputeELS` and a
-  `RecalculateAndPatch` reconstruct funds with each route cycle counted exactly once for the
-  *surviving* timeline; no abandoned-future dispatch contributes; no surviving dispatch is dropped.
-- **Read:** `SupersedeCommit.cs`, `EffectiveState.cs` (`ComputeERS`/`ComputeELS`/supersede walk),
-  `GameActions/FundsModule.cs`, `GameActions/GameAction.cs` (RouteId / recordingId / scope fields),
-  `GameActions/Ledger.cs` + `RecalculationEngine` / `LedgerOrchestrator`, `RewindInvoker.cs`
-  (ledger handling on Restore), `LoadTimeSweep.cs`, `RouteModule.cs` (observe-only boundary).
+### Axis C — Economic (funds) determinism across rewind+re-fly+commit (THE CRUX)
+- **Q:** Trace ONE concrete route cycle through create → fire (abandoned future) → rewind → re-fly
+  → commit, reading the actual `Ledger.Actions` at each step. For BOTH funds surfaces separately:
+  (1) the **dispatch KSC charge** — confirm it has no tombstone/`Effective` gate
+  (`FundsModule.cs:~538-544`), is dropped only by the cutoff recalc at rewind, and is RE-INCLUDED
+  by the `double.MaxValue` commit recalc; determine whether the surviving abandoned-future charge
+  is the one that ends up applied and whether that is counted exactly once. (2) the **recovery
+  credit** — confirm it zeroes only via the source recording's recovery `FundsEarning` rows being
+  tombstoned, and check that coupling actually holds when the source subtree is superseded by the
+  re-fly.
+- **Acceptance:** a worked `GameAction`-list example showing each funds surface is counted exactly
+  once for the SURVIVING timeline, with the exact code path that enforces it; any case where a
+  surface double-counts, drops, or charges for an abandoned-only event is flagged with severity.
+- **Read:** `ReconciliationBundle.cs`, `RecalculationEngine.cs` (cutoff handling),
+  `RewindInvoker.cs` (the two recalc invocations), `EffectiveState.cs`
+  (`ComputeERS`/`ComputeELS` — confirm no UT filter), `GameActions/FundsModule.cs`,
+  `GameActions/GameAction.cs` (RouteId / RecordingId fields), `SupersedeCommit.cs`,
+  `TombstoneAttributionHelper.cs`, `RouteModule.cs` (observe-only boundary), `RouteOrchestrator`
+  `IsDispatchAlreadyInLedger`.
 
-### Axis D — Physical (cargo/inventory) determinism across a rewind
-- **Q:** Are the live physical effects (origin debit, pickup, delivery) guaranteed to be covered by
-  the quicksave restore for every touched vessel? What about a destination/endpoint vessel that was
-  created *after* the RP (so it is absent post-rewind)? Can a physical effect fire to a vessel that
-  is not in the restored `.sfs`, leaving an un-revertable mutation?
-- **Acceptance:** every live physical mutation a route makes is to a vessel that is part of the same
-  `.sfs` the rewind restores from, so the restore reverts it; endpoints that did not exist at RP
-  time resolve to EndpointLost (no orphan cargo); no physical mutation survives a rewind that should
-  have undone it.
+### Axis D — Physical (cargo/inventory) determinism + the dedup-suppression paradox
+- **Q:** Are the live physical effects covered by the quicksave restore for every touched vessel?
+  Then the decisive question raised by Axis B/C: when the re-flown dispatch is **dedup-suppressed**
+  by the surviving abandoned-future row, is the physical cargo (which the quicksave reverted)
+  **ever re-applied**? If not, confirm the "funds spent, no goods" paradox with the exact emit path
+  that is skipped on the replay branch. Also: an endpoint vessel created AFTER the RP (absent
+  post-rewind) → EndpointLost / no orphan cargo?
+- **Acceptance:** every live physical mutation is to a vessel inside the restored `.sfs` (so the
+  restore reverts it); the re-fly either re-applies the physical effect on the surviving timeline
+  OR the report names the suppression-without-re-delivery as a concrete paradox with severity;
+  post-RP endpoints resolve to EndpointLost with no orphan cargo.
 - **Read:** `Logistics/LiveDeliveryWriters.cs`, `LiveOriginDebitWriters.cs`,
   `LiveInventoryPickupWriter.cs`, `LiveDeliveryCapacityProbe.cs`, `RouteEndpointResolver.cs`,
-  `RouteOrchestrator` emit paths (`EmitDispatchDebit`, `EmitPickupHalf`, `ApplyDelivery`),
-  `RewindInvoker.cs` (which `.sfs` is restored, and what "Strip" removes).
+  `RouteOrchestrator` emit paths (`EmitDispatchDebit`, `EmitPickupHalf`, `ApplyDelivery`, and the
+  `IsDispatchAlreadyInLedger` replay-skip branch — what it does and does NOT re-apply),
+  `RewindInvoker.cs`/`ReconciliationBundle.cs` (restore scope; "Strip").
 
 ### Axis E — Recurrent / interplanetary specifics (the user's Duna example)
-- **Q:** The recurrent cadence for an inter-body route is the synodic / re-aim schedule
-  (`RouteLoopClock` schedule passthrough). For v0 only same-body routes ship; inter-body is the
-  documented seam (M5). Does the determinism architecture extend to the recurrent inter-body case?
-  Does the re-aim schedule depend on any live celestial state that could differ after a rewind
-  (it should be a pure function of UT)?
-- **Acceptance:** the recurrence is a pure function of `(LoopAnchorUT, synodic schedule, nowUT)`;
-  bodies are deterministic functions of UT; the user's Duna-every-2-years case re-fires identically
-  after a rewind, OR the gap (if inter-body routes are not yet shippable) is named explicitly.
+- **Q:** Confirm inter-body routes are NOT yet shippable (scope-gated to same-body) so the literal
+  Duna-every-2-years route cannot yet be created — making this case a *documented deferral*, not a
+  live bug. Verify the recurrence is a pure function of `(PhaseAnchorUT, synodic schedule, nowUT)`
+  and that the re-aim schedule depends only on UT (deterministic bodies), so the architecture would
+  extend cleanly once inter-body lands. Keep this axis LIGHT relative to B/C/D.
+- **Acceptance:** the same-body-only gate is cited (`RouteBuilder`/`RouteAnalysisEngine`); the
+  recurrence is shown UT-pure; the report states whether the determinism gaps in C/D would or
+  would not also bite the inter-body case (they would — the firing model is identical).
 - **Read:** `RouteLoopClock.cs` (schedule passthrough), `MissionPeriodicity.cs`,
-  `design-mission-periodicity.md`, the M5 deferral in the logistics design doc §19.4, scope gates in
-  `RouteBuilder` / `RouteAnalysisEngine` that currently restrict to same-body.
+  `design-mission-periodicity.md`, M5 deferral in the logistics design doc §19.4, same-body gate in
+  `RouteBuilder`/`RouteAnalysisEngine`.
 
 ### Axis F — Paradox surfaces / known gaps (the report's risk register)
-- **Q:** Enumerate the concrete failure modes:
-  - Stated design says un-reversed mutation paths "must stay disabled," yet physical effects are
-    *enabled* and rely on quicksave restore rather than a route ledger module — is that sound or a
-    contract divergence?
-  - Reverts that do NOT go through a rewind quicksave (a non-rewind discard,
-    `PreserveIrreversibleLiveGameplayOnDiscard`) — do they leave physical route effects un-reverted?
-  - RP granularity: rewind targets are separation events, not arbitrary UTs. Can a route fire
-    between the last RP and the desired rewind target such that the physical effect is not in any
-    RP's `.sfs`?
-  - Recovery-credit deferral straddling a rewind boundary (`PendingRecoveryCreditCycleId` armed
-    before, flushed after).
-  - `LastObservedLoopCycleIndex` (codec-restored) vs ledger ELS keys (restored or not) diverging →
-    double-fire or stuck-skip.
-  - A route firing in the abandoned future to a vessel that is itself superseded/removed.
-- **Acceptance:** each surface is either shown safe (with the mechanism that makes it safe) or
-  listed as a concrete gap with severity + a recommended fix.
+- **Q:** Enumerate and classify the concrete failure modes:
+  - The C/D paradox (funds-once, cargo-never-re-delivered) — primary.
+  - Stated design (§2.4 #11, §10.6, §13.4) says un-reversed mutation paths "must stay disabled,"
+    yet physical effects are ENABLED and rely on quicksave restore, not a route ledger module — is
+    that a contract divergence?
+  - **Multiple successive rewinds**: each rewind re-captures the then-current `Ledger.Actions`
+    (including prior abandoned futures); does stacking accumulate orphan route rows / compounding
+    paradox?
+  - **Background / on-rails firing**: does `ProcessOneRoute` run for routes whose vessels are
+    unloaded? Can a BG-fired cycle be stranded by a rewind (physical effect on an unloaded vessel,
+    or no physical effect at all but a ledger row)?
+  - **Rewind landing BETWEEN a dispatch and its deferred recovery-credit / delivery**
+    (`PendingRecoveryCreditCycleId`): the pending arm is route state (reverts via quicksave) while
+    the emitted dispatch row persists (bundle) — trace the mismatch.
+  - Non-rewind reverts (`PreserveIrreversibleLiveGameplayOnDiscard`, `MergeDialog.ReFlyDiscard`):
+    do they leave physical route effects un-reverted?
+  - RP granularity: rewind targets are separation events, not arbitrary UTs — can a physical effect
+    fall outside every RP's `.sfs`?
+- **Acceptance:** each surface is shown safe (with the mechanism) or listed as a concrete gap with
+  severity + a recommended fix, in the risk-register table format (§5).
 - **Read:** outputs of Axes A–E plus `MergeDialog.ReFlyDiscard.cs`,
-  `LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard`, `todo-and-known-bugs.md`.
+  `LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard`, `BackgroundRecorder.cs` (route
+  relevance), `todo-and-known-bugs.md`.
 
 ## 4. Method
 
 1. One focused reader per axis (A–F), each producing a structured finding: the mechanism as
    implemented (with `file:line` evidence), whether it meets the acceptance criterion, and any gap.
-2. **Adversarially verify** the load-bearing determinism claims — especially Axis C (does the ledger
-   actually neutralize abandoned-future route funds rows?) and Axis D (is every physical mutation
-   inside the restored `.sfs`?). A claim of "deterministic" must cite the exact code path that makes
-   it so, not an assumption.
+2. **Adversarially verify** the load-bearing claims, explicitly targeting BOTH (a) Axis C/D's
+   suspected paradox and (b) §2's funds-reversal facts (the dispatch-charge-has-no-tombstone-gate
+   claim and the ledger-preserved-not-restored claim). The verifier MUST produce a concrete worked
+   example: one route, one dispatch, one rewind, one re-fly, with the actual `Ledger.Actions`
+   (RouteId, cycleId, UT, KscFundsCost) and the live destination tank value BEFORE and AFTER each
+   step — not a prose verdict. A "deterministic" or "paradox" claim is accepted only when the exact
+   code path that makes it so is cited.
 3. Synthesize into a report: the conceptual answer to the four sub-questions (§1), a determinism
-   verdict per axis, a risk register, and concrete recommendations (what is sound, what is a gap,
-   what to disable/guard, what to build for the inter-body recurrent case).
+   verdict per axis, the risk register, and concrete recommendations.
 
 ## 5. Deliverable
 
-`docs/dev/research/logistics-time-rewind-compat-report.md` — findings + recommendations. No
-production code changes in this task (investigation only); recommendations may propose follow-up
+`docs/dev/research/logistics-time-rewind-compat-report.md` — findings + recommendations. It MUST
+include a risk-register table with columns **{surface, mechanism, deterministic? (Y/N/partial),
+evidence (file:line), severity, recommended fix}** so the primary paradox cannot be lost in prose.
+No production code changes in this task (investigation only); recommendations may propose follow-up
 work items for `todo-and-known-bugs.md`.
 
 ## 6. Out of scope
@@ -187,4 +254,5 @@ work items for `todo-and-known-bugs.md`.
 - The map/TS render rewrite in flight (ghost *visual* replay is orthogonal to dispatch firing and
   economic effect; note it only where a render-ownership change could touch route ghost-driving).
 - Non-route timeline determinism (kerbal death tombstones, contract supersede) except where a route
-  effect rides those same ledger mechanisms.
+  effect rides those same ledger mechanisms (the recovery-credit↔source-tombstone coupling in
+  Axis C IS in scope because a route effect depends on it).
