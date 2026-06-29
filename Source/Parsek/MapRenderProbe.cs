@@ -176,8 +176,10 @@ namespace Parsek
             // Also flush MapRenderTrace's pid-keyed stores (detailed windows + line/render intents) so they
             // do not grow unbounded across the AppDomain lifetime; mirrors this probe's own per-pid reset.
             MapRenderTrace.Reset();
-            // Drop the reconciler's per-pid intent-reconcile rate-limit timestamps too, so a stale entry
-            // cannot suppress the first gap-vs-retire / decision-vs-old-truth divergence after re-entry.
+            // Drop the reconciler's per-pid intent-reconcile rate-limit timestamps too. NOTE (Phase 8): the
+            // intent-vs-old-truth comparator (CheckIntentAgainstOldTruth) was UNWIRED from this probe, so in
+            // production these dicts are never populated and this Clear is a harmless no-op; it is kept
+            // defensive (and the method stays referenced by GhostRenderReconcilerTests, which DO populate it).
             Parsek.MapRender.GhostRenderReconciler.ClearRateLimitState();
             // Phase 8e S0: drop any S0 coverage state straddling the scene switch (per-frame-cleared by its
             // producer, so this is belt-and-suspenders against a switch landing mid-frame). Diagnostic-only.
@@ -534,15 +536,23 @@ namespace Parsek
                         MapRenderTrace.FormatDouble(ecc, "F4"), bodyName, drawIcons, lineActive),
                     recId);
 
-            // --- Tier-C new-pipeline reconcile: intent (shadow) vs the OLD path's truth ---
-            // If the new render pipeline recorded a GhostRenderIntent for this pid THIS frame
-            // (decision-only shadow producer, wired in Phase 4), compare it against what the old
-            // scattered coordination actually drew. A divergence is the bug class the rewrite exists
-            // to surface (the new single-owner Director would have rendered something different).
-            // No fresh intent → no-op, so this is dormant until the Phase 4 shadow scene calls
-            // GhostRenderReconciler.NoteIntent. Reuses the same old-path truth read as above.
-            Parsek.MapRender.GhostRenderReconciler.CheckIntentAgainstOldTruth(
-                pid, pidKey, frame, currentUT, currentUT, lineActive, drawIcons, polylineOwns, realtime);
+            // --- Tier-C new-pipeline reconcile: UNWIRED (migration plan §10, Phase 8) ---
+            // The end-of-frame GhostRenderReconciler.CheckIntentAgainstOldTruth call (intent-vs-OLD-truth)
+            // was removed here. Through Phases 0-7 it compared the new spine's GhostRenderIntent against the
+            // OLD scattered coordination's rendered truth, to surface the swap/ownership divergence the
+            // rewrite existed to find. With the spine now driving (Phases 3-7) the OLD truth this probe reads
+            // (lineActive / drawIcons / polylineOwns) IS produced by that same spine, so the comparison
+            // became CIRCULAR (intent vs the intent's own consequence) and self-confirming - it can no longer
+            // detect a real divergence. The §0/§14 recorded-vs-rendered RenderParityOracle (TrySampleAndEmit-
+            // FaithfulOrbitParity above) is the DISTINCT axis that has coexisted since Phase 0 and is now the
+            // SOLE acceptance oracle. This is an UNWIRING, not a rename/promote of the old comparator; the
+            // GhostRenderReconciler type + its pure predicates stay (exercised by GhostRenderReconcilerTests)
+            // but have no LIVE production call site (a scripts/grep-audit-render-reconciler-unwired.ps1 gate
+            // enforces zero CheckIntentAgainstOldTruth call sites under Source/Parsek/). The shadow
+            // PRODUCER side (ShadowRenderDriver -> GhostRenderReconciler.NoteIntent) is unaffected - it feeds
+            // the spine, not this retired comparator. This whole probe is MapRenderTrace.IsEnabled-gated
+            // (tracing OFF by default), so removing the call is OBSERVABILITY-ONLY: flag-OFF / tracing-OFF
+            // normal play is byte-identical (the probe never ran).
 
             // --- Tier-C line-blink anomaly (line.active toggled within N frames) ---
             // A toggle is line.active != the previous sample's value. The blink

@@ -500,6 +500,20 @@ namespace Parsek.Display
                 previous.Add(id);
         }
 
+        /// <summary>Test seam: drive the appear/disappear <c>PolylineLegChange</c> EVENT diff directly (the
+        /// production caller is the Driver's per-frame onPreCull / walk, which needs a live render frame). Used
+        /// by the Phase-8 tracer-coverage matrix in-game test to prove the Polyline / PolylineForwardArc
+        /// appear/disappear wiring lights up end-to-end. Clears the per-(surface, recordingId, event)
+        /// wall-clock floor first so a repeated in-game run is not suppressed by a stale onset timestamp.
+        /// No-op emit when tracing is off (the underlying structural emit early-returns).</summary>
+        internal static void EmitPolylineDrawSetChangesForTesting(
+            MapRenderTrace.RenderSurface surface,
+            HashSet<string> previous, HashSet<string> current, double currentUT)
+        {
+            legChangeLastEmitRealtime.Clear();
+            EmitPolylineDrawSetChanges(surface, previous, current, currentUT);
+        }
+
         private static void EmitPolylineLegChange(
             MapRenderTrace.RenderSurface surface, string recordingId, string ev, double currentUT)
         {

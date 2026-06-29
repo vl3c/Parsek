@@ -428,6 +428,49 @@ appear/disappear + Tier-A/B/C lines. **Logging:** the full tracer matrix is now 
 — a `mapRenderTracing`-on run over the regression set emits the expected Tier-A/B/C lines for every new
 surface (a tracer-coverage assertion). **Parity gate:** oracle green. **Risk:** low (cleanup).
 
+**Status (implemented, observability-only / flag-OFF byte-identical):**
+- **Unwiring DONE.** The live `GhostRenderReconciler.CheckIntentAgainstOldTruth` call site was removed from
+  `Source/Parsek/MapRenderProbe.cs` (the end-of-frame "Tier-C new-pipeline reconcile" block in `Sample`,
+  replaced with a comment recording the unwiring rationale). Once the spine drives the render (Phases 3-7)
+  the OLD truth this probe reads (`lineActive` / `drawIcons` / `polylineOwns`) IS the spine's own
+  consequence, so the intent-vs-old-truth comparison became CIRCULAR / self-confirming; the Phase-0
+  recorded-vs-rendered `RenderParityOracle` (`TrySampleAndEmitFaithfulOrbitParity` -> `parity-drift`) is the
+  DISTINCT axis that has coexisted since Phase 0 and is now the SOLE acceptance oracle. The whole probe is
+  `MapRenderTrace.IsEnabled`-gated (tracing OFF by default), so the call only ever ran when tracing was on;
+  removing it is OBSERVABILITY-ONLY and flag-OFF / tracing-OFF normal play is byte-identical (the probe never
+  ran). The scene-switch `GhostRenderReconciler.ClearRateLimitState()` call is KEPT (now a harmless no-op in
+  production, still populated/cleared by the unit tests) with an updated comment.
+- **KEEP-not-remove decision (justified).** This is an UNWIRING, not a deletion of the type. The
+  `GhostRenderReconciler` type, its PURE predicates (`ReconcileVisibility` / `ReconcileTreatment` /
+  `IsPolylineOriginShiftJump`), and the `CheckIntentAgainstOldTruth` method itself are KEPT, exercised by
+  `Source/Parsek.Tests/MapRender/GhostRenderReconcilerTests.cs` (~14 references). Removing the method would
+  force deleting/rewriting those tests for no functional gain - not the minimal change the phase brief asks
+  for ("prefer removing only the LIVE call site unless removing the method is clearly clean"; it is not).
+  The shadow PRODUCER side (`ShadowRenderDriver` -> `GhostRenderReconciler.NoteIntent`) is UNAFFECTED: it
+  feeds the spine, not the retired comparator, so it stays live. Class + method doc-comments updated to
+  record the Phase-8 unwiring.
+- **Grep-audit gate.** `scripts/grep-audit-render-reconciler-unwired.ps1` asserts ZERO LIVE call sites of the
+  comparator under `Source/Parsek/`. The forbidden token is the CALL form (a leading dot + a trailing
+  open-paren) so the KEPT method DEFINITION (no leading dot) and the doc-comment crefs (no trailing paren)
+  are never flagged; the xUnit tests under `Source/Parsek.Tests/` are out of the audit's `Source/Parsek/`
+  scope. Its xUnit gate (mirroring `GrepAuditMapRenderDirectorDriveTests`, with a managed fallback for
+  non-Windows CI) lands in the Phase-8 test step.
+- **Tracer EVENT coverage: AUDITED COMPLETE, no production gap closed.** Every `RenderSurface` already has
+  appear/disappear + Tier-A/B/C coverage: ProtoOrbitLine / ProtoIcon via `GhostCreated` / `GhostDestroyed`
+  (A) + `LineVisibilityChange` / `body-orbit` / `icon-suppressed` / `drawIcons` / `line.active` (B) +
+  `icon-teleport` / `icon-off-orbit` / `line-blink` / `decision-vs-truth` / `polyline-orbit-overlap` /
+  `parity-drift` (C); Polyline + PolylineForwardArc via `PolylineLegChange appear|disappear` (A) +
+  `unaccounted-drawn-recording` (C); ImguiLabeledMarker + AtmosphericMarker via `MarkerDecision`
+  on-change (B, both scenes); the flight-scene mesh via `GhostRenderTrace` `MeshSpawned` / `MeshDestroyed`
+  (A). The NEW phase/seam/lifecycle events are covered: `PhaseChainAssembled` (Phase 3, A),
+  `DescentStitched` (Phase 6, A), `fail-closed-to-faithful` (Phase 7, A), `factory-parity` (Phase 2, C). The
+  only production-inert tokens (`rigid-seam-tangent-discontinuity` and the reserved
+  `retire-not-held` / `anchor-resolve-fail` / `clock-not-ready`) are deferred BY DESIGN: the tangent token's
+  production auto-raise lives at the descent DRAW site that Phase 5b reworks (Phase 5b is a separate parallel
+  branch, not part of this Phase-8 tree), and the other three are future-phase reserved constants documented
+  as wired-but-inert. No real Phase-8 gap exists; the build-core step adds no new EVENT emits. The remaining
+  Phase-8 work is the tracer-coverage in-game assertion + the grep-audit xUnit gate (test step).
+
 ---
 
 ## 11. Phase ordering & dependencies
