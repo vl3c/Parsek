@@ -83,6 +83,20 @@ namespace Parsek
         internal const string AnomalyClockNotReady = "clock-not-ready";
         internal const string AnomalyFactoryParity = "factory-parity";
 
+        // ---- Phase 7 Tier-A structural EVENT: fail-closed-to-faithful (design §14 / migration plan §9) ----
+        //
+        // The phase name passed to EmitStructural when a producer is UNSUPPORTED and the classifier chose
+        // exact recorded replay (FaithfulFallback) instead of a broken synthetic guess. WIRED + LIVE: the
+        // Phase-7 FailClosedClassifier emits it once-per-event (not per frame) from its decision site
+        // (FailClosedClassifier.EmitFailClosedToFaithful, gated through ShouldEmitFailClosedOnChange) when
+        // it classifies a cross-SOI / nested-SOI (Jool) / moving-target-station member as fail-closed. The
+        // detail line names the unsupported PRODUCER token (FailClosedReason) so a grep finds WHY a member
+        // rendered recorded-verbatim. This is define-only/inert behavior in v1 (fail-closed is what the
+        // classifiers already do — no synthetic producer exists for these three), so the event records the
+        // decision; it never changes geometry. The cross-SOI kink renders the current FlexibleSoi G0 seam
+        // unchanged.
+        internal const string EventFailClosedToFaithful = "fail-closed-to-faithful";
+
         // ---- Tier-C anomaly tuning ----
 
         /// <summary>
@@ -525,6 +539,47 @@ namespace Parsek
             return true;
         }
 
+        // ---- Phase 7: fail-closed-to-faithful structural-event once-per-event dedup ----
+        // The Phase-7 FailClosedClassifier runs every frame a member's chain is (re)classified, but the
+        // Tier-A fail-closed-to-faithful structural event is a per-(re)classification ONSET signal, not a
+        // per-frame one (EmitStructural routes to Info unconditionally + opens a detail window). This
+        // per-pid signature gate emits ONE line per fail-closed onset / reason change, honoring the
+        // VerboseRateLimited convention. Same warp-cap + Reset() (scene-switch) clearing as the marker /
+        // line-visibility / descent-stitch signature dicts.
+        private static readonly Dictionary<string, string> lastFailClosedSignatureByPid =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Test-only: current size of the fail-closed change-detection dict (warp-cap assert).</summary>
+        internal static int FailClosedSignatureCountForTesting => lastFailClosedSignatureByPid.Count;
+
+        /// <summary>
+        /// Once-per-event gate for the Tier-A <c>fail-closed-to-faithful</c> structural event (Phase 7):
+        /// returns true only when <paramref name="signature"/> (recording id + the unsupported producer
+        /// reason) changed for this <paramref name="pidKey"/> since its last emit, so a steady fail-closed
+        /// member emits ONE structural line rather than one per frame. No-op (false) when disabled. An
+        /// empty pid (no resolvable ghost — e.g. a headless unit test) is allowed through (the
+        /// <see cref="IsEnabled"/> gate + the caller still bound the emit). Warp-capped + cleared in
+        /// <see cref="Reset"/> (scene switch), like the sibling signature dicts.
+        /// </summary>
+        internal static bool ShouldEmitFailClosedOnChange(string pidKey, string signature)
+        {
+            if (!IsEnabled)
+                return false;
+            if (string.IsNullOrEmpty(pidKey))
+                return true;
+
+            if (lastFailClosedSignatureByPid.TryGetValue(pidKey, out string last)
+                && string.Equals(last, signature, StringComparison.Ordinal))
+                return false; // unchanged fail-closed onset for this ghost -> suppress
+
+            if (!lastFailClosedSignatureByPid.ContainsKey(pidKey)
+                && lastFailClosedSignatureByPid.Count >= MaxTrackedMarkerDecisionKeys)
+                lastFailClosedSignatureByPid.Clear();
+
+            lastFailClosedSignatureByPid[pidKey] = signature;
+            return true;
+        }
+
         // MVP: detailed windows are keyed by pid.ToString(). recordingId keying
         // (and the shared registry with GhostRenderTrace) is a later cut.
         private static readonly Dictionary<string, double> detailedUntilByKey =
@@ -552,6 +607,7 @@ namespace Parsek
             lastMarkerDecisionSignatureByPid.Clear();
             lastLineVisibilitySignatureByPid.Clear();
             lastDescentStitchSignatureByPid.Clear();
+            lastFailClosedSignatureByPid.Clear();
             descentRenderWindowFrame = -1;
             descentRenderWindowPhase = null;
             descentRenderWindowRecId = null;

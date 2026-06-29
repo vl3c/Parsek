@@ -119,9 +119,96 @@ namespace Parsek.MapRender
                 traj.RecordingId ?? "?", committedIndex, instanceKey, phases.Count, isReaimedMember,
                 windowStartUT, windowEndUT, faithfulFallback));
 
+            // Phase 7 (migration plan §9 / design §9.2 / §10): the FAIL-CLOSED decision site. Decide whether
+            // this member is one of the three UNSUPPORTED synthetic producers (nested-SOI Jool tour /
+            // moving-target station / cross-SOI whole-chain synthesis) and, if so, emit the Tier-A
+            // fail-closed-to-faithful structural event naming the unsupported producer. DEFINE-ONLY +
+            // GEOMETRY-NEUTRAL: the decision changes nothing about the geometry built above (the three
+            // producers have no synthetic implementation in v1, so "fail-closed to faithful" is exactly
+            // what the pipeline already does — the recorded trajectory renders verbatim, the cross-SOI kink
+            // renders the current FlexibleSoi G0 behavior unchanged). The whole block is gated on
+            // MapRenderTrace.IsEnabled, so flag-OFF / tracing-OFF normal play pays nothing AND never touches
+            // the live Unity body-info resolver (keeping the headless factory tests pure). The body parent
+            // chain comes from the live FlightGlobalsBodyInfo only here, behind the gate.
+            EmitFailClosedDecisionTraceIfEnabled(traj, committedIndex, isReaimedMember);
+
             return new PhaseChain(
                 traj.RecordingId, committedIndex, instanceKey, phases,
                 geometry.WindowStartUT, geometry.WindowEndUT, geometry.IsFaithfulFallback);
+        }
+
+        /// <summary>
+        /// Phase 7: the live fail-closed decision + Tier-A trace emit, gated ON TRACING (free in normal
+        /// play). Builds the recorded body sequence (pure), resolves the parent chain from the live
+        /// <see cref="FlightGlobalsBodyInfo"/> (a top-level <c>Parsek</c> type; a Unity read — only ever reached here
+        /// under the gate, so the headless factory tests never invoke it), runs the pure
+        /// <see cref="FailClosedClassifier.Classify"/>, and emits the once-per-event
+        /// <c>fail-closed-to-faithful</c> structural event when the member is unsupported.
+        ///
+        /// <para>The v1 live path NEVER signals a <c>LiveVesselAnchor</c> arrival (the moving-target
+        /// producer is deferred and no faithful trajectory resolves one), so the station case is reachable
+        /// only through the explicit <see cref="FailClosedClassifier.Classify"/> seam the unit tests drive;
+        /// the live path detects the nested-SOI (Jool) case from the recorded body sequence. The whole
+        /// helper is geometry-neutral: it reads the already-built chain inputs and emits a log line, never
+        /// mutating geometry.</para>
+        /// </summary>
+        private static void EmitFailClosedDecisionTraceIfEnabled(
+            IPlaybackTrajectory traj, int committedIndex, bool isReaimedMember)
+        {
+            if (!MapRenderTrace.IsEnabled || traj == null)
+                return;
+
+            // A re-aimed member that solved successfully is, by definition, a SUPPORTED producer this
+            // window (the heliocentric leg re-aimed) — fail-closed is the DECLINE outcome, so a re-aimed
+            // member is not the fail-closed subject. (A declined window arrives here as faithful, which is
+            // exactly where the nested-SOI / station fail-closed lives.)
+            if (isReaimedMember)
+                return;
+
+            System.Collections.Generic.List<string> bodies = BuildOrderedRecordedBodies(traj);
+            FailClosedClassifier.FailClosedDecision decision = FailClosedClassifier.Classify(
+                bodies,
+                hasLiveVesselArrivalAnchor: false,
+                referenceBodyName: FlightGlobalsBodyInfo.Instance.ReferenceBodyName);
+
+            if (!decision.IsFailClosed)
+                return;
+
+            FailClosedClassifier.EmitFailClosedToFaithful(
+                traj.RecordingId, committedIndex, GhostMapPresence.CurrentUTNow(), decision);
+        }
+
+        /// <summary>
+        /// PURE: the ordered recorded body sequence the fail-closed classifier reads, taken from the
+        /// recorded <see cref="OrbitSegment"/>s in time order (the orbital body sequence is the SOI
+        /// hierarchy the cross-SOI / nested-SOI decision walks). Adjacent duplicate bodies collapse to one
+        /// run; the OrbitSegment list is the authoritative body sequence (a traced atmospheric run rides
+        /// its body's conic). Tolerates a null / empty orbit list (returns an empty list — a no-orbit
+        /// recording is never a multi-body tour). No Unity reads.
+        /// </summary>
+        internal static System.Collections.Generic.List<string> BuildOrderedRecordedBodies(
+            IPlaybackTrajectory traj)
+        {
+            var bodies = new System.Collections.Generic.List<string>();
+            var orbits = traj?.OrbitSegments;
+            if (orbits == null)
+                return bodies;
+
+            // OrbitSegments are stored in time order; walk them and append each body, collapsing adjacent
+            // duplicates so a multi-orbit stay at one body is a single run (the body CHANGES are the SOI
+            // crossings the classifier counts).
+            string last = null;
+            for (int i = 0; i < orbits.Count; i++)
+            {
+                string b = orbits[i].bodyName;
+                if (string.IsNullOrEmpty(b))
+                    continue;
+                if (string.Equals(b, last, StringComparison.Ordinal))
+                    continue;
+                bodies.Add(b);
+                last = b;
+            }
+            return bodies;
         }
 
         /// <summary>
