@@ -408,5 +408,55 @@ namespace Parsek.Tests
             // The gate: factory geometry byte-matches the assembler (no FrameBodyName divergence).
             AssertByteParity(traj, 0, 40);
         }
+
+        // ---- Phase 7: BuildOrderedRecordedBodies (the pure body sequence the fail-closed classifier reads) ----
+
+        [Fact]
+        public void BuildOrderedRecordedBodies_CollapsesAdjacentDuplicates_KeepsNonAdjacentRepeat()
+        {
+            // Adjacent same-body orbits collapse to ONE run (a multi-orbit stay is not an SOI crossing); a
+            // non-adjacent repeat (Kerbin -> Mun -> Kerbin) is a real return crossing and is kept. A mutation
+            // that dropped the adjacent-collapse, used a non-Ordinal compare, or reordered, fails here.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-bodies",
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 0, endUT = 10, bodyName = "Kerbin" },
+                    new OrbitSegment { startUT = 10, endUT = 20, bodyName = "Kerbin" }, // adjacent dup -> collapsed
+                    new OrbitSegment { startUT = 20, endUT = 30, bodyName = "Mun" },
+                    new OrbitSegment { startUT = 30, endUT = 40, bodyName = "Kerbin" }, // non-adjacent return -> kept
+                },
+            };
+            Assert.Equal(new[] { "Kerbin", "Mun", "Kerbin" }, PhaseFactory.BuildOrderedRecordedBodies(traj));
+        }
+
+        [Fact]
+        public void BuildOrderedRecordedBodies_SkipsNullAndEmptyBodyNames()
+        {
+            // A null / empty bodyName orbit is skipped (not appended, and does not break the adjacent-collapse
+            // chain). A mutation that dropped the IsNullOrEmpty skip would emit null/"" entries.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-bodies-empty",
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 0, endUT = 10, bodyName = null },
+                    new OrbitSegment { startUT = 10, endUT = 20, bodyName = "" },
+                    new OrbitSegment { startUT = 20, endUT = 30, bodyName = "Duna" },
+                },
+            };
+            Assert.Equal(new[] { "Duna" }, PhaseFactory.BuildOrderedRecordedBodies(traj));
+        }
+
+        [Fact]
+        public void BuildOrderedRecordedBodies_NullOrEmptyOrbitList_IsEmpty()
+        {
+            // A no-orbit recording is never a multi-body tour; null-tolerant (no NRE).
+            Assert.Empty(PhaseFactory.BuildOrderedRecordedBodies(
+                new MockTrajectory { RecordingId = "r", OrbitSegments = null }));
+            Assert.Empty(PhaseFactory.BuildOrderedRecordedBodies(
+                new MockTrajectory { RecordingId = "r", OrbitSegments = new List<OrbitSegment>() }));
+        }
     }
 }
