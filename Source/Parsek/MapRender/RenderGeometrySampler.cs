@@ -58,6 +58,50 @@ namespace Parsek.MapRender
         }
 
         /// <summary>
+        /// Pure: recover the body-relative world offset (metres) of a DRAWN polyline scaled-space vertex
+        /// by inverting the EXACT scaled-space build the renderer used, IN THE SAME FRAME the draw built
+        /// it. This is the parity-capture inverse of the strobe-free draw path
+        /// (<c>GhostTrajectoryPolylineRenderer.TryDrawLeg</c>, the scaledXform branch):
+        /// <code>
+        ///   scaledVertex = bodyCentreScaled + (world - bodyPos) * invScale
+        /// </code>
+        /// where <paramref name="bodyCentreScaled"/> is the registered scaled-body transform position
+        /// (<c>body.scaledBody.transform.position</c>) and <c>invScale = 1/scaleFactor</c>. Inverting
+        /// against that SAME <paramref name="bodyCentreScaled"/> gives
+        /// <code>
+        ///   (scaledVertex - bodyCentreScaled) * scaleFactor == (world - bodyPos)
+        /// </code>
+        /// exactly, so a faithfully-drawn leg reconstructs to its own recorded body-relative track (~0
+        /// drift) while a genuine mis-draw (wrong <c>scaledVertex</c>) still differences against the same
+        /// centre and drifts.
+        ///
+        /// <para><b>Why NOT <c>ScaledSpace.ScaledToLocalSpace(scaledVertex) - body.position</c></b> (the
+        /// previous capture inverse): that inverts through <c>(s + totalOffset) * scaleFactor</c>, the
+        /// inverse of the ABSOLUTE <c>LocalToScaledSpace</c> the draw DELIBERATELY does NOT use. The draw
+        /// builds each vertex relative to the registered scaled-body transform precisely to avoid the
+        /// <c>ScaledSpace.totalOffset</c> scaled-origin recenter (which oscillates every render frame).
+        /// Re-introducing <c>totalOffset</c> in the inverse leaves a CONSTANT per-point residual
+        /// <c>ScaledToLocalSpace(bodyCentreScaled) - body.position</c> (the gap between the registered
+        /// transform's round-tripped position and the body's true world position): a steady float-quantized
+        /// floor (~250-360 m at <c>scaleFactor</c> 6000) on every body-fixed leg REGARDLESS of arc scale or
+        /// point count, with multi-km / tens-of-km spikes on the frames where the transform and
+        /// <c>totalOffset</c> are read out of phase. That residual is identical for every leg in a frame
+        /// (scale-, body-, and count-independent) - the fingerprint of a capture-reconstruction artifact,
+        /// NOT a per-leg geometric mis-draw. Inverting against the draw's own centre cancels both
+        /// <c>bodyCentreScaled</c> and <c>totalOffset</c> outright.</para>
+        ///
+        /// <para>NaN/Inf-safe: a non-finite vertex / centre / scale yields a NaN-filled result so the oracle
+        /// skips the point (no false anomaly).</para>
+        /// </summary>
+        internal static Vector3d RenderedScaledVertexToBodyRelative(
+            Vector3d scaledVertex, Vector3d bodyCentreScaled, double scaleFactor)
+        {
+            if (!IsFinite(scaledVertex) || !IsFinite(bodyCentreScaled) || !IsFiniteScalar(scaleFactor))
+                return new Vector3d(double.NaN, double.NaN, double.NaN);
+            return (scaledVertex - bodyCentreScaled) * scaleFactor;
+        }
+
+        /// <summary>
         /// Pure: flatten a sequence of <c>Vector3d</c> samples into the flat <c>[x0,y0,z0, x1,...]</c>
         /// layout <see cref="RenderParityOracle.ComputeDrift"/> expects. <paramref name="count"/> caps how
         /// many entries of <paramref name="points"/> are read (so a caller can reuse an oversized scratch

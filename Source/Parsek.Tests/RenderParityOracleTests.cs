@@ -63,6 +63,24 @@ namespace Parsek.Tests
             return a;
         }
 
+        // n points clustered within a tiny extent around the origin (a landed / near-stationary
+        // surface-dwell leg whose GetWorldSurfacePosition samples are all (near-)coincident). spreadMeters
+        // is the TOTAL bounding-box extent along +X; spreadMeters == 0 gives an exactly-coincident point
+        // cloud (bounding-box diagonal 0). The cloud sits at worldOffset along +X so the rendered polyline
+        // can be placed a known distance AWAY from it.
+        private static double[] PointCluster(int n, double spreadMeters, double worldOffset = 0.0)
+        {
+            var a = new double[n * 3];
+            double step = n > 1 ? spreadMeters / (n - 1) : 0.0;
+            for (int i = 0; i < n; i++)
+            {
+                a[i * 3] = worldOffset + i * step; // x: spans [worldOffset, worldOffset + spreadMeters]
+                a[i * 3 + 1] = 0.0;                // y
+                a[i * 3 + 2] = 0.0;                // z
+            }
+            return a;
+        }
+
         // ---- ComputeDrift: within tolerance (no drift) ----
 
         [Fact]
@@ -410,6 +428,91 @@ namespace Parsek.Tests
 
             Assert.True(lko.OverTolerance);    // 2 km > ~0.1% of 1.4e6 (~1.4 km)
             Assert.False(helio.OverTolerance); // 2 km < ~0.1% of 2e10 (~2e7 m)
+        }
+
+        // ---- Degenerate-reference FP guard (FP Class 1): scale~0 surface-dwell leg yields NO measurement,
+        //      while a SMALL-but-real arc still fires. The paired (a)+(b) acceptance the cutover gate needs:
+        //      the FP no longer fires AND a real drift of comparable scale STILL fires. ----
+
+        [Fact]
+        public void ComputeDriftScaleDerived_CoincidentReference_NoMeasurement_NotDrift()
+        {
+            // (a) FP case: a landed leg whose 18 recorded points are EXACTLY coincident (bounding box
+            // collapses to a point, scale == 0). The rendered polyline is a real 357 m away (the live
+            // tol=1m/scale=0m parity-drift the oracle false-fired on). With the degenerate-reference guard
+            // this is NO MEASUREMENT (not a pass, not an anomaly): a point reference has no curve to diff.
+            double[] coincidentRef = PointCluster(18, spreadMeters: 0.0, worldOffset: 0.0);
+            double[] renderedFarLine = Line(18, 100.0, yOffset: 357.0); // a real line 357 m off the point
+
+            var r = RenderParityOracle.ComputeDriftScaleDerived(
+                RenderParityOracle.ParityMode.Synthesized, coincidentRef, renderedFarLine);
+
+            Assert.False(r.HasMeasurement); // could-not-measure, NOT "passed"
+            Assert.False(r.OverTolerance);  // never raises a false anomaly
+            Assert.Equal(18, r.ReferenceCount);
+        }
+
+        [Fact]
+        public void ComputeDriftScaleDerived_NearStationaryReference_BelowFloor_NoMeasurement()
+        {
+            // (a') The live 83-point Duna dwell that drifted by 16 m total extent (scale=16m, tol floored to
+            // 1m, maxDev=357m). Still below MinMeasurableScaleMeters (100 m) -> no measurement. Confirms the
+            // floor catches a NEAR-point (not just an exactly-coincident) reference, the other live FP leg.
+            double[] nearPointRef = PointCluster(83, spreadMeters: 16.0, worldOffset: 0.0);
+            double[] renderedFarLine = Line(83, 50.0, yOffset: 357.0);
+
+            var r = RenderParityOracle.ComputeDriftScaleDerived(
+                RenderParityOracle.ParityMode.Synthesized, nearPointRef, renderedFarLine);
+
+            Assert.False(r.HasMeasurement);
+            Assert.False(r.OverTolerance);
+        }
+
+        [Fact]
+        public void ComputeDriftScaleDerived_SmallButRealArc_WrongDraw_StillFires()
+        {
+            // (b) NON-NEGOTIABLE companion: a SMALL-but-real arc (extent ~2 km, well above the 100 m floor -
+            // a short real descent leg, two orders below the live 223 km Duna descent legs) that the
+            // renderer draws 500 m off STILL fires OverTolerance. The floor refuses to MEASURE a point; it
+            // does NOT blind a real small leg. Proves the guard is a reference-extent gate, not a tolerance
+            // widen / a blanket skip that would also miss a real mis-draw at this scale.
+            double[] smallRealRef = Line(20, 100.0, yOffset: 0.0);   // extent ~1.9 km (> 100 m floor)
+            double[] smallRealRend = Line(20, 100.0, yOffset: 500.0); // drawn 500 m off
+
+            var r = RenderParityOracle.ComputeDriftScaleDerived(
+                RenderParityOracle.ParityMode.Synthesized, smallRealRef, smallRealRend);
+
+            Assert.True(r.HasMeasurement);
+            Assert.True(r.OverTolerance);                  // 500 m >> tol (~0.1% of ~1.9 km = ~1.9 m)
+            Assert.True(r.MaxDeviationMeters >= 499.0);
+        }
+
+        [Fact]
+        public void ComputeDriftScaleDerived_JustAboveFloor_FaithfulArc_NoDrift_StillMeasures()
+        {
+            // The floor must not turn a real-but-small FAITHFUL arc into a non-measurement: an arc just
+            // above the floor that is drawn correctly still MEASURES (HasMeasurement) and reports no drift.
+            // Pins that the floor only refuses POINT references, not small correctly-drawn arcs.
+            double[] reference = Line(10, 20.0, yOffset: 0.0);  // extent ~180 m (> 100 m floor)
+            double[] rendered = Line(10, 20.0, yOffset: 0.0);   // identical
+
+            var r = RenderParityOracle.ComputeDriftScaleDerived(
+                RenderParityOracle.ParityMode.Synthesized, reference, rendered);
+
+            Assert.True(r.HasMeasurement);
+            Assert.False(r.OverTolerance);
+        }
+
+        [Fact]
+        public void MinMeasurableScaleMeters_IsStableAndBelowSmallestRealLeg()
+        {
+            // Lock the floor value + its safety margin: it must be comfortably ABOVE the metre-scale jitter
+            // of a "stationary" leg (~16 m live) and far BELOW the smallest leg that actually traces an arc
+            // (the live Kerbin ascent leg at ~16.9 km). A later bump that crosses either bound would change
+            // which legs the oracle measures and must be a conscious edit, not a silent drift.
+            Assert.Equal(100.0, RenderParityOracle.MinMeasurableScaleMeters, 6);
+            Assert.True(RenderParityOracle.MinMeasurableScaleMeters > 16.0);     // above live stationary jitter
+            Assert.True(RenderParityOracle.MinMeasurableScaleMeters < 16_000.0); // below smallest real arc leg
         }
 
         // ---- Wired-but-inert: the parity-drift token flows through the gated EmitAnomaly sink ----

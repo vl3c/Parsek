@@ -672,11 +672,27 @@ namespace Parsek.Display
         /// whose Vectrosity <c>VectorLine</c> is RENDERED this frame, hand the caller two flat
         /// <c>[x0,y0,z0, x1,...]</c> XYZ-triple arrays in ONE consistent BODY-RELATIVE WORLD metres frame:
         /// the RENDERED polyline geometry (the leg's live <c>VectorLine.points3</c>, each scaled-space
-        /// point converted back to world via <c>ScaledSpace.ScaledToLocalSpace</c> then made body-relative
-        /// = <c>world - body.position</c>) and the RECORDED reference geometry (the leg's own recorded
-        /// <c>lats/lons/alts</c> via <c>body.GetWorldSurfacePosition</c>, made body-relative against the
-        /// SAME live body position). Both sides therefore share the floating-origin- and body-world-motion-
-        /// free frame the icon/orbit parity already uses, so the diff is pure geometry.
+        /// vertex inverted back to a body-relative world offset by
+        /// <see cref="Parsek.MapRender.RenderGeometrySampler.RenderedScaledVertexToBodyRelative"/> using the
+        /// SAME registered scaled-body-transform centre + <c>ScaleFactor</c> the draw built it with) and the
+        /// RECORDED reference geometry (the leg's own recorded <c>lats/lons/alts</c> via
+        /// <c>body.GetWorldSurfacePosition</c>, made body-relative against the SAME live body position). Both
+        /// sides therefore share the floating-origin- and body-world-motion-free frame the icon/orbit parity
+        /// already uses, so the diff is pure geometry.
+        ///
+        /// <para><b>The rendered inverse must match the draw's own frame.</b> The draw
+        /// (<see cref="TryDrawLeg"/>, scaledXform branch) builds each vertex as
+        /// <c>bodyCentreScaled + (world - bodyPos) * invScale</c> against the registered scaled-body
+        /// transform position SPECIFICALLY to avoid the per-render-frame strobing
+        /// <c>ScaledSpace.totalOffset</c> scaled-origin recenter. The earlier capture inverse
+        /// (<c>ScaledSpace.ScaledToLocalSpace(points3[i]) - body.position</c>) round-trips through that same
+        /// <c>totalOffset</c>, re-introducing a CONSTANT per-point residual
+        /// (<c>ScaledToLocalSpace(bodyCentreScaled) - body.position</c>) on EVERY body-fixed leg regardless
+        /// of scale / body / point count - a steady ~250-360 m floor plus out-of-phase multi-km / tens-of-km
+        /// spikes, the false-positive signature seen live (parity-drift on visually-correct Duna descent
+        /// legs). Inverting against the draw's OWN centre (the same <c>scaledXform.position</c>) cancels both
+        /// <c>bodyCentreScaled</c> and <c>totalOffset</c> exactly, so a faithfully-drawn leg reconstructs to
+        /// ~0 drift while a genuine mis-draw still differences against that centre and drifts.</para>
         ///
         /// <para>CONIC-ANCHORED legs are SKIPPED (a known, stated limitation). A leg the draw rotated ~96 deg
         /// onto the bracketing conic seam (<see cref="TryAnchorLegToConicSeam"/> returned true, recorded in
@@ -750,13 +766,29 @@ namespace Parsek.Display
                     if (m <= 0) continue;
 
                     Vector3d bodyPos = body.position;
+                    // Invert the RENDERED scaled-space vertices in the SAME frame the draw built them: the
+                    // registered scaled-body transform centre + ScaleFactor (NOT ScaledSpace.ScaledToLocalSpace,
+                    // which re-introduces the strobing totalOffset the draw deliberately avoids and leaves a
+                    // constant per-leg residual = a false parity-drift). See
+                    // RenderGeometrySampler.RenderedScaledVertexToBodyRelative. If the scaled body is missing
+                    // (the draw's fallback ABSOLUTE LocalToScaledSpace branch, only when scaledBody==null),
+                    // fall back to the matching ScaledToLocalSpace inverse so the two sides still agree.
+                    var scaledBody = body.scaledBody;
+                    Transform scaledXform = scaledBody != null ? scaledBody.transform : null;
+                    Vector3d bodyCentreScaled = scaledXform != null
+                        ? (Vector3d)scaledXform.position
+                        : new Vector3d(double.NaN, double.NaN, double.NaN);
+                    double scaleFactor = ScaledSpace.ScaleFactor;
                     var renderedFlat = new double[m * 3];
                     var recordedFlat = new double[m * 3];
                     for (int i = 0; i < m; i++)
                     {
-                        // RENDERED: live scaled-space vertex -> world metres -> body-relative.
-                        Vector3d renderedWorld = ScaledSpace.ScaledToLocalSpace(points3[i]);
-                        Vector3d renderedRel = renderedWorld - bodyPos;
+                        // RENDERED: live scaled-space vertex -> body-relative world offset, inverted in the
+                        // draw's own scaled-body frame (cancels both bodyCentreScaled and totalOffset).
+                        Vector3d renderedRel = scaledXform != null
+                            ? Parsek.MapRender.RenderGeometrySampler.RenderedScaledVertexToBodyRelative(
+                                points3[i], bodyCentreScaled, scaleFactor)
+                            : ScaledSpace.ScaledToLocalSpace(points3[i]) - bodyPos;
                         renderedFlat[i * 3] = renderedRel.x;
                         renderedFlat[i * 3 + 1] = renderedRel.y;
                         renderedFlat[i * 3 + 2] = renderedRel.z;

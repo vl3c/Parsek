@@ -857,17 +857,24 @@ namespace Parsek
                     // DRAW-fidelity (rendered == intended), NOT solve-correctness (the re-aim solver owns
                     // whether the intended arc is physically right). Same body-relative Y-up frame.
                     //
-                    // PHASE-MATCH (same fix as the faithful path above): the intended reference is built with
-                    // the loop-shift epoch bake (BuildPhaseMatchedReferenceOrbit) and sampled at the LIVE clock
-                    // (currentUT), while the RENDERED conic is sampled at its OWN drive clock offEffUT (==
-                    // currentUT in the director epoch-bake path, == currentUT - loopShift in the dominant legacy
-                    // raw-epoch path). For a faithful draw both land on the SAME phase and read ~0; without the
-                    // separate clocks a LOOPED member sampled a different mean-anomaly half-arc and read a FALSE
-                    // drift on a CORRECT draw. parityLoopShift is the SAME value the live orbit was baked with
-                    // (GetGhostOrbitEpochShift(pid), computed above); a non-loop member's shift is ~0 so
-                    // offEffUT == currentUT and this is identical to the raw epoch.
+                    // PHASE-MATCH: the intended reference is built with the loop-shift epoch bake
+                    // (BuildPhaseMatchedReferenceOrbit) and sampled at the LIVE clock (currentUT), and the
+                    // RENDERED conic is sampled at the icon-drive clock passed as effUT. The synth lens runs ONLY
+                    // under the director epoch-bake path - it requires ShadowRenderDriver.TryGetFreshStockConicSeed,
+                    // which (in normal play, body always resolves) implies IsDirectorDriveActive, the branch where
+                    // StockConicTreatment.SeedAndDriveLive bakes epoch += loopShift and propagates the conic at
+                    // the LIVE clock. So the rendered orbit's correct icon clock here is currentUT, NOT offEffUT:
+                    // offEffUT (the icon-drive's recorded propagateUT) can be up to SeedFreshnessFrames stale at a
+                    // RESEED boundary (~56s at warp), which made the rendered + reference arcs cover non-
+                    // overlapping spans and read a ~50km FALSE drift even though the orbit elements were IDENTICAL
+                    // (the live synth 50km FP). currentUT is always fresh and is where the epoch-baked icon
+                    // actually sits, so a faithful draw reads ~0. (The effUT PARAMETER is retained because the
+                    // in-game synth fixture drives a RAW-epoch ghost directly - bypassing the production
+                    // epoch-bake gate - so it passes its own icon clock currentUT - loopShift to phase-match;
+                    // production, only ever epoch-baked here, passes currentUT.) parityLoopShift is the value the
+                    // reference epoch is baked with (GetGhostOrbitEpochShift(pid), computed above).
                     TrySampleAndEmitSynthesizedConicParity(
-                        offOrbit, body, bodyRelPos, currentUT, offEffUT, parityLoopShift, pid, pidKey, recId,
+                        offOrbit, body, bodyRelPos, currentUT, currentUT, parityLoopShift, pid, pidKey, recId,
                         lineActive, bodyName, realtime);
                 }
 
@@ -1404,12 +1411,15 @@ namespace Parsek
                 return SynthesizedConicParitySample.Skip("intended-orbit-build-failed");
 
             double halfSpan = ResolveOrbitSampleHalfSpanSeconds(renderedOrbit);
-            // Decouple the two sample clocks exactly as the faithful path does: the INTENDED reference is
-            // sampled at the LIVE clock (currentUT) with its epoch baked + loopShift, while the RENDERED orbit
-            // is sampled at its OWN drive clock (effUT = where the icon-drive propagated it: == currentUT in the
-            // director epoch-bake path, == currentUT - loopShift in the dominant legacy raw-epoch path). For a
-            // faithful draw both land on the SAME phase and read ~0; a wrong loopShift moves only the reference,
-            // so the phase-match remains load-bearing.
+            // Sample the INTENDED reference at the LIVE clock (currentUT) with its epoch baked + loopShift, and
+            // the RENDERED orbit at the icon-drive clock the CALLER passes as effUT (the clock the rendered orbit
+            // actually sits on). In PRODUCTION the synth lens runs only under the director epoch-bake path (it
+            // requires TryGetFreshStockConicSeed, which implies IsDirectorDriveActive: the conic is propagated at
+            // the live clock), so the caller passes effUT == currentUT and both arcs cover the same span - a
+            // faithful draw reads ~0. The in-game synth fixture instead drives a RAW-epoch ghost directly
+            // (bypassing the production epoch-bake gate), so it passes effUT == currentUT - loopShift to land the
+            // rendered raw orbit on the same recorded phase as the +loopShift-baked reference. A wrong loopShift
+            // moves only the reference, so the phase-match stays load-bearing in both cases.
             double[] referenceUTs = Parsek.MapRender.RenderGeometrySampler.BuildSampleUTs(
                 currentUT, halfSpan, ParityOrbitSampleCount);
             double[] renderedUTs = Parsek.MapRender.RenderGeometrySampler.BuildSampleUTs(
